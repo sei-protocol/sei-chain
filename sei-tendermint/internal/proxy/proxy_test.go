@@ -112,6 +112,41 @@ func TestEvmCallDelegatesToASupportingApplication(t *testing.T) {
 	require.Same(t, msg, gotMsg)
 }
 
+func TestEvmCodeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, err := proxyApp.EvmCode(common.Address{1})
+
+	require.Error(t, err)
+}
+
+type testEvmCodeReaderApp struct {
+	testApp
+	code func(common.Address) []byte
+}
+
+func (app testEvmCodeReaderApp) EvmCode(addr common.Address) []byte {
+	return app.code(addr)
+}
+
+func TestEvmCodeDelegatesToASupportingApplication(t *testing.T) {
+	want := []byte{0x60, 0x00, 0xf3}
+	var gotAddr common.Address
+	proxyApp := New(testEvmCodeReaderApp{
+		code: func(addr common.Address) []byte {
+			gotAddr = addr
+			return want
+		},
+	})
+	addr := common.Address{7}
+
+	got, err := proxyApp.EvmCode(addr)
+
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	require.Equal(t, addr, gotAddr)
+}
+
 func TestEvmChainConfigErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
 	proxyApp := New(testApp{})
 
@@ -190,6 +225,29 @@ func TestEvmGasLimitDelegatesToASupportingApplication(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(35_000_000), got)
+}
+
+func TestEvmMinGasPriceErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+	_, err := proxyApp.EvmMinGasPrice()
+	require.Error(t, err)
+}
+
+type testEvmMinGasPriceApp struct {
+	testApp
+	minGasPrice *big.Int
+}
+
+func (app testEvmMinGasPriceApp) EvmMinGasPrice() *big.Int {
+	return app.minGasPrice
+}
+
+func TestEvmMinGasPriceDelegatesToASupportingApplication(t *testing.T) {
+	want := big.NewInt(1_000_000_000)
+	proxyApp := New(testEvmMinGasPriceApp{minGasPrice: want})
+	got, err := proxyApp.EvmMinGasPrice()
+	require.NoError(t, err)
+	require.Equal(t, want, got)
 }
 
 func TestEvmChainIDDelegatesToApplication(t *testing.T) {

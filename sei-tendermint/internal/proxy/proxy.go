@@ -80,6 +80,23 @@ func (app *Proxy) EvmCall(ctx context.Context, msg *core.Message) (*core.Executi
 	return caller.EvmCall(ctx, msg)
 }
 
+// evmCodeReader is implemented by applications that can read contract code
+// from their current EVM state.
+type evmCodeReader interface {
+	EvmCode(common.Address) []byte
+}
+
+// EvmCode returns the contract code at addr in the wrapped application's
+// current EVM state. It errors if that application does not expose EVM code.
+func (app *Proxy) EvmCode(addr common.Address) ([]byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_code", "sync"))()
+	reader, ok := app.app.(evmCodeReader)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose EVM code")
+	}
+	return reader.EvmCode(addr), nil
+}
+
 // evmChainConfigProvider is implemented by applications that expose the EVM
 // chain configuration they execute against.
 type evmChainConfigProvider interface {
@@ -129,6 +146,23 @@ func (app *Proxy) EvmGasLimit() (uint64, error) {
 		return 0, fmt.Errorf("application does not expose an EVM gas limit")
 	}
 	return provider.EvmGasLimit(), nil
+}
+
+// evmMinGasPriceProvider is implemented by applications that expose the
+// minimum effective gas price they admit a transaction at.
+type evmMinGasPriceProvider interface {
+	EvmMinGasPrice() *big.Int
+}
+
+// EvmMinGasPrice returns the wrapped application's minimum admitted
+// effective gas price. It errors if that application does not expose one.
+func (app *Proxy) EvmMinGasPrice() (*big.Int, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_min_gas_price", "sync"))()
+	provider, ok := app.app.(evmMinGasPriceProvider)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose an EVM minimum gas price")
+	}
+	return provider.EvmMinGasPrice(), nil
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {

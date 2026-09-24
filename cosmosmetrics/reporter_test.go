@@ -3,9 +3,11 @@ package cosmosmetrics
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -55,8 +58,57 @@ func (f *fakeStaking) BondDenom(sdk.Context) string {
 	}
 	return testDenom
 }
-func (f *fakeStaking) GetAllValidators(sdk.Context) []stakingtypes.Validator {
-	return append([]stakingtypes.Validator(nil), f.validators...)
+
+// ValidatorsPowerStoreIterator walks the unjailed validators the way the staking power index
+// does: keyed by consensus power then inverted operator address, highest key first, with the
+// operator address as the value.
+func (f *fakeStaking) ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator {
+	var byPower []stakingtypes.Validator
+	for _, v := range f.validators {
+		if !v.Jailed {
+			byPower = append(byPower, v)
+		}
+	}
+	sort.SliceStable(byPower, func(i, j int) bool {
+		return bytes.Compare(stakingtypes.GetValidatorsByPowerIndexKey(byPower[i], sdk.DefaultPowerReduction),
+			stakingtypes.GetValidatorsByPowerIndexKey(byPower[j], sdk.DefaultPowerReduction)) > 0
+	})
+	it := &fakeIterator{}
+	for _, v := range byPower {
+		it.keys = append(it.keys, stakingtypes.GetValidatorsByPowerIndexKey(v, sdk.DefaultPowerReduction))
+		it.values = append(it.values, v.GetOperator())
+	}
+	return it
+}
+
+// ValidatorQueueIterator yields one entry per unbonding completion slot holding the slot's
+// validator addresses, like the staking unbonding validator queue; jailed validators that are
+// not unbonding are, as on chain, absent.
+func (f *fakeStaking) ValidatorQueueIterator(sdk.Context, time.Time, int64) sdk.Iterator {
+	slots := map[string]*stakingtypes.ValAddresses{}
+	var keys []string
+	for _, v := range f.validators {
+		if !v.IsUnbonding() {
+			continue
+		}
+		key := string(stakingtypes.GetValidatorQueueKey(v.UnbondingTime, v.UnbondingHeight))
+		if slots[key] == nil {
+			slots[key] = &stakingtypes.ValAddresses{}
+			keys = append(keys, key)
+		}
+		slots[key].Addresses = append(slots[key].Addresses, v.OperatorAddress)
+	}
+	sort.Strings(keys)
+	it := &fakeIterator{}
+	for _, key := range keys {
+		bz, err := slots[key].Marshal()
+		if err != nil {
+			panic(err)
+		}
+		it.keys = append(it.keys, []byte(key))
+		it.values = append(it.values, bz)
+	}
+	return it
 }
 func (f *fakeStaking) GetValidator(_ sdk.Context, addr sdk.ValAddress) (stakingtypes.Validator, bool) {
 	for _, v := range f.validators {
@@ -92,6 +144,20 @@ func (f *fakeStaking) GetRedelegations(_ sdk.Context, d sdk.AccAddress, limit ui
 	return reds
 }
 
+type fakeIterator struct {
+	keys   [][]byte
+	values [][]byte
+	i      int
+}
+
+func (it *fakeIterator) Domain() ([]byte, []byte) { return nil, nil }
+func (it *fakeIterator) Valid() bool              { return it.i < len(it.values) }
+func (it *fakeIterator) Next()                    { it.i++ }
+func (it *fakeIterator) Key() []byte              { return it.keys[it.i] }
+func (it *fakeIterator) Value() []byte            { return it.values[it.i] }
+func (it *fakeIterator) Error() error             { return nil }
+func (it *fakeIterator) Close() error             { return nil }
+
 type fakeSlashing struct{}
 
 func (fakeSlashing) GetParams(sdk.Context) slashingtypes.Params {
@@ -106,9 +172,6 @@ func (fakeSlashing) GetValidatorSigningInfo(sdk.Context, sdk.ConsAddress) (slash
 type fakeDistribution struct{ rewardsErr error }
 
 func (fakeDistribution) GetParams(sdk.Context) distrtypes.Params { return distrtypes.DefaultParams() }
-func (fakeDistribution) GetFeePoolCommunityCoins(sdk.Context) sdk.DecCoins {
-	return sdk.NewDecCoins(sdk.NewDecCoin(testDenom, sdk.NewInt(5_000_000)), sdk.NewDecCoin("factory/x/y", sdk.NewInt(9)))
-}
 func (f fakeDistribution) DelegationTotalRewards(context.Context, *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
 	if f.rewardsErr != nil {
 		return nil, f.rewardsErr
@@ -247,7 +310,7 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 	}
 	expected := []string{
 		"cosmos_params_max_validators", "cosmos_params_signed_blocks_window", "cosmos_params_community_tax",
-		"cosmos_general_bonded_tokens", "cosmos_general_community_pool", "cosmos_general_supply_total",
+		"cosmos_general_bonded_tokens", "cosmos_general_supply_total",
 		"cosmos_validators_active", "cosmos_validators_rank", "cosmos_validators_missed_blocks",
 		"cosmos_wallet_balance", "cosmos_wallet_delegations",
 	}
@@ -266,8 +329,6 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 		{"cosmos_params_max_validators", nil, 50},
 		{"cosmos_general_bonded_tokens", nil, 700},
 		{"cosmos_general_supply_total", map[string]string{"denom": "usei"}, 10_000},
-		{"cosmos_general_community_pool", map[string]string{"denom": "usei"}, 5},
-		{"cosmos_general_community_pool", map[string]string{"denom": "factory/x/y"}, 9},
 		{"cosmos_validators_rank", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc"}, 1},
 		{"cosmos_validators_rank", map[string]string{"address": bonded.OperatorAddress, "moniker": "valb"}, 2},
 		{"cosmos_validators_tokens", map[string]string{"address": bonded.OperatorAddress, "moniker": "valb", "denom": "usei"}, 4},
@@ -329,6 +390,79 @@ func TestReadLogsTruncatedWalletEntries(t *testing.T) {
 	c.refresh()
 	require.Contains(t, logs.String(), "redelegations truncated", "the truncated read was not logged")
 	require.NotNil(t, c.snapshot.Load(), "a truncated read must still publish a snapshot")
+}
+
+// manyValidators returns n validators with distinct operator addresses and consensus power n..1,
+// so the address order and the power order disagree. Jailed ones are unbonding, each at its own
+// height.
+func manyValidators(t *testing.T, n int, jailed bool) []stakingtypes.Validator {
+	t.Helper()
+	validators := make([]stakingtypes.Validator, 0, n)
+	for i := range n {
+		v := newValidator(t, 1, int64(n-i)*sdk.DefaultPowerReduction.Int64(), stakingtypes.Unbonded)
+		if jailed {
+			v.Jailed = true
+			v.Status = stakingtypes.Unbonding
+			v.UnbondingHeight = int64(i)
+			v.UnbondingTime = time.Unix(int64(i), 0)
+		}
+		v.OperatorAddress = sdk.ValAddress(binary.BigEndian.AppendUint32(bytes.Repeat([]byte{1}, 16), uint32(i))).String()
+		validators = append(validators, v)
+	}
+	return validators
+}
+
+func rankedOperators(t *testing.T, c *Reporter) []string {
+	t.Helper()
+	var ranked []string
+	for _, s := range *c.snapshot.Load() {
+		if s.inst != cosmosMetrics.validatorsRank {
+			continue
+		}
+		attrs := metric.NewObserveConfig([]metric.ObserveOption{s.attrs}).Attributes()
+		addr, ok := attrs.Value("address")
+		require.True(t, ok, "rank sample without an address attribute")
+		ranked = append(ranked, addr.AsString())
+	}
+	return ranked
+}
+
+func TestReadKeepsTheHighestPowerValidatorsWhenTruncated(t *testing.T) {
+	newTestReader(t)
+	validators := manyValidators(t, maxValidators+5, false)
+	staking := &fakeStaking{validators: validators}
+	c, logs := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Contains(t, logs.String(), "validators truncated", "the truncated read was not logged")
+	ranked := rankedOperators(t, c)
+	require.Len(t, ranked, maxValidators, "the snapshot must hold only the capped validators")
+	for i, addr := range ranked {
+		require.Equal(t, validators[i].OperatorAddress, addr, "rank %d is not the validator with the %d-th most tokens", i+1, i+1)
+	}
+}
+
+func TestReadIncludesJailedUnbondingValidators(t *testing.T) {
+	newTestReader(t)
+	jailed := newValidator(t, 2, 5, stakingtypes.Unbonding)
+	jailed.Jailed = true
+	leaving := newValidator(t, 3, 3, stakingtypes.Unbonding)
+	leaving.UnbondingHeight = 7
+	neverBonded := newValidator(t, 4, 9, stakingtypes.Unbonded)
+	neverBonded.Jailed = true
+	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded), jailed, leaving, neverBonded}}
+	c, _ := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Equal(t, []string{jailed.OperatorAddress, leaving.OperatorAddress, staking.validators[0].OperatorAddress}, rankedOperators(t, c),
+		"jailed unbonding validators must be reported once and ranked by tokens; jailed validators that never bonded must not be read")
+}
+
+func TestReadLogsTruncatedJailedValidators(t *testing.T) {
+	newTestReader(t)
+	staking := &fakeStaking{validators: manyValidators(t, maxValidators+5, true)}
+	c, logs := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Contains(t, logs.String(), "jailed validators truncated", "the truncated read was not logged")
+	require.Len(t, rankedOperators(t, c), maxValidators, "the snapshot must hold only the capped validators")
 }
 
 func TestRefreshSurvivesAFailedRead(t *testing.T) {

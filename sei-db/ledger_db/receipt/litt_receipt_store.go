@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -33,6 +34,11 @@ import (
 // littReceiptStore stores receipt bodies in LittDB and supports eth_getLogs
 // via a small pebble tag index (see litt_tag_index.go).
 //
+// Giga opens this store, and only Giga. It requires every write to be contiguous
+// with the head the store opened on — the property Giga establishes by converging
+// its stores onto one height at startup — and refuses a write that skips a block
+// (see requireNoSkippedBlock()).
+//
 // Receipt bytes live in litt's immutable append-only segments — large values
 // never enter LSM compaction, and expired data is reclaimed by dropping whole
 // segments. Each tx hash is a litt secondary key aliasing its receipt's byte
@@ -40,7 +46,8 @@ import (
 // index. A block is written as one or more litt "parts" (block + part index ->
 // the part's receipts concatenated); a block normally has one part, but legacy
 // receipt migration can flush a block across several SetReceipts calls, each
-// appending a new immutable part.
+// appending a new immutable part. A block that produced no receipts writes one
+// empty part, so every block the store accepted has a key of its own.
 //
 // The pebble index holds the tag keys (litt_tag_index.go) plus version
 // metadata (m:latest / m:earliest).
@@ -78,9 +85,12 @@ type littReceiptStore struct {
 	pruneInterval        int64
 	externalPruning      bool
 	logFilterParallelism int
-	stopBackground       chan struct{}
-	backgroundWg         sync.WaitGroup
-	closeOnce            sync.Once
+	// rewardPercentiles is the gas-weighted eth_feeHistory percentile set computed and stored
+	// alongside each block's receipts (see ReceiptStoreConfig.RewardPercentiles).
+	rewardPercentiles []float64
+	stopBackground    chan struct{}
+	backgroundWg      sync.WaitGroup
+	closeOnce         sync.Once
 
 	// Breaks a write into its stages. Only the writer goroutine records, so one timer serves the store.
 	writePhases *seidbmetrics.PhaseTimer
@@ -202,6 +212,10 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	if logFilterParallelism <= 0 {
 		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
 	}
+	rewardPercentiles := cfg.RewardPercentiles
+	if len(rewardPercentiles) == 0 {
+		rewardPercentiles = DefaultRewardPercentiles
+	}
 
 	// Built before its table, because the table's GC filter is a method on it.
 	s := &littReceiptStore{
@@ -211,6 +225,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		pruneInterval:        int64(cfg.PruneIntervalSeconds),
 		externalPruning:      cfg.ExternalPruning,
 		logFilterParallelism: logFilterParallelism,
+		rewardPercentiles:    rewardPercentiles,
 		stopBackground:       make(chan struct{}),
 	}
 
@@ -337,6 +352,28 @@ func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
 	return earliest > 0 && blockNumber < uint64(earliest) //nolint:gosec // earliest is non-negative
 }
 
+// GetBlockStats returns the aggregate stats staged alongside blockNumber's receipts, or
+// ErrBlockStatsNotSupported when none was recorded.
+func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (BlockStats, error) {
+	if s.belowRetentionFloor(blockNumber) {
+		return BlockStats{}, ErrNotFound
+	}
+	val, err := s.index.Get(blockStatsKey(blockNumber))
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return BlockStats{}, ErrBlockStatsNotSupported
+		}
+		return BlockStats{}, err
+	}
+	stats, err := decodeBlockStats(val)
+	if err != nil {
+		// A decode failure here reports ErrBlockStatsNotSupported, not the raw error.
+		logger.Error("failed to decode block stats, falling back", "block", blockNumber, "err", err)
+		return BlockStats{}, ErrBlockStatsNotSupported
+	}
+	return stats, nil
+}
+
 // SetReceipts hands the block's receipts to the writer, blocking only when the queue is full, or
 // applies them inline when AsyncWriteBuffer is off. Once a queued write has failed it takes no
 // further block and returns that failure.
@@ -382,9 +419,18 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord)
 // writeReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
 // litt first, so an indexed block always has its values written.
 func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord) error {
+	if height < 0 {
+		return fmt.Errorf("receipt block height must not be negative: %d", height)
+	}
+
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
-		return s.SetLatestVersion(height)
+		// A block that produced no receipts is still written, as a part with no receipts in it.
+		// The part key is what a walk positions at.
+		blockNumbers = []uint64{uint64(height)} //nolint:gosec // height is non-negative
+	}
+	if err := s.requireNoSkippedBlock(blockNumbers); err != nil {
+		return err
 	}
 
 	// Closes the stage in flight, so the gap until the next write is charged to neither.
@@ -468,7 +514,44 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	}
 
 	s.writePhases.SetPhase("stage_tag_keys")
-	return s.stageTagKeys(batch, blockNumber, records)
+	if err := s.stageTagKeys(batch, blockNumber, records); err != nil {
+		return err
+	}
+
+	s.writePhases.SetPhase("stage_block_stats")
+	if partIndex > 0 {
+		// A block written across multiple parts (legacy migration) has no aggregate any single
+		// call can compute; delete whatever an earlier part wrote instead.
+		return batch.Delete(blockStatsKey(blockNumber))
+	}
+	stats := ComputeBlockStats(records, s.rewardPercentiles)
+	return batch.Set(blockStatsKey(blockNumber), encodeBlockStats(stats))
+}
+
+// requireNoSkippedBlock refuses a write that would leave a block unrecorded between the store's
+// head and this write. A walk positions at a block's part key, so a block that never reached the
+// store makes a walk starting there restart from the oldest receipt. blockNumbers must be sorted
+// ascending.
+//
+// Contiguity is the caller's to maintain, and Giga's startup convergence is what maintains it, so a
+// refusal here reports a broken invariant rather than a store that has fallen behind the chain.
+func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
+	head := s.latestVersion.Load()
+	if head <= 0 {
+		// Nothing is recorded yet, so this write establishes where the store's history begins.
+		return nil
+	}
+	next := uint64(head) + 1 //nolint:gosec // head is positive
+	for _, blockNumber := range blockNumbers {
+		if blockNumber > next {
+			return fmt.Errorf("receipt write for block %d skips block %d; the store's head is %d",
+				blockNumber, next, head)
+		}
+		if blockNumber >= next {
+			next = blockNumber + 1
+		}
+	}
+	return nil
 }
 
 // nextPartIndex returns the number of parts already written for the block,
@@ -653,6 +736,9 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	}
 
 	if err := s.deleteIndexRange(littTagBlockKey(floor), littTagBlockKey(cutoff)); err != nil {
+		return err
+	}
+	if err := s.deleteIndexRange(blockStatsKey(floor), blockStatsKey(cutoff)); err != nil {
 		return err
 	}
 	if err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), dbtypes.WriteOptions{}); err != nil {

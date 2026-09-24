@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -201,7 +202,7 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 	if got.StateCommit != seidbconfig.DefaultStateCommitConfig() {
 		t.Error("the state-commit section is no longer the sei-db default")
 	}
-	if got.ReceiptStore != seidbconfig.DefaultReceiptStoreConfig() {
+	if !reflect.DeepEqual(got.ReceiptStore, seidbconfig.DefaultReceiptStoreConfig()) {
 		t.Error("the receipt-store section is no longer the sei-db default")
 	}
 }
