@@ -21,7 +21,6 @@ var (
 		paramsCommunityTax            metric.Float64ObservableGauge
 		generalBondedTokens           metric.Float64ObservableGauge
 		generalNotBondedTokens        metric.Float64ObservableGauge
-		generalCommunityPool          metric.Float64ObservableGauge
 		generalSupplyTotal            metric.Float64ObservableGauge
 		validatorsCommission          metric.Float64ObservableGauge
 		validatorsStatus              metric.Float64ObservableGauge
@@ -90,10 +89,6 @@ var (
 		generalNotBondedTokens: must(meter.Float64ObservableGauge(
 			"cosmos_general_not_bonded_tokens",
 			metric.WithDescription("Not bonded tokens, in base units"),
-		)),
-		generalCommunityPool: must(meter.Float64ObservableGauge(
-			"cosmos_general_community_pool",
-			metric.WithDescription("Community pool by denom"),
 		)),
 		generalSupplyTotal: must(meter.Float64ObservableGauge(
 			"cosmos_general_supply_total",
@@ -192,7 +187,6 @@ func observables() []metric.Observable {
 		m.paramsCommunityTax,
 		m.generalBondedTokens,
 		m.generalNotBondedTokens,
-		m.generalCommunityPool,
 		m.generalSupplyTotal,
 		m.validatorsCommission,
 		m.validatorsStatus,
