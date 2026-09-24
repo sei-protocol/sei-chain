@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -384,6 +385,19 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)
 	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
+}
+
+func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
+	_, err := wrapApplication(
+		&config.Config{
+			BaseConfig:         config.BaseConfig{FastCheckTx: true},
+			AutobahnConfigFile: "/tmp/autobahn.json",
+		},
+		abci.BaseApplication{},
+		utils.None[*bootstrap.GigaStorageManager](),
+		nil,
+	)
+	require.Error(t, err)
 }
 
 func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {

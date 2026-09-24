@@ -180,7 +180,7 @@ func prepareApplication(
 }
 
 // wrapApplication returns the mock application when mock-app is set, the
-// Autobahn EVM-only application when Autobahn storage is open, the FastCheckTx
+// Autobahn EVM-only application when Autobahn is configured, the FastCheckTx
 // wrapper when that flag is set, or the app that was passed in.
 func wrapApplication(
 	conf *config.Config,
@@ -191,7 +191,11 @@ func wrapApplication(
 	if conf.MockApp {
 		return NewMockApp(app), nil
 	}
-	if manager, ok := storage.Get(); ok {
+	if conf.AutobahnConfigFile != "" {
+		manager, ok := storage.Get()
+		if !ok {
+			return nil, errors.New("autobahn requires giga storage")
+		}
 		validators, err := evmOnlyValidatorUpdates(committee)
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
