@@ -136,6 +136,7 @@ func setupTestDB(t *testing.T) types.KeyValueDB {
 	cfg := pebbledb.DefaultTestConfig(t)
 	db, err := pebbledb.Open(t.Context(), &cfg)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
 }
 

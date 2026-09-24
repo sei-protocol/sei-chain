@@ -1790,6 +1790,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when storageDB is corrupted in both working and snapshot")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================
@@ -1878,6 +1879,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when meta version is corrupted")
 	require.Contains(t, err.Error(), "invalid _meta/version length")
+	require.NoError(t, s2.Close())
 }
 
 // TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
@@ -1936,6 +1938,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, s2.LoadLatest(),
 		"opening must fail loudly rather than silently skipping the corrupted WAL segment")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================
