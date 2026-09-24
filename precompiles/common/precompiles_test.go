@@ -192,12 +192,12 @@ func TestDynamicGasPrecompileGasGate(t *testing.T) {
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 }
 
-// TestDynamicGasPrecompileExecutorOutOfGasPropagates verifies that an executor
-// exhausting its gas mid-execution (after the decode charges) propagates the
-// sdk.ErrorOutOfGas panic — so baseapp's out-of-gas middleware fails the whole
-// tx — rather than having it converted into a reverted sub-call. Only the decode
-// gas charges recover out-of-gas; executor out-of-gas keeps its prior semantics.
-func TestDynamicGasPrecompileExecutorOutOfGasPropagates(t *testing.T) {
+// TestDynamicGasPrecompileExecutorOutOfGas verifies that an executor exhausting
+// its gas mid-execution (after the decode charges) fails the call frame with
+// vm.ErrOutOfGas and zero remaining gas, and emits none of the executor's
+// events, instead of letting the sdk gas-meter panic escape the EVM and fail
+// the whole tx at the Cosmos layer with a zero-gas receipt.
+func TestDynamicGasPrecompileExecutorOutOfGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	abiBz, err := os.ReadFile("erc20_abi.json")
@@ -207,11 +207,20 @@ func TestDynamicGasPrecompileExecutorOutOfGasPropagates(t *testing.T) {
 	input, err := newAbi.Pack("decimals")
 	require.Nil(t, err)
 
-	oog := sdk.ErrorOutOfGas{Descriptor: "executor"}
-	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{panicWith: oog, evmKeeper: k}, ethcommon.Address{}, "test")
-	stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
-	// Ample gas so the decode charges pass and the executor (which OOGs) runs.
-	require.PanicsWithValue(t, oog, func() {
-		_, _, _ = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
-	})
+	for name, gasPanic := range map[string]interface{}{
+		"out of gas":   sdk.ErrorOutOfGas{Descriptor: "executor"},
+		"gas overflow": sdk.ErrorGasOverflow{Descriptor: "executor"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{panicWith: gasPanic, evmKeeper: k}, ethcommon.Address{}, "test")
+			stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
+			// Ample gas so the decode charges pass and the executor (which OOGs) runs.
+			res, remainingGas, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
+			require.Nil(t, res)
+			require.Equal(t, uint64(0), remainingGas)
+			require.Equal(t, vm.ErrOutOfGas, err)
+			require.Equal(t, vm.ErrOutOfGas, stateDB.GetPrecompileError())
+			require.Empty(t, stateDB.Ctx().EventManager().Events())
+		})
+	}
 }

@@ -157,7 +157,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
-		if err != nil {
+		if err != nil && !errors.Is(err, vm.ErrOutOfGas) {
 			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
@@ -187,9 +187,6 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	// Install the gas meter derived from the supplied EVM gas, then charge for
 	// decoding the calldata BEFORE decoding it. A call that cannot afford the
 	// decode is rejected here, before the parse/allocation work is performed.
-	// chargeDecodeGas scopes the out-of-gas recovery to just these charges, so an
-	// executor that later exhausts its gas keeps its normal (propagating)
-	// out-of-gas semantics.
 	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	if err = d.chargeDecodeGas(ctx, method, input); err != nil {
@@ -203,7 +200,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
-	ret, remainingGas, err = d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas, hooks)
+	ret, remainingGas, err = d.execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas, hooks)
 	if err != nil {
 		return ret, remainingGas, err
 	}
@@ -214,13 +211,30 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	return ret, remainingGas, err
 }
 
+// execute runs the executor and reports a gas-meter exhaustion raised inside it
+// as vm.ErrOutOfGas with no remaining gas, so the call frame fails like any
+// other out-of-gas EVM call: the frame's state is reverted and its gas is
+// consumed, while the enclosing transaction completes normally with an
+// accurate receipt. Any panic other than a gas-meter panic is re-raised.
+func (d DynamicGasPrecompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			switch r.(type) {
+			case sdk.ErrorOutOfGas, sdk.ErrorGasOverflow:
+				ret, remainingGas, err = nil, 0, vm.ErrOutOfGas
+			default:
+				panic(r)
+			}
+		}
+	}()
+	return d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas, hooks)
+}
+
 // chargeDecodeGas charges the (already-installed) gas meter for decoding the
 // calldata, before it is decoded: a length-proportional scan cost that also
 // bounds the DecodeGasCost scan, then the string-copy surcharge from
-// DecodeGasCost. Its out-of-gas / overflow recovery is deliberately scoped to
-// just these charges — a call that cannot afford the decode reverts here, while
-// an executor that later exhausts its gas keeps its normal propagating
-// out-of-gas semantics. Anything other than a gas-meter panic is re-raised.
+// DecodeGasCost. A call that cannot afford the decode reverts here. Anything
+// other than a gas-meter panic is re-raised.
 func (d DynamicGasPrecompile) chargeDecodeGas(ctx sdk.Context, method *abi.Method, input []byte) (err error) {
 	defer func() {
 		if r := recover(); r != nil {

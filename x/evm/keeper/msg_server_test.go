@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/precompiles/json"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -242,6 +245,80 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
 	require.True(t, receipt.PreExecutionFailure)
+}
+
+// TestEVMTransactionPrecompileOutOfGas covers a dynamic-gas precompile that
+// exhausts its Cosmos gas meter mid-execution: the tx must complete as a normal
+// failed EVM execution with a receipt carrying the real gas used and effective
+// gas price, and the sender must be charged for exactly that gas, rather than
+// the gas-meter panic escaping and failing the tx at the Cosmos layer.
+func TestEVMTransactionPrecompileOutOfGas(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeperWithPrecompiles()
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+
+	jsonPrecompile, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	// 1000 payload bytes cost 100,000 Cosmos gas to parse, far more than the gas
+	// left after the intrinsic charge, so the precompile runs out of gas.
+	payload := []byte(`{"key":"` + strings.Repeat("a", 1000) + `"}`)
+	data, err := jsonPrecompile.Pack(json.ExtractAsBytesMethod, payload, "key")
+	require.Nil(t, err)
+	jsonAddr := jsonPrecompile.Address()
+	const gasLimit uint64 = 70000
+	const gasPrice int64 = 1000000000000
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(gasPrice),
+		Gas:      gasLimit,
+		To:       &jsonAddr,
+		Value:    big.NewInt(0),
+		Data:     data,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	const funding int64 = 1000000
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(funding)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt))
+
+	msgServer := keeper.NewMsgServerImpl(k)
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	var res *types.MsgEVMTransactionResponse
+	require.NotPanics(t, func() {
+		res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	})
+	require.Nil(t, err)
+	require.Equal(t, vm.ErrOutOfGas.Error(), res.VmError)
+	require.Equal(t, gasLimit, res.GasUsed)
+
+	// usei has 6 decimals against wei's 18, so 1e12 wei per gas is 1 usei per gas.
+	require.Equal(t, uint64(funding)-gasLimit, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), k.GetBaseDenom(ctx)).Amount.Uint64())
+
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
+	require.False(t, receipt.PreExecutionFailure)
+	require.Equal(t, gasLimit, receipt.GasUsed)
+	require.Equal(t, uint64(gasPrice), receipt.EffectiveGasPrice)
+	// The receipt joins the VM error with the error the precompile recorded.
+	require.Equal(t, vm.ErrOutOfGas.Error()+"|"+vm.ErrOutOfGas.Error(), receipt.VmError)
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
