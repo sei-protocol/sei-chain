@@ -143,9 +143,6 @@ func (fakeSlashing) GetValidatorSigningInfo(sdk.Context, sdk.ConsAddress) (slash
 type fakeDistribution struct{ rewardsErr error }
 
 func (fakeDistribution) GetParams(sdk.Context) distrtypes.Params { return distrtypes.DefaultParams() }
-func (fakeDistribution) GetFeePoolCommunityCoins(sdk.Context) sdk.DecCoins {
-	return sdk.NewDecCoins(sdk.NewDecCoin(testDenom, sdk.NewInt(5_000_000)), sdk.NewDecCoin("factory/x/y", sdk.NewInt(9)))
-}
 func (f fakeDistribution) DelegationTotalRewards(context.Context, *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
 	if f.rewardsErr != nil {
 		return nil, f.rewardsErr
@@ -284,7 +281,7 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 	}
 	expected := []string{
 		"cosmos_params_max_validators", "cosmos_params_signed_blocks_window", "cosmos_params_community_tax",
-		"cosmos_general_bonded_tokens", "cosmos_general_community_pool", "cosmos_general_supply_total",
+		"cosmos_general_bonded_tokens", "cosmos_general_supply_total",
 		"cosmos_validators_active", "cosmos_validators_rank", "cosmos_validators_missed_blocks",
 		"cosmos_wallet_balance", "cosmos_wallet_delegations",
 	}
@@ -303,8 +300,6 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 		{"cosmos_params_max_validators", nil, 50},
 		{"cosmos_general_bonded_tokens", nil, 700},
 		{"cosmos_general_supply_total", map[string]string{"denom": "usei"}, 10_000},
-		{"cosmos_general_community_pool", map[string]string{"denom": "usei"}, 5},
-		{"cosmos_general_community_pool", map[string]string{"denom": "factory/x/y"}, 9},
 		{"cosmos_validators_rank", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc"}, 1},
 		{"cosmos_validators_rank", map[string]string{"address": bonded.OperatorAddress, "moniker": "valb"}, 2},
 		{"cosmos_validators_tokens", map[string]string{"address": bonded.OperatorAddress, "moniker": "valb", "denom": "usei"}, 4},

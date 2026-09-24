@@ -57,7 +57,6 @@ type SlashingKeeper interface {
 // DistributionKeeper is the distribution state the reporter reads.
 type DistributionKeeper interface {
 	GetParams(sdk.Context) distrtypes.Params
-	GetFeePoolCommunityCoins(sdk.Context) sdk.DecCoins
 	DelegationTotalRewards(context.Context, *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
 }
 
@@ -229,9 +228,6 @@ func (r *Reporter) readGeneral(ctx sdk.Context, b *builder, bondDenom string) {
 	notBonded := r.keepers.Bank.GetBalance(ctx, r.keepers.Staking.GetNotBondedPool(ctx).GetAddress(), bondDenom)
 	b.int(cosmosMetrics.generalBondedTokens, bonded.Amount, 1)
 	b.int(cosmosMetrics.generalNotBondedTokens, notBonded.Amount, 1)
-	for _, coin := range r.keepers.Distribution.GetFeePoolCommunityCoins(ctx) {
-		b.decScaled(cosmosMetrics.generalCommunityPool, coin.Amount, r.scaleFor(coin.Denom, bondDenom), denomAttr(coin.Denom))
-	}
 	supply := r.keepers.Bank.GetSupply(ctx, bondDenom)
 	b.int(cosmosMetrics.generalSupplyTotal, supply.Amount, r.scale, denomAttr(bondDenom))
 }
