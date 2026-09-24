@@ -702,10 +702,11 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version, changesetPairs(changeset), db.descending, db.dbName, db.operationMetrics)
+	b, err := NewBatch(db.storage, version, changesetBatchSize(changeset, version), db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return err
 	}
+	defer func() { _err = errors.Join(_err, b.Close()) }()
 
 	for _, cs := range changeset {
 		for _, kvPair := range cs.Changeset.Pairs {
@@ -1299,10 +1300,12 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version, ImportCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+		batch, err := NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
 		if err != nil {
 			panic(err)
 		}
+		// Releases a trailing batch left empty; a no-op once Write has run.
+		defer func() { _ = batch.Close() }()
 
 		var counter int
 		for entry := range ch {
@@ -1320,7 +1323,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version, ImportCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					panic(err)
 				}
@@ -1403,39 +1406,46 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	return false, nil
 }
 
-func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
-
-	batch, err := NewBatch(db.storage, version, DeleteCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+// DeleteKeysAtVersion physically deletes every key of module written at version.
+func (db *Database) DeleteKeysAtVersion(module string, version int64) (_err error) {
+	batch, err := NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
+	defer func() { _err = errors.Join(_err, batch.Close()) }()
 
 	deleteCounter := 0
-
+	var deleteErr error
 	_, err = db.RawIterate(module, func(key, value []byte, ver int64) bool {
-		if ver == version {
-			if err := batch.HardDelete(module, key); err != nil {
-				fmt.Printf("Error physically deleting key %q in module %q: %v\n", key, module, err)
-				return true // stop iteration on error
-			}
-			deleteCounter++
-			if deleteCounter >= DeleteCommitBatchSize {
-				if err := batch.Write(); err != nil {
-					fmt.Printf("Error writing deletion batch for module %q: %v\n", module, err)
-					return true
-				}
-				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version, DeleteCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
-				if err != nil {
-					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
-					return true
-				}
-			}
+		if ver != version {
+			return false
 		}
+		if deleteErr = batch.HardDelete(module, key); deleteErr != nil {
+			deleteErr = fmt.Errorf("failed to physically delete key %q in module %q: %w", key, module, deleteErr)
+			return true
+		}
+		deleteCounter++
+		if deleteCounter < DeleteCommitBatchSize {
+			return false
+		}
+		if deleteErr = batch.Write(); deleteErr != nil {
+			deleteErr = fmt.Errorf("failed to write deletion batch for module %q: %w", module, deleteErr)
+			return true
+		}
+		deleteCounter = 0
+		next, err := NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
+		if err != nil {
+			deleteErr = fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
+			return true
+		}
+		batch = next
 		return false
 	})
 	if err != nil {
 		return fmt.Errorf("error iterating module %q for deletion: %w", module, err)
+	}
+	if deleteErr != nil {
+		return deleteErr
 	}
 
 	// Commit any remaining deletions.

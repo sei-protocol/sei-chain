@@ -9,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,31 +105,108 @@ func TestEncodeMVCC(t *testing.T) {
 	}
 }
 
-// TestSortBatchOps checks the ordering writeBatchOps relies on: ops are sorted
-// on their decomposed fields, which has to agree with comparing the encoded
-// keys Pebble will see, in both version directions.
-func TestSortBatchOps(t *testing.T) {
-	for _, descending := range []bool{true, false} {
-		t.Run(fmt.Sprintf("descending=%v", descending), func(t *testing.T) {
-			ops := []batchOp{
-				{storeKey: "b", key: []byte("z"), version: 1},
-				{storeKey: "a", key: []byte("m"), version: 3},
-				{storeKey: "a", key: []byte("m"), version: 1},
-				{storeKey: "a", key: []byte("a"), version: 2},
-			}
-			sortBatchOps(ops, descending)
+// TestChangesetBatchSize checks that a batch sized by changesetBatchSize takes
+// every pair of its changesets without growing its buffer, and that an unsized
+// one does grow, so the check is not vacuous.
+func TestChangesetBatchSize(t *testing.T) {
+	const version = 9
+	var pairs []*proto.KVPair
+	for i, p := range evmKVs(1_000, 3) {
+		value := p.value
+		if i%4 == 0 {
+			value = nil // a delete, written as a tombstone
+		}
+		pairs = append(pairs, &proto.KVPair{Key: p.key, Value: value})
+	}
+	changesets := []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: pairs[:100]}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs[100:]}},
+	}
 
-			for i := 1; i < len(ops); i++ {
-				prev := MVCCEncode(prependStoreKey(ops[i-1].storeKey, ops[i-1].key), ops[i-1].version, descending)
-				curr := MVCCEncode(prependStoreKey(ops[i].storeKey, ops[i].key), ops[i].version, descending)
-				require.Negative(t, MVCCComparer.Compare(prev, curr), "ops[%d] must sort before ops[%d]", i-1, i)
+	fillAllocs := func(t *testing.T, bufSize int) float64 {
+		t.Helper()
+		db := newMemDB(t)
+		const runs = 5
+		batches := make([]*Batch, runs+1) // AllocsPerRun makes one warm-up call
+		for i := range batches {
+			b, err := NewBatch(db, version, bufSize, false, "test")
+			require.NoError(t, err)
+			batches[i] = b
+			t.Cleanup(func() { require.NoError(t, b.Close()) })
+		}
+		next := 0
+		return testing.AllocsPerRun(runs, func() {
+			b := batches[next]
+			next++
+			for _, cs := range changesets {
+				for _, pair := range cs.Changeset.Pairs {
+					if pair.Value == nil {
+						require.NoError(t, b.Delete(cs.Name, pair.Key))
+					} else {
+						require.NoError(t, b.Set(cs.Name, pair.Key, pair.Value))
+					}
+				}
 			}
-
-			sorted := slices.Clone(ops)
-			sortBatchOps(ops, descending)
-			require.Equal(t, sorted, ops, "sorting an already sorted batch must not reorder it")
+			var versionBz [VersionSize]byte
+			require.NoError(t, b.pb.Set([]byte(latestVersionKey), versionBz[:], nil))
 		})
 	}
+
+	require.Zero(t, fillAllocs(t, changesetBatchSize(changesets, version)))
+	require.Positive(t, fillAllocs(t, 0))
+}
+
+// TestBatchSingleUse checks that a written or closed Batch refuses further use
+// rather than touching the released pebble.Batch.
+func TestBatchSingleUse(t *testing.T) {
+	assertReleased := func(t *testing.T, b *Batch) {
+		t.Helper()
+		require.Zero(t, b.Size())
+		require.ErrorIs(t, b.Set("evm", []byte("k"), []byte("v")), errBatchClosed)
+		require.ErrorIs(t, b.Delete("evm", []byte("k")), errBatchClosed)
+		require.ErrorIs(t, b.HardDelete("evm", []byte("k")), errBatchClosed)
+		require.ErrorIs(t, b.Write(), errBatchClosed)
+		require.NoError(t, b.Close(), "Close must be idempotent")
+	}
+
+	t.Run("after Write", func(t *testing.T) {
+		db := newMemDB(t)
+		b, err := NewBatch(db, 1, 0, false, "test")
+		require.NoError(t, err)
+		require.NoError(t, b.Set("evm", []byte("k"), []byte("v")))
+		require.NoError(t, b.Write())
+		assertReleased(t, b)
+	})
+
+	t.Run("after Close", func(t *testing.T) {
+		db := newMemDB(t)
+		b, err := NewBatch(db, 1, 0, false, "test")
+		require.NoError(t, err)
+		require.NoError(t, b.Set("evm", []byte("k"), []byte("v")))
+		require.NoError(t, b.Close())
+		assertReleased(t, b)
+
+		_, _, err = db.Get(MVCCEncode(prependStoreKey("evm", []byte("k")), 1, false))
+		require.ErrorIs(t, err, pebble.ErrNotFound, "Close must not commit")
+	})
+}
+
+// TestApplyChangesetSyncLeavesInputUnchanged checks that applying a changeset
+// does not reorder or replace its pairs, which the caller shares with the
+// commit store while the state store applies them in the background.
+func TestApplyChangesetSyncLeavesInputUnchanged(t *testing.T) {
+	db := newTestDB(t, false)
+	pairs := []*proto.KVPair{
+		{Key: []byte("z"), Value: []byte("1")},
+		{Key: []byte("a"), Value: []byte("2")},
+		{Key: []byte("m")},
+	}
+	before := slices.Clone(pairs)
+
+	require.NoError(t, db.ApplyChangesetSync(1, []*proto.NamedChangeSet{
+		{Name: "store", Changeset: proto.ChangeSet{Pairs: pairs}},
+	}))
+	require.Equal(t, before, pairs)
 }
 
 // TestBatchWriteRoundTrip is the end-to-end check on the deferred write path:
@@ -141,7 +219,7 @@ func TestBatchWriteRoundTrip(t *testing.T) {
 	// Set has to have taken its own copy.
 	key, value := []byte("live"), []byte("v1")
 
-	b, err := NewBatch(db, 7, 3, true, "test")
+	b, err := NewBatch(db, 7, 0, true, "test")
 	require.NoError(t, err)
 	require.NoError(t, b.Set("evm", key, value))
 	require.NoError(t, b.Delete("evm", []byte("gone")))
@@ -176,31 +254,13 @@ func TestBatchWriteRoundTrip(t *testing.T) {
 	require.Equal(t, version[:], get([]byte(latestVersionKey)))
 }
 
-// batchSink keeps the constructed batch alive so escape analysis cannot
-// optimise the constructor away.
-var batchSink *Batch
-
-// TestBatchAllocs pins per-call what BenchmarkBatchWrite reports in aggregate,
-// so this catches performance regressions.
+// TestBatchAllocs pins per-call what BenchmarkBatchWrite reports in aggregate:
+// Set encodes straight into the underlying pebble.Batch and allocates nothing
+// of its own.
 func TestBatchAllocs(t *testing.T) {
-	t.Run("NewBatch", func(t *testing.T) {
-		allocs := testing.AllocsPerRun(1000, func() {
-			b, err := NewBatch(nil, 1, 0, true, "test")
-			require.NoError(t, err)
-			batchSink = b
-		})
-		require.LessOrEqual(t, allocs, 1.0, "an unsized batch is the Batch struct and nothing else")
-
-		allocs = testing.AllocsPerRun(1000, func() {
-			b, err := NewBatch(nil, 1, 64, true, "test")
-			require.NoError(t, err)
-			batchSink = b
-		})
-		require.LessOrEqual(t, allocs, 2.0, "a sized batch adds the ops reservation and nothing else")
-	})
-
 	t.Run("Set", func(t *testing.T) {
-		b, err := NewBatch(nil, 1, 8, true, "test")
+		db := newMemDB(t)
+		b, err := NewBatch(db, 1, 0, true, "test")
 		require.NoError(t, err)
 
 		key, val := []byte("key"), []byte("value")
@@ -208,27 +268,14 @@ func TestBatchAllocs(t *testing.T) {
 			b.Reset()
 			require.NoError(t, b.Set("store", key, val))
 		})
-		require.LessOrEqual(t, allocs, 2.0, "want the cloned key and value and nothing else")
-	})
-
-	t.Run("sizedBatchNeverRegrows", func(t *testing.T) {
-		const size = 1000
-		b, err := NewBatch(nil, 1, size, true, "test")
-		require.NoError(t, err)
-		reserved := cap(b.ops)
-		require.GreaterOrEqual(t, reserved, size)
-
-		for i := 0; i < size; i++ {
-			require.NoError(t, b.Set("store", []byte("key"), []byte("value")))
-		}
-		require.Equal(t, reserved, cap(b.ops), "a batch sized for %d must absorb %d appends without reallocating", size, size)
+		require.LessOrEqual(t, allocs, 0.0, "Set must encode into the pebble batch's own buffer with no allocation of its own")
 	})
 }
 
 // BenchmarkBatchWrite measures the whole queue-then-write path over one batch of
-// kvCount EVM-shaped pairs. allocs/op and B/op are the numbers that matter: the
-// deferred encoder keeps only the caller's key and value per pair, where
-// composing the encoded key and value on the heap first did not.
+// kvCount EVM-shaped pairs. allocs/op and B/op are the numbers that matter: Set
+// encodes straight into the pebble.Batch, so the only allocations left are
+// Pebble's own (buffer growth, memtable arena), not this package's.
 func BenchmarkBatchWrite(b *testing.B) {
 	pairs := evmKVs(kvCount, 1)
 	db := newMemDB(b)
@@ -236,7 +283,7 @@ func BenchmarkBatchWrite(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		batch, err := NewBatch(db, 1, len(pairs), true, "bench")
+		batch, err := NewBatch(db, 1, 0, true, "bench")
 		if err != nil {
 			b.Fatal(err)
 		}
