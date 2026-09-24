@@ -352,20 +352,41 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 // EvmCall executes msg as a read-only call against the most recently
 // committed EVM state and returns the execution result.
 func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	executor, blockCtx, err := a.callContext()
+	if err != nil {
+		return nil, err
+	}
+	return executor.Call(ctx, blockCtx, msg)
+}
+
+// EvmEstimateGas returns the lowest gas limit at which msg executes against
+// the most recently committed EVM state, never above gasCap, and the revert
+// data when it reverts regardless of gas.
+func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	executor, blockCtx, err := a.callContext()
+	if err != nil {
+		return 0, nil, err
+	}
+	return executor.EstimateGas(ctx, blockCtx, msg, gasCap)
+}
+
+// callContext returns the executor and the block context read-only calls run
+// in: the most recently committed block's.
+func (a *evmOnlyApplication) callContext() (*evmonly.Executor, evmonly.BlockContext, error) {
 	var executor *evmonly.Executor
 	var blockCtx evmonly.BlockContext
 	for state := range a.state.Lock() {
 		got, ok := state.executor.Get()
 		if !ok {
-			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
+			return nil, blockCtx, fmt.Errorf("EVM-only call attempted before InitChain")
 		}
 		if state.pending.IsPresent() {
 			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
-			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+			return nil, blockCtx, fmt.Errorf("EVM-only call attempted before committing the finalized block")
 		}
 		number, ok := utils.SafeCast[uint64](state.committedHeight)
 		if !ok {
-			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+			return nil, blockCtx, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
 		}
 		executor = got
 		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
@@ -381,7 +402,7 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
 		}
 	}
-	return executor.Call(ctx, blockCtx, msg)
+	return executor, blockCtx, nil
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {

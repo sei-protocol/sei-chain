@@ -8,7 +8,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 )
@@ -44,7 +43,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 		return nil, err
 	}
 	if len(result.Revert()) > 0 {
-		return nil, newRevertError(result)
+		return nil, newRevertError(result.Revert())
 	}
 	if result.Err != nil {
 		return nil, result.Err
@@ -55,13 +54,13 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 // newRevertError builds the JSON-RPC error eth_call returns for a reverted
 // call, matching evmrpc's SimulationAPI.Call error shape: code 3 with the raw
 // revert data, and the ABI-decoded reason in the message when possible.
-func newRevertError(result *core.ExecutionResult) *revertError {
-	reason, errUnpack := abi.UnpackRevert(result.Revert())
+func newRevertError(revert []byte) *revertError {
+	reason, errUnpack := abi.UnpackRevert(revert)
 	err := errors.New("execution reverted")
 	if errUnpack == nil {
 		err = fmt.Errorf("execution reverted: %v", reason)
 	}
-	return &revertError{error: err, reason: hexutil.Encode(result.Revert())}
+	return &revertError{error: err, reason: hexutil.Encode(revert)}
 }
 
 // revertError is a JSON-RPC error carrying an EVM revert reason.

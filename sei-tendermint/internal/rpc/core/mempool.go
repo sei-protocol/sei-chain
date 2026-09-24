@@ -359,6 +359,13 @@ func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*eth
 	return env.App.EvmCall(ctx, msg)
 }
 
+// EvmEstimateGas returns the lowest gas limit at which msg executes against
+// the current committed EVM state, never above gasCap, and the revert data
+// when it reverts regardless of gas.
+func (env *Environment) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	return env.App.EvmEstimateGas(ctx, msg, gasCap)
+}
+
 // EvmBaseFee returns the base fee the wrapped application executes every
 // block at.
 func (env *Environment) EvmBaseFee() (*big.Int, error) {

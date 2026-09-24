@@ -28,6 +28,7 @@ type testBackend struct {
 	chainConfig      func() (*params.ChainConfig, error)
 	chainID          func() uint64
 	code             func(common.Address) ([]byte, error)
+	estimateGas      func(context.Context, *core.Message, uint64) (uint64, []byte, error)
 	gasLimit         func() (uint64, error)
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
@@ -73,6 +74,10 @@ func (b *testBackend) EvmChainID() uint64 {
 
 func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {
 	return b.code(address)
+}
+
+func (b *testBackend) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return b.estimateGas(ctx, msg, gasCap)
 }
 
 func (b *testBackend) EvmGasLimit() (uint64, error) {

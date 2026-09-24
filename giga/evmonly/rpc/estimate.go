@@ -3,27 +3,21 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
-	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 )
-
-// estimateGasErrorRatio is the relative gap between the highest failing and
-// lowest passing gas limit at which the search stops, matching go-ethereum's
-// gasestimator. A 1.5% tolerance trades a few EVM executions for a result
-// that is at most that much above the true minimum.
-const estimateGasErrorRatio = 0.015
 
 // EstimateGas returns a gas limit that lets args execute without running out
 // of gas against the current committed state. Like eth_call it creates no
 // transaction and persists no state change; a call that reverts even at the
 // highest allowed gas returns the revert error rather than an estimate.
+//
+// TODO: Support geth block overrides for number, difficulty, time, gasLimit,
+// feeRecipient, prevRandao, baseFeePerGas, and blobBaseFee.
 func (api *callAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, block *ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
 	selector := ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber)
 	if block != nil {
@@ -38,7 +32,7 @@ func (api *callAPI) EstimateGas(ctx context.Context, args export.TransactionArgs
 	}
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	// A zero gas keeps CallDefaults from filling in the cap, so an omitted gas
-	// falls through to the block gas limit in estimateUpperBound.
+	// falls through to the block gas limit in the estimator.
 	if args.Gas == nil {
 		args.Gas = new(hexutil.Uint64)
 	}
@@ -47,154 +41,12 @@ func (api *callAPI) EstimateGas(ctx context.Context, args export.TransactionArgs
 	}
 	msg := args.ToMessage(baseFee, true, true)
 
-	hi, err := api.estimateUpperBound(msg)
+	estimate, revert, err := api.backend.EvmEstimateGas(ctx, msg, defaultCallGasCap)
 	if err != nil {
-		return 0, err
-	}
-	estimate, err := api.searchGasLimit(ctx, msg, hi)
-	if err != nil {
+		if errors.Is(err, vm.ErrExecutionReverted) {
+			return 0, newRevertError(revert)
+		}
 		return 0, err
 	}
 	return hexutil.Uint64(estimate), nil
-}
-
-// estimateUpperBound returns the highest gas limit the search may try: the
-// message's gas limit, or the block gas limit when that is omitted or below
-// params.TxGas, lowered to what the sender's balance can pay for when the
-// message carries a non-zero fee cap, and never above defaultCallGasCap.
-func (api *callAPI) estimateUpperBound(msg *core.Message) (uint64, error) {
-	hi := msg.GasLimit
-	if hi < params.TxGas {
-		blockGasLimit, err := api.backend.EvmGasLimit()
-		if err != nil {
-			return 0, err
-		}
-		hi = blockGasLimit
-	}
-	feeCap := msg.GasFeeCap
-	if feeCap == nil || feeCap.Sign() == 0 {
-		feeCap = msg.GasPrice
-	}
-	if feeCap != nil && feeCap.Sign() > 0 {
-		balance := api.backend.EvmBalance(msg.From)
-		available := balance.ToBig()
-		if msg.Value != nil {
-			if msg.Value.Cmp(available) >= 0 {
-				return 0, core.ErrInsufficientFundsForTransfer
-			}
-			available.Sub(available, msg.Value)
-		}
-		allowance := new(big.Int).Div(available, feeCap)
-		if allowance.IsUint64() && allowance.Uint64() < hi {
-			hi = allowance.Uint64()
-		}
-	}
-	if hi > defaultCallGasCap {
-		hi = defaultCallGasCap
-	}
-	return hi, nil
-}
-
-// searchGasLimit finds the lowest gas limit in (params.TxGas-1, hi] at which
-// msg succeeds, to within estimateGasErrorRatio.
-func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi uint64) (uint64, error) {
-	// A plain transfer costs exactly params.TxGas, so one execution settles it.
-	if plain, err := api.isPlainTransfer(msg); err != nil {
-		return 0, err
-	} else if plain && hi >= params.TxGas {
-		failed, _, err := api.executeWithGas(ctx, msg, params.TxGas)
-		if err != nil {
-			return 0, err
-		}
-		if !failed {
-			return params.TxGas, nil
-		}
-	}
-	lo := params.TxGas - 1
-	// Executing at hi first lets a message that cannot succeed at any limit
-	// fail fast with its revert reason.
-	failed, result, err := api.executeWithGas(ctx, msg, hi)
-	if err != nil {
-		return 0, err
-	}
-	if failed {
-		if len(result.Revert()) > 0 {
-			return 0, newRevertError(result)
-		}
-		if errors.Is(result.Err, vm.ErrOutOfGas) || errors.Is(result.Err, core.ErrIntrinsicGas) || errors.Is(result.Err, core.ErrFloorDataGas) {
-			return 0, fmt.Errorf("gas required exceeds allowance (%d)", hi)
-		}
-		return 0, result.Err
-	}
-	// No limit below what the successful run consumed can succeed.
-	if result.UsedGas > lo+1 {
-		lo = result.UsedGas - 1
-	}
-	// The gas needed to run the top-level frame is at least what was used plus
-	// what was refunded; the 63/64 rule and the stipend cover the call overhead.
-	optimistic := (result.UsedGas + result.RefundedGas + params.CallStipend) * 64 / 63
-	if optimistic < hi {
-		failed, _, err := api.executeWithGas(ctx, msg, optimistic)
-		if err != nil {
-			return 0, err
-		}
-		if failed {
-			lo = optimistic
-		} else {
-			hi = optimistic
-		}
-	}
-	for lo+1 < hi {
-		if float64(hi-lo)/float64(hi) < estimateGasErrorRatio {
-			break
-		}
-		mid := (hi + lo) / 2
-		if mid > lo*2 {
-			// Most transactions need far less than the block gas limit; growing
-			// lo geometrically converges faster than bisecting from the top.
-			mid = lo * 2
-		}
-		failed, _, err := api.executeWithGas(ctx, msg, mid)
-		if err != nil {
-			return 0, err
-		}
-		if failed {
-			lo = mid
-		} else {
-			hi = mid
-		}
-	}
-	return hi, nil
-}
-
-// isPlainTransfer reports whether msg carries no calldata to an account
-// without code, so that it costs exactly params.TxGas.
-func (api *callAPI) isPlainTransfer(msg *core.Message) (bool, error) {
-	if len(msg.Data) > 0 || msg.To == nil {
-		return false, nil
-	}
-	code, err := api.backend.EvmCode(*msg.To)
-	if err != nil {
-		return false, err
-	}
-	return len(code) == 0, nil
-}
-
-// executeWithGas runs msg with gas as its limit and reports whether the
-// execution failed for a reason a higher gas limit could fix. An error from
-// the backend itself, rather than from the EVM, is returned as err.
-func (api *callAPI) executeWithGas(ctx context.Context, msg *core.Message, gas uint64) (failed bool, result *core.ExecutionResult, err error) {
-	attempt := *msg
-	attempt.GasLimit = gas
-	result, err = api.backend.EvmCall(ctx, &attempt)
-	if err != nil {
-		if errors.Is(err, core.ErrIntrinsicGas) || errors.Is(err, core.ErrFloorDataGas) {
-			return true, &core.ExecutionResult{Err: err}, nil
-		}
-		return false, nil, err
-	}
-	if result == nil {
-		return false, nil, errors.New("EVM-only call returned no result")
-	}
-	return result.Failed(), result, nil
 }

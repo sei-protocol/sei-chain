@@ -80,6 +80,25 @@ func (app *Proxy) EvmCall(ctx context.Context, msg *core.Message) (*core.Executi
 	return caller.EvmCall(ctx, msg)
 }
 
+// evmGasEstimator is implemented by applications that can estimate the gas a
+// message needs against their current state.
+type evmGasEstimator interface {
+	EvmEstimateGas(context.Context, *core.Message, uint64) (uint64, []byte, error)
+}
+
+// EvmEstimateGas returns the lowest gas limit at which msg executes against
+// the wrapped application's current EVM state, never above gasCap, and the
+// revert data when it reverts regardless of gas. It errors if that application
+// does not support gas estimation.
+func (app *Proxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas", "sync"))()
+	estimator, ok := app.app.(evmGasEstimator)
+	if !ok {
+		return 0, nil, fmt.Errorf("application does not support EVM gas estimation")
+	}
+	return estimator.EvmEstimateGas(ctx, msg, gasCap)
+}
+
 // evmCodeReader is implemented by applications that can read contract code
 // from their current EVM state.
 type evmCodeReader interface {
