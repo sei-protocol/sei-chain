@@ -21,6 +21,8 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/seilog"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -32,6 +34,8 @@ import (
 )
 
 var _ types.ContextIteratorStore = (*Database)(nil)
+
+var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "mvcc")
 
 const (
 	VersionSize = 8
@@ -953,7 +957,22 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = itr.Close() }()
+	// itr pins Pebble's readState for as long as it's open, which blocks Pebble
+	// from deleting any sstable that readState might still need to serve reads
+	// from — including ones a concurrent or subsequent compaction (see
+	// compactPrunedRange below) has already superseded. itrOpen guards against
+	// closing it twice: the scan closes it explicitly as soon as it's done
+	// reading, right before compaction, and this defer only still applies if an
+	// error returned from inside the loop below.
+	itrOpen := true
+	closeItr := func() error {
+		if !itrOpen {
+			return nil
+		}
+		itrOpen = false
+		return itr.Close()
+	}
+	defer func() { _ = closeItr() }()
 
 	batch := db.storage.NewBatch()
 	defer func() { _ = batch.Close() }()
@@ -1055,6 +1074,15 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		itr.Next()
 	}
 
+	// Close the scan iterator now rather than leaving it to the deferred close
+	// at function return: compactPrunedRange below runs a compaction that can
+	// take a long time on a large deleted span, and every obsolete sstable it
+	// produces stays undeletable for as long as this iterator's readState is
+	// still pinning them.
+	if err := closeItr(); err != nil {
+		return err
+	}
+
 	// Commit any leftover delete ops in batch
 	if counter > 0 {
 		writeCount := int64(batch.Count())
@@ -1066,7 +1094,10 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
+	compactStart := time.Now()
+	err = db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
+	logger.Info("pruneDescending: compacted pruned range", "version", version, "elapsed", time.Since(compactStart), "err", err)
+	return err
 }
 
 func (db *Database) iteratorDescending(
