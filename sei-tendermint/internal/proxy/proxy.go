@@ -148,6 +148,23 @@ func (app *Proxy) EvmGasLimit() (uint64, error) {
 	return provider.EvmGasLimit(), nil
 }
 
+// evmMinGasPriceProvider is implemented by applications that expose the
+// minimum effective gas price they admit a transaction at.
+type evmMinGasPriceProvider interface {
+	EvmMinGasPrice() *big.Int
+}
+
+// EvmMinGasPrice returns the wrapped application's minimum admitted
+// effective gas price. It errors if that application does not expose one.
+func (app *Proxy) EvmMinGasPrice() (*big.Int, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_min_gas_price", "sync"))()
+	provider, ok := app.app.(evmMinGasPriceProvider)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose an EVM minimum gas price")
+	}
+	return provider.EvmMinGasPrice(), nil
+}
+
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
 	return app.app.Commit(ctx)

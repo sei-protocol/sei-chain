@@ -316,6 +316,12 @@ func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint25
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 
+// EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
+// at. Admission and eth_gasPrice's suggestion both price against it, so they cannot diverge.
+func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
+	return big.NewInt(evmOnlyMinGasPrice)
+}
+
 // EvmCode returns the contract code at address in the most recently committed
 // EVM state, or nil when the account holds none.
 func (a *evmOnlyApplication) EvmCode(address common.Address) []byte {

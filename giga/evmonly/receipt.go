@@ -3,6 +3,7 @@ package evmonly
 import (
 	"context"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -55,7 +56,13 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 		if txResult.Err != nil {
 			stored.VmError = txResult.Err.Error()
 		}
-		records[i] = receipt.ReceiptRecord{TxHash: ethReceipt.TxHash, Receipt: stored}
+		// Reward is the tx's priority fee unfiltered: giga's base fee is always zero
+		// (evmOnlyBaseFee), and its admission floor already guarantees a positive effective price.
+		var reward *big.Int
+		if ethReceipt.EffectiveGasPrice != nil {
+			reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
+		}
+		records[i] = receipt.ReceiptRecord{TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward}
 	}
 	return records, nil
 }

@@ -194,11 +194,17 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 
 func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	t.Helper()
+	return testSignedTransactionWithNonce(t, 0)
+}
+
+// testSignedTransactionWithNonce varies the nonce so callers can get several distinct hashes.
+func testSignedTransactionWithNonce(t *testing.T, nonce uint64) (*ethtypes.Transaction, []byte) {
+	t.Helper()
 	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    0,
+		Nonce:    nonce,
 		GasPrice: big.NewInt(1_000_000_000),
 		Gas:      21_000,
 		To:       &to,
