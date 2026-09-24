@@ -249,10 +249,3 @@ type SnapshotNode struct {
 	Key      []byte
 	Value    []byte
 }
-
-type RawSnapshotNode struct {
-	StoreKey string
-	Key      []byte
-	Value    []byte
-	Version  int64
-}
