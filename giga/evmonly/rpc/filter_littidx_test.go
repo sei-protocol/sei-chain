@@ -90,4 +90,14 @@ func TestGetLogsLittIdxLogIndexMatchesReceipt(t *testing.T) {
 	require.Len(t, logs, 2)
 	require.Equal(t, uint(1), logs[0].Index)
 	require.Equal(t, uint(3), logs[1].Index)
+
+	// Every log has exactly one topic, so a two-position filter matches none
+	// even though its second position is a wildcard.
+	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{
+		FromBlock: big.NewInt(height),
+		ToBlock:   big.NewInt(height),
+		Topics:    [][]common.Hash{{filterTopicY}, nil},
+	})
+	require.NoError(t, err)
+	require.Empty(t, logs)
 }

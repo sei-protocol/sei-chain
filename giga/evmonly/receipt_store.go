@@ -251,7 +251,7 @@ func (s *MemoryReceiptStore) FilterLogs(
 			return nil, err
 		}
 		for _, lg := range receipt.LogsForTx(stored, firstLogIndex) {
-			if !receipt.MatchLog(lg, crit) {
+			if !receipt.MatchLogForQuery(ctx.Context(), lg, crit) {
 				continue
 			}
 			if err := budget.Reserve(lg); err != nil {

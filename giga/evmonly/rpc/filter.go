@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -71,7 +70,7 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 	}
 
 	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
-	logs, err := api.store.FilterLogs(receiptContext(ctx), fromBlock, toBlock, crit, budget)
+	logs, err := api.store.FilterLogs(receiptContext(receiptpkg.WithStrictTopicCount(ctx)), fromBlock, toBlock, crit, budget)
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
@@ -80,7 +79,6 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 	if floor := api.store.EarliestVersion(); floor > 0 && fromBlock < uint64(floor) { //nolint:gosec // floor is positive
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, floor)
 	}
-	logs = dropLogsWithFewerTopics(logs, len(crit.Topics))
 	if err := api.normalizeLogs(ctx, logs); err != nil {
 		return nil, err
 	}
@@ -88,13 +86,6 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 		logs = []*ethtypes.Log{}
 	}
 	return logs, nil
-}
-
-// dropLogsWithFewerTopics applies go-ethereum's rule that a filter with more
-// topic positions than a log has topics never matches it, which the receipt
-// store's predicate leaves to the caller.
-func dropLogsWithFewerTopics(logs []*ethtypes.Log, topicPositions int) []*ethtypes.Log {
-	return slices.DeleteFunc(logs, func(lg *ethtypes.Log) bool { return len(lg.Topics) < topicPositions })
 }
 
 // resolveLogRange turns crit into an inclusive [fromBlock, toBlock] height

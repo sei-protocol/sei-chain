@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -36,6 +37,21 @@ func TestMatchLog(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tt.want, MatchLog(lg, tt.crit))
+			require.Equal(t, tt.want, MatchLogForQuery(context.Background(), lg, tt.crit))
 		})
 	}
+}
+
+func TestMatchLogForQueryStrictTopicCount(t *testing.T) {
+	t.Parallel()
+	topicX := common.HexToHash("0x1")
+	lg := &ethtypes.Log{Topics: []common.Hash{topicX}}
+	strict := WithStrictTopicCount(context.Background())
+	require.True(t, StrictTopicCount(strict))
+	require.False(t, StrictTopicCount(context.Background()))
+
+	require.True(t, MatchLogForQuery(strict, lg, filters.FilterCriteria{Topics: [][]common.Hash{{topicX}}}))
+	require.True(t, MatchLogForQuery(strict, lg, filters.FilterCriteria{Topics: [][]common.Hash{nil}}))
+	require.False(t, MatchLogForQuery(strict, lg, filters.FilterCriteria{Topics: [][]common.Hash{{topicX}, nil}}))
+	require.False(t, MatchLogForQuery(strict, lg, filters.FilterCriteria{Topics: [][]common.Hash{nil, nil}}))
 }

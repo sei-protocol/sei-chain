@@ -317,6 +317,16 @@ func TestGetLogsEnforcesLogBudget(t *testing.T) {
 	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(1)})
 	require.Error(t, err)
 	require.ErrorContains(t, err, "filter logs")
+
+	// Logs the topic-count rule excludes are never charged against the budget:
+	// [null, null] wants at least two topics, and none of these has any.
+	logs2, err := api.GetLogs(t.Context(), filters.FilterCriteria{
+		FromBlock: big.NewInt(1),
+		ToBlock:   big.NewInt(1),
+		Topics:    [][]common.Hash{nil, nil},
+	})
+	require.NoError(t, err)
+	require.Empty(t, logs2)
 }
 
 func TestGetLogsSurfacesStoreAndBlockErrors(t *testing.T) {

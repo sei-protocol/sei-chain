@@ -192,7 +192,7 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 // receipts touch only that block's keys — so a range is fanned across a bounded
 // worker pool (logFilterParallelism) instead of walked one block at a time.
 // This parallelizes both the per-block index scans and the litt body reads,
-// which dominate wide-range latency. Results are exact (MatchLog re-verifies
+// which dominate wide-range latency. Results are exact (MatchLogForQuery re-verifies
 // after decode) and stay in (block, txIndex) order via the indexed buffer.
 func (s *littReceiptStore) filterLogsByTags(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	if latest := s.latestVersion.Load(); latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
@@ -334,7 +334,7 @@ func (s *littReceiptStore) scanTagRange(lower, upper []byte, dst map[uint32]litt
 }
 
 // candidateBlockLogs point-reads the candidate receipts from litt by tx hash,
-// in transaction-index order, and applies the exact MatchLog predicate. A
+// in transaction-index order, and applies the exact MatchLogForQuery predicate. A
 // missing receipt is skipped, not an error: litt TTL GC can reclaim a body
 // between the index scan and the read.
 func (s *littReceiptStore) candidateBlockLogs(ctx context.Context, candidates map[uint32]littTagRef, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
@@ -377,7 +377,7 @@ func (s *littReceiptStore) candidateBlockLogs(ctx context.Context, candidates ma
 				return nil, budget.Err()
 			}
 			lg := convertLog(rawLog, receipt, uint(ref.firstLogIndex))
-			if !MatchLog(lg, crit) {
+			if !MatchLogForQuery(ctx, lg, crit) {
 				continue
 			}
 			if err := budget.Reserve(lg); err != nil {
