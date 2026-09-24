@@ -12,10 +12,10 @@ parent:
 This document specifies the bank module of the Cosmos SDK.
 
 The bank module is responsible for handling multi-asset coin transfers between
-accounts and tracking special-case pseudo-transfers which must work differently
-with particular kinds of accounts (notably delegating/undelegating for vesting
-accounts). It exposes several interfaces with varying capabilities for secure
-interaction with other modules which must alter user balances.
+accounts and the delegation and undelegation transfers between accounts and
+the staking module accounts. It exposes several interfaces with varying
+capabilities for secure interaction with other modules which must alter user
+balances.
 
 In addition, the bank module tracks and provides query support for the total
 supply of all assets used in the application.
@@ -70,7 +70,7 @@ to:
 
 - Get and set `ModuleAccount`s by providing the `Name`.
 - Send coins from and to other `ModuleAccount`s or standard `Account`s
-  (`BaseAccount` or `VestingAccount`) by passing only the `Name`.
+  by passing only the `Name`.
 - `Mint` or `Burn` coins for a `ModuleAccount` (restricted to its permissions).
 
 ### Permissions

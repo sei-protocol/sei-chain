@@ -15,7 +15,7 @@ func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 	codec.RegisterEvidences(cdc)
 }
 
-// RegisterInterfaces registers Interfaces from sdk/types, vesting, crypto, tx.
+// RegisterInterfaces registers Interfaces from sdk/types, crypto, tx.
 func RegisterInterfaces(interfaceRegistry types.InterfaceRegistry) {
 	sdk.RegisterInterfaces(interfaceRegistry)
 	txtypes.RegisterInterfaces(interfaceRegistry)

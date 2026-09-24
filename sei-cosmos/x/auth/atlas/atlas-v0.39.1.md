@@ -92,31 +92,6 @@ module.
    }
    ```
 
-### Vesting Accounts
-
-The `x/auth` modules also defines a few standard vesting account types under the
-`vesting` sub-package. In order to get your application to automatically support
-these in terms of encoding and decoding, you must register the types with your
-application Amino codec.
-
-Where ever you define the application `Codec`, be sure to register types via:
-
-```go
-import (
-    "github.com/cosmos/cosmos-sdk/x/auth/vesting"
-)
-
-func MakeCodec() *codec.Codec {
-  var cdc = codec.New()
-  
-  // ...
-  vesting.RegisterCodec(cdc)
-  // ...
-  
-  return cdc
-}
-```
-
 ## Genesis
 
 The `x/auth` module defines its genesis state as follows:

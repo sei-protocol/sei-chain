@@ -21,6 +21,16 @@ var retainedStores = map[string]string{
 		"historical state access",
 }
 
+// removedModules maps every module dropped from the manager to the upgrade
+// whose handler deletes its version-map entry.
+var removedModules = map[string]string{
+	feegrantModuleName:    "v6.7",
+	capabilityModuleName:  "v6.7",
+	transferModuleName:    "v6.7",
+	storekeys.IBCStoreKey: "v6.7",
+	vestingModuleName:     "v6.8",
+}
+
 // storeKeyOwners names the owning module for the KV stores whose key differs
 // from the module name. Every other mounted store is keyed by its own module.
 var storeKeyOwners = map[string]string{
@@ -37,10 +47,10 @@ func owningModuleName(storeKey string) string {
 // Removing a module from the manager does not remove it from the stored module
 // version map: SetModuleVersionMap only writes the keys it is given and never
 // deletes the ones it is not, so a departing module's entry survives every
-// later upgrade unless a handler calls DeleteModuleVersion for it. This asserts
-// the whole map rather than the names v6.7 happens to drop, so the next module
-// removal that forgets the call fails here instead of leaving a version entry
-// on chain forever.
+// later upgrade unless a handler calls DeleteModuleVersion for it. This models
+// the version map of a chain upgrading from the previous release and asserts
+// the whole map after the handler, so a removal whose handler forgets the call
+// fails here instead of leaving a version entry on chain forever.
 func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	previousUpgrades := upgradesList
 	t.Cleanup(func() { upgradesList = previousUpgrades })
@@ -55,12 +65,13 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 		registered[name] = struct{}{}
 	}
 
-	// Model a chain that carried every retained store's module version across
-	// earlier upgrades, which is what a real node upgrading into this release
-	// has in state.
+	// The previous release still registered, and so still versions, every
+	// module the latest upgrade removes.
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(ctx)
-	for name := range retainedStores {
-		versionMap[name] = 1
+	for name, upgrade := range removedModules {
+		if upgrade == LatestUpgrade {
+			versionMap[name] = 1
+		}
 	}
 	testApp.UpgradeKeeper.SetModuleVersionMap(ctx, versionMap)
 
@@ -73,6 +84,17 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 		require.Contains(t, registered, name,
 			"module version map still carries %q, which no registered module owns; "+
 				"the upgrade handler needs a DeleteModuleVersion call for it", name)
+	}
+}
+
+// A module that leaves its store behind is declared on retainedStores, which
+// the mount checks below force. Requiring every such module on removedModules
+// makes that declaration name the upgrade which deletes its version entry.
+func TestRetainedStoreModulesAreRemovedByAnUpgrade(t *testing.T) {
+	for storeKey := range retainedStores {
+		require.Contains(t, removedModules, owningModuleName(storeKey),
+			"%q is a retained store, so its module was removed; name the upgrade whose "+
+				"handler deletes its version-map entry in removedModules", storeKey)
 	}
 }
 

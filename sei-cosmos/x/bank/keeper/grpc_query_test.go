@@ -6,12 +6,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
@@ -114,30 +111,14 @@ func (suite *IntegrationTestSuite) TestSpendableBalances() {
 
 	origCoins := sdk.NewCoins(fooCoins, barCoins)
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
-	acc = vestingtypes.NewContinuousVestingAccount(
-		acc.(*authtypes.BaseAccount),
-		sdk.NewCoins(fooCoins),
-		ctx.BlockTime().Unix(),
-		ctx.BlockTime().Add(time.Hour).Unix(),
-		nil,
-	)
-
 	app.AccountKeeper.SetAccount(ctx, acc)
 	suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, acc.GetAddress(), origCoins))
-
-	// move time forward for some tokens to vest
-	ctx = ctx.WithBlockTime(ctx.BlockTime().Add(30 * time.Minute))
-	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
-	types.RegisterQueryServer(queryHelper, app.BankKeeper)
-	queryClient = types.NewQueryClient(queryHelper)
 
 	res, err = queryClient.SpendableBalances(sdk.WrapSDKContext(ctx), req)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(res)
-	suite.Equal(2, res.Balances.Len())
 	suite.Nil(res.Pagination.NextKey)
-	suite.EqualValues(30, res.Balances[0].Amount.Int64())
-	suite.EqualValues(25, res.Balances[1].Amount.Int64())
+	suite.Equal(origCoins, res.Balances)
 }
 
 func (suite *IntegrationTestSuite) TestQueryTotalSupply() {
