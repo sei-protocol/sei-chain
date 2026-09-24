@@ -69,20 +69,24 @@ func TestV68CrossVersion(t *testing.T) {
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 			chain.Record(t, "module-versions", chain.ModuleVersions(t))
+			receiver := chain.KeyAddress(t, "sei-node-0", "node_admin")
+			chain.Record(t, "receiver", receiver)
 			chain.RequireDeliverTxSuccess(t, "v6.7 bank send", chain.Seid(
 				"12345678\n",
-				"tx", "bank", "send", "admin", "node_admin", "1usei",
+				"tx", "bank", "send", "admin", receiver, "1usei",
 				"--from", "admin", "--chain-id", "sei", "--fees", "200000usei",
 				"--gas", "2000000", "--broadcast-mode", "sync", "--yes", "--output", "json",
 			))
 		},
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			var before []string
+			var receiver string
 			chain.Replay(t, "module-versions", &before)
+			chain.Replay(t, "receiver", &receiver)
 			require.Equal(t, before, chain.ModuleVersions(t))
 			chain.RequireDeliverTxSuccess(t, "v6.8 bank send", chain.Seid(
 				"12345678\n",
-				"tx", "bank", "send", "admin", "node_admin", "1usei",
+				"tx", "bank", "send", "admin", receiver, "1usei",
 				"--from", "admin", "--chain-id", "sei", "--fees", "200000usei",
 				"--gas", "2000000", "--broadcast-mode", "sync", "--yes", "--output", "json",
 			))
