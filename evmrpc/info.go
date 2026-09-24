@@ -431,7 +431,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
+		receipt, err := i.keeper.GetReceiptWithRetry(ctx, i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}
@@ -484,7 +484,7 @@ func (i *InfoAPI) calculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
+		receipt, err := i.keeper.GetReceiptWithRetry(ctx, i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}
