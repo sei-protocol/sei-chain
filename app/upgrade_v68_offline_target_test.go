@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const v68OfflineUpgradeName = "v6.8"
+
 const v68OfflineUpgradeBlockTimeUnix = 1_700_000_000
 
 func v68OfflineStoreNames(testApp *App) []string {
@@ -29,7 +31,7 @@ func v68OfflineStoreNames(testApp *App) []string {
 func TestV68OfflineUpgradeTarget(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "target")
 	artifact := readOfflineUpgradeArtifact(t, root)
-	require.Equal(t, v68UpgradeName, artifact.Upgrade)
+	require.Equal(t, v68OfflineUpgradeName, artifact.Upgrade)
 	t.Setenv("UPGRADE_VERSION_LIST", LatestUpgrade)
 
 	testApp := openOfflineUpgradeApp(t, root, false)
@@ -63,4 +65,13 @@ func TestV68OfflineUpgradeTarget(t *testing.T) {
 	artifact.MigratedRoot = offlineUpgradeMigratedDir
 	artifact.UpgradeHash = offlineUpgradeHashString(committedOfflineUpgradeHash(t, reopened))
 	writeOfflineUpgradeArtifact(t, root, artifact)
+}
+
+func sortedOfflineStoreNames(stores map[string]map[string]string) []string {
+	names := make([]string, 0, len(stores))
+	for name := range stores {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

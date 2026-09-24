@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const v68OfflineUpgradeName = "v6.8"
+
 func v68OfflineStoreNames(testApp *App) []string {
 	keys := testApp.CommitMultiStore().StoreKeys()
 	names := make([]string, 0, len(keys))
@@ -26,7 +28,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	ctx := testApp.GetContextForDeliverTx(nil)
 	upgradeHeight := ctx.BlockHeight() + 1
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
-		Name:   v68UpgradeName,
+		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
 	}))
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
@@ -42,7 +44,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	closeOfflineUpgradeApp(t, testApp)
 
 	writeOfflineUpgradeArtifact(t, root, offlineUpgradeArtifact{
-		Upgrade:        v68UpgradeName,
+		Upgrade:        v68OfflineUpgradeName,
 		SourceHeight:   sourceHeight,
 		UpgradeHeight:  upgradeHeight,
 		ModuleVersions: moduleVersions,
@@ -53,7 +55,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
-	require.Equal(t, v68UpgradeName, artifact.Upgrade)
+	require.Equal(t, v68OfflineUpgradeName, artifact.Upgrade)
 	require.NotEmpty(t, artifact.UpgradeHash)
 
 	testApp := openOfflineUpgradeApp(t, offlineUpgradeMigratedDatabase(t, root, artifact), false)
