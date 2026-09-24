@@ -182,11 +182,6 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 // ConsensusVersion implements AppModule/ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 6 }
 
-// EndBlock returns the end blocker for the oracle module.
-func (am AppModule) MidBlock(ctx sdk.Context, _ int64) {
-	MidBlocker(ctx, am.keeper)
-}
-
 // ____________________________________________________________________________
 
 // AppModuleSimulation functions

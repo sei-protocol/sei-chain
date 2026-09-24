@@ -859,7 +859,6 @@ func New(
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
 		GovKeeper:     &app.GovKeeper,
 		StakingKeeper: &app.StakingKeeper,
-		OracleKeeper:  &app.OracleKeeper,
 		EvmKeeper:     &app.EvmKeeper,
 	}
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
@@ -876,10 +875,6 @@ func New(
 		ParamsKeeper:  app.ParamsKeeper,
 		UpgradeKeeper: &app.UpgradeKeeper,
 	}
-
-	app.mm.SetOrderMidBlockers(
-		oracletypes.ModuleName,
-	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
 	// properly initialized with tokens from genesis accounts.

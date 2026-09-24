@@ -14,17 +14,11 @@ var (
 	successTypeAttribute = attribute.String("type", "success")
 
 	oracleKeeperMetrics = struct {
-		votePenaltyCount      metric.Int64Gauge
-		validatorSlashedTotal metric.Int64Counter
+		votePenaltyCount metric.Int64Gauge
 	}{
 		votePenaltyCount: must(meter.Int64Gauge(
 			"oracle_vote_penalty_count",
 			metric.WithDescription("Oracle vote penalty counts by validator and type (miss, abstain, success)"),
-			metric.WithUnit("{count}"),
-		)),
-		validatorSlashedTotal: must(meter.Int64Counter(
-			"oracle_validator_slashed",
-			metric.WithDescription("Number of validators slashed by oracle"),
 			metric.WithUnit("{count}"),
 		)),
 	}

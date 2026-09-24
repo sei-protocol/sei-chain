@@ -119,33 +119,6 @@ func (k Keeper) IterateBaseExchangeRates(ctx sdk.Context, handler func(denom str
 	}
 }
 
-func (k Keeper) RemoveExcessFeeds(ctx sdk.Context) {
-	// get actives
-	excessActives := make(map[string]struct{})
-	k.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
-		excessActives[denom] = struct{}{}
-		return false
-	})
-	// get vote targets
-	k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) (stop bool) {
-		// remove vote targets from actives
-		delete(excessActives, denom)
-		return false
-	})
-	// compare
-	activesToClear := make([]string, len(excessActives))
-	i := 0
-	for denom := range excessActives {
-		activesToClear[i] = denom
-		i++
-	}
-	sort.Strings(activesToClear)
-	for _, denom := range activesToClear {
-		// clear exchange rates
-		k.DeleteBaseExchangeRate(ctx, denom)
-	}
-}
-
 //-----------------------------------
 // Oracle delegation logic
 
@@ -215,37 +188,7 @@ func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, 
 	store.Set(types.GetVotePenaltyCounterKey(operator), bz)
 }
 
-func (k Keeper) IncrementMissCount(ctx sdk.Context, operator sdk.ValAddress) {
-	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount+1, votePenaltyCounter.AbstainCount, votePenaltyCounter.SuccessCount)
-}
-
-func (k Keeper) IncrementAbstainCount(ctx sdk.Context, operator sdk.ValAddress) {
-	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount+1, votePenaltyCounter.SuccessCount)
-}
-
-func (k Keeper) IncrementSuccessCount(ctx sdk.Context, operator sdk.ValAddress) {
-	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount, votePenaltyCounter.SuccessCount+1)
-}
-
-func (k Keeper) GetMissCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
-	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	return votePenaltyCounter.MissCount
-}
-
-func (k Keeper) GetAbstainCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
-	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	return votePenaltyCounter.AbstainCount
-}
-
-func (k Keeper) GetSuccessCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
-	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	return votePenaltyCounter.SuccessCount
-}
-
-// DeleteVotePenaltyCounter removes miss counter for the validator
+// DeleteVotePenaltyCounter removes the vote penalty counter for a validator.
 func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
 	defer func() {
 		valLabel := attribute.String("validator", operator.String())

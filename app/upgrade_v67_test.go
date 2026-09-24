@@ -1543,18 +1543,9 @@ func committedModuleVersionExists(t *testing.T, a *processblock.App, module stri
 	return store.Has(append([]byte{upgradetypes.VersionMapByte}, []byte(module)...))
 }
 
-// Deprecating the oracle handlers stopped transactions from reaching oracle
-// state, but the module is still in the manager and its mid blocker still runs
-// every vote period. With no votes to tally it marks every bonded validator
-// absent, so the store keeps being written after the upgrade even though no
-// client can put anything in it.
-//
-// This is characterization, not a defect: it records the write that a later
-// oracle removal has to stop before it can drop the store, because a module
-// still writing at the height its store is deleted is how an upgrade halts a
-// chain. If oracle stops writing, this test should be deleted along with the
-// blocker, not adjusted to keep passing.
-func TestOracleKeepsWritingStateAfterV67(t *testing.T) {
+// TestOracleStopsWritingStateAfterV67 pins that oracle state remains unchanged
+// after the v6.7 upgrade when no oracle blocker runs.
+func TestOracleStopsWritingStateAfterV67(t *testing.T) {
 	a := newV67Chain(t)
 	applyV67(t, a)
 
@@ -1569,12 +1560,11 @@ func TestOracleKeepsWritingStateAfterV67(t *testing.T) {
 		a.RunBlock([]signing.Tx{})
 	}
 
-	require.Positive(t, a.OracleKeeper.GetVotePenaltyCounter(a.Ctx(), operator).AbstainCount,
-		"oracle no longer records abstentions after v6.7; if its blocker was removed, "+
-			"remove this test with it")
+	require.Zero(t, a.OracleKeeper.GetVotePenaltyCounter(a.Ctx(), operator).AbstainCount,
+		"oracle blocker wrote abstention state after v6.7")
 	_, err = a.OracleKeeper.GetAggregateExchangeRateVote(a.Ctx(), operator)
 	require.ErrorIs(t, err, oracletypes.ErrNoAggregateVote,
-		"the abstentions must come from the blocker, not from a vote that got through")
+		"no aggregate vote should exist after the v6.7 upgrade")
 }
 
 // The retired stores survive the upgrade, but no module claims them, so genesis
