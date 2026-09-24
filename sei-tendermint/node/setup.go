@@ -414,14 +414,14 @@ func buildGigaStorageConfig(
 	if err != nil {
 		return nil, err
 	}
-	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
-		storageConfig.WithFullNodeMode()
-	}
 	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
 	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
 	storageConfig.CheckpointConfig.TimeInterval = storage.CheckpointTimeInterval
 	storageConfig.CheckpointConfig.BlockInterval = storage.CheckpointBlockInterval
+	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
+		storageConfig.WithFullNodeMode()
+	}
 	return storageConfig, nil
 }
 
