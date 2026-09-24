@@ -22,8 +22,9 @@ import (
 
 const testBlockGasLimit = 30_000_000
 
-// gasNeedingBackend simulates a message that succeeds only when given at
-// least need gas, using need-1_000 of it, and reports every gas limit tried.
+// gasNeedingBackend simulates a call to a contract that succeeds only when
+// given at least need gas, using need-1_000 of it, and reports every gas
+// limit tried.
 func gasNeedingBackend(t *testing.T, need uint64) (*testBackend, *[]uint64) {
 	t.Helper()
 	tried := &[]uint64{}
@@ -32,6 +33,7 @@ func gasNeedingBackend(t *testing.T, need uint64) (*testBackend, *[]uint64) {
 		baseFee:  func() (*big.Int, error) { return new(big.Int), nil },
 		gasLimit: func() (uint64, error) { return testBlockGasLimit, nil },
 		balance:  func(common.Address) uint256.Int { return *uint256.NewInt(0) },
+		code:     func(common.Address) ([]byte, error) { return []byte{0xfe}, nil },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			*tried = append(*tried, msg.GasLimit)
 			if msg.GasLimit < need {
@@ -59,9 +61,77 @@ func TestEstimateGasConvergesOnMinimumGas(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, uint64(got), uint64(need))
 	require.LessOrEqual(t, float64(got-need)/float64(got), estimateGasErrorRatio)
-	// The first probe is the upper bound so an impossible call fails fast.
+	// The first probe is the upper bound so an impossible call fails fast; the
+	// gas it used then floors the search, so a handful of probes suffice.
 	require.Equal(t, uint64(defaultCallGasCap), (*tried)[0])
-	require.Less(t, len(*tried), 30)
+	require.LessOrEqual(t, len(*tried), 4, *tried)
+	for _, gas := range (*tried)[1:] {
+		require.Greater(t, gas, uint64(need-1_000), *tried)
+	}
+}
+
+func TestEstimateGasPlainTransferCostsTxGas(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend, tried := gasNeedingBackend(t, params.TxGas)
+	backend.code = func(addr common.Address) ([]byte, error) {
+		require.Equal(t, to, addr)
+		return nil, nil
+	}
+
+	got, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(params.TxGas), got)
+	require.Equal(t, []uint64{params.TxGas}, *tried)
+}
+
+func TestEstimateGasPlainTransferFallsBackToSearch(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	const need = 30_000
+	backend, tried := gasNeedingBackend(t, need)
+	backend.code = func(common.Address) ([]byte, error) { return nil, nil }
+
+	got, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, uint64(got), uint64(need))
+	require.Equal(t, []uint64{params.TxGas, defaultCallGasCap}, (*tried)[:2])
+}
+
+func TestEstimateGasSkipsPlainTransferShortcutForCalls(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	data := hexutil.Bytes{0x01}
+
+	t.Run("calldata", func(t *testing.T) {
+		backend, tried := gasNeedingBackend(t, 30_000)
+		backend.code = func(common.Address) ([]byte, error) {
+			t.Fatal("code read for a message with calldata")
+			return nil, nil
+		}
+		_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to, Input: &data}, latest())
+		require.NoError(t, err)
+		require.Equal(t, uint64(defaultCallGasCap), (*tried)[0])
+	})
+
+	t.Run("contract creation", func(t *testing.T) {
+		backend, tried := gasNeedingBackend(t, 60_000)
+		backend.code = func(common.Address) ([]byte, error) {
+			t.Fatal("code read for a contract creation")
+			return nil, nil
+		}
+		_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{}, latest())
+		require.NoError(t, err)
+		require.Equal(t, uint64(defaultCallGasCap), (*tried)[0])
+	})
+
+	t.Run("code read fails", func(t *testing.T) {
+		want := errors.New("boom")
+		backend, tried := gasNeedingBackend(t, 30_000)
+		backend.code = func(common.Address) ([]byte, error) { return nil, want }
+		_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+		require.ErrorIs(t, err, want)
+		require.Empty(t, *tried)
+	})
 }
 
 func TestEstimateGasDefaultsBlockSelectorToLatest(t *testing.T) {
@@ -194,6 +264,7 @@ func TestEstimateGasSurfacesRevertAtUpperBound(t *testing.T) {
 		chainID:  func() uint64 { return 713715 },
 		baseFee:  func() (*big.Int, error) { return new(big.Int), nil },
 		gasLimit: func() (uint64, error) { return testBlockGasLimit, nil },
+		code:     func(common.Address) ([]byte, error) { return []byte{0xfe}, nil },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			calls++
 			return &core.ExecutionResult{UsedGas: 21_000, Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
@@ -229,6 +300,7 @@ func TestEstimateGasPassesThroughNonGasExecutionError(t *testing.T) {
 		chainID:  func() uint64 { return 713715 },
 		baseFee:  func() (*big.Int, error) { return new(big.Int), nil },
 		gasLimit: func() (uint64, error) { return testBlockGasLimit, nil },
+		code:     func(common.Address) ([]byte, error) { return []byte{0xfe}, nil },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: want}, nil
 		},

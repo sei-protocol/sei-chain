@@ -91,10 +91,22 @@ func (api *callAPI) estimateUpperBound(msg *core.Message) (uint64, error) {
 }
 
 // searchGasLimit finds the lowest gas limit in (params.TxGas-1, hi] at which
-// msg succeeds, to within estimateGasErrorRatio. It executes at hi first so a
-// message that cannot succeed at all fails fast with its revert reason, then
-// narrows from an optimistic guess derived from that run's gas usage.
+// msg succeeds, to within estimateGasErrorRatio. A plain value transfer to an
+// account without code is tried at params.TxGas first. Otherwise it executes
+// at hi so a message that cannot succeed at all fails fast with its revert
+// reason, then narrows from an optimistic guess derived from that run's usage.
 func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi uint64) (uint64, error) {
+	if plain, err := api.isPlainTransfer(msg); err != nil {
+		return 0, err
+	} else if plain && hi >= params.TxGas {
+		failed, _, err := api.executeWithGas(ctx, msg, params.TxGas)
+		if err != nil {
+			return 0, err
+		}
+		if !failed {
+			return params.TxGas, nil
+		}
+	}
 	lo := params.TxGas - 1
 	failed, result, err := api.executeWithGas(ctx, msg, hi)
 	if err != nil {
@@ -108,6 +120,10 @@ func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi ui
 			return 0, fmt.Errorf("gas required exceeds allowance (%d)", hi)
 		}
 		return 0, result.Err
+	}
+	// No limit below what the successful run consumed can succeed.
+	if result.UsedGas > lo+1 {
+		lo = result.UsedGas - 1
 	}
 	// The gas needed to run the top-level frame is at least what was used plus
 	// what was refunded; the 63/64 rule and the stipend cover the call overhead.
@@ -144,6 +160,19 @@ func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi ui
 		}
 	}
 	return hi, nil
+}
+
+// isPlainTransfer reports whether msg carries no calldata to an existing
+// account without code, so that it costs exactly params.TxGas.
+func (api *callAPI) isPlainTransfer(msg *core.Message) (bool, error) {
+	if len(msg.Data) > 0 || msg.To == nil {
+		return false, nil
+	}
+	code, err := api.backend.EvmCode(*msg.To)
+	if err != nil {
+		return false, err
+	}
+	return len(code) == 0, nil
 }
 
 // executeWithGas runs msg with gas as its limit and reports whether the
