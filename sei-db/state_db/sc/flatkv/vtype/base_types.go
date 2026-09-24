@@ -72,3 +72,13 @@ func ParseStorageValue(b []byte) (*[32]byte, error) {
 	copy(result[:], b)
 	return &result, nil
 }
+
+// isZero reports whether every byte of b is 0.
+func isZero(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}

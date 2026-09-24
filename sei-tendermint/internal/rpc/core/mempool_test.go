@@ -49,9 +49,10 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	_, gasLimitErr := env.EvmGasLimit()
 	_, callErr := env.EvmCall(t.Context(), &ethcore.Message{})
 	_, baseFeeErr := env.EvmBaseFee()
+	_, codeErr := env.EvmCode(address)
 
-	// Verify: nonce/height/chain-id hit Application; config/gas/call/fee error
-	// because BaseApplication does not implement those optional interfaces.
+	// Verify: nonce/height/chain-id hit Application; config/gas/call/fee/code
+	// error because BaseApplication does not implement those optional interfaces.
 	require.Equal(t, uint64(0), nonce)
 	require.Equal(t, uint64(0), height)
 	require.Equal(t, uint64(0), chainID)
@@ -59,4 +60,5 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	require.Error(t, gasLimitErr)
 	require.Error(t, callErr)
 	require.Error(t, baseFeeErr)
+	require.Error(t, codeErr)
 }
