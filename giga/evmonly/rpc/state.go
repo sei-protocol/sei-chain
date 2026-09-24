@@ -11,17 +11,30 @@ import (
 
 var errHistoricalStateUnsupported = errors.New("historical state is not supported by EVM-only RPC")
 
-type balanceAPI struct {
+type stateAPI struct {
 	backend Backend
 }
 
 // GetBalance returns the address balance from the current committed EVM state.
-func (api *balanceAPI) GetBalance(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Big, error) {
+func (api *stateAPI) GetBalance(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Big, error) {
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}
 	balance := api.backend.EvmBalance(address)
 	return (*hexutil.Big)(balance.ToBig()), nil
+}
+
+// GetCode returns the contract code at address from the current committed EVM
+// state. An account without code yields empty bytes, encoded as "0x".
+func (api *stateAPI) GetCode(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	if err := requireCurrentState(block); err != nil {
+		return nil, err
+	}
+	code, err := api.backend.EvmCode(address)
+	if err != nil {
+		return nil, err
+	}
+	return code, nil
 }
 
 func requireCurrentState(block ethrpc.BlockNumberOrHash) error {

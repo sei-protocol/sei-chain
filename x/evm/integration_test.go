@@ -3,16 +3,12 @@ package evm_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"math/big"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -23,188 +19,10 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
-
-func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
-	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	adminSeiAddr, adminEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, adminSeiAddr, adminEvmAddr)
-	// deploy cw2981
-	bz, err := os.ReadFile("../../contracts/wasm/cw721_royalties.wasm")
-	if err != nil {
-		panic(err)
-	}
-	codeID, err := k.WasmKeeper().Create(ctx, adminSeiAddr, bz, nil)
-	require.Nil(t, err)
-	instantiateMsg, err := json.Marshal(map[string]interface{}{"name": "test", "symbol": "TEST", "minter": adminSeiAddr.String()})
-	require.Nil(t, err)
-	cw2981Addr, _, err := k.WasmKeeper().Instantiate(ctx, codeID, adminSeiAddr, adminSeiAddr, instantiateMsg, "cw2981", sdk.NewCoins())
-	require.Nil(t, err)
-	require.NotEmpty(t, cw2981Addr)
-	// mint a NFT and set royalty info to 1%
-	executeMsg, err := json.Marshal(map[string]interface{}{
-		"mint": map[string]interface{}{
-			"token_id": "1",
-			"owner":    adminSeiAddr.String(),
-			"extension": map[string]interface{}{
-				"royalty_percentage":      1,
-				"royalty_payment_address": adminSeiAddr.String(),
-			},
-		},
-	})
-	require.Nil(t, err)
-	_, err = k.WasmKeeper().Execute(ctx, cw2981Addr, adminSeiAddr, executeMsg, sdk.NewCoins())
-	require.Nil(t, err)
-	// deploy pointer to cw2981
-	privKey := testkeeper.MockPrivateKey()
-	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	require.Nil(t, k.BankKeeper().AddCoins(ctx, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), true))
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
-	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		_, err := k.UpsertERCCW721Pointer(ctx, e, cw2981Addr.String(), utils.ERCMetadata{Name: "test", Symbol: "TEST"})
-		return err
-	}, func(string, string) {}))
-	pointerAddr, _, exists := k.GetERC721CW721Pointer(ctx, cw2981Addr.String())
-	require.True(t, exists)
-	require.NotEmpty(t, pointerAddr)
-	// call pointer to get royalty info
-	cw721abi, err := cw721.Cw721MetaData.GetAbi()
-	require.Nil(t, err)
-	data, err := cw721abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
-	require.Nil(t, err)
-	chainID := k.ChainID(ctx)
-	chainCfg := types.DefaultChainConfig()
-	ethCfg := chainCfg.EthereumConfig(chainID)
-	blockNum := big.NewInt(ctx.BlockHeight())
-	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
-	txData := ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(100000000000),
-		Gas:      300000,
-		To:       &pointerAddr,
-		Data:     data,
-	}
-	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
-	require.Nil(t, err)
-	typedTx, err := ethtx.NewLegacyTx(tx)
-	require.Nil(t, err)
-	msg, err := types.NewMsgEVMTransaction(typedTx)
-	require.Nil(t, err)
-	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	txBuilder.SetMsgs(msg)
-	cosmosTx := txBuilder.GetTx()
-	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
-	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
-	typedTxData := sdk.TxMsgData{}
-	require.Nil(t, typedTxData.Unmarshal(res.Data))
-	typedMsgData := types.MsgEVMTransactionResponse{}
-	require.Nil(t, typedMsgData.Unmarshal(typedTxData.Data[0].Data))
-	ret, err := cw721abi.Unpack("royaltyInfo", typedMsgData.ReturnData)
-	require.Nil(t, err)
-	require.Equal(t, big.NewInt(10), ret[1].(*big.Int))
-	require.Equal(t, adminEvmAddr.Hex(), ret[0].(common.Address).Hex())
-}
-
-func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
-	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	adminSeiAddr, adminEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, adminSeiAddr, adminEvmAddr)
-	// deploy cw2981
-	bz, err := os.ReadFile("../../contracts/wasm/cw1155_royalties.wasm")
-	if err != nil {
-		panic(err)
-	}
-	codeID, err := k.WasmKeeper().Create(ctx, adminSeiAddr, bz, nil)
-	require.Nil(t, err)
-	instantiateMsg, err := json.Marshal(map[string]interface{}{"name": "test", "symbol": "TEST", "minter": adminSeiAddr.String()})
-	require.Nil(t, err)
-	cw2981Addr, _, err := k.WasmKeeper().Instantiate(ctx, codeID, adminSeiAddr, adminSeiAddr, instantiateMsg, "cw2981", sdk.NewCoins())
-	require.Nil(t, err)
-	require.NotEmpty(t, cw2981Addr)
-	// mint a NFT and set royalty info to 1%
-	executeMsg, err := json.Marshal(map[string]interface{}{
-		"mint": map[string]interface{}{
-			"recipient": adminSeiAddr.String(),
-			"msg": map[string]interface{}{
-				"token_id":  "1",
-				"amount":    "10",
-				"token_uri": "testuri1",
-				"extension": map[string]interface{}{
-					"royalty_percentage":      1,
-					"royalty_payment_address": adminSeiAddr.String(),
-				},
-			},
-		},
-	})
-	require.Nil(t, err)
-	_, err = k.WasmKeeper().Execute(ctx, cw2981Addr, adminSeiAddr, executeMsg, sdk.NewCoins())
-	require.Nil(t, err)
-
-	// deploy pointer to cw2981
-	privKey := testkeeper.MockPrivateKey()
-	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	require.Nil(t, k.BankKeeper().AddCoins(ctx, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), true))
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
-	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		_, err := k.UpsertERCCW1155Pointer(ctx, e, cw2981Addr.String(), utils.ERCMetadata{Name: "test", Symbol: "TEST"})
-		return err
-	}, func(string, string) {}))
-	pointerAddr, _, exists := k.GetERC1155CW1155Pointer(ctx, cw2981Addr.String())
-	require.True(t, exists)
-	require.NotEmpty(t, pointerAddr)
-	// call pointer to get royalty info
-	cw1155abi, err := cw1155.Cw1155MetaData.GetAbi()
-	require.Nil(t, err)
-	data, err := cw1155abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
-	require.Nil(t, err)
-	chainID := k.ChainID(ctx)
-	chainCfg := types.DefaultChainConfig()
-	ethCfg := chainCfg.EthereumConfig(chainID)
-	blockNum := big.NewInt(ctx.BlockHeight())
-	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
-	txData := ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
-		Gas:      300000,
-		To:       &pointerAddr,
-		Data:     data,
-	}
-	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
-	require.Nil(t, err)
-	typedTx, err := ethtx.NewLegacyTx(tx)
-	require.Nil(t, err)
-	msg, err := types.NewMsgEVMTransaction(typedTx)
-	require.Nil(t, err)
-	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	txBuilder.SetMsgs(msg)
-	cosmosTx := txBuilder.GetTx()
-	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
-	require.Nil(t, err)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
-	typedTxData := sdk.TxMsgData{}
-	require.Nil(t, typedTxData.Unmarshal(res.Data))
-	typedMsgData := types.MsgEVMTransactionResponse{}
-	require.Nil(t, typedMsgData.Unmarshal(typedTxData.Data[0].Data))
-	ret, err := cw1155abi.Unpack("royaltyInfo", typedMsgData.ReturnData)
-	require.Nil(t, err)
-	require.Equal(t, big.NewInt(10), ret[1].(*big.Int))
-	require.Equal(t, adminEvmAddr.Hex(), ret[0].(common.Address).Hex())
-}
 
 func TestNonceIncrementsForInsufficientFunds(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper

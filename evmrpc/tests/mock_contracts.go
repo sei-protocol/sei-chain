@@ -9,17 +9,15 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
-func cw20Initializer(mnemonic string, pointer bool) func(ctx sdk.Context, a *app.App) {
+func cw20Initializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 	return func(ctx sdk.Context, a *app.App) {
 		code, err := os.ReadFile("../../contracts/wasm/cw20_base.wasm")
 		if err != nil {
@@ -38,19 +36,6 @@ func cw20Initializer(mnemonic string, pointer bool) func(ctx sdk.Context, a *app
 		}
 		evmAddr := common.BytesToAddress(contractAddr)
 		a.EvmKeeper.SetAddressMapping(ctx, contractAddr, evmAddr)
-
-		if pointer {
-			// Upsert writes via StateDB; Finalize so pointer registry persists.
-			err = a.EvmKeeper.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-				_, err := a.EvmKeeper.UpsertERCCW20Pointer(ctx, e, contractAddr.String(), utils.ERCMetadata{Name: "test", Symbol: "test"})
-				return err
-			}, func(step, msg string) {
-				panic(fmt.Sprintf("UpsertERCCW20Pointer %s: %s", step, msg))
-			})
-			if err != nil {
-				panic(err)
-			}
-		}
 	}
 }
 

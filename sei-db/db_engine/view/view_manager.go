@@ -75,11 +75,10 @@ type ViewManager interface {
 	// created earlier (see Iterator).
 	Delete(key []byte) error
 
-	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
-	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
-	// zero-length value, distinct from a delete). Not visible to iterators created earlier (see
-	// Iterator).
-	BatchSet(updates []*proto.KVPair) error
+	// BatchSet applies the given writes to the current (mutable) version. A nil Value deletes the
+	// key; an empty, non-nil Value is a zero-length value, distinct from a delete. Not visible to
+	// iterators created earlier (see Iterator).
+	BatchSet(writes []Write) error
 
 	// BatchUpdate stages a value for every key in keys, to be produced later by handing that key's
 	// prior value to updater. Where BatchSet takes the values, this takes a function of the values

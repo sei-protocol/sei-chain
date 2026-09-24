@@ -170,3 +170,92 @@ func TestSnapshotDoubleCloseReturnsError(t *testing.T) {
 	require.Error(t, snapshot.Close())
 	require.Panics(t, snapshot.Acquire)
 }
+
+// snapshotBackedDB returns a DB whose "test" tree is backed by a mapped snapshot
+// holding pairs, which is the state an iterator must be opened over to exercise
+// the mmap: an iterator over unpersisted MemNodes reads the heap instead.
+func snapshotBackedDB(t *testing.T, pairs []*proto.KVPair) *DB {
+	t.Helper()
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotKeepRecent: 0},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name:      "test",
+		Changeset: proto.ChangeSet{Pairs: pairs},
+	}}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	require.NoError(t, db.Reload())
+	return db
+}
+
+// Regression: an iterator handed out by Tree.Iterator must stay readable across a
+// snapshot rewrite and reload. Key and Value clone out of the snapshot's mmap
+// after Tree.Iterator has already released the read lock, so before the iterator
+// took a reference the reload's snapshot.Close() unmapped pages it was still
+// reading. That killed the process with a fatal fault in runtime.memmove, which
+// no recover can catch, and it was observed killing validators mid-block.
+func TestTreeIteratorOutlivesSnapshotRewrite(t *testing.T) {
+	db := snapshotBackedDB(t, []*proto.KVPair{
+		{Key: []byte("k1"), Value: []byte("v1")},
+		{Key: []byte("k2"), Value: []byte("v2")},
+	})
+
+	tree := db.TreeByName("test")
+	require.NotNil(t, tree)
+	// Production opens memiavl with ZeroCopy false, which is what routes Key and
+	// Value through utils.Clone and so reads the mapping on every pair.
+	tree.SetZeroCopy(false)
+	iter := tree.Iterator(nil, nil, true)
+
+	// Rotate underneath the open iterator: Reload's ReplaceWith closes the
+	// snapshot the iterator is reading.
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "test",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k1"), Value: []byte("OVERWRITTEN")},
+		}},
+	}}))
+	_, err := db.Commit()
+	require.NoError(t, err)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	require.NoError(t, db.Reload())
+
+	// The iterator reports the contents it was opened over, not the rewrite's.
+	require.Equal(t, []pair{
+		{key: []byte("k1"), value: []byte("v1")},
+		{key: []byte("k2"), value: []byte("v2")},
+	}, collectIter(iter))
+	require.NoError(t, iter.Close())
+}
+
+// The reference an iterator takes has to come back on Close, or every iterator
+// pins its snapshot's blob files mapped for the life of the process.
+func TestTreeIteratorReleasesSnapshotOnClose(t *testing.T) {
+	db := snapshotBackedDB(t, []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}})
+
+	tree := db.TreeByName("test")
+	require.NotNil(t, tree)
+	held := tree.snapshot
+	require.NotNil(t, held)
+	before := held.refCount.Load()
+
+	iter := tree.Iterator(nil, nil, true)
+	require.Equal(t, before+1, held.refCount.Load(), "iterator did not take a reference")
+
+	require.NoError(t, iter.Close())
+	require.Equal(t, before, held.refCount.Load(), "Close did not return the reference")
+
+	// Close is idempotent, so a caller that closes twice cannot drive the
+	// refcount below what it took and unmap the snapshot under someone else.
+	require.NoError(t, iter.Close())
+	require.Equal(t, before, held.refCount.Load())
+}

@@ -249,29 +249,23 @@ func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
-func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
-	// Sort entries by shard index so each shard is locked only once.
-	shardMap := make(map[uint64][]*proto.KVPair)
-	for i := range updates {
-		idx := c.shardManager.Shard(updates[i].Key)
-		shardMap[idx] = append(shardMap[idx], updates[i])
-	}
+func (c *viewManager) BatchSet(writes []Write) error {
+	buckets := c.bucketIndicesByShard(len(writes), func(i int) string { return writes[i].Key })
 
 	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed or
 	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
 	// the batch is not atomic across shards in that case. That is acceptable because the manager contract
 	// makes any error fatal.
 	var wg sync.WaitGroup
-	shardIndices := make([]uint64, 0, len(shardMap))
-	for shardIndex := range shardMap {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	errs := make([]error, len(shardIndices))
-	for i, shardIndex := range shardIndices {
+	errs := make([]error, len(buckets))
+	for shardIndex := range buckets {
+		if len(buckets[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			errs[i] = c.shards[shardIndex].BatchSet(shardMap[shardIndex])
+			errs[shardIndex] = c.shards[shardIndex].batchSetAt(writes, buckets[shardIndex])
 		})
 	}
 	wg.Wait()
@@ -285,25 +279,34 @@ func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
 }
 
 func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
-	work := c.partitionIndicesByShard(keys)
+	work := c.bucketIndicesByShard(len(keys), func(i int) string { return keys[i] })
 	version := c.currentVersion
 
-	// Staging is synchronous, and it is all this call does on the caller's thread: one lock hold per
-	// shard that reads no database and folds nothing. It is what makes the keys read as their new
-	// values before any fold has run.
+	// Shards partition the keys, so they stage disjoint sets and run concurrently.
 	staged := make([][]stagedFold, len(c.shards))
+	errs := make([]error, len(c.shards))
+	var wg sync.WaitGroup
 	for shardIndex := range work {
 		if len(work[shardIndex]) == 0 {
 			continue
 		}
-		folds, err := c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			staged[shardIndex], errs[shardIndex] =
+				c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
+		})
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
-			// The shards that already staged are holding values nothing will ever fold, and a reader
-			// would park on one forever. Fail them before reporting.
+			// The shards that did stage are holding values nothing will ever fold, and a reader would
+			// park on one forever. Fail them before reporting. A shard whose own staging failed staged
+			// nothing, so its empty entry is skipped.
 			c.abandonStaged(staged, version, err)
 			return fmt.Errorf("failed to stage update in shard: %w", err)
 		}
-		staged[shardIndex] = folds
 	}
 
 	// Folding happens here, off this thread, and nothing waits for it: whatever reads, hashes or
@@ -330,23 +333,64 @@ func (c *viewManager) abandonStaged(staged [][]stagedFold, version uint64, err e
 	}
 }
 
-// partitionIndicesByShard groups the positions of keys by the shard each key belongs to, so each
-// shard is visited once. The returned slice is indexed by shard, and a shard no key landed in holds
-// an empty bucket.
+// bucketIndicesByShard decides which shard each key of a batch belongs to.
 //
-// Buckets start out sized for an even spread, which is what the seeded hash produces; a bucket that
-// lands above its share still grows on demand.
-func (c *viewManager) partitionIndicesByShard(keys []string) [][]int {
-	work := make([][]int, len(c.shards))
-	perShard := len(keys)/len(c.shards) + 1
-	for index, key := range keys {
-		shardIndex := c.shardManager.ShardString(key)
-		if work[shardIndex] == nil {
-			work[shardIndex] = make([]int, 0, perShard)
+// byShard is indexed by shard, and each entry lists the batch indices of that shard's keys:
+// byShard[X][Y] == Z means key Y of shard X is key Z of the batch, and len(byShard[X]) is the number
+// of keys belonging to shard X. Z increases with Y, so a shard's keys stay in batch order.
+func (c *viewManager) bucketIndicesByShard(
+	// The number of keys in the batch.
+	count int,
+	// Supplies the key at an index into the batch.
+	keyAt func(int) string,
+) (byShard [][]int) {
+	byShard = make([][]int, len(c.shards))
+
+	chunks := min(len(c.shards), count)
+	if chunks <= 1 {
+		for i := 0; i < count; i++ {
+			shardIndex := c.shardManager.ShardString(keyAt(i))
+			byShard[shardIndex] = append(byShard[shardIndex], i)
 		}
-		work[shardIndex] = append(work[shardIndex], index)
+		return byShard
 	}
-	return work
+
+	// Every key must be placed before any shard can be locked, so this is a batch's longest serial
+	// stretch. Each chunk fills its own buckets, so no two writers touch the same slice.
+	chunkSize := (count + chunks - 1) / chunks
+	partial := make([][][]int, chunks)
+	var wg sync.WaitGroup
+	for chunk := range partial {
+		start := chunk * chunkSize
+		end := min(start+chunkSize, count)
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			local := make([][]int, len(c.shards))
+			for i := start; i < end; i++ {
+				shardIndex := c.shardManager.ShardString(keyAt(i))
+				local[shardIndex] = append(local[shardIndex], i)
+			}
+			partial[chunk] = local
+		})
+	}
+	wg.Wait()
+
+	// Concatenated in chunk order, which is batch order, since a chunk is a contiguous range.
+	for shardIndex := range byShard {
+		total := 0
+		for chunk := range partial {
+			total += len(partial[chunk][shardIndex])
+		}
+		if total == 0 {
+			continue
+		}
+		byShard[shardIndex] = make([]int, 0, total)
+		for chunk := range partial {
+			byShard[shardIndex] = append(byShard[shardIndex], partial[chunk][shardIndex]...)
+		}
+	}
+	return byShard
 }
 
 func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
@@ -747,7 +791,7 @@ func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string
 			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
 		}
 		for _, entry := range diff {
-			if err := visit(entry.key, entry.value); err != nil {
+			if err := visit(entry.Key, entry.Value); err != nil {
 				return err
 			}
 		}
@@ -1067,11 +1111,11 @@ func (c *viewManager) flushViews(
 		if err != nil {
 			return err
 		}
-		err = forEachMergedEntry(shardDiffs, func(entry diffEntry) error {
-			if entry.value == nil {
-				return batch.DeleteString(entry.key)
+		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
+			if entry.Value == nil {
+				return batch.DeleteString(entry.Key)
 			}
-			return batch.SetString(entry.key, entry.value)
+			return batch.SetString(entry.Key, entry.Value)
 		})
 		if err != nil {
 			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)

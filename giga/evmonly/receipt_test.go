@@ -70,6 +70,22 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 	require.Equal(t, []string{topic.Hex()}, stored.Logs[0].Topics)
 	require.Equal(t, []byte{7}, stored.Logs[0].Data)
 	require.Equal(t, uint32(8), stored.Logs[0].Index)
+	// Reward is the tx's effective gas price unfiltered: giga's base fee is always zero.
+	require.Equal(t, big.NewInt(9), records[0].Reward)
+}
+
+func TestReceiptRecordsLeaveRewardNilWithoutAnEffectiveGasPrice(t *testing.T) {
+	txHash := common.Hash{1}
+	ethReceipt := &ethtypes.Receipt{TxHash: txHash, GasUsed: 1}
+	result := &BlockResult{
+		Receipts: ethtypes.Receipts{ethReceipt},
+		Txs:      []TxResult{{Hash: txHash, Sender: common.Address{2}}},
+	}
+
+	records, err := receiptRecords(1, result)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Nil(t, records[0].Reward)
 }
 
 func TestReceiptRecordsRejectMalformedBlockResult(t *testing.T) {
