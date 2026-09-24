@@ -5,6 +5,7 @@ package oracle
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	oraclev66 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v66"
+	oraclev67 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(oraclev66.NewPrecompile(keepers)),
+		"v6.7":        check(oraclev67.NewPrecompile(keepers)),
 	}
 }
 
