@@ -34,7 +34,9 @@ func TestV68OfflineUpgradeTarget(t *testing.T) {
 	require.Equal(t, v68OfflineUpgradeName, artifact.Upgrade)
 	t.Setenv("UPGRADE_VERSION_LIST", LatestUpgrade)
 
-	testApp := openOfflineUpgradeApp(t, root, false)
+	migrated := filepath.Join(root, offlineUpgradeMigratedDir)
+	copyOfflineUpgradeDatabase(t, root, migrated)
+	testApp := openOfflineUpgradeApp(t, migrated, false)
 	plan, found := committedOfflineUpgradePlan(t, testApp)
 	require.True(t, found)
 	require.Equal(t, artifact.Upgrade, plan.Name)
@@ -55,7 +57,6 @@ func TestV68OfflineUpgradeTarget(t *testing.T) {
 	commitOfflineUpgradeApp(t, testApp)
 	closeOfflineUpgradeApp(t, testApp)
 
-	migrated := filepath.Join(root, offlineUpgradeMigratedDir)
 	reopened := openOfflineUpgradeApp(t, migrated, false)
 	defer closeOfflineUpgradeApp(t, reopened)
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
