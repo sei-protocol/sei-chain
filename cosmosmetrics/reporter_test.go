@@ -75,12 +75,29 @@ func (f *fakeStaking) ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator {
 	}
 	return it
 }
-func (f *fakeStaking) IterateValidators(_ sdk.Context, fn func(int64, stakingtypes.ValidatorI) bool) {
-	for i, v := range f.validators {
-		if fn(int64(i), v) {
-			return
+
+// ValidatorQueueIterator yields one queue key per unbonding completion slot, like the staking
+// unbonding validator queue; jailed validators that are not unbonding are, as on chain, absent.
+func (f *fakeStaking) ValidatorQueueIterator(sdk.Context, time.Time, int64) sdk.Iterator {
+	it := &fakeIterator{}
+	seen := map[string]bool{}
+	for _, v := range f.validators {
+		key := stakingtypes.GetValidatorQueueKey(v.UnbondingTime, v.UnbondingHeight)
+		if v.IsUnbonding() && !seen[string(key)] {
+			seen[string(key)] = true
+			it.values = append(it.values, key)
 		}
 	}
+	return it
+}
+func (f *fakeStaking) GetUnbondingValidators(_ sdk.Context, endTime time.Time, endHeight int64) []string {
+	var addrs []string
+	for _, v := range f.validators {
+		if v.IsUnbonding() && v.UnbondingTime.Equal(endTime) && v.UnbondingHeight == endHeight {
+			addrs = append(addrs, v.OperatorAddress)
+		}
+	}
+	return addrs
 }
 func (f *fakeStaking) GetValidator(_ sdk.Context, addr sdk.ValAddress) (stakingtypes.Validator, bool) {
 	for _, v := range f.validators {
@@ -364,13 +381,18 @@ func TestReadLogsTruncatedWalletEntries(t *testing.T) {
 }
 
 // manyValidators returns n validators with distinct operator addresses and tokens n..1, so the
-// address order and the power order disagree.
+// address order and the power order disagree. Jailed ones are unbonding, each at its own height.
 func manyValidators(t *testing.T, n int, jailed bool) []stakingtypes.Validator {
 	t.Helper()
 	validators := make([]stakingtypes.Validator, 0, n)
 	for i := range n {
 		v := newValidator(t, 1, int64(n-i), stakingtypes.Unbonded)
-		v.Jailed = jailed
+		if jailed {
+			v.Jailed = true
+			v.Status = stakingtypes.Unbonding
+			v.UnbondingHeight = int64(i)
+			v.UnbondingTime = time.Unix(int64(i), 0)
+		}
 		v.OperatorAddress = sdk.ValAddress(binary.BigEndian.AppendUint32(bytes.Repeat([]byte{1}, 16), uint32(i))).String()
 		validators = append(validators, v)
 	}
@@ -406,14 +428,19 @@ func TestReadKeepsTheHighestPowerValidatorsWhenTruncated(t *testing.T) {
 	}
 }
 
-func TestReadIncludesJailedValidators(t *testing.T) {
+func TestReadIncludesJailedUnbondingValidators(t *testing.T) {
 	newTestReader(t)
 	jailed := newValidator(t, 2, 5, stakingtypes.Unbonding)
 	jailed.Jailed = true
-	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded), jailed}}
+	leaving := newValidator(t, 3, 3, stakingtypes.Unbonding)
+	leaving.UnbondingHeight = 7
+	neverBonded := newValidator(t, 4, 9, stakingtypes.Unbonded)
+	neverBonded.Jailed = true
+	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded), jailed, leaving, neverBonded}}
 	c, _ := newTestReporter(t, staking, fakeDistribution{})
 	c.refresh()
-	require.Equal(t, []string{jailed.OperatorAddress, staking.validators[0].OperatorAddress}, rankedOperators(t, c), "jailed validators must be reported and ranked by tokens")
+	require.Equal(t, []string{jailed.OperatorAddress, leaving.OperatorAddress, staking.validators[0].OperatorAddress}, rankedOperators(t, c),
+		"jailed unbonding validators must be reported once and ranked by tokens; jailed validators that never bonded must not be read")
 }
 
 func TestReadLogsTruncatedJailedValidators(t *testing.T) {

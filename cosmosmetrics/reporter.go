@@ -25,21 +25,27 @@ import (
 )
 
 const (
-	// maxValidators bounds the unjailed validators, taken by power, and the jailed validators
-	// read per refresh; anyone can create a validator.
+	// maxValidators bounds the unjailed validators, taken by power, and the jailed validators,
+	// taken from the unbonding queue, read per refresh; anyone can create a validator.
 	maxValidators = 1000
 	// maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
 	maxWalletEntries = 100
 )
 
-var logger = seilog.NewLogger("cosmosmetrics")
+var (
+	logger = seilog.NewLogger("cosmosmetrics")
+	// queueEnd bounds the unbonding validator queue iteration; the queue is keyed by completion
+	// time then height, so this covers every entry.
+	queueEnd = time.Date(9999, 12, 31, 23, 59, 59, 999_999_999, time.UTC)
+)
 
 // StakingKeeper is the staking state the reporter reads.
 type StakingKeeper interface {
 	GetParams(sdk.Context) stakingtypes.Params
 	BondDenom(sdk.Context) string
 	ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator
-	IterateValidators(sdk.Context, func(int64, stakingtypes.ValidatorI) bool)
+	ValidatorQueueIterator(sdk.Context, time.Time, int64) sdk.Iterator
+	GetUnbondingValidators(sdk.Context, time.Time, int64) []string
 	GetValidator(sdk.Context, sdk.ValAddress) (stakingtypes.Validator, bool)
 	GetBondedPool(sdk.Context) authtypes.ModuleAccountI
 	GetNotBondedPool(sdk.Context) authtypes.ModuleAccountI
@@ -288,26 +294,41 @@ func (r *Reporter) topValidators(ctx sdk.Context, b *builder) []stakingtypes.Val
 	return validators
 }
 
-// jailedValidators returns up to maxValidators jailed validators in operator-address order. There
-// is no index of jailed validators, so this walks the validator set but holds only the jailed ones.
+// jailedValidators returns up to maxValidators jailed validators that are still unbonding. They
+// are found through the unbonding validator queue rather than a walk of the validator store: only
+// validators that were bonded enter the queue, so its size is set by the bonded set and the
+// unbonding time, not by how many validators anyone cares to create and jail. A validator jailed
+// without ever having been bonded, or whose unbonding has completed, is not reported.
 func (r *Reporter) jailedValidators(ctx sdk.Context, b *builder) []stakingtypes.Validator {
 	var validators []stakingtypes.Validator
-	r.keepers.Staking.IterateValidators(ctx, func(_ int64, vi stakingtypes.ValidatorI) bool {
-		if !vi.IsJailed() {
-			return false
+	iter := r.keepers.Staking.ValidatorQueueIterator(ctx, queueEnd, math.MaxInt64)
+	defer func() { _ = iter.Close() }()
+	for ; iter.Valid(); iter.Next() {
+		endTime, endHeight, err := stakingtypes.ParseValidatorQueueKey(iter.Key())
+		if err != nil {
+			b.errs = append(b.errs, fmt.Errorf("unbonding validator queue: %w", err))
+			continue
 		}
-		if len(validators) == maxValidators {
-			b.errs = append(b.errs, fmt.Errorf("jailed validators truncated at %d entries", maxValidators))
-			return true
+		for _, bech := range r.keepers.Staking.GetUnbondingValidators(ctx, endTime, endHeight) {
+			if len(validators) == maxValidators {
+				b.errs = append(b.errs, fmt.Errorf("jailed validators truncated at %d entries", maxValidators))
+				return validators
+			}
+			addr, err := sdk.ValAddressFromBech32(bech)
+			if err != nil {
+				b.errs = append(b.errs, fmt.Errorf("unbonding validator %s: %w", bech, err))
+				continue
+			}
+			v, found := r.keepers.Staking.GetValidator(ctx, addr)
+			if !found {
+				b.errs = append(b.errs, fmt.Errorf("validator %s: in unbonding queue but not found", bech))
+				continue
+			}
+			if v.Jailed {
+				validators = append(validators, v)
+			}
 		}
-		v, ok := vi.(stakingtypes.Validator)
-		if !ok {
-			b.errs = append(b.errs, fmt.Errorf("validator %s: unexpected type %T", vi.GetOperator(), vi))
-			return false
-		}
-		validators = append(validators, v)
-		return false
-	})
+	}
 	return validators
 }
 
