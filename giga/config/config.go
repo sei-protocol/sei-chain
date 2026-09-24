@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/spf13/cast"
 )
 
@@ -59,22 +60,29 @@ type ExecutionConfig struct {
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
 }
 
-// DefaultConfig is what a Giga node runs when the section is absent.
+// DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
+// sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
-	Storage: StorageConfig{
-		Mode:                    StorageModeAuto,
-		RollbackWindow:          1_000,
-		LookbackWindow:          0,
-		PruneInterval:           5 * time.Minute,
-		CheckpointTimeInterval:  10 * time.Minute,
-		CheckpointBlockInterval: 0,
-	},
+	Storage: defaultStorageConfig(),
 	Execution: ExecutionConfig{
 		MinGasPrice:         1_000_000_000,
 		OCCWorkers:          0,
 		ParseWorkers:        0,
 		BlockResultPoolSize: 1,
 	},
+}
+
+func defaultStorageConfig() StorageConfig {
+	gc := seidbconfig.DefaultStorageGarbageCollectorConfig()
+	cp := seidbconfig.DefaultCheckpointConfig()
+	return StorageConfig{
+		Mode:                    StorageModeAuto,
+		RollbackWindow:          gc.RollbackWindow,
+		LookbackWindow:          gc.LookbackWindow,
+		PruneInterval:           gc.PruneInterval,
+		CheckpointTimeInterval:  cp.TimeInterval,
+		CheckpointBlockInterval: cp.BlockInterval,
+	}
 }
 
 // The keys this package's reader resolves.
