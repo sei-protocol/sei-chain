@@ -166,7 +166,10 @@ func TestGetLogsBlockHashForm(t *testing.T) {
 func TestGetLogsResolvesTagsAgainstIndexedRange(t *testing.T) {
 	store := filterFixtureStore(t)
 	// The committed head (20) is ahead of the store's indexed head (9).
-	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store}
+	head := uint64(20)
+	backend := filterFixtureBackend(t, 0)
+	backend.blockNumber = func() uint64 { return head }
+	api := &filterAPI{backend: backend, store: store}
 
 	// Neither bound set: latest indexed..latest indexed.
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{})
@@ -184,6 +187,17 @@ func TestGetLogsResolvesTagsAgainstIndexedRange(t *testing.T) {
 	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64())})
 	require.NoError(t, err)
 	require.Len(t, logs, 4)
+	// Unpruned, earliest is block 1 (not 0), so a full-width window from
+	// genesis fits the range cap.
+	head = maxBlocksForLogs
+	store.SetLatestVersion(maxBlocksForLogs)
+	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{
+		FromBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64()), ToBlock: big.NewInt(maxBlocksForLogs),
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 4)
+	head = 20
+	store.SetLatestVersion(9)
 	require.NoError(t, store.PruneHistory(6))
 	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64())})
 	require.NoError(t, err)
