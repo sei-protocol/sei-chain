@@ -143,8 +143,6 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
 }
 
-// TestDynamicGasPrecompileRepanicsNonGas verifies that only gas-meter panics are
-// converted to reverts: a non-gas panic must propagate rather than be masked.
 // TestDynamicGasPrecompileOutOfGasInCallFrame drives the precompile through a real
 // vm.EVM.Call so the frame-level consequences are pinned: the frame's gas is
 // consumed, its state is reverted, and the caller can continue with a further call.
@@ -185,6 +183,8 @@ func TestDynamicGasPrecompileOutOfGasInCallFrame(t *testing.T) {
 	require.Equal(t, uint64(50000), leftover)
 }
 
+// TestDynamicGasPrecompileRepanicsNonGas verifies that only gas-meter panics are
+// recovered: a non-gas panic must propagate rather than be masked.
 func TestDynamicGasPrecompileRepanicsNonGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
