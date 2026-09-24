@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -44,14 +46,31 @@ func testAppStateJSON(rng utils.Rng) json.RawMessage {
 
 type testApp struct {
 	abci.BaseApplication
-	state utils.Watch[*testAppState]
+	state        utils.Watch[*testAppState]
+	hashListener utils.Mutex[*testHashListenerState]
+}
+
+type testHashListenerState struct {
+	listener utils.Option[gigatypes.HashListener]
 }
 
 func newTestApp() *testApp {
-	return &testApp{state: utils.NewWatch(&testAppState{
-		Txs: map[shaHash]bool{},
-	})}
+	return &testApp{
+		state: utils.NewWatch(&testAppState{
+			Txs: map[shaHash]bool{},
+		}),
+		hashListener: utils.NewMutex(&testHashListenerState{}),
+	}
 }
+
+func (a *testApp) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
+	for registered := range a.hashListener.Lock() {
+		registered.listener = utils.Some(listener)
+	}
+	return *lthash.NewBlockHash(nil), nil
+}
+
+func (a *testApp) FlushHashes() error { return nil }
 
 func (a *testApp) GetValidators() []abci.ValidatorUpdate {
 	for state := range a.state.Lock() {
@@ -119,6 +138,15 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 		state.Validators = utils.Slice(val)
 		state.Committed = true
 		ctrl.Updated()
+		for listener := range a.hashListener.Lock() {
+			if f, ok := listener.listener.Get(); ok {
+				hash := lthash.NewBlockHash(nil)
+				hash.BlockNumber = req.InitialHeight - 1
+				if err := f(context.Background(), hash.BlockNumber, hash); err != nil {
+					return nil, err
+				}
+			}
+		}
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
 			Validators: slices.Clone(state.Validators),
@@ -127,7 +155,7 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 	panic("unreachable")
 }
 
-func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *testApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
 		if !state.Committed {
 			return nil, fmt.Errorf("FinalizeBlock before Commit")
@@ -144,6 +172,15 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
 		state.Committed = false
 		ctrl.Updated()
+		for listener := range a.hashListener.Lock() {
+			if f, ok := listener.listener.Get(); ok {
+				hash := lthash.NewBlockHash(nil)
+				hash.BlockNumber = req.Header.Height
+				if err := f(ctx, req.Header.Height, hash); err != nil {
+					return nil, err
+				}
+			}
+		}
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
 			TxResults: slices.Repeat([]*abci.ExecTxResult{{Code: abci.CodeTypeOK}}, len(req.Txs)),
@@ -164,6 +201,18 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		// Don't prune anything.
 		RetainHeight: 0,
 	}, nil
+}
+
+// WaitForBlocks waits until the app has finalized at least count blocks and
+// reports how many it had finalized at that moment.
+func (a *testApp) WaitForBlocks(ctx context.Context, count int) (int, error) {
+	for state, ctrl := range a.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return len(state.Blocks) >= count }); err != nil {
+			return 0, err
+		}
+		return len(state.Blocks), nil
+	}
+	panic("unreachable")
 }
 
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {

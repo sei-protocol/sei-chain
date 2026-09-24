@@ -8,6 +8,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -16,6 +18,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+// AppHashStore publishes each committed block's state hash.
+type AppHashStore interface {
+	RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error)
+	// FlushHashes waits until every block committed so far has been hashed.
+	FlushHashes() error
+}
 
 type GigaNodeAddr struct {
 	Key      NodePublicKey
@@ -41,6 +50,8 @@ type GigaRouterCommonConfig struct {
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.
 	App *proxy.Proxy
+	// AppHashStore is the source of every Autobahn application hash.
+	AppHashStore AppHashStore
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int

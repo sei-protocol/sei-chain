@@ -389,3 +389,12 @@ func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (lthash.
 	}
 	return mostRecentHash, nil
 }
+
+// FlushHashes waits until every block committed so far has been hashed and
+// handed to every registered listener.
+func (s *StateDB) FlushHashes() error {
+	if err := s.sc.FlushHashes(); err != nil {
+		return fmt.Errorf("flush hashes on the state commit store: %w", err)
+	}
+	return nil
+}

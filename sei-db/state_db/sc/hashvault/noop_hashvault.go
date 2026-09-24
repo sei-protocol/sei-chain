@@ -21,6 +21,10 @@ func (n *NoopHashVault) CommitToHash(_ context.Context, _ uint64, _ []byte) erro
 	return nil
 }
 
+func (n *NoopHashVault) CommittedHash(_ context.Context, _ uint64) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
 func (n *NoopHashVault) Prune(_ context.Context, _ uint64) error {
 	return nil
 }

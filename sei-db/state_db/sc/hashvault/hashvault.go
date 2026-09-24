@@ -19,6 +19,10 @@ type HashVault interface {
 	// If this method returns an error, DO NOT ATTEMPT TO RECOVER WITHOUT HUMAN INTERVENTION!
 	CommitToHash(ctx context.Context, blockHeight uint64, hash []byte) error
 
+	// CommittedHash returns the hash previously recorded for blockHeight. The bool is false when no
+	// hash has been recorded for that height, including every height below the prune boundary.
+	CommittedHash(ctx context.Context, blockHeight uint64) (hash []byte, ok bool, err error)
+
 	// Prune deletes all data for blocks below the specified height. Keeps data for the specified block height.
 	// Note that reporting the hash for a block below the pruning boundary will result in an error
 	// (as it is impossible to validate the correctness of the hash for a block below the pruning boundary).

@@ -289,6 +289,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
+	appHashStore p2p.AppHashStore,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -323,6 +324,7 @@ func buildGigaRouter(
 			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
+		valCfg.AppHashStore = appHashStore
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -346,6 +348,7 @@ func buildGigaRouter(
 		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
+	fnCfg.AppHashStore = appHashStore
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -581,9 +584,12 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
+		if manager.StateDB() == nil {
+			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires a state DB")
+		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(),
+			manager.BlockStore(), manager.StateDB(),
 		)
 		if err != nil {
 			return nil, closer, noneDB, err
