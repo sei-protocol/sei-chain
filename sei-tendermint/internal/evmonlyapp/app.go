@@ -16,14 +16,13 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-const evmOnlyMinGasPrice = 1_000_000_000
 
 // evmOnlyBaseFee is the base fee this application executes every block at.
 // Admission and block validity both price against it, so they cannot diverge.
@@ -71,6 +70,8 @@ type evmOnlyApplication struct {
 
 	chainID          *big.Int
 	chainConfig      *params.ChainConfig
+	execution        gigaconfig.ExecutionConfig
+	minGasPrice      *big.Int
 	storage          *bootstrap.GigaStorageManager
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
@@ -106,18 +107,22 @@ type evmOnlyPending struct {
 var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, and blocks are owned by storage.
+// load tests. State, receipts, and blocks are owned by storage; execution sizes the executor
+// and prices admission.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
+	execution gigaconfig.ExecutionConfig,
 ) abci.Application {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	return &evmOnlyApplication{
 		chainID:          new(big.Int).SetUint64(chainID),
 		chainConfig:      &chainConfig,
+		execution:        execution,
+		minGasPrice:      new(big.Int).SetUint64(execution.MinGasPrice),
 		storage:          storage,
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
@@ -143,10 +148,10 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		}
 		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
 			ChainConfig:         a.chainConfig,
-			MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
-			OCCWorkers:          runtime.GOMAXPROCS(0),
-			ParseWorkers:        runtime.GOMAXPROCS(0),
-			BlockResultPoolSize: 1,
+			MinGasPrice:         a.minGasPrice,
+			OCCWorkers:          workersOrGOMAXPROCS(a.execution.OCCWorkers),
+			ParseWorkers:        workersOrGOMAXPROCS(a.execution.ParseWorkers),
+			BlockResultPoolSize: a.execution.BlockResultPoolSize,
 		},
 			evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 			evmonly.WithMissingAccountState(evmOnlyFundedState{}),
@@ -284,8 +289,8 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a
 	// failed receipt.
-	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(big.NewInt(evmOnlyMinGasPrice)) < 0 {
-		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %d", evmOnlyMinGasPrice)
+	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
+		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %s", a.minGasPrice)
 	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
@@ -319,7 +324,15 @@ func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint25
 // EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
 // at. Admission and eth_gasPrice's suggestion both price against it, so they cannot diverge.
 func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
-	return big.NewInt(evmOnlyMinGasPrice)
+	return new(big.Int).Set(a.minGasPrice)
+}
+
+// workersOrGOMAXPROCS returns n, or GOMAXPROCS when n is 0.
+func workersOrGOMAXPROCS(n int) int {
+	if n == 0 {
+		return runtime.GOMAXPROCS(0)
+	}
+	return n
 }
 
 // EvmCode returns the contract code at address in the most recently committed

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
@@ -361,6 +362,10 @@ func startInProcess(
 				gen = genDoc
 			}
 		}
+		gigaCfg, err := gigaconfig.ReadConfig(ctx.Viper)
+		if err != nil {
+			return fmt.Errorf("read [giga] config: %w", err)
+		}
 		tmNode, err := node.New(
 			goCtx,
 			ctx.Config,
@@ -370,6 +375,7 @@ func startInProcess(
 			tracerProviderOptions,
 			tmtypes.DefaultConsensusPolicy(),
 			node.WithFreezeHeight(config.FreezeHeight),
+			node.WithGigaConfig(gigaCfg),
 		)
 		if err != nil {
 			return fmt.Errorf("error creating node: %w", err)

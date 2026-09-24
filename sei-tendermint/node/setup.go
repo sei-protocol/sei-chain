@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -378,17 +379,19 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 }
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
-// persistent-state directory.
+// persistent-state directory, laid out for nodeMode unless storage pins a mode.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
+	nodeMode string,
 	fc *config.AutobahnFileConfig,
+	storage gigaconfig.StorageConfig,
 ) (*bootstrap.GigaStorageManager, error) {
 	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
 	if err != nil {
 		return nil, err
 	}
-	storageConfig, err := seidbconfig.AutobahnStorageConfig(directory)
+	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
 	}
@@ -398,6 +401,40 @@ func openAutobahnStorageManager(
 	}
 	storageConfig.BlockDBConfig = &blockConfig
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
+// settings applied over the Autobahn defaults.
+func buildGigaStorageConfig(
+	directory string,
+	nodeMode string,
+	storage gigaconfig.StorageConfig,
+) (*seidbconfig.GigaStorageConfig, error) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(directory)
+	if err != nil {
+		return nil, err
+	}
+	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
+		storageConfig.WithFullNodeMode()
+	}
+	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
+	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
+	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
+	storageConfig.CheckpointConfig.TimeInterval = storage.CheckpointTimeInterval
+	storageConfig.CheckpointConfig.BlockInterval = storage.CheckpointBlockInterval
+	return storageConfig, nil
+}
+
+// resolveGigaStorageMode returns the storage mode a node runs: the pinned one when set,
+// otherwise the one matching its node mode.
+func resolveGigaStorageMode(nodeMode string, pinned string) string {
+	if pinned != gigaconfig.StorageModeAuto {
+		return pinned
+	}
+	if nodeMode == config.ModeFull {
+		return gigaconfig.StorageModeFull
+	}
+	return gigaconfig.StorageModeValidator
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,

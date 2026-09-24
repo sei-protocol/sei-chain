@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -368,7 +369,7 @@ func TestPrepareApplicationAutobahnOpensStorage(t *testing.T) {
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app)
+	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -380,7 +381,7 @@ func TestPrepareApplicationAutobahnOpensStorage(t *testing.T) {
 func TestPrepareApplicationEVMOnlyRequiresStorage(t *testing.T) {
 	_, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{EVMOnly: true},
-	}, abci.BaseApplication{})
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
 	require.Error(t, err)
 	_, ok := storage.Get()
 	require.False(t, ok)

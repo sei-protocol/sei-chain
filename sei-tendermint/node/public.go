@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -26,6 +27,7 @@ var logger = seilog.NewLogger("tendermint", "node")
 
 type options struct {
 	freezeHeight uint64
+	giga         gigaconfig.Config
 }
 
 var errAutobahnSeed = errors.New("autobahn is not supported in seed mode")
@@ -40,8 +42,16 @@ func WithFreezeHeight(height uint64) Option {
 	}
 }
 
+// WithGigaConfig sets the [giga] app.toml section a Giga node opens its storage and runs its
+// EVM-only executor with. Without it the node runs gigaconfig.DefaultConfig.
+func WithGigaConfig(cfg gigaconfig.Config) Option {
+	return func(opts *options) {
+		opts.giga = cfg
+	}
+}
+
 func resolveOptions(nodeOptions ...Option) options {
-	var opts options
+	opts := options{giga: gigaconfig.DefaultConfig}
 	for _, apply := range nodeOptions {
 		apply(&opts)
 	}
@@ -67,7 +77,10 @@ func New(
 	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
 		return nil, err
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app)
+	if err := opts.giga.Validate(); err != nil {
+		return nil, fmt.Errorf("giga config: %w", err)
+	}
+	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +169,7 @@ func prepareApplication(
 	ctx context.Context,
 	conf *config.Config,
 	app abci.Application,
+	giga gigaconfig.Config,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	storage := noStorage
@@ -165,14 +179,14 @@ func prepareApplication(
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
 		}
-		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, fc)
+		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
 		}
 		storage = utils.Some(manager)
 		committee = fc
 	}
-	app, err := wrapApplication(conf, app, storage, committee)
+	app, err := wrapApplication(conf, app, storage, committee, giga.Execution)
 	if err != nil {
 		if manager, ok := storage.Get(); ok {
 			err = errors.Join(err, manager.Close())
@@ -189,6 +203,7 @@ func wrapApplication(
 	app abci.Application,
 	storage utils.Option[*bootstrap.GigaStorageManager],
 	committee *config.AutobahnFileConfig,
+	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
 	if conf.EVMOnly {
 		manager, ok := storage.Get()
@@ -205,6 +220,7 @@ func wrapApplication(
 			validators,
 			manager,
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
+			execution,
 		), nil
 	}
 	if conf.MockApp {

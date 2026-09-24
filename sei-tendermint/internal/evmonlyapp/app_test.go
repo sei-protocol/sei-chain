@@ -10,6 +10,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -22,6 +23,9 @@ import (
 )
 
 const evmOnlyTestChainID uint64 = 713715
+
+// evmOnlyMinGasPrice is the admission price the default execution config runs at.
+const evmOnlyMinGasPrice = 1_000_000_000
 
 func decodeEVMOnlyTestTx(t *testing.T, raw []byte) *ethtypes.Transaction {
 	t.Helper()
@@ -90,7 +94,13 @@ func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.App
 	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	return NewEVMOnlyApplication(
+		evmOnlyTestChainID,
+		validators,
+		storage,
+		evmonly.NewFlatKVChangeSetEncoder(storage.SC()),
+		gigaconfig.DefaultConfig.Execution,
+	)
 }
 
 // waitForReceiptVersion blocks until the receipt store has published height. The store applies
