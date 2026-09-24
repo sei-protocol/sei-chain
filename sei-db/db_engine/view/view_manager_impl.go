@@ -483,8 +483,9 @@ func (c *viewManager) Commit() (View, error) {
 	// A bricked manager does no more work. Free to check here: versionLock, which guards fatalErr,
 	// is already held.
 	if c.fatalErr != nil {
+		err := fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
 		c.versionLock.Unlock()
-		return nil, fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
+		return nil, err
 	}
 
 	c.metrics.setViewPhase("lifecycle_backpressure")
