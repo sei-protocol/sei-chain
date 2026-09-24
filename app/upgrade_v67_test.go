@@ -424,7 +424,7 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 	seedV66EscrowShapedBankState(t, chain)
 
 	moduleVersions := chain.ModuleVersions(t)
-	for _, module := range append(retiredStoreKeys, keys.OracleStoreKey) {
+	for _, module := range append(retiredStoreKeys, "oracle") {
 		require.Contains(t, moduleVersions, module,
 			"v6.6 module version map does not contain %s", module)
 		require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(module)),
@@ -479,11 +479,11 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 		stringDifference(beforeVersions, afterVersions),
 		"v6.7 removed an unexpected set of module versions",
 	)
-	require.Contains(t, afterVersions, keys.OracleStoreKey,
+	require.Contains(t, afterVersions, "oracle",
 		"v6.7 removed oracle even though its blocker is still registered")
 
 	requireV67UpgradeStoreVersions(t, chain)
-	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(keys.OracleStoreKey)),
+	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey("oracle")),
 		"v6.7 removed oracle from the upgrade store even though its blocker is still registered")
 
 	var feegrantKey []byte

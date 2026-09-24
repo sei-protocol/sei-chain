@@ -10,7 +10,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/upgradetest"
@@ -53,25 +52,20 @@ func TestV68UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
 func TestV68ApplyUpgradeTwice(t *testing.T) {
 	app := newV68Chain(t)
 	versions := app.UpgradeKeeper.GetModuleVersionMap(app.Ctx())
-	versions[keys.OracleStoreKey] = 1
+	versions["oracle"] = 1
 	app.UpgradeKeeper.SetModuleVersionMap(app.Ctx(), versions)
 	applyV68(t, app)
 	once := app.UpgradeKeeper.GetModuleVersionMap(app.Ctx())
-	require.NotContains(t, once, keys.OracleStoreKey)
+	require.NotContains(t, once, "oracle")
 	require.NotPanics(t, func() { applyV68(t, app) })
 	require.Equal(t, once, app.UpgradeKeeper.GetModuleVersionMap(app.Ctx()))
 }
 
-func TestV68RetainsOracleStateWrittenBeforeUpgrade(t *testing.T) {
+func TestV68DeletesOracleStore(t *testing.T) {
 	app := newV68Chain(t)
-	key := []byte("historical")
-	value := []byte("retained")
-	app.Ctx().KVStore(app.GetKey(keys.OracleStoreKey)).Set(key, value)
+	require.Nil(t, app.GetKey("oracle"))
 	applyV68(t, app)
-	for range 8 {
-		app.RunBlock(nil)
-	}
-	require.Equal(t, value, app.Ctx().KVStore(app.GetKey(keys.OracleStoreKey)).Get(key))
+	require.Nil(t, app.GetKey("oracle"))
 }
 
 // TestV68RejectsOracleTxsWithoutCharging pins that retired oracle transactions
@@ -124,7 +118,7 @@ func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
 		AppState map[string]json.RawMessage `json:"app_state"`
 	}
 	require.NoError(t, json.Unmarshal(exported.AppState, &state))
-	_, found := state.AppState[keys.OracleStoreKey]
+	_, found := state.AppState["oracle"]
 	require.False(t, found)
 }
 
@@ -132,19 +126,19 @@ func TestV68CrossVersion(t *testing.T) {
 	upgradetest.RunCrossVersion(t,
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
-			require.Contains(t, chain.ModuleVersions(t), keys.OracleStoreKey)
+			require.Contains(t, chain.ModuleVersions(t), "oracle")
 			chain.Record(t, "oracle-present", true)
 		},
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
-			require.NotContains(t, chain.ModuleVersions(t), keys.OracleStoreKey)
+			require.NotContains(t, chain.ModuleVersions(t), "oracle")
 			result := chain.Seid("", "q", "oracle")
 			require.Error(t, result.Err)
 			require.Contains(t, result.Combined(), `unknown command "oracle"`)
 			raw := chain.Binary("", "curl", "-sf",
 				"http://127.0.0.1:26657/abci_query?path=%2Fstore%2Foracle%2Fkey")
-			require.NoError(t, raw.Err)
-			require.Contains(t, raw.Combined(), retiredoracle.ErrDeprecated.Error())
+			require.NotContains(t, raw.Combined(), retiredoracle.ErrDeprecated.Error())
+			require.Contains(t, raw.Combined(), "unknown")
 		},
 	)
 }

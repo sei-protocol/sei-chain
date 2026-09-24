@@ -124,7 +124,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				if err != nil {
 					return nil, err
 				}
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, oracleModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, "oracle")
 				return newVM, nil
 			}
 

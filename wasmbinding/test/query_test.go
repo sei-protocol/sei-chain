@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -39,51 +38,16 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 func TestWasmUnknownQuery(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
-	queryData := json.RawMessage(`{"exchange_rates":{}}`)
-	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
-	rawQuery, err := json.Marshal(query)
-	require.NoError(t, err)
-
-	_, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.Error(t, err)
-	require.ErrorIs(t, err, retiredoracle.ErrDeprecated)
-
 	epoch_req := epochbinding.SeiEpochQuery{}
-	queryData, err = json.Marshal(epoch_req)
+	queryData, err := json.Marshal(epoch_req)
 	require.NoError(t, err)
-	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.EpochRoute, QueryData: queryData}
-	rawQuery, err = json.Marshal(query)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.EpochRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
 	require.NoError(t, err)
 
 	_, err = customQuerier(testWrapper.Ctx, rawQuery)
 	require.Error(t, err)
 	require.Equal(t, err, epochtypes.ErrUnknownSeiEpochQuery)
-}
-
-func TestWasmGetOracleExchangeRates(t *testing.T) {
-	testWrapper, customQuerier := SetupWasmbindingTest(t)
-
-	queryData := json.RawMessage(`{"exchange_rates":{}}`)
-	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
-
-	rawQuery, err := json.Marshal(query)
-	require.NoError(t, err)
-
-	_, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.ErrorIs(t, err, retiredoracle.ErrDeprecated)
-}
-
-func TestWasmGetOracleTwaps(t *testing.T) {
-	testWrapper, customQuerier := SetupWasmbindingTest(t)
-
-	queryData := json.RawMessage(`{"oracle_twaps":{"lookback_seconds":200}}`)
-	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
-
-	rawQuery, err := json.Marshal(query)
-	require.NoError(t, err)
-
-	_, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.ErrorIs(t, err, retiredoracle.ErrDeprecated)
 }
 
 func TestWasmGetEpoch(t *testing.T) {

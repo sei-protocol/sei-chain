@@ -26,7 +26,7 @@ var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, seidbkeys.IBCStoreKey, upgradetypes.StoreKey, seidbkeys.FeegrantStoreKey,
-	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, seidbkeys.CapabilityStoreKey, seidbkeys.OracleStoreKey,
+	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, seidbkeys.CapabilityStoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 
@@ -43,7 +43,6 @@ var Modules = []string{
 	"gov",
 	seidbkeys.IBCStoreKey,
 	"mint",
-	"oracle",
 	"params",
 	"slashing",
 	"staking",

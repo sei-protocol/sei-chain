@@ -139,7 +139,7 @@ func TestV68RemovesOracleModuleVersion(t *testing.T) {
 	testWrapper.App.RegisterUpgradeHandlers()
 
 	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	versionMap[storekeys.OracleStoreKey] = 1
+	versionMap["oracle"] = 1
 	testWrapper.App.UpgradeKeeper.SetModuleVersionMap(testWrapper.Ctx, versionMap)
 
 	testWrapper.App.UpgradeKeeper.ApplyUpgrade(testWrapper.Ctx, types.Plan{
@@ -147,7 +147,7 @@ func TestV68RemovesOracleModuleVersion(t *testing.T) {
 		Height: testWrapper.Ctx.BlockHeight(),
 	})
 
-	require.NotContains(t, testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx), storekeys.OracleStoreKey)
+	require.NotContains(t, testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx), "oracle")
 }
 
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {

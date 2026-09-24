@@ -105,7 +105,6 @@ import (
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/retiredibc"
 	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
-	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -225,16 +224,13 @@ var (
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
 		transferModuleName:             {authtypes.Minter, authtypes.Burner},
-		oracleModuleName:               nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
-	allowedReceivingModAcc = map[string]bool{
-		oracleModuleName: true,
-	}
+	allowedReceivingModAcc = map[string]bool{}
 
 	// kvStoreKeyNames is the canonical, in-order list of module KV store
 	// names mounted on the SeiDB / memiavl backend. It is the single source
@@ -246,7 +242,7 @@ var (
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, storekeys.IBCStoreKey, upgradetypes.StoreKey, feegrantModuleName,
-		evidencetypes.StoreKey, transferModuleName, capabilityModuleName, oracleModuleName,
+		evidencetypes.StoreKey, transferModuleName, capabilityModuleName,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
@@ -284,7 +280,6 @@ const (
 	MinGasEVMTx          = 21000
 	capabilityModuleName = "capability"
 	feegrantModuleName   = "feegrant"
-	oracleModuleName     = "oracle"
 	transferModuleName   = "transfer"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
@@ -466,9 +461,6 @@ type App struct {
 // Query handles ABCI queries without exposing retired IBC stores.
 func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
 	if response := retiredibc.QueryResponse(req.Path); response != nil {
-		return response, nil
-	}
-	if response := retiredoracle.QueryResponse(req.Path); response != nil {
 		return response, nil
 	}
 	return app.BaseApp.Query(ctx, req)
@@ -1079,7 +1071,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{oracleModuleName},
+			Added: []string{"oracle"},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -1147,6 +1139,13 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
+
+	if upgradeInfo.Name == "v6.8" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Deleted: []string{"oracle"},
+		}
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 }
 
 // AppName returns the name of the App
@@ -1174,18 +1173,12 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 	app.initializeRetiredTransferModuleAccount(ctx)
-	app.initializeRetiredOracleModuleAccount(ctx)
 	return response
 }
 
 // initializeRetiredTransferModuleAccount materializes the retained transfer module account during genesis.
 func (app *App) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
 	app.AccountKeeper.GetModuleAccount(ctx, transferModuleName)
-}
-
-// initializeRetiredOracleModuleAccount materializes the retained oracle module account during genesis.
-func (app *App) initializeRetiredOracleModuleAccount(ctx sdk.Context) {
-	app.AccountKeeper.GetModuleAccount(ctx, oracleModuleName)
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {

@@ -33,10 +33,6 @@ var retainedStores = map[string]struct {
 		upgrade: "v6.7",
 		reason:  "module removed in v6.7; client, connection and channel state kept for historical state access",
 	},
-	storekeys.OracleStoreKey: {
-		upgrade: "v6.8",
-		reason:  "module removed in v6.8; oracle state kept for historical state access",
-	},
 }
 
 // storeKeyOwners names the owning module for the KV stores whose key differs

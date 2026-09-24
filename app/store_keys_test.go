@@ -71,13 +71,3 @@ func TestCapabilityStoreRemainsMounted(t *testing.T) {
 	store.Set([]byte("owner"), []byte("retained"))
 	require.Equal(t, []byte("retained"), store.Get([]byte("owner")))
 }
-
-func TestOracleStoreRemainsMounted(t *testing.T) {
-	require.Contains(t, kvStoreKeyNames, keys.OracleStoreKey)
-
-	testApp := Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{})
-	store := ctx.KVStore(testApp.GetKey(keys.OracleStoreKey))
-	store.Set([]byte("historical"), []byte("retained"))
-	require.Equal(t, []byte("retained"), store.Get([]byte("historical")))
-}

@@ -13,11 +13,10 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
-var v68OfflineSourceStores = []string{oracletypes.StoreKey}
+var v68OfflineSourceStores = []string{"oracle"}
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
@@ -59,10 +58,7 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 	versions := offlineUpgradeModuleVersions(t, testApp)
 	require.NotContains(t, versions, "oracle")
 	require.False(t, offlineUpgradeHasModuleVersion(t, testApp, "oracle"))
-	requireOfflineUpgradeStoresMounted(t, testApp, v68OfflineSourceStores)
-	for storeName, want := range artifact.Stores {
-		require.Equal(t, want, snapshotCommittedOfflineUpgradeStore(t, testApp, storeName))
-	}
+	require.Nil(t, testApp.GetKey("oracle"))
 	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
 	lastName, lastHeight := testApp.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
 	require.Equal(t, artifact.Upgrade, lastName)
@@ -98,6 +94,6 @@ func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, up
 
 func seedV68OfflineUpgradeState(t *testing.T, testApp *App, ctx sdk.Context) offlineUpgradeRetainedState {
 	t.Helper()
-	ctx.KVStore(testApp.GetKey(oracletypes.StoreKey)).Set([]byte("historical"), []byte("retained"))
+	ctx.KVStore(testApp.GetKey("oracle")).Set([]byte("historical"), []byte("retained"))
 	return offlineUpgradeRetainedState{}
 }

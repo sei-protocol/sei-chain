@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
@@ -35,10 +34,6 @@ func NewQueryPlugin(eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.To
 		evmHandler:          *evmh,
 		stakingKeeper:       sk,
 	}
-}
-
-func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
-	return nil, retiredoracle.ErrDeprecated
 }
 
 func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {

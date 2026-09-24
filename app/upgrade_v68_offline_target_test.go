@@ -46,7 +46,6 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	testApp := openOfflineUpgradeApp(t, root, false)
 	requireV68OfflinePersistedPlanHasHandler(t, testApp, artifact)
 	require.Equal(t, artifact.ModuleVersions, offlineUpgradeModuleVersions(t, testApp))
-	requireV68OfflineRetainedStores(t, testApp, artifact)
 	finalizeV68OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
 	commitOfflineUpgradeApp(t, testApp)
 	closeOfflineUpgradeApp(t, testApp)
@@ -54,7 +53,7 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	requireV68OfflineRetainedStores(t, reopened, artifact)
+	require.Nil(t, reopened.GetKey("oracle"))
 	return committedOfflineUpgradeHash(t, reopened)
 }
 
@@ -75,6 +74,7 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
+	require.Nil(t, reopened.GetKey("oracle"))
 	return committedOfflineUpgradeHash(t, reopened)
 }
 
@@ -113,10 +113,8 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	chainID := readOfflineUpgradeGenesisChainID(t, home)
 	testApp := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	sourceHeight := testApp.LastBlockHeight()
-	readCtx := offlineUpgradeContext(testApp, sourceHeight, chainID)
 	beforeVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, beforeVersions, "oracle")
-	beforeStores := snapshotOfflineUpgradeStores(t, testApp, readCtx, []string{"oracle"})
 	require.True(t, testApp.UpgradeKeeper.HasHandler("v6.8"))
 	upgradeHeight := sourceHeight + 1
 	upgradeCtx := offlineUpgradeContext(testApp, upgradeHeight, chainID)
@@ -126,15 +124,7 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	reopened := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineVersionMap(t, reopened, beforeVersions)
-	requireOfflineUpgradeRetainedStores(t, reopened, beforeStores)
-}
-
-func requireV68OfflineRetainedStores(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
-	t.Helper()
-	requireOfflineUpgradeRetainedStores(t, testApp, artifact.Stores)
-	for storeName, want := range artifact.Stores {
-		require.Equal(t, want, snapshotCommittedOfflineUpgradeStore(t, testApp, storeName))
-	}
+	require.Nil(t, reopened.GetKey("oracle"))
 }
 
 func requireV68OfflineVersionMap(t *testing.T, testApp *App, before []string) {
