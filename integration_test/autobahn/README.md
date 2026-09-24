@@ -305,6 +305,8 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
+- `eth_estimateGas`, for the lowest gas limit that lets a message succeed
+  against current committed state;
 - `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
   height (including any height still within the node's retention window) or
   by hash.
@@ -431,6 +433,23 @@ explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
 go-ethereum's own `eth_call` behavior.
 
+### Estimate gas with `cast estimate`
+
+```sh
+cast estimate \
+  --rpc-url http://127.0.0.1:8545 \
+  0xYOUR_CONTRACT_ADDRESS \
+  "balanceOf(address)(uint256)" \
+  0xYOUR_ADDRESS
+```
+
+`eth_estimateGas` accepts the same block tags as `eth_call` and rejects
+historical state the same way. A caller-omitted gas limit uses the block gas
+limit as the search ceiling rather than the fixed cap `eth_call` defaults to;
+an explicit limit above that cap is silently lowered to it, same as `eth_call`.
+A call that still fails at the highest allowed gas returns the same
+ABI-decoded revert error `eth_call` would.
+
 ### Fetch contract code with `cast code`
 
 ```sh
@@ -481,10 +500,9 @@ transactions.
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no
 by-block-and-index transaction lookups or block-transaction-count methods.
-There are also no fee-estimation, gas-estimation, log, or WebSocket
-subscription methods. Commands that depend on those queries cannot operate
-normally; raw transactions must provide gas limit and gas price offline as in
-the example above.
+There are also no fee-estimation, log, or WebSocket subscription methods.
+Commands that depend on those queries cannot operate normally; raw
+transactions must still provide gas price offline as in the example above.
 
 ## Tear down
 

@@ -365,6 +365,13 @@ func (env *Environment) EvmBaseFee() (*big.Int, error) {
 	return env.App.EvmBaseFee()
 }
 
+// EvmEstimateGas returns the lowest gas limit that lets msg execute
+// successfully against the current committed EVM state, without creating a
+// transaction or persisting any state change.
+func (env *Environment) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	return env.App.EvmEstimateGas(ctx, msg, gasCap)
+}
+
 // CheckTx checks the transaction without executing it. The transaction won't
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
