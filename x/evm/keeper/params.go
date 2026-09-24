@@ -209,19 +209,6 @@ func (k *Keeper) GetDeliverTxHookWasmGasLimit(ctx sdk.Context) uint64 {
 	}
 }
 
-func (k *Keeper) GetRegisterPointerDisabled(ctx sdk.Context) bool {
-	if !ctx.IsTracing() {
-		return k.GetParams(ctx).RegisterPointerDisabled
-	}
-	switch {
-	case semver.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
-		// Not present in pre-5.8.0 params; use default
-		return types.DefaultRegisterPointerDisabled
-	default:
-		return k.GetParams(ctx).RegisterPointerDisabled
-	}
-}
-
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	if k.EthReplayConfig.Enabled || k.EthBlockTestConfig.Enabled {
 		// replay is for eth mainnet so always return 1

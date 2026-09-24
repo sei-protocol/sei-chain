@@ -4,6 +4,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
+
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -30,4 +35,30 @@ func TestBroadcastTxCommitWithoutAutobahnUsesMempool(t *testing.T) {
 	// Verify: mempool error, not the Autobahn sentinel.
 	require.Error(t, err)
 	require.False(t, errors.Is(err, ErrBroadcastTxCommitUnsupported))
+}
+
+func TestEnvironmentEvmRPCWrappers(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	env := &Environment{App: proxy.New(abci.BaseApplication{})}
+
+	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
+	nonce := env.EvmTransactionCount(address)
+	height := env.EvmBlockNumber()
+	chainID := env.EvmChainID()
+	_, chainConfigErr := env.EvmChainConfig()
+	_, gasLimitErr := env.EvmGasLimit()
+	_, callErr := env.EvmCall(t.Context(), &ethcore.Message{})
+	_, baseFeeErr := env.EvmBaseFee()
+	_, codeErr := env.EvmCode(address)
+
+	// Verify: nonce/height/chain-id hit Application; config/gas/call/fee/code
+	// error because BaseApplication does not implement those optional interfaces.
+	require.Equal(t, uint64(0), nonce)
+	require.Equal(t, uint64(0), height)
+	require.Equal(t, uint64(0), chainID)
+	require.Error(t, chainConfigErr)
+	require.Error(t, gasLimitErr)
+	require.Error(t, callErr)
+	require.Error(t, baseFeeErr)
+	require.Error(t, codeErr)
 }

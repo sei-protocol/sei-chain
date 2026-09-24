@@ -558,7 +558,8 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	require.Nil(t, result)
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 
-	tx, sender, err := parseTx(rawTx, ethtypes.LatestSignerForChainID(chainID))
+	tx := decodeTx(t, rawTx)
+	sender, err = ethtypes.Sender(ethtypes.LatestSignerForChainID(chainID), tx)
 	require.NoError(t, err)
 	result, err = executor.ExecutePreparedBlock(t.Context(), PreparedBlock{
 		Context: ctx,

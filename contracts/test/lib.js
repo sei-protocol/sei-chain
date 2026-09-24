@@ -62,8 +62,6 @@ const ABI = {
 }
 
 const WASM = {
-    CW1155: "../contracts/wasm/cw1155_base.wasm",
-    CW721: "../contracts/wasm/cw721_base.wasm",
     CW20: "../contracts/wasm/cw20_base.wasm",
 }
 
