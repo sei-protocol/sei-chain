@@ -79,6 +79,8 @@ const (
 	// runExecute on the validators that are still up.
 	haltStableWindow  = 20 * time.Second
 	haltStableTimeout = 2 * time.Minute
+	seidExitTimeout   = 30 * time.Second
+	seidExitPoll      = 200 * time.Millisecond
 
 	evmOnlyLoadTxs     = 4_000
 	evmOnlyLoadTimeout = 3 * time.Minute
@@ -143,6 +145,10 @@ func assertEVMOnlyEnabled(t *testing.T) {
 	}
 }
 
+// TestMain brings up the autobahn docker cluster and the fullnode sidecar
+// before the tests run and tears them down afterward. The working directory
+// is changed to the repo root so the `make docker-cluster-*` targets resolve
+// their relative paths.
 func TestMain(m *testing.M) {
 	root, err := findRepoRoot()
 	if err != nil {
@@ -168,6 +174,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// findRepoRoot walks up from the current working directory looking for the
+// first directory containing a go.mod.
 func findRepoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -206,6 +214,8 @@ func setupCluster() error {
 	if err := runMake([]string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, "docker-cluster-start"); err != nil {
 		return fmt.Errorf("docker-cluster-start: %w", err)
 	}
+	// Count created containers (they exist immediately post-compose-up) to
+	// determine how many launch.complete entries to wait for.
 	expected, err := countSeiContainers()
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
@@ -469,12 +479,23 @@ func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
 	return 0
 }
 
-// killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
-// (e.g. the process already gone).
+// killNode kills seid inside sei-node-<i> via pkill and waits until the
+// process is gone. Tolerates pkill non-zero (already dead). Restarting
+// before that wait would spawn a second seid in the same container.
 func killNode(t *testing.T, i int) {
 	t.Helper()
+	name := fmt.Sprintf("sei-node-%d", i)
 	t.Logf("killing seid on node %d...", i)
-	_ = exec.Command("docker", "exec", fmt.Sprintf("sei-node-%d", i), "sh", "-c", "pkill seid").Run()
+	_ = exec.Command("docker", "exec", name, "sh", "-c", "pkill seid").Run()
+	deadline := time.Now().Add(seidExitTimeout)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("docker", "exec", name, "sh", "-c", "pgrep seid").Output()
+		if err != nil || strings.TrimSpace(string(out)) == "" {
+			return
+		}
+		time.Sleep(seidExitPoll)
+	}
+	t.Fatalf("seid still running on %s after pkill (%s)", name, seidExitTimeout)
 }
 
 // restartNode re-invokes the container's seid-start script inside sei-node-<i>.

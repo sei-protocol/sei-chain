@@ -693,11 +693,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.AutobahnConfigFile != "" {
-		storage, ok := n.gigaStorageManager.Get()
-		if !ok {
-			return errors.New("serving the Autobahn EVM RPC requires Giga storage")
-		}
+	if storage, ok := n.gigaStorageManager.Get(); ok {
 		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
 		if err != nil {
 			return err
