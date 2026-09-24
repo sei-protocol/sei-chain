@@ -69,7 +69,13 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 	// into "not enough gas" forever. Defaulting it to zero here gives
 	// BLOBBASEFEE the same literal zero buildBlockContext already gives Call.
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
-	if ctxErr := estimateCtx.Err(); ctxErr != nil {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// The caller's own context (not just our internal deadline below) is
+		// done: propagate that as-is so a client disconnect reads as
+		// context.Canceled rather than the timeout message below.
+		return 0, nil, ctxErr
+	}
+	if estimateCtx.Err() != nil {
 		// gasestimator.Estimate never checks whether a probe's EVM was
 		// cancelled: this fork's interpreter only samples cancellation at
 		// JUMP/JUMPI, clearing the resulting errStopToken to nil just like a
@@ -77,11 +83,6 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		// successful halt at less gas than the call actually needs. Once the
 		// deadline has fired, nothing Estimate returned can be trusted.
 		return 0, nil, fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
-	}
-	if err == nil {
-		if stateErr := stateDB.Error(); stateErr != nil {
-			return 0, nil, stateErr
-		}
 	}
 	return estimate, revert, err
 }

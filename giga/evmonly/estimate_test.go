@@ -189,6 +189,43 @@ func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
 	require.ErrorContains(t, err, "timeout")
 }
 
+func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contractAddr := crypto.CreateAddress(sender, 0)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+	store := NewMemoryStore(state)
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+
+	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
+	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{deploy},
+	})
+	require.NoError(t, err)
+
+	msg := callMessage(sender, &contractAddr)
+	msg.GasLimit = 1_000_000_000_000
+
+	// A caller cancellation partway through the search (e.g. a disconnected
+	// client), not our own internal deadline, must read back as
+	// context.Canceled rather than the "exceeded ... timeout" message.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+
+	_, _, err = executor.EstimateGas(ctx, blockContext(chainID), msg, 0)
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 // contextOpcodeReturnSuffix stores the top stack word to memory and returns
 // it: PUSH1 0, MSTORE, PUSH1 32, PUSH1 0, RETURN.
 var contextOpcodeReturnSuffix = []byte{0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3}
