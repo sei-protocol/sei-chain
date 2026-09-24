@@ -19,9 +19,11 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"go.opentelemetry.io/otel"
 )
 
 // evmOnlyBaseFee is the base fee this application executes every block at.
@@ -91,7 +93,15 @@ type evmOnlyApplication struct {
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[*senderCache]
+	// finalizePhases breaks FinalizeBlock into its stages around the executor.
+	// FinalizeBlock is serialized by state, so one timer serves the app; it
+	// is only touched with that lock held.
+	finalizePhases *seidbmetrics.PhaseTimer
 }
+
+// finalizeMeterName is the OTel meter FinalizeBlock's phase timer records to,
+// as evmonly_finalize_phase_duration_seconds_total.
+const finalizeMeterName = "evmonly_app"
 
 type evmOnlyState struct {
 	executor        utils.Option[*evmonly.Executor]
@@ -139,6 +149,7 @@ func NewEVMOnlyApplication(
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
+		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), "evmonly_finalize"),
 	}
 }
 
@@ -453,6 +464,12 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if height != state.nextHeight {
 			return nil, fmt.Errorf("EVM-only block height %d does not match next height %d", height, state.nextHeight)
 		}
+		// Closes the stage in flight, so the gap until the next block is charged to neither.
+		defer a.finalizePhases.Reset()
+		a.finalizePhases.SetPhase("take_senders")
+		senders := a.takeSenders(req.Txs)
+		// The executor's own timer breaks execution down further.
+		a.finalizePhases.SetPhase("execute")
 		result, err := executor.ExecuteBlock(ctx, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
 				Number:      number,
@@ -466,7 +483,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
 			Txs:     req.Txs,
-			Senders: a.takeSenders(req.Txs),
+			Senders: senders,
 		})
 		if err != nil {
 			return nil, err
@@ -478,6 +495,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		}
 		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
 		state.pendingBlockTime = timestamp
+		a.finalizePhases.SetPhase("tx_results")
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
