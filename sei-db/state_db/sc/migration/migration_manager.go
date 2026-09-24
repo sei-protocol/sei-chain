@@ -357,7 +357,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 				}},
 			})
 			// Mirror the on-disk version bump in the in-memory metric so the
-			// version gauge and the boundary-snapshot loop see the
+			// version gauge and the boundary snapshot gauge see the
 			// completion at the same moment the DB does.
 			m.metrics.SetVersion(m.targetVersion)
 			metadataPairsWritten = 2
