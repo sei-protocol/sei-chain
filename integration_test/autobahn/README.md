@@ -146,8 +146,9 @@ The operational EVM-only configuration is:
 | BlockDB minimum retention age | `30s` |
 
 The node binary is `seid`. Each node first runs the normal `seid init` and
-genesis scripts, then deployment enables `evm-only = true` in `config.toml` and
-starts the node with:
+genesis scripts, then deployment points `autobahn-config-file` at the generated
+committee config. Autobahn serves the EVM JSON-RPC only and runs the EVM-only
+executor unless `mock-app` is set. Nodes start with:
 
 ```sh
 seid start --chain-id sei --inv-check-period 0 --freeze-height 0
@@ -155,7 +156,7 @@ seid start --chain-id sei --inv-check-period 0 --freeze-height 0
 
 The shared genesis document contains four gentxs and four validators with raw
 genesis power 10. On startup, `seid` replaces the Cosmos application with the
-EVM-only application and derives its active four-validator set from
+EVM-only application (unless `mock-app` is set) and derives its active four-validator set from
 `autobahn.json`, assigning unit power to every committee member. Cosmos auth,
 bank, staking, mint, and test-account state in `genesis.json` is therefore not
 the EVM execution genesis.
@@ -301,6 +302,7 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getTransactionByHash`, for a finalized transaction's decoded fields;
 - `eth_getBalance`, for the current committed EVM balance;
 - `eth_getTransactionCount`, for the current committed nonce;
+- `eth_getCode`, for the current committed contract code at an address;
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
@@ -429,6 +431,17 @@ gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
 go-ethereum's own `eth_call` behavior.
+
+### Fetch contract code with `cast code`
+
+```sh
+cast code --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS
+```
+
+`eth_getCode` accepts the same `latest`/`safe`/`finalized`/`pending` block tags
+as `eth_getBalance`; an explicit height, an explicit hash, or `earliest`
+returns the same historical-state error. An address with no code, including an
+EOA or an address that was never touched, returns `0x`, as go-ethereum does.
 
 Block context for a call is a mix of real and best-effort values: `Number` and
 `GasLimit` are the actual current committed values, but `Coinbase` is always

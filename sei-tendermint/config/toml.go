@@ -148,16 +148,13 @@ fast-check-tx = {{ .BaseConfig.FastCheckTx }}
 # TEST-ONLY
 mock-app = {{ .BaseConfig.MockApp }}
 
-# EVMOnly replaces the provided ABCI application with the disk-backed EVM-only executor.
-# TEST-ONLY
-evm-only = {{ .BaseConfig.EVMOnly }}
-
 #######################################################################
 ###                   Autobahn Configuration                        ###
 #######################################################################
 
 # AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-# configuration.
+# configuration. When set, the node serves the EVM JSON-RPC instead of Tendermint
+# RPC, and runs the disk-backed EVM-only executor unless mock-app is set.
 #
 # Empty disables Autobahn.
 #

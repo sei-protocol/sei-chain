@@ -24,6 +24,19 @@ func (api *stateAPI) GetBalance(_ context.Context, address common.Address, block
 	return (*hexutil.Big)(balance.ToBig()), nil
 }
 
+// GetCode returns the contract code at address from the current committed EVM
+// state. An account without code yields empty bytes, encoded as "0x".
+func (api *stateAPI) GetCode(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	if err := requireCurrentState(block); err != nil {
+		return nil, err
+	}
+	code, err := api.backend.EvmCode(address)
+	if err != nil {
+		return nil, err
+	}
+	return code, nil
+}
+
 func requireCurrentState(block ethrpc.BlockNumberOrHash) error {
 	number, ok := block.Number()
 	if !ok {

@@ -97,7 +97,7 @@ type AutobahnFileConfig struct {
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 }
 
-// AutobahnEVMOnlyChainID is the chain ID of the test-only EVM executor.
+// AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
 const AutobahnEVMOnlyChainID uint64 = 713715
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {

@@ -44,6 +44,18 @@ func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	return env.App.EvmBalance(address, nil)
 }
 
+// EvmGasLimit returns the gas limit of the wrapped application's most
+// recently committed block.
+func (env *Environment) EvmGasLimit() (uint64, error) {
+	return env.App.EvmGasLimit()
+}
+
+// EvmMinGasPrice returns the minimum effective gas price the wrapped
+// application admits a transaction at.
+func (env *Environment) EvmMinGasPrice() (*big.Int, error) {
+	return env.App.EvmMinGasPrice()
+}
+
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 	if giga, ok := env.gigaRouter().Get(); ok {
 		if v, ok := giga.Mempool().Get(); ok {
@@ -335,9 +347,10 @@ func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
 	return env.App.EvmChainConfig()
 }
 
-// EvmGasLimit returns the gas limit of the most recently committed block.
-func (env *Environment) EvmGasLimit() (uint64, error) {
-	return env.App.EvmGasLimit()
+// EvmCode returns the contract code at address in the current committed EVM
+// state.
+func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
+	return env.App.EvmCode(address)
 }
 
 // EvmCall executes msg as a read-only call against the current committed EVM

@@ -88,14 +88,13 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestPrepareApplicationEVMOnly(t *testing.T) {
+func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
-			EVMOnly:     true,
 			MockApp:     true,
 			FastCheckTx: true,
 		},
@@ -105,22 +104,13 @@ func TestPrepareApplicationEVMOnly(t *testing.T) {
 	manager, ok := storage.Get()
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	require.NotNil(t, manager.BlockStore())
-	require.NotNil(t, manager.StateDB())
-	require.NotNil(t, manager.SC())
-	require.Nil(t, manager.SS())
-	require.NotNil(t, manager.ReceiptDB())
 
-	require.Equal(t, "evmonly", prepared.Info().Data)
-	validators := prepared.GetValidators()
-	require.Len(t, validators, 1)
-	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
+	_, ok = prepared.(*MockApp)
+	require.True(t, ok)
 }
 
-func TestPrepareApplicationEVMOnlyRequiresReadableAutobahnConfig(t *testing.T) {
+func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
 	_, _, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig:         config.BaseConfig{EVMOnly: true},
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, abci.BaseApplication{})
 
@@ -141,27 +131,6 @@ func TestValidateNodeSetupConfigAllowsMockAppWithAutobahn(t *testing.T) {
 	err := validateNodeSetupConfig(&config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp: true,
-		},
-		AutobahnConfigFile: "/tmp/autobahn.json",
-	})
-
-	require.NoError(t, err)
-}
-
-func TestValidateNodeSetupConfigRejectsEVMOnlyWithoutAutobahn(t *testing.T) {
-	err := validateNodeSetupConfig(&config.Config{
-		BaseConfig: config.BaseConfig{
-			EVMOnly: true,
-		},
-	})
-
-	require.Error(t, err)
-}
-
-func TestValidateNodeSetupConfigAllowsEVMOnlyWithAutobahn(t *testing.T) {
-	err := validateNodeSetupConfig(&config.Config{
-		BaseConfig: config.BaseConfig{
-			EVMOnly: true,
 		},
 		AutobahnConfigFile: "/tmp/autobahn.json",
 	})
