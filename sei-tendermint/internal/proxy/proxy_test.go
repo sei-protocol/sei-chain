@@ -227,6 +227,29 @@ func TestEvmGasLimitDelegatesToASupportingApplication(t *testing.T) {
 	require.Equal(t, uint64(35_000_000), got)
 }
 
+func TestEvmMinGasPriceErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+	_, err := proxyApp.EvmMinGasPrice()
+	require.Error(t, err)
+}
+
+type testEvmMinGasPriceApp struct {
+	testApp
+	minGasPrice *big.Int
+}
+
+func (app testEvmMinGasPriceApp) EvmMinGasPrice() *big.Int {
+	return app.minGasPrice
+}
+
+func TestEvmMinGasPriceDelegatesToASupportingApplication(t *testing.T) {
+	want := big.NewInt(1_000_000_000)
+	proxyApp := New(testEvmMinGasPriceApp{minGasPrice: want})
+	got, err := proxyApp.EvmMinGasPrice()
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
 func TestEvmChainIDDelegatesToApplication(t *testing.T) {
 	proxyApp := New(testApp{})
 

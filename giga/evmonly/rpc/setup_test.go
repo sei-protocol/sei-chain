@@ -29,6 +29,7 @@ type testBackend struct {
 	chainID          func() uint64
 	code             func(common.Address) ([]byte, error)
 	gasLimit         func() (uint64, error)
+	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
 	transactionCount func(common.Address) uint64
@@ -78,6 +79,10 @@ func (b *testBackend) EvmGasLimit() (uint64, error) {
 	return b.gasLimit()
 }
 
+func (b *testBackend) EvmMinGasPrice() (*big.Int, error) {
+	return b.minGasPrice()
+}
+
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	b.proxyCalls++
 	return b.proxy
@@ -100,4 +105,63 @@ type stubReceiptStore struct {
 
 func (s stubReceiptStore) GetReceipt(ctx sdk.Context, hash common.Hash) (*evmtypes.Receipt, error) {
 	return s.get(ctx, hash)
+}
+
+// stubBlockStatsStore overrides GetBlockStats to answer ErrNotFound for each height in
+// holeHeights, regardless of the wrapped store's real data.
+type stubBlockStatsStore struct {
+	receipt.ReceiptStore
+	holeHeights map[uint64]bool
+}
+
+func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
+	if s.holeHeights[blockNumber] {
+		return receipt.BlockStats{}, receipt.ErrNotFound
+	}
+	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
+}
+
+// stubIteratingReceiptStore overrides IterateReceipts on an otherwise real store, so tests can
+// exercise the iterator path without a real block-ordered backend.
+type stubIteratingReceiptStore struct {
+	receipt.ReceiptStore
+	iterate func(startBlock uint64) (receipt.ReceiptIterator, error)
+}
+
+func (s stubIteratingReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+	return s.iterate(startBlock)
+}
+
+// fakeReceiptEntry is one row a fakeReceiptIterator replays.
+type fakeReceiptEntry struct {
+	blockNumber uint64
+	txHash      common.Hash
+	receipt     *evmtypes.Receipt
+}
+
+// fakeReceiptIterator replays a fixed list of entries as a receipt.ReceiptIterator.
+type fakeReceiptIterator struct {
+	entries []fakeReceiptEntry
+	i       int
+}
+
+func (it *fakeReceiptIterator) Next() (bool, error) {
+	it.i++
+	return it.i <= len(it.entries), nil
+}
+
+func (it *fakeReceiptIterator) BlockNumber() uint64 {
+	return it.entries[it.i-1].blockNumber
+}
+
+func (it *fakeReceiptIterator) TxHash() common.Hash {
+	return it.entries[it.i-1].txHash
+}
+
+func (it *fakeReceiptIterator) Receipt() (*evmtypes.Receipt, error) {
+	return it.entries[it.i-1].receipt, nil
+}
+
+func (it *fakeReceiptIterator) Close() error {
+	return nil
 }
