@@ -52,9 +52,8 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	_, codeErr := env.EvmCode(address)
 	_, _, estimateGasErr := env.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0)
 
-	// Verify: nonce/height/chain-id hit Application; config/gas/call/fee/code/
-	// estimate error because BaseApplication does not implement those optional
-	// interfaces.
+	// Verify: nonce/height/chain-id hit Application; the rest error because
+	// BaseApplication implements none of those optional interfaces.
 	require.Equal(t, uint64(0), nonce)
 	require.Equal(t, uint64(0), height)
 	require.Equal(t, uint64(0), chainID)

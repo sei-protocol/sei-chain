@@ -45,8 +45,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	evmApp := app.(*evmOnlyApplication)
 	slot := common.BytesToHash([]byte{0x44})
 	writtenValue := common.BytesToHash([]byte{0x55})
-	// This contract unconditionally SSTOREs on every invocation; the search's
-	// probes must never let that write reach committed state.
+	// Unconditionally SSTOREs; a probe must never let this reach committed state.
 	runtime := storeCode(slot, writtenValue)
 	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
 

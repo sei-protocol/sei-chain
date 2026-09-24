@@ -350,10 +350,8 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 }
 
 // currentExecutionContext returns the executor and block context for a
-// read-only EVM execution against the most recently committed state, failing
-// if InitChain has not run or a finalized block is staged but not yet
-// committed (NUMBER/TIMESTAMP/PrevRandao advance only on Commit). action names
-// the caller for its error messages, e.g. "call" or "gas estimate".
+// read-only EVM execution against the most recently committed state. action
+// names the caller for its error messages, e.g. "call" or "gas estimate".
 func (a *evmOnlyApplication) currentExecutionContext(action string) (*evmonly.Executor, evmonly.BlockContext, error) {
 	for state := range a.state.Lock() {
 		executor, ok := state.executor.Get()
@@ -367,8 +365,10 @@ func (a *evmOnlyApplication) currentExecutionContext(action string) (*evmonly.Ex
 		if !ok {
 			return nil, evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
 		}
-		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
-		// FinalizeBlock, and only the current block's hash is tracked at all.
+		// Coinbase and ParentHash are left zero.
+		//
+		// Executor opens its own state snapshot later, outside this lock, so a
+		// commit landing in between can pair this BlockContext with a newer one.
 		return executor, evmonly.BlockContext{
 			Number:      number,
 			Time:        state.lastBlockTime,

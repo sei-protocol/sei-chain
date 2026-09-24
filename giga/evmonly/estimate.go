@@ -15,18 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// estimateGasErrorRatio matches the standard eth_estimateGas library's own
-// tolerance: the search stops once the gap between the highest failing and
-// lowest passing gas limit is within this fraction of the true minimum,
-// rather than pinpointing it.
+// estimateGasErrorRatio is the search's allowed overestimation tolerance.
 const estimateGasErrorRatio = 0.015
 
 // EstimateGas returns the lowest gas limit that lets msg execute successfully
-// against the current committed state, using the standard gasestimator
-// library directly rather than a hand-rolled search. Like Call it creates no
-// transaction and persists no state change. A message that still fails at
-// gasCap returns its execution error, unwrapped; a revert carries its data in
-// the second return value.
+// against the current committed state. Like Call it persists no state
+// change; a revert's data is returned alongside the error.
 func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
@@ -45,10 +39,7 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 	}
 	defer snapshot.Close()
 
-	// gasestimator.Estimate copies this state per probe and holds it for the
-	// whole search rather than one execution, so it bypasses acquireStateDB's
-	// pool: that pool is sized for the hot block-execution/OCC path, and an
-	// estimate can hold a stateDB open far longer than a single Call.
+	// Unpooled: an estimate can hold this stateDB open far longer than a Call.
 	stateDB := newNativeStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
 
 	estimateCtx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -62,33 +53,19 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		ErrorRatio:        estimateGasErrorRatio,
 		CustomPrecompiles: customPrecompileMap(e.cfg.CustomPrecompiles),
 	}
-	// A nil BlobGasFeeCap (ToMessage leaves it nil for a non-blob call) leaves
-	// BlobBaseFee nil too, since buildEstimateHeader sets no ExcessBlobGas for
-	// NewEVMBlockContext to derive it from; BLOBBASEFEE against a nil
-	// BlobBaseFee then panics, and gasestimator.execute's recover turns that
-	// into "not enough gas" forever. Defaulting it to zero here gives
-	// BLOBBASEFEE the same literal zero buildBlockContext already gives Call.
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		// The caller's own context (not just our internal deadline below) is
-		// done: propagate that as-is so a client disconnect reads as
-		// context.Canceled rather than the timeout message below.
+		// Distinct from the timeout below: this is the caller's own cancellation.
 		return 0, nil, ctxErr
 	}
 	if estimateCtx.Err() != nil {
-		// gasestimator.Estimate never checks whether a probe's EVM was
-		// cancelled: this fork's interpreter only samples cancellation at
-		// JUMP/JUMPI, clearing the resulting errStopToken to nil just like a
-		// normal halt, so a probe cut off by this deadline can read back as a
-		// successful halt at less gas than the call actually needs. Once the
-		// deadline has fired, nothing Estimate returned can be trusted.
+		// A probe cut off by this deadline can read back as a success.
 		return 0, nil, fmt.Errorf("EVM-only gas estimate exceeded %s execution timeout", callTimeout)
 	}
 	return estimate, revert, err
 }
 
-// resolveBlobGasFeeCap returns msg, or a copy of it with a zero (not nil)
-// BlobGasFeeCap, without mutating the caller's message.
+// resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg.
 func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
 	if msg.BlobGasFeeCap != nil {
 		return msg
@@ -98,11 +75,7 @@ func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
 	return &clone
 }
 
-// buildEstimateHeader translates blockCtx into the *types.Header shape
-// core.NewEVMBlockContext expects, reproducing buildBlockContext's own
-// semantics: BLOCKHASH resolves only the immediate parent (see
-// estimateChainContext.GetHeader), and Coinbase is always the zero address
-// (see estimateEngine.Author).
+// buildEstimateHeader builds the *types.Header core.NewEVMBlockContext needs.
 func buildEstimateHeader(ctx BlockContext) *ethtypes.Header {
 	return &ethtypes.Header{
 		ParentHash: ctx.ParentHash,
@@ -115,10 +88,7 @@ func buildEstimateHeader(ctx BlockContext) *ethtypes.Header {
 	}
 }
 
-// estimateChainContext is the minimal core.ChainContext gasestimator.Estimate
-// needs. It exposes no header history beyond the immediate parent, matching
-// the limits buildBlockContext already applies to block execution: only the
-// current block's parent hash is tracked outside of block execution.
+// estimateChainContext is the minimal core.ChainContext gasestimator.Estimate needs.
 type estimateChainContext struct {
 	config *params.ChainConfig
 }
@@ -129,10 +99,8 @@ func (estimateChainContext) GetHeader(common.Hash, uint64) *ethtypes.Header { re
 
 func (c estimateChainContext) Config() *params.ChainConfig { return c.config }
 
-// estimateEngine supplies only Author, the one consensus.Engine method
-// core.NewEVMBlockContext calls, returning the zero address to match
-// buildBlockContext's own Coinbase (never set outside FinalizeBlock). Every
-// other method is left on a nil *ethash.Ethash embed and must not be called.
+// estimateEngine supplies only Author, the one method core.NewEVMBlockContext
+// calls. Its other methods are unimplemented and must not be called.
 type estimateEngine struct {
 	*ethash.Ethash
 }

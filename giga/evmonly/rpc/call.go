@@ -51,9 +51,8 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	return result.Return(), nil
 }
 
-// newRevertError builds the JSON-RPC error a reverted call returns, matching
-// evmrpc's SimulationAPI error shape: code 3 with the raw revert data, and
-// the ABI-decoded reason in the message when possible.
+// newRevertError builds the JSON-RPC error for a reverted call: code 3 with
+// the raw revert data and, when decodable, the reason in the message.
 func newRevertError(revert []byte) *revertError {
 	reason, errUnpack := abi.UnpackRevert(revert)
 	err := errors.New("execution reverted")

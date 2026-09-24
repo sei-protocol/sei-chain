@@ -68,9 +68,7 @@ func TestEstimateGasOmittedGasUsesGasEstimatorDefault(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, gotMsg)
-	// A caller-omitted gas must reach the backend as 0 (not defaultCallGasCap),
-	// so gasestimator.Estimate falls through to the block gas limit as its
-	// search ceiling rather than a fixed call cap.
+	// An omitted gas must reach the backend as 0, not defaultCallGasCap.
 	require.Zero(t, gotMsg.GasLimit)
 }
 

@@ -44,9 +44,8 @@ type Backend interface {
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
-	// EvmEstimateGas returns the lowest gas limit that lets msg execute
-	// successfully against the current committed state, and any revert data
-	// if it still fails at gasCap.
+	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
+	// any revert data if it still fails at gasCap.
 	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a

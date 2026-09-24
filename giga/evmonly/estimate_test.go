@@ -69,8 +69,7 @@ func TestExecutorEstimateGasDoesNotMutateCommittedState(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	slot := testHash(0x44)
 	writtenValue := testHash(0x55)
-	// This contract unconditionally SSTOREs on every invocation; the search's
-	// probes must never let that write reach committed state.
+	// Unconditionally SSTOREs; a probe must never let this reach committed state.
 	runtime := storeCode(slot, writtenValue)
 	contractAddr := crypto.CreateAddress(sender, 0)
 
@@ -114,9 +113,7 @@ func TestExecutorEstimateGasUsesBlockGasLimitAsUpperBound(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// A cold SSTORE plus the 21000 base intrinsic cost is well above this
-	// block's gas limit, and a below-TxGas call.GasLimit (0, as when a caller
-	// omits it) makes the search fall back to that block gas limit.
+	// A cold SSTORE needs more gas than this block's limit allows.
 	tightBlock := blockContext(chainID)
 	tightBlock.GasLimit = 22_000
 	msg := callMessage(sender, &contractAddr)
@@ -181,9 +178,6 @@ func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
 	msg := callMessage(sender, &contractAddr)
 	msg.GasLimit = 1_000_000_000_000 // far more gas than the shrunk timeout allows spending
 
-	// The interpreter only samples cancellation at JUMP, clearing the abort to
-	// a normal halt, so a naively-checked search would read this probe as a
-	// successful, cheap estimate instead of a timeout.
 	_, _, err = executor.EstimateGas(t.Context(), blockContext(chainID), msg, 0)
 
 	require.ErrorContains(t, err, "timeout")
@@ -211,9 +205,6 @@ func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T)
 	msg := callMessage(sender, &contractAddr)
 	msg.GasLimit = 1_000_000_000_000
 
-	// A caller cancellation partway through the search (e.g. a disconnected
-	// client), not our own internal deadline, must read back as
-	// context.Canceled rather than the "exceeded ... timeout" message.
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go func() {
@@ -236,11 +227,8 @@ func pushReturns(op vm.OpCode) []byte {
 	return append([]byte{byte(op)}, contextOpcodeReturnSuffix...)
 }
 
-// TestExecutorEstimateGasContextOpcodesDoNotPanic covers every opcode in the
-// 0x30-0x4a range that reads block/transaction context rather than call data:
-// BLOBBASEFEE (see TestExecutorEstimateGasHandlesBlobBaseFeeOpcode's original
-// bug) is one instance of a wider class the estimator's Header/ChainContext
-// construction could get wrong for.
+// TestExecutorEstimateGasContextOpcodesDoNotPanic covers every 0x30-0x4a
+// opcode that reads block/transaction context rather than call data.
 func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -255,6 +243,8 @@ func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 		{"CODECOPY", []byte{0x60, 0x00, 0x60, 0x00, 0x60, 0x00, byte(vm.CODECOPY), 0x00}},
 		{"GASPRICE", pushReturns(vm.GASPRICE)},
 		{"RETURNDATASIZE", pushReturns(vm.RETURNDATASIZE)},
+		// PUSH1 0 (block 1's parent), then BLOCKHASH.
+		{"BLOCKHASH(0)", append([]byte{0x60, 0x00, byte(vm.BLOCKHASH)}, contextOpcodeReturnSuffix...)},
 		{"COINBASE", pushReturns(vm.COINBASE)},
 		{"TIMESTAMP", pushReturns(vm.TIMESTAMP)},
 		{"NUMBER", pushReturns(vm.NUMBER)},
@@ -263,7 +253,7 @@ func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 		{"CHAINID", pushReturns(vm.CHAINID)},
 		{"SELFBALANCE", pushReturns(vm.SELFBALANCE)},
 		{"BASEFEE", pushReturns(vm.BASEFEE)},
-		// PUSH1 0 (blob index), BLOBHASH, then the shared return suffix.
+		// PUSH1 0 (blob index), then BLOBHASH.
 		{"BLOBHASH(0)", append([]byte{0x60, 0x00, byte(vm.BLOBHASH)}, contextOpcodeReturnSuffix...)},
 		{"BLOBBASEFEE", pushReturns(vm.BLOBBASEFEE)},
 	}
@@ -288,8 +278,6 @@ func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// A message with no blob fields at all (the common case: ToMessage
-			// leaves BlobGasFeeCap nil for a non-blob call) must not panic.
 			_, _, err = executor.EstimateGas(t.Context(), blockContext(chainID), callMessage(sender, &contractAddr), 0)
 
 			require.NoError(t, err)
