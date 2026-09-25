@@ -723,6 +723,7 @@ func New(
 			Slashing:     app.SlashingKeeper,
 			Distribution: app.DistrKeeper,
 			Bank:         app.BankKeeper,
+			EVM:          &app.EvmKeeper,
 		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) })
 		if err != nil {
 			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))

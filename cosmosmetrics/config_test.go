@@ -21,12 +21,14 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	wallet := sdk.AccAddress(bytes.Repeat([]byte{1}, 20)).String()
+	token := "0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1"
 	cfg, err := cosmosmetrics.ReadConfig(configtest.AppOpts{
 		"cosmos_metrics.enabled":                 "true",
 		"cosmos_metrics.refresh_interval":        "30s",
 		"cosmos_metrics.denom_exponent":          "18",
 		"cosmos_metrics.wallet_addresses":        []string{wallet},
 		"cosmos_metrics.bank_transfer_threshold": "42",
+		"cosmos_metrics.erc20_tokens":            []string{token},
 	})
 	require.NoError(t, err)
 	want := cosmosmetrics.Config{
@@ -35,6 +37,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		DenomExponent:         18,
 		WalletAddresses:       []string{wallet},
 		BankTransferThreshold: 42,
+		ERC20Tokens:           []string{token},
 	}
 	require.Equal(t, want, cfg)
 }
@@ -58,4 +61,9 @@ func TestReadConfigValidatesOnlyWhenEnabled(t *testing.T) {
 		"cosmos_metrics.refresh_interval": "-1s",
 	})
 	require.Error(t, err, "a negative refresh interval must be rejected when enabled")
+	_, err = cosmosmetrics.ReadConfig(configtest.AppOpts{
+		"cosmos_metrics.enabled":      true,
+		"cosmos_metrics.erc20_tokens": []string{"not-an-address"},
+	})
+	require.Error(t, err, "an invalid token address must be rejected when enabled")
 }

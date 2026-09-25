@@ -329,3 +329,7 @@ wallet_addresses = []
 # Bank transfers of at least this many base units are counted in
 # cosmos_bank_transfers_total and cosmos_bank_transfer_amount_total.
 bank_transfer_threshold = 1000000000000
+
+# ERC-20 contract addresses whose balance of each wallet in wallet_addresses is
+# reported under cosmos_wallet_erc20_balance, read from the wallet's EVM address.
+erc20_tokens = []
