@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/evidence"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
-	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
 	"github.com/sei-protocol/sei-chain/precompiles/mint"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
@@ -37,7 +36,6 @@ var FailFastPrecompileAddresses = []common.Address{
 	common.HexToAddress(gov.GovAddress),
 	common.HexToAddress(distribution.DistrAddress),
 	common.HexToAddress(oracle.OracleAddress),
-	common.HexToAddress(ibc.IBCAddress),
 	common.HexToAddress(pointerview.PointerViewAddress),
 	common.HexToAddress(pointer.PointerAddress),
 	common.HexToAddress(solo.SoloAddress),

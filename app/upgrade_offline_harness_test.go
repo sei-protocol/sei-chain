@@ -54,31 +54,35 @@ type offlineUpgradeArtifact struct {
 // between. TxSenderKey is a throwaway key generated for the fixture database,
 // which the target phase needs in order to sign as that account.
 type offlineUpgradeRetainedState struct {
-	FeegrantGranter     string `json:"feegrant_granter"`
-	FeegrantGrantee     string `json:"feegrant_grantee"`
-	FeegrantKey         string `json:"feegrant_key"`
-	CapabilityName      string `json:"capability_name"`
-	CapabilityIndex     uint64 `json:"capability_index"`
-	CapabilityOwnersKey string `json:"capability_owners_key"`
-	IBCClientID         string `json:"ibc_client_id"`
-	IBCClientStateKey   string `json:"ibc_client_state_key"`
-	IBCConnectionID     string `json:"ibc_connection_id"`
-	IBCConnectionKey    string `json:"ibc_connection_key"`
-	IBCPortID           string `json:"ibc_port_id"`
-	IBCChannelID        string `json:"ibc_channel_id"`
-	IBCChannelKey       string `json:"ibc_channel_key"`
-	TransferDenomHash   string `json:"transfer_denom_hash"`
-	TransferIBCDenom    string `json:"transfer_ibc_denom"`
-	TransferTraceKey    string `json:"transfer_trace_key"`
-	EscrowAddress       string `json:"escrow_address"`
-	EscrowAmount        string `json:"escrow_amount"`
-	EscrowSupply        string `json:"escrow_supply"`
-	VoucherHolder       string `json:"voucher_holder"`
-	VoucherAmount       string `json:"voucher_amount"`
-	VoucherSupply       string `json:"voucher_supply"`
-	TxSender            string `json:"tx_sender"`
-	TxSenderKey         string `json:"tx_sender_key"`
-	TxRecipient         string `json:"tx_recipient"`
+	FeegrantGranter        string `json:"feegrant_granter"`
+	FeegrantGrantee        string `json:"feegrant_grantee"`
+	FeegrantKey            string `json:"feegrant_key"`
+	CapabilityName         string `json:"capability_name"`
+	CapabilityIndex        uint64 `json:"capability_index"`
+	CapabilityOwnersKey    string `json:"capability_owners_key"`
+	IBCClientID            string `json:"ibc_client_id"`
+	IBCClientStateKey      string `json:"ibc_client_state_key"`
+	IBCConnectionID        string `json:"ibc_connection_id"`
+	IBCConnectionKey       string `json:"ibc_connection_key"`
+	IBCPortID              string `json:"ibc_port_id"`
+	IBCChannelID           string `json:"ibc_channel_id"`
+	IBCChannelKey          string `json:"ibc_channel_key"`
+	TransferDenomHash      string `json:"transfer_denom_hash"`
+	TransferIBCDenom       string `json:"transfer_ibc_denom"`
+	TransferTraceKey       string `json:"transfer_trace_key"`
+	EscrowAddress          string `json:"escrow_address"`
+	EscrowAmount           string `json:"escrow_amount"`
+	EscrowSupply           string `json:"escrow_supply"`
+	VoucherHolder          string `json:"voucher_holder"`
+	VoucherAmount          string `json:"voucher_amount"`
+	VoucherSupply          string `json:"voucher_supply"`
+	IBCProposalID          uint64 `json:"ibc_proposal_id"`
+	IBCProposalTitle       string `json:"ibc_proposal_title"`
+	IBCProposalDescription string `json:"ibc_proposal_description"`
+	UpgradedIBCStateKey    string `json:"upgraded_ibc_state_key"`
+	TxSender               string `json:"tx_sender"`
+	TxSenderKey            string `json:"tx_sender_key"`
+	TxRecipient            string `json:"tx_recipient"`
 }
 
 func requireOfflineUpgradePhase(t *testing.T, want string) string {

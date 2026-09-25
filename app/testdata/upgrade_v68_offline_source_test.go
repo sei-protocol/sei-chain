@@ -11,14 +11,28 @@ import (
 	"testing"
 	"time"
 
+	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
-var v68OfflineSourceStores = []string{"bank"}
+var v68OfflineSourceStores = []string{"bank", "gov", "upgrade"}
+
+// v68OfflineDeletedStores are the stores v6.8 deletes; the source phase writes
+// a key into each so the target phase can prove the trees are gone.
+var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "transfer"}
+
+const (
+	v68OfflineVoucherDenom              = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"
+	v68OfflineVoucherAmount       int64 = 1_234_567
+	v68OfflineProposalTitle             = "Recover client 07-tendermint-0"
+	v68OfflineProposalDescription       = "Substitute the expired client with 07-tendermint-1"
+)
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
@@ -36,7 +50,13 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.Equal(t, "v6.8", plan.Name)
 	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
+	// v6.7 dropped the IBC module versions while keeping their stores mounted;
+	// only oracle still carries a version into v6.8.
 	require.Contains(t, moduleVersions, "oracle")
+	for _, name := range []string{"capability", "ibc", "transfer"} {
+		require.NotContains(t, moduleVersions, name)
+		require.NotNil(t, testApp.GetKey(name))
+	}
 	storeNames := make([]string, 0, len(v68OfflineSourceStores))
 	for _, name := range v68OfflineSourceStores {
 		if testApp.GetKey(name) == nil {
@@ -54,7 +74,8 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	copyV68OfflineUpgradeInfo(t, root, upgradeHeight)
 }
 
-// TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose Oracle tree v6.8 deleted.
+// TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose
+// oracle and IBC trees v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
@@ -73,8 +94,8 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 		closeOfflineUpgradeApp(t, testApp)
 	}()
 	require.NotNil(t, recovered,
-		"v6.7 binary reopened a database whose oracle tree was deleted")
-	require.Contains(t, fmt.Sprint(recovered), `store "oracle"`)
+		"v6.7 binary reopened a database whose oracle and IBC trees were deleted")
+	require.Contains(t, fmt.Sprint(recovered), `store "`)
 }
 
 func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, upgradeHeight int64) {
@@ -123,8 +144,61 @@ func copyV68OfflineUpgradeInfo(t *testing.T, root string, upgradeHeight int64) {
 	copyOfflineUpgradeFile(t, source, target)
 }
 
+// seedV68OfflineUpgradeState writes a key into every store v6.8 deletes, a
+// retired IBC governance proposal, an upgraded IBC client record in the upgrade
+// store, and an IBC voucher balance that must survive the upgrade.
 func seedV68OfflineUpgradeState(t *testing.T, testApp *App, ctx sdk.Context) offlineUpgradeRetainedState {
 	t.Helper()
-	ctx.KVStore(testApp.GetKey("oracle")).Set([]byte("historical"), []byte("retained"))
-	return offlineUpgradeRetainedState{}
+	for _, name := range v68OfflineDeletedStores {
+		ctx.KVStore(testApp.GetKey(name)).Set([]byte("historical"), []byte("retained"))
+	}
+	var retained offlineUpgradeRetainedState
+	seedV68IBCProposal(t, testApp, ctx, &retained)
+	seedV68UpgradedIBCState(t, testApp, ctx, &retained)
+	seedV68Voucher(t, testApp, ctx, &retained)
+	return retained
+}
+
+func seedV68IBCProposal(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	content := &retiredibcgov.ClientUpdateProposal{
+		Title:              v68OfflineProposalTitle,
+		Description:        v68OfflineProposalDescription,
+		SubjectClientId:    "07-tendermint-0",
+		SubstituteClientId: "07-tendermint-1",
+	}
+	proposalID, err := testApp.GovKeeper.GetProposalID(ctx)
+	require.NoError(t, err)
+	proposal, err := govtypes.NewProposal(content, proposalID, ctx.BlockTime(), ctx.BlockTime().Add(time.Hour), false)
+	require.NoError(t, err)
+	proposal.Status = govtypes.StatusPassed
+	testApp.GovKeeper.SetProposal(ctx, proposal)
+	testApp.GovKeeper.SetProposalID(ctx, proposalID+1)
+	stored, found := testApp.GovKeeper.GetProposal(ctx, proposalID)
+	require.True(t, found)
+	require.Equal(t, retiredibcgov.ClientUpdateProposalTypeURL, stored.Content.TypeUrl)
+	retained.IBCProposalID = proposalID
+	retained.IBCProposalTitle = v68OfflineProposalTitle
+	retained.IBCProposalDescription = v68OfflineProposalDescription
+}
+
+func seedV68UpgradedIBCState(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	key := upgradetypes.UpgradedClientKey(ctx.BlockHeight() + 1000)
+	ctx.KVStore(testApp.GetKey(upgradetypes.StoreKey)).Set(key, []byte("upgraded-client"))
+	retained.UpgradedIBCStateKey = encodeOfflineUpgradeKey(key)
+}
+
+func seedV68Voucher(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	holder := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	testApp.AccountKeeper.SetAccount(ctx, testApp.AccountKeeper.NewAccountWithAddress(ctx, holder))
+	voucher := sdk.NewInt64Coin(v68OfflineVoucherDenom, v68OfflineVoucherAmount)
+	require.NoError(t, testApp.BankKeeper.MintCoins(ctx, "transfer", sdk.NewCoins(voucher)))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "transfer", holder, sdk.NewCoins(voucher)))
+	require.Equal(t, voucher, testApp.BankKeeper.GetBalance(ctx, holder, voucher.Denom))
+	retained.TransferIBCDenom = voucher.Denom
+	retained.VoucherHolder = holder.String()
+	retained.VoucherAmount = voucher.Amount.String()
+	retained.VoucherSupply = testApp.BankKeeper.GetSupply(ctx, voucher.Denom).Amount.String()
 }
