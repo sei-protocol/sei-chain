@@ -16,7 +16,7 @@ const (
 	flagDenomExponent         = "cosmos_metrics.denom_exponent"
 	flagWalletAddresses       = "cosmos_metrics.wallet_addresses"
 	flagBankTransferThreshold = "cosmos_metrics.bank_transfer_threshold"
-	flagERC20Tokens           = "cosmos_metrics.erc20_tokens"
+	flagERC20Tokens           = "cosmos_metrics.erc20_tokens" //nolint:gosec // config key, not a credential
 )
 
 // ConfigTemplate is the TOML template for the [cosmos_metrics] section of app.toml.
