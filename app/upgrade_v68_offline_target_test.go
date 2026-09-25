@@ -144,8 +144,13 @@ func requireV68OfflineOracleTreeDeleted(t *testing.T, root string) {
 	defer func() {
 		require.NoError(t, store.Close())
 	}()
-	_, err := store.LoadVersion(0, false)
+	latestVersion, err := store.GetLatestVersion()
 	require.NoError(t, err)
+	require.NotZero(t, latestVersion)
+	_, err = store.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, latestVersion, store.Version())
+	require.NotNil(t, store.GetDB().TreeByName("bank"))
 	require.Nil(t, store.GetDB().TreeByName("oracle"))
 }
 

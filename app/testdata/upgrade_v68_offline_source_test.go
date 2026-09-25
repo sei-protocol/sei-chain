@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -55,25 +54,8 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	copyV68OfflineUpgradeInfo(t, root, upgradeHeight)
 }
 
+// TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose Oracle tree v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
-	if os.Getenv("SEI_V68_OFFLINE_REOPEN_HELPER") == "1" {
-		root := requireOfflineUpgradePhase(t, "reopen")
-		artifact := readOfflineUpgradeArtifact(t, root)
-		reopenRoot := filepath.Join(root, "reopen")
-		func() {
-			defer func() {
-				if recovered := recover(); recovered != nil {
-					require.Contains(t, fmt.Sprint(recovered), `store "oracle" is not in keys`)
-					panic("new store is not added in upgrades: oracle")
-				}
-			}()
-			testApp := openOfflineUpgradeApp(t, reopenRoot, false)
-			defer closeOfflineUpgradeApp(t, testApp)
-			require.Equal(t, artifact.UpgradeHeight, testApp.LastBlockHeight())
-		}()
-		return
-	}
-
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
 	require.Equal(t, "v6.8", artifact.Upgrade)
@@ -82,11 +64,17 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 	reopenRoot := filepath.Join(root, "reopen")
 	copyOfflineUpgradeDatabase(t, migrated, reopenRoot)
 
-	cmd := exec.Command(os.Args[0], "-test.run", "^TestV68OfflineUpgradeReopen$")
-	cmd.Env = append(os.Environ(), "SEI_V68_OFFLINE_REOPEN_HELPER=1")
-	output, err := cmd.CombinedOutput()
-	require.Error(t, err)
-	require.Contains(t, string(output), "new store is not added in upgrades: oracle")
+	var recovered any
+	func() {
+		defer func() {
+			recovered = recover()
+		}()
+		testApp := openOfflineUpgradeApp(t, reopenRoot, false)
+		closeOfflineUpgradeApp(t, testApp)
+	}()
+	require.NotNil(t, recovered,
+		"v6.7 binary reopened a database whose oracle tree was deleted")
+	require.Contains(t, fmt.Sprint(recovered), `store "oracle"`)
 }
 
 func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, upgradeHeight int64) {
