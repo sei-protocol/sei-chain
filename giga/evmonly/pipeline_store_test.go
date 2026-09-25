@@ -253,6 +253,42 @@ func TestBlockAfterCloseCommitsSynchronously(t *testing.T) {
 	require.Equal(t, []int64{41}, store.commitBlock)
 }
 
+// A block large enough to encode its receipts across the worker pool still executes once that pool
+// is shut down, whether by Close or directly.
+func TestLargeBlockWithAClosedPoolStoresItsReceipts(t *testing.T) {
+	for name, shutDown := range map[string]func(*Executor){
+		"executor closed": func(e *Executor) { e.Close() },
+		"pool closed":     func(e *Executor) { e.occPool.Close() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			chainID := big.NewInt(testChainID)
+			state := NewMemoryState()
+			txs := make([][]byte, 0, occParallelReceiptThreshold)
+			for i := range occParallelReceiptThreshold {
+				key, err := crypto.GenerateKey()
+				require.NoError(t, err)
+				state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(testFundedBalanceWei))
+				recipient := testAddress(byte(i))
+				txs = append(txs, signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil))
+			}
+			store := NewMemoryStore(state)
+			receipts := NewMemoryReceiptStore()
+			executor := NewExecutor(Config{OCCWorkers: 4}, withTestStores(store, receipts, store.EncodeChangeSet))
+			shutDown(executor)
+
+			result := executePipelinedBlock(t, executor, chainID, 1, txs...)
+			require.NoError(t, executor.AwaitCommits())
+
+			require.Len(t, result.Receipts, occParallelReceiptThreshold)
+			for _, ethReceipt := range result.Receipts {
+				stored, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), ethReceipt.TxHash)
+				require.NoError(t, err)
+				require.Equal(t, ethReceipt.TxHash.Hex(), stored.TxHashHex)
+			}
+		})
+	}
+}
+
 // executePipelinedBlock runs one block through the pipelined path, which returns before the block's
 // commit has landed.
 func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, number uint64, txs ...[]byte) *BlockResult {

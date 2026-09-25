@@ -95,7 +95,7 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 // the same records in the same order as receiptRecords.
 func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint64, result *BlockResult) ([]receipt.ReceiptRecord, error) {
 	count := len(result.Receipts)
-	if e.occPool == nil || count < occParallelReceiptThreshold {
+	if e.occPool == nil || e.closed.Load() || count < occParallelReceiptThreshold {
 		return receiptRecords(blockNumber, result)
 	}
 	if count != len(result.Txs) {
@@ -120,6 +120,9 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 		}
 		return nil
 	})
+	if errors.Is(err, errOCCWorkerPoolClosed) {
+		return receiptRecords(blockNumber, result)
+	}
 	if err != nil {
 		return nil, err
 	}
