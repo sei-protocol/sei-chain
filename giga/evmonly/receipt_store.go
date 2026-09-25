@@ -118,7 +118,6 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	}
 
 	stored := make([]receipt.ReceiptRecord, 0, len(records))
-	byBlock := make(map[uint64][]receipt.ReceiptRecord)
 	latestVersion := ctx.BlockHeight()
 	for _, record := range records {
 		if record.Receipt == nil {
@@ -133,15 +132,21 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 		stored = append(stored, receipt.ReceiptRecord{
 			TxHash:       record.TxHash,
 			Receipt:      cloneStoredReceipt(record.Receipt),
+			Reward:       record.Reward,
 			KeepExisting: record.KeepExisting,
 		})
-		byBlock[record.Receipt.BlockNumber] = append(byBlock[record.Receipt.BlockNumber], record)
 	}
 	if err := receiptContextError(ctx); err != nil {
 		return err
 	}
-	if err := s.storeRecords(ctx, stored, latestVersion); err != nil {
+	stored, err := s.storeRecords(ctx, stored, latestVersion)
+	if err != nil {
 		return err
+	}
+	// Stats count only the records the store kept, as the on-disk stores do.
+	byBlock := make(map[uint64][]receipt.ReceiptRecord)
+	for _, record := range stored {
+		byBlock[record.Receipt.BlockNumber] = append(byBlock[record.Receipt.BlockNumber], record)
 	}
 	s.mu.Lock()
 	for blockNumber, blockRecords := range byBlock {
@@ -174,19 +179,20 @@ func (s *MemoryReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (r
 	return stats, nil
 }
 
-// storeRecords installs a block's receipt records and advances the store version.
-func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.ReceiptRecord, latestVersion int64) error {
+// storeRecords installs a block's receipt records, advances the store version and
+// returns the records it kept.
+func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.ReceiptRecord, latestVersion int64) ([]receipt.ReceiptRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := receiptContextError(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	stored, err := receipt.FilterExistingReceipts(stored, func(hash common.Hash) (bool, error) {
 		_, found := s.byTxHash[hash]
 		return found, nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, record := range stored {
 		if previous, ok := s.byTxHash[record.TxHash]; ok {
@@ -214,7 +220,7 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 	if latestVersion > s.latestVersion {
 		s.latestVersion = latestVersion
 	}
-	return nil
+	return stored, nil
 }
 
 // FilterLogs returns the logs in [fromBlock, toBlock] matching crit, in block
