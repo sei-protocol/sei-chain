@@ -17,7 +17,6 @@ const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
 	errMissingStateStore            = errors.New("executor requires a state store")
-	errMissingReceiptStore          = errors.New("executor requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 )
 
@@ -33,10 +32,6 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	stateStore := e.stateStore
 	if stateStore == nil {
 		return nil, errMissingStateStore
-	}
-	receiptStore := e.receiptStore
-	if receiptStore == nil {
-		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -87,12 +82,14 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	records, err := receiptRecords(req.Context.Number, result)
-	if err != nil {
-		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
-	}
-	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
-		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+	if receiptStore := e.receiptStore; receiptStore != nil {
+		records, err := receiptRecords(req.Context.Number, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+		}
+		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+		}
 	}
 	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)

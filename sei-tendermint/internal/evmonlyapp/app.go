@@ -1,10 +1,12 @@
 package evmonlyapp
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"hash"
 	"math/big"
 	"runtime"
 	"slices"
@@ -19,9 +21,11 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"go.opentelemetry.io/otel"
 )
 
 // evmOnlyBaseFee is the base fee this application executes every block at.
@@ -91,7 +95,22 @@ type evmOnlyApplication struct {
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[*senderCache]
+	// finalizePhases times FinalizeBlock's stages around the executor. It is a
+	// field so each application instance has its own last-phase clock.
+	// FinalizeBlock is serialized by state, so one timer is enough per app.
+	finalizePhases *seidbmetrics.PhaseTimer
 }
+
+const (
+	// finalizeMeterName is the OTel meter FinalizeBlock's phase timer records to,
+	// as evmonly_finalize_phase_duration_seconds_total.
+	finalizeMeterName = "evmonly_app"
+	finalizeTimerName = "evmonly_finalize"
+
+	finalizePhaseTakeSenders = "take_senders"
+	finalizePhaseExecute     = "execute"
+	finalizePhaseTxResults   = "tx_results"
+)
 
 type evmOnlyState struct {
 	executor        utils.Option[*evmonly.Executor]
@@ -139,6 +158,7 @@ func NewEVMOnlyApplication(
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
+		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 }
 
@@ -453,6 +473,12 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if height != state.nextHeight {
 			return nil, fmt.Errorf("EVM-only block height %d does not match next height %d", height, state.nextHeight)
 		}
+		// Closes the stage in flight, so the gap until the next block is charged to neither.
+		defer a.finalizePhases.Reset()
+		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
+		senders := a.takeSenders(req.Txs)
+		// The executor's own timer breaks execution down further.
+		a.finalizePhases.SetPhase(finalizePhaseExecute)
 		result, err := executor.ExecuteBlock(ctx, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
 				Number:      number,
@@ -466,7 +492,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
 			Txs:     req.Txs,
-			Senders: a.takeSenders(req.Txs),
+			Senders: senders,
 		})
 		if err != nil {
 			return nil, err
@@ -478,6 +504,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		}
 		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
 		state.pendingBlockTime = timestamp
+		a.finalizePhases.SetPhase(finalizePhaseTxResults)
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -537,36 +564,72 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 
 func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
 	h := sha256.New()
-	_, _ = h.Write(previous[:])
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, height))
-	_, _ = h.Write(blockHash[:])
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, result.GasUsed))
+	w := newEVMOnlyHashWriter(h)
+	w.write(previous[:])
+	w.writeUint64(height)
+	w.write(blockHash[:])
+	w.writeUint64(result.GasUsed)
 	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
 	if err != nil {
 		return common.Hash{}, err
 	}
 	for _, changeset := range changesets {
-		writeEVMOnlyHashBytes(h, []byte(changeset.Name))
+		w.writeSizedString(changeset.Name)
 		for _, pair := range changeset.Changeset.Pairs {
-			writeEVMOnlyHashBytes(h, pair.Key)
+			w.writeSized(pair.Key)
 			if pair.Delete {
-				_, _ = h.Write([]byte{1})
+				w.writeByte(1)
 			} else {
-				_, _ = h.Write([]byte{0})
+				w.writeByte(0)
 			}
-			writeEVMOnlyHashBytes(h, pair.Value)
+			w.writeSized(pair.Value)
 		}
+	}
+	if err := w.flush(); err != nil {
+		return common.Hash{}, err
 	}
 	return common.BytesToHash(h.Sum(nil)), nil
 }
 
-type byteWriter interface {
-	Write([]byte) (int, error)
+// evmOnlyHashBufferSize is the buffer between the stream and the hash.
+const evmOnlyHashBufferSize = 32 << 10
+
+// evmOnlyHashWriter buffers the app-hash byte stream into a hash; flush before reading the digest.
+type evmOnlyHashWriter struct {
+	buf     *bufio.Writer
+	scratch [8]byte
 }
 
-func writeEVMOnlyHashBytes(w byteWriter, value []byte) {
-	_, _ = w.Write(binary.BigEndian.AppendUint64(nil, uint64(len(value))))
-	_, _ = w.Write(value)
+func newEVMOnlyHashWriter(h hash.Hash) *evmOnlyHashWriter {
+	return &evmOnlyHashWriter{buf: bufio.NewWriterSize(h, evmOnlyHashBufferSize)}
+}
+
+func (w *evmOnlyHashWriter) write(value []byte) {
+	_, _ = w.buf.Write(value)
+}
+
+func (w *evmOnlyHashWriter) writeByte(value byte) {
+	_ = w.buf.WriteByte(value)
+}
+
+func (w *evmOnlyHashWriter) writeUint64(value uint64) {
+	binary.BigEndian.PutUint64(w.scratch[:], value)
+	_, _ = w.buf.Write(w.scratch[:])
+}
+
+// writeSized writes value behind its length.
+func (w *evmOnlyHashWriter) writeSized(value []byte) {
+	w.writeUint64(uint64(len(value)))
+	_, _ = w.buf.Write(value)
+}
+
+func (w *evmOnlyHashWriter) writeSizedString(value string) {
+	w.writeUint64(uint64(len(value)))
+	_, _ = w.buf.WriteString(value)
+}
+
+func (w *evmOnlyHashWriter) flush() error {
+	return w.buf.Flush()
 }
 
 type evmOnlyFundedState struct{}

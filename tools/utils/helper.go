@@ -19,7 +19,6 @@ import (
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -27,7 +26,7 @@ var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, seidbkeys.IBCStoreKey, upgradetypes.StoreKey, seidbkeys.FeegrantStoreKey,
-	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, seidbkeys.CapabilityStoreKey, oracletypes.StoreKey,
+	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, seidbkeys.CapabilityStoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 
@@ -44,7 +43,6 @@ var Modules = []string{
 	"gov",
 	seidbkeys.IBCStoreKey,
 	"mint",
-	"oracle",
 	"params",
 	"slashing",
 	"staking",

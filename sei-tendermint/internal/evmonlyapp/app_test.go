@@ -9,11 +9,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -100,6 +103,16 @@ func newEVMOnlyTestAppWithExecution(
 	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
+	return newEVMOnlyTestAppWithStorage(t, validators, execution, storageConfig)
+}
+
+func newEVMOnlyTestAppWithStorage(
+	t *testing.T,
+	validators []abci.ValidatorUpdate,
+	execution gigaconfig.ExecutionConfig,
+	storageConfig *seidbconfig.GigaStorageConfig,
+) abci.Application {
+	t.Helper()
 	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
@@ -169,6 +182,38 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash().Hex(), gotReceipt.TxHashHex)
 	require.Equal(t, uint64(1), gotReceipt.BlockNumber)
+}
+
+func TestEVMOnlyApplicationFinalizesBlocksWithoutReceiptStore(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storageConfig.ReceiptDBConfig.Enable = false
+	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig)
+	require.Nil(t, app.(*evmOnlyApplication).storage.ReceiptDB())
+	_, err = app.InitChain(&abci.RequestInitChain{
+		InitialHeight: 1,
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{MaxGas: 30_000_000},
+		},
+	})
+	require.NoError(t, err)
+	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+
+	response, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, response.TxResults, 1)
+	require.True(t, response.TxResults[0].IsOK())
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), app.LastBlockHeight())
+	require.Equal(t, uint64(1), app.EvmNonce(sender))
 }
 
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
@@ -461,4 +506,50 @@ func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
 	got[0] = 0x00
 	require.Equal(t, []byte{0xfe}, codeReader.EvmCode(contract))
 	require.Empty(t, codeReader.EvmCode(sender))
+}
+
+// Every FinalizeBlock stage is charged to a phase, so the timer's total is the
+// time the block loop spent inside the application.
+func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName)
+	evmOnlyApp.finalizePhases = seidbmetrics.NewPhaseTimer(meter, finalizeTimerName)
+
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	phases := map[string]struct{}{}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "evmonly_finalize_phase_duration_seconds_total" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[float64])
+			require.True(t, ok)
+			for _, point := range sum.DataPoints {
+				phase, ok := point.Attributes.Value("phase")
+				require.True(t, ok)
+				phases[phase.AsString()] = struct{}{}
+			}
+		}
+	}
+	for _, want := range []string{finalizePhaseTakeSenders, finalizePhaseExecute, finalizePhaseTxResults} {
+		_, ok := phases[want]
+		require.True(t, ok, "phase %q not recorded", want)
+	}
 }

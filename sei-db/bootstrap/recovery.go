@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -26,6 +27,9 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	// would leave the longest part of a startup with nothing logged at all.
 	logger.Info("Opening the block store")
 	if err := m.openBlockStore(); err != nil {
+		return err
+	}
+	if err := m.requireNoReceiptStoreWhileDisabled(); err != nil {
 		return err
 	}
 	targetHeight, err := m.findTargetRecoveryHeight()
@@ -126,6 +130,28 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 		"receipt_store", receiptHeight,
 		"target", target)
 	return int64(target), nil //nolint:gosec // heights fit within int64
+}
+
+// ErrReceiptStoreDisabledWithHistory is returned when the receipt store is disabled while its
+// directory still holds receipts.
+var ErrReceiptStoreDisabledWithHistory = errors.New("receipt store is disabled but holds receipts")
+
+// requireNoReceiptStoreWhileDisabled refuses to run with receipts disabled while a receipt store with
+// history sits on disk. Blocks finalized meanwhile would leave a hole the store refuses to write across,
+// and re-enabling it would then converge every store on its stale head.
+func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
+	if m.cfg.ReceiptDBConfig.Enable {
+		return nil
+	}
+	head, err := receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
+	if err != nil {
+		return fmt.Errorf("read disabled receipt store head: %w", err)
+	}
+	if head == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: head %d at %s; move that directory away to run without receipts, or enable them again",
+		ErrReceiptStoreDisabledWithHistory, head, m.cfg.ReceiptDBConfig.DBDirectory)
 }
 
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.

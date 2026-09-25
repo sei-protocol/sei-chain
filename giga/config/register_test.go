@@ -18,6 +18,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 
 	want := []string{
 		FlagStorageMode,
+		FlagStorageReceipts,
 		FlagStorageRollbackWindow,
 		FlagStorageLookbackWindow,
 		FlagStoragePruneInterval,

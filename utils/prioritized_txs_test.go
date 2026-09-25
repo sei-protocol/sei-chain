@@ -3,13 +3,12 @@ package utils
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/stretchr/testify/require"
-
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 func TestIsTxPrioritized(t *testing.T) {
@@ -26,7 +25,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		{
 			name: "Oracle aggregate vote message",
 			tx: createTestTx([]sdk.Msg{
-				&oracletypes.MsgAggregateExchangeRateVote{
+				&retiredoracle.MsgAggregateExchangeRateVote{
 					ExchangeRates: "1.0usei,2.0uusd",
 					Feeder:        "sei1abc123",
 					Validator:     "seivaloper1abc123",
@@ -37,7 +36,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		{
 			name: "Oracle delegate feed consent message",
 			tx: createTestTx([]sdk.Msg{
-				&oracletypes.MsgDelegateFeedConsent{
+				&retiredoracle.MsgDelegateFeedConsent{
 					Operator: "seivaloper1abc123",
 					Delegate: "sei1abc123",
 				},
@@ -47,12 +46,12 @@ func TestIsTxPrioritized(t *testing.T) {
 		{
 			name: "Multiple oracle messages",
 			tx: createTestTx([]sdk.Msg{
-				&oracletypes.MsgAggregateExchangeRateVote{
+				&retiredoracle.MsgAggregateExchangeRateVote{
 					ExchangeRates: "1.0usei",
 					Feeder:        "sei1abc123",
 					Validator:     "seivaloper1abc123",
 				},
-				&oracletypes.MsgDelegateFeedConsent{
+				&retiredoracle.MsgDelegateFeedConsent{
 					Operator: "seivaloper1abc123",
 					Delegate: "sei1abc123",
 				},
@@ -73,7 +72,7 @@ func TestIsTxPrioritized(t *testing.T) {
 		{
 			name: "Mixed messages (oracle + bank)",
 			tx: createTestTx([]sdk.Msg{
-				&oracletypes.MsgAggregateExchangeRateVote{
+				&retiredoracle.MsgAggregateExchangeRateVote{
 					ExchangeRates: "1.0usei",
 					Feeder:        "sei1abc123",
 					Validator:     "seivaloper1abc123",
