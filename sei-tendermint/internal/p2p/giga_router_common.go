@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -231,7 +232,6 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		proposerAddress = key.Address()
 	}
 
-	// TODO: add metrics to understand execution latency.
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
@@ -252,6 +252,8 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
+
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
 
 	// Commit this height's app hash to the equivocation guard before persisting app state, so the
 	// vault always records our commitment to a height before the state it implies is committed (and
@@ -448,10 +450,12 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	}
 
 	for n := next; ; n += 1 {
+		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
+		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeBlock(ctx, b, hashVault)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
