@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -42,6 +43,7 @@ type Executor struct {
 	blockEncoderReadsStore bool
 	missingState           StateReader
 	closed                 atomic.Bool
+	plainTransfers         atomic.Uint64
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -197,12 +199,14 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
 	}
+	e.plainTransfers.Store(0)
 	result, err := e.executePreparedBlockWithStore(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
 	recordTxExecutionStats(ctx, result.Txs)
+	recordPlainTransfers(ctx, e.plainTransfers.Load())
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err
@@ -272,13 +276,11 @@ func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
 }
 
 func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	chainConfig := e.chainConfig(req.Context)
+	env := e.newBlockExecEnv(req.Context, customPrecompileMap(e.cfg.CustomPrecompiles))
 
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	blockCtx := buildBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
-	stateDB.SetEVM(evm)
+	evm := newTxEVM(env, stateDB)
 
 	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
 	baseFee := cloneOptionalBig(req.Context.BaseFee)
@@ -319,7 +321,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 }
 
 func (e *Executor) executeTx(
-	evm *vm.EVM,
+	evm *txEVM,
 	stateDB *nativeStateDB,
 	gasPool *core.GasPool,
 	block BlockContext,
@@ -347,26 +349,18 @@ func (e *Executor) executeTx(
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
-	snapshot := stateDB.Snapshot()
-	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
-	poolGas := gasPool.Gas()
-	evm.SetTxContext(core.NewEVMTxContext(msg))
-	execResult, err := core.ApplyMessage(evm, msg, gasPool)
-	// Read before any revert: RevertToSnapshot restores the recorded error too.
-	if stateErr := stateDB.Error(); stateErr != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
+	execResult, err := e.applyMessage(evm, stateDB, gasPool, msg)
+	var fault stateDBFault
+	if errors.As(err, &fault) {
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: fault.err}, nil, fault.err
 	}
 	if err != nil {
 		if !e.cfg.RejectUnappliableTxs {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
 		}
-		stateDB.RevertToSnapshot(snapshot)
-		stateDB.clearSnapshots()
-		gasPool.SetGas(poolGas)
 		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
 		return txResult, receipt, nil
 	}
-	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)
@@ -415,6 +409,51 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// stateDBFault is a fault the StateDB recorded while a transaction was applied.
+// It aborts the block rather than the transaction: the partial writes of the
+// transaction that hit it are not rolled back, so no receipt may be built for it.
+type stateDBFault struct{ err error }
+
+func (f stateDBFault) Error() string { return f.err.Error() }
+func (f stateDBFault) Unwrap() error { return f.err }
+
+// applyMessage runs msg against stateDB, through the plain-transfer path when
+// msg qualifies and through core.ApplyMessage otherwise. A transaction-level
+// error leaves the state and gas pool as they were before the call; a
+// stateDBFault does not.
+func (e *Executor) applyMessage(evm *txEVM, stateDB *nativeStateDB, gasPool *core.GasPool, msg *core.Message) (*core.ExecutionResult, error) {
+	if !e.cfg.DisablePlainTransferFastPath && evm.env.plainTransferCandidate(msg) {
+		execResult, applied, err := evm.env.applyPlainTransfer(stateDB, gasPool, msg)
+		if applied {
+			if stateErr := stateDB.Error(); stateErr != nil {
+				return nil, stateDBFault{err: stateErr}
+			}
+			if err == nil {
+				e.plainTransfers.Add(1)
+			}
+			return execResult, err
+		}
+	}
+	snapshot := stateDB.Snapshot()
+	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
+	poolGas := gasPool.Gas()
+	vmEVM := evm.get()
+	vmEVM.SetTxContext(core.NewEVMTxContext(msg))
+	execResult, err := core.ApplyMessage(vmEVM, msg, gasPool)
+	// Read before any revert: RevertToSnapshot restores the recorded error too.
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return nil, stateDBFault{err: stateErr}
+	}
+	if err != nil {
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.SetGas(poolGas)
+		return nil, err
+	}
+	stateDB.clearSnapshots()
+	return execResult, nil
 }
 
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the
