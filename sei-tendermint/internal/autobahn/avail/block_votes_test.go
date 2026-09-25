@@ -35,11 +35,49 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	require.Equal(t, beforeQC+1, metrics.LaneQCs())
 	require.Equal(t, beforeVotes+int64(len(keys)), metrics.LaneVotesIngested())
 
-	// Re-forming the same QC under a new committee is not a new LaneQC.
+	// Reweighting the same weights re-forms the QC and does not count it again.
 	bv.reweight(ep)
 	require.True(t, bv.qc.IsPresent())
 	require.Equal(t, beforeQC+1, metrics.LaneQCs())
 	require.Equal(t, beforeVotes+int64(len(keys)), metrics.LaneVotesIngested())
+}
+
+func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
+	rng := utils.TestRng()
+	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	epochAt := func(idx types.EpochIndex, first types.RoadIndex, weights map[types.PublicKey]uint64) *types.Epoch {
+		return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + 10}, time.Time{},
+			utils.OrPanic1(types.NewCommittee(weights)), 0)
+	}
+	light := map[types.PublicKey]uint64{
+		keys[0].Public(): 1, keys[1].Public(): 1, keys[2].Public(): 5, keys[3].Public(): 5,
+	}
+	heavy := map[types.PublicKey]uint64{
+		keys[0].Public(): 5, keys[1].Public(): 5, keys[2].Public(): 1, keys[3].Public(): 1,
+	}
+	ep0 := epochAt(0, 0, light)
+	lane := ep0.Committee().Lane(keys[0].Public()).OrPanic("lane")
+	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+	vote := func(k types.SecretKey) *types.Signed[*types.LaneVote] {
+		return types.Sign(k, types.NewLaneVote(h))
+	}
+
+	bv := newBlockVotes()
+	before := metrics.LaneQCs()
+	bv.pushVote(ep0, vote(keys[0]))
+	bv.pushVote(ep0, vote(keys[1]))
+	require.False(t, bv.qc.IsPresent())
+	require.Equal(t, before, metrics.LaneQCs())
+
+	bv.reweight(epochAt(1, 10, heavy))
+	require.True(t, bv.qc.IsPresent())
+	require.Equal(t, before+1, metrics.LaneQCs())
+
+	bv.reweight(epochAt(2, 20, light))
+	require.False(t, bv.qc.IsPresent())
+	bv.pushVote(epochAt(2, 20, light), vote(keys[2]))
+	require.True(t, bv.qc.IsPresent())
+	require.Equal(t, before+1, metrics.LaneQCs())
 }
 
 func TestBlockVotes_Reweight(t *testing.T) {

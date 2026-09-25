@@ -16,6 +16,8 @@ type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
 	qc     utils.Option[*types.LaneQC]
+	// qcCounted is set once this block has formed a LaneQC.
+	qcCounted bool
 }
 
 func newBlockVotes() *blockVotes {
@@ -33,9 +35,7 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 	}
 	bv.byKey[k] = vote
 	metrics.ObserveLaneVoteIngested()
-	if bv.credit(ep, vote) {
-		metrics.ObserveLaneQC()
-	}
+	bv.credit(ep, vote)
 	return true
 }
 
@@ -47,18 +47,17 @@ func (bv *blockVotes) reweight(ep *types.Epoch) {
 	}
 }
 
-// credit adds the vote's weight to its header bucket, reporting whether that
-// completed the LaneQC. A reweight re-forms a QC that already formed once, so
-// only pushVote treats the result as a new LaneQC.
-func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
+// credit adds the vote's weight to its header bucket and, on reaching quorum,
+// forms the LaneQC. A block is counted as a LaneQC only the first time it forms one.
+func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) {
 	if bv.qc.IsPresent() {
-		return false
+		return
 	}
 	c := ep.Committee()
 	k := vote.Key()
 	w := c.Weight(k)
 	if w == 0 {
-		return false
+		return
 	}
 	h := vote.Msg().Header().Hash()
 	byHash, ok := bv.byHash[h]
@@ -70,9 +69,11 @@ func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote
 	byHash.votes = append(byHash.votes, vote)
 	if byHash.weight >= c.LaneQuorum() {
 		bv.qc = utils.Some(types.NewLaneQC(byHash.votes))
-		return true
+		if !bv.qcCounted {
+			bv.qcCounted = true
+			metrics.ObserveLaneQC()
+		}
 	}
-	return false
 }
 
 func (bv *blockVotes) header(want types.BlockHeaderHash) utils.Option[*types.BlockHeader] {
