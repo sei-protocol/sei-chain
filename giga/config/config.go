@@ -62,6 +62,8 @@ type ExecutionConfig struct {
 	ParseWorkers int `mapstructure:"parse_workers"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
+	// HTTPPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
+	HTTPPort int `mapstructure:"http_port"`
 }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
@@ -73,6 +75,7 @@ var DefaultConfig = Config{
 		OCCWorkers:          0,
 		ParseWorkers:        0,
 		BlockResultPoolSize: 1,
+		HTTPPort:            8545,
 	},
 }
 
@@ -103,6 +106,7 @@ const (
 	FlagExecutionOCCWorkers            = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers          = "giga.execution.parse_workers"
 	FlagExecutionBlockResultPoolSize   = "giga.execution.block_result_pool_size"
+	FlagExecutionHTTPPort              = "giga.execution.http_port"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -164,6 +168,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionBlockResultPoolSize, err)
 		}
 	}
+	if v := opts.Get(FlagExecutionHTTPPort); v != nil {
+		if cfg.Execution.HTTPPort, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionHTTPPort, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -199,6 +208,9 @@ func (c Config) Validate() error {
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
 			c.Execution.BlockResultPoolSize)
+	}
+	if c.Execution.HTTPPort < 1 || c.Execution.HTTPPort > 65535 {
+		return fmt.Errorf("%s: must be in 1..65535, got %d", FlagExecutionHTTPPort, c.Execution.HTTPPort)
 	}
 	return nil
 }
@@ -252,4 +264,7 @@ parse_workers = {{ .Giga.Execution.ParseWorkers }}
 
 # block_result_pool_size is the number of block results kept pooled between executions.
 block_result_pool_size = {{ .Giga.Execution.BlockResultPoolSize }}
+
+# http_port is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
+http_port = {{ .Giga.Execution.HTTPPort }}
 `

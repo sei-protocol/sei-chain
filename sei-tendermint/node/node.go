@@ -146,6 +146,7 @@ type nodeImpl struct {
 	services          []service.Service
 	rpcListeners      []net.Listener // rpc servers
 	evmOnlyRPC        *evmonlyrpc.Server
+	evmOnlyRPCPort    int
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -260,6 +261,7 @@ func makeNode(
 		consensusPolicy:    consensusPolicy,
 		freezeHeight:       opts.freezeHeight,
 		gigaStorageManager: gigaStorageManager,
+		evmOnlyRPCPort:     opts.giga.Execution.HTTPPort,
 
 		nodeKey: nodeKey,
 
@@ -699,7 +701,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 			return errors.New("autobahn rpc requires giga storage")
 		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts)
+			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts, n.evmOnlyRPCPort)
 			if err != nil {
 				return err
 			}
