@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/upgrade"
+	upgradev67 "github.com/sei-protocol/sei-chain/precompiles/upgrade/legacy/v67"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -105,45 +106,27 @@ func TestPrecompile_Run_AppliedPlan(t *testing.T) {
 	require.Equal(t, vm.ErrExecutionReverted, err)
 }
 
-func TestPrecompile_Run_UpgradedConsensusState(t *testing.T) {
+func TestPrecompile_UpgradedConsensusStateRemoved(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	k := &testApp.EvmKeeper
-	statedb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{
-		StateDB: statedb,
-	}
-
 	p, err := upgrade.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.NoError(t, err)
-	method, err := p.ABI.MethodById(p.GetExecutor().(*upgrade.PrecompileExecutor).UpgradedConsensusStateID)
-	require.NoError(t, err)
+	_, found := p.ABI.Methods["upgradedConsensusState"]
+	require.False(t, found)
 
-	// nothing stored returns empty bytes without error
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	evm := vm.EVM{StateDB: statedb}
+	legacy, err := upgradev67.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	method := legacy.ABI.Methods["upgradedConsensusState"]
 	inputs, err := method.Inputs.Pack(int64(123))
 	require.NoError(t, err)
-	ret, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, nil, nil, true, false)
+	ret, _, err := legacy.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, nil, nil, true, false)
 	require.NoError(t, err)
 	outputs, err := method.Outputs.Unpack(ret)
 	require.NoError(t, err)
 	require.Len(t, outputs, 1)
 	require.Empty(t, outputs[0].([]byte))
-
-	// seed a consensus state through the keeper and expect it to round-trip
-	consState := []byte("test-consensus-state")
-	require.NoError(t, testApp.UpgradeKeeper.SetUpgradedConsensusState(ctx, 123, consState))
-
-	ret, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, nil, nil, true, false)
-	require.NoError(t, err)
-	outputs, err = method.Outputs.Unpack(ret)
-	require.NoError(t, err)
-	require.Len(t, outputs, 1)
-	require.Equal(t, consState, outputs[0].([]byte))
-
-	// sending value to a view method reverts
-	_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, big.NewInt(1), nil, false, false)
-	require.Error(t, err)
-	require.Equal(t, vm.ErrExecutionReverted, err)
 }
 
 func TestPrecompile_Run_ModuleVersions(t *testing.T) {

@@ -177,8 +177,6 @@ func (k Keeper) getModuleVersion(ctx sdk.Context, name string) (uint64, bool) {
 // ScheduleUpgrade schedules an upgrade based on the specified plan.
 // If there is another Plan already scheduled, it will overwrite it
 // (implicitly cancelling the current plan)
-// ScheduleUpgrade will also write the upgraded client to the upgraded client path
-// if an upgraded client is specified in the plan
 func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 	if err := plan.ValidateBasic(); err != nil {
 		return err
@@ -196,12 +194,6 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 
 	store := ctx.KVStore(k.storeKey)
 
-	// clear any old IBC state stored by previous plan
-	oldPlan, found := k.GetUpgradePlan(ctx)
-	if found {
-		k.ClearIBCState(ctx, oldPlan.Height)
-	}
-
 	bz := k.cdc.MustMarshal(&plan)
 	store.Set(types.PlanKey(), bz)
 
@@ -209,43 +201,6 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 		attribute.String("name", plan.Name),
 	))
 	return nil
-}
-
-// SetUpgradedClient sets the expected upgraded client for the next version of this chain at the last height the current chain will commit.
-func (k Keeper) SetUpgradedClient(ctx sdk.Context, planHeight int64, bz []byte) error {
-	store := ctx.KVStore(k.storeKey)
-	store.Set(types.UpgradedClientKey(planHeight), bz)
-	return nil
-}
-
-// GetUpgradedClient gets the expected upgraded client for the next version of this chain
-func (k Keeper) GetUpgradedClient(ctx sdk.Context, height int64) ([]byte, bool) {
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.UpgradedClientKey(height))
-	if len(bz) == 0 {
-		return nil, false
-	}
-
-	return bz, true
-}
-
-// SetUpgradedConsensusState set the expected upgraded consensus state for the next version of this chain
-// using the last height committed on this chain.
-func (k Keeper) SetUpgradedConsensusState(ctx sdk.Context, planHeight int64, bz []byte) error {
-	store := ctx.KVStore(k.storeKey)
-	store.Set(types.UpgradedConsStateKey(planHeight), bz)
-	return nil
-}
-
-// GetUpgradedConsensusState set the expected upgraded consensus state for the next version of this chain
-func (k Keeper) GetUpgradedConsensusState(ctx sdk.Context, lastHeight int64) ([]byte, bool) {
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.UpgradedConsStateKey(lastHeight))
-	if len(bz) == 0 {
-		return nil, false
-	}
-
-	return bz, true
 }
 
 // GetLastCompletedUpgrade returns the last applied upgrade name and height.
@@ -314,22 +269,8 @@ func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64)
 	return closest.Name, closest.BlockHeight
 }
 
-// ClearIBCState clears any planned IBC state
-func (k Keeper) ClearIBCState(ctx sdk.Context, lastHeight int64) {
-	// delete IBC client and consensus state from store if this is IBC plan
-	store := ctx.KVStore(k.storeKey)
-	store.Delete(types.UpgradedClientKey(lastHeight))
-	store.Delete(types.UpgradedConsStateKey(lastHeight))
-}
-
-// ClearUpgradePlan clears any schedule upgrade and associated IBC states.
+// ClearUpgradePlan clears any scheduled upgrade.
 func (k Keeper) ClearUpgradePlan(ctx sdk.Context) {
-	// clear IBC states everytime upgrade plan is removed
-	oldPlan, found := k.GetUpgradePlan(ctx)
-	if found {
-		k.ClearIBCState(ctx, oldPlan.Height)
-	}
-
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.PlanKey())
 }
@@ -383,9 +324,6 @@ func (k Keeper) ApplyUpgrade(ctx sdk.Context, plan types.Plan) {
 		k.versionSetter.SetProtocolVersion(nextProtocolVersion)
 	}
 
-	// Must clear IBC state after upgrade is applied as it is stored separately from the upgrade plan.
-	// This will prevent resubmission of upgrade msg after upgrade is already completed.
-	k.ClearIBCState(ctx, plan.Height)
 	k.ClearUpgradePlan(ctx)
 	k.SetDone(ctx, plan.Name)
 }
