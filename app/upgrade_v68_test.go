@@ -3,30 +3,24 @@
 package app_test
 
 import (
-	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/app/retiredvesting"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtestutil "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/testutil"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/upgradetest"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // v6.8 removes the vesting module. The module owned no store: its state is the
@@ -52,11 +46,10 @@ const (
 	// runs the gov 3 to 4 migration.
 	v68GovVersion uint64 = 4
 
-	v68MsgCreateVestingAccountTypeURL = "/cosmos.vesting.v1beta1.MsgCreateVestingAccount"
-	v68BaseAccountTypeURL             = "/cosmos.auth.v1beta1.BaseAccount"
-	v68RunningSeid                    = "/root/go/bin/seid"
-	v68KeyringPassword                = "12345678\n"
-	v68PostUpgradeSendAmount          = "6868usei"
+	v68BaseAccountTypeURL    = "/cosmos.auth.v1beta1.BaseAccount"
+	v68RunningSeid           = "/root/go/bin/seid"
+	v68KeyringPassword       = "12345678\n"
+	v68PostUpgradeSendAmount = "6868usei"
 )
 
 var v68PostUpgradeBankReceiver = sdk.AccAddress{
@@ -315,11 +308,11 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 		"second ApplyUpgrade is not a no-op: ApplyUpgrade increments protocol version on every call")
 }
 
-// TestV68RejectsTheVestingMessage delivers a transaction carrying
-// MsgCreateVestingAccount after v6.8. The type is no longer registered, so the
-// transaction does not decode: it is rejected before the ante handler and
-// charges no fee, where v6.7 routed it and rejected it after taking the fee.
-func TestV68RejectsTheVestingMessage(t *testing.T) {
+// TestV68RejectsTheVestingMessageWithoutCharging delivers and checks a signed
+// MsgCreateVestingAccount after v6.8. The message decodes as its retired type,
+// which fails validation with the error v6.7 returned, so it is refused before
+// any fee is taken, where v6.7 refused it only after taking the fee.
+func TestV68RejectsTheVestingMessageWithoutCharging(t *testing.T) {
 	a := newV68Chain(t)
 	signer := a.NewSignableAccount("v68/vesting-message")
 	a.FundAccount(signer, v68VestingBalance)
@@ -327,59 +320,27 @@ func TestV68RejectsTheVestingMessage(t *testing.T) {
 	applyV68ToCommitStore(t, a)
 	a.RunBlock([]signing.Tx{})
 
-	txBytes := v68CreateVestingAccountTx(t, signer, sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()))
-	_, err := a.GetTxConfig().TxDecoder()(txBytes)
-	require.ErrorContains(t, err, v68MsgCreateVestingAccountTypeURL)
-
-	balanceBefore := a.BankKeeper.GetBalance(a.Ctx(), signer, "usei")
-	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Txs:               [][]byte{txBytes},
-		DecidedLastCommit: abci.CommitInfo{Round: 0, Votes: a.GetVotes()},
-		Hash:              []byte("v68"),
-		Header: &tmproto.Header{
-			ChainID:         a.ChainID,
-			Height:          a.Ctx().BlockHeight() + 1,
-			ProposerAddress: a.GetVotes()[0].Validator.Address,
-			Time:            time.Now(),
-		},
+	tx := a.Sign(signer, v68TxFee, &retiredvesting.MsgCreateVestingAccount{
+		FromAddress: signer.String(),
+		ToAddress:   sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 1)),
+		EndTime:     v68VestingEndTime,
+		Delayed:     true,
 	})
-	require.NoError(t, err)
-	require.Len(t, res.TxResults, 1)
-	require.Equal(t, sdkerrors.ErrTxDecode.ABCICode(), res.TxResults[0].Code, res.TxResults[0].Log)
-	require.Equal(t, sdkerrors.ErrTxDecode.Codespace(), res.TxResults[0].Codespace)
-	require.Equal(t, balanceBefore,
-		a.BankKeeper.GetBalance(a.GetContextForDeliverTx([]byte{}), signer, "usei"),
-		"a transaction that does not decode was charged a fee")
-}
+	balanceBefore := a.BankKeeper.GetBalance(a.Ctx(), signer, "usei")
 
-// v68CreateVestingAccountTx encodes a transaction carrying the
-// MsgCreateVestingAccount v6.7 clients sent, from from to to.
-func v68CreateVestingAccountTx(t *testing.T, from, to sdk.AccAddress) []byte {
-	t.Helper()
-	amount := sdk.NewInt64Coin("usei", 1)
-	coin, err := amount.Marshal()
-	require.NoError(t, err)
-	msg := protowire.AppendString(protowire.AppendTag(nil, 1, protowire.BytesType), from.String())
-	msg = protowire.AppendString(protowire.AppendTag(msg, 2, protowire.BytesType), to.String())
-	msg = protowire.AppendBytes(protowire.AppendTag(msg, 3, protowire.BytesType), coin)
-	msg = protowire.AppendVarint(protowire.AppendTag(msg, 4, protowire.VarintType), uint64(v68VestingEndTime))
-	msg = protowire.AppendVarint(protowire.AppendTag(msg, 5, protowire.VarintType), 1)
+	results := a.RunBlockDetailed([]signing.Tx{tx})
+	require.Len(t, results, 1)
+	require.Equal(t, retiredvesting.ErrDeprecated.ABCICode(), results[0].Code, results[0].Log)
+	require.Equal(t, retiredvesting.ErrDeprecated.Codespace(), results[0].Codespace)
+	require.Equal(t, balanceBefore, a.BankKeeper.GetBalance(a.Ctx(), signer, "usei"),
+		"the refused vesting message was charged a fee")
 
-	body, err := (&txtypes.TxBody{
-		Messages: []*codectypes.Any{{TypeUrl: v68MsgCreateVestingAccountTypeURL, Value: msg}},
-	}).Marshal()
+	txBytes, err := processblock.TxConfig.TxEncoder()(tx)
 	require.NoError(t, err)
-	authInfo, err := (&txtypes.AuthInfo{
-		Fee: &txtypes.Fee{Amount: sdk.NewCoins(sdk.NewInt64Coin("usei", v68TxFee)), GasLimit: 1_000_000},
-	}).Marshal()
-	require.NoError(t, err)
-	txBytes, err := (&txtypes.TxRaw{
-		BodyBytes:     body,
-		AuthInfoBytes: authInfo,
-		Signatures:    [][]byte{make([]byte, 64)},
-	}).Marshal()
-	require.NoError(t, err)
-	return txBytes
+	check := a.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+	require.Equal(t, retiredvesting.ErrDeprecated.ABCICode(), check.Code, check.Log)
+	require.Equal(t, retiredvesting.ErrDeprecated.Codespace(), check.Codespace)
 }
 
 // TestV68ExportsNoVestingState exports genesis after v6.8. Export decodes every
