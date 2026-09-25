@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,7 +96,15 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 	}()
 	require.NotNil(t, recovered,
 		"v6.7 binary reopened a database whose oracle and IBC trees were deleted")
-	require.Contains(t, fmt.Sprint(recovered), `store "`)
+	message := fmt.Sprint(recovered)
+	namesDeletedStore := false
+	for _, name := range v68OfflineDeletedStores {
+		if strings.Contains(message, fmt.Sprintf("store %q", name)) {
+			namesDeletedStore = true
+			break
+		}
+	}
+	require.True(t, namesDeletedStore, "panic does not name a deleted store: %s", message)
 }
 
 func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, upgradeHeight int64) {
