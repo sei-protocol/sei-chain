@@ -68,7 +68,9 @@ func (r *Reporter) readERC20Balances(ctx sdk.Context, b *builder) {
 	for _, acc := range r.wallets {
 		evmAddr := r.keepers.EVM.GetEVMAddressOrDefault(ctx, acc)
 		for _, addr := range r.erc20Tokens {
-			identity := []attribute.KeyValue{addressAttr(acc.String()), attribute.String("token", addr.Hex())}
+			identity := make([]attribute.KeyValue, 2, 4)
+			identity[0] = addressAttr(acc.String())
+			identity[1] = attribute.String("token", addr.Hex())
 			token, ok := tokens[addr]
 			if !ok {
 				b.gauge(cosmosMetrics.walletERC20ReadOK, 0, identity...)
