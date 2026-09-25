@@ -3,6 +3,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"path/filepath"
@@ -11,11 +12,16 @@ import (
 	"time"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,6 +101,49 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 	requireV68OfflineProposalRewritten(t, testApp, artifact.Retained)
 	requireV68OfflineUpgradedIBCStatePruned(t, testApp, artifact.Retained)
 	requireV68OfflineVoucher(t, testApp, artifact.Retained)
+	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(artifact))
+}
+
+// v68OfflineTouchedKey reports the retained-store keys the v6.8 upgrade block
+// is specified to change: the rewritten IBC proposal, the pruned upgraded IBC
+// state, the plan, done and version-map entries of the upgrade store, and the
+// bank entries block rewards move every block.
+func v68OfflineTouchedKey(artifact offlineUpgradeArtifact) func(storeName string, key []byte) bool {
+	proposalKey := string(govtypes.ProposalKey(artifact.Retained.IBCProposalID))
+	return func(storeName string, key []byte) bool {
+		switch storeName {
+		case govtypes.StoreKey:
+			return string(key) == proposalKey
+		case upgradetypes.StoreKey:
+			if strings.HasPrefix(string(key), upgradedIBCStateKeyPrefix) {
+				return true
+			}
+			return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
+		case banktypes.StoreKey:
+			return v68OfflineBlockRewardKey(key)
+		}
+		return false
+	}
+}
+
+// v68OfflineBlockRewardKey reports bank keys that minting and distribution
+// rewrite on every block: the usei supply and the balances of the module
+// accounts rewards flow through.
+func v68OfflineBlockRewardKey(key []byte) bool {
+	if bytes.HasPrefix(key, banktypes.SupplyKey) {
+		return string(key[len(banktypes.SupplyKey):]) == sdk.DefaultBondDenom
+	}
+	for _, prefix := range [][]byte{banktypes.BalancesPrefix, banktypes.WeiBalancesPrefix} {
+		if !bytes.HasPrefix(key, prefix) {
+			continue
+		}
+		for _, name := range []string{authtypes.FeeCollectorName, distrtypes.ModuleName, minttypes.ModuleName} {
+			if bytes.HasPrefix(key[len(prefix):], address.MustLengthPrefix(authtypes.NewModuleAddress(name))) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func requireV68OfflinePersistedPlanHasHandler(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {

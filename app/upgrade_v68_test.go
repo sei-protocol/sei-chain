@@ -181,9 +181,10 @@ func TestV68PrunesUpgradedIBCState(t *testing.T) {
 
 	applyV68(t, app)
 
-	iterator := sdk.KVStorePrefixIterator(store, []byte("upgradedIBCState"))
+	iterator := sdk.KVStorePrefixIterator(store, []byte("upgradedIBCState/"))
 	defer iterator.Close()
 	require.False(t, iterator.Valid())
+	require.Equal(t, []byte("unrelated"), store.Get([]byte("upgradedIBCStateless")))
 	require.NotEmpty(t, app.UpgradeKeeper.GetModuleVersionMap(ctx))
 	name, _ := app.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
 	require.Equal(t, v68UpgradeName, name)

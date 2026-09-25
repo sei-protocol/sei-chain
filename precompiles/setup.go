@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/evidence"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
 	"github.com/sei-protocol/sei-chain/precompiles/mint"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
@@ -59,6 +60,7 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(gov.GovAddress):                 gov.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(distribution.DistrAddress):      distribution.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(oracle.OracleAddress):           oracle.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(ibc.IBCAddress):                 ibc.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(pointer.PointerAddress):         pointer.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerview.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(p256.P256VerifyAddress):         p256.GetVersioned(latestUpgrade, keepers),
@@ -114,6 +116,10 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
+	ibcp, err := ibc.NewPrecompile(keepers)
+	if err != nil {
+		return err
+	}
 	pointerp, err := pointer.NewPrecompile(keepers)
 	if err != nil {
 		return err
@@ -136,6 +142,7 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[govp.GetName()] = PrecompileInfo{ABI: govp.GetABI(), Address: govp.Address()}
 	PrecompileNamesToInfo[distrp.GetName()] = PrecompileInfo{ABI: distrp.GetABI(), Address: distrp.Address()}
 	PrecompileNamesToInfo[oraclep.GetName()] = PrecompileInfo{ABI: oraclep.GetABI(), Address: oraclep.Address()}
+	PrecompileNamesToInfo[ibcp.GetName()] = PrecompileInfo{ABI: ibcp.GetABI(), Address: ibcp.Address()}
 	PrecompileNamesToInfo[pointerp.GetName()] = PrecompileInfo{ABI: pointerp.GetABI(), Address: pointerp.Address()}
 	PrecompileNamesToInfo[pointerviewp.GetName()] = PrecompileInfo{ABI: pointerviewp.GetABI(), Address: pointerviewp.Address()}
 	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
@@ -149,6 +156,7 @@ func InitializePrecompiles(
 		addPrecompileToVM(govp)
 		addPrecompileToVM(distrp)
 		addPrecompileToVM(oraclep)
+		addPrecompileToVM(ibcp)
 		addPrecompileToVM(pointerp)
 		addPrecompileToVM(pointerviewp)
 		addPrecompileToVM(p256p)

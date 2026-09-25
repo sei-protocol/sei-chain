@@ -542,6 +542,49 @@ func requireOfflineUpgradeRetainedStores(t *testing.T, testApp *App, want map[st
 	}
 }
 
+// offlineUpgradeStoreDiff lists the snapshotted keys of one store whose value
+// changed or that disappeared, as base64 key -> "before -> after".
+func offlineUpgradeStoreDiff(want, got map[string]string) map[string]string {
+	diff := map[string]string{}
+	for key, before := range want {
+		after, ok := got[key]
+		switch {
+		case !ok:
+			diff[key] = before + " -> <deleted>"
+		case after != before:
+			diff[key] = before + " -> " + after
+		}
+	}
+	return diff
+}
+
+// requireOfflineUpgradeRetainedStoresExcept checks that every snapshotted key of
+// every retained store is still present with its recorded value, except keys the
+// upgrade is specified to touch, which touched reports.
+func requireOfflineUpgradeRetainedStoresExcept(
+	t *testing.T,
+	testApp *App,
+	want map[string]map[string]string,
+	touched func(storeName string, key []byte) bool,
+) {
+	t.Helper()
+	names := make([]string, 0, len(want))
+	for name := range want {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	requireOfflineUpgradeStoresMounted(t, testApp, names)
+	for _, name := range names {
+		got := snapshotCommittedOfflineUpgradeStore(t, testApp, name)
+		for encodedKey, change := range offlineUpgradeStoreDiff(want[name], got) {
+			key, err := base64.StdEncoding.DecodeString(encodedKey)
+			require.NoError(t, err)
+			require.True(t, touched(name, key),
+				"upgrade changed retained %s key %q: %s", name, key, change)
+		}
+	}
+}
+
 func writeOfflineUpgradeArtifact(t *testing.T, root string, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	content, err := json.MarshalIndent(artifact, "", "  ")

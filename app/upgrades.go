@@ -30,7 +30,7 @@ const retiredIBCProposalTypeURLPrefix = "/ibc."
 
 // upgradedIBCStateKeyPrefix is the upgrade-store prefix under which the cosmos
 // upgrade module recorded planned IBC client state before IBC was retired.
-const upgradedIBCStateKeyPrefix = "upgradedIBCState"
+const upgradedIBCStateKeyPrefix = "upgradedIBCState/"
 
 //go:embed tags
 var f embed.FS
