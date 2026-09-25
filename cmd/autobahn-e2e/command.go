@@ -14,7 +14,27 @@ const (
 	defaultClusterName = "autobahn-evmonly"
 	targetLocal        = "local"
 	targetAWS          = "aws"
+
+	grafanaPublicPort = 3000
+
+	awsTopologyDistributed = "distributed"
+	awsTopologyColocated   = "colocated"
+
+	awsValidatorCount             = 4
+	awsEVMPort                    = 8545
+	awsMetricsPort                = 26660
+	defaultLoadVolumeSizeGiB      = 100
+	defaultLoadVolumeIOPS         = 3000
+	defaultLoadVolumeThroughputMB = 125
+	seiLoadVersion                = "v0.0.1"
 )
+
+func grafanaPublicURL(host string) string {
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", host, grafanaPublicPort)
+}
 
 type application struct {
 	runner   commandRunner
