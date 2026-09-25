@@ -89,6 +89,15 @@ func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	}
 }
 
+type uncachedMedianBlockStatsStore struct {
+	receipt.ReceiptStore
+	stats receipt.BlockStats
+}
+
+func (s uncachedMedianBlockStatsStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+	return s.stats, nil
+}
+
 // emptyBlockBackend answers Block with a real, empty block for any height: the shape a height
 // with no recorded BlockStats actually has (its receipts, if any, are just as retrievable).
 func emptyBlockBackend(gasLimit uint64, minGasPrice int64) *testBackend {
@@ -240,6 +249,29 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 			require.Equal(t, big.NewInt(tt.want), got.ToInt())
 		})
 	}
+}
+
+func TestMaxPriorityFeePerGasRecomputesUnstoredMedian(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash:  [32]byte{1},
+		Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900, EffectiveGasPrice: 500},
+		Reward:  big.NewInt(500),
+	}}))
+	api := &infoAPI{
+		backend: testInfoBackend(1000, 1),
+		store: uncachedMedianBlockStatsStore{
+			ReceiptStore: store,
+			stats: receipt.BlockStats{
+				TotalGasUsed:      900,
+				RewardPercentiles: []receipt.RewardPercentile{{Percentile: 25, Reward: 500}},
+			},
+		},
+	}
+
+	got, err := api.MaxPriorityFeePerGas(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(500), got.ToInt())
 }
 
 func TestFeeHistoryEmptyBlockCountReturnsEmptyResult(t *testing.T) {

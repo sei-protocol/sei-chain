@@ -72,14 +72,14 @@ func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 		return nil, err
 	}
 	margin := suggestedGasPrice(floor)
-	if reward, congested := api.congestionReward(ctx); congested && reward != nil && reward.Cmp(margin) >= 0 {
+	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
 		return (*hexutil.Big)(reward), nil
 	}
 	return (*hexutil.Big)(margin), nil
 }
 
-// congestionReward returns the latest block's median reward and whether the block is congested.
-// The reward is nil when no reward-eligible receipts exist in a congested block.
+// congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but
+// only once its gasUsedRatio exceeds gasPriceCongestionThresholdPercent.
 func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	current := api.store.LatestVersion()
 	if current <= 0 {
@@ -98,21 +98,33 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	}
 	reward, ok := stats.RewardAt(gasPriceCongestionPercentile)
 	if !ok {
-		return nil, true
+		return nil, false
 	}
 	return new(big.Int).SetUint64(reward), true
 }
 
 // MaxPriorityFeePerGas returns the suggested priority fee for the latest block.
 func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
-	reward, congested := api.congestionReward(ctx)
-	if !congested {
+	current := api.store.LatestVersion()
+	if current <= 0 {
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
-	if reward == nil {
-		return (*hexutil.Big)(new(big.Int)), nil
+	gasLimit, err := api.backend.EvmGasLimit()
+	if err != nil {
+		return nil, err
 	}
-	return (*hexutil.Big)(reward), nil
+	if gasLimit == 0 {
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	stats, err := api.blockStatsForHeight(ctx, current, []float64{gasPriceCongestionPercentile})
+	if err != nil {
+		return nil, fmt.Errorf("read block stats for priority fee: %w", err)
+	}
+	if stats.TotalGasUsed <= gasLimit*gasPriceCongestionThresholdPercent/100 {
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	reward, _ := stats.RewardAt(gasPriceCongestionPercentile)
+	return (*hexutil.Big)(new(big.Int).SetUint64(reward)), nil
 }
 
 // suggestedGasPrice scales floor up by the gas-price suggestion margin,
