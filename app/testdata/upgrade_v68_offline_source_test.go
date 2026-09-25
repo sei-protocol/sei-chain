@@ -193,7 +193,7 @@ func seedV68IBCProposal(t *testing.T, testApp *App, ctx sdk.Context, retained *o
 
 func seedV68UpgradedIBCState(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
 	t.Helper()
-	key := upgradetypes.UpgradedClientKey(ctx.BlockHeight() + 1000)
+	key := []byte(fmt.Sprintf("upgradedIBCState/%d/upgradedClient", ctx.BlockHeight()+1000))
 	ctx.KVStore(testApp.GetKey(upgradetypes.StoreKey)).Set(key, []byte("upgraded-client"))
 	retained.UpgradedIBCStateKey = encodeOfflineUpgradeKey(key)
 }

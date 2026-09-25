@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
@@ -71,12 +70,6 @@ func TestPlanValid(t *testing.T) {
 		"time-base upgrade": {
 			p: types.Plan{
 				Time: time.Now(),
-			},
-		},
-		"IBC upgrade": {
-			p: types.Plan{
-				Height:              123450000,
-				UpgradedClientState: &codectypes.Any{},
 			},
 		},
 		"no due at": {

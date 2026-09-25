@@ -152,50 +152,6 @@ func (s *KeeperTestSuite) TestScheduleUpgrade() {
 	}
 }
 
-func (s *KeeperTestSuite) TestSetUpgradedClient() {
-	cs := []byte("IBC client state")
-
-	cases := []struct {
-		name   string
-		height int64
-		setup  func()
-		exists bool
-	}{
-		{
-			name:   "no upgraded client exists",
-			height: 10,
-			setup:  func() {},
-			exists: false,
-		},
-		{
-			name:   "success",
-			height: 10,
-			setup: func() {
-				s.app.UpgradeKeeper.SetUpgradedClient(s.ctx, 10, cs)
-			},
-			exists: true,
-		},
-	}
-
-	for _, tc := range cases {
-		// reset suite
-		s.SetupTest()
-
-		// setup test case
-		tc.setup()
-
-		gotCs, exists := s.app.UpgradeKeeper.GetUpgradedClient(s.ctx, tc.height)
-		if tc.exists {
-			s.Require().Equal(cs, gotCs, "valid case: %s did not retrieve correct client state", tc.name)
-			s.Require().True(exists, "valid case: %s did not retrieve client state", tc.name)
-		} else {
-			s.Require().Nil(gotCs, "invalid case: %s retrieved valid client state", tc.name)
-			s.Require().False(exists, "invalid case: %s retrieved valid client state", tc.name)
-		}
-	}
-
-}
-
 // Test that the protocol version successfully increments after an
 // upgrade and is successfully set on BaseApp's appVersion.
 func (s *KeeperTestSuite) TestIncrementProtocolVersion() {
