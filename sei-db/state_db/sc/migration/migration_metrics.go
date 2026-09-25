@@ -45,7 +45,7 @@ type migrationBatchStats struct {
 //
 //  1. OTel telemetry sink. NewMigrationMetrics wires counters/gauges
 //     through the global MeterProvider; SetVersion, SetBoundary,
-//     RecordBatch, RecordApplyDuration, and the boundary snapshot loop
+//     RecordBatch, RecordApplyDuration, and the boundary snapshot gauge
 //     all emit through it. When OTel handles are absent (nil exporter,
 //     newLocalMigrationMetrics) the corresponding Record/Add calls are
 //     skipped per-counter, so emission is best-effort.
@@ -66,13 +66,12 @@ type MigrationMetrics struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// wg tracks the background boundary-snapshot goroutine (if any) so
-	// Close can block until it exits.
+	// wg tracks the goroutine that unregisters the boundary snapshot
+	// callback (if any) so Close can block until it exits.
 	wg sync.WaitGroup
 
-	// targetVersion is captured at construction time so the boundary
-	// snapshot goroutine can tell, without any DB access, when the
-	// migration has completed and it can stop emitting labeled series.
+	// targetVersion is the version the migration transitions to. The
+	// boundary snapshot callback reports "complete" once it is reached.
 	targetVersion uint64
 
 	keysMigratedTotal             metric.Int64Counter
@@ -85,7 +84,7 @@ type MigrationMetrics struct {
 	newDBPairsWrittenTotal        metric.Int64Counter
 	applyDuration                 metric.Float64Histogram
 	version                       metric.Int64Gauge
-	boundarySnapshot              metric.Int64Gauge
+	boundarySnapshot              metric.Int64ObservableGauge
 
 	// startedAt is captured when the metrics object is constructed and
 	// reported as the elapsed-time anchor in the completion summary.
@@ -97,24 +96,17 @@ type MigrationMetrics struct {
 	runStats        migrationRunStats
 }
 
-// NewMigrationMetrics constructs a MigrationMetrics using the global OTel
-// MeterProvider. The caller must have configured the MeterProvider with a
-// Prometheus or other exporter before calling this.
-//
-// targetVersion is the version the associated migration is transitioning
-// to; it is used solely by the boundary-snapshot goroutine to decide when
-// to stop emitting labeled series.
-//
-// When boundarySnapshotInterval <= 0 the snapshot goroutine is not started;
-// everything else still works. When ctx is cancelled, or Close is called,
-// the snapshot goroutine exits.
-func NewMigrationMetrics(
-	ctx context.Context,
-	targetVersion uint64,
-	boundarySnapshotInterval time.Duration,
-) *MigrationMetrics {
+// NewMigrationMetrics constructs a MigrationMetrics for a migration to
+// targetVersion using the global OTel MeterProvider. The boundary snapshot
+// gauge reports until ctx is cancelled or Close is called.
+func NewMigrationMetrics(ctx context.Context, targetVersion uint64) *MigrationMetrics {
+	return newMigrationMetrics(ctx, otel.Meter("seidb_migration"), targetVersion)
+}
+
+// newMigrationMetrics constructs a MigrationMetrics whose instruments come
+// from meter.
+func newMigrationMetrics(ctx context.Context, meter metric.Meter, targetVersion uint64) *MigrationMetrics {
 	ctx, cancel := context.WithCancel(ctx)
-	meter := otel.Meter("seidb_migration")
 
 	keysMigratedTotal, _ := meter.Int64Counter(
 		"seidb_migration_keys_migrated_total",
@@ -168,9 +160,9 @@ func NewMigrationMetrics(
 			"migration is complete, startVersion while in progress."),
 		metric.WithUnit("{version}"),
 	)
-	boundarySnapshot, _ := meter.Int64Gauge(
+	boundarySnapshot, _ := meter.Int64ObservableGauge(
 		"seidb_migration_boundary_snapshot",
-		metric.WithDescription("Periodic snapshot of the live migration boundary. Value is always 1; inspect the "+
+		metric.WithDescription("Current migration boundary. Value is always 1; inspect the "+
 			"boundary_hex label for the boundary itself."),
 		metric.WithUnit("{boundary}"),
 	)
@@ -192,15 +184,12 @@ func NewMigrationMetrics(
 		boundarySnapshot:              boundarySnapshot,
 		startedAt:                     time.Now(),
 	}
-
-	if boundarySnapshotInterval > 0 {
-		m.startBoundarySnapshotLoop(boundarySnapshotInterval)
-	}
+	m.registerBoundarySnapshot(meter)
 	return m
 }
 
 // SetBoundary updates the in-memory current boundary. No DB access. Safe
-// to call concurrently with the snapshot ticker; not safe to call
+// to call concurrently with the snapshot callback; not safe to call
 // concurrently with itself from multiple goroutines, but the
 // MigrationManager only updates the boundary from a single ApplyChangeSets
 // caller at a time.
@@ -214,8 +203,7 @@ func (m *MigrationMetrics) SetBoundary(b MigrationBoundary) {
 }
 
 // SetVersion updates the in-memory current migration version and records
-// the version gauge immediately so Grafana sees the transition without
-// waiting for the next snapshot tick.
+// the version gauge.
 func (m *MigrationMetrics) SetVersion(v uint64) {
 	if m == nil {
 		return
@@ -328,47 +316,41 @@ func (m *MigrationMetrics) snapshot() (MigrationBoundary, uint64) {
 	return m.currentBoundary, m.currentVersion
 }
 
-// startBoundarySnapshotLoop starts the background goroutine that
-// periodically emits the labeled boundary snapshot gauge. The loop exits
-// on ctx cancellation, or after emitting a single "complete" sentinel
-// once currentVersion reaches targetVersion.
-//
-// Cardinality rationale: at a 10-minute interval a month-long migration
-// tops out at ~4k unique boundary_hex label values — well within
-// Prometheus' comfort zone — and the OTel exporter's staleness markers
-// keep only the most recent label active in the scrape set.
-func (m *MigrationMetrics) startBoundarySnapshotLoop(interval time.Duration) {
-	if m == nil || m.boundarySnapshot == nil {
+// registerBoundarySnapshot makes the boundary snapshot gauge report the
+// current boundary at each collection, until ctx is cancelled.
+func (m *MigrationMetrics) registerBoundarySnapshot(meter metric.Meter) {
+	if m.boundarySnapshot == nil {
+		return
+	}
+	// A synchronous gauge keeps exporting every label value it has ever
+	// recorded; a callback exports only the value observed at each collection.
+	registration, err := meter.RegisterCallback(m.observeBoundarySnapshot, m.boundarySnapshot)
+	if err != nil {
 		return
 	}
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		completedEmitted := false
-		for {
-			select {
-			case <-m.ctx.Done():
-				return
-			case <-ticker.C:
-				boundary, version := m.snapshot()
-				if version == m.targetVersion {
-					if !completedEmitted {
-						m.recordBoundarySnapshot("complete")
-					}
-					return
-				}
-				m.recordBoundarySnapshot(boundary.String())
-			}
-		}
+		<-m.ctx.Done()
+		_ = registration.Unregister()
 	}()
 }
 
-// Release resources held by the metrics collector. Safe on nil receivers
-// and on instances constructed without a context (e.g.
-// newLocalMigrationMetrics, which has no boundary-snapshot goroutine to
-// stop and therefore no cancel func to call).
+// observeBoundarySnapshot reports the boundary snapshot gauge with value 1.
+// The boundary_hex label is "complete" once the migration reaches
+// targetVersion, and the current boundary before that.
+func (m *MigrationMetrics) observeBoundarySnapshot(_ context.Context, observer metric.Observer) error {
+	boundary, version := m.snapshot()
+	label := boundary.String()
+	if version == m.targetVersion {
+		label = "complete"
+	}
+	observer.ObserveInt64(m.boundarySnapshot, 1, metric.WithAttributes(attribute.String("boundary_hex", label)))
+	return nil
+}
+
+// Close stops the boundary snapshot gauge. Safe on nil receivers and on
+// instances constructed without a context (e.g. newLocalMigrationMetrics).
 func (m *MigrationMetrics) Close() {
 	if m == nil {
 		return
@@ -377,14 +359,4 @@ func (m *MigrationMetrics) Close() {
 		m.cancel()
 	}
 	m.wg.Wait()
-}
-
-// recordBoundarySnapshot emits the labeled snapshot gauge with value 1.
-// The label is the only payload — the value itself is unused.
-func (m *MigrationMetrics) recordBoundarySnapshot(label string) {
-	m.boundarySnapshot.Record(
-		context.Background(),
-		1,
-		metric.WithAttributes(attribute.String("boundary_hex", label)),
-	)
 }

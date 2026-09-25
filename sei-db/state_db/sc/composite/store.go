@@ -52,9 +52,9 @@ type CompositeCommitStore struct {
 	// ctx is the constructor's context. Each invocation of buildRouter
 	// derives a per-router child context from it and stores the
 	// corresponding cancel function in routerCancel; cancelling that
-	// child stops any background goroutines owned by the current
-	// router (today: the MigrationMetrics boundary-snapshot loop)
-	// without affecting any unrelated work that shares cs.ctx.
+	// child stops any background work owned by the current router
+	// (today: the MigrationMetrics boundary snapshot gauge) without
+	// affecting any unrelated work that shares cs.ctx.
 	ctx context.Context
 
 	// routerCancel cancels the child context handed to the current
