@@ -317,7 +317,7 @@ func (api *infoAPI) receiptRecordsFromBlock(ctx context.Context, height int64) (
 		return nil, fmt.Errorf("block %d body is not available to recompute stats", height)
 	}
 	records := make([]receiptpkg.ReceiptRecord, 0, len(block.Block.Txs))
-	for _, txbz := range block.Block.Txs {
+	for i, txbz := range block.Block.Txs {
 		tx := new(ethtypes.Transaction)
 		if err := tx.UnmarshalBinary(txbz); err != nil {
 			return nil, fmt.Errorf("decode transaction in block %d: %w", height, err)
@@ -326,6 +326,11 @@ func (api *infoAPI) receiptRecordsFromBlock(ctx context.Context, height int64) (
 		stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
 		if err != nil {
 			return nil, fmt.Errorf("read receipt %s for block %d: %w", hash, height, err)
+		}
+		// A replayed transaction keeps the receipt of its original execution, which
+		// belongs to another block's stats.
+		if stored.BlockNumber != uint64(height) || uint64(stored.TransactionIndex) != uint64(i) { //nolint:gosec // G115: height and index are non-negative.
+			continue
 		}
 		records = append(records, receiptRecordFor(hash, stored))
 	}

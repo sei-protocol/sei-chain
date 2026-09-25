@@ -98,6 +98,7 @@ func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
 		txResult := TxResult{}
 		if i%2 == 1 {
 			txResult.Err = fmt.Errorf("replay: %w", core.ErrNonceTooLow)
+			txResult.Rejected = true
 		}
 		result.Txs = append(result.Txs, txResult)
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})

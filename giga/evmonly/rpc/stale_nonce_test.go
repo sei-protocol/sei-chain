@@ -87,3 +87,37 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 	require.Zero(t, store.reads)
 	require.Equal(t, []float64{0}, history.GasUsedRatio)
 }
+
+func TestFeeHistoryRecomputeSkipsReceiptsKeptFromOtherBlocks(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	memory := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, memory.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
+			BlockNumber: 9, TransactionIndex: 0, GasUsed: 21_000, CumulativeGasUsed: 21_000, EffectiveGasPrice: 7,
+		},
+		Reward: big.NewInt(7),
+	}}))
+	// Block 10 replays the transaction twice and records no stats, so fee history recomputes
+	// it from the block body.
+	require.NoError(t, memory.SetLatestVersion(10))
+	store := stubIteratingReceiptStore{
+		ReceiptStore: memory,
+		iterate: func(uint64) (receipt.ReceiptIterator, error) {
+			return nil, receipt.ErrRangeQueryNotSupported
+		},
+	}
+	block := &coretypes.ResultBlock{BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xa").Bytes()}, Block: &tmtypes.Block{
+		Header: tmtypes.Header{Height: 10, Time: time.Unix(1_700_000_000, 0)},
+		Data:   tmtypes.Data{Txs: tmtypes.Txs{raw, raw}},
+	}}
+	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
+	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1), nil }
+
+	history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, 10, []float64{50})
+	require.NoError(t, err)
+	require.Equal(t, []float64{0}, history.GasUsedRatio)
+	require.Len(t, history.Reward, 1)
+	require.NotContains(t, toBigInts(history.Reward[0]), big.NewInt(7))
+}

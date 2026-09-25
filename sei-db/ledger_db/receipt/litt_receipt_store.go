@@ -511,8 +511,8 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		partOffset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
 		value = append(value, bz...)
 
-		// LittDB requires unique keys within one Put. Keep the first occurrence
-		// so a later stale duplicate cannot hide its executed receipt and logs.
+		// LittDB requires unique keys within one Put; conditional duplicates were
+		// already dropped, so this only guards against repeated unconditional records.
 		if _, exists := indexedHashes[record.TxHash]; exists {
 			continue
 		}

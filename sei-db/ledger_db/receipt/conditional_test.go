@@ -96,3 +96,34 @@ func TestConditionalReceiptDoesNotReuseRetainedLittKey(t *testing.T) {
 	require.ErrorIs(t, err, receipt.ErrNotFound)
 	require.Empty(t, drainReceipts(t, store, 2))
 }
+
+func TestConditionalReceiptYieldsToLaterExecutionInBlock(t *testing.T) {
+	for _, backend := range []string{"littidx", "pebble"} {
+		t.Run(backend, func(t *testing.T) {
+			key := storetypes.NewKVStoreKey("evm")
+			ctx := testutil.DefaultContext(key, storetypes.NewTransientStoreKey("evm_transient"))
+			cfg := dbconfig.DefaultReceiptStoreConfig()
+			cfg.Backend, cfg.DBDirectory, cfg.KeepRecent, cfg.AsyncWriteBuffer = backend, t.TempDir(), 0, 0
+			store, err := receipt.NewReceiptStore(cfg, key)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, store.Close()) })
+			addr := common.HexToAddress("0xabc")
+			executed := litReceipt(1, 2, addr)
+			executed.Receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
+			rejected := receipt.ReceiptRecord{TxHash: executed.TxHash, KeepExisting: true, Receipt: &types.Receipt{
+				TxHashHex: executed.TxHash.Hex(), BlockNumber: 1, TransactionIndex: 0, VmError: "nonce too high",
+			}}
+			other := litReceipt(1, 1, addr)
+			require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{rejected, other, executed}))
+			require.Eventually(t, func() bool { return store.LatestVersion() == 1 }, 5*time.Second, time.Millisecond)
+			got, err := store.GetReceipt(ctx, executed.TxHash)
+			require.NoError(t, err)
+			require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), got.Status)
+			require.Equal(t, uint32(2), got.TransactionIndex)
+			require.Equal(t, executed.Receipt.GasUsed, got.GasUsed)
+			if backend == "littidx" {
+				require.Equal(t, []walked{{block: 1, txHash: other.TxHash}, {block: 1, txHash: executed.TxHash}}, drainReceipts(t, store, 1))
+			}
+		})
+	}
+}

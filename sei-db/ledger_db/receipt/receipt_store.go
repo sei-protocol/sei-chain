@@ -149,7 +149,8 @@ type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
-	// KeepExisting makes this record an insert-only write for its transaction hash.
+	// KeepExisting makes this record an insert-only write for its transaction hash: it
+	// yields to a stored receipt and to an unconditional record for the same hash.
 	KeepExisting bool
 	// TxOffset and TxLength locate the raw transaction within its block's stored
 	// value in the block store (the sub-range holding this tx). They are written
