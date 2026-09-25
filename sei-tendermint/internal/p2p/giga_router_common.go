@@ -160,6 +160,19 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 	return r.translateGlobalBlock(gb), nil
 }
 
+// BlockHash returns the header hash of the finalized global block at height n, the hash
+// BlockByNumber reports as BlockID.Hash, with the same errors, without reading the block.
+func (r *gigaRouterCommon) BlockHash(ctx context.Context, n atypes.GlobalBlockNumber) (tmbytes.HexBytes, error) {
+	h, err := r.data.GlobalBlockHash(ctx, n)
+	if err != nil {
+		if errors.Is(err, atypes.ErrPruned) {
+			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
+		}
+		return nil, fmt.Errorf("data.GlobalBlockHash(%v): %w", n, err)
+	}
+	return tmbytes.HexBytes(h.Bytes()), nil
+}
+
 // BlockByHash returns the finalized global block keyed by Autobahn block-
 // header hash, translated into the CometBFT coretypes.ResultBlock shape
 // (same translation as BlockByNumber). Matches CometBFT semantics for
