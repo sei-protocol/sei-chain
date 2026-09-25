@@ -10,6 +10,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -64,7 +65,9 @@ func TestChainIdEndToEnd(t *testing.T) {
 
 func TestSyncing(t *testing.T) {
 	api := &infoAPI{}
-	require.False(t, api.Syncing(t.Context()))
+	_, err := api.Syncing(t.Context())
+	var notSupported *evmrpc.ErrEVMNotSupported
+	require.ErrorAs(t, err, &notSupported)
 }
 
 func TestSyncingEndToEnd(t *testing.T) {
@@ -77,9 +80,12 @@ func TestSyncingEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
-	var got bool
-	require.NoError(t, client.CallContext(t.Context(), &got, "eth_syncing"))
-	require.False(t, got)
+	var got any
+	err = client.CallContext(t.Context(), &got, "eth_syncing")
+	var rpcErr ethrpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+	require.Contains(t, err.Error(), "eth_syncing")
 }
 
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {

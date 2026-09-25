@@ -12,6 +12,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -49,9 +50,9 @@ func (api *infoAPI) ChainId(_ context.Context) *hexutil.Big {
 	return (*hexutil.Big)(new(big.Int).SetUint64(api.backend.EvmChainID()))
 }
 
-// Syncing reports whether the EVM-only executor is catching up.
-func (api *infoAPI) Syncing(_ context.Context) bool {
-	return false
+// Syncing implements eth_syncing, matching v2: sync semantics are not exposed on this API.
+func (api *infoAPI) Syncing(_ context.Context) (any, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
