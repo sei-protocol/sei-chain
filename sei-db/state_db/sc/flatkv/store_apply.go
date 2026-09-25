@@ -554,7 +554,7 @@ func mergeAccountUpdates(
 		if codeHashChange == nil {
 			// Deletion is equivalent to setting the code hash to a zero hash
 			pending.SetCodeHash(nil)
-		} else if _, err := pending.SetCodeHashBytes(codeHashChange); err != nil {
+		} else if err := pending.SetCodeHashBytes(codeHashChange); err != nil {
 			return nil, fmt.Errorf("invalid codehash value: %w", err)
 		}
 		updates[key] = pending

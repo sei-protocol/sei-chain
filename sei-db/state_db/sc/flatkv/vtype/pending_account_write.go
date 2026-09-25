@@ -117,19 +117,17 @@ func (p *PendingAccountWrite) SetCodeHash(codeHash *CodeHash) *PendingAccountWri
 	return p
 }
 
-// SetCodeHashBytes marks the code hash as changed, taking it as raw bytes so a caller holding a
-// serialized value does not have to parse it into a CodeHash first. Returns self.
-func (p *PendingAccountWrite) SetCodeHashBytes(codeHash []byte) (*PendingAccountWrite, error) {
+// SetCodeHashBytes marks the code hash as changed, taking it as a serialized value. The bytes are
+// copied. Unlike the other setters, the receiver must be non-nil. Returns an error if the value
+// is not CodeHashLen bytes long, in which case the write is left unchanged.
+func (p *PendingAccountWrite) SetCodeHashBytes(codeHash []byte) error {
 	if len(codeHash) != CodeHashLen {
-		return p, fmt.Errorf("invalid codehash value length: got %d, expected %d",
+		return fmt.Errorf("invalid codehash value length: got %d, expected %d",
 			len(codeHash), CodeHashLen)
-	}
-	if p == nil {
-		p = NewPendingAccountWrite()
 	}
 	copy(p.codeHash[:], codeHash)
 	p.codeHashSet = true
-	return p, nil
+	return nil
 }
 
 // Merge applies the pending field changes onto a copy of the base AccountData, updating the
