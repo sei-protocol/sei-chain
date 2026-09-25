@@ -6,6 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 )
 
 // GigaStorageConfig composes the store configs a Giga node opens. It is not read from
@@ -18,7 +19,7 @@ type GigaStorageConfig struct {
 	BlockDBConfig    *littblock.BlockDBConfig       // required
 	PruningConfig    *StorageGarbageCollectorConfig // required
 	CheckpointConfig CheckpointConfig
-	HashVaultConfig  HashVaultConfig
+	HashVaultConfig  hashvault.HashVaultConfig
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -48,7 +49,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.ExternalPruning = true
 	ssConfig.DisableInternalWAL = true
 
-	hashVaultConfig := DefaultHashVaultConfig()
+	hashVaultConfig := hashvault.DefaultHashVaultConfig()
 	hashVaultConfig.DataDir = utils.GetHashVaultPath(homePath)
 
 	receiptConfig := DefaultReceiptStoreConfig()

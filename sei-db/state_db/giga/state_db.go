@@ -42,7 +42,7 @@ type StateDB struct {
 	ss *evm.EVMStateStore
 
 	// The hash vault SC's block hashes are recorded in.
-	vault *hashvault.HashVault
+	vault *hashvault.PebbleHashVault
 
 	// The checkpoint schedule SC and SS take their snapshot boundaries from.
 	checkpointer *controller.CheckpointScheduler
@@ -66,7 +66,7 @@ func NewStateDB(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
-	hashVaultCfg config.HashVaultConfig,
+	hashVaultCfg hashvault.HashVaultConfig,
 	// The height to roll back to, or 0 to load the latest block possible. Data after rollbackTo target
 	// may be permanently deleted. Returns an error if not possible to roll back to requested block height.
 	rollbackTo uint64,
@@ -80,7 +80,7 @@ func NewStateDB(
 	var err error
 	var ss *evm.EVMStateStore
 	var sc *flatkv.CommitStore
-	var vault *hashvault.HashVault
+	var vault *hashvault.PebbleHashVault
 	var wal statewal.StateWAL
 	defer func() {
 		if retErr == nil {
@@ -99,7 +99,7 @@ func NewStateDB(
 		return nil, fmt.Errorf("open the state DB: %w", err)
 	}
 
-	if vault, err = hashvault.Open(hashVaultCfg); err != nil {
+	if vault, err = hashvault.NewPebbleHashVault(ctx, hashVaultCfg); err != nil {
 		return nil, fmt.Errorf("open the state DB: %w", err)
 	}
 	// The vault must be SC's first listener, and registering it before SC is reachable from outside this
@@ -208,7 +208,7 @@ func (s *StateDB) Close() error {
 func closeStores(
 	ss *evm.EVMStateStore,
 	sc *flatkv.CommitStore,
-	vault *hashvault.HashVault,
+	vault *hashvault.PebbleHashVault,
 	wal statewal.StateWAL,
 ) error {
 	var errs error
@@ -224,7 +224,8 @@ func closeStores(
 		}
 	}
 	if vault != nil {
-		if err := timer.Close("hashvault", vault.Close); err != nil {
+		closeVault := func() error { return vault.Close(context.Background()) }
+		if err := timer.Close("hashvault", closeVault); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close hash vault: %w", err))
 		}
 	}

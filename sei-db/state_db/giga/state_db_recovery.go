@@ -57,7 +57,7 @@ type recoveryPlan struct {
 func recoverStores(
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
-	hashVaultCfg config.HashVaultConfig,
+	hashVaultCfg hashvault.HashVaultConfig,
 	rollbackTo uint64,
 ) error {
 	survey, err := surveyStores(flatkvCfg, hashVaultCfg)
@@ -77,7 +77,7 @@ func recoverStores(
 
 // Reads what the state WAL, the hash vault and the live state DB's snapshots hold. Every store must be
 // closed.
-func surveyStores(flatkvCfg *flatkvconfig.Config, hashVaultCfg config.HashVaultConfig) (recoverySurvey, error) {
+func surveyStores(flatkvCfg *flatkvconfig.Config, hashVaultCfg hashvault.HashVaultConfig) (recoverySurvey, error) {
 	// This takes the WAL directory's exclusive lock, so it only works before the WAL opens.
 	walStored, walFirst, walLast, err := statewal.GetRange(flatkv.StateWALConfig(flatkvCfg.DataDir))
 	if err != nil {

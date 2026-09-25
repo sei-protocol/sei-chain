@@ -12,9 +12,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 )
 
 const (
@@ -147,7 +147,7 @@ func NewCryptoSim(
 	// giga.NewStateDB is the node's own entry point, and the only one that leaves the state WAL
 	// outside the live state DB: it opens the WAL itself and writes each block to it ahead of the
 	// commit. A live state DB opened directly would own its WAL and write it inline instead.
-	hashVaultConfig := dbconfig.DefaultHashVaultConfig()
+	hashVaultConfig := hashvault.DefaultHashVaultConfig()
 	hashVaultConfig.DataDir = filepath.Join(config.DataDir, "hashvault")
 	db, err := giga.NewStateDB(
 		ctx, config.FlatKVConfig, config.StateStoreConfig, config.CheckpointConfig, hashVaultConfig, 0)

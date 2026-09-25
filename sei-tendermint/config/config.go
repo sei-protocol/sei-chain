@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -111,8 +111,8 @@ func DefaultConfig() *Config {
 		Instrumentation:              DefaultInstrumentationConfig(),
 		PrivValidator:                DefaultPrivValidatorConfig(),
 		SelfRemediation:              DefaultSelfRemediationConfig(),
-		HashVaultHaltOnMismatch:      seidbconfig.DefaultHashVaultConfig().HaltOnMismatch,
-		HashVaultEmptyRollbackBlocks: seidbconfig.DefaultHashVaultConfig().EmptyVaultRollbackBlocks,
+		HashVaultHaltOnMismatch:      hashvault.DefaultHashVaultConfig().HaltOnMismatch,
+		HashVaultEmptyRollbackBlocks: hashvault.DefaultHashVaultConfig().EmptyVaultRollbackBlocks,
 	}
 }
 

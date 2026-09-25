@@ -31,7 +31,7 @@ type vaultTestStores struct {
 	checkpointCfg config.CheckpointConfig
 
 	// Where the hash vault lives, and what it does on a mismatch.
-	hashVaultCfg config.HashVaultConfig
+	hashVaultCfg hashvault.HashVaultConfig
 }
 
 // newVaultTestStores returns configs for a fresh StateDB whose vault halts on a mismatch.
@@ -40,7 +40,7 @@ func newVaultTestStores(t *testing.T) *vaultTestStores {
 	flatkvCfg := flatkvconfig.DefaultTestConfig(t)
 	// The snapshots the rewinds land on are kept, since no collector runs here to prune them.
 	flatkvCfg.ExternalPruning = true
-	hashVaultCfg := config.DefaultHashVaultConfig()
+	hashVaultCfg := hashvault.DefaultHashVaultConfig()
 	hashVaultCfg.DataDir = filepath.Join(t.TempDir(), "hashvault")
 	hashVaultCfg.Fsync = false
 	return &vaultTestStores{
@@ -148,7 +148,7 @@ func TestAVaultBehindSCIsRefilledByReplay(t *testing.T) {
 	before := recordedHashes(t, db, 1, 6)
 	require.NoError(t, db.Close())
 
-	require.NoError(t, hashvault.PruneAfter(stores.hashVaultCfg, 3))
+	require.NoError(t, hashvault.HardRollbackPebbleHashVault(context.Background(), stores.hashVaultCfg, 3))
 
 	reopened := stores.open(t)
 	defer func() { require.NoError(t, reopened.Close()) }()
@@ -218,10 +218,11 @@ func tamperLoadedBlock(t *testing.T, stores *vaultTestStores, blockNumber uint64
 	t.Helper()
 	cfg := stores.hashVaultCfg
 	cfg.HaltOnMismatch = false
-	vault, err := hashvault.Open(cfg)
+	vault, err := hashvault.NewUnsafePebbleHashVault(context.Background(), cfg)
 	require.NoError(t, err)
-	require.NoError(t, vault.Commit(blockNumber, [32]byte{0xEE}))
-	require.NoError(t, vault.Close())
+	tampered := [32]byte{0xEE}
+	require.NoError(t, vault.CommitToHash(context.Background(), blockNumber, tampered[:]))
+	require.NoError(t, vault.Close(context.Background()))
 }
 
 // The loaded block's hash is checked against the vault even when nothing replays, so a vault that

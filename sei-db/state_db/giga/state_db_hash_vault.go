@@ -11,12 +11,13 @@ import (
 )
 
 // hashVaultListener returns the listener that records each block's hash in vault.
-func hashVaultListener(vault *hashvault.HashVault) gigatypes.HashListener {
-	return func(_ context.Context, blockNumber uint64, hash *lthash.BlockHash) error {
+func hashVaultListener(vault *hashvault.PebbleHashVault) gigatypes.HashListener {
+	return func(ctx context.Context, blockNumber uint64, hash *lthash.BlockHash) error {
 		if hash.Global == nil {
 			return fmt.Errorf("record the hash of block %d: it carries no global hash", blockNumber)
 		}
-		if err := vault.Commit(blockNumber, hash.Global.Checksum()); err != nil {
+		checksum := hash.Global.Checksum()
+		if err := vault.CommitToHash(ctx, blockNumber, checksum[:]); err != nil {
 			return fmt.Errorf("record the hash of block %d in the hash vault: %w", blockNumber, err)
 		}
 		return nil
@@ -26,7 +27,7 @@ func hashVaultListener(vault *hashvault.HashVault) gigatypes.HashListener {
 // recordLoadedBlockHash records, or checks, the hash of the block SC opened on, so that the vault holds
 // it once the open returns. SC dispatches that hash while it loads, before the vault is registered, and
 // no replay re-dispatches it when SC was already on the WAL's head.
-func recordLoadedBlockHash(sc *flatkv.CommitStore, vault *hashvault.HashVault) error {
+func recordLoadedBlockHash(sc *flatkv.CommitStore, vault *hashvault.PebbleHashVault) error {
 	if err := sc.FlushHashes(); err != nil {
 		return fmt.Errorf("wait for the replayed blocks to reach the hash vault: %w", err)
 	}
