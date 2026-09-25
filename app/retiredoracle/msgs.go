@@ -6,6 +6,10 @@ import (
 )
 
 const (
+	// ModuleName is the name of the retired oracle module, which also names its
+	// deleted store and its error codespace.
+	ModuleName = "oracle"
+
 	TypeMsgDelegateFeedConsent       = "delegate_feeder"
 	TypeMsgAggregateExchangeRateVote = "aggregate_exchange_rate_vote"
 )
@@ -23,7 +27,7 @@ func NewMsgAggregateExchangeRateVote(exchangeRates string, feeder sdk.AccAddress
 	}
 }
 
-func (msg MsgAggregateExchangeRateVote) Route() string { return "oracle" }
+func (msg MsgAggregateExchangeRateVote) Route() string { return ModuleName }
 
 func (msg MsgAggregateExchangeRateVote) Type() string { return TypeMsgAggregateExchangeRateVote }
 
@@ -48,7 +52,7 @@ func NewMsgDelegateFeedConsent(operatorAddress sdk.ValAddress, feederAddress sdk
 	}
 }
 
-func (msg MsgDelegateFeedConsent) Route() string { return "oracle" }
+func (msg MsgDelegateFeedConsent) Route() string { return ModuleName }
 
 func (msg MsgDelegateFeedConsent) Type() string { return TypeMsgDelegateFeedConsent }
 
