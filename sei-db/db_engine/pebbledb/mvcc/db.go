@@ -1021,6 +1021,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		return nil
 	}
 
+	logger.Info("pruneDescending started iterating")
 	for itr.First(); itr.Valid(); {
 		scanReads++
 		currKeyEncoded := bytes.Clone(itr.Key())
@@ -1132,11 +1133,12 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	logger.Info("pruneDescending started")
-	compactStart := time.Now()
-	err = db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
-	logger.Info("pruneDescending: compacted pruned range", "version", version, "elapsed", time.Since(compactStart), "err", err)
-	return err
+	logger.Info("pruneDescending finished iterating")
+	_ = lastDeletedKey
+	//compactStart := time.Now()
+	//err = db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
+	//logger.Info("pruneDescending: compacted pruned range", "version", version, "elapsed", time.Since(compactStart), "err", err)
+	return nil
 }
 
 func (db *Database) iteratorDescending(
