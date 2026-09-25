@@ -19,6 +19,11 @@ type EVMKeeper interface {
 	StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error)
 }
 
+// erc20CallGasLimit bounds each ERC-20 static call, the same ceiling the EVM gRPC querier applies
+// to StaticCall by default. A configured token that loops burns this much and is skipped, not the
+// refresh.
+const erc20CallGasLimit uint64 = 300_000
+
 // erc20ABI is the read-only ERC-20 surface the reporter calls.
 var erc20ABI = must(abi.JSON(strings.NewReader(`[
 	{"name":"balanceOf","type":"function","stateMutability":"view","inputs":[{"name":"account","type":"address"}],"outputs":[{"type":"uint256"}]},
@@ -51,37 +56,64 @@ func (r *Reporter) readERC20Balances(ctx sdk.Context, b *builder) {
 	if len(r.erc20Tokens) == 0 || len(r.wallets) == 0 {
 		return
 	}
-	tokens := make([]erc20Token, 0, len(r.erc20Tokens))
+	tokens := make(map[common.Address]erc20Token, len(r.erc20Tokens))
 	for _, addr := range r.erc20Tokens {
-		token, err := r.readERC20Token(ctx, addr)
+		token, err := r.erc20Token(ctx, addr)
 		if err != nil {
 			b.errs = append(b.errs, fmt.Errorf("erc20 %s: %w", addr, err))
 			continue
 		}
-		tokens = append(tokens, token)
+		tokens[addr] = token
 	}
 	for _, acc := range r.wallets {
 		evmAddr := r.keepers.EVM.GetEVMAddressOrDefault(ctx, acc)
-		attrs := []attribute.KeyValue{addressAttr(acc.String()), attribute.String("evm_address", evmAddr.Hex())}
-		for _, token := range tokens {
-			balance, err := r.erc20Call(ctx, acc, token.address, "balanceOf", evmAddr)
-			if err != nil {
-				b.errs = append(b.errs, fmt.Errorf("wallet %s: erc20 %s balanceOf: %w", acc, token.address, err))
-				continue
-			}
-			amount, ok := balance[0].(*big.Int)
+		for _, addr := range r.erc20Tokens {
+			identity := []attribute.KeyValue{addressAttr(acc.String()), attribute.String("token", addr.Hex())}
+			token, ok := tokens[addr]
 			if !ok {
-				b.errs = append(b.errs, fmt.Errorf("wallet %s: erc20 %s balanceOf: unexpected return %T", acc, token.address, balance[0]))
+				b.gauge(cosmosMetrics.walletERC20ReadOK, 0, identity...)
 				continue
 			}
+			amount, err := r.erc20BalanceOf(ctx, acc, addr, evmAddr)
+			if err != nil {
+				b.errs = append(b.errs, fmt.Errorf("wallet %s: erc20 %s balanceOf: %w", acc, addr, err))
+				b.gauge(cosmosMetrics.walletERC20ReadOK, 0, identity...)
+				continue
+			}
+			b.gauge(cosmosMetrics.walletERC20ReadOK, 1, identity...)
 			b.int(cosmosMetrics.walletERC20Balance, sdk.NewIntFromBigInt(amount), token.scale,
-				append(attrs, attribute.String("token", token.address.Hex()), attribute.String("symbol", token.symbol))...)
+				append(identity, attribute.String("evm_address", evmAddr.Hex()), attribute.String("symbol", token.symbol))...)
 		}
 	}
 }
 
-// readERC20Token reads a token's symbol and decimals. Metadata is read every refresh rather than
-// cached: it is two static calls per token, and a contract upgraded in place then reports correctly.
+func (r *Reporter) erc20BalanceOf(ctx sdk.Context, acc sdk.AccAddress, token, evmAddr common.Address) (*big.Int, error) {
+	balance, err := r.erc20Call(ctx, acc, token, "balanceOf", evmAddr)
+	if err != nil {
+		return nil, err
+	}
+	amount, ok := balance[0].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("unexpected return %T", balance[0])
+	}
+	return amount, nil
+}
+
+// erc20Token returns a token's symbol and decimals, read from the contract the first time they are
+// needed and then fixed for the life of the reporter so the balance series' labels never change
+// underneath the alerts keyed on them.
+func (r *Reporter) erc20Token(ctx sdk.Context, addr common.Address) (erc20Token, error) {
+	if token, ok := r.erc20Metadata[addr]; ok {
+		return token, nil
+	}
+	token, err := r.readERC20Token(ctx, addr)
+	if err != nil {
+		return erc20Token{}, err
+	}
+	r.erc20Metadata[addr] = token
+	return token, nil
+}
+
 func (r *Reporter) readERC20Token(ctx sdk.Context, addr common.Address) (erc20Token, error) {
 	from := r.wallets[0]
 	decimals, err := r.erc20Call(ctx, from, addr, "decimals")
@@ -108,7 +140,7 @@ func (r *Reporter) erc20Call(ctx sdk.Context, from sdk.AccAddress, to common.Add
 	if err != nil {
 		return nil, err
 	}
-	ret, err := r.keepers.EVM.StaticCallEVM(ctx, from, &to, data)
+	ret, err := r.staticCall(ctx, from, to, data)
 	if err != nil {
 		return nil, err
 	}
@@ -120,4 +152,16 @@ func (r *Reporter) erc20Call(ctx sdk.Context, from sdk.AccAddress, to common.Add
 		return nil, fmt.Errorf("%s: %d return values", method, len(out))
 	}
 	return out, nil
+}
+
+// staticCall runs one EVM static call under a finite gas meter. The EVM reports running out of gas
+// as an error, and the Sei gas meter reports it by panicking; both surface as the returned error.
+func (r *Reporter) staticCall(ctx sdk.Context, from sdk.AccAddress, to common.Address, data []byte) (ret []byte, err error) {
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, erc20CallGasLimit))
+	defer func() {
+		if p := recover(); p != nil {
+			ret, err = nil, fmt.Errorf("static call panicked: %v", p)
+		}
+	}()
+	return r.keepers.EVM.StaticCallEVM(ctx, from, &to, data)
 }

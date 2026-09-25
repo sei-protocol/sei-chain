@@ -37,6 +37,7 @@ var (
 		walletRedelegations           metric.Float64ObservableGauge
 		walletRewards                 metric.Float64ObservableGauge
 		walletERC20Balance            metric.Float64ObservableGauge
+		walletERC20ReadOK             metric.Float64ObservableGauge
 		bankTransfersTotal            metric.Int64Counter
 		bankTransferAmountTotal       metric.Float64Counter
 	}{
@@ -157,6 +158,10 @@ var (
 			"cosmos_wallet_erc20_balance",
 			metric.WithDescription("ERC-20 balance of the wallet's EVM address by token, in token units"),
 		)),
+		walletERC20ReadOK: must(meter.Float64ObservableGauge(
+			"cosmos_wallet_erc20_read_ok",
+			metric.WithDescription("1 if the wallet's balance of the token was read this refresh, 0 if the read failed"),
+		)),
 
 		bankTransfersTotal: must(meter.Int64Counter(
 			"cosmos_bank_transfers_total",
@@ -208,5 +213,6 @@ func observables() []metric.Observable {
 		m.walletRedelegations,
 		m.walletRewards,
 		m.walletERC20Balance,
+		m.walletERC20ReadOK,
 	}
 }

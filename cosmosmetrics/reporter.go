@@ -95,6 +95,8 @@ type Reporter struct {
 	scale    float64
 
 	erc20Tokens []common.Address
+	// erc20Metadata is only touched by the refresh goroutine.
+	erc20Metadata map[common.Address]erc20Token
 
 	snapshot atomic.Pointer[[]sample]
 
@@ -128,14 +130,15 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc) (*Repor
 		return nil, fmt.Errorf("%s: set but no EVM keeper", flagERC20Tokens)
 	}
 	return &Reporter{
-		cfg:         cfg,
-		keepers:     keepers,
-		queryCtx:    queryCtx,
-		wallets:     wallets,
-		scale:       math.Pow10(int(cfg.DenomExponent)),
-		erc20Tokens: tokens,
-		transfers:   newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
-		stop:        func() {},
+		cfg:           cfg,
+		keepers:       keepers,
+		queryCtx:      queryCtx,
+		wallets:       wallets,
+		scale:         math.Pow10(int(cfg.DenomExponent)),
+		erc20Tokens:   tokens,
+		erc20Metadata: make(map[common.Address]erc20Token, len(tokens)),
+		transfers:     newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
+		stop:          func() {},
 	}, nil
 }
 
