@@ -34,6 +34,9 @@ type StorageConfig struct {
 	// Mode selects the store layout: "validator" skips the state store, "full" opens it for
 	// serving queries. Empty follows the node's mode from config.toml.
 	Mode string `mapstructure:"mode"`
+	// Receipts opens the receipt store, which the node's EVM RPC serves transaction receipts,
+	// logs and fee history from. When false the node starts no EVM RPC.
+	Receipts bool `mapstructure:"receipts"`
 	// RollbackWindow is how many blocks behind head the node must remain able to roll back to.
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
@@ -77,6 +80,7 @@ func defaultStorageConfig() StorageConfig {
 	cp := seidbconfig.DefaultCheckpointConfig()
 	return StorageConfig{
 		Mode:                    StorageModeAuto,
+		Receipts:                true,
 		RollbackWindow:          gc.RollbackWindow,
 		LookbackWindow:          gc.LookbackWindow,
 		PruneInterval:           gc.PruneInterval,
@@ -88,6 +92,7 @@ func defaultStorageConfig() StorageConfig {
 // The keys this package's reader resolves.
 const (
 	FlagStorageMode                    = "giga.storage.mode"
+	FlagStorageReceipts                = "giga.storage.receipts"
 	FlagStorageRollbackWindow          = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow          = "giga.storage.lookback_window"
 	FlagStoragePruneInterval           = "giga.storage.prune_interval"
@@ -106,6 +111,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageMode); v != nil {
 		if cfg.Storage.Mode, err = cast.ToStringE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageMode, err)
+		}
+	}
+	if v := opts.Get(FlagStorageReceipts); v != nil {
+		if cfg.Storage.Receipts, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageReceipts, err)
 		}
 	}
 	if v := opts.Get(FlagStorageRollbackWindow); v != nil {
@@ -205,6 +215,10 @@ const ConfigTemplate = `
 # mode selects the store layout. "validator" skips the state store; "full" opens it
 # for serving queries. Empty follows the node's mode in config.toml.
 mode = "{{ .Giga.Storage.Mode }}"
+
+# receipts opens the receipt store, which the node's EVM RPC serves transaction receipts,
+# logs and fee history from. When false the node starts no EVM RPC.
+receipts = {{ .Giga.Storage.Receipts }}
 
 # rollback_window is how many blocks behind head the node must remain able to roll back to.
 rollback_window = {{ .Giga.Storage.RollbackWindow }}

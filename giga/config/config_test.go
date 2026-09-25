@@ -24,6 +24,7 @@ func TestDefaultsMatchTheStorageDefaults(t *testing.T) {
 	gc := seidbconfig.DefaultStorageGarbageCollectorConfig()
 	cp := seidbconfig.DefaultCheckpointConfig()
 	s := gigaconfig.DefaultConfig.Storage
+	require.True(t, s.Receipts)
 	require.Equal(t, gc.RollbackWindow, s.RollbackWindow)
 	require.Equal(t, gc.LookbackWindow, s.LookbackWindow)
 	require.Equal(t, gc.PruneInterval, s.PruneInterval)
@@ -34,6 +35,7 @@ func TestDefaultsMatchTheStorageDefaults(t *testing.T) {
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
 		"giga.storage.mode":                      "full",
+		"giga.storage.receipts":                  "false",
 		"giga.storage.rollback_window":           "250",
 		"giga.storage.lookback_window":           "-1",
 		"giga.storage.prune_interval":            "90s",
@@ -48,6 +50,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 	want := gigaconfig.Config{
 		Storage: gigaconfig.StorageConfig{
 			Mode:                    gigaconfig.StorageModeFull,
+			Receipts:                false,
 			RollbackWindow:          250,
 			LookbackWindow:          -1,
 			PruneInterval:           90 * time.Second,
@@ -67,6 +70,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 func TestReadConfigRejectsUnusableValues(t *testing.T) {
 	for name, opts := range map[string]configtest.AppOpts{
 		"unknown mode":            {"giga.storage.mode": "archive"},
+		"non-boolean receipts":    {"giga.storage.receipts": "maybe"},
 		"lookback below -1":       {"giga.storage.lookback_window": "-2"},
 		"zero prune interval":     {"giga.storage.prune_interval": "0s"},
 		"negative occ workers":    {"giga.execution.occ_workers": "-1"},
