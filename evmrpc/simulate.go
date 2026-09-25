@@ -151,8 +151,6 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	if returnErr = validateStateOverrides(overrides, s.backend.MaxStateOverrideAccounts(), s.backend.MaxStateOverrideSlots()); returnErr != nil {
 		return
 	}
-	// Outer deadline over the whole call batch, layered on top of the per-call
-	// RPCEVMTimeout doCall already applies to each entry in calls.
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
