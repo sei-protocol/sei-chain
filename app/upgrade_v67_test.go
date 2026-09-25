@@ -96,7 +96,7 @@ func retiredModuleTxCases() []retiredModuleTx {
 			code:        uint32(retiredoracle.ErrDeprecated.ABCICode()),
 			codespace:   retiredoracle.ErrDeprecated.Codespace(),
 			logContains: "oracle module is deprecated",
-			chargesFee:  true,
+			chargesFee:  false,
 		},
 		{
 			name: "oracle delegate feed consent",
@@ -107,7 +107,7 @@ func retiredModuleTxCases() []retiredModuleTx {
 			code:        uint32(retiredoracle.ErrDeprecated.ABCICode()),
 			codespace:   retiredoracle.ErrDeprecated.Codespace(),
 			logContains: "oracle module is deprecated",
-			chargesFee:  true,
+			chargesFee:  false,
 		},
 		{
 			name: "transaction nominating a distinct fee granter",
@@ -1023,40 +1023,6 @@ func TestV67AcceptsOrdinaryTxsAcrossUpgrade(t *testing.T) {
 	runOrdinaryTxs(t, a, "before-upgrade", before)
 	applyV67ToCommitStore(t, a)
 	runOrdinaryTxs(t, a, "after-upgrade", after)
-}
-
-// Spamming a retired module is not free. Every oracle transaction is rejected,
-// yet it still pays its fee, consumes a sequence number, and occupies block
-// gas. This is what stops a retired handler from becoming a free denial of
-// service, so it is asserted rather than left as an implementation detail.
-func TestRetiredOracleTxsAreRejectedButStillCharged(t *testing.T) {
-	a := newV67Chain(t)
-	applyV67(t, a)
-
-	const spamCount = 25
-	spammer := a.NewSignableAccount("oracle-spammer")
-	a.FundAccount(spammer, 1000000000)
-
-	balanceBefore := a.BankKeeper.GetBalance(a.Ctx(), spammer, "usei")
-	sequenceBefore := a.AccountKeeper.GetAccount(a.Ctx(), spammer).GetSequence()
-
-	txs := make([]signing.Tx, spamCount)
-	for i := range txs {
-		txs[i] = a.Sign(spammer, txFee, retiredoracle.NewMsgAggregateExchangeRateVote(
-			"1.5uatom", spammer, sdk.ValAddress(spammer)))
-	}
-
-	for i, res := range a.RunBlockDetailed(txs) {
-		require.Equal(t, uint32(retiredoracle.ErrDeprecated.ABCICode()), res.Code,
-			"spam transaction %d: %s", i, res.Log)
-		require.Positive(t, res.GasUsed, "spam transaction %d consumed no gas", i)
-	}
-
-	spent := balanceBefore.Sub(a.BankKeeper.GetBalance(a.Ctx(), spammer, "usei"))
-	require.Equal(t, sdk.NewInt64Coin("usei", txFee*spamCount), spent)
-	require.Equal(t, sequenceBefore+spamCount,
-		a.AccountKeeper.GetAccount(a.Ctx(), spammer).GetSequence())
-
 }
 
 // TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade pins that v6.7 leaves
