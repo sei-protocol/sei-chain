@@ -474,7 +474,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	require.True(t, ok)
 	reader := sdkmetric.NewManualReader()
 	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName)
-	evmOnlyApp.finalizePhases = seidbmetrics.NewPhaseTimer(meter, "evmonly_finalize")
+	evmOnlyApp.finalizePhases = seidbmetrics.NewPhaseTimer(meter, finalizeTimerName)
 
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
@@ -506,7 +506,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"take_senders", "execute", "tx_results"} {
+	for _, want := range []string{finalizePhaseTakeSenders, finalizePhaseExecute, finalizePhaseTxResults} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
