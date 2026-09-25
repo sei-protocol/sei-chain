@@ -11,7 +11,7 @@ import (
 
 func TestWithDeadlineUninstalledEnforcerAppliesNoDeadline(t *testing.T) {
 	prev := globalDeadlineEnforcer.Load()
-	globalDeadlineEnforcer.Store(nil)
+	InitGlobalDeadlineEnforcer(nil)
 
 	ctx, cancel := withDeadline(t.Context(), "eth_getBalance")
 	defer cancel()
@@ -22,13 +22,14 @@ func TestWithDeadlineUninstalledEnforcerAppliesNoDeadline(t *testing.T) {
 }
 
 func TestWithDeadlineAppliesInstalledEnforcerDeadline(t *testing.T) {
+	prev := globalDeadlineEnforcer.Load()
 	InitGlobalDeadlineEnforcer(ratelimiter.NewDeadlineEnforcer(ratelimiter.DeadlineConfig{
 		Default: time.Hour,
 		Overrides: map[string]time.Duration{
 			"eth_call": time.Minute,
 		},
 	}))
-	defer globalDeadlineEnforcer.Store(nil)
+	defer globalDeadlineEnforcer.Store(prev)
 
 	ctx, cancel := withDeadline(t.Context(), "eth_getBalance")
 	defer cancel()
@@ -44,10 +45,11 @@ func TestWithDeadlineAppliesInstalledEnforcerDeadline(t *testing.T) {
 }
 
 func TestWithDeadlineNeverLengthensAnExistingShorterDeadline(t *testing.T) {
+	prev := globalDeadlineEnforcer.Load()
 	InitGlobalDeadlineEnforcer(ratelimiter.NewDeadlineEnforcer(ratelimiter.DeadlineConfig{
 		Default: time.Hour,
 	}))
-	defer globalDeadlineEnforcer.Store(nil)
+	defer globalDeadlineEnforcer.Store(prev)
 
 	parent, parentCancel := context.WithTimeout(t.Context(), time.Second)
 	defer parentCancel()
