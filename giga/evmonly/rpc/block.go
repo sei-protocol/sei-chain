@@ -172,30 +172,33 @@ func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.
 	return stored, nil
 }
 
-// blockGasUsed returns the cumulative gas from the last receipt belonging to
-// block at its original index, or zero when none is available.
+// blockGasUsed returns the gas used by block: its stored BlockStats when the store
+// has them, otherwise the total recomputed from the receipts that belong to the
+// block at their original index. It is zero when the store does not cover block.
 func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
-	// A trailing stale transaction may have no receipt or retain one from another
-	// block. Walk backwards to the last transaction with a receipt for this block.
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
-	number := block.Block.Height
-	if store == nil || number > store.LatestVersion() || number < store.EarliestVersion() {
+	height := block.Block.Height
+	if store == nil || height > store.LatestVersion() || height < store.EarliestVersion() {
 		return 0, nil
 	}
-	txs := block.Block.Txs
-	for i := len(txs) - 1; i >= 0; i-- {
-		tx, err := decodeBlockTx(txs[i], number, i)
-		if err != nil {
-			return 0, err
-		}
-		stored, err := receiptFor(ctx, store, tx.Hash())
-		if err != nil {
-			return 0, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
-		}
-		if stored != nil && stored.BlockNumber == uint64(number) && uint64(stored.TransactionIndex) == uint64(i) { //nolint:gosec // G115: height and index are non-negative.
-			return stored.CumulativeGasUsed, nil
-		}
+	stats, err := store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
+	if err == nil {
+		return stats.TotalGasUsed, nil
 	}
-	return 0, nil
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		// Pruned between the version check and the read.
+		return 0, nil
+	}
+	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
+		return 0, fmt.Errorf("read block stats for block %d: %w", height, err)
+	}
+	records, err := receiptRecordsFromIterator(ctx, store, height)
+	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+		records, err = receiptRecordsFromBlock(ctx, store, block)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return receiptpkg.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }

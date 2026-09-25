@@ -20,7 +20,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func TestBlockGasRPCsUseLastReceiptAtMatchingHeight(t *testing.T) {
+func TestBlockGasRPCsCountReceiptsAtMatchingHeight(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		first       bool
@@ -71,14 +71,17 @@ func TestBlockGasRPCsUseLastReceiptAtMatchingHeight(t *testing.T) {
 				return block, nil
 			}
 			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
-			blocks := &blockAPI{backend: backend, store: store}
-			for _, fullTx := range []bool{false, true} {
-				byNumber, err := blocks.GetBlockByNumber(t.Context(), 9, fullTx)
-				require.NoError(t, err)
-				require.Equal(t, hexutil.Uint64(tc.want), byNumber["gasUsed"])
-				byHash, err := blocks.GetBlockByHash(t.Context(), blockHash, fullTx)
-				require.NoError(t, err)
-				require.Equal(t, hexutil.Uint64(tc.want), byHash["gasUsed"])
+			// Stored block stats and the by-hash recompute fallback must agree.
+			for _, gasStore := range []receipt.ReceiptStore{store, hashOnlyReceiptStore{ReceiptStore: store}} {
+				blocks := &blockAPI{backend: backend, store: gasStore}
+				for _, fullTx := range []bool{false, true} {
+					byNumber, err := blocks.GetBlockByNumber(t.Context(), 9, fullTx)
+					require.NoError(t, err)
+					require.Equal(t, hexutil.Uint64(tc.want), byNumber["gasUsed"])
+					byHash, err := blocks.GetBlockByHash(t.Context(), blockHash, fullTx)
+					require.NoError(t, err)
+					require.Equal(t, hexutil.Uint64(tc.want), byHash["gasUsed"])
+				}
 			}
 			history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, ethrpc.BlockNumber(9), nil)
 			require.NoError(t, err)
@@ -106,7 +109,7 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 	readErr := errors.New("receipt read failed")
 	memory := evmonly.NewMemoryReceiptStore()
 	require.NoError(t, memory.SetLatestVersion(9))
-	store := failingGasReceiptStore{ReceiptStore: memory, hash: tx.Hash(), err: readErr}
+	store := failingGasReceiptStore{ReceiptStore: hashOnlyReceiptStore{ReceiptStore: memory}, hash: tx.Hash(), err: readErr}
 	block := &coretypes.ResultBlock{Block: &tmtypes.Block{
 		Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
 		Data:   tmtypes.Data{Txs: tmtypes.Txs{raw, trailing}},

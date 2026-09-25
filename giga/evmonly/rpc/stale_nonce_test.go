@@ -69,9 +69,11 @@ func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
 	store.reads = 0
 	gotBlock, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, false)
 	require.NoError(t, err)
-	require.Equal(t, 1, store.reads)
+	// Block gas comes from the stored block stats, which count the stale
+	// transaction's zero gas rather than its cumulative total.
+	require.Zero(t, store.reads)
 	require.Len(t, gotBlock["transactions"], index+1)
-	require.Equal(t, hexutil.Uint64(42_000), gotBlock["gasUsed"])
+	require.Equal(t, hexutil.Uint64(0), gotBlock["gasUsed"])
 
 	fullBlock, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, true)
 	require.NoError(t, err)

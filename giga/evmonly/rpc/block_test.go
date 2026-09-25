@@ -206,6 +206,7 @@ func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime t
 				BlockNumber:       uint64(height), //nolint:gosec // G115: test height is positive.
 				TransactionIndex:  0,
 				From:              sender1.Hex(),
+				GasUsed:           21_000,
 				CumulativeGasUsed: 21_000,
 			},
 		},
@@ -216,6 +217,7 @@ func multiTxBlock(t *testing.T, height int64, blockHash common.Hash, blockTime t
 				BlockNumber:       uint64(height), //nolint:gosec // G115: test height is positive.
 				TransactionIndex:  1,
 				From:              sender2.Hex(),
+				GasUsed:           22_500,
 				CumulativeGasUsed: 43_500,
 			},
 		},
@@ -499,7 +501,7 @@ func TestEncodeBlockReceiptReadError(t *testing.T) {
 	memory := evmonly.NewMemoryReceiptStore()
 	require.NoError(t, memory.SetLatestVersion(4))
 	store := stubReceiptStore{
-		ReceiptStore: memory,
+		ReceiptStore: hashOnlyReceiptStore{ReceiptStore: memory},
 		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 			return nil, want
 		},
@@ -515,13 +517,13 @@ func TestEncodeBlockReceiptReadError(t *testing.T) {
 	api := &blockAPI{backend: backend, store: store}
 
 	t.Run("hash only", func(t *testing.T) {
-		// Test: hash-only encoding reads the last tx's receipt for gasUsed.
+		// Test: hash-only encoding recomputes gasUsed from the block's receipts.
 		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
 
 		// Verify: wrapped receipt error.
 		require.Nil(t, got)
 		require.ErrorIs(t, err, want)
-		require.ErrorContains(t, err, "read transaction receipt at block 4 index 0")
+		require.ErrorContains(t, err, "for block 4")
 	})
 
 	t.Run("full tx", func(t *testing.T) {
