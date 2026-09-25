@@ -5,7 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
+	cosmosbankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 )
 
 var _ ViewKeeper = (*BaseViewKeeper)(nil)
@@ -73,19 +73,14 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 	return balance
 }
 
-// LockedCoins returns all the coins that are not spendable (i.e. locked) for an
-// account by address. For standard accounts, the result will always be no coins.
-// For vesting accounts, LockedCoins is delegated to the concrete vesting account
-// type.
+// LockedCoins returns the coins at addr that cannot be spent, which are none.
+// When cosmosbankkeeper.RetracesLockedCoinsLookup reports that ctx re-traces
+// a block from before cosmosbankkeeper.VestingRemovalUpgrade, it first reads
+// the account, as that block did.
 func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	acc := k.ak.GetAccount(ctx, addr)
-	if acc != nil {
-		vacc, ok := acc.(vestexported.VestingAccount)
-		if ok {
-			return vacc.LockedCoins(ctx.BlockTime())
-		}
+	if cosmosbankkeeper.RetracesLockedCoinsLookup(ctx) {
+		k.ak.GetAccount(ctx, addr)
 	}
-
 	return sdk.NewCoins()
 }
 
