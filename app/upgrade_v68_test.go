@@ -151,9 +151,10 @@ func TestV68CrossVersion(t *testing.T) {
 			result := chain.Seid("", "q", "oracle")
 			require.Error(t, result.Err)
 			require.Contains(t, result.Combined(), `unknown command "oracle"`)
-			raw := chain.Binary("", "curl", "-sf",
+			raw := chain.Binary("", "curl", "",
 				"http://127.0.0.1:26657/abci_query?path=%2Fstore%2Foracle%2Fkey")
 			require.NotContains(t, raw.Combined(), retiredoracle.ErrDeprecated.Error())
+			require.Contains(t, raw.Combined(), "no such store: oracle")
 		},
 	)
 }
