@@ -6,15 +6,16 @@ package types
 import (
 	context "context"
 	fmt "fmt"
+	io "io"
+	math "math"
+	math_bits "math/bits"
+
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	io "io"
-	math "math"
-	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -207,105 +208,6 @@ func (m *QueryAppliedPlanResponse) GetHeight() int64 {
 	return 0
 }
 
-// QueryUpgradedConsensusStateRequest is the request type for the Query/UpgradedConsensusState
-// RPC method.
-//
-// Deprecated: Do not use.
-type QueryUpgradedConsensusStateRequest struct {
-	// last height of the current chain must be sent in request
-	// as this is the height under which next consensus state is stored
-	LastHeight int64 `protobuf:"varint,1,opt,name=last_height,json=lastHeight,proto3" json:"last_height,omitempty"`
-}
-
-func (m *QueryUpgradedConsensusStateRequest) Reset()         { *m = QueryUpgradedConsensusStateRequest{} }
-func (m *QueryUpgradedConsensusStateRequest) String() string { return proto.CompactTextString(m) }
-func (*QueryUpgradedConsensusStateRequest) ProtoMessage()    {}
-func (*QueryUpgradedConsensusStateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_4a334d07ad8374f0, []int{4}
-}
-func (m *QueryUpgradedConsensusStateRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *QueryUpgradedConsensusStateRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_QueryUpgradedConsensusStateRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *QueryUpgradedConsensusStateRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryUpgradedConsensusStateRequest.Merge(m, src)
-}
-func (m *QueryUpgradedConsensusStateRequest) XXX_Size() int {
-	return m.Size()
-}
-func (m *QueryUpgradedConsensusStateRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryUpgradedConsensusStateRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_QueryUpgradedConsensusStateRequest proto.InternalMessageInfo
-
-func (m *QueryUpgradedConsensusStateRequest) GetLastHeight() int64 {
-	if m != nil {
-		return m.LastHeight
-	}
-	return 0
-}
-
-// QueryUpgradedConsensusStateResponse is the response type for the Query/UpgradedConsensusState
-// RPC method.
-//
-// Deprecated: Do not use.
-type QueryUpgradedConsensusStateResponse struct {
-	// Since: cosmos-sdk 0.43
-	UpgradedConsensusState []byte `protobuf:"bytes,2,opt,name=upgraded_consensus_state,json=upgradedConsensusState,proto3" json:"upgraded_consensus_state,omitempty"`
-}
-
-func (m *QueryUpgradedConsensusStateResponse) Reset()         { *m = QueryUpgradedConsensusStateResponse{} }
-func (m *QueryUpgradedConsensusStateResponse) String() string { return proto.CompactTextString(m) }
-func (*QueryUpgradedConsensusStateResponse) ProtoMessage()    {}
-func (*QueryUpgradedConsensusStateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_4a334d07ad8374f0, []int{5}
-}
-func (m *QueryUpgradedConsensusStateResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *QueryUpgradedConsensusStateResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_QueryUpgradedConsensusStateResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *QueryUpgradedConsensusStateResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryUpgradedConsensusStateResponse.Merge(m, src)
-}
-func (m *QueryUpgradedConsensusStateResponse) XXX_Size() int {
-	return m.Size()
-}
-func (m *QueryUpgradedConsensusStateResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryUpgradedConsensusStateResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_QueryUpgradedConsensusStateResponse proto.InternalMessageInfo
-
-func (m *QueryUpgradedConsensusStateResponse) GetUpgradedConsensusState() []byte {
-	if m != nil {
-		return m.UpgradedConsensusState
-	}
-	return nil
-}
-
 // QueryModuleVersionsRequest is the request type for the Query/ModuleVersions
 // RPC method.
 //
@@ -321,7 +223,7 @@ func (m *QueryModuleVersionsRequest) Reset()         { *m = QueryModuleVersionsR
 func (m *QueryModuleVersionsRequest) String() string { return proto.CompactTextString(m) }
 func (*QueryModuleVersionsRequest) ProtoMessage()    {}
 func (*QueryModuleVersionsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_4a334d07ad8374f0, []int{6}
+	return fileDescriptor_4a334d07ad8374f0, []int{4}
 }
 func (m *QueryModuleVersionsRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -370,7 +272,7 @@ func (m *QueryModuleVersionsResponse) Reset()         { *m = QueryModuleVersions
 func (m *QueryModuleVersionsResponse) String() string { return proto.CompactTextString(m) }
 func (*QueryModuleVersionsResponse) ProtoMessage()    {}
 func (*QueryModuleVersionsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_4a334d07ad8374f0, []int{7}
+	return fileDescriptor_4a334d07ad8374f0, []int{5}
 }
 func (m *QueryModuleVersionsResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -411,8 +313,6 @@ func init() {
 	proto.RegisterType((*QueryCurrentPlanResponse)(nil), "cosmos.upgrade.v1beta1.QueryCurrentPlanResponse")
 	proto.RegisterType((*QueryAppliedPlanRequest)(nil), "cosmos.upgrade.v1beta1.QueryAppliedPlanRequest")
 	proto.RegisterType((*QueryAppliedPlanResponse)(nil), "cosmos.upgrade.v1beta1.QueryAppliedPlanResponse")
-	proto.RegisterType((*QueryUpgradedConsensusStateRequest)(nil), "cosmos.upgrade.v1beta1.QueryUpgradedConsensusStateRequest")
-	proto.RegisterType((*QueryUpgradedConsensusStateResponse)(nil), "cosmos.upgrade.v1beta1.QueryUpgradedConsensusStateResponse")
 	proto.RegisterType((*QueryModuleVersionsRequest)(nil), "cosmos.upgrade.v1beta1.QueryModuleVersionsRequest")
 	proto.RegisterType((*QueryModuleVersionsResponse)(nil), "cosmos.upgrade.v1beta1.QueryModuleVersionsResponse")
 }
@@ -422,44 +322,37 @@ func init() {
 }
 
 var fileDescriptor_4a334d07ad8374f0 = []byte{
-	// 583 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x54, 0xbf, 0x6f, 0xd3, 0x40,
-	0x18, 0xed, 0xa5, 0x3f, 0x04, 0x5f, 0x50, 0x41, 0x37, 0x04, 0x63, 0x2a, 0x13, 0x99, 0x02, 0x41,
-	0x10, 0x5f, 0x9a, 0x2c, 0xa8, 0xfc, 0x10, 0xd0, 0x85, 0x22, 0xa8, 0x20, 0x88, 0x0e, 0x2c, 0xd1,
-	0xc5, 0x39, 0x25, 0x96, 0x6c, 0x9f, 0xeb, 0x3b, 0x57, 0x54, 0x55, 0x17, 0x26, 0x46, 0x24, 0x76,
-	0x36, 0x16, 0xfe, 0x12, 0xc6, 0x4a, 0x2c, 0x0c, 0x1d, 0x50, 0xc2, 0x1f, 0x82, 0x7c, 0xbe, 0x20,
-	0x87, 0xc4, 0xa1, 0xb0, 0xd9, 0xf7, 0xbd, 0xf7, 0xbd, 0xf7, 0xdd, 0xbd, 0x3b, 0xb0, 0x5d, 0x2e,
-	0x02, 0x2e, 0x48, 0x12, 0xf5, 0x63, 0xda, 0x63, 0x64, 0x7f, 0xa3, 0xcb, 0x24, 0xdd, 0x20, 0x7b,
-	0x09, 0x8b, 0x0f, 0x9c, 0x28, 0xe6, 0x92, 0xe3, 0x4a, 0x86, 0x71, 0x34, 0xc6, 0xd1, 0x18, 0x73,
-	0xbd, 0x80, 0x3b, 0xc6, 0x29, 0xb6, 0xb9, 0xd6, 0xe7, 0xbc, 0xef, 0x33, 0x42, 0x23, 0x8f, 0xd0,
-	0x30, 0xe4, 0x92, 0x4a, 0x8f, 0x87, 0x22, 0xab, 0xda, 0x97, 0xe0, 0xe2, 0xcb, 0x54, 0x6a, 0x2b,
-	0x89, 0x63, 0x16, 0xca, 0x17, 0x3e, 0x0d, 0xdb, 0x6c, 0x2f, 0x61, 0x42, 0xda, 0xcf, 0xc0, 0x98,
-	0x2e, 0x89, 0x88, 0x87, 0x82, 0xe1, 0x06, 0x2c, 0x45, 0x3e, 0x0d, 0x0d, 0x54, 0x45, 0xb5, 0x72,
-	0x73, 0xcd, 0x99, 0xed, 0xd0, 0x51, 0x1c, 0x85, 0xb4, 0xeb, 0x5a, 0xe8, 0x51, 0x14, 0xf9, 0x1e,
-	0xeb, 0xe5, 0x84, 0x30, 0x86, 0xa5, 0x90, 0x06, 0x4c, 0x35, 0x3b, 0xdb, 0x56, 0xdf, 0x76, 0x13,
-	0x8c, 0x69, 0xb8, 0x16, 0xaf, 0xc0, 0xca, 0x80, 0x79, 0xfd, 0x81, 0x54, 0x8c, 0xc5, 0xb6, 0xfe,
-	0xb3, 0xb7, 0xc1, 0x56, 0x9c, 0xd7, 0x99, 0x8b, 0xde, 0x56, 0x8a, 0x0e, 0x45, 0x22, 0x5e, 0x49,
-	0x2a, 0xd9, 0x58, 0xed, 0x0a, 0x94, 0x7d, 0x2a, 0x64, 0x67, 0xa2, 0x05, 0xa4, 0x4b, 0x4f, 0xd4,
-	0xca, 0x66, 0xc9, 0x40, 0xb6, 0x07, 0x57, 0xe7, 0xb6, 0xd2, 0x4e, 0xee, 0x80, 0xa1, 0x47, 0xee,
-	0x75, 0xdc, 0x31, 0xa4, 0x23, 0x52, 0x8c, 0x51, 0xaa, 0xa2, 0xda, 0xb9, 0x76, 0x25, 0x99, 0xd9,
-	0x21, 0x15, 0x79, 0xba, 0x74, 0x06, 0x5d, 0x28, 0xd9, 0xf7, 0xc1, 0x54, 0x52, 0xcf, 0x79, 0x2f,
-	0xf1, 0xd9, 0x2e, 0x8b, 0x45, 0x7a, 0x3c, 0x39, 0xb7, 0x81, 0x2a, 0x74, 0x72, 0x5b, 0x04, 0xd9,
-	0xd2, 0x4e, 0xba, 0x51, 0x01, 0x5c, 0x9e, 0x49, 0xd7, 0x0e, 0x77, 0xe0, 0xbc, 0xe6, 0xef, 0xeb,
-	0x92, 0x81, 0xaa, 0x8b, 0xb5, 0x72, 0xf3, 0x5a, 0xd1, 0x99, 0x4d, 0x34, 0x6a, 0xaf, 0x06, 0x13,
-	0x7d, 0x9b, 0x27, 0xcb, 0xb0, 0xac, 0xf4, 0xf0, 0x27, 0x04, 0xe5, 0x5c, 0x34, 0x30, 0x29, 0x6a,
-	0x58, 0x90, 0x2f, 0xb3, 0x71, 0x7a, 0x42, 0x36, 0x8c, 0x7d, 0xfb, 0xdd, 0xb7, 0x9f, 0x1f, 0x4b,
-	0xd7, 0xf1, 0x3a, 0x29, 0x48, 0xbe, 0x9b, 0x91, 0x3a, 0x69, 0xe2, 0xf0, 0x67, 0x04, 0xe5, 0x5c,
-	0x7c, 0xfe, 0x62, 0x70, 0x3a, 0x97, 0x66, 0xe3, 0xf4, 0x04, 0x6d, 0xb0, 0xa5, 0x0c, 0xd6, 0xf1,
-	0xad, 0x22, 0x83, 0x34, 0x23, 0x29, 0x83, 0xe4, 0x30, 0x3d, 0xd2, 0x23, 0x7c, 0x82, 0xa0, 0x32,
-	0x3b, 0x67, 0x78, 0x73, 0xae, 0x83, 0xb9, 0x39, 0x37, 0xef, 0xfe, 0x17, 0x57, 0x0f, 0xb2, 0xad,
-	0x06, 0x79, 0x88, 0x1f, 0x90, 0xf9, 0x6f, 0xcc, 0x54, 0xec, 0xc9, 0x61, 0xee, 0x72, 0x1d, 0xbd,
-	0x2f, 0x21, 0xfc, 0x05, 0xc1, 0xea, 0x64, 0x38, 0x71, 0x73, 0xae, 0xb5, 0x99, 0x17, 0xc1, 0x6c,
-	0xfd, 0x13, 0x47, 0x8f, 0x41, 0xd4, 0x18, 0x37, 0xf1, 0x8d, 0xa2, 0x31, 0xfe, 0xb8, 0x1b, 0x8f,
-	0x77, 0xbf, 0x0e, 0x2d, 0x74, 0x3c, 0xb4, 0xd0, 0x8f, 0xa1, 0x85, 0x3e, 0x8c, 0xac, 0x85, 0xe3,
-	0x91, 0xb5, 0xf0, 0x7d, 0x64, 0x2d, 0xbc, 0xb9, 0xd7, 0xf7, 0xe4, 0x20, 0xe9, 0x3a, 0x2e, 0x0f,
-	0x88, 0x60, 0x5e, 0x5d, 0x3d, 0x9f, 0x2e, 0xf7, 0xd5, 0x8f, 0x3b, 0xa0, 0x5e, 0x98, 0x7d, 0x65,
-	0x3a, 0x6f, 0x7f, 0x2b, 0xc9, 0x83, 0x88, 0x89, 0xee, 0x8a, 0x82, 0xb7, 0x7e, 0x0d, 0x00, 0xb8,
-	0x4e, 0xbd, 0x23, 0xef, 0x05, 0x00, 0x00,
+	// 468 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x93, 0x31, 0x6f, 0xd4, 0x30,
+	0x1c, 0xc5, 0xcf, 0x5c, 0xa9, 0x84, 0x23, 0x15, 0xc9, 0x43, 0x39, 0x42, 0x15, 0x2a, 0xab, 0x40,
+	0x11, 0x5c, 0xdc, 0xe6, 0x56, 0x18, 0x80, 0x15, 0x2a, 0xb8, 0xa1, 0x03, 0x4b, 0xe5, 0xcb, 0x59,
+	0x49, 0xa4, 0xc4, 0x76, 0x63, 0xa7, 0xa2, 0x42, 0x2c, 0x7c, 0x02, 0x24, 0x76, 0x36, 0x16, 0x3e,
+	0x09, 0x63, 0x25, 0x16, 0x46, 0x74, 0xc7, 0xd7, 0x40, 0x42, 0xb1, 0x5d, 0x94, 0xd0, 0x84, 0xa3,
+	0x5b, 0x72, 0xff, 0xf7, 0xfe, 0xbf, 0xe7, 0x7b, 0x0e, 0xc4, 0xb1, 0x50, 0x85, 0x50, 0xa4, 0x92,
+	0x49, 0x49, 0xe7, 0x8c, 0x9c, 0xec, 0xcf, 0x98, 0xa6, 0xfb, 0xe4, 0xb8, 0x62, 0xe5, 0x69, 0x28,
+	0x4b, 0xa1, 0x05, 0xda, 0xb4, 0x9a, 0xd0, 0x69, 0x42, 0xa7, 0xf1, 0x77, 0x7a, 0xbc, 0xe7, 0x3a,
+	0xe3, 0xf6, 0xb7, 0x12, 0x21, 0x92, 0x9c, 0x11, 0x2a, 0x33, 0x42, 0x39, 0x17, 0x9a, 0xea, 0x4c,
+	0x70, 0x65, 0xa7, 0xf8, 0x26, 0xbc, 0xf1, 0xaa, 0x46, 0x3d, 0xab, 0xca, 0x92, 0x71, 0xfd, 0x32,
+	0xa7, 0x7c, 0xca, 0x8e, 0x2b, 0xa6, 0x34, 0x7e, 0x0e, 0x47, 0x17, 0x47, 0x4a, 0x0a, 0xae, 0x18,
+	0xda, 0x83, 0x6b, 0x32, 0xa7, 0x7c, 0x04, 0xb6, 0xc1, 0xae, 0x17, 0x6d, 0x85, 0xdd, 0x09, 0x43,
+	0xe3, 0x31, 0x4a, 0x3c, 0x76, 0xa0, 0x27, 0x52, 0xe6, 0x19, 0x9b, 0x37, 0x40, 0x08, 0xc1, 0x35,
+	0x4e, 0x0b, 0x66, 0x96, 0x5d, 0x9b, 0x9a, 0x67, 0x1c, 0x39, 0x78, 0x4b, 0xee, 0xe0, 0x9b, 0x70,
+	0x3d, 0x65, 0x59, 0x92, 0x6a, 0xe3, 0x18, 0x4e, 0xdd, 0x1b, 0x7e, 0x0c, 0x7d, 0xe3, 0x79, 0x21,
+	0xe6, 0x55, 0xce, 0x0e, 0x59, 0xa9, 0xea, 0x83, 0x9e, 0x53, 0x6e, 0x43, 0xaf, 0x30, 0x83, 0xa3,
+	0x06, 0x0c, 0xda, 0x9f, 0x0e, 0x6a, 0x64, 0x01, 0x6f, 0x75, 0xda, 0x1d, 0xf5, 0x00, 0x5e, 0x77,
+	0xfe, 0x13, 0x37, 0x1a, 0x81, 0xed, 0xe1, 0xae, 0x17, 0xdd, 0xe9, 0x3b, 0x7d, 0x6b, 0xd1, 0x74,
+	0xa3, 0x68, 0xed, 0x8d, 0x7e, 0x0d, 0xe1, 0x55, 0xc3, 0x43, 0x9f, 0x00, 0xf4, 0x1a, 0x7f, 0x32,
+	0x22, 0x7d, 0x0b, 0x7b, 0x9a, 0xf2, 0xf7, 0xfe, 0xdf, 0x60, 0x0f, 0x83, 0x1f, 0xbe, 0xff, 0xf6,
+	0xf3, 0xe3, 0x95, 0xbb, 0x68, 0x87, 0xf4, 0xdc, 0xa1, 0xd8, 0x9a, 0x8e, 0xea, 0xee, 0xd0, 0x67,
+	0x00, 0xbd, 0x46, 0x11, 0x2b, 0x02, 0x5e, 0x6c, 0x78, 0x45, 0xc0, 0x8e, 0x8e, 0xf1, 0xc4, 0x04,
+	0x1c, 0xa3, 0x07, 0x7d, 0x01, 0xa9, 0x35, 0x99, 0x80, 0xe4, 0x6d, 0x5d, 0xe9, 0x3b, 0xf4, 0x05,
+	0xc0, 0x8d, 0x76, 0x7b, 0x28, 0xfa, 0x27, 0xb9, 0xf3, 0xa6, 0xf8, 0x93, 0x4b, 0x79, 0x5c, 0x60,
+	0x62, 0x02, 0xdf, 0x47, 0xf7, 0xfa, 0x02, 0xff, 0x75, 0x79, 0x9e, 0x1e, 0x7e, 0x5d, 0x04, 0xe0,
+	0x6c, 0x11, 0x80, 0x1f, 0x8b, 0x00, 0x7c, 0x58, 0x06, 0x83, 0xb3, 0x65, 0x30, 0xf8, 0xbe, 0x0c,
+	0x06, 0xaf, 0x1f, 0x25, 0x99, 0x4e, 0xab, 0x59, 0x18, 0x8b, 0x82, 0x28, 0x96, 0x8d, 0xcd, 0x97,
+	0x1a, 0x8b, 0xdc, 0xbc, 0xc4, 0x29, 0xcd, 0xb8, 0x7d, 0xb2, 0x9c, 0x37, 0x7f, 0x48, 0xfa, 0x54,
+	0x32, 0x35, 0x5b, 0x37, 0xf2, 0xc9, 0xef, 0x00, 0x00, 0x00, 0xff, 0xff, 0x5e, 0xc9, 0x23, 0x65,
+	0x5a, 0x04, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -478,13 +371,6 @@ type QueryClient interface {
 	CurrentPlan(ctx context.Context, in *QueryCurrentPlanRequest, opts ...grpc.CallOption) (*QueryCurrentPlanResponse, error)
 	// AppliedPlan queries a previously applied upgrade plan by its name.
 	AppliedPlan(ctx context.Context, in *QueryAppliedPlanRequest, opts ...grpc.CallOption) (*QueryAppliedPlanResponse, error)
-	// UpgradedConsensusState queries the consensus state that will serve
-	// as a trusted kernel for the next version of this chain. It will only be
-	// stored at the last height of this chain.
-	// UpgradedConsensusState RPC not supported with legacy querier
-	// This rpc is deprecated now that IBC has its own replacement
-	// (https://github.com/cosmos/ibc-go/blob/2c880a22e9f9cc75f62b527ca94aa75ce1106001/proto/ibc/core/client/v1/query.proto#L54)
-	UpgradedConsensusState(ctx context.Context, in *QueryUpgradedConsensusStateRequest, opts ...grpc.CallOption) (*QueryUpgradedConsensusStateResponse, error)
 	// ModuleVersions queries the list of module versions from state.
 	//
 	// Since: cosmos-sdk 0.43
@@ -517,16 +403,6 @@ func (c *queryClient) AppliedPlan(ctx context.Context, in *QueryAppliedPlanReque
 	return out, nil
 }
 
-// Deprecated: Do not use.
-func (c *queryClient) UpgradedConsensusState(ctx context.Context, in *QueryUpgradedConsensusStateRequest, opts ...grpc.CallOption) (*QueryUpgradedConsensusStateResponse, error) {
-	out := new(QueryUpgradedConsensusStateResponse)
-	err := c.cc.Invoke(ctx, "/cosmos.upgrade.v1beta1.Query/UpgradedConsensusState", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *queryClient) ModuleVersions(ctx context.Context, in *QueryModuleVersionsRequest, opts ...grpc.CallOption) (*QueryModuleVersionsResponse, error) {
 	out := new(QueryModuleVersionsResponse)
 	err := c.cc.Invoke(ctx, "/cosmos.upgrade.v1beta1.Query/ModuleVersions", in, out, opts...)
@@ -542,13 +418,6 @@ type QueryServer interface {
 	CurrentPlan(context.Context, *QueryCurrentPlanRequest) (*QueryCurrentPlanResponse, error)
 	// AppliedPlan queries a previously applied upgrade plan by its name.
 	AppliedPlan(context.Context, *QueryAppliedPlanRequest) (*QueryAppliedPlanResponse, error)
-	// UpgradedConsensusState queries the consensus state that will serve
-	// as a trusted kernel for the next version of this chain. It will only be
-	// stored at the last height of this chain.
-	// UpgradedConsensusState RPC not supported with legacy querier
-	// This rpc is deprecated now that IBC has its own replacement
-	// (https://github.com/cosmos/ibc-go/blob/2c880a22e9f9cc75f62b527ca94aa75ce1106001/proto/ibc/core/client/v1/query.proto#L54)
-	UpgradedConsensusState(context.Context, *QueryUpgradedConsensusStateRequest) (*QueryUpgradedConsensusStateResponse, error)
 	// ModuleVersions queries the list of module versions from state.
 	//
 	// Since: cosmos-sdk 0.43
@@ -564,9 +433,6 @@ func (*UnimplementedQueryServer) CurrentPlan(ctx context.Context, req *QueryCurr
 }
 func (*UnimplementedQueryServer) AppliedPlan(ctx context.Context, req *QueryAppliedPlanRequest) (*QueryAppliedPlanResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AppliedPlan not implemented")
-}
-func (*UnimplementedQueryServer) UpgradedConsensusState(ctx context.Context, req *QueryUpgradedConsensusStateRequest) (*QueryUpgradedConsensusStateResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpgradedConsensusState not implemented")
 }
 func (*UnimplementedQueryServer) ModuleVersions(ctx context.Context, req *QueryModuleVersionsRequest) (*QueryModuleVersionsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ModuleVersions not implemented")
@@ -612,24 +478,6 @@ func _Query_AppliedPlan_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Query_UpgradedConsensusState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryUpgradedConsensusStateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(QueryServer).UpgradedConsensusState(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/cosmos.upgrade.v1beta1.Query/UpgradedConsensusState",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).UpgradedConsensusState(ctx, req.(*QueryUpgradedConsensusStateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Query_ModuleVersions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(QueryModuleVersionsRequest)
 	if err := dec(in); err != nil {
@@ -659,10 +507,6 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AppliedPlan",
 			Handler:    _Query_AppliedPlan_Handler,
-		},
-		{
-			MethodName: "UpgradedConsensusState",
-			Handler:    _Query_UpgradedConsensusState_Handler,
 		},
 		{
 			MethodName: "ModuleVersions",
@@ -789,64 +633,6 @@ func (m *QueryAppliedPlanResponse) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *QueryUpgradedConsensusStateRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *QueryUpgradedConsensusStateRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *QueryUpgradedConsensusStateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.LastHeight != 0 {
-		i = encodeVarintQuery(dAtA, i, uint64(m.LastHeight))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *QueryUpgradedConsensusStateResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *QueryUpgradedConsensusStateResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *QueryUpgradedConsensusStateResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.UpgradedConsensusState) > 0 {
-		i -= len(m.UpgradedConsensusState)
-		copy(dAtA[i:], m.UpgradedConsensusState)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.UpgradedConsensusState)))
-		i--
-		dAtA[i] = 0x12
-	}
-	return len(dAtA) - i, nil
-}
-
 func (m *QueryModuleVersionsRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -968,31 +754,6 @@ func (m *QueryAppliedPlanResponse) Size() (n int) {
 	_ = l
 	if m.Height != 0 {
 		n += 1 + sovQuery(uint64(m.Height))
-	}
-	return n
-}
-
-func (m *QueryUpgradedConsensusStateRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.LastHeight != 0 {
-		n += 1 + sovQuery(uint64(m.LastHeight))
-	}
-	return n
-}
-
-func (m *QueryUpgradedConsensusStateResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.UpgradedConsensusState)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
 	}
 	return n
 }
@@ -1297,159 +1058,6 @@ func (m *QueryAppliedPlanResponse) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		default:
-			iNdEx = preIndex
-			skippy, err := skipQuery(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *QueryUpgradedConsensusStateRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowQuery
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: QueryUpgradedConsensusStateRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryUpgradedConsensusStateRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LastHeight", wireType)
-			}
-			m.LastHeight = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowQuery
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.LastHeight |= int64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		default:
-			iNdEx = preIndex
-			skippy, err := skipQuery(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *QueryUpgradedConsensusStateResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowQuery
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: QueryUpgradedConsensusStateResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryUpgradedConsensusStateResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field UpgradedConsensusState", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowQuery
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.UpgradedConsensusState = append(m.UpgradedConsensusState[:0], dAtA[iNdEx:postIndex]...)
-			if m.UpgradedConsensusState == nil {
-				m.UpgradedConsensusState = []byte{}
-			}
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
