@@ -206,9 +206,10 @@ func TestV68CrossVersion(t *testing.T) {
 	upgradetest.RunCrossVersion(t,
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
-			for _, module := range v68RemovedModules {
-				require.Contains(t, chain.ModuleVersions(t), module)
-			}
+			// A fresh v6.7 genesis never registers the retired IBC modules, so
+			// only oracle is present before the upgrade; the offline boundary
+			// test seeds and checks the IBC module versions.
+			require.Contains(t, chain.ModuleVersions(t), retiredoracle.ModuleName)
 			receiver := chain.KeyAddress(t, "sei-node-0", "node_admin")
 			chain.Record(t, "receiver", receiver)
 			chain.RequireDeliverTxSuccess(t, "v6.7 bank send", chain.Seid(
