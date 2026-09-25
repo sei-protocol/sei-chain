@@ -26,6 +26,48 @@ func TestDeadlineEnforcer_Deadline_DefaultAndOverride(t *testing.T) {
 	require.Equal(t, time.Duration(0), e.Deadline("eth_subscribe"), "zero override marks the method deliberately unbounded")
 }
 
+func TestDeadlineEnforcer_Deadline_PrefixOverride(t *testing.T) {
+	e := NewDeadlineEnforcer(DeadlineConfig{
+		Default: 10 * time.Second,
+		PrefixOverrides: map[string]time.Duration{
+			"debug_trace": 0,
+		},
+	})
+
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceCall"), "method matching the prefix is exempted")
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceTransaction"), "another method matching the same prefix is also exempted")
+	require.Equal(t, 10*time.Second, e.Deadline("debug_getRawHeader"), "debug method not matching the prefix still falls back to Default")
+	require.Equal(t, 10*time.Second, e.Deadline("eth_getBalance"), "unrelated method falls back to Default")
+}
+
+func TestDeadlineEnforcer_Deadline_ExactOverrideTakesPrecedenceOverPrefix(t *testing.T) {
+	e := NewDeadlineEnforcer(DeadlineConfig{
+		Default: 10 * time.Second,
+		Overrides: map[string]time.Duration{
+			"debug_traceCall": 45 * time.Second,
+		},
+		PrefixOverrides: map[string]time.Duration{
+			"debug_trace": 0,
+		},
+	})
+
+	require.Equal(t, 45*time.Second, e.Deadline("debug_traceCall"), "exact override wins over a matching prefix")
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceTransaction"), "method with no exact entry still falls back to the prefix")
+}
+
+func TestDeadlineEnforcer_Deadline_LongestPrefixWins(t *testing.T) {
+	e := NewDeadlineEnforcer(DeadlineConfig{
+		Default: 10 * time.Second,
+		PrefixOverrides: map[string]time.Duration{
+			"debug_trace":     0,
+			"debug_traceCall": 45 * time.Second,
+		},
+	})
+
+	require.Equal(t, 45*time.Second, e.Deadline("debug_traceCall"), "the more specific (longer) prefix takes precedence")
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceTransaction"), "the broader prefix still applies to methods it alone matches")
+}
+
 func TestDeadlineEnforcer_Deadline_NoDefaultNoOverride(t *testing.T) {
 	e := NewDeadlineEnforcer(DeadlineConfig{})
 	require.Equal(t, time.Duration(0), e.Deadline("eth_getBalance"))

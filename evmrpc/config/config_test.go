@@ -636,9 +636,10 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	require.Equal(t, 10*time.Second, cfg.RPCDefaultTimeout)
 	require.Equal(t, []string{"eth_call=1m"}, cfg.RPCMethodTimeouts)
 
-	methodTimeouts, err := config.ParseMethodTimeouts(cfg.RPCMethodTimeouts)
+	methodTimeouts, prefixTimeouts, err := config.ParseMethodTimeouts(cfg.RPCMethodTimeouts)
 	require.NoError(t, err)
 	require.Equal(t, time.Minute, methodTimeouts["eth_call"])
+	require.Empty(t, prefixTimeouts)
 
 	deadlineCfg, err := cfg.DeadlineEnforcerConfig()
 	require.NoError(t, err)
@@ -677,6 +678,24 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestParseMethodTimeoutsWildcard(t *testing.T) {
+	exact, prefixes, err := config.ParseMethodTimeouts([]string{"eth_call=1m", "debug_trace*=0"})
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, exact["eth_call"])
+	require.NotContains(t, exact, "debug_trace*")
+	require.Contains(t, prefixes, "debug_trace")
+	require.Zero(t, prefixes["debug_trace"])
+
+	_, _, err = config.ParseMethodTimeouts([]string{"*=0"})
+	require.Error(t, err, "a wildcard with an empty prefix is rejected")
+
+	_, _, err = config.ParseMethodTimeouts([]string{"debug_*trace*=0"})
+	require.Error(t, err, "more than one \"*\" is rejected")
+
+	_, _, err = config.ParseMethodTimeouts([]string{"debug_*trace=0"})
+	require.Error(t, err, "\"*\" only supported as a trailing wildcard")
+}
+
 func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts{})
 	require.NoError(t, err)
@@ -687,6 +706,17 @@ func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
 	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_estimateGas"])
 	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
 	require.Equal(t, 5*time.Minute, deadlineCfg.Overrides["eth_estimateGasAfterCalls"])
+
+	// Methods that already carry their own deadline get an explicit "=0" entry
+	// so this enforcer never double-wraps or shortens it.
+	require.Contains(t, deadlineCfg.Overrides, "eth_sendRawTransaction")
+	require.Zero(t, deadlineCfg.Overrides["eth_sendRawTransaction"])
+	require.Contains(t, deadlineCfg.Overrides, "eth_sendTransaction")
+	require.Zero(t, deadlineCfg.Overrides["eth_sendTransaction"])
+	require.Contains(t, deadlineCfg.Overrides, "eth_getTransactionCount")
+	require.Zero(t, deadlineCfg.Overrides["eth_getTransactionCount"])
+	require.Contains(t, deadlineCfg.PrefixOverrides, "debug_trace")
+	require.Zero(t, deadlineCfg.PrefixOverrides["debug_trace"])
 
 	cfg.RPCDefaultTimeout = -time.Second
 	_, err = cfg.DeadlineEnforcerConfig()
