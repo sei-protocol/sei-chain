@@ -120,18 +120,18 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 	return codeHash
 }
 
-// ReadAccount returns addr's row fields in one read, satisfying gigatypes.AccountReader.
-func (v *flatKVStateView) ReadAccount(addr gigatypes.Address) (gigatypes.AccountSnapshot, bool) {
+// ReadAccount returns addr's balance, nonce and code hash from one account row read.
+func (v *flatKVStateView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
 	account, ok := v.accountRow(addr)
 	if !ok {
-		return gigatypes.AccountSnapshot{}, false
+		return gigatypes.Account{}, false
 	}
 	codeHash := gigatypes.Hash(account.CodeHash())
 	if codeHash == (gigatypes.Hash{}) {
 		// The row exists, so some field is non-zero and it is not this one: no code. See GetCodeHash.
 		codeHash = gigatypes.EmptyCodeHash
 	}
-	return gigatypes.AccountSnapshot{
+	return gigatypes.Account{
 		Balance:  gigatypes.Hash(account.Balance()),
 		Nonce:    account.Nonce(),
 		CodeHash: codeHash,

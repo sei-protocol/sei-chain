@@ -99,43 +99,43 @@ func (o *pendingOverlay) GetState(addr common.Address, key common.Hash) common.H
 	return o.base.GetState(addr, key)
 }
 
-// ReadAccount satisfies accountSnapshotReader, so a block reading through an overlay keeps the
+// ReadAccount satisfies baseAccountReader, so a block reading through an overlay keeps the
 // single-row read the view beneath it offers.
-func (o *pendingOverlay) ReadAccount(addr common.Address) (accountSnapshot, bool) {
+func (o *pendingOverlay) ReadAccount(addr common.Address) (baseAccount, bool) {
 	_, hasBalance := o.balances[addr]
 	_, hasNonce := o.nonces[addr]
 	_, hasCode := o.code[addr]
 	if !hasBalance && !hasNonce && !hasCode {
-		if reader, ok := o.base.(accountSnapshotReader); ok {
+		if reader, ok := o.base.(baseAccountReader); ok {
 			return reader.ReadAccount(addr)
 		}
-		return accountSnapshot{}, false
+		return baseAccount{}, false
 	}
 	// Touched by the pending block, so the row beneath is only part of the answer. A base that
 	// declines the combined read still has to answer field by field, or a field the pending block
 	// left alone would read as zero instead of what the base holds.
-	var snapshot accountSnapshot
+	var account baseAccount
 	served := false
-	if reader, ok := o.base.(accountSnapshotReader); ok {
-		snapshot, served = reader.ReadAccount(addr)
+	if reader, ok := o.base.(baseAccountReader); ok {
+		account, served = reader.ReadAccount(addr)
 	}
 	if !served {
-		snapshot = accountSnapshot{
+		account = baseAccount{
 			Balance: o.base.GetBalance(addr),
 			Nonce:   o.base.GetNonce(addr),
 			Code:    o.base.GetCode(addr),
 		}
 	}
 	if balance, ok := o.balances[addr]; ok {
-		snapshot.Balance = cloneBig(balance)
+		account.Balance = cloneBig(balance)
 	}
 	if nonce, ok := o.nonces[addr]; ok {
-		snapshot.Nonce = nonce
+		account.Nonce = nonce
 	}
 	if code, ok := o.code[addr]; ok {
-		snapshot.Code = cloneBytes(code)
+		account.Code = cloneBytes(code)
 	}
-	return snapshot, true
+	return account, true
 }
 
 // isEmpty reports whether the set would change nothing.

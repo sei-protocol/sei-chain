@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -167,6 +168,89 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 	require.Equal(t, uint64(1), second.Txs[0].Status,
 		"block 42 lost what block 41 paid it when the commit was retired underneath it")
 	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: big.NewInt(1_000)})
+}
+
+// blockingOpenStore holds a block inside OpenView, and so inside the executor's store lock, until
+// released.
+type blockingOpenStore struct {
+	*recordingGigaStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingOpenStore) OpenView() gigatypes.StateView {
+	close(s.entered)
+	<-s.release
+	return s.recordingGigaStore.OpenView()
+}
+
+// A block already executing when Close is called still commits, and Close returns only once that
+// commit has landed.
+func TestCloseWaitsForTheCommitOfABlockInFlight(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &blockingOpenStore{
+		recordingGigaStore: &recordingGigaStore{snapshot: snapshot},
+		entered:            make(chan struct{}),
+		release:            make(chan struct{}),
+	}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+
+	blockCtx := blockContext(chainID)
+	blockCtx.Number = 41
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
+		Context: blockCtx,
+		Txs:     [][]byte{signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)},
+	})
+	require.NoError(t, err)
+	blockErr := make(chan error, 1)
+	go func() {
+		_, err := executor.ExecutePreparedBlock(t.Context(), prepared)
+		blockErr <- err
+	}()
+	<-store.entered
+
+	closed := make(chan struct{})
+	go func() {
+		executor.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a block was still executing")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(store.release)
+	<-closed
+	require.Equal(t, []int64{41}, store.commitBlock, "Close returned before the in-flight block committed")
+	require.NoError(t, <-blockErr)
+}
+
+// After Close nothing may run in the background, so a block's commit lands before it returns.
+func TestBlockAfterCloseCommitsSynchronously(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+
+	require.Equal(t, []int64{41}, store.commitBlock)
 }
 
 // executePipelinedBlock runs one block through the pipelined path, which returns before the block's

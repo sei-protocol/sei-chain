@@ -11,35 +11,26 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// accountReadingSnapshot answers an account's fields in one read, the capability the executor
-// prefers over reading balance, nonce and code separately. Without a view that implements it, every
-// caller of that path falls back and the path itself is never exercised.
-type accountReadingSnapshot struct {
+// countingAccountView counts ReadAccount calls on the snapshot it wraps.
+type countingAccountView struct {
 	*memoryGigaSnapshot
 	// Atomic because the prefetch reads the view from every pool worker at once.
 	reads atomic.Int64
 }
 
-func (s *accountReadingSnapshot) ReadAccount(addr gigatypes.Address) (gigatypes.AccountSnapshot, bool) {
+func (s *countingAccountView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
 	s.reads.Add(1)
-	if !s.AccountExists(addr) {
-		return gigatypes.AccountSnapshot{}, false
-	}
-	return gigatypes.AccountSnapshot{
-		Balance:  s.balances[addr],
-		Nonce:    s.nonces[addr],
-		CodeHash: s.GetCodeHash(addr),
-	}, true
+	return s.memoryGigaSnapshot.ReadAccount(addr)
 }
 
-var _ gigatypes.AccountReader = (*accountReadingSnapshot)(nil)
+var _ gigatypes.StateView = (*countingAccountView)(nil)
 
 func TestSnapshotReaderServesAnAccountFromOneRead(t *testing.T) {
 	addr := testAddress(0xa1)
 	snapshot := newMemoryGigaSnapshot(7)
 	snapshot.setBalance(addr, big.NewInt(1234))
 	snapshot.nonces[addr] = 9
-	reading := &accountReadingSnapshot{memoryGigaSnapshot: snapshot}
+	reading := &countingAccountView{memoryGigaSnapshot: snapshot}
 	reader := gigaSnapshotStateReader{snapshot: reading}
 
 	account, served := reader.ReadAccount(addr)
@@ -54,19 +45,19 @@ func TestSnapshotReaderServesAnAccountFromOneRead(t *testing.T) {
 // An absent account is a real answer — zero balance, zero nonce, no code — so the combined read
 // serves it. It declines only when something else has to answer instead.
 func TestSnapshotReaderServesAnAbsentAccountAsEmpty(t *testing.T) {
-	reading := &accountReadingSnapshot{memoryGigaSnapshot: newMemoryGigaSnapshot(7)}
+	reading := &countingAccountView{memoryGigaSnapshot: newMemoryGigaSnapshot(7)}
 	reader := gigaSnapshotStateReader{snapshot: reading}
 
 	account, served := reader.ReadAccount(testAddress(0xb2))
 
 	require.True(t, served)
-	require.Equal(t, accountSnapshot{}, account)
+	require.Equal(t, baseAccount{}, account)
 }
 
 // With a missing-account reader configured, an account the view does not hold is that reader's to
 // answer, so the combined read declines and the caller falls back per field.
 func TestSnapshotReaderDeclinesWhenMissingStateOwnsTheAccount(t *testing.T) {
-	reading := &accountReadingSnapshot{memoryGigaSnapshot: newMemoryGigaSnapshot(7)}
+	reading := &countingAccountView{memoryGigaSnapshot: newMemoryGigaSnapshot(7)}
 	reader := gigaSnapshotStateReader{snapshot: reading, missingState: NewMemoryState()}
 
 	_, served := reader.ReadAccount(testAddress(0xb2))
@@ -78,7 +69,7 @@ func TestSnapshotReaderFetchesCodeOnlyWhenTheAccountHasSome(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(7)
 	snapshot.setBalance(addr, big.NewInt(1))
 	snapshot.code[addr] = []byte{0x60, 0x00}
-	reading := &accountReadingSnapshot{memoryGigaSnapshot: snapshot}
+	reading := &countingAccountView{memoryGigaSnapshot: snapshot}
 	reader := gigaSnapshotStateReader{snapshot: reading}
 
 	account, served := reader.ReadAccount(addr)
@@ -97,7 +88,7 @@ func TestPrefetchResolvesEveryTouchedAccountOnce(t *testing.T) {
 		snapshot.setBalance(addr, big.NewInt(int64(i)+1))
 		addrs = append(addrs, addr)
 	}
-	reading := &accountReadingSnapshot{memoryGigaSnapshot: snapshot}
+	reading := &countingAccountView{memoryGigaSnapshot: snapshot}
 
 	state := newBlockSTMState(gigaSnapshotStateReader{snapshot: reading})
 	for i, addr := range addrs {
@@ -124,7 +115,7 @@ func TestPrefetchIsSkippedForASmallBlock(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(7)
 	addr := testAddress(0xd4)
 	snapshot.setBalance(addr, big.NewInt(5))
-	reading := &accountReadingSnapshot{memoryGigaSnapshot: snapshot}
+	reading := &countingAccountView{memoryGigaSnapshot: snapshot}
 
 	state := newBlockSTMState(gigaSnapshotStateReader{snapshot: reading})
 	state.balances[addr] = big.NewInt(6)

@@ -202,11 +202,20 @@ func (e *Executor) awaitPipelineCommit() error {
 }
 
 // startPipelineCommit writes the block in the background and records what it changed, so the next
-// block reads those changes through an overlay rather than waiting for the write.
+// block reads those changes through an overlay rather than waiting for the write. On a closed
+// executor it commits synchronously instead.
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
+	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
+	// unset is one Close waits for.
+	if e.closed.Load() {
+		if err := e.awaitPipelineCommit(); err != nil {
+			return err
+		}
+		return e.stateStore.CommitStateChanges(blockNumber, changesets)
+	}
 	pending := changes.clone()
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
@@ -264,25 +273,21 @@ func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
 
 // ReadAccount returns addr's balance, nonce and code in one row read, and fetches code only for an
 // account that has some. It declines an account the snapshot lacks when missingState must answer
-// for it. Satisfies accountSnapshotReader.
-func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (accountSnapshot, bool) {
-	reader, ok := r.snapshot.(gigatypes.AccountReader)
-	if !ok {
-		return accountSnapshot{}, false
-	}
-	row, exists := reader.ReadAccount(addr)
+// for it. Satisfies baseAccountReader.
+func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (baseAccount, bool) {
+	row, exists := r.snapshot.ReadAccount(addr)
 	if !exists {
-		return accountSnapshot{}, r.missingState == nil
+		return baseAccount{}, r.missingState == nil
 	}
-	snapshot := accountSnapshot{
+	account := baseAccount{
 		Balance: new(big.Int).SetBytes(row.Balance[:]),
 		Nonce:   row.Nonce,
 	}
 	// An account with the empty-code hash has no code, so the code store need not be asked.
 	if row.CodeHash != gigatypes.EmptyCodeHash {
-		snapshot.Code = cloneBytes(r.snapshot.GetCode(addr))
+		account.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
-	return snapshot, true
+	return account, true
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {

@@ -112,22 +112,18 @@ func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
 }
 
 func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) (err error) {
-	// Either materialize the whole run now, or seed the pool it will draw from and build as it goes.
-	// Both have to leave every sender in state, since genesis is committed once below.
+	// Every sender has to be in state before genesis is committed below: the pool's up front, and a
+	// prebuilt run's as its blocks are built.
 	prebuildStartedAt := time.Now()
+	if cfg.accounts > 0 {
+		if err := seedAccountPool(ctx, cfg, workload); err != nil {
+			return err
+		}
+	}
 	var prebuilt []blockEnvelope
 	if cfg.blocks > 0 {
 		prebuilt, err = prebuildBlockRequests(ctx, cfg, workload)
 		if err != nil {
-			return err
-		}
-	} else {
-		seeder, ok := workload.(scenarios.PoolSeeder)
-		if !ok {
-			return fmt.Errorf("workload %q cannot run unbounded: it mints a sender per transaction "+
-				"rather than drawing from a pool, so set --blocks", cfg.workload)
-		}
-		if err := seeder.SeedAccountPool(ctx); err != nil {
 			return err
 		}
 	}
@@ -281,13 +277,22 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 	return prebuilt, nil
 }
 
+// seedAccountPool puts the --accounts sender pool into state, for the workload to draw both senders
+// and recipients from.
+func seedAccountPool(ctx context.Context, cfg config, workload blockWorkload) error {
+	seeder, ok := workload.(scenarios.PoolSeeder)
+	if !ok {
+		return fmt.Errorf("workload %q does not support --accounts: it mints a sender per transaction", cfg.workload)
+	}
+	return seeder.SeedAccountPool(ctx)
+}
+
 // streamBlocks builds blocks for as long as ctx runs, rather than materializing the whole run up
 // front. Memory is then the queue rather than the run, so a run's length stops being bounded by it.
 //
 // Builders work in parallel and finish out of order, so a reorder buffer releases a height only
-// once every lower one has gone: the executor commits in block order. The buffer holds whatever
-// the builders have run ahead of the missing height, which is bounded by how far they drift apart
-// rather than by their count.
+// once every lower one has gone: the executor commits in block order. At most 2*builders heights
+// are claimed but not yet sent, which bounds the buffer behind a slow builder.
 //
 // The cost is that signing lands in the measured window, which prebuilding exists to avoid.
 func streamBlocks(
@@ -298,6 +303,9 @@ func streamBlocks(
 	metrics *loadMetrics,
 ) error {
 	built := make(chan blockEnvelope, cfg.builders)
+	// A builder takes a slot before claiming a height and the slot frees once that height is sent,
+	// so the missing height always holds a slot and the buffer cannot deadlock.
+	slots := make(chan struct{}, 2*cfg.builders)
 	group, groupCtx := errgroup.WithContext(ctx)
 
 	phases := newPipelinePhases()
@@ -307,6 +315,12 @@ func streamBlocks(
 			timer := phases.Build()
 			defer timer.Reset()
 			for groupCtx.Err() == nil {
+				timer.SetPhase(phaseWaitingForWork)
+				select {
+				case slots <- struct{}{}:
+				case <-groupCtx.Done():
+					return nil
+				}
 				number := nextToBuild.Add(1)
 				timer.SetPhase(phaseBuildBlock)
 				request, err := workload.BuildBlock(groupCtx, number+1)
@@ -335,6 +349,7 @@ func streamBlocks(
 				if err := sendBlock(groupCtx, out, block, metrics); err != nil {
 					return err
 				}
+				<-slots
 				delete(pending, next)
 				next++
 			}
@@ -346,6 +361,7 @@ func streamBlocks(
 					if err := sendBlock(groupCtx, out, block, metrics); err != nil {
 						return err
 					}
+					<-slots
 					next++
 					continue
 				}

@@ -81,19 +81,15 @@ type EVMStateView interface {
 	// GetCode returns addr's contract code. Returns nil/empty for
 	// accounts with no code.
 	GetCode(addr Address) []byte
+
+	// ReadAccount returns addr's balance, nonce and code hash in one lookup, or false when
+	// AccountExists would. CodeHash is EmptyCodeHash for an account with no code, matching GetCodeHash.
+	ReadAccount(addr Address) (Account, bool)
 }
 
-// AccountSnapshot is what an account's row holds, read in one go.
-type AccountSnapshot struct {
+// Account is an account's balance, nonce and code hash, as returned by ReadAccount.
+type Account struct {
 	Balance  Hash
 	Nonce    uint64
 	CodeHash Hash
-}
-
-// AccountReader is an optional EVMStateView capability that reads an account's balance, nonce and
-// code hash in one lookup. Callers fall back to the per-field accessors when a view lacks it.
-type AccountReader interface {
-	// ReadAccount returns addr's row fields, or false when addr has no account. CodeHash is the
-	// empty-code hash for an account that holds no code, matching GetCodeHash.
-	ReadAccount(addr Address) (AccountSnapshot, bool)
 }

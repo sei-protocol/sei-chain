@@ -584,7 +584,7 @@ func (s *blockSTMState) prefetchBaseAccounts(ctx context.Context, pool *occWorke
 	if pool == nil {
 		return
 	}
-	reader, ok := s.source.(accountSnapshotReader)
+	reader, ok := s.source.(baseAccountReader)
 	if !ok {
 		return
 	}
@@ -593,7 +593,7 @@ func (s *blockSTMState) prefetchBaseAccounts(ctx context.Context, pool *occWorke
 		return
 	}
 
-	snapshots := make([]accountSnapshot, len(addrs))
+	accounts := make([]baseAccount, len(addrs))
 	served := make([]bool, len(addrs))
 	var next atomic.Int64
 	// A failure here only leaves rows unread, which the merge then reads itself.
@@ -606,17 +606,17 @@ func (s *blockSTMState) prefetchBaseAccounts(ctx context.Context, pool *occWorke
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			if snapshot, hit := reader.ReadAccount(addrs[i]); hit {
-				snapshots[i] = snapshot
+			if account, hit := reader.ReadAccount(addrs[i]); hit {
+				accounts[i] = account
 				served[i] = true
 			}
 		}
 	})
 
-	s.prefetched = make(map[common.Address]accountSnapshot, len(addrs))
+	s.prefetched = make(map[common.Address]baseAccount, len(addrs))
 	for i, addr := range addrs {
 		if served[i] {
-			s.prefetched[addr] = snapshots[i]
+			s.prefetched[addr] = accounts[i]
 		}
 	}
 }
@@ -685,7 +685,7 @@ type blockSTMState struct {
 	storage       map[storageChangeKey]common.Hash
 
 	// Account rows resolved ahead of the merge by prefetchBaseAccounts, or nil when it did not run.
-	prefetched map[common.Address]accountSnapshot
+	prefetched map[common.Address]baseAccount
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
@@ -778,39 +778,39 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 // caller asks for. It is scoped to one merge and is not safe for concurrent use.
 type baseAccounts struct {
 	source StateReader
-	reader accountSnapshotReader
-	seen   map[common.Address]accountSnapshot
+	reader baseAccountReader
+	seen   map[common.Address]baseAccount
 }
 
-func newBaseAccounts(source StateReader, prefetched map[common.Address]accountSnapshot) *baseAccounts {
+func newBaseAccounts(source StateReader, prefetched map[common.Address]baseAccount) *baseAccounts {
 	seen := prefetched
 	if seen == nil {
-		seen = map[common.Address]accountSnapshot{}
+		seen = map[common.Address]baseAccount{}
 	}
 	b := &baseAccounts{source: source, seen: seen}
-	b.reader, _ = source.(accountSnapshotReader)
+	b.reader, _ = source.(baseAccountReader)
 	return b
 }
 
-func (b *baseAccounts) get(addr common.Address) accountSnapshot {
-	if snapshot, ok := b.seen[addr]; ok {
-		return snapshot
+func (b *baseAccounts) get(addr common.Address) baseAccount {
+	if account, ok := b.seen[addr]; ok {
+		return account
 	}
-	var snapshot accountSnapshot
+	var account baseAccount
 	if b.reader != nil {
 		if read, served := b.reader.ReadAccount(addr); served {
-			snapshot = read
-			b.seen[addr] = snapshot
-			return snapshot
+			account = read
+			b.seen[addr] = account
+			return account
 		}
 	}
-	snapshot = accountSnapshot{
+	account = baseAccount{
 		Balance: b.source.GetBalance(addr),
 		Nonce:   b.source.GetNonce(addr),
 		Code:    b.source.GetCode(addr),
 	}
-	b.seen[addr] = snapshot
-	return snapshot
+	b.seen[addr] = account
+	return account
 }
 
 func (b *baseAccounts) balance(addr common.Address) *big.Int {

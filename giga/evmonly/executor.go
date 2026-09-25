@@ -85,14 +85,18 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	return e
 }
 
+// Close disables OCC for later blocks and returns once any block in flight and its state commit
+// have landed. Blocks executed after Close commit synchronously.
 func (e *Executor) Close() {
 	if e == nil {
 		return
 	}
 	e.closed.Store(true)
-	// Land the commit running behind the last block before the pool it may need goes away. The
-	// failure is kept rather than reported, for the next AwaitCommits to return.
+	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
+	// A commit failure is kept for the next AwaitCommits rather than reported here.
+	e.storeMu.Lock()
 	_ = e.awaitPipelineCommit()
+	e.storeMu.Unlock()
 	if e.occPool != nil {
 		e.occPool.Close()
 	}
