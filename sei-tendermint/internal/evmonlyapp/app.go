@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -23,11 +24,20 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-const evmOnlyMinGasPrice = 1_000_000_000
-
 // evmOnlyBaseFee is the base fee this application executes every block at.
 // Admission and block validity both price against it, so they cannot diverge.
 func evmOnlyBaseFee() *big.Int { return new(big.Int) }
+
+// evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
+// transaction invalidates the block containing it. Every node must agree on
+// it, so it is not an operator setting.
+const evmOnlyBlockMinGasPrice = 1_000_000_000
+
+// evmOnlyAdmissionMinGasPrice returns the local admission floor for a configured
+// value, never below the block-validity floor.
+func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
+	return new(big.Int).SetUint64(max(configured, evmOnlyBlockMinGasPrice))
+}
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
@@ -71,6 +81,8 @@ type evmOnlyApplication struct {
 
 	chainID          *big.Int
 	chainConfig      *params.ChainConfig
+	execution        gigaconfig.ExecutionConfig
+	minGasPrice      *big.Int
 	storage          *bootstrap.GigaStorageManager
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
@@ -106,18 +118,22 @@ type evmOnlyPending struct {
 var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, and blocks are owned by storage.
+// load tests. State, receipts, and blocks are owned by storage; execution sizes the executor
+// and prices admission.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
+	execution gigaconfig.ExecutionConfig,
 ) abci.Application {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	return &evmOnlyApplication{
 		chainID:          new(big.Int).SetUint64(chainID),
 		chainConfig:      &chainConfig,
+		execution:        execution,
+		minGasPrice:      evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:          storage,
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
@@ -143,10 +159,10 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		}
 		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
 			ChainConfig:         a.chainConfig,
-			MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
-			OCCWorkers:          runtime.GOMAXPROCS(0),
-			ParseWorkers:        runtime.GOMAXPROCS(0),
-			BlockResultPoolSize: 1,
+			MinGasPrice:         big.NewInt(evmOnlyBlockMinGasPrice),
+			OCCWorkers:          workersOrGOMAXPROCS(a.execution.OCCWorkers),
+			ParseWorkers:        workersOrGOMAXPROCS(a.execution.ParseWorkers),
+			BlockResultPoolSize: a.execution.BlockResultPoolSize,
 		},
 			evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 			evmonly.WithMissingAccountState(evmOnlyFundedState{}),
@@ -284,8 +300,8 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a
 	// failed receipt.
-	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(big.NewInt(evmOnlyMinGasPrice)) < 0 {
-		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %d", evmOnlyMinGasPrice)
+	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
+		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %s", a.minGasPrice)
 	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
@@ -319,7 +335,15 @@ func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint25
 // EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
 // at. Admission and eth_gasPrice's suggestion both price against it, so they cannot diverge.
 func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
-	return big.NewInt(evmOnlyMinGasPrice)
+	return new(big.Int).Set(a.minGasPrice)
+}
+
+// workersOrGOMAXPROCS returns n, or GOMAXPROCS when n is 0.
+func workersOrGOMAXPROCS(n int) int {
+	if n == 0 {
+		return runtime.GOMAXPROCS(0)
+	}
+	return n
 }
 
 // EvmCode returns the contract code at address in the most recently committed
@@ -349,28 +373,27 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
 }
 
-// EvmCall executes msg as a read-only call against the most recently
-// committed EVM state and returns the execution result.
-func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
-	var executor *evmonly.Executor
-	var blockCtx evmonly.BlockContext
+// currentExecutionContext returns the executor and block context for a
+// read-only EVM execution against the most recently committed state. action
+// names the caller for its error messages, e.g. "call" or "gas estimate".
+func (a *evmOnlyApplication) currentExecutionContext(action string) (*evmonly.Executor, evmonly.BlockContext, error) {
 	for state := range a.state.Lock() {
-		got, ok := state.executor.Get()
+		executor, ok := state.executor.Get()
 		if !ok {
-			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
+			return nil, evmonly.BlockContext{}, fmt.Errorf("EVM-only %s attempted before InitChain", action)
 		}
 		if state.pending.IsPresent() {
-			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
-			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+			return nil, evmonly.BlockContext{}, fmt.Errorf("EVM-only %s attempted before committing the finalized block", action)
 		}
 		number, ok := utils.SafeCast[uint64](state.committedHeight)
 		if !ok {
-			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+			return nil, evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
 		}
-		executor = got
-		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
-		// FinalizeBlock, and only the current block's hash is tracked at all.
-		blockCtx = evmonly.BlockContext{
+		// Coinbase and ParentHash are left zero.
+		//
+		// Executor opens its own state snapshot later, outside this lock, so a
+		// commit landing in between can pair this BlockContext with a newer one.
+		return executor, evmonly.BlockContext{
 			Number:      number,
 			Time:        state.lastBlockTime,
 			GasLimit:    state.gasLimit,
@@ -379,9 +402,30 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 			BlobBaseFee: new(big.Int),
 			BlockHash:   state.parentHash,
 			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
-		}
+		}, nil
+	}
+	panic("unreachable")
+}
+
+// EvmCall executes msg as a read-only call against the most recently
+// committed EVM state and returns the execution result.
+func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	executor, blockCtx, err := a.currentExecutionContext("call")
+	if err != nil {
+		return nil, err
 	}
 	return executor.Call(ctx, blockCtx, msg)
+}
+
+// EvmEstimateGas returns the lowest gas limit that lets msg execute
+// successfully against the most recently committed EVM state. Like EvmCall
+// it creates no transaction and persists no state change.
+func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
+	if err != nil {
+		return 0, nil, err
+	}
+	return executor.EstimateGas(ctx, blockCtx, msg, gasCap)
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {

@@ -1,0 +1,1 @@
+[{"inputs":[{"internalType":"string","name":"subspace","type":"string"},{"internalType":"string","name":"key","type":"string"}],"name":"params","outputs":[{"internalType":"string","name":"value","type":"string"}],"stateMutability":"view","type":"function"}]

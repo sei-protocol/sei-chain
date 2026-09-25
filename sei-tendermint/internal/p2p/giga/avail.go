@@ -138,6 +138,7 @@ func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.
 func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Client[API], lane types.LaneID, first types.BlockNumber) error {
 	stream, err := StreamLaneProposals.Call(ctx, c)
 	if err != nil {
+		recordFetch(ctx, resLaneProposal, "open_stream")
 		return err
 	}
 	defer stream.Close()
@@ -145,6 +146,7 @@ func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Cl
 	// To keep low latency, we need to push the lane proposals (streaming is required).
 	req := &StreamLaneProposalsReq{LaneID: lane, FirstBlockNumber: first}
 	if err := stream.Send(ctx, StreamLaneProposalsReqConv.Encode(req)); err != nil {
+		recordFetch(ctx, resLaneProposal, "send")
 		return fmt.Errorf("client.StreamLaneProposals(): %w", err)
 	}
 	for {
@@ -154,18 +156,23 @@ func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Cl
 			if errors.Is(err, mux.ErrRemoteClosed) {
 				return nil
 			}
+			recordFetch(ctx, resLaneProposal, "receive")
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		proposal, err := LaneProposalConv.Decode(rawProposal)
 		if err != nil {
+			recordFetch(ctx, resLaneProposal, "decode")
 			return fmt.Errorf("LaneProposalConv.Decode(): %w", err)
 		}
 		if proposal.Msg().Block().Header().Lane() != lane {
+			recordFetch(ctx, resLaneProposal, "wrong_lane")
 			return fmt.Errorf("producer lane = %v, want %v", proposal.Msg().Block().Header().Lane(), lane)
 		}
 		if err := x.state.Avail().PushBlock(ctx, proposal); err != nil {
+			recordFetch(ctx, resLaneProposal, "process")
 			return fmt.Errorf("s.PushLaneProposal(): %w", err)
 		}
+		recordFetch(ctx, resLaneProposal, "ok")
 	}
 }
 
@@ -196,24 +203,30 @@ func (x *validatorService) clientStreamLaneVotes(ctx context.Context, c rpc.Clie
 func (x *validatorService) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) error {
 	stream, err := StreamCommitQCs.Call(ctx, c)
 	if err != nil {
+		recordFetch(ctx, resCommitQC, "open_stream")
 		return fmt.Errorf("client.StreamCommitQCs(): %w", err)
 	}
 	defer stream.Close()
 	if err := stream.Send(ctx, &pb.StreamCommitQCsReq{}); err != nil {
+		recordFetch(ctx, resCommitQC, "send")
 		return err
 	}
 	for {
 		resp, err := stream.Recv(ctx)
 		if err != nil {
+			recordFetch(ctx, resCommitQC, "receive")
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		qc, err := types.CommitQCConv.Decode(resp)
 		if err != nil {
+			recordFetch(ctx, resCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		if err := x.state.Avail().PushCommitQC(ctx, qc); err != nil {
+			recordFetch(ctx, resCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
+		recordFetch(ctx, resCommitQC, "ok")
 	}
 }
 

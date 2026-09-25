@@ -78,7 +78,9 @@ type Config struct {
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-	// configuration. Leave empty to disable Autobahn. The autobahn role
+	// configuration. Leave empty to disable Autobahn. When set, the node serves the
+	// EVM JSON-RPC instead of Tendermint RPC, and runs the disk-backed EVM-only
+	// executor unless mock-app is set. The autobahn role
 	// follows the top-level `mode` field: "validator" runs the validator
 	// path; any other mode runs as a fullnode (loads the address book and
 	// pulls blocks from committee members). A warning is logged at startup
@@ -248,10 +250,6 @@ type BaseConfig struct {
 	// MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
 	// TEST-ONLY
 	MockApp bool `mapstructure:"mock-app"`
-
-	// EVMOnly replaces the provided ABCI application with the disk-backed EVM-only executor.
-	// TEST-ONLY
-	EVMOnly bool `mapstructure:"evm-only"`
 
 	// Deprecated: out-of-process ABCI has been removed and this option no longer
 	// has any effect.

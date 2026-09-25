@@ -341,7 +341,7 @@ func pebbleFilterLogs(
 				}
 			}
 
-			txLogs := getLogsForTx(receipt, logStartIndex)
+			txLogs := LogsForTx(receipt, logStartIndex)
 			logStartIndex += uint(len(txLogs))
 			for _, lg := range txLogs {
 				if ethbloom.MatchesCriteria(lg, crit) {
@@ -446,7 +446,7 @@ func makeDiverseReceiptBatch(
 			},
 		}
 
-		txBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: getLogsForTx(receipt, 0)})
+		txBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: LogsForTx(receipt, 0)})
 		receipt.LogsBloom = txBloom.Bytes()
 		for j := range blockBloom {
 			blockBloom[j] |= txBloom[j]

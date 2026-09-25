@@ -232,7 +232,7 @@ func (c *ledgerCache) FilterLogsWithMinBlock(fromBlock, toBlock uint64, crit fil
 				continue
 			}
 			for _, lg := range logs {
-				if matchLog(lg, crit) {
+				if MatchLog(lg, crit) {
 					logCopy := *lg
 					result = append(result, &logCopy)
 				}
@@ -267,8 +267,11 @@ func (c *ledgerCache) logMinBlockLocked() (uint64, bool) {
 	return min, found
 }
 
-// matchLog checks if a log matches the filter criteria.
-func matchLog(lg *ethtypes.Log, crit filters.FilterCriteria) bool {
+// MatchLog reports whether lg satisfies crit's address and positional topic
+// filters. An empty topic position matches any topic, including one the log
+// does not have; callers wanting go-ethereum's stricter rule that a log with
+// fewer topics than filter positions never matches must check that themselves.
+func MatchLog(lg *ethtypes.Log, crit filters.FilterCriteria) bool {
 	// Check address filter
 	if len(crit.Addresses) > 0 {
 		found := false
