@@ -205,7 +205,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		applied = true
 	}
 	if applied {
-		metrics.ObserveTimeout(leader)
+		meters.Timeouts.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 	}
 	return nil
 }
@@ -270,7 +270,7 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		return err
 	}
 	var leader types.PublicKey
-	var phase metrics.TimeoutPhase
+	var phase string
 	voted := false
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
@@ -293,14 +293,14 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		voted = true
 	}
 	if voted {
-		metrics.ObserveTimeoutVote(leader, phase)
+		meters.TimeoutVotes.WithLabelValues(leader.ED25519().Address().String(), phase).Add(1)
 	}
 	return nil
 }
 
 // timeoutPhase is this replica's progress in the current view for a timeout vote.
 // A PrepareQC inherited from a prior TimeoutQC is not this view's proposal.
-func (i inner) timeoutPhase() metrics.TimeoutPhase {
+func (i inner) timeoutPhase() string {
 	if i.PrepareQC.IsPresent() {
 		return metrics.PhaseNoCommit
 	}

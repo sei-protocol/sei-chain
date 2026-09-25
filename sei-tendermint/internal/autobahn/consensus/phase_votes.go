@@ -49,7 +49,7 @@ func (p *phaseVotes[V, B, QC]) pushVerifiedVote(c *types.Committee, vote V) {
 	ph := p.phase
 	accepted, votesOpt := p.votes.pushVote(c, ph.key(vote), ph.view(vote), ph.bucket(vote), vote, ph.quorum(c))
 	if accepted && p.voteType != "" {
-		metrics.ObserveVoteIngested(p.voteType)
+		meters.VotesIngested.WithLabelValues(p.voteType).Add(1)
 	}
 	votes, ok := votesOpt.Get()
 	if !ok {

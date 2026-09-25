@@ -65,7 +65,8 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
-		SetCommitQC(qc)
+		Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
+		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
@@ -75,43 +76,28 @@ func ObserveProducedTxs(n int) {
 	Global.producedTxsAt().Add(int64(n))
 }
 
-// SetCommitQC records the road index and next global block number of the highest observed commitQC.
-func SetCommitQC(qc *types.CommitQC) {
-	Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
-	Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
+// Metrics are the avail instruments callers write directly.
+type Metrics struct {
+	CommitRoadIndex         *prometheus.GaugeInt
+	CommitGlobalBlockNumber *prometheus.GaugeInt
+	LaneCapacityWait        *prometheus.Histogram
+	LaneQCWait              *prometheus.Histogram
+	LaneCapacityInFlight    *prometheus.GaugeInt
+	LaneQCInFlight          *prometheus.GaugeInt
+	LaneQCs                 *prometheus.CounterInt
+	LaneVotesIngested       *prometheus.CounterInt
 }
 
-// ObserveLaneCapacityWait records how long one WaitForCapacity call blocked.
-// A call that finds room immediately is not recorded. A call canceled while blocked is.
-func ObserveLaneCapacityWait(d time.Duration) {
-	Global.laneCapacityWaitLatencyAt().Observe(d.Seconds())
-}
-
-// in_flight{wait} labels.
-const (
-	WaitLaneCapacity = "lane_capacity"
-	WaitLaneQC       = "lane_qc"
-)
-
-// EnterWait marks one call of the given wait as in flight until the returned func runs.
-func EnterWait(wait string) func() {
-	g := Global.inFlightAt(wait)
-	g.Add(1)
-	return func() { g.Add(-1) }
-}
-
-// ObserveLaneQCWait records how long one WaitForLaneQCs call blocked.
-// A call that finds a LaneQC immediately is not recorded. A call canceled while blocked is.
-func ObserveLaneQCWait(d time.Duration) {
-	Global.laneQcWaitLatencyAt().Observe(d.Seconds())
-}
-
-// ObserveLaneQC records that lane votes reached quorum and formed a LaneQC.
-func ObserveLaneQC() {
-	Global.laneQcsAt().Add(1)
-}
-
-// ObserveLaneVoteIngested records that a lane vote was newly stored.
-func ObserveLaneVoteIngested() {
-	Global.laneVotesIngestedAt().Add(1)
+// Get returns the avail instruments.
+func Get() *Metrics {
+	return &Metrics{
+		CommitRoadIndex:         Global.commitRoadIndexAt(),
+		CommitGlobalBlockNumber: Global.commitGlobalBlockNumberAt(),
+		LaneCapacityWait:        Global.laneCapacityWaitLatencyAt(),
+		LaneQCWait:              Global.laneQcWaitLatencyAt(),
+		LaneCapacityInFlight:    Global.inFlightAt("lane_capacity"),
+		LaneQCInFlight:          Global.inFlightAt("lane_qc"),
+		LaneQCs:                 Global.laneQcsAt(),
+		LaneVotesIngested:       Global.laneVotesIngestedAt(),
+	}
 }

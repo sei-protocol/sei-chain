@@ -25,6 +25,11 @@ var ErrLaneClosed = errors.New("lane closed")
 
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 
+var (
+	meters     = metrics.Get()
+	consMeters = consmetrics.Get()
+)
+
 // State represents the Data Availability Plane and Ordered Event Log.
 // Although it resides in a sub-package, it serves as the "source of truth" for:
 // - Block data: storing and disseminating raw transaction payloads (lanes).
@@ -180,7 +185,8 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	}
 	i.refreshConsensusSpec()
 	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
-		metrics.SetCommitQC(qc)
+		meters.CommitRoadIndex.Set(int64(qc.Index()))                    // nolint: gosec
+		meters.CommitGlobalBlockNumber.Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 	}
 	return i, nil
 }
@@ -350,7 +356,8 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
-		consmetrics.ObserveCommit(epoch.Committee().Leader(qc.Proposal().View()))
+		leader := epoch.Committee().Leader(qc.Proposal().View())
+		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 		// The persist goroutine publishes persistedCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
@@ -606,7 +613,7 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 	var start time.Time
 	defer func() {
 		if blocked {
-			metrics.ObserveLaneCapacityWait(time.Since(start))
+			meters.LaneCapacityWait.Observe(time.Since(start).Seconds())
 		}
 	}()
 	for inner, ctrl := range s.inner.Lock() {
@@ -618,7 +625,8 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 			return toProduce < q.first+BlocksPerLane
 		}
 		if !ready() {
-			defer metrics.EnterWait(metrics.WaitLaneCapacity)()
+			meters.LaneCapacityInFlight.Add(1)
+			defer meters.LaneCapacityInFlight.Add(-1)
 			start = time.Now()
 			blocked = true
 			if err := ctrl.WaitUntil(ctx, ready); err != nil {
@@ -641,7 +649,7 @@ func (s *State) WaitForLaneQCs(
 	var start time.Time
 	defer func() {
 		if blocked {
-			metrics.ObserveLaneQCWait(time.Since(start))
+			meters.LaneQCWait.Observe(time.Since(start).Seconds())
 		}
 	}()
 	for inner, ctrl := range s.inner.Lock() {
@@ -661,7 +669,8 @@ func (s *State) WaitForLaneQCs(
 				return laneQCs, nil
 			}
 			if !blocked {
-				defer metrics.EnterWait(metrics.WaitLaneQC)()
+				meters.LaneQCInFlight.Add(1)
+				defer meters.LaneQCInFlight.Add(-1)
 				start = time.Now()
 				blocked = true
 			}

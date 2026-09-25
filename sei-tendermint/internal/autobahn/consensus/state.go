@@ -16,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+var meters = metrics.Get()
+
 // ViewTimeoutFunc is a function that specifies the timeout for the given view.
 // - constant for production
 // - custom for tests.
@@ -134,7 +136,7 @@ func newState(
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
 	view := s.myView.Load()
-	metrics.SetView(view.View())
+	meters.ViewNumber.Set(int64(view.View().Number)) // nolint: gosec
 	return s, nil
 }
 
@@ -282,7 +284,7 @@ func (s *State) runOutputs(ctx context.Context) error {
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
-			metrics.SetView(vs.View())
+			meters.ViewNumber.Set(int64(vs.View().Number)) // nolint: gosec
 		}
 		// Persist to disk before broadcasting votes to the network.
 		if p, ok := s.persister.Get(); ok {

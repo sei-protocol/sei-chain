@@ -16,30 +16,32 @@ func TestObserveTimeoutAndCommit(t *testing.T) {
 	a := types.GenSecretKey(rng).Public()
 	b := types.GenSecretKey(rng).Public()
 
-	timeoutsA := counterValue(Global.timeoutsAt(leaderLabel(a)))
-	timeoutsB := counterValue(Global.timeoutsAt(leaderLabel(b)))
-	commitsA := counterValue(Global.commitsAt(leaderLabel(a)))
+	m := Get()
+	addr := func(k types.PublicKey) string { return k.ED25519().Address().String() }
+	timeoutsA := counterValue(m.Timeouts.WithLabelValues(addr(a)))
+	timeoutsB := counterValue(m.Timeouts.WithLabelValues(addr(b)))
+	commitsA := counterValue(m.Commits.WithLabelValues(addr(a)))
 
-	ObserveTimeout(a)
-	ObserveTimeout(a)
-	ObserveTimeout(b)
-	ObserveCommit(a)
+	m.Timeouts.WithLabelValues(addr(a)).Add(1)
+	m.Timeouts.WithLabelValues(addr(a)).Add(1)
+	m.Timeouts.WithLabelValues(addr(b)).Add(1)
+	m.Commits.WithLabelValues(addr(a)).Add(1)
 
-	require.Equal(t, timeoutsA+2, counterValue(Global.timeoutsAt(leaderLabel(a))))
-	require.Equal(t, timeoutsB+1, counterValue(Global.timeoutsAt(leaderLabel(b))))
-	require.Equal(t, commitsA+1, counterValue(Global.commitsAt(leaderLabel(a))))
+	require.Equal(t, timeoutsA+2, counterValue(m.Timeouts.WithLabelValues(addr(a))))
+	require.Equal(t, timeoutsB+1, counterValue(m.Timeouts.WithLabelValues(addr(b))))
+	require.Equal(t, commitsA+1, counterValue(m.Commits.WithLabelValues(addr(a))))
 
-	votesProposal := counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoProposal.label))
-	votesCommit := counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoCommit.label))
-	ObserveTimeoutVote(a, PhaseNoProposal)
-	ObserveTimeoutVote(a, PhaseNoCommit)
-	require.Equal(t, votesProposal+1, counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoProposal.label)))
-	require.Equal(t, votesCommit+1, counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoCommit.label)))
+	votesProposal := counterValue(m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoProposal))
+	votesCommit := counterValue(m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoCommit))
+	m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoProposal).Add(1)
+	m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoCommit).Add(1)
+	require.Equal(t, votesProposal+1, counterValue(m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoProposal)))
+	require.Equal(t, votesCommit+1, counterValue(m.TimeoutVotes.WithLabelValues(addr(a), PhaseNoCommit)))
 
-	prepare := counterValue(Global.votesIngestedAt(VotePrepare))
-	ObserveVoteIngested(VotePrepare)
-	ObserveVoteIngested(VotePrepare)
-	require.Equal(t, prepare+2, counterValue(Global.votesIngestedAt(VotePrepare)))
+	prepare := counterValue(m.VotesIngested.WithLabelValues(VotePrepare))
+	m.VotesIngested.WithLabelValues(VotePrepare).Add(1)
+	m.VotesIngested.WithLabelValues(VotePrepare).Add(1)
+	require.Equal(t, prepare+2, counterValue(m.VotesIngested.WithLabelValues(VotePrepare)))
 }
 
 func counterValue(c *prometheus.CounterInt) int64 {
@@ -51,8 +53,8 @@ func counterValue(c *prometheus.CounterInt) int64 {
 }
 
 func TestSetView(t *testing.T) {
-	SetView(types.View{Index: 4, Number: 2})
-	require.Equal(t, int64(2), gaugeValue(Global.viewNumberAt()))
+	Get().ViewNumber.Set(2)
+	require.Equal(t, int64(2), gaugeValue(Get().ViewNumber))
 }
 
 func gaugeValue(g *prometheus.GaugeInt) int64 {

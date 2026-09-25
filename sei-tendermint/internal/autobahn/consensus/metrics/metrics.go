@@ -1,23 +1,19 @@
 package metrics
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const MetricsNamespace = "tendermint"
 const MetricsSubsystem = "internal_autobahn_consensus"
 
-// TimeoutPhase is this replica's progress in a view when it timeout-votes.
-type TimeoutPhase struct{ label string }
-
-var (
+const (
 	// PhaseNoProposal is a timeout vote with no prepare vote in this view.
-	PhaseNoProposal = TimeoutPhase{"no_proposal"}
+	PhaseNoProposal = "no_proposal"
 	// PhaseNoPrepareQC is a timeout vote after a prepare vote but no this-view PrepareQC.
-	PhaseNoPrepareQC = TimeoutPhase{"no_prepare_qc"}
+	PhaseNoPrepareQC = "no_prepare_qc"
 	// PhaseNoCommit is a timeout vote after a this-view PrepareQC.
-	PhaseNoCommit = TimeoutPhase{"no_commit"}
+	PhaseNoCommit = "no_commit"
 )
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
@@ -34,37 +30,28 @@ type metrics struct {
 	viewNumber prometheus.GaugeIntVec
 }
 
-var (
+const (
 	VotePrepare = "prepare"
 	VoteCommit  = "commit"
 	VoteTimeout = "timeout"
 )
 
-func leaderLabel(k types.PublicKey) string {
-	return k.ED25519().Address().String()
+// Metrics are the consensus instruments callers write directly.
+type Metrics struct {
+	ViewNumber    *prometheus.GaugeInt
+	Timeouts      prometheus.CounterIntVec
+	TimeoutVotes  prometheus.CounterIntVec
+	Commits       prometheus.CounterIntVec
+	VotesIngested prometheus.CounterIntVec
 }
 
-// SetView records the view number of the current consensus view.
-func SetView(v types.View) {
-	Global.viewNumberAt().Set(int64(v.Number)) // nolint: gosec
-}
-
-// ObserveTimeout records that the given leader's view timed out.
-func ObserveTimeout(leader types.PublicKey) {
-	Global.timeoutsAt(leaderLabel(leader)).Add(1)
-}
-
-// ObserveTimeoutVote records that this replica timeout-voted the given leader's view.
-func ObserveTimeoutVote(leader types.PublicKey, phase TimeoutPhase) {
-	Global.timeoutVotesAt(leaderLabel(leader), phase.label).Add(1)
-}
-
-// ObserveCommit records that a proposal from the given leader committed.
-func ObserveCommit(leader types.PublicKey) {
-	Global.commitsAt(leaderLabel(leader)).Add(1)
-}
-
-// ObserveVoteIngested records that the aggregator accepted one vote of the given type.
-func ObserveVoteIngested(typ string) {
-	Global.votesIngestedAt(typ).Add(1)
+// Get returns the consensus instruments.
+func Get() *Metrics {
+	return &Metrics{
+		ViewNumber:    Global.viewNumberAt(),
+		Timeouts:      Global.timeouts,
+		TimeoutVotes:  Global.timeoutVotes,
+		Commits:       Global.commits,
+		VotesIngested: Global.votesIngested,
+	}
 }

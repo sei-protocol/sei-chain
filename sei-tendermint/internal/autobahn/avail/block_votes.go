@@ -2,7 +2,6 @@ package avail
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -34,7 +33,7 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 		return false
 	}
 	bv.byKey[k] = vote
-	metrics.ObserveLaneVoteIngested()
+	meters.LaneVotesIngested.Add(1)
 	bv.credit(ep, vote)
 	return true
 }
@@ -71,7 +70,7 @@ func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote
 		bv.qc = utils.Some(types.NewLaneQC(byHash.votes))
 		if !bv.qcCounted {
 			bv.qcCounted = true
-			metrics.ObserveLaneQC()
+			meters.LaneQCs.Add(1)
 		}
 	}
 }

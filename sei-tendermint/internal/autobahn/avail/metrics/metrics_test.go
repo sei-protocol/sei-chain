@@ -18,23 +18,25 @@ func sampleCount(t *testing.T, h *prometheus.Histogram) uint64 {
 }
 
 func TestObserveWaitLatency(t *testing.T) {
-	capacity := sampleCount(t, Global.laneCapacityWaitLatencyAt())
-	laneQCs := sampleCount(t, Global.laneQcWaitLatencyAt())
-	ObserveLaneCapacityWait(time.Millisecond)
-	ObserveLaneCapacityWait(2 * time.Millisecond)
-	ObserveLaneQCWait(time.Second)
-	require.Equal(t, capacity+2, sampleCount(t, Global.laneCapacityWaitLatencyAt()))
-	require.Equal(t, laneQCs+1, sampleCount(t, Global.laneQcWaitLatencyAt()))
+	m := Get()
+	capacity := sampleCount(t, m.LaneCapacityWait)
+	laneQCs := sampleCount(t, m.LaneQCWait)
+	m.LaneCapacityWait.Observe((time.Millisecond).Seconds())
+	m.LaneCapacityWait.Observe((2 * time.Millisecond).Seconds())
+	m.LaneQCWait.Observe((time.Second).Seconds())
+	require.Equal(t, capacity+2, sampleCount(t, m.LaneCapacityWait))
+	require.Equal(t, laneQCs+1, sampleCount(t, m.LaneQCWait))
 }
 
 func TestObserveLaneCounters(t *testing.T) {
-	qcs := counterValue(t, Global.laneQcsAt())
-	votes := counterValue(t, Global.laneVotesIngestedAt())
-	ObserveLaneQC()
-	ObserveLaneVoteIngested()
-	ObserveLaneVoteIngested()
-	require.Equal(t, qcs+1, counterValue(t, Global.laneQcsAt()))
-	require.Equal(t, votes+2, counterValue(t, Global.laneVotesIngestedAt()))
+	m := Get()
+	qcs := counterValue(t, m.LaneQCs)
+	votes := counterValue(t, m.LaneVotesIngested)
+	m.LaneQCs.Add(1)
+	m.LaneVotesIngested.Add(1)
+	m.LaneVotesIngested.Add(1)
+	require.Equal(t, qcs+1, counterValue(t, m.LaneQCs))
+	require.Equal(t, votes+2, counterValue(t, m.LaneVotesIngested))
 }
 
 func counterValue(t *testing.T, c *prometheus.CounterInt) int64 {
@@ -45,14 +47,14 @@ func counterValue(t *testing.T, c *prometheus.CounterInt) int64 {
 }
 
 func TestEnterWait(t *testing.T) {
-	g := Global.inFlightAt(WaitLaneCapacity)
-	var m dto.Metric
-	require.NoError(t, g.Write(&m))
-	before := m.GetGauge().GetValue()
-	leave := EnterWait(WaitLaneCapacity)
-	require.NoError(t, g.Write(&m))
-	require.Equal(t, before+1, m.GetGauge().GetValue())
-	leave()
-	require.NoError(t, g.Write(&m))
-	require.Equal(t, before, m.GetGauge().GetValue())
+	g := Get().LaneCapacityInFlight
+	var metric dto.Metric
+	require.NoError(t, g.Write(&metric))
+	before := metric.GetGauge().GetValue()
+	g.Add(1)
+	require.NoError(t, g.Write(&metric))
+	require.Equal(t, before+1, metric.GetGauge().GetValue())
+	g.Add(-1)
+	require.NoError(t, g.Write(&metric))
+	require.Equal(t, before, metric.GetGauge().GetValue())
 }

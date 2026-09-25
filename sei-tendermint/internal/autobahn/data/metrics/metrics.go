@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
@@ -45,20 +44,17 @@ type Metrics struct {
 	TxLatency    stageMetrics[*prometheus.Histogram]
 	GasUsed      *prometheus.CounterInt
 	// TxSize has no finite buckets; it exports count and sum only.
-	TxSize *prometheus.Histogram
-}
-
-// SetAnchorRoadIndex records the road index of the current Anchor.
-func SetAnchorRoadIndex(idx types.RoadIndex) {
-	Global.anchorRoadIndexAt().Set(int64(idx)) // nolint: gosec
+	TxSize          *prometheus.Histogram
+	AnchorRoadIndex *prometheus.GaugeInt
 }
 
 func Get() *Metrics {
 	return &Metrics{
-		NextBlock:    newStageMetrics(Global.nextBlockAt),
-		BlockLatency: newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
-		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
-		GasUsed:      Global.gasUsedAt(),
-		TxSize:       Global.txSizeAt(),
+		NextBlock:       newStageMetrics(Global.nextBlockAt),
+		BlockLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
+		TxLatency:       newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
+		GasUsed:         Global.gasUsedAt(),
+		TxSize:          Global.txSizeAt(),
+		AnchorRoadIndex: Global.anchorRoadIndexAt(),
 	}
 }

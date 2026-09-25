@@ -328,7 +328,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 			return nil, fmt.Errorf("load AppQC from BlockStore: %w", err)
 		}
 	}
-	inner.setAnchor()
+	inner.setAnchor(metrics.Get())
 	return inner, nil
 }
 
@@ -988,7 +988,7 @@ func (s *State) runPersist(ctx context.Context) error {
 				inner.first += 1
 			}
 			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
-			inner.setAnchor()
+			inner.setAnchor(s.metrics)
 			if from < inner.first {
 				a, ok := inner.anchor.Load().Get()
 				if !ok {
@@ -1006,7 +1006,7 @@ func (s *State) runPersist(ctx context.Context) error {
 	}
 }
 
-func (i *inner) setAnchor() {
+func (i *inner) setAnchor(m *metrics.Metrics) {
 	if i.first < i.persisted.NextAppQC {
 		entry := i.qcs[i.first]
 		qc := entry.qc.QC()
@@ -1015,7 +1015,7 @@ func (i *inner) setAnchor() {
 			AppQC:    i.appQCs[i.first],
 			Epoch:    entry.epoch,
 		}))
-		metrics.SetAnchorRoadIndex(qc.Index())
+		m.AnchorRoadIndex.Set(int64(qc.Index())) // nolint: gosec
 	}
 }
 
