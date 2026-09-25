@@ -34,6 +34,7 @@ sei-chain
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics
 * [#4325](https://github.com/sei-protocol/sei-chain/pull/4325) feat(evmonly): add eth_estimateGas via existing libraries
 * [#4323](https://github.com/sei-protocol/sei-chain/pull/4323) Add [giga] app.toml section and honor it on the Autobahn node
+* [#4322](https://github.com/sei-protocol/sei-chain/pull/4322) fix(flatkv): keep 10 old checkpoints instead of mirroring memIAVL's count
 * [#4321](https://github.com/sei-protocol/sei-chain/pull/4321) Fix pruning issue in SS causing huge disk spike
 * [#4320](https://github.com/sei-protocol/sei-chain/pull/4320) Generate v6.8 precompiles
 * [#4318](https://github.com/sei-protocol/sei-chain/pull/4318) Fail dynamic-gas precompile out-of-gas as an EVM out-of-gas call
