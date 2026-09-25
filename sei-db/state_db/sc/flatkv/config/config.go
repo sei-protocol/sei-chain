@@ -10,7 +10,7 @@ import (
 
 const (
 	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	DefaultSnapshotKeepRecent uint32 = 10
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -39,8 +39,9 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// It is not derived from memIAVL's sc-keep-recent.
 	// Ignored entirely when ExternalPruning is set.
-	// Default: 1
+	// Default: 10
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
@@ -116,9 +117,12 @@ type Config struct {
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
-		Fsync:                     false,
-		AsyncWriteBuffer:          0,
-		SnapshotInterval:          DefaultSnapshotInterval,
+		Fsync:            false,
+		AsyncWriteBuffer: 0,
+		SnapshotInterval: DefaultSnapshotInterval,
+		// A composite read needs a version that both backends still hold. At mainnet state size,
+		// memIAVL publishes a snapshot only about every 50,000 blocks, so FlatKV must reach back
+		// farther than that. Ten old checkpoints reach 100,000 blocks at the default interval.
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
