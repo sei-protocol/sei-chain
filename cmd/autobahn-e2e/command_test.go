@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 type fakeRunner struct {
+	mu       sync.Mutex
 	commands []commandSpec
 	outputFn func(commandSpec) (string, error)
 	streamFn func(commandSpec) error
@@ -21,6 +23,8 @@ type fakeRunner struct {
 }
 
 func (r *fakeRunner) output(_ context.Context, spec commandSpec) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.commands = append(r.commands, spec)
 	if r.outputFn == nil {
 		return "", nil
@@ -29,6 +33,8 @@ func (r *fakeRunner) output(_ context.Context, spec commandSpec) (string, error)
 }
 
 func (r *fakeRunner) stream(_ context.Context, spec commandSpec) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.commands = append(r.commands, spec)
 	if r.streamFn == nil {
 		return nil
@@ -104,9 +110,12 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 		case strings.Contains(joined, "create-key-pair"):
 			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
 		case strings.Contains(joined, "run-instances"):
-			return "i-123\n", nil
+			if strings.Contains(joined, "Value=load") {
+				return "i-load\n", nil
+			}
+			return "i-v0\ti-v1\ti-v2\ti-v3\n", nil
 		case strings.Contains(joined, "describe-instances"):
-			return "203.0.113.10\n", nil
+			return "i-v0\t203.0.113.10\t10.0.0.10\ni-v1\t203.0.113.11\t10.0.0.11\ni-v2\t203.0.113.12\t10.0.0.12\ni-v3\t203.0.113.13\t10.0.0.13\ni-load\t203.0.113.20\t10.0.0.20\n", nil
 		case spec.name == "ssh":
 			return "", nil
 		default:
@@ -116,37 +125,122 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	app := &application{runner: runner, stdout: &stdout, stderr: &stderr, stateDir: stateDir}
 	options := deployOptions{
-		name:         "aws-test",
-		target:       "aws",
-		timeout:      time.Minute,
-		region:       "us-west-2",
-		instanceType: "c7g.2xlarge",
-		amiID:        "ami-123",
-		sshCIDR:      "198.51.100.4/32",
-		sshUser:      "ubuntu",
-		volumeSize:   100,
-		repoURL:      "https://github.com/sei-protocol/sei-chain.git",
-		ref:          "deadbeef",
+		name:             "aws-test",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
+		ref:              "deadbeef",
+		topology:         awsTopologyDistributed,
 	}
 
 	require.NoError(t, app.deploy(context.Background(), options))
 	state, err := app.store().load(options.name)
 	require.NoError(t, err)
 	require.Equal(t, "ready", state.Status)
-	require.Equal(t, "i-123", state.AWS.InstanceID)
-	require.Equal(t, "203.0.113.10", state.AWS.PublicIP)
+	require.Equal(t, "i-load", state.AWS.InstanceID)
+	require.Equal(t, "203.0.113.20", state.AWS.PublicIP)
+	require.Len(t, state.AWS.Hosts, 5)
+	require.Len(t, state.AWS.validators(), 4)
 	require.True(t, state.AWS.ManagedKey)
 	require.FileExists(t, state.AWS.SSHKeyPath)
 	keyInfo, err := os.Stat(state.AWS.SSHKeyPath)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), keyInfo.Mode().Perm())
 	require.Contains(t, stdout.String(), "Cluster aws-test is ready")
+	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.20:3000")
+	require.Contains(t, stdout.String(), "passed status checks")
 
 	commands := joinedCommands(runner.commands)
 	require.Contains(t, commands, "authorize-security-group-ingress")
 	require.Contains(t, commands, "--cidr 198.51.100.4/32")
+	require.Contains(t, commands, "--port 3000")
+	require.Contains(t, commands, "--port 22")
+	require.NotContains(t, commands, "--cidr 0.0.0.0/0")
+	require.Contains(t, commands, "UserIdGroupPairs")
+	require.Contains(t, commands, "autobahn-e2e-genesis.tgz' genesis.json persistent_peers.txt")
+	require.Contains(t, commands, "--count 4")
+	require.Contains(t, commands, "--count 1")
+	require.Contains(t, commands, "docker-aws-validator-init")
+	require.Contains(t, commands, "docker-aws-validator-genesis")
+	require.Contains(t, commands, "docker-aws-validator-start")
+	require.Contains(t, commands, "docker-aws-load-start")
+	require.Contains(t, commands, "sei-load.aws.json")
+	require.NotContains(t, commands, "metricsListenAddr")
+	require.Contains(t, stdout.String(), "sei-load is not running")
+	require.Contains(t, commands, ebsRootMapping(defaultVolumeSizeGiB, defaultVolumeIOPS, defaultVolumeThroughputMB))
+	require.Contains(t, commands, ebsRootMapping(defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB))
 	require.Contains(t, commands, "AUTOBAHN=true")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
+	require.Contains(t, commands, "curl -fsS -o /dev/null http://127.0.0.1:3000/api/health")
+	require.Equal(t, awsTopologyDistributed, state.AWS.Topology)
+}
+
+func TestAWSDeployColocatedUsesOneInstanceAndSharedCompose(t *testing.T) {
+	stateDir := t.TempDir()
+	runner := &fakeRunner{}
+	runner.outputFn = func(spec commandSpec) (string, error) {
+		joined := strings.Join(spec.args, " ")
+		switch {
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return `{}`, nil
+		case strings.Contains(joined, "describe-vpcs"):
+			return "vpc-123\n", nil
+		case strings.Contains(joined, "create-security-group"):
+			return "sg-123\n", nil
+		case strings.Contains(joined, "create-key-pair"):
+			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
+		case strings.Contains(joined, "run-instances"):
+			return "i-colo\n", nil
+		case strings.Contains(joined, "describe-instances"):
+			return "i-colo\t203.0.113.10\t10.0.0.10\n", nil
+		case spec.name == "ssh":
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	var stdout bytes.Buffer
+	app := &application{runner: runner, stdout: &stdout, stderr: &bytes.Buffer{}, stateDir: stateDir}
+	require.NoError(t, app.deploy(context.Background(), deployOptions{
+		name:             "colo-test",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
+		ref:              "deadbeef",
+		topology:         awsTopologyColocated,
+	}))
+	state, err := app.store().load("colo-test")
+	require.NoError(t, err)
+	require.Equal(t, "ready", state.Status)
+	require.Equal(t, awsTopologyColocated, state.AWS.Topology)
+	require.Equal(t, "i-colo", state.AWS.InstanceID)
+	require.Equal(t, "203.0.113.10", state.AWS.PublicIP)
+	require.Len(t, state.AWS.Hosts, 1)
+	require.Empty(t, state.AWS.validators())
+	require.Contains(t, stdout.String(), "four Docker validators")
+	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.10:3000")
+
+	commands := joinedCommands(runner.commands)
+	require.Contains(t, commands, "docker-cluster-start-monitoring")
+	require.NotContains(t, commands, "docker-aws-validator-init")
+	require.NotContains(t, commands, "UserIdGroupPairs")
+	require.NotContains(t, commands, "--count 4")
 }
 
 func TestAWSDeployRetainsFailedState(t *testing.T) {
@@ -171,17 +265,19 @@ func TestAWSDeployRetainsFailedState(t *testing.T) {
 	}
 	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
 	err := app.deploy(context.Background(), deployOptions{
-		name:         "failed-aws",
-		target:       "aws",
-		timeout:      time.Minute,
-		region:       "us-west-2",
-		instanceType: "c7g.2xlarge",
-		amiID:        "ami-123",
-		sshCIDR:      "198.51.100.4/32",
-		sshUser:      "ubuntu",
-		volumeSize:   100,
-		repoURL:      "https://example.com/repo.git",
-		ref:          "deadbeef",
+		name:             "failed-aws",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://example.com/repo.git",
+		ref:              "deadbeef",
 	})
 	require.Error(t, err)
 	state, loadErr := app.store().load("failed-aws")
@@ -202,6 +298,12 @@ func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 			PublicIP:   "203.0.113.10",
 			SSHUser:    "ubuntu",
 			SSHKeyPath: "/tmp/test.pem",
+			Hosts: []awsHost{
+				{Role: awsRoleValidator, Index: 0, PublicIP: "203.0.113.10"},
+				{Role: awsRoleValidator, Index: 1, PublicIP: "203.0.113.11"},
+				{Role: awsRoleValidator, Index: 2, PublicIP: "203.0.113.12"},
+				{Role: awsRoleValidator, Index: 3, PublicIP: "203.0.113.13"},
+			},
 		},
 	}
 	require.NoError(t, newStateStore(stateDir).save(state))
@@ -218,8 +320,8 @@ func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 	require.Len(t, runner.commands, 1)
 	require.Equal(t, "ssh", runner.commands[0].name)
 	joined := strings.Join(runner.commands[0].args, " ")
-	require.Contains(t, joined, "-L 127.0.0.1:18545:127.0.0.1:8551")
-	require.True(t, strings.HasSuffix(joined, "ubuntu@203.0.113.10"))
+	require.Contains(t, joined, "-L 127.0.0.1:18545:127.0.0.1:8545")
+	require.True(t, strings.HasSuffix(joined, "ubuntu@203.0.113.13"))
 }
 
 func TestListShowsPartialAWSDeploymentWithoutCredentials(t *testing.T) {
@@ -245,6 +347,37 @@ func TestListShowsPartialAWSDeploymentWithoutCredentials(t *testing.T) {
 	require.Contains(t, stdout.String(), "partial-aws")
 	require.Contains(t, stdout.String(), "failed")
 	require.Empty(t, runner.commands)
+}
+
+func TestAWSTeardownStopsMonitoringStack(t *testing.T) {
+	stateDir := t.TempDir()
+	state := clusterState{
+		Version: stateVersion,
+		Name:    "monitored-aws",
+		Target:  targetAWS,
+		Status:  "ready",
+		Nodes:   clusterNodes(4),
+		AWS: &awsState{
+			Region:     "us-west-2",
+			PublicIP:   "203.0.113.10",
+			SSHUser:    "ubuntu",
+			SSHKeyPath: "/tmp/test.pem",
+			RemoteDir:  "/home/ubuntu/sei-chain-monitored-aws",
+		},
+	}
+	store := newStateStore(stateDir)
+	require.NoError(t, store.save(state))
+	runner := &fakeRunner{outputFn: func(spec commandSpec) (string, error) {
+		if strings.Contains(strings.Join(spec.args, " "), "sts get-caller-identity") {
+			return `{}`, nil
+		}
+		return "", nil
+	}}
+	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
+
+	require.NoError(t, app.teardown(context.Background(), teardownOptions{name: state.Name}))
+	require.Contains(t, joinedCommands(runner.commands), "docker-cluster-stop-monitoring")
+	require.Contains(t, joinedCommands(runner.commands), "if [ -d '/home/ubuntu/sei-chain-monitored-aws' ]")
 }
 
 func TestAWSTeardownToleratesAlreadyDeletedManagedResources(t *testing.T) {
@@ -319,6 +452,109 @@ func TestWriteUserDataUsesSelectedSSHUser(t *testing.T) {
 	require.Contains(t, string(data), "usermod -aG docker ec2-user")
 	require.Contains(t, string(data), "go1.27.1")
 	require.Contains(t, string(data), "/var/lib/autobahn-e2e-ready")
+}
+
+func TestEBSRootMapping(t *testing.T) {
+	require.Equal(t,
+		"DeviceName=/dev/sda1,Ebs={VolumeSize=1024,VolumeType=gp3,Iops=10000,Throughput=1000,DeleteOnTermination=true}",
+		ebsRootMapping(1024, 10000, 1000),
+	)
+}
+
+func TestAssignAWSHostsRequiresPublicAndPrivateIPs(t *testing.T) {
+	_, err := assignAWSHosts([]string{"i-v0"}, []string{"i-load"}, map[string]instanceAddrs{
+		"i-v0":   {publicIP: "203.0.113.10", privateIP: "10.0.0.10"},
+		"i-load": {publicIP: "None", privateIP: "10.0.0.20"},
+	})
+	require.Error(t, err)
+
+	hosts, err := assignAWSHosts([]string{"i-v0"}, []string{"i-load"}, map[string]instanceAddrs{
+		"i-v0":   {publicIP: "203.0.113.10", privateIP: "10.0.0.10"},
+		"i-load": {publicIP: "203.0.113.20", privateIP: "10.0.0.20"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, awsRoleValidator, hosts[0].Role)
+	require.Equal(t, "10.0.0.10", hosts[0].PrivateIP)
+	require.Equal(t, awsRoleLoad, hosts[1].Role)
+	require.Equal(t, "203.0.113.20", hosts[1].PublicIP)
+}
+
+func TestPrometheusAndLoadConfigUsePrivateEVMEndpoints(t *testing.T) {
+	prom := prometheusScrapeConfig([]string{"10.0.0.10", "10.0.0.11"})
+	require.Contains(t, prom, "10.0.0.10:26660")
+	require.Contains(t, prom, "10.0.0.11:26660")
+
+	cfg, err := seiLoadAWSConfig([]string{"10.0.0.10", "10.0.0.11"})
+	require.NoError(t, err)
+	require.Contains(t, cfg, "http://10.0.0.10:8545")
+	require.Contains(t, cfg, "http://10.0.0.11:8545")
+}
+
+func TestGrafanaPublicURL(t *testing.T) {
+	require.Equal(t, "", grafanaPublicURL(""))
+	require.Equal(t, "http://203.0.113.10:3000", grafanaPublicURL("203.0.113.10"))
+}
+
+func TestResolveGrafanaCIDR(t *testing.T) {
+	got, err := resolveGrafanaCIDR("", "198.51.100.4/32")
+	require.NoError(t, err)
+	require.Equal(t, "198.51.100.4/32", got)
+
+	got, err = resolveGrafanaCIDR("0.0.0.0/0", "198.51.100.4/32")
+	require.NoError(t, err)
+	require.Equal(t, "0.0.0.0/0", got)
+
+	_, err = resolveGrafanaCIDR("not-a-cidr", "198.51.100.4/32")
+	require.Error(t, err)
+}
+
+func TestAWSDeployGrafanaCIDRCanBeWidened(t *testing.T) {
+	stateDir := t.TempDir()
+	runner := &fakeRunner{}
+	runner.outputFn = func(spec commandSpec) (string, error) {
+		joined := strings.Join(spec.args, " ")
+		switch {
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return `{}`, nil
+		case strings.Contains(joined, "describe-vpcs"):
+			return "vpc-123\n", nil
+		case strings.Contains(joined, "create-security-group"):
+			return "sg-123\n", nil
+		case strings.Contains(joined, "create-key-pair"):
+			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
+		case strings.Contains(joined, "run-instances"):
+			if strings.Contains(joined, "Value=load") {
+				return "i-load\n", nil
+			}
+			return "i-v0\ti-v1\ti-v2\ti-v3\n", nil
+		case strings.Contains(joined, "describe-instances"):
+			return "i-v0\t203.0.113.10\t10.0.0.10\ni-v1\t203.0.113.11\t10.0.0.11\ni-v2\t203.0.113.12\t10.0.0.12\ni-v3\t203.0.113.13\t10.0.0.13\ni-load\t203.0.113.20\t10.0.0.20\n", nil
+		case spec.name == "ssh":
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
+	require.NoError(t, app.deploy(context.Background(), deployOptions{
+		name:             "grafana-open",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		grafanaCIDR:      "0.0.0.0/0",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
+		ref:              "deadbeef",
+		topology:         awsTopologyDistributed,
+	}))
+	require.Contains(t, joinedCommands(runner.commands), "--cidr 0.0.0.0/0")
+	require.Contains(t, joinedCommands(runner.commands), "--port 3000")
 }
 
 func TestShellQuote(t *testing.T) {
