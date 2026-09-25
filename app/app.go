@@ -108,6 +108,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/retiredibc"
 	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
+	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepairtest"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
@@ -1006,6 +1007,12 @@ func New(
 	// example: app.HardForkManager.RegisterHandler(myHandler)
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
+
+	// TEST FIXTURE, DO NOT MERGE. Rehearses the A8 recovery action by damaging a
+	// fixed set of cold EVM storage slots at one height and restoring them at a
+	// later one. It targets a live chain ID, so this build belongs only on a
+	// disposable node.
+	kvrepairtest.Register(app.HardForkManager, &app.EvmKeeper)
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
