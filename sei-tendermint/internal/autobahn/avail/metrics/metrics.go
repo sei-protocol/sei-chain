@@ -17,7 +17,7 @@ type metrics struct {
 	// Road index of the highest observed commitQC.
 	commitRoadIndex prometheus.GaugeIntVec
 
-	// Global block number of the highest observed commitQC.
+	// First global block number not covered by the highest observed CommitQC.
 	commitGlobalBlockNumber prometheus.GaugeIntVec
 
 	// Latency from proposal being constructed to commit being observed.

@@ -36,7 +36,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_global_block_number",
-			Help:      "Global block number of the highest observed commitQC.",
+			Help:      "First global block number not covered by the highest observed CommitQC.",
 		}, nil),
 		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
