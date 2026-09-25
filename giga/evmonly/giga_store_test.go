@@ -298,14 +298,15 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Nil(t, result)
 	})
 
-	t.Run("missing receipt store", func(t *testing.T) {
+	t.Run("no receipt store commits state without receipts", func(t *testing.T) {
 		store := NewMemoryStore(NewMemoryState())
 		executor := NewExecutor(Config{}, WithStore(store, store.EncodeChangeSet))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, errMissingReceiptStore)
-		require.Nil(t, result)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		result.Release()
 	})
 
 	t.Run("missing encoder", func(t *testing.T) {
