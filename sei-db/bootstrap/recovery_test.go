@@ -53,27 +53,21 @@ func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 // receipts back has to write bodies rather than only stamp a head with SetLatestVersion.
 func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 	t.Helper()
-	for block := uint64(1); block <= through; block++ {
-		writeReceiptAt(t, manager, block)
-	}
-}
-
-// writeReceiptAt writes one receipt for block, moving the receipt head there.
-func writeReceiptAt(t *testing.T, manager *GigaStorageManager, block uint64) {
-	t.Helper()
 	storeKey := storetypes.NewKVStoreKey("evm")
 	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
-	txHash := common.BigToHash(new(big.Int).SetUint64(block))
-	records := []receipt.ReceiptRecord{{
-		TxHash: txHash,
-		Receipt: &evmtypes.Receipt{
-			TxHashHex:   txHash.Hex(),
-			BlockNumber: block,
-			GasUsed:     21000,
-		},
-	}}
-	//nolint:gosec // small test heights
-	require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(int64(block)), records))
+	for block := uint64(1); block <= through; block++ {
+		txHash := common.BigToHash(new(big.Int).SetUint64(block))
+		records := []receipt.ReceiptRecord{{
+			TxHash: txHash,
+			Receipt: &evmtypes.Receipt{
+				TxHashHex:   txHash.Hex(),
+				BlockNumber: block,
+				GasUsed:     21000,
+			},
+		}}
+		//nolint:gosec // small test heights
+		require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(int64(block)), records))
+	}
 }
 
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
@@ -210,45 +204,21 @@ func TestRecoveryTarget(t *testing.T) {
 	for _, tc := range []struct {
 		name                                  string
 		blockHeight, stateHeight, receiptHead uint64
-		rollbackWindow                        uint64
 		want                                  uint64
 	}{
-		{name: "a fresh node has no height to converge on", rollbackWindow: 10},
-		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, rollbackWindow: 10, want: 5},
-		{name: "receipts can be the lowest", blockHeight: 7, stateHeight: 6, receiptHead: 4, rollbackWindow: 10, want: 4},
-		{
-			name:           "receipts at the edge of the rollback window still win",
-			blockHeight:    16,
-			stateHeight:    14,
-			receiptHead:    4,
-			rollbackWindow: 10,
-			want:           4,
-		},
-		{
-			name:           "receipts re-enabled after a stretch disabled do not roll state back",
-			blockHeight:    16,
-			stateHeight:    15,
-			receiptHead:    4,
-			rollbackWindow: 10,
-			want:           15,
-		},
-		{
-			name:        "without a rollback window any lagging receipt head is stale",
-			blockHeight: 7,
-			stateHeight: 6,
-			receiptHead: 5,
-			want:        6,
-		},
+		{name: "a fresh node has no height to converge on"},
+		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, want: 5},
+		{name: "receipts can be the lowest", blockHeight: 7, stateHeight: 6, receiptHead: 4, want: 4},
 		// The regression: receipts newly enabled, or a receipt directory recreated after corruption,
 		// leave a head of 0 alongside real block and state history. Folding that 0 into the minimum
 		// collapses the target and skips recovery for the stores that do have history.
-		{name: "an empty receipt store does not collapse the target", blockHeight: 7, stateHeight: 5, rollbackWindow: 10, want: 5},
-		{name: "a disabled receipt store reads the same as an empty one", blockHeight: 4, stateHeight: 4, rollbackWindow: 10, want: 4},
-		{name: "an empty state WAL yields no target", blockHeight: 7, receiptHead: 7, rollbackWindow: 10},
-		{name: "an empty block store yields no target", stateHeight: 7, receiptHead: 7, rollbackWindow: 10},
+		{name: "an empty receipt store does not collapse the target", blockHeight: 7, stateHeight: 5, want: 5},
+		{name: "a disabled receipt store reads the same as an empty one", blockHeight: 4, stateHeight: 4, want: 4},
+		{name: "an empty state WAL yields no target", blockHeight: 7, receiptHead: 7},
+		{name: "an empty block store yields no target", stateHeight: 7, receiptHead: 7},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead, tc.rollbackWindow))
+			require.Equal(t, tc.want, recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead))
 		})
 	}
 }
@@ -267,44 +237,6 @@ func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
 		"a zero target must leave the receipt store where it was found")
 }
 
-// A receipt store left behind by a stretch with receipts disabled is not converged on: recovery
-// discards it, and the empty store that opens in its place takes the next block's receipts, where the
-// store found on disk would have refused that write for skipping blocks.
-func TestRecoveryDiscardsAStaleReceiptStoreAndResumesReceipts(t *testing.T) {
-	const rollbackWindow = 1
-	manager, cfg := openManager(t, func(cfg *config.GigaStorageConfig) {
-		cfg.PruningConfig.RollbackWindow = rollbackWindow
-	})
-	commitBlocks(t, manager, 5)
-	writeReceipts(t, manager, 2)
-	closeStateDB(t, manager)
-	closeReceiptDB(t, manager)
-
-	// The block store holds no blocks here, so its head stands in as 5, level with the state WAL.
-	stateHeight, err := manager.stateWALHead()
-	require.NoError(t, err)
-	receiptHeight, err := receipt.GetLatestBlock(cfg.ReceiptDBConfig)
-	require.NoError(t, err)
-	require.Equal(t, uint64(5), stateHeight)
-	require.Equal(t, uint64(2), receiptHeight)
-	target := recoveryTarget(5, stateHeight, receiptHeight, rollbackWindow)
-	require.Equal(t, uint64(5), target, "a stale receipt head must not pull the target down")
-	require.True(t, receiptHeadIsStale(receiptHeight, target, rollbackWindow))
-
-	require.NoError(t, manager.recoverStores(t.Context(), int64(target)))
-	require.NoError(t, manager.discardReceiptStore())
-	require.NoError(t, manager.openReceiptStore())
-
-	scVersion, err := manager.SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(5), scVersion, "state stays where it was; only the receipt store is reset")
-	require.Equal(t, int64(0), manager.ReceiptDB().LatestVersion())
-	writeReceiptAt(t, manager, 6)
-	// Receipt writes are applied off the caller's goroutine, so the head moves after SetReceipts returns.
-	require.Eventually(t, func() bool { return manager.ReceiptDB().LatestVersion() == 6 },
-		5*time.Second, 10*time.Millisecond)
-}
-
 func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
@@ -318,10 +250,9 @@ func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	closeStateDB(t, manager)
 	closeReceiptDB(t, manager)
 
-	got, staleReceipts, err := manager.findTargetRecoveryHeight()
+	got, err := manager.findTargetRecoveryHeight()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), got)
-	require.False(t, staleReceipts)
 }
 
 // Recovering to a target below the WAL head drops every block above it, so the write head resumes at

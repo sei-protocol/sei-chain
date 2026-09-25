@@ -35,8 +35,8 @@ type StorageConfig struct {
 	// serving queries. Empty follows the node's mode from config.toml.
 	Mode string `mapstructure:"mode"`
 	// Receipts opens the receipt store, which the node's EVM RPC serves transaction receipts,
-	// logs and fee history from. When false the node starts no EVM RPC, and blocks it finalizes
-	// meanwhile have no receipts; re-enabling it starts the store over from the current height.
+	// logs and fee history from. When false the node starts no EVM RPC, and refuses to start while a
+	// receipt store with history is on disk: move that directory away first.
 	Receipts bool `mapstructure:"receipts"`
 	// RollbackWindow is how many blocks behind head the node must remain able to roll back to.
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
@@ -218,8 +218,8 @@ const ConfigTemplate = `
 mode = "{{ .Giga.Storage.Mode }}"
 
 # receipts opens the receipt store, which the node's EVM RPC serves transaction receipts,
-# logs and fee history from. When false the node starts no EVM RPC, and blocks it finalizes
-# meanwhile have no receipts; re-enabling it starts the store over from the current height.
+# logs and fee history from. When false the node starts no EVM RPC, and refuses to start while a
+# receipt store with history is on disk: move that directory away first.
 receipts = {{ .Giga.Storage.Receipts }}
 
 # rollback_window is how many blocks behind head the node must remain able to roll back to.

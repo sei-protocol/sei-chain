@@ -76,39 +76,6 @@ func TestOfflineGetLatestBlock(t *testing.T) {
 	require.Equal(t, uint64(keepThrough), block)
 }
 
-// TestOfflineDiscard verifies that Discard removes a written store so that it reads as empty afterwards,
-// and that discarding a store that does not exist is not an error.
-func TestOfflineDiscard(t *testing.T) {
-	dir := t.TempDir()
-	store, ctx := setupLittIdx(t, dir)
-	addr := common.HexToAddress("0xc0de")
-	topic := common.HexToHash("0xdead")
-	for block := uint64(1); block <= 3; block++ {
-		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
-	}
-	require.NoError(t, store.Close())
-	cfg := offlineCfg(dir)
-
-	require.NoError(t, receipt.Discard(cfg))
-
-	block, err := receipt.GetLatestBlock(cfg)
-	require.NoError(t, err)
-	require.Zero(t, block)
-	require.NoDirExists(t, dir)
-	require.NoError(t, receipt.Discard(cfg))
-}
-
-// TestOfflineDiscardRefusesAnotherBackend verifies that Discard leaves a directory alone when the config
-// names a backend the offline operations do not support.
-func TestOfflineDiscardRefusesAnotherBackend(t *testing.T) {
-	dir := t.TempDir()
-	cfg := offlineCfg(dir)
-	cfg.Backend = "pebbledb"
-
-	require.Error(t, receipt.Discard(cfg))
-	require.DirExists(t, dir)
-}
-
 // TestOfflineGetRange verifies that GetRange reports the lowest and highest block heights written to
 // the store, without opening it.
 func TestOfflineGetRange(t *testing.T) {
