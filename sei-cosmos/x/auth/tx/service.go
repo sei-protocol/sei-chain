@@ -2,6 +2,7 @@ package tx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -21,8 +22,9 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
-// baseAppSimulateFn is the signature of the Baseapp#Simulate function.
-type baseAppSimulateFn func(txBytes []byte) (sdk.GasInfo, *sdk.Result, error)
+// baseAppSimulateFn is the signature of the Baseapp#Simulate function. ctx
+// bounds the simulation: a deadline it carries aborts execution.
+type baseAppSimulateFn func(ctx context.Context, txBytes []byte) (sdk.GasInfo, *sdk.Result, error)
 
 // txServer is the server for the protobuf Tx service.
 type txServer struct {
@@ -119,9 +121,13 @@ func (s txServer) Simulate(ctx context.Context, req *txtypes.SimulateRequest) (*
 		return nil, status.Errorf(codes.InvalidArgument, "empty txBytes is not allowed")
 	}
 
-	gasInfo, result, err := s.simulate(txBytes)
+	gasInfo, result, err := s.simulate(ctx, txBytes)
 	if err != nil {
-		return nil, status.Errorf(codes.Unknown, "%v With gas wanted: '%d' and gas used: '%d' ", err, gasInfo.GasWanted, gasInfo.GasUsed)
+		code := codes.Unknown
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = codes.DeadlineExceeded
+		}
+		return nil, status.Errorf(code, "%v With gas wanted: '%d' and gas used: '%d' ", err, gasInfo.GasWanted, gasInfo.GasUsed)
 	}
 
 	return &txtypes.SimulateResponse{
