@@ -48,16 +48,24 @@ func NewMiscData() *MiscData {
 	return &MiscData{version: MiscDataVersion0}
 }
 
+// SerializeMisc returns the serialized misc value for value written at blockHeight. An empty value
+// is a write rather than a deletion; a deletion is a nil value at the store. value is copied, so
+// the caller may reuse it.
+func SerializeMisc(blockHeight int64, value []byte) []byte {
+	data := make([]byte, miscHeaderLength+len(value))
+	data[miscVersionStart] = byte(MiscDataVersion0)
+	heightBytes := data[miscBlockHeightStart:miscValueStart]
+	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	copy(data[miscValueStart:], value)
+	return data
+}
+
 // Serialize the misc data to a byte slice.
 func (l *MiscData) Serialize() []byte {
 	if l == nil {
 		return make([]byte, miscHeaderLength)
 	}
-	data := make([]byte, miscHeaderLength+len(l.value))
-	data[miscVersionStart] = byte(l.version)
-	binary.BigEndian.PutUint64(data[miscBlockHeightStart:miscValueStart], uint64(l.blockHeight)) //nolint:gosec
-	copy(data[miscValueStart:], l.value)
-	return data
+	return SerializeMisc(l.blockHeight, l.value)
 }
 
 // Deserialize the misc data from the given byte slice.

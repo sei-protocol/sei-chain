@@ -33,6 +33,7 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// It is not derived from memIAVL's sc-keep-recent.
 	// Ignored entirely when ExternalPruning is set.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
@@ -143,10 +144,15 @@ func defaultStoreConfig(name string) view.ViewManagerConfig {
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
-		Fsync:                     false,
-		AsyncWriteBuffer:          0,
-		SnapshotInterval:          10000,
-		SnapshotKeepRecent:        1,
+		Fsync:            false,
+		AsyncWriteBuffer: 0,
+		SnapshotInterval: 10000,
+		// A composite read needs a version both backends still hold. At mainnet state size memIAVL
+		// publishes a snapshot only about every 50,000 blocks, so FlatKV must reach back further
+		// than that: ten old checkpoints at this interval reach 100,000 blocks. A checkpoint
+		// hardlinks its SSTs, so each one costs only what compaction has obsoleted since, about
+		// 290 MiB at mainnet state size.
+		SnapshotKeepRecent:        10,
 		MaxSnapshotLagBlocks:      64,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),

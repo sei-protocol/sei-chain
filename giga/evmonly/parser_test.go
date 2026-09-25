@@ -83,6 +83,33 @@ func TestParseBlockTxsMixesKnownAndRecoveredSenders(t *testing.T) {
 	}
 }
 
+func TestParseBlockTxsProcessesMultipleClaims(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	signer := ethtypes.LatestSignerForChainID(chainID)
+	recipient := testAddress(0xc8)
+	const n = 40
+	raws := make([][]byte, n)
+	senders := make([]common.Address, n)
+	known := make([]utils.Option[common.Address], n)
+	for i := range n {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		senders[i] = crypto.PubkeyToAddress(key.PublicKey)
+		raws[i] = signLegacyTx(t, key, chainID, uint64(i), &recipient, big.NewInt(1), nil)
+		if i%2 == 0 {
+			known[i] = utils.Some(senders[i])
+		}
+	}
+
+	parsed, err := parseBlockTxs(t.Context(), raws, signer, known, 4)
+	require.NoError(t, err)
+	require.Len(t, parsed, n)
+	for i, prepared := range parsed {
+		require.Equal(t, senders[i], prepared.Sender)
+		require.Equal(t, decodeTx(t, raws[i]).Hash(), prepared.Tx.Hash())
+	}
+}
+
 func TestExecutorPrepareBlockUsesKnownSender(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()

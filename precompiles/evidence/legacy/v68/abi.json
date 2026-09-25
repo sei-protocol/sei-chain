@@ -1,0 +1,52 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "pageKey",
+        "type": "bytes"
+      }
+    ],
+    "name": "allEvidence",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes[]",
+            "name": "evidenceList",
+            "type": "bytes[]"
+          },
+          {
+            "internalType": "bytes",
+            "name": "nextKey",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IEvidence.AllEvidenceResponse",
+        "name": "response",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "evidenceHash",
+        "type": "bytes"
+      }
+    ],
+    "name": "evidence",
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "evidence",
+        "type": "bytes"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

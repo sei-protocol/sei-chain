@@ -5,6 +5,7 @@ package pointerview
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pointerviewv66 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v66"
+	pointerviewv67 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(pointerviewv66.NewPrecompile(keepers)),
+		"v6.7":        check(pointerviewv67.NewPrecompile(keepers)),
 	}
 }
 

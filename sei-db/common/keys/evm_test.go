@@ -211,6 +211,81 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 	}
 }
 
+func TestPutEVMKey(t *testing.T) {
+	addr := make([]byte, AddressLen)
+	for i := range addr {
+		addr[i] = 0xAA
+	}
+	slot := make([]byte, slotLen)
+	for i := range slot {
+		slot[i] = 0xBB
+	}
+	concat := func(parts ...[]byte) []byte {
+		var out []byte
+		for _, part := range parts {
+			out = append(out, part...)
+		}
+		return out
+	}
+
+	for _, tc := range []struct {
+		name  string
+		kind  EVMKeyKind
+		parts [][]byte
+		want  []byte
+	}{
+		{
+			name:  "Balance",
+			kind:  EVMKeyBalance,
+			parts: [][]byte{addr},
+			want:  concat(balanceKeyPrefix, addr),
+		},
+		{
+			name:  "Storage",
+			kind:  EVMKeyStorage,
+			parts: [][]byte{addr, slot},
+			want:  concat(stateKeyPrefix, addr, slot),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := make([]byte, len(tc.want))
+			require.True(t, PutEVMKey(dst, tc.kind, tc.parts...))
+			require.Equal(t, tc.want, dst)
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		kind EVMKeyKind
+		dst  []byte
+	}{
+		{
+			name: "kind without prefix",
+			kind: EVMKeyKind(255),
+			dst:  make([]byte, 1+AddressLen),
+		},
+		{
+			name: "destination too long",
+			kind: EVMKeyBalance,
+			dst:  make([]byte, 2+AddressLen),
+		},
+		{
+			name: "destination too short",
+			kind: EVMKeyBalance,
+			dst:  make([]byte, AddressLen),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := range tc.dst {
+				tc.dst[i] = 0xCC
+			}
+			before := append([]byte(nil), tc.dst...)
+			require.False(t, PutEVMKey(tc.dst, tc.kind, addr))
+			require.Equal(t, before, tc.dst)
+		})
+	}
+}
+
 func TestInternalKeyLen(t *testing.T) {
 	require.Equal(t, AddressLen+slotLen, InternalKeyLen(EVMKeyStorage))
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyNonce))

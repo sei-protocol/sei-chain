@@ -5,6 +5,7 @@ package bank
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	bankv66 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v66"
+	bankv67 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(bankv66.NewPrecompile(keepers)),
+		"v6.7":        check(bankv67.NewPrecompile(keepers)),
 	}
 }
 

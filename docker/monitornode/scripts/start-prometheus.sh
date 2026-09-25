@@ -34,8 +34,29 @@ if [[ ! -f "${PROMETHEUS_CONFIG}" ]]; then
 	exit 1
 fi
 
+connect_autobahn_network() {
+	local net
+	net="$(docker inspect sei-node-0 --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | awk '{print $1}')" || true
+	if [[ -z "${net}" ]]; then
+		return 0
+	fi
+	if docker inspect "$CONTAINER_NAME" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | grep -qw "${net}"; then
+		return 0
+	fi
+	echo "Attaching ${CONTAINER_NAME} to ${net} so Autobahn e2e nodes can be scraped."
+	docker network connect "${net}" "$CONTAINER_NAME"
+}
+
+reload_prometheus() {
+	if curl -fsS -X POST "http://127.0.0.1:${PROMETHEUS_UI_PORT}/-/reload" >/dev/null 2>&1; then
+		echo "Reloaded Prometheus scrape config."
+	fi
+}
+
 # If container exists and is running, we're done
 if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+	connect_autobahn_network
+	reload_prometheus
 	echo "Prometheus is already running."
 	echo "  UI: http://localhost:${PROMETHEUS_UI_PORT}"
 	exit 0
@@ -45,6 +66,8 @@ fi
 if docker ps -aq -f "name=^${CONTAINER_NAME}$" | grep -q .; then
 	echo "Starting existing Prometheus container..."
 	docker start "$CONTAINER_NAME"
+	connect_autobahn_network
+	reload_prometheus
 	echo ""
 	echo "Prometheus is running."
 	echo "  UI: http://localhost:${PROMETHEUS_UI_PORT}"
@@ -68,6 +91,8 @@ docker run -d \
 	--config.file=/etc/prometheus/prometheus.yml \
 	--storage.tsdb.path=/prometheus \
 	--web.enable-lifecycle
+
+connect_autobahn_network
 
 echo ""
 echo "Prometheus is running."

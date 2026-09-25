@@ -3,6 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -205,23 +206,36 @@ func (s *CommitStore) commitStores(version int64) (*sview.StoreView, error) {
 		return dbView, nil
 	}
 
-	account, err := commit(s.accountStore)
-	if err != nil {
-		return nil, err
-	}
-	code, err := commit(s.codeStore)
-	if err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
-		return nil, err
-	}
-	storage, err := commit(s.storageStore)
-	if err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
-		return nil, err
-	}
-	misc, err := commit(s.miscStore)
-	if err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	var account view.View
+	var accountErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		account, accountErr = commit(s.accountStore)
+	})
+	var code view.View
+	var codeErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		code, codeErr = commit(s.codeStore)
+	})
+	var storage view.View
+	var storageErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		storage, storageErr = commit(s.storageStore)
+	})
+	var misc view.View
+	var miscErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		misc, miscErr = commit(s.miscStore)
+	})
+
+	wg.Wait()
+	if err := errors.Join(accountErr, codeErr, storageErr, miscErr); err != nil {
 		return nil, err
 	}
 	return sview.NewStoreView(version, account, code, storage, misc)

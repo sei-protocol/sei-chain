@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -16,7 +17,6 @@ const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
 	errMissingStateStore            = errors.New("executor requires a state store")
-	errMissingReceiptStore          = errors.New("executor requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 )
 
@@ -32,10 +32,6 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	stateStore := e.stateStore
 	if stateStore == nil {
 		return nil, errMissingStateStore
-	}
-	receiptStore := e.receiptStore
-	if receiptStore == nil {
-		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -56,6 +52,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	gigametrics.SetPhase(gigametrics.PhaseExecution)
 	// Taken before the view, never after. Another goroutine may retire the previous commit at any
 	// moment, and reading second would let it clear these changes after a view was opened that
 	// predates them, leaving nothing to supply them. Read first, the worst case is a view that
@@ -92,6 +89,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	// Encoding that reads the store has to see a store holding every earlier block and none of
 	// this one, so the previous commit lands first. Encoding that reads only this block's own
 	// changes runs while that commit is still going, and waits below instead.
@@ -110,14 +108,16 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	e.blockPhases.SetPhase("encode_receipts")
-	records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
-	if err != nil {
-		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
-	}
-	e.blockPhases.SetPhase("write_receipts")
-	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
-		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+	if receiptStore := e.receiptStore; receiptStore != nil {
+		e.blockPhases.SetPhase("encode_receipts")
+		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+		}
+		e.blockPhases.SetPhase("write_receipts")
+		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+		}
 	}
 	// One commit is in flight at a time, so the previous one lands before this block starts its
 	// own. It has had this block's whole execution to run, so it rarely still holds.
