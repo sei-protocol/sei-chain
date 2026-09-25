@@ -194,38 +194,19 @@ func NewCompositeCommitStore(
 	}, nil
 }
 
-// alignFlatKVSnapshotWithMemIAVL keeps the two backends' snapshot cadence in
-// sync. FlatKV has no independently-exposed snapshot knobs in app.toml, so it
-// derives its snapshot-interval / keep-recent from memIAVL's sc-* keys. This is
-// the single place both backends are constructed from the same config, so it is
-// where the alignment is enforced.
-//
-// This derivation is intentionally unconditional across write modes, including
-// FlatKVOnly — where NewCompositeCommitStore never constructs a memIAVL store.
-// The sc-* keys are the only operator-visible snapshot-cadence knobs now that
-// the flatkv.* keys are hidden from the app.toml template, so they must govern
-// FlatKV's cadence in every mode; otherwise FlatKVOnly would have no
-// template-visible way to tune it. It is harmless when memIAVL is absent: the
-// sc-* defaults match FlatKV's own in-code defaults, and only cfg.FlatKVConfig
-// is read when building the FlatKVOnly store.
-//
-// FlatKV mirrors memIAVL's *effective* cadence: a zero memIAVL value is first
-// resolved to the same default Options.FillDefaults would apply at OpenDB
-// (interval 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent),
-// then assigned to FlatKV unconditionally. Resolving-then-assigning (rather than
-// skipping on a zero and letting FlatKV keep its own in-code default) keeps the
-// two backends in true lockstep without relying on FlatKV's default happening to
-// equal memIAVL's healed default. That reliance is fragile — the defaults are
-// only kept equal by hand — and it breaks for an upgrading node whose old
-// app.toml still carries an explicit state-commit.flatkv.snapshot-keep-recent
-// (rendered by the old template) alongside sc-keep-recent = 0: skipping would
-// leave FlatKV pinned to the stale explicit value while memIAVL healed to a
-// different default. Note that mirroring a raw 0 is never correct here (0 means
-// "disable auto-snapshots" for FlatKV), which is why the zero is resolved first.
+// alignFlatKVSnapshotWithMemIAVL sets FlatKV's snapshot interval to memIAVL's effective interval
+// in every write mode, including FlatKVOnly. FlatKV's keep-recent is left as configured.
 func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
-	interval, keepRecent := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
+	// sc-snapshot-interval is the only operator-visible cadence key, so it must govern FlatKV even
+	// where no memIAVL store is built. The effective value is mirrored, not the raw one: a raw 0
+	// means "unset" to memIAVL but "disable auto-snapshots" to FlatKV, and assigning it
+	// unconditionally also overrides a stale state-commit.flatkv.snapshot-interval that an older
+	// app.toml template rendered.
+	//
+	// Keep-recent is not mirrored. FlatKV must still hold a version when memIAVL publishes it,
+	// which needs deeper retention than memIAVL keeps for itself.
+	interval, _ := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
 	cfg.FlatKVConfig.SnapshotInterval = interval
-	cfg.FlatKVConfig.SnapshotKeepRecent = keepRecent
 }
 
 // Initialize records the set of child store names that should exist on
