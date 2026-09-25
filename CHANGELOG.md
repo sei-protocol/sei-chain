@@ -68,6 +68,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * [#3927](https://github.com/sei-protocol/sei-chain/pull/3927) **Legacy Sei JSON-RPC and CLI removal.** Removes `sei_associate`, `sei_getBlockByHash`, `sei_getBlockByHashExcludeTraceFail`, `sei_getBlockTransactionCountByHash`, `sei_getBlockTransactionCountByNumber`, `sei_getEvmTx`, `sei_getFilterChanges`, `sei_getFilterLogs`, `sei_getLogs`, `sei_getTransactionByBlockHashAndIndex`, `sei_getTransactionByBlockNumberAndIndex`, `sei_getTransactionByHash`, `sei_getTransactionCount`, `sei_getTransactionErrorByHash`, `sei_getTransactionReceiptExcludeTraceFail`, `sei_getVMError`, `sei_newBlockFilter`, `sei_newFilter`, `sei_sign`, and `sei_uninstallFilter`. Use standard `eth_*` methods for EVM-originated data and `seid tx evm native-associate <custom-message> -y` for address association. There is no block- or filter-level replacement for discovering Cosmos-originated synthetic logs; clients that know the synthetic transaction hash can enable `sei_getTransactionReceipt`.
 
 sei-chain
+* [#4334](https://github.com/sei-protocol/sei-chain/pull/4334) Backport `release/v6.7`: Fail dynamic-gas precompile out-of-gas as an EVM out-of-gas call
+* [#4315](https://github.com/sei-protocol/sei-chain/pull/4315) Backport `release/v6.7`: Pin the Go builder image per architecture in build-static.sh
+* [#4313](https://github.com/sei-protocol/sei-chain/pull/4313) Backport `release/v6.7`: fix(memiavl): hold a snapshot reference for an iterator's lifetime
+* [#4295](https://github.com/sei-protocol/sei-chain/pull/4295) Bump version to v6.7.0-rc2 in prep for release
+* [#4294](https://github.com/sei-protocol/sei-chain/pull/4294) Backport `release/v6.7`: Update v6.7 changelog in prep to cut rc2
 * [#4292](https://github.com/sei-protocol/sei-chain/pull/4292) Backport `release/v6.7`: Flush MemIAVL changelog before exiting on an upgrade panic
 * [#4285](https://github.com/sei-protocol/sei-chain/pull/4285) Backport `release/v6.7`: fix(seidb): refuse a corrupted changelog in digest replay instead of repairing it
 * [#4255](https://github.com/sei-protocol/sei-chain/pull/4255) Backport `release/v6.7`: feat(seidb): Add JSON output to evm-logical-digest and inspect a FlatKV migration in flight
