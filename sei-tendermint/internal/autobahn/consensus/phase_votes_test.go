@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -30,10 +29,10 @@ func TestPrepareVotes_CountsAcceptedNotDuplicates(t *testing.T) {
 	pv := newPrepareVotes()
 	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
 	vote := types.Sign(e.quorum[0], types.NewPrepareVote(proposal))
-	before := metrics.VotesIngested(metrics.VotePrepare)
+	before := gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"})
 	pv.pushVerifiedVote(e.ep.Committee(), vote)
 	pv.pushVerifiedVote(e.ep.Committee(), vote)
-	require.Equal(t, before+1, metrics.VotesIngested(metrics.VotePrepare))
+	require.Equal(t, before+1, gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"}))
 }
 
 func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {

@@ -27,6 +27,23 @@ func TestObserveWaitLatency(t *testing.T) {
 	require.Equal(t, laneQCs+1, sampleCount(t, Global.laneQcWaitLatencyAt()))
 }
 
+func TestObserveLaneCounters(t *testing.T) {
+	qcs := counterValue(t, Global.laneQcsAt())
+	votes := counterValue(t, Global.laneVotesIngestedAt())
+	ObserveLaneQC()
+	ObserveLaneVoteIngested()
+	ObserveLaneVoteIngested()
+	require.Equal(t, qcs+1, counterValue(t, Global.laneQcsAt()))
+	require.Equal(t, votes+2, counterValue(t, Global.laneVotesIngestedAt()))
+}
+
+func counterValue(t *testing.T, c *prometheus.CounterInt) int64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, c.Write(&m))
+	return int64(m.GetCounter().GetValue())
+}
+
 func TestEnterWait(t *testing.T) {
 	g := Global.inFlightAt(WaitLaneCapacity)
 	var m dto.Metric

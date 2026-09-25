@@ -1,8 +1,6 @@
 package metrics
 
 import (
-	dto "github.com/prometheus/client_model/go"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
@@ -46,14 +44,6 @@ func leaderLabel(k types.PublicKey) string {
 	return k.ED25519().Address().String()
 }
 
-func counterValue(c *prometheus.CounterInt) int64 {
-	var m dto.Metric
-	if err := c.Write(&m); err != nil {
-		return 0
-	}
-	return int64(m.GetCounter().GetValue())
-}
-
 // SetView records the view number of the current consensus view.
 func SetView(v types.View) {
 	Global.viewNumberAt().Set(int64(v.Number)) // nolint: gosec
@@ -77,24 +67,4 @@ func ObserveCommit(leader types.PublicKey) {
 // ObserveVoteIngested records that the aggregator accepted one vote of the given type.
 func ObserveVoteIngested(typ string) {
 	Global.votesIngestedAt(typ).Add(1)
-}
-
-// VotesIngested returns the accepted-vote count recorded for typ.
-func VotesIngested(typ string) int64 {
-	return counterValue(Global.votesIngestedAt(typ))
-}
-
-// Timeouts returns the TimeoutQC count recorded for leader.
-func Timeouts(leader types.PublicKey) int64 {
-	return counterValue(Global.timeoutsAt(leaderLabel(leader)))
-}
-
-// TimeoutVotes returns the timeout-vote count recorded for leader and phase.
-func TimeoutVotes(leader types.PublicKey, phase TimeoutPhase) int64 {
-	return counterValue(Global.timeoutVotesAt(leaderLabel(leader), phase.label))
-}
-
-// Commits returns the CommitQC count recorded for leader.
-func Commits(leader types.PublicKey) int64 {
-	return counterValue(Global.commitsAt(leaderLabel(leader)))
 }

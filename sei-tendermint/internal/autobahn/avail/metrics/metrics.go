@@ -4,8 +4,6 @@ import (
 	"strconv"
 	"time"
 
-	dto "github.com/prometheus/client_model/go"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
@@ -83,24 +81,6 @@ func SetCommitQC(qc *types.CommitQC) {
 	Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 }
 
-// CommitRoadIndex returns the road index recorded for the highest observed commitQC.
-func CommitRoadIndex() int64 {
-	return gaugeValue(Global.commitRoadIndexAt())
-}
-
-// CommitGlobalBlockNumber returns the global block number recorded for the highest observed commitQC.
-func CommitGlobalBlockNumber() int64 {
-	return gaugeValue(Global.commitGlobalBlockNumberAt())
-}
-
-func gaugeValue(g *prometheus.GaugeInt) int64 {
-	var m dto.Metric
-	if err := g.Write(&m); err != nil {
-		return 0
-	}
-	return int64(m.GetGauge().GetValue())
-}
-
 // ObserveLaneCapacityWait records how long one WaitForCapacity call blocked.
 // A call that finds room immediately is not recorded. A call canceled while blocked is.
 func ObserveLaneCapacityWait(d time.Duration) {
@@ -134,22 +114,4 @@ func ObserveLaneQC() {
 // ObserveLaneVoteIngested records that a lane vote was newly stored.
 func ObserveLaneVoteIngested() {
 	Global.laneVotesIngestedAt().Add(1)
-}
-
-// LaneVotesIngested returns the number of lane votes recorded as newly stored.
-func LaneVotesIngested() int64 {
-	var m dto.Metric
-	if err := Global.laneVotesIngestedAt().Write(&m); err != nil {
-		return 0
-	}
-	return int64(m.GetCounter().GetValue())
-}
-
-// LaneQCs returns the number of LaneQCs recorded as formed.
-func LaneQCs() int64 {
-	var m dto.Metric
-	if err := Global.laneQcsAt().Write(&m); err != nil {
-		return 0
-	}
-	return int64(m.GetCounter().GetValue())
 }

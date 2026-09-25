@@ -4,11 +4,49 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
+
+// gathered reads one series from the default registry. A missing label set is 0.
+func gathered(t *testing.T, name string, labels map[string]string) int64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, fam := range families {
+		if fam.GetName() != name {
+			continue
+		}
+		for _, m := range fam.GetMetric() {
+			got := map[string]string{}
+			for _, lp := range m.GetLabel() {
+				got[lp.GetName()] = lp.GetValue()
+			}
+			if len(got) != len(labels) {
+				continue
+			}
+			match := true
+			for k, v := range labels {
+				if got[k] != v {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+			if c := m.GetCounter(); c != nil {
+				return int64(c.GetValue())
+			}
+			return int64(m.GetGauge().GetValue())
+		}
+		return 0
+	}
+	return 0
+}
 
 func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	rng := utils.TestRng()
@@ -23,8 +61,8 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
 
 	bv := newBlockVotes()
-	beforeQC := metrics.LaneQCs()
-	beforeVotes := metrics.LaneVotesIngested()
+	beforeQC := gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil)
+	beforeVotes := gathered(t, "tendermint_internal_autobahn_avail_lane_votes_ingested", nil)
 	first := types.Sign(keys[0], types.NewLaneVote(h))
 	bv.pushVote(ep, first)
 	bv.pushVote(ep, first)
@@ -32,14 +70,14 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 		bv.pushVote(ep, types.Sign(k, types.NewLaneVote(h)))
 	}
 	require.True(t, bv.qc.IsPresent())
-	require.Equal(t, beforeQC+1, metrics.LaneQCs())
-	require.Equal(t, beforeVotes+int64(len(keys)), metrics.LaneVotesIngested())
+	require.Equal(t, beforeQC+1, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))
+	require.Equal(t, beforeVotes+int64(len(keys)), gathered(t, "tendermint_internal_autobahn_avail_lane_votes_ingested", nil))
 
 	// Reweighting the same weights re-forms the QC and does not count it again.
 	bv.reweight(ep)
 	require.True(t, bv.qc.IsPresent())
-	require.Equal(t, beforeQC+1, metrics.LaneQCs())
-	require.Equal(t, beforeVotes+int64(len(keys)), metrics.LaneVotesIngested())
+	require.Equal(t, beforeQC+1, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))
+	require.Equal(t, beforeVotes+int64(len(keys)), gathered(t, "tendermint_internal_autobahn_avail_lane_votes_ingested", nil))
 }
 
 func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
@@ -63,21 +101,21 @@ func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
 	}
 
 	bv := newBlockVotes()
-	before := metrics.LaneQCs()
+	before := gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil)
 	bv.pushVote(ep0, vote(keys[0]))
 	bv.pushVote(ep0, vote(keys[1]))
 	require.False(t, bv.qc.IsPresent())
-	require.Equal(t, before, metrics.LaneQCs())
+	require.Equal(t, before, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))
 
 	bv.reweight(epochAt(1, 10, heavy))
 	require.True(t, bv.qc.IsPresent())
-	require.Equal(t, before+1, metrics.LaneQCs())
+	require.Equal(t, before+1, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))
 
 	bv.reweight(epochAt(2, 20, light))
 	require.False(t, bv.qc.IsPresent())
 	bv.pushVote(epochAt(2, 20, light), vote(keys[2]))
 	require.True(t, bv.qc.IsPresent())
-	require.Equal(t, before+1, metrics.LaneQCs())
+	require.Equal(t, before+1, gathered(t, "tendermint_internal_autobahn_avail_lane_qcs", nil))
 }
 
 func TestBlockVotes_Reweight(t *testing.T) {

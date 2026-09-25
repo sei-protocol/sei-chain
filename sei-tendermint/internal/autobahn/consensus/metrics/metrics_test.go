@@ -16,30 +16,38 @@ func TestObserveTimeoutAndCommit(t *testing.T) {
 	a := types.GenSecretKey(rng).Public()
 	b := types.GenSecretKey(rng).Public()
 
-	timeoutsA := Timeouts(a)
-	timeoutsB := Timeouts(b)
-	commitsA := Commits(a)
+	timeoutsA := counterValue(Global.timeoutsAt(leaderLabel(a)))
+	timeoutsB := counterValue(Global.timeoutsAt(leaderLabel(b)))
+	commitsA := counterValue(Global.commitsAt(leaderLabel(a)))
 
 	ObserveTimeout(a)
 	ObserveTimeout(a)
 	ObserveTimeout(b)
 	ObserveCommit(a)
 
-	require.Equal(t, timeoutsA+2, Timeouts(a))
-	require.Equal(t, timeoutsB+1, Timeouts(b))
-	require.Equal(t, commitsA+1, Commits(a))
+	require.Equal(t, timeoutsA+2, counterValue(Global.timeoutsAt(leaderLabel(a))))
+	require.Equal(t, timeoutsB+1, counterValue(Global.timeoutsAt(leaderLabel(b))))
+	require.Equal(t, commitsA+1, counterValue(Global.commitsAt(leaderLabel(a))))
 
-	votesProposal := TimeoutVotes(a, PhaseNoProposal)
-	votesCommit := TimeoutVotes(a, PhaseNoCommit)
+	votesProposal := counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoProposal.label))
+	votesCommit := counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoCommit.label))
 	ObserveTimeoutVote(a, PhaseNoProposal)
 	ObserveTimeoutVote(a, PhaseNoCommit)
-	require.Equal(t, votesProposal+1, TimeoutVotes(a, PhaseNoProposal))
-	require.Equal(t, votesCommit+1, TimeoutVotes(a, PhaseNoCommit))
+	require.Equal(t, votesProposal+1, counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoProposal.label)))
+	require.Equal(t, votesCommit+1, counterValue(Global.timeoutVotesAt(leaderLabel(a), PhaseNoCommit.label)))
 
-	prepare := VotesIngested(VotePrepare)
+	prepare := counterValue(Global.votesIngestedAt(VotePrepare))
 	ObserveVoteIngested(VotePrepare)
 	ObserveVoteIngested(VotePrepare)
-	require.Equal(t, prepare+2, VotesIngested(VotePrepare))
+	require.Equal(t, prepare+2, counterValue(Global.votesIngestedAt(VotePrepare)))
+}
+
+func counterValue(c *prometheus.CounterInt) int64 {
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		return 0
+	}
+	return int64(m.GetCounter().GetValue())
 }
 
 func TestSetView(t *testing.T) {

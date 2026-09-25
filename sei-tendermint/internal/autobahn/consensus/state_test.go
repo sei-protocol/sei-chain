@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -370,56 +371,97 @@ func TestPushTimeoutQC_CountsLeaderTimeout(t *testing.T) {
 	rng := utils.TestRng()
 	s, keys, registry := newTestState(rng)
 	view := types.View{Index: 0, Number: 0}
-	leader := registry.MustEpoch(0).Committee().Leader(view)
-	timeouts := metrics.Timeouts(leader)
+	leader := registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
+	timeouts := gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": leader})
 
 	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
-	require.Equal(t, timeouts+1, metrics.Timeouts(leader))
+	require.Equal(t, timeouts+1, gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": leader}))
 
 	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
-	require.Equal(t, timeouts+1, metrics.Timeouts(leader))
+	require.Equal(t, timeouts+1, gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": leader}))
 
 	next := view
 	next.Number++
-	nextLeader := registry.MustEpoch(0).Committee().Leader(next)
-	nextTimeouts := metrics.Timeouts(nextLeader)
+	nextLeader := registry.MustEpoch(0).Committee().Leader(next).ED25519().Address().String()
+	nextTimeouts := gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": nextLeader})
 	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, next, utils.None[*types.PrepareQC]())))
-	require.Equal(t, nextTimeouts+1, metrics.Timeouts(nextLeader))
+	require.Equal(t, nextTimeouts+1, gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": nextLeader}))
 
 	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
-	require.Equal(t, timeouts+1, metrics.Timeouts(leader))
-	require.Equal(t, nextTimeouts+1, metrics.Timeouts(nextLeader))
+	require.Equal(t, timeouts+1, gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": leader}))
+	require.Equal(t, nextTimeouts+1, gathered(t, "tendermint_internal_autobahn_consensus_timeouts", map[string]string{"leader": nextLeader}))
 }
 
 func TestVoteTimeout_RecordsPhases(t *testing.T) {
 	rng := utils.TestRng()
 	view := types.View{Index: 0, Number: 0}
+	phaseCount := func(t *testing.T, leader, phase string) int64 {
+		t.Helper()
+		return gathered(t, "tendermint_internal_autobahn_consensus_timeout_votes", map[string]string{"leader": leader, "phase": phase})
+	}
 
 	s, keys, registry := newTestState(rng)
-	leader := registry.MustEpoch(0).Committee().Leader(view)
+	leader := registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
 	proposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), view)
 
-	noProposal := metrics.TimeoutVotes(leader, metrics.PhaseNoProposal)
+	noProposal := phaseCount(t, leader, "no_proposal")
 	require.NoError(t, s.voteTimeout(t.Context(), view))
-	require.Equal(t, noProposal+1, metrics.TimeoutVotes(leader, metrics.PhaseNoProposal))
+	require.Equal(t, noProposal+1, phaseCount(t, leader, "no_proposal"))
 	require.NoError(t, s.voteTimeout(t.Context(), view))
-	require.Equal(t, noProposal+1, metrics.TimeoutVotes(leader, metrics.PhaseNoProposal))
+	require.Equal(t, noProposal+1, phaseCount(t, leader, "no_proposal"))
 
 	s, keys, registry = newTestState(rng)
-	leader = registry.MustEpoch(0).Committee().Leader(view)
+	leader = registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
 		i.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
 		isend.Store(i)
 	}
-	noPrepareQC := metrics.TimeoutVotes(leader, metrics.PhaseNoPrepareQC)
+	noPrepareQC := phaseCount(t, leader, "no_prepare_qc")
 	require.NoError(t, s.voteTimeout(t.Context(), view))
-	require.Equal(t, noPrepareQC+1, metrics.TimeoutVotes(leader, metrics.PhaseNoPrepareQC))
+	require.Equal(t, noPrepareQC+1, phaseCount(t, leader, "no_prepare_qc"))
 
 	s, keys, registry = newTestState(rng)
-	leader = registry.MustEpoch(0).Committee().Leader(view)
+	leader = registry.MustEpoch(0).Committee().Leader(view).ED25519().Address().String()
 	require.NoError(t, s.pushPrepareQC(t.Context(), makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view))))
-	noCommit := metrics.TimeoutVotes(leader, metrics.PhaseNoCommit)
+	noCommit := phaseCount(t, leader, "no_commit")
 	require.NoError(t, s.voteTimeout(t.Context(), view))
-	require.Equal(t, noCommit+1, metrics.TimeoutVotes(leader, metrics.PhaseNoCommit))
+	require.Equal(t, noCommit+1, phaseCount(t, leader, "no_commit"))
+}
+
+// gathered reads one series from the default registry. A missing label set is 0.
+func gathered(t *testing.T, name string, labels map[string]string) int64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, fam := range families {
+		if fam.GetName() != name {
+			continue
+		}
+		for _, m := range fam.GetMetric() {
+			got := map[string]string{}
+			for _, lp := range m.GetLabel() {
+				got[lp.GetName()] = lp.GetValue()
+			}
+			if len(got) != len(labels) {
+				continue
+			}
+			match := true
+			for k, v := range labels {
+				if got[k] != v {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+			if c := m.GetCounter(); c != nil {
+				return int64(c.GetValue())
+			}
+			return int64(m.GetGauge().GetValue())
+		}
+		return 0
+	}
+	return 0
 }
