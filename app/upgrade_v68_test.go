@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtestutil "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/testutil"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -47,6 +48,9 @@ const (
 	// on either side of the upgrade.
 	v68AuthVersionBefore uint64 = 3
 	v68AuthVersion       uint64 = 4
+	// v68GovVersion is the gov consensus version after the upgrade, which also
+	// runs the gov 3 to 4 migration.
+	v68GovVersion uint64 = 4
 
 	v68MsgCreateVestingAccountTypeURL = "/cosmos.vesting.v1beta1.MsgCreateVestingAccount"
 	v68BaseAccountTypeURL             = "/cosmos.auth.v1beta1.BaseAccount"
@@ -468,10 +472,12 @@ func verifyV68VestingRemoval(t *testing.T, chain *upgradetest.CrossVersion) {
 	}
 	delete(want, v68VestingModule)
 	want[authtypes.ModuleName] = v68AuthVersion
+	want[govtypes.ModuleName] = v68GovVersion
 	after := v68ModuleVersions(t, chain)
 	chain.Record(t, "module_versions_after", after)
 	require.Equal(t, want, after,
-		"v6.8 changed the version map beyond removing vesting and moving auth to %d", v68AuthVersion)
+		"v6.8 changed the version map beyond removing vesting, moving auth to %d and moving gov to %d",
+		v68AuthVersion, v68GovVersion)
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.8 upgrade store still carries the vesting version-map entry")
 
