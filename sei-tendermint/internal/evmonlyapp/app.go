@@ -158,10 +158,10 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 			return nil, fmt.Errorf("EVM-only application already initialized")
 		}
 		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
-			ChainConfig:         a.chainConfig,
-			MinGasPrice:         big.NewInt(evmOnlyBlockMinGasPrice),
-			OCCWorkers:          workersOrGOMAXPROCS(a.execution.OCCWorkers),
-			ParseWorkers:        workersOrGOMAXPROCS(a.execution.ParseWorkers),
+			ChainConfig:  a.chainConfig,
+			MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
+			OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
+			ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
 			// Autobahn orders transactions without validating them, so a block can hold one
 			// the executor cannot apply; failing the block would halt every validator.
 			RejectUnappliableTxs: true,
