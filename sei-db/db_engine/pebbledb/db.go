@@ -24,6 +24,9 @@ type pebbleDB struct {
 	metricsCancel    context.CancelFunc
 	operationMetrics *OperationMetrics
 	commitMetrics    *CommitMetrics
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleDB]
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -106,7 +109,7 @@ func Open(
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
 		commitMetrics:    NewCommitMetrics(config.EnableMetrics, filepath.Base(config.DataDir)),
 	}
-	utils.MustCloseE(p, "pebbledb", (*pebbleDB).isClosed, (*pebbleDB).Close)
+	p.closed = utils.MustClose(p, "pebbledb")
 	return p, nil
 }
 
@@ -210,6 +213,7 @@ func (p *pebbleDB) Close() error {
 	if p.db == nil {
 		return nil
 	}
+	p.closed.Close(p)
 
 	if p.metricsCancel != nil {
 		p.metricsCancel()
@@ -220,10 +224,6 @@ func (p *pebbleDB) Close() error {
 	p.db = nil
 
 	return db.Close()
-}
-
-func (p *pebbleDB) isClosed() bool {
-	return p.db == nil
 }
 
 func toPebbleWriteOpts(opts types.WriteOptions) *pebble.WriteOptions {

@@ -133,7 +133,9 @@ type Staged struct {
 	version  int64
 	tmpDir   string
 	finalDir string
-	finished bool
+
+	// closed records whether the snapshot has been committed or aborted.
+	closed utils.CloseMarker[Staged]
 }
 
 func (s *Staged) Abort() {
@@ -141,10 +143,6 @@ func (s *Staged) Abort() {
 		return
 	}
 	s.manager.abort(s)
-}
-
-func (s *Staged) isFinished() bool {
-	return s.finished
 }
 
 // SnapshotDirName returns the directory name for a snapshot labeled with the
@@ -271,7 +269,7 @@ func (m *Manager) Prepare(version int64) (*Staged, error) {
 		tmpDir:   tmpDir,
 		finalDir: finalDir,
 	}
-	utils.MustClose(staged, "staged state store snapshot", (*Staged).isFinished, (*Staged).Abort)
+	staged.closed = utils.MustClose(staged, "staged state store snapshot")
 	return staged, nil
 }
 
@@ -289,7 +287,7 @@ func (m *Manager) Commit(staged *Staged) error {
 	if staged == nil || staged.manager != m {
 		return fmt.Errorf("%s staged snapshot belongs to a different manager", m.name)
 	}
-	staged.finished = true
+	staged.closed.Close(staged)
 	apparentBytes, sizeErr := snapshotDirApparentBytes(staged.tmpDir)
 	if sizeErr != nil {
 		logger.Error("failed to measure state store snapshot",
@@ -336,7 +334,7 @@ func (m *Manager) abort(staged *Staged) {
 	if staged == nil || staged.manager != m {
 		return
 	}
-	staged.finished = true
+	staged.closed.Close(staged)
 	if err := os.RemoveAll(staged.tmpDir); err != nil {
 		logger.Error("failed to remove aborted state store snapshot",
 			"store", m.name, "dir", staged.tmpDir, "error", err)

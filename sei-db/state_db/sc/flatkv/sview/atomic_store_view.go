@@ -21,6 +21,9 @@ type AtomicStoreView struct {
 
 	// The most recently installed view. Nil once closed.
 	currentView *StoreView
+
+	// closed records whether Close() has been called.
+	closed utils.CloseMarker[AtomicStoreView]
 }
 
 // NewAtomicStoreView() installs initialView, which must be non-nil.
@@ -32,7 +35,7 @@ func NewAtomicStoreView(initialView *StoreView) (*AtomicStoreView, error) {
 		return nil, fmt.Errorf("reserve initial view: %w", err)
 	}
 	asv := &AtomicStoreView{currentView: initialView}
-	utils.MustCloseE(asv, "atomic store view", (*AtomicStoreView).isClosed, (*AtomicStoreView).Close)
+	asv.closed = utils.MustClose(asv, "atomic store view")
 	return asv, nil
 }
 
@@ -97,6 +100,7 @@ func (asv *AtomicStoreView) Close() error {
 	if asv.currentView == nil {
 		return nil
 	}
+	asv.closed.Close(asv)
 
 	previous := asv.currentView
 	asv.currentView = nil
@@ -104,10 +108,4 @@ func (asv *AtomicStoreView) Close() error {
 		return fmt.Errorf("release view at height %d: %w", previous.blockHeight, err)
 	}
 	return nil
-}
-
-func (asv *AtomicStoreView) isClosed() bool {
-	asv.mu.RLock()
-	defer asv.mu.RUnlock()
-	return asv.currentView == nil
 }

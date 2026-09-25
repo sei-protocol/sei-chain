@@ -16,7 +16,9 @@ type pebbleBatch struct {
 	b                *pebble.Batch
 	operationMetrics *OperationMetrics
 	commitMetrics    *CommitMetrics
-	closed           bool
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleBatch]
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
@@ -30,7 +32,7 @@ func (p *pebbleDB) NewBatch() types.Batch {
 		operationMetrics: p.operationMetrics,
 		commitMetrics:    p.commitMetrics,
 	}
-	utils.MustCloseE(pb, "pebbledb batch", (*pebbleBatch).isClosed, (*pebbleBatch).Close)
+	pb.closed = utils.MustClose(pb, "pebbledb batch")
 	return pb
 }
 
@@ -80,10 +82,6 @@ func (pb *pebbleBatch) Reset() {
 }
 
 func (pb *pebbleBatch) Close() error {
-	pb.closed = true
+	pb.closed.Close(pb)
 	return pb.b.Close()
-}
-
-func (pb *pebbleBatch) isClosed() bool {
-	return pb.closed
 }

@@ -530,7 +530,7 @@ func (c *viewManager) Commit() (View, error) {
 	c.metrics.setViewPhase("submit_diff_sort")
 	c.materializeDiffAtVersion(sealedVersion)
 
-	utils.MustCloseE(view, "view", (*viewImpl).isReleased, (*viewImpl).releaseAll)
+	view.closed = utils.MustClose(view, "view")
 	return view, nil
 }
 
@@ -637,26 +637,27 @@ func (c *viewManager) IncrementReferenceCount(version uint64) error {
 	return nil
 }
 
-// Decrement the reference count for the given version.
-func (c *viewManager) DecrementReferenceCount(version uint64) error {
+// DecrementReferenceCount releases one reservation on version, reporting whether it was the last one.
+func (c *viewManager) DecrementReferenceCount(version uint64) (lastReleased bool, err error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
 	if version < c.oldestVersion {
-		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
+		return false, fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
 	}
 	if version >= c.currentVersion {
-		return fmt.Errorf("version (%d) must be less than the current version (%d)", version, c.currentVersion)
+		return false, fmt.Errorf("version (%d) must be less than the current version (%d)",
+			version, c.currentVersion)
 	}
 
 	counter, ok := c.versionMap[version]
 	if !ok {
 		// Should be impossible since version retirement never leaves gaps
-		return fmt.Errorf("version (%d) not found", version)
+		return false, fmt.Errorf("version (%d) not found", version)
 	}
 
 	if counter.referenceCount == 0 {
-		return fmt.Errorf("version (%d) has already been dropped", version)
+		return false, fmt.Errorf("version (%d) has already been dropped", version)
 	}
 
 	if counter.referenceCount == 1 && !counter.finalized {
@@ -671,40 +672,14 @@ func (c *viewManager) DecrementReferenceCount(version uint64) error {
 		// and leave manager state untouched, so that caller can retry with the right one.
 		err := fmt.Errorf("version (%d) was fully released without first being finalized", version)
 		c.brickLocked(err)
-		return err
+		return false, err
 	}
 
 	counter.referenceCount--
 
 	c.maybeWakeLifecycleLocked()
 
-	return nil
-}
-
-// isVersionReleased reports whether every reservation on version has been released. Every version of a
-// closed or bricked manager counts as released.
-func (c *viewManager) isVersionReleased(version uint64) bool {
-	c.versionLock.Lock()
-	defer c.versionLock.Unlock()
-
-	if c.ctx.Err() != nil {
-		// A shut-down manager holds nothing on a reservation's behalf.
-		return true
-	}
-	// A retired version is no longer in the map.
-	counter, ok := c.versionMap[version]
-	return !ok || counter.referenceCount == 0
-}
-
-// releaseAllReservations releases every reservation still held on version. Releasing the last one
-// is subject to the same finalization check as DecrementReferenceCount().
-func (c *viewManager) releaseAllReservations(version uint64) error {
-	for !c.isVersionReleased(version) {
-		if err := c.DecrementReferenceCount(version); err != nil {
-			return fmt.Errorf("failed to release version (%d): %w", version, err)
-		}
-	}
-	return nil
+	return counter.referenceCount == 0, nil
 }
 
 // Scans for new flush eligible versions. Returns true if there is a new flush eligible version discovered.
@@ -865,7 +840,7 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 		s.IteratorOpened()
 	}
 	tracked := &trackedIterator{Iterator: iter, manager: c}
-	utils.MustCloseE(tracked, "view manager iterator", (*trackedIterator).isClosed, (*trackedIterator).Close)
+	tracked.closed = utils.MustClose(tracked, "view manager iterator")
 	return tracked, nil
 }
 
@@ -875,13 +850,15 @@ type trackedIterator struct {
 	dbm.Iterator
 	manager   *viewManager
 	closeOnce sync.Once
-	closed    bool
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[trackedIterator]
 }
 
 func (w *trackedIterator) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
-		w.closed = true
+		w.closed.Close(w)
 		errs := make([]error, 0, len(w.manager.shards)+1)
 		for _, s := range w.manager.shards {
 			errs = append(errs, s.IteratorClosed())
@@ -890,10 +867,6 @@ func (w *trackedIterator) Close() error {
 		err = errors.Join(errs...)
 	})
 	return err
-}
-
-func (w *trackedIterator) isClosed() bool {
-	return w.closed
 }
 
 // MaterializeCurrentOverrides gathers the in-memory overrides at the current version from every

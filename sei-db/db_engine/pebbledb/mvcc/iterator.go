@@ -42,6 +42,9 @@ type iterator struct {
 	err                error
 
 	closeSync sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[iterator]
 }
 
 func abortIfCancelled(ctx context.Context) error {
@@ -90,7 +93,7 @@ func newPebbleDBIterator(
 			dbName:             dbName,
 			ctx:                ctx,
 		}
-		utils.MustCloseE(itr, "mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+		itr.closed = utils.MustClose(itr, "mvcc iterator")
 		return itr
 	}
 
@@ -116,7 +119,7 @@ func newPebbleDBIterator(
 		dbName:             dbName,
 		ctx:                ctx,
 	}
-	utils.MustCloseE(itr, "mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+	itr.closed = utils.MustClose(itr, "mvcc iterator")
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -387,6 +390,7 @@ func (itr *iterator) Error() error {
 
 func (itr *iterator) Close() error {
 	itr.closeSync.Do(func() {
+		itr.closed.Close(itr)
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false
@@ -502,8 +506,4 @@ func (itr *iterator) DebugRawIterate() {
 			continue
 		}
 	}
-}
-
-func (itr *iterator) isClosed() bool {
-	return itr.source == nil
 }

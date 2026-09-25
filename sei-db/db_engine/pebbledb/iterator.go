@@ -19,7 +19,9 @@ type pebbleIterator struct {
 	reverse          bool
 	operationMetrics *OperationMetrics
 	readCount        int64
-	closed           bool
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleIterator]
 }
 
 func newPebbleIterator(it *pebble.Iterator, opts *types.IterOptions, operationMetrics *OperationMetrics) *pebbleIterator {
@@ -37,7 +39,7 @@ func newPebbleIterator(it *pebble.Iterator, opts *types.IterOptions, operationMe
 	if pi.it.Valid() {
 		pi.readCount++
 	}
-	utils.MustCloseE(pi, "pebbledb iterator", (*pebbleIterator).isClosed, (*pebbleIterator).Close)
+	pi.closed = utils.MustClose(pi, "pebbledb iterator")
 	return pi
 }
 
@@ -76,13 +78,9 @@ func (pi *pebbleIterator) Error() error {
 }
 
 func (pi *pebbleIterator) Close() error {
-	pi.closed = true
+	pi.closed.Close(pi)
 	if pi.operationMetrics != nil {
 		pi.operationMetrics.AddRead(pi.readCount)
 	}
 	return pi.it.Close()
-}
-
-func (pi *pebbleIterator) isClosed() bool {
-	return pi.closed
 }

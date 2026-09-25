@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -14,6 +15,9 @@ var _ View = (*viewImpl)(nil)
 type viewImpl struct {
 	version       uint64
 	parentManager *viewManager
+
+	// closed records whether the view's last reservation has been released, or the view abandoned.
+	closed utils.CloseMarker[viewImpl]
 }
 
 func (s *viewImpl) Name() string {
@@ -52,19 +56,21 @@ func (s *viewImpl) Reserve() error {
 }
 
 func (s *viewImpl) Release() error {
-	err := s.parentManager.DecrementReferenceCount(s.version)
+	lastReleased, err := s.parentManager.DecrementReferenceCount(s.version)
 	if err != nil {
+		// Every failure leaves the version already dropped or the manager bricked, so nothing more is
+		// released through this view.
+		s.closed.Close(s)
 		return fmt.Errorf("failed to decrement reference count: %w", err)
+	}
+	if lastReleased {
+		s.closed.Close(s)
 	}
 	return nil
 }
 
-func (s *viewImpl) isReleased() bool {
-	return s.parentManager.isVersionReleased(s.version)
-}
-
-func (s *viewImpl) releaseAll() error {
-	return s.parentManager.releaseAllReservations(s.version)
+func (s *viewImpl) Abandon() {
+	s.closed.Close(s)
 }
 
 func (s *viewImpl) Finalize(writes []*proto.KVPair) error {

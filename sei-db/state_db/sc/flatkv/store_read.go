@@ -20,7 +20,7 @@ func (s *CommitStore) OpenView() gigatypes.StateView {
 		panic(fmt.Sprintf("flatkv: OpenView: %v", err))
 	}
 	v := &flatKVStateView{blockView: blockView}
-	utils.MustClose(v, "flatkv state view", (*flatKVStateView).isClosed, (*flatKVStateView).Close)
+	v.closed = utils.MustClose(v, "flatkv state view")
 	return v
 }
 

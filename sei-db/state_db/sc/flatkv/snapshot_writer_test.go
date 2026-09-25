@@ -84,6 +84,8 @@ func (v *fakeView) Release() error {
 	return v.releaseErr
 }
 
+func (v *fakeView) Abandon() {}
+
 func (v *fakeView) Get([]byte, bool) ([]byte, bool, error) {
 	panic("fakeView: unexpected Get")
 }

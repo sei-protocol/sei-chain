@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"weak"
 
 	"github.com/sei-protocol/seilog"
 )
@@ -14,57 +16,83 @@ var logger = seilog.NewLogger("db", "common", "utils")
 // The deepest call stack recorded for where an object passed to MustClose() was created.
 const mustCloseStackDepth = 32
 
-// MustClose closes obj if it becomes unreachable while isClosed() still reports it open, logging an error when it
-// does. It is a safety net, not a way to close things: any close it performs is a bug in the code that leaked obj.
-// In a test binary it panics instead, naming where obj was created, so a leak fails the test run.
-//
-// obj must point to the start of an allocation that has no finalizer. isClosed() and close() receive obj as their
-// argument and must not capture it, or obj never becomes unreachable; pass method expressions such as
-// (*Store).Close. An object reachable from its own goroutines or from a reference cycle is never closed.
-func MustClose[T any](
-	obj *T,
-	description string,
-	isClosed func(*T) bool,
-	close func(*T),
-) {
-	MustCloseE(obj, description, isClosed, func(o *T) error {
-		close(o)
-		return nil
-	})
+// CloseMarker records whether the object it was issued for by MustClose() has been closed. Copies of a marker
+// share its state, so it may be stored by value.
+type CloseMarker[T any] struct {
+	// The state every copy of this marker shares. Nil for a marker not issued by MustClose().
+	state *closeState[T]
 }
 
-// MustCloseE is MustClose() for a close() that returns an error. A close error is logged.
-func MustCloseE[T any](
-	obj *T,
-	description string,
-	isClosed func(*T) bool,
-	close func(*T) error,
-) {
+// closeState is the state a CloseMarker and its copies share.
+type closeState[T any] struct {
+	// The object this marker was issued for.
+	owner weak.Pointer[T]
 
-	// Capture a stack trace, but only if running in a test environment. Too costly for production use.
-	var createdAt []uintptr
-	if testing.Testing() {
-		createdAt = make([]uintptr, mustCloseStackDepth)
-		// Skips runtime.Callers() and MustCloseE() itself.
-		createdAt = createdAt[:runtime.Callers(2, createdAt)]
+	// Set by CloseMarker.Close().
+	closed atomic.Bool
+
+	// What the object is, named in reports.
+	description string
+
+	// Where the object was registered. Recorded only in a test binary.
+	createdAt []uintptr
+}
+
+// MustClose reports obj as leaked if it becomes unreachable before the returned marker is closed. It logs an error,
+// or in a test binary panics naming where obj was created. Every path that closes obj must call the marker's
+// Close(). An object reachable from its own running goroutines is never reported.
+func MustClose[T any](obj *T, description string) CloseMarker[T] {
+	state := &closeState[T]{
+		owner:       weak.Make(obj),
+		description: description,
 	}
+	if testing.Testing() {
+		createdAt := make([]uintptr, mustCloseStackDepth)
+		// Skips runtime.Callers() and MustClose() itself.
+		state.createdAt = createdAt[:runtime.Callers(2, createdAt)]
+	}
+	runtime.AddCleanup(obj, reportIfOpen[T], state)
+	return CloseMarker[T]{state: state}
+}
 
-	runtime.SetFinalizer(obj, func(o *T) {
-		if isClosed(o) {
-			return
-		}
-		if testing.Testing() {
-			panic(fmt.Sprintf("%s became unreachable without being closed; created at:\n%s",
-				description, formatStack(createdAt)))
-		}
-		logger.Error("object became unreachable without being closed, closing it now", "object", description)
-		// Finalizers share one goroutine, and a close may block.
-		go func() {
-			if err := close(o); err != nil {
-				logger.Error("failed to close an unreachable object", "object", description, "err", err)
-			}
-		}()
-	})
+// Close records that owner has been closed. owner must be the object this marker was issued for. Idempotent.
+func (m CloseMarker[T]) Close(owner *T) {
+	state := m.issuedState()
+	if weak.Make(owner) != state.owner {
+		state.report("was closed through a marker issued for another object")
+	}
+	state.closed.Store(true)
+	// owner must stay reachable until it reads as closed, or its cleanup could run in between.
+	runtime.KeepAlive(owner)
+}
+
+// IsClosed reports whether Close() has been called.
+func (m CloseMarker[T]) IsClosed() bool {
+	return m.issuedState().closed.Load()
+}
+
+// issuedState returns the marker's shared state, panicking if the marker was not issued by MustClose().
+func (m CloseMarker[T]) issuedState() *closeState[T] {
+	if m.state == nil {
+		panic("close marker was not issued by MustClose()")
+	}
+	return m.state
+}
+
+// reportIfOpen reports the object state was issued for as leaked, unless it has been closed.
+func reportIfOpen[T any](state *closeState[T]) {
+	if state.closed.Load() {
+		return
+	}
+	state.report("became unreachable without being closed")
+}
+
+// report panics with problem and the object's creation stack in a test binary, and logs problem otherwise.
+func (s *closeState[T]) report(problem string) {
+	if testing.Testing() {
+		panic(fmt.Sprintf("%s %s; created at:\n%s", s.description, problem, formatStack(s.createdAt)))
+	}
+	logger.Error("object "+problem, "object", s.description)
 }
 
 // formatStack renders the program counters recorded by runtime.Callers() as one function and file:line per frame.

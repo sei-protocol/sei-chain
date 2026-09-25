@@ -48,8 +48,8 @@ type EVMStateStore struct {
 
 	externalPruning bool
 
-	// Set by Close().
-	closed bool
+	// Closed by Close().
+	closed utils.CloseMarker[EVMStateStore]
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -63,11 +63,11 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 		commitPhases:    metrics.NewPhaseTimer(otel.Meter("seidb_ss_evm"), "ss_evm_commit"),
 		externalPruning: ssConfig.ExternalPruning,
 	}
+	store.closed = utils.MustClose(store, "EVM state store")
 	if err := store.openDBs(); err != nil {
 		_ = store.Close()
 		return nil, err
 	}
-	utils.MustCloseE(store, "EVM state store", (*EVMStateStore).isClosed, (*EVMStateStore).Close)
 	return store, nil
 }
 
@@ -562,15 +562,11 @@ func subDBPath(base string, storeType EVMStoreType) string {
 }
 
 func (s *EVMStateStore) Close() error {
-	s.closed = true
+	s.closed.Close(s)
 	// A snapshot being published reads and stamps these databases, so it has to finish before they
 	// close rather than race the shutdown.
 	s.stopCheckpoints()
 	return s.closeDBs()
-}
-
-func (s *EVMStateStore) isClosed() bool {
-	return s.closed
 }
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {

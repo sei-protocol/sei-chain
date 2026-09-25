@@ -23,6 +23,9 @@ type iterator struct {
 	reverse            bool
 	invalid            bool
 	closeOnce          sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[iterator]
 }
 
 func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOptions, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
@@ -38,7 +41,7 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 			reverse:  reverse,
 			invalid:  true,
 		}
-		utils.MustCloseE(itr, "rocksdb mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+		itr.closed = utils.MustClose(itr, "rocksdb mvcc iterator")
 		return itr
 	}
 
@@ -75,7 +78,7 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 		reverse:  reverse,
 		invalid:  !source.Valid(),
 	}
-	utils.MustCloseE(itr, "rocksdb mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+	itr.closed = utils.MustClose(itr, "rocksdb mvcc iterator")
 	return itr
 }
 
@@ -167,6 +170,7 @@ func (itr *iterator) Error() error {
 
 func (itr *iterator) Close() error {
 	itr.closeOnce.Do(func() {
+		itr.closed.Close(itr)
 		src := itr.source
 		ro := itr.readOpts
 		itr.source = nil
@@ -187,8 +191,4 @@ func (itr *iterator) assertIsValid() {
 	if itr.invalid {
 		panic("iterator is invalid")
 	}
-}
-
-func (itr *iterator) isClosed() bool {
-	return itr.source == nil
 }

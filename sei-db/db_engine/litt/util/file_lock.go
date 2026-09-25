@@ -19,6 +19,9 @@ type FileLock struct {
 	logger *slog.Logger
 	path   string
 	file   *os.File
+
+	// closed records whether Release has been called.
+	closed utils.CloseMarker[FileLock]
 }
 
 // IsProcessAlive checks if a process with the given PID is still running
@@ -166,7 +169,7 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 		path:   path,
 		file:   file,
 	}
-	utils.MustClose(lock, "littdb file lock", (*FileLock).isReleased, (*FileLock).Release)
+	lock.closed = utils.MustClose(lock, "littdb file lock")
 	return lock, nil
 }
 
@@ -176,6 +179,7 @@ func (fl *FileLock) Release() {
 	if fl.file == nil {
 		return
 	}
+	fl.closed.Close(fl)
 
 	// Close the file first
 	err := fl.file.Close()
@@ -192,10 +196,6 @@ func (fl *FileLock) Release() {
 		fl.logger.Error("failed to remove lock file", "path", fl.path, "error", err)
 		return
 	}
-}
-
-func (fl *FileLock) isReleased() bool {
-	return fl.file == nil
 }
 
 // Path returns the path of the lock file

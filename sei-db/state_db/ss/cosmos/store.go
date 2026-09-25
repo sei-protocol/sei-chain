@@ -6,7 +6,6 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -23,14 +22,11 @@ type CosmosStateStore struct {
 	db              types.StateStore
 	snapshotMgr     *sssnapshot.Manager
 	externalPruning bool
-	closed          bool
 }
 
 // NewCosmosStateStore wraps an existing StateStore as a CosmosStateStore.
 func NewCosmosStateStore(db types.StateStore) *CosmosStateStore {
-	s := &CosmosStateStore{db: db}
-	utils.MustCloseE(s, "cosmos state store", (*CosmosStateStore).isClosed, (*CosmosStateStore).Close)
-	return s
+	return &CosmosStateStore{db: db}
 }
 
 func (s *CosmosStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
@@ -102,12 +98,7 @@ func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) e
 }
 
 func (s *CosmosStateStore) Close() error {
-	s.closed = true
 	return s.db.Close()
-}
-
-func (s *CosmosStateStore) isClosed() bool {
-	return s.closed
 }
 
 func (s *CosmosStateStore) SupportsCheckpoint() bool {

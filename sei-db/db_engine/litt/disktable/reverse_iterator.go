@@ -43,8 +43,8 @@ type reverseIterator struct {
 	// currentSeg is the segment that current was read from.
 	currentSeg *segment.Segment
 
-	// closed is true once Close has been called.
-	closed bool
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[reverseIterator]
 }
 
 // newReverseIterator creates a reverse iterator over the given snapshot of sealed segments, owned by a
@@ -55,7 +55,7 @@ func newReverseIterator(table *DiskTable, segs []*segment.Segment) *reverseItera
 		segs:    segs,
 		segPos:  len(segs) - 1,
 	}
-	utils.MustCloseE(it, "littdb reverse iterator", (*reverseIterator).isClosed, (*reverseIterator).Close)
+	it.closed = utils.MustClose(it, "littdb reverse iterator")
 	return it
 }
 
@@ -77,7 +77,7 @@ func newReverseIteratorAt(
 		keys:    keys,
 		keyPos:  keyPos,
 	}
-	utils.MustCloseE(it, "littdb reverse iterator", (*reverseIterator).isClosed, (*reverseIterator).Close)
+	it.closed = utils.MustClose(it, "littdb reverse iterator")
 	return it
 }
 
@@ -93,13 +93,13 @@ func NewOfflineReverseIterator(segs []*segment.Segment, release func()) litt.Ite
 		segs:   segs,
 		segPos: len(segs) - 1,
 	}
-	utils.MustCloseE(it, "littdb reverse iterator", (*reverseIterator).isClosed, (*reverseIterator).Close)
+	it.closed = utils.MustClose(it, "littdb reverse iterator")
 	return it
 }
 
 // Next advances the iterator to the next key in reverse insertion order.
 func (it *reverseIterator) Next() (bool, error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return false, fmt.Errorf("iterator is closed")
 	}
 
@@ -138,7 +138,7 @@ func (it *reverseIterator) Next() (bool, error) {
 
 // GetKey returns the current key and whether it is a primary key.
 func (it *reverseIterator) GetKey() (key []byte, isPrimary bool, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil, false, fmt.Errorf("iterator is closed")
 	}
 	if it.current == nil {
@@ -151,7 +151,7 @@ func (it *reverseIterator) GetKey() (key []byte, isPrimary bool, err error) {
 // directly from the value file (the forward secondary-key optimization does not apply because a
 // secondary is reached before its primary).
 func (it *reverseIterator) GetValue() (value []byte, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		// Close released the snapshot's segment reservations, so reading now would touch segments
 		// GC is free to have deleted.
 		return nil, fmt.Errorf("iterator is closed")
@@ -168,16 +168,12 @@ func (it *reverseIterator) GetValue() (value []byte, err error) {
 
 // Close releases the resources held by the iterator, via onClose.
 func (it *reverseIterator) Close() error {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil
 	}
-	it.closed = true
+	it.closed.Close(it)
 
 	closeErr := it.onClose()
 	it.segs = nil
 	return closeErr
-}
-
-func (it *reverseIterator) isClosed() bool {
-	return it.closed
 }

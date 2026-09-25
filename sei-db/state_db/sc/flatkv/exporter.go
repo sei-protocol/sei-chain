@@ -36,6 +36,9 @@ type KVExporter struct {
 	version    int64
 	iter       dbm.Iterator
 	headerSent bool
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[KVExporter]
 }
 
 func NewKVExporter(store *CommitStore, version int64) *KVExporter {
@@ -43,7 +46,7 @@ func NewKVExporter(store *CommitStore, version int64) *KVExporter {
 		store:   store,
 		version: version,
 	}
-	utils.MustCloseE(e, "flatkv exporter", (*KVExporter).isClosed, (*KVExporter).Close)
+	e.closed = utils.MustClose(e, "flatkv exporter")
 	return e
 }
 
@@ -89,6 +92,7 @@ func (e *KVExporter) Next() (interface{}, error) {
 }
 
 func (e *KVExporter) Close() error {
+	e.closed.Close(e)
 	if e.iter != nil {
 		_ = e.iter.Close()
 		e.iter = nil
@@ -99,8 +103,4 @@ func (e *KVExporter) Close() error {
 		return err
 	}
 	return nil
-}
-
-func (e *KVExporter) isClosed() bool {
-	return e.store == nil
 }

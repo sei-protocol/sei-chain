@@ -26,6 +26,8 @@ type PebbleDBKeymap struct {
 	doubleWriteProtection bool
 	keymapPath            string
 	alive                 atomic.Bool
+	// closed records whether Stop has been called.
+	closed utils.CloseMarker[PebbleDBKeymap]
 	// This is a "test mode only" flag. Should be true in production use cases or anywhere that data consistency
 	// is critical. Unit tests write lots of little values, and syncing each one is slow, so it may be desirable
 	// to set this to false in some tests.
@@ -86,7 +88,7 @@ func newPebbleDBKeymap(
 		syncWrites:            syncWrites,
 	}
 	kmap.alive.Store(true)
-	utils.MustCloseE(kmap, "littdb pebble keymap", (*PebbleDBKeymap).isStopped, (*PebbleDBKeymap).Stop)
+	kmap.closed = utils.MustClose(kmap, "littdb pebble keymap")
 
 	return kmap, requiresReload, nil
 }
@@ -202,16 +204,13 @@ func (p *PebbleDBKeymap) Stop() error {
 	if !alive {
 		return nil
 	}
+	p.closed.Close(p)
 
 	err := p.db.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close PebbleDB: %w", err)
 	}
 	return nil
-}
-
-func (p *PebbleDBKeymap) isStopped() bool {
-	return !p.alive.Load()
 }
 
 func (p *PebbleDBKeymap) Destroy() error {

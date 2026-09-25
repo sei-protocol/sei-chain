@@ -51,6 +51,8 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not return after the stalled commit was released")
 	}
+	// The view outlives its manager, so it is given up rather than released.
+	view.Abandon()
 }
 
 // Close must release AwaitFlush waiters with errors wrapping ErrViewManagerClosed, both for a view
@@ -94,6 +96,9 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 			t.Fatalf("%s AwaitFlush waiter did not unblock after Close", name)
 		}
 	}
+	// The views outlive their manager, so they are given up rather than released.
+	unfinalized.Abandon()
+	finalized.Abandon()
 }
 
 // A Commit() call blocked on lifecycle backpressure must not outlive Close. Depending on how
@@ -114,7 +119,11 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 
 	blockedDone := make(chan error, 1)
 	go func() {
-		_, err := manager.Commit()
+		view, err := manager.Commit()
+		if view != nil {
+			// A view the drain let through outlives its manager, so it is given up rather than released.
+			view.Abandon()
+		}
 		blockedDone <- err
 	}()
 	select {
@@ -205,6 +214,8 @@ func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 
 	_, err = manager.BatchGet([][]byte{[]byte("k")})
 	require.ErrorIs(t, err, ErrViewManagerClosed)
+	// The view outlives its manager, so it is given up rather than released.
+	view.Abandon()
 }
 
 // Every goroutine the manager owns (lifecycle runner, metrics scrape loop) must be gone once

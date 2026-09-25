@@ -247,7 +247,7 @@ func (w *SnapshotWriter) enqueue(message any) error {
 		return fmt.Errorf("enqueue to snapshot writer: %w", w.stoppedError())
 	}
 
-	return otelMetrics.SnapshotQueue.SendVia(
+	err := otelMetrics.SnapshotQueue.SendVia(
 		func() bool {
 			select {
 			case w.messages <- message:
@@ -265,6 +265,15 @@ func (w *SnapshotWriter) enqueue(message any) error {
 			}
 		},
 	)
+	if err != nil {
+		return err
+	}
+	if w.ctx.Err() != nil {
+		// The writer stopped around this send, so its exit drain may already have run and nothing else
+		// will take the message off the queue.
+		w.discardQueued()
+	}
+	return nil
 }
 
 // onSnapshotInterval reports whether a committed block becomes a snapshot on this writer's own
@@ -405,9 +414,8 @@ func (w *SnapshotWriter) checkpointBlock(request *snapshotRequest) error {
 }
 
 // discardQueued empties the queue, handing back what each snapshot request holds and answering each
-// flush so its caller is not left waiting. A message enqueued after this has run is stranded, which
-// only happens once the writer has stopped — the view managers are closing by then, and closing one
-// releases everything it holds.
+// flush so its caller is not left waiting. It runs when the writer stops, and from enqueue() for a
+// message that reaches the queue after that.
 func (w *SnapshotWriter) discardQueued() {
 	for {
 		select {

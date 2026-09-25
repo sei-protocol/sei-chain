@@ -53,8 +53,8 @@ type StateDB struct {
 	// callers serialize.
 	commitPhases *metrics.PhaseTimer
 
-	// Set by Close().
-	closed bool
+	// Closed by Close().
+	closed utils.CloseMarker[StateDB]
 }
 
 // commitPhaseTimerName prefixes the instruments the commit phase breakdown is published on.
@@ -84,6 +84,7 @@ func NewStateDB(
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
+	s.closed = utils.MustClose(s, "giga state DB")
 	defer s.closeOnFailure(&retErr)
 
 	wal, err := s.storedWALRange()
@@ -108,7 +109,6 @@ func NewStateDB(
 	if err := s.catchUpToWAL(ctx); err != nil {
 		return nil, err
 	}
-	utils.MustCloseE(s, "giga state DB", (*StateDB).isClosed, (*StateDB).Close)
 	return s, nil
 }
 
@@ -286,7 +286,7 @@ func (s *StateDB) truncateWAL(target int64) error {
 // How long each of the three took is logged, since each drains its own write queue and waits on the
 // compactions behind it, and those dominate the time a shutdown takes.
 func (s *StateDB) Close() error {
-	s.closed = true
+	s.closed.Close(s)
 	var errs error
 	var timer utils.CloseTimer
 	if s.ss != nil {
@@ -306,10 +306,6 @@ func (s *StateDB) Close() error {
 	}
 	logger.Info("Closed the state DB", timer.Fields()...)
 	return errs
-}
-
-func (s *StateDB) isClosed() bool {
-	return s.closed
 }
 
 // SC returns the state commit store.

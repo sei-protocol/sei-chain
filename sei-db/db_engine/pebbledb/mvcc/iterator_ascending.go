@@ -46,6 +46,9 @@ type ascendingIterator struct {
 	err                error
 
 	closeSync sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[ascendingIterator]
 }
 
 func newAscendingIterator(
@@ -74,8 +77,7 @@ func newAscendingIterator(
 			dbName:           dbName,
 			ctx:              ctx,
 		}
-		utils.MustCloseE(itr, "mvcc ascending iterator",
-			(*ascendingIterator).isClosed, (*ascendingIterator).Close)
+		itr.closed = utils.MustClose(itr, "mvcc ascending iterator")
 		return itr
 	}
 
@@ -100,7 +102,7 @@ func newAscendingIterator(
 		dbName:           dbName,
 		ctx:              ctx,
 	}
-	utils.MustCloseE(itr, "mvcc ascending iterator", (*ascendingIterator).isClosed, (*ascendingIterator).Close)
+	itr.closed = utils.MustClose(itr, "mvcc ascending iterator")
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -386,6 +388,7 @@ func (itr *ascendingIterator) Error() error {
 
 func (itr *ascendingIterator) Close() error {
 	itr.closeSync.Do(func() {
+		itr.closed.Close(itr)
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false
@@ -443,8 +446,4 @@ func (itr *ascendingIterator) cursorTombstoned() bool {
 	}
 
 	return true
-}
-
-func (itr *ascendingIterator) isClosed() bool {
-	return itr.source == nil
 }

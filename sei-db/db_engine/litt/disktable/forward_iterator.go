@@ -52,8 +52,8 @@ type forwardIterator struct {
 	// readerSeg is the segment that reader was created for, so we can detect when to recreate it.
 	readerSeg *segment.Segment
 
-	// closed is true once Close has been called.
-	closed bool
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[forwardIterator]
 
 	// groupValid is true once a primary key in the current group has been visited, meaning groupAddr and
 	// groupValue describe that group's primary value.
@@ -75,7 +75,7 @@ func newForwardIterator(table *DiskTable, segs []*segment.Segment) *forwardItera
 		segs:    segs,
 		segPos:  0,
 	}
-	utils.MustCloseE(it, "littdb forward iterator", (*forwardIterator).isClosed, (*forwardIterator).Close)
+	it.closed = utils.MustClose(it, "littdb forward iterator")
 	return it
 }
 
@@ -97,7 +97,7 @@ func newForwardIteratorAt(
 		keys:    keys,
 		keyPos:  keyPos,
 	}
-	utils.MustCloseE(it, "littdb forward iterator", (*forwardIterator).isClosed, (*forwardIterator).Close)
+	it.closed = utils.MustClose(it, "littdb forward iterator")
 	return it
 }
 
@@ -113,13 +113,13 @@ func NewOfflineForwardIterator(segs []*segment.Segment, release func()) litt.Ite
 		segs:   segs,
 		segPos: 0,
 	}
-	utils.MustCloseE(it, "littdb forward iterator", (*forwardIterator).isClosed, (*forwardIterator).Close)
+	it.closed = utils.MustClose(it, "littdb forward iterator")
 	return it
 }
 
 // Next advances the iterator to the next key in insertion order.
 func (it *forwardIterator) Next() (bool, error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return false, fmt.Errorf("iterator is closed")
 	}
 
@@ -166,7 +166,7 @@ func (it *forwardIterator) Next() (bool, error) {
 
 // GetKey returns the current key and whether it is a primary key.
 func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil, false, fmt.Errorf("iterator is closed")
 	}
 	if it.current == nil {
@@ -177,7 +177,7 @@ func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
 
 // GetValue reads and returns the value associated with the current key.
 func (it *forwardIterator) GetValue() (value []byte, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		// Close released the snapshot's segment reservations, so reading now would open a new
 		// reader on segments GC is free to have deleted.
 		return nil, fmt.Errorf("iterator is closed")
@@ -263,10 +263,10 @@ func (it *forwardIterator) secondaryWithinGroup(addr types.Address) bool {
 
 // Close releases the resources held by the iterator, via onClose.
 func (it *forwardIterator) Close() error {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil
 	}
-	it.closed = true
+	it.closed.Close(it)
 
 	// Close the buffered reader.
 	var readerErr error
@@ -308,8 +308,4 @@ func closeLiveIterator(table *DiskTable, segs []*segment.Segment) func() error {
 		}
 		return nil
 	}
-}
-
-func (it *forwardIterator) isClosed() bool {
-	return it.closed
 }
