@@ -49,6 +49,20 @@ func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
 	return block, err
 }
 
+// Discard deletes every file of the receipt store described by cfg, without opening the store, so the
+// next open finds an empty store with no head. A store that does not exist on disk is a no-op.
+//
+// Only a littidx-backed store is supported; any other backend is refused rather than deleted.
+func Discard(cfg dbconfig.ReceiptStoreConfig) error {
+	if err := requireLittIdxStore(cfg); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(cfg.DBDirectory); err != nil {
+		return fmt.Errorf("failed to delete receipt store directory %s: %w", cfg.DBDirectory, err)
+	}
+	return nil
+}
+
 // GetRange reports the lowest and highest block heights present on disk for the receipt store described
 // by cfg, without opening the store. ok is false if no receipts are present.
 //

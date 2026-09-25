@@ -18,7 +18,8 @@ import (
 //  2. Every store other than the block store is on the same height, unless it holds no history at all,
 //     in which case it is left empty to fill forward from that height.
 //
-// The target is the lowest head among the block store, the state WAL and the receipt store. A target of
+// The target is the lowest head among the block store, the state WAL and the receipt store, except a
+// receipt head too far below the others to roll back to, whose store is discarded instead. A target of
 // 0 means there is no height to converge on and nothing is moved.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	// Each stage is announced before it runs. Opening a store or reading its head loads that store's
@@ -28,12 +29,17 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openBlockStore(); err != nil {
 		return err
 	}
-	targetHeight, err := m.findTargetRecoveryHeight()
+	targetHeight, staleReceipts, err := m.findTargetRecoveryHeight()
 	if err != nil {
 		return err
 	}
 	if err := m.recoverStores(ctx, targetHeight); err != nil {
 		return err
+	}
+	if staleReceipts {
+		if err := m.discardReceiptStore(); err != nil {
+			return err
+		}
 	}
 	// The receipt store opens last because its rollback runs against its files: it is the one store
 	// recovery reaches without opening, so opening it earlier would only be to close it again.
@@ -95,37 +101,42 @@ func (m *GigaStorageManager) openReceiptStore() error {
 }
 
 // findTargetRecoveryHeight returns the height every store is recovered to, read from the heads of the
-// block store, the state WAL and the receipt store. A disabled receipt store reads as 0, which is the
-// same as an empty one: no opinion on the height.
+// block store, the state WAL and the receipt store, and whether the receipt store's head is stale: too
+// far below that height to be converged on, so the store is discarded instead. A disabled receipt store
+// reads as 0, which is the same as an empty one: no opinion on the height.
 //
 // The state and receipt heads are read from their directories, which takes the locks their open stores
 // hold, so this must run before either of those stores opens.
-func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
+func (m *GigaStorageManager) findTargetRecoveryHeight() (target int64, staleReceipts bool, err error) {
 	logger.Info("Reading a store head", "store", "block store")
 	blockHeight, err := m.blockStore.GetLatestBlock()
 	if err != nil {
-		return 0, fmt.Errorf("read block store head: %w", err)
+		return 0, false, fmt.Errorf("read block store head: %w", err)
 	}
 	logger.Info("Reading a store head", "store", "state WAL")
 	stateHeight, err := m.stateWALHead()
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	var receiptHeight uint64
 	if m.cfg.ReceiptDBConfig.Enable {
 		logger.Info("Reading a store head", "store", "receipt store")
 		receiptHeight, err = receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
 		if err != nil {
-			return 0, fmt.Errorf("read receipt store head: %w", err)
+			return 0, false, fmt.Errorf("read receipt store head: %w", err)
 		}
 	}
-	target := recoveryTarget(blockHeight, stateHeight, receiptHeight)
+	rollbackWindow := m.cfg.PruningConfig.RollbackWindow
+	height := recoveryTarget(blockHeight, stateHeight, receiptHeight, rollbackWindow)
+	staleReceipts = receiptHeight > 0 && receiptHeadIsStale(receiptHeight, height, rollbackWindow)
 	logger.Info("Read the store heads recovery converges on",
 		"block_store", blockHeight,
 		"state_wal", stateHeight,
 		"receipt_store", receiptHeight,
-		"target", target)
-	return int64(target), nil //nolint:gosec // heights fit within int64
+		"rollback_window", rollbackWindow,
+		"stale_receipts", staleReceipts,
+		"target", height)
+	return int64(height), staleReceipts, nil //nolint:gosec // heights fit within int64
 }
 
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
@@ -144,22 +155,43 @@ func (m *GigaStorageManager) stateWALHead() (uint64, error) {
 }
 
 // recoveryTarget folds the store heads into the height they converge on: the lowest of them, with a
-// receipt store that holds nothing left out rather than dragging the target down to 0. Receipts newly
-// enabled on a node with history have nothing to disagree with, and start filling at the target.
+// receipt store that holds nothing, or that stopped more than rollbackWindow below the other stores,
+// left out rather than dragging the target down. Receipts newly enabled on a node with history have
+// nothing to disagree with, and start filling at the target; receipts re-enabled after a stretch
+// disabled are in the same position, since state cannot roll back to where they stopped.
 //
 // An empty block store or state WAL instead yields 0, which skips recovery. Neither is unambiguous the
 // way an empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an
 // empty WAL, and converging on a target derived from the other stores would discard it with no WAL left
 // to replay it from.
-func recoveryTarget(blockHeight, stateHeight, receiptHeight uint64) uint64 {
+func recoveryTarget(blockHeight, stateHeight, receiptHeight, rollbackWindow uint64) uint64 {
 	if blockHeight == 0 || stateHeight == 0 {
 		return 0
 	}
 	target := min(blockHeight, stateHeight)
-	if receiptHeight > 0 {
+	if receiptHeight > 0 && !receiptHeadIsStale(receiptHeight, target, rollbackWindow) {
 		target = min(target, receiptHeight)
 	}
 	return target
+}
+
+// receiptHeadIsStale reports whether receiptHeight sits more than rollbackWindow below target, the
+// height the other stores converge on. State cannot roll back that far, so such receipts end where the
+// store stopped being written rather than where a crash left it lagging.
+func receiptHeadIsStale(receiptHeight, target, rollbackWindow uint64) bool {
+	return receiptHeight+rollbackWindow < target
+}
+
+// discardReceiptStore deletes the receipt store's files so it opens empty and begins recording at the
+// next block written. The store refuses a write that skips blocks, so one whose head is stale cannot
+// resume from where it stopped.
+func (m *GigaStorageManager) discardReceiptStore() error {
+	logger.Warn("Discarding the receipt store: its head is too far below the recovery target to converge on",
+		"dir", m.cfg.ReceiptDBConfig.DBDirectory)
+	if err := receipt.Discard(m.cfg.ReceiptDBConfig); err != nil {
+		return fmt.Errorf("discard the stale receipt store: %w", err)
+	}
+	return nil
 }
 
 // openStateDB opens the state commit store, the EVM state store (when enabled) and the state WAL,
