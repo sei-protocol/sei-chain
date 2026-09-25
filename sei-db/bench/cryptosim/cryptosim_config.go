@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
@@ -45,9 +46,14 @@ type CryptoSimConfig struct {
 	// a value between 0.0 and 1.0.
 	HotAccountProbability float64
 
-	// When selecting a non-hot account for a transaction, the benchmark will create a new account with this
-	// probability. Should be a value between 0.0 and 1.0.
-	NewAccountProbability float64
+	// One new account is created every this many account selections, of which a transaction makes two.
+	// 0 never creates accounts.
+	//
+	// A cadence rather than a probability, so that the set of accounts in existence at any point in a
+	// block follows from arithmetic rather than from the draws that came before. That is what lets a
+	// block's transactions be generated in parallel: a worker can compute which account IDs it will
+	// create without coordinating with any other worker.
+	SelectionsPerNewAccount int
 
 	// Each account contains an integer value used to track a balance, plus a bunch of random
 	// bytes for padding. This is the total size of the account after padding is added.
@@ -81,6 +87,10 @@ type CryptoSimConfig struct {
 
 	// The number of transactions that will be processed in each "block".
 	TransactionsPerBlock int
+
+	// How many goroutines generate one block's transactions. Values below 2 generate them on the
+	// calling goroutine.
+	BlockBuildWorkers int
 
 	// How many blocks the benchmark may run ahead of block hashing. Databases hash committed blocks
 	// asynchronously, and the benchmark takes one block's hash per block committed once it is this far
@@ -137,6 +147,31 @@ type CryptoSimConfig struct {
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
 	MetricsAddr string
 
+	// Address for the pprof HTTP server (e.g. ":6060"). If empty, no pprof server is started.
+	//
+	// Its own address rather than MetricsAddr's, because the two servers start at different times:
+	// pprof comes up before setup so that setup is profilable, while the metrics server waits until
+	// setup is done so that account creation stays out of the series.
+	//
+	// Serving it costs nothing while nothing is scraping it, so the CPU, heap and goroutine profiles
+	// are available in any run. The mutex and block profiles additionally need the two sample rates
+	// below.
+	PprofAddr string
+
+	// The sampling rate of the mutex profile: 1 records every contention event, N records on average
+	// one in N, and 0 leaves the profile off.
+	//
+	// Recording costs time inside the lock handoff it measures, so a run with this on is a diagnostic
+	// run and its throughput is not comparable to a run without it.
+	MutexProfileFraction int
+
+	// The sampling rate of the block profile, in nanoseconds of blocked time per sample: 1 records
+	// every blocking event, and 0 leaves the profile off.
+	//
+	// This carries the same caveat as MutexProfileFraction: it charges the events it samples, so it
+	// buys attribution at the cost of the number being measured.
+	BlockProfileRate int
+
 	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
 	TransactionMetricsSampleRate float64
 
@@ -173,12 +208,10 @@ type CryptoSimConfig struct {
 	// The capacity of the channel that holds blocks sent to the receipt store.
 	RecieptChannelCapacity int
 
-	// If true, disables simulation of transaction execution, and writes very little to the database. This is
-	// potentially useful when benchmarking things other than state storage (e.g. the receipt store).
-	//
-	// Note that switching execution on after previously running with execution disabled may result in buggy behavior,
-	// as the benchmark will not be properly maintaining DB state when transaction execution is disabled. In order
-	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
+	// If true, the transaction executors drop the transactions they are handed instead of executing them,
+	// so the benchmark issues no execution-time reads at all. A block's writes are produced when the
+	// block is built rather than by execution, so they are still committed. This is potentially useful
+	// when benchmarking something other than execution-time reads (e.g. the receipt store).
 	DisableTransactionExecution bool
 
 	// If true, skip transaction-time database reads and only issue writes. Useful
@@ -251,7 +284,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MinimumNumberOfDormantAccounts:    1_000_000,
 		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
-		NewAccountProbability:             0.001,
+		SelectionsPerNewAccount:           1111,
 		PaddedAccountSize:                 32,
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
@@ -261,6 +294,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
+		BlockBuildWorkers:                 8,
 		HashLagBlocks:                     32,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
@@ -275,6 +309,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
+		PprofAddr:                         ":6060",
+		MutexProfileFraction:              0,
+		BlockProfileRate:                  0,
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
@@ -302,7 +339,32 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		LogLevel:                          "info",
 	}
 
+	disableReadCacheMetrics(cfg.FlatKVConfig)
+
 	return cfg
+}
+
+// disableReadCacheMetrics turns off the read caches' own metrics for every live state DB store.
+//
+// Those are recorded per read — a counter for hits, another for misses, a histogram for miss latency —
+// and every executor thread reports into the same instrument. At the read rates this benchmark drives,
+// what it measures starts to include the cost of measuring it.
+//
+// The cost is visibility: cache hit rate and cache size are reported by these same instruments, so a
+// run configured this way cannot show them. Turn them back on for any run whose question is about cache
+// behaviour rather than throughput.
+func disableReadCacheMetrics(cfg *flatkvConfig.Config) {
+	if cfg == nil {
+		return
+	}
+	for _, storeConfig := range []*view.ViewManagerConfig{
+		&cfg.AccountStoreConfig,
+		&cfg.CodeStoreConfig,
+		&cfg.StorageStoreConfig,
+		&cfg.MiscStoreConfig,
+	} {
+		storeConfig.MetricsEnabled = false
+	}
 }
 
 // StringifiedConfig returns the config as human-readable, multi-line JSON.
@@ -339,8 +401,8 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.HotAccountProbability < 0 || c.HotAccountProbability > 1 {
 		return fmt.Errorf("HotAccountProbability must be in [0, 1] (got %f)", c.HotAccountProbability)
 	}
-	if c.NewAccountProbability < 0 || c.NewAccountProbability > 1 {
-		return fmt.Errorf("NewAccountProbability must be in [0, 1] (got %f)", c.NewAccountProbability)
+	if c.SelectionsPerNewAccount < 0 {
+		return fmt.Errorf("SelectionsPerNewAccount must be non-negative (got %d)", c.SelectionsPerNewAccount)
 	}
 	if c.HotErc20ContractProbability < 0 || c.HotErc20ContractProbability > 1 {
 		return fmt.Errorf("HotErc20ContractProbability must be in [0, 1] (got %f)", c.HotErc20ContractProbability)
@@ -358,6 +420,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.TransactionsPerBlock < 1 {
 		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
+	}
+	if c.BlockBuildWorkers < 1 {
+		return fmt.Errorf("BlockBuildWorkers must be at least 1 (got %d)", c.BlockBuildWorkers)
 	}
 	if c.CannedRandomSize < 8 {
 		return fmt.Errorf("CannedRandomSize must be at least 8 (got %d)", c.CannedRandomSize)
@@ -428,6 +493,18 @@ func (c *CryptoSimConfig) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
+	if c.MutexProfileFraction < 0 {
+		return fmt.Errorf("MutexProfileFraction must not be negative (got %d)", c.MutexProfileFraction)
+	}
+	if c.BlockProfileRate < 0 {
+		return fmt.Errorf("BlockProfileRate must not be negative (got %d)", c.BlockProfileRate)
+	}
+	if c.PprofAddr == "" && (c.MutexProfileFraction > 0 || c.BlockProfileRate > 0) {
+		// Both profiles accumulate in memory and are only readable over the pprof endpoint, so enabling
+		// one without a server pays their cost and discards the result.
+		return fmt.Errorf("MutexProfileFraction (%d) and BlockProfileRate (%d) require PprofAddr to be set",
+			c.MutexProfileFraction, c.BlockProfileRate)
 	}
 	return nil
 }

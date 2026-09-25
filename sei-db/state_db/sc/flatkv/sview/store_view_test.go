@@ -44,8 +44,8 @@ func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	panic("stubView: unexpected BatchGet")
 }
 
-func (s *stubView) GetDiff() (map[string][]byte, error) {
-	panic("stubView: unexpected GetDiff")
+func (s *stubView) ForEachDiff(func(key string, value []byte) error) error {
+	panic("stubView: unexpected ForEachDiff")
 }
 
 func (s *stubView) Reserve() error {

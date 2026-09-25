@@ -81,7 +81,7 @@ ifeq ($(LINK_STATICALLY),true)
 	# STATIC_EXTRA_LDFLAGS lets the static build inject linker search paths, e.g.
 	# scripts/build-static.sh points it at the pinned pre-gcc-12 libgcc (see
 	# third_party/alpine-gcc10-libgcc/README.md).
-	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static $(STATIC_EXTRA_LDFLAGS)"
+	ldflags += -linkmode=external -extldflags "-static $(STATIC_EXTRA_LDFLAGS)"
 endif
 ldflags += $(LDFLAGS)
 ldflags := $(strip $(ldflags))
@@ -427,7 +427,6 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
-	AUTOBAHN_EVMONLY=$(AUTOBAHN_EVMONLY) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
@@ -611,6 +610,8 @@ giga-integration-test:
 .PHONY: giga-integration-test
 
 # Run Autobahn integration tests with an Autobahn-enabled cluster.
+# The cluster serves the EVM JSON-RPC only and uses the disk-backed EVM-only
+# executor (mock-app is not set).
 autobahn-integration-test:
 	@# The test drives cluster start/stop itself via TestMain — see
 	@# integration_test/autobahn/autobahn_test.go. GOWORK=off ignores an
@@ -618,9 +619,8 @@ autobahn-integration-test:
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 40m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
-# Run the disk-backed EVM-only executor behind a four-validator Autobahn cluster.
-autobahn-evmonly-integration-test:
-	@AUTOBAHN_EVMONLY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 40m ./integration_test/autobahn/...
+# Deprecated alias for autobahn-integration-test.
+autobahn-evmonly-integration-test: autobahn-integration-test
 .PHONY: autobahn-evmonly-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.

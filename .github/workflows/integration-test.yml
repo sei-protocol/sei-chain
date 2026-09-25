@@ -28,15 +28,12 @@ defaults:
 env:
   # Non-cone sparse-checkout pattern shared by every job that needs the source
   # tree: everything except the darwin/aarch64 wasmvm archives, which CI
-  # (linux/amd64 only) never links and which make up ~500 MB of the tree.
+  # (linux/amd64 only) never links and which make up ~190 MB of the tree.
   SPARSE_CHECKOUT: |
     /*
     !/sei-wasmvm/internal/api/*darwin*
     !/sei-wasmvm/internal/api/*aarch64*
     !/sei-wasmvm/internal/api/*.dylib
-    !/sei-wasmd/x/wasm/artifacts/*/api/*darwin*
-    !/sei-wasmd/x/wasm/artifacts/*/api/*aarch64*
-    !/sei-wasmd/x/wasm/artifacts/*/api/*.dylib
 
 jobs:
   # Generate the integration-test matrix from integration-test-matrix.json.
@@ -59,6 +56,8 @@ jobs:
   #     leaves the cluster in a state no other suite should inherit.
   #   - A suite that boots its own cluster (Autobahn Basic) is a separate job,
   #     not a matrix row.
+  #   - A row with "disabled": true stays in the file but does not run. Its
+  #     `_comment` says why and carries the TODO to re-enable it.
   set-matrix:
     name: Resolve integration test matrix
     runs-on: ubuntu-latest
@@ -75,9 +74,10 @@ jobs:
         run: |
           set -euo pipefail
           matrix_file=.github/workflows/integration-test-matrix.json
-          tests=$(jq -c '.' "$matrix_file")
+          tests=$(jq -c '[.[] | select(.disabled != true)]' "$matrix_file")
           echo "tests=$tests" >> "$GITHUB_OUTPUT"
           echo "Selected $(echo "$tests" | jq 'length') matrix entries."
+          jq -r '.[] | select(.disabled == true) | "Skipped disabled entry: \(.name)"' "$matrix_file"
 
   # Build localnode/rpcnode images and seid once; matrix jobs pull the images
   # from GHCR (tagged with the run id) and download seid as a small artifact.
@@ -327,9 +327,16 @@ jobs:
         if: ${{ matrix.test.cluster != 'frozen-rpc-router' }}
         run: ${{matrix.test.env}} make run-rpc-node-integration-ci &
 
+      # Autobahn clusters serve the EVM JSON-RPC only, so they get the startup
+      # gate that reads liveness from there instead of from Tendermint RPC.
       - name: Verify Sei Chain is running
         if: ${{ matrix.test.cluster != 'frozen-rpc-router' }}
-        run: go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run TestStartup
+        run: |
+          case "${{ matrix.test.env }}" in
+            *AUTOBAHN=true*) startup=TestAutobahnStartup ;;
+            *) startup=TestStartup ;;
+          esac
+          go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run "$startup"
 
       - name: ${{ matrix.test.name }}
         run: |

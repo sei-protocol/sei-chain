@@ -53,6 +53,8 @@ type EVMStateView interface {
 
 	// AccountExists reports whether addr has an account in state,
 	// including accounts that have self-destructed in the current block.
+	// It must return true whenever GetBalance, GetNonce or GetCode returns a
+	// non-zero value for addr.
 	AccountExists(addr Address) bool
 
 	// GetStorage returns the value stored at key in addr's storage.

@@ -6,16 +6,11 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"reflect"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
-	cosmosConfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -555,58 +550,6 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.Nil(t, typedTxs[2])
 }
 
-func TestApp_RegisterAPIRoutes(t *testing.T) {
-	type args struct {
-		apiSvr    *api.Server
-		apiConfig cosmosConfig.APIConfig
-	}
-	tests := []struct {
-		name        string
-		args        args
-		wantSwagger bool
-	}{
-		{
-			name: "swagger added to the router if configured",
-			args: args{
-				apiSvr: &api.Server{
-					ClientCtx:         client.Context{},
-					Router:            &mux.Router{},
-					GRPCGatewayRouter: runtime.NewServeMux(),
-				},
-				apiConfig: cosmosConfig.APIConfig{
-					Swagger: true,
-				},
-			},
-			wantSwagger: true,
-		},
-		{
-			name: "swagger not added to the router if not configured",
-			args: args{
-				apiSvr: &api.Server{
-					ClientCtx:         client.Context{},
-					Router:            &mux.Router{},
-					GRPCGatewayRouter: runtime.NewServeMux(),
-				},
-				apiConfig: cosmosConfig.APIConfig{},
-			},
-			wantSwagger: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			seiApp := &app.App{}
-			seiApp.RegisterAPIRoutes(tt.args.apiSvr, tt.args.apiConfig)
-			routes := tt.args.apiSvr.Router
-			gotSwagger := isSwaggerRouteAdded(routes)
-
-			if !reflect.DeepEqual(gotSwagger, tt.wantSwagger) {
-				t.Errorf("Run() gotSwagger = %v, want %v", gotSwagger, tt.wantSwagger)
-			}
-		})
-
-	}
-}
-
 func TestGetEVMMsg(t *testing.T) {
 	a := &app.App{}
 	require.Nil(t, a.GetEVMMsg(nil))
@@ -651,21 +594,6 @@ func TestGetDeliverTxEntry(t *testing.T) {
 	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, bz, tx))
 
 	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, bz, nil))
-}
-
-func isSwaggerRouteAdded(router *mux.Router) bool {
-	var isAdded bool
-	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
-		pathTemplate, err := route.GetPathTemplate()
-		if err == nil && pathTemplate == "/swagger/" {
-			isAdded = true
-		}
-		return nil
-	})
-	if err != nil {
-		return false
-	}
-	return isAdded
 }
 
 func TestTransactionExtremeGasValue(t *testing.T) {

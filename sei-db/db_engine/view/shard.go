@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // A single shard of a ViewManager. The shard owns the MVCC layer: versioned in-memory data
@@ -38,10 +38,14 @@ type shard struct {
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
 	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
 
-	// For each version, contains the values set in that version.  If a value is set more than once
-	// in a version, only the last value is stored. Although possible to find the value at a specifc
-	// version by iterating over this map, it is much more efficient to use the versionedData map.
+	// The values set in each version not yet materialized: the current version, and any sealed version
+	// whose folds are still resolving. A key set more than once in a version keeps only its last value.
+	// Reading one key at a version through versionedData is far cheaper than scanning this map for it.
 	versionDiffs map[uint64] /* version */ map[string] /* key */ []byte /* value */
+
+	// One handle per sealed version, carrying that version's writes once they are ordered by key.
+	// Registered at the seal, and empty until the version is materialized.
+	sealedDiffs map[uint64] /* version */ *sealedDiff
 
 	// The read-through DB cache backing this shard. A passive component sharing this shard's
 	// lock: its RLocked and WLocked methods require the lock held, while its Resolve methods and background
@@ -80,6 +84,32 @@ type shard struct {
 	// so it has to stop the whole manager rather than only this shard — the same response the read
 	// cache gives a failed database read.
 	reportFoldFailure func(error)
+
+	// initialVersionsPerKey sizes the value list a key gets when first written. See
+	// ViewManagerConfig.InitialVersionsPerKey.
+	initialVersionsPerKey int
+}
+
+// Write is one key's change: a value to store, or a deletion.
+//
+// A nil Value is a deletion. That is the manager's tombstone convention throughout — BatchUpdater
+// returns nil from NewValueFor to delete, and the version diff maps hold nil for a deleted key — so a
+// caller with a genuinely empty value passes a non-nil, zero-length slice.
+//
+// Key may be carved from a shared buffer; see setWLocked for what the manager retains.
+type Write struct {
+	// Key is the key to write.
+	Key string
+
+	// Value is the value to store, or nil to delete the key.
+	Value []byte
+}
+
+// sealedDiff is a sealed version's writes ordered by key. entries is valid only once done is closed;
+// before that the version's writes are still in versionDiffs.
+type sealedDiff struct {
+	entries []Write
+	done    chan struct{}
 }
 
 // A single value at a specific version.
@@ -152,11 +182,14 @@ func NewShard(
 	s := &shard{
 		versionedData:  make(map[string]*structures.Deque[versionedValue]),
 		versionDiffs:   versionDiffs,
+		sealedDiffs:    make(map[uint64]*sealedDiff),
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
 		versionLatches: make(map[uint64]*versionLatch),
 		ctx:            ctx,
 		shutdownError:  shutdownError,
+
+		initialVersionsPerKey: int(config.InitialVersionsPerKey), //nolint:gosec // validated non-zero
 
 		reportFoldFailure: reportFoldFailure,
 	}
@@ -504,19 +537,27 @@ func (s *shard) Set(key []byte, value []byte) error {
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
 		return fmt.Errorf("set key %x: %w", key, err)
 	}
-	s.setWLocked(key, value)
+	s.setWLocked(string(key), value)
 	return nil
 }
 
 // setWLocked writes a value to the versioned data structures at the current version.
-func (s *shard) setWLocked(key []byte, value []byte) {
-	keyStr := string(key)
-	s.versionDiffs[s.currentVersion][keyStr] = value
+//
+// key may be carved from a shared buffer: nothing retains it past this version's retirement without
+// copying it first, so a caller allocating its keys out of one arena does not pin that arena for the
+// life of the shard. value gets no such treatment — it is retained as given.
+func (s *shard) setWLocked(key string, value []byte) {
+	// Dropped whole when this version retires, so it can hold the caller's string as given.
+	s.versionDiffs[s.currentVersion][key] = value
 
-	deque, ok := s.versionedData[keyStr]
+	deque, ok := s.versionedData[key]
 	if !ok {
-		deque = structures.NewDeque[versionedValue]()
-		s.versionedData[keyStr] = deque
+		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
+		// Copied, because this map's entries outlive the version that created them and a Go string
+		// can be a window onto a much larger allocation: a caller that cut its keys from one shared
+		// buffer would pin that whole buffer here. Only on first insert — Go keeps a map's existing
+		// key on reassignment, so copying later would have no effect.
+		s.versionedData[strings.Clone(key)] = deque
 	}
 	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
 		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
@@ -526,23 +567,18 @@ func (s *shard) setWLocked(key []byte, value []byte) {
 	}
 }
 
-// BatchSet sets the values for a batch of keys at the current version. Refused on a shard that is
-// out of service, for the reason given on Set.
-func (s *shard) BatchSet(entries []*proto.KVPair) error {
+// batchSetAt applies the writes named by indices, which index into writes. Refused on a shard that
+// is out of service, for the reason given on Set.
+func (s *shard) batchSetAt(writes []Write, indices []int) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	// Checked once for the whole batch rather than per key: it cannot change while we hold the lock.
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
-		return fmt.Errorf("batch set of %d keys: %w", len(entries), err)
+		return fmt.Errorf("batch set of %d keys: %w", len(indices), err)
 	}
-	for i := range entries {
-		if entries[i].Delete {
-			// A delete is stored as a nil-valued (tombstone) entry at the current version.
-			s.setWLocked(entries[i].Key, nil)
-		} else {
-			s.setWLocked(entries[i].Key, entries[i].Value)
-		}
+	for _, i := range indices {
+		s.setWLocked(writes[i].Key, writes[i].Value)
 	}
 	return nil
 }
@@ -604,7 +640,7 @@ func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pe
 
 	deque, ok := s.versionedData[key]
 	if !ok {
-		deque = structures.NewDeque[versionedValue]()
+		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
 		// Cloned because this map entry outlives the batch that created it, and Go leaves a map's
 		// original key in place on reassignment. The copy is per key new to this shard, not per write.
 		s.versionedData[strings.Clone(key)] = deque
@@ -905,17 +941,32 @@ func (s *shard) Delete(key []byte) error {
 	return s.Set(key, nil)
 }
 
-// Commit seals the current version; all future updates will be applied to the next version. It also
-// runs the read cache's once-per-block maintenance, whose failure it returns.
-// The version returned is the new version number (for sanity checking), and is returned even alongside
-// an error so the caller can report both.
+// Commit seals the current version, so that all future updates apply to the next one, and runs the
+// read cache's once-per-block maintenance. It returns the version the shard is now on, which the
+// caller checks against its own, alongside any error.
+//
+// A shard that is out of service seals nothing and reports why, leaving its version unchanged. The
+// check sits under the seal's own lock because a check that releases the lock first is one a shard
+// can fall out of service behind.
 func (s *shard) Commit() (uint64, error) {
 	s.lock.Lock()
 
+	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
+		s.lock.Unlock()
+		return s.currentVersion, fmt.Errorf("seal version %d: %w", s.currentVersion, err)
+	}
+
+	sealedVersion := s.currentVersion
 	newVersion := s.currentVersion + 1
 	s.currentVersion = newVersion
 
-	s.versionDiffs[newVersion] = make(map[string][]byte)
+	// Registered at the seal rather than at the materialize, so that a consumer asking for a sealed
+	// version's diff always finds a handle to wait on, however far ahead of it they arrive.
+	s.sealedDiffs[sealedVersion] = &sealedDiff{done: make(chan struct{})}
+	// Sized from the version just sealed, so a block's writes land in one allocation instead of
+	// growing the map up from empty. Doubled, so a block that writes somewhat more than the last one
+	// still does not resize.
+	s.versionDiffs[newVersion] = make(map[string][]byte, 2*len(s.versionDiffs[sealedVersion]))
 
 	// Sealing a version is the once-per-block moment the read cache does its eviction, so that no read
 	// has to pay for it.
@@ -930,50 +981,96 @@ func (s *shard) Commit() (uint64, error) {
 	return newVersion, nil
 }
 
-// Get the diffs for a range of versions [firstVersion, lastVersion). The returned data should not be mutated
-// in any way, but is otherwise thread safe to read.
-func (s *shard) GetDiffsForVersions(
-	// The first version to include (inclusive).
-	firstVersion uint64,
-	// The last version to include (exclusive).
-	lastVersion uint64,
-) ([]map[string][]byte, error) {
-
-	if firstVersion > lastVersion {
-		return nil, fmt.Errorf("firstVersion (%d) must be less than or equal to lastVersion (%d)",
-			firstVersion, lastVersion)
+// MaterializeSortedDiff turns a sealed version's writes into entries ordered by key, replacing the map
+// they were accumulated in, and publishes them to everything waiting on that version. It returns once
+// they are published, and does nothing for a version already materialized.
+//
+// This is the single place a sealed diff is produced: the flush, hashing, and retirement all read the
+// result rather than the map.
+func (s *shard) MaterializeSortedDiff(version uint64) error {
+	// A sealed version keeps being written to while its folds resolve, so it can be materialized only
+	// once its latch has opened.
+	if err := s.awaitVersionFoldsUnlocked(version); err != nil {
+		return fmt.Errorf("await version %d before materializing its diff: %w", version, err)
 	}
 
-	// Awaited before the lock is taken, not after: a sealed version's diff keeps being written to
-	// while its folds resolve, so it is frozen only once its latch has opened. This is the single
-	// place the diff consumers — hashing, flushing, and the retirement that follows a flush — reach
-	// a version's values, which is why the wait belongs here rather than at each of them.
-	for version := firstVersion; version < lastVersion; version++ {
-		if err := s.awaitVersionFoldsUnlocked(version); err != nil {
-			return nil, fmt.Errorf("await version %d before reading its diff: %w", version, err)
-		}
+	handle, diff, err := s.claimDiffToMaterialize(version)
+	if err != nil {
+		return err
+	}
+	if diff == nil {
+		// Claimed by another caller. Waited on rather than returned from, so that this reports what it
+		// promises: when it returns, the version's diff is published, whoever ordered it.
+		_, err := s.SortedDiff(version)
+		return err
 	}
 
-	// A read lock suffices, and it matters: sort jobs for different versions call this concurrently.
-	// Nothing here mutates the shard, and the maps handed back are frozen — a version whose latch has
-	// opened gains no further writes.
+	// Ordered outside the lock. The map is private to this call once claimed — it has left
+	// versionDiffs and the latch guarantees no writer remains — so the only work the lock covers is
+	// publishing the result.
+	entries := make([]Write, 0, len(diff))
+	for key, value := range diff {
+		entries = append(entries, Write{Key: key, Value: value})
+	}
+	// Ordering is what makes the diff cheap for pebble to absorb: its memtable is a skiplist that caches
+	// the splice it last inserted at, which map order defeated. Bytewise, to match pebble's default
+	// comparer, since that is what decides whether it ascends as far as the memtable is concerned.
+	slices.SortFunc(entries, func(a Write, b Write) int {
+		return strings.Compare(a.Key, b.Key)
+	})
+
+	s.lock.Lock()
+	handle.entries = entries
+	s.lock.Unlock()
+	close(handle.done)
+
+	return nil
+}
+
+// claimDiffToMaterialize takes a sealed version's diff map out of the shard for the caller to order,
+// returning the handle to publish the result on. A nil map means the version needs no freezing because
+// another caller has already claimed it.
+func (s *shard) claimDiffToMaterialize(version uint64) (*sealedDiff, map[string][]byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if version >= s.currentVersion {
+		return nil, nil, fmt.Errorf("version (%d) must be less than the current version (%d) to be "+
+			"materialized", version, s.currentVersion)
+	}
+	handle, sealed := s.sealedDiffs[version]
+	if !sealed {
+		return nil, nil, fmt.Errorf("version (%d) is no longer tracked and cannot be materialized", version)
+	}
+
+	diff, unmaterialized := s.versionDiffs[version]
+	if !unmaterialized {
+		return handle, nil, nil
+	}
+	delete(s.versionDiffs, version)
+	return handle, diff, nil
+}
+
+// SortedDiff returns a sealed version's writes ordered by key, waiting for them to be materialized if
+// that has not happened yet. The returned entries must not be mutated, but are otherwise thread safe to read.
+func (s *shard) SortedDiff(version uint64) ([]Write, error) {
+	s.lock.RLock()
+	handle, sealed := s.sealedDiffs[version]
+	s.lock.RUnlock()
+	if !sealed {
+		return nil, fmt.Errorf("version (%d) is not a sealed version of this shard", version)
+	}
+
+	select {
+	case <-handle.done:
+	case <-s.ctx.Done():
+		return nil, fmt.Errorf("view manager shut down while awaiting the diff at version %d: %w",
+			version, s.shutdownError())
+	}
+
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-
-	if firstVersion < s.oldestVersion {
-		return nil, fmt.Errorf("firstVersion (%d) must be greater than or equal to the oldest version (%d)",
-			firstVersion, s.oldestVersion)
-	}
-	if lastVersion > s.currentVersion {
-		return nil, fmt.Errorf("lastVersion (%d) must be less than or equal to the current version (%d)",
-			lastVersion, s.currentVersion)
-	}
-
-	diffs := make([]map[string][]byte, 0, lastVersion-firstVersion)
-	for v := firstVersion; v < lastVersion; v++ {
-		diffs = append(diffs, s.versionDiffs[v])
-	}
-	return diffs, nil
+	return handle.entries, nil
 }
 
 // MaterializeCurrentOverrides returns the in-memory overrides in this shard at the current version
@@ -1058,6 +1155,15 @@ func (s *shard) DropVersions(
 			firstVersion, lastVersion)
 	}
 
+	// Retirement reads the diffs, so it materializes the versions it is about to drop rather than
+	// trusting that a flush already did. An already materialized version makes this a no-op, which is
+	// the production case; it cannot happen under the lock below, because materializing waits for folds.
+	for version := firstVersion; version < lastVersion; version++ {
+		if err := s.MaterializeSortedDiff(version); err != nil {
+			return fmt.Errorf("materialize version %d before retiring it: %w", version, err)
+		}
+	}
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -1081,45 +1187,52 @@ func (s *shard) DropVersions(
 		}
 	}
 
-	// Combine the data from all versions being dropped.
-	var combinedData map[string][]byte
-	if firstVersion == lastVersion-1 {
-		// single version
-		combinedData = s.versionDiffs[firstVersion]
-	} else {
-		// range of versions
-		combinedData = make(map[string][]byte)
-		for version := firstVersion; version < lastVersion; version++ {
-			for k, value := range s.versionDiffs[version] {
-				combinedData[k] = value
+	// Gather the diffs oldest version first. The cache insert below replays them in that order, so a
+	// key written in several retiring versions ends up holding the newest of those values — which is
+	// what combining them into one map used to do.
+	diffs := make([][]Write, 0, lastVersion-firstVersion)
+	for version := firstVersion; version < lastVersion; version++ {
+		handle, sealed := s.sealedDiffs[version]
+		if !sealed {
+			return fmt.Errorf("version %d is not a sealed version and cannot be retired", version)
+		}
+		select {
+		case <-handle.done:
+		default:
+			// The materialize above covers this, so reaching it means the lifecycle is broken. Carrying on
+			// would retire keys whose values never reached the read cache: an unmaterialized version's diff
+			// is empty, and an empty diff is indistinguishable from a version that wrote nothing.
+			return fmt.Errorf("version %d was not materialized and cannot be retired", version)
+		}
+		diffs = append(diffs, handle.entries)
+		delete(s.sealedDiffs, version)
+	}
+
+	// Clean up the versioned data map. A key written in more than one retiring version is visited
+	// once per diff, and the trim is idempotent, so the repeat costs a lookup and finds nothing to do.
+	for _, diff := range diffs {
+		for _, entry := range diff {
+			deque, tracked := s.versionedData[entry.Key]
+			if !tracked {
+				continue
+			}
+			for !deque.IsEmpty() {
+				next := deque.PeekFront()
+				if next.version >= lastVersion {
+					break
+				}
+				deque.PopFront()
+			}
+			if deque.IsEmpty() {
+				delete(s.versionedData, entry.Key)
 			}
 		}
 	}
 
-	// Drop the version diffs that we will no longer need.
-	for v := firstVersion; v < lastVersion; v++ {
-		delete(s.versionDiffs, v)
-	}
-
-	// Clean up the versioned data map.
-	for k := range combinedData {
-		deque := s.versionedData[k]
-		for !deque.IsEmpty() {
-			next := deque.PeekFront()
-			if next.version >= lastVersion {
-				break
-			}
-			deque.PopFront()
-		}
-		if deque.IsEmpty() {
-			delete(s.versionedData, k)
-		}
-	}
-
-	// Push the combined data down into the read cache, still under the same lock grab, so
+	// Push the retired data down into the read cache, still under the same lock grab, so
 	// readers never observe an intermediate state between the deque cleanup and the cache
 	// insert.
-	retireErr := s.cache.PutRetiredWLocked(combinedData)
+	retireErr := s.cache.PutRetiredWLocked(diffs)
 
 	// Advanced even when the insert reported a failure: the keys have already moved into the cache, so
 	// leaving oldestVersion behind would describe a migration that did not happen.

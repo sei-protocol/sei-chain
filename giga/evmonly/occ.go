@@ -250,7 +250,7 @@ func (e *Executor) executeTxSpeculative(
 		txIndexUint,
 		baseFee,
 	)
-	readSet, writeSet := stateDB.accessSets()
+	readSet, writeSet := stateDB.takeAccessSets()
 	result := occTxExecution{
 		txResult:                 txResult,
 		receipt:                  receipt,

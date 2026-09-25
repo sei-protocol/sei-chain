@@ -73,7 +73,6 @@ func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
 	require.NoError(t, wal.Write(block, changesets))
-	require.NoError(t, wal.SignalEndOfBlock())
 	require.NoError(t, wal.Flush())
 }
 
@@ -158,8 +157,14 @@ func closeReceiptDB(t *testing.T, manager *GigaStorageManager) {
 // snapshotSCAt commits block height so SC snapshots it, leaving a snapshot a later rollback can rewind
 // to. A BlockInterval of 1 makes every offered version a boundary, and the snapshot is written off the
 // commit path, so it has to be waited for.
+//
+// The blocks committed before this are flushed through the writer first. A block is offered to the
+// writer on commit but asked about on the writer's goroutine, against whichever schedule is installed
+// when it gets there, so one still queued when the every-block schedule goes in would be snapshotted
+// too.
 func snapshotSCAt(t *testing.T, manager *GigaStorageManager, height byte) {
 	t.Helper()
+	require.NoError(t, manager.SC().FlushSnapshots())
 	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1}))
 	require.NoError(t, manager.StateDB().CommitStateChanges(int64(height), evmBlock(height, height)))
 	require.NoError(t, manager.SC().FlushSnapshots())
@@ -235,7 +240,11 @@ func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
 func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
-	require.NoError(t, manager.ReceiptDB().SetLatestVersion(3))
+	// The version marker rides SetReceipts, so it is off the store's interface; this test stamps a
+	// head without bodies on purpose.
+	pinner, ok := manager.ReceiptDB().(receipt.VersionPinner)
+	require.True(t, ok)
+	require.NoError(t, pinner.SetLatestVersion(3))
 	// findTargetRecoveryHeight reads the state and receipt directories offline, so both stores have
 	// to be closed for it.
 	closeStateDB(t, manager)

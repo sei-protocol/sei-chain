@@ -177,7 +177,7 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	require.Contains(t, stdout.String(), "sei-load is not running")
 	require.Contains(t, commands, ebsRootMapping(defaultVolumeSizeGiB, defaultVolumeIOPS, defaultVolumeThroughputMB))
 	require.Contains(t, commands, ebsRootMapping(defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB))
-	require.Contains(t, commands, "AUTOBAHN_EVMONLY=true")
+	require.Contains(t, commands, "AUTOBAHN=true")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
 	require.Contains(t, commands, "curl -fsS -o /dev/null http://127.0.0.1:3000/api/health")
 	require.Equal(t, awsTopologyDistributed, state.AWS.Topology)

@@ -101,7 +101,10 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers)
+	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
+		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	}
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
@@ -120,6 +123,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 		return nil, err
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
+	recordTxExecutionStats(ctx, result.Txs)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err

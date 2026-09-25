@@ -7,7 +7,6 @@ VALIDATOR=${VALIDATOR:-true}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
 GIGA_OCC=${GIGA_OCC:-true}
 AUTOBAHN=${AUTOBAHN:-false}
-AUTOBAHN_EVMONLY=${AUTOBAHN_EVMONLY:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 # GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3
 # steady state: all SC writes route to FlatKV and memiavl is not allocated.
@@ -173,17 +172,14 @@ if [ "$AUTOBAHN" = "true" ]; then
     NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
   done
 
-  if [ "$AUTOBAHN_EVMONLY" = "true" ]; then
-    seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
-    sed -i 's/^evm-only = .*/evm-only = true/' ~/.sei/config/config.toml
-    sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
-    sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-    sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-    sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-    echo "Enabled Autobahn EVM-only execution with transaction submission and receipt RPC for node $NODE_ID"
-  else
-    seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
-  fi
+  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+  # Autobahn serves the EVM JSON-RPC only: clear the Tendermint RPC and Cosmos
+  # query surfaces it does not serve.
+  sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
+  sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+  sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+  sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+  echo "Enabled Autobahn for node $NODE_ID (EVM JSON-RPC only)"
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

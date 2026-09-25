@@ -3,6 +3,7 @@ package blockstore_test
 import (
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -73,6 +74,7 @@ func testCollectorEmptyStore(t *testing.T, build collectorBuilder) {
 	require.NoError(t, db.PruneHistory(1_000))
 	require.NoError(t, db.PruneSnapshots(1_000))
 	require.Equal(t, uint64(0), uint64(db.First()), "a prune before the first write must not move the floor")
+	require.Equal(t, int64(0), gatherPruneWatermark(t), "New on an empty store seeds prune_watermark at 0")
 }
 
 func testCollectorLatestBlock(t *testing.T, build collectorBuilder) {
@@ -119,6 +121,7 @@ func testCollectorPruneHistory(t *testing.T, build collectorBuilder) {
 	// capped so the store never empties.
 	require.NoError(t, db.PruneHistory(uint64(batches[1].first)))
 	require.Equal(t, batches[1].first, db.First())
+	require.Equal(t, int64(db.First()), gatherPruneWatermark(t), "prune_watermark tracks the clamped BlockDB floor")
 }
 
 func testCollectorPruneSnapshots(t *testing.T, build collectorBuilder) {
@@ -134,4 +137,21 @@ func testCollectorPruneSnapshots(t *testing.T, build collectorBuilder) {
 	// does nothing. It is still called every cycle.
 	require.NoError(t, db.PruneSnapshots(uint64(batches[1].first)))
 	require.Equal(t, uint64(0), uint64(db.First()), "a snapshot prune must not move the history floor")
+}
+
+func gatherPruneWatermark(t *testing.T) int64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	const name = "tendermint_autobahn_blockstore_prune_watermark"
+	for _, fam := range families {
+		if fam.GetName() != name {
+			continue
+		}
+		metrics := fam.GetMetric()
+		require.Len(t, metrics, 1, name)
+		return int64(metrics[0].GetGauge().GetValue())
+	}
+	t.Fatalf("%s not registered", name)
+	return 0
 }

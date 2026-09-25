@@ -4,12 +4,14 @@ package auth
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
+	authv67 "github.com/sei-protocol/sei-chain/precompiles/auth/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
+		"v6.7":        check(authv67.NewPrecompile(keepers)),
 	}
 }
 

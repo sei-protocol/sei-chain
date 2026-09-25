@@ -15,7 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -434,7 +436,9 @@ func initAppConfig() (string, interface{}) {
 		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		gigaconfig.ConfigTemplate +
+		giganodeconfig.ConfigTemplate +
 		admin.ConfigTemplate +
+		cosmosmetrics.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###

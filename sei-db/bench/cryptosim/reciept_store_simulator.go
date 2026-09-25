@@ -235,25 +235,21 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 		r.metrics.ReportReceiptError()
 	}
 
-	if len(records) > 0 {
-		sdkCtx := sdk.NewContext(nil, tmproto.Header{Height: int64(blockNumber)}, false) //nolint:gosec
+	// Every block is written, including one that produced no receipts: the store records each block
+	// it is given so a walk can position at any of them, and refuses a write that skips one.
+	sdkCtx := sdk.NewContext(nil, tmproto.Header{Height: int64(blockNumber)}, false) //nolint:gosec
 
-		start := time.Now()
-		if err := r.store.SetReceipts(sdkCtx, records); err != nil {
-			fmt.Printf("failed to write receipts for block %d: %v\n", blockNumber, err)
-			r.metrics.ReportReceiptError()
-			return
-		}
-		r.metrics.RecordReceiptBlockWriteDuration(time.Since(start))
-		r.metrics.ReportReceiptsWritten(int64(len(records)))
+	start := time.Now()
+	if err := r.store.SetReceipts(sdkCtx, records); err != nil {
+		fmt.Printf("failed to write receipts for block %d: %v\n", blockNumber, err)
+		r.metrics.ReportReceiptError()
+		return
 	}
+	r.metrics.RecordReceiptBlockWriteDuration(time.Since(start))
+	r.metrics.ReportReceiptsWritten(int64(len(records)))
 
 	for _, entry := range ringEntries {
 		r.txRing.Push(entry.txHash, blockNumber, entry.contractAddress)
-	}
-
-	if err := r.store.SetLatestVersion(int64(blockNumber)); err != nil { //nolint:gosec
-		fmt.Printf("failed to update latest version for block %d: %v\n", blockNumber, err)
 	}
 }
 
@@ -421,7 +417,7 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(crand *crand.CannedRandom) 
 }
 
 // convertLogsForTx converts evmtypes.Log entries to ethtypes.Log entries.
-// Mirrors receipt.getLogsForTx.
+// Mirrors receipt.LogsForTx.
 func convertLogsForTx(rcpt *evmtypes.Receipt, logStartIndex uint) []*ethtypes.Log {
 	logs := make([]*ethtypes.Log, 0, len(rcpt.Logs))
 	for _, l := range rcpt.Logs {

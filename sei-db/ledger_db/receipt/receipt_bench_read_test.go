@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -271,6 +272,10 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 		if err := store.SetReceipts(ctx.WithBlockHeight(int64(blockNumber)), batch); err != nil {
 			b.Fatalf("failed to write block %d: %v", blockNumber, err)
 		}
+		// Seeding outruns the writer, so wait for the block to be published before the next one.
+		for store.LatestVersion() < int64(blockNumber) { //nolint:gosec // small test heights
+			time.Sleep(time.Millisecond)
+		}
 		seed += uint64(receiptsPerBlock)
 
 		if (block+1)%logInterval == 0 {
@@ -336,7 +341,7 @@ func pebbleFilterLogs(
 				}
 			}
 
-			txLogs := getLogsForTx(receipt, logStartIndex)
+			txLogs := LogsForTx(receipt, logStartIndex)
 			logStartIndex += uint(len(txLogs))
 			for _, lg := range txLogs {
 				if ethbloom.MatchesCriteria(lg, crit) {
@@ -441,7 +446,7 @@ func makeDiverseReceiptBatch(
 			},
 		}
 
-		txBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: getLogsForTx(receipt, 0)})
+		txBloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: LogsForTx(receipt, 0)})
 		receipt.LogsBloom = txBloom.Bytes()
 		for j := range blockBloom {
 			blockBloom[j] |= txBloom[j]

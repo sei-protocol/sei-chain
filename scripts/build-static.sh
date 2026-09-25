@@ -11,10 +11,10 @@
 # Output is build/seid-<arch>, so the two architectures do not overwrite each other.
 #
 # Ubuntu's musl-gcc can't fully static-link on 24.04 (glibc libgcc needs _dl_find_object,
-# absent in musl) and zig cc rejects the -z muldefs flag needed for the libwasmvm
-# v152/v155 archives; Alpine's GNU ld + musl links cleanly. The pinned golang image
-# digest is a multi-arch index, so the same pin serves both targets. Building a
-# non-native architecture needs binfmt registered on the host.
+# absent in musl); Alpine's GNU ld + musl links cleanly. The golang image is pinned per
+# architecture, to the two platform children of one index, so a release that builds both
+# on a single runner addresses them by distinct references. Building a non-native
+# architecture needs binfmt registered on the host.
 #
 # The link takes libgcc from third_party/alpine-gcc10-libgcc/<arch> instead of the build
 # image's toolchain: gcc >= 12's unwind-frame registry (a lock-free b-tree) corrupts
@@ -39,20 +39,36 @@ OUT="build/seid-$ARCH"
 
 # The checksums and the -L directory are both derived from $LIBGCC_ARCH above, so a
 # build cannot verify one architecture's archives while linking another's.
+# GO_IMAGE is pinned per architecture, to the platform children of the
+# golang:1.27.1-alpine index sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125.
+# It must NOT be collapsed back to one `tag@index-digest` ref with --platform selecting the
+# platform: the release runs both architectures on one runner, and the second `docker run`
+# then tries to rebind the same reference to different content, which the classic image
+# store refuses with `cannot overwrite digest`, exiting 125 and failing the whole release.
 case "$LIBGCC_ARCH" in
   x86_64)
     LIBGCC_SHA=d3e066fafde74d53a89d48f2ceb9ed9934249a5d450e281edd22947a829469d8
     LIBGCC_EH_SHA=d14c9973a735909e11a863b0c850300bfd3aa683ef4689cbe76a53139766ed79
+    GO_IMAGE=golang@sha256:f86f1a6701e3dcc445fec097a42f78b758f15950ccf032c2d3e54e2754d32fdb
     ;;
   aarch64)
     LIBGCC_SHA=119d1714e0a2b47e1d829d0e92dc3ab51a25e1778f67ed43d2e6c87469573cc2
     LIBGCC_EH_SHA=2963a26e62a46ee283c5463ebaad176ddf74b6a049850df833cee5f333ca57a9
+    GO_IMAGE=golang@sha256:df4c4a0eeb85873e0122c6e2eb1b436f3131576f572505c1ea61954b00fa6460
     ;;
 esac
 
-echo "build-static: target linux/$ARCH, libgcc pin $LIBGCC_DIR"
+# Both architectures build with the Go version go.mod declares, whatever their image
+# ships, the same way offline-upgrade-test.sh and release-upgrade-test.sh pin theirs.
+# GOTOOLCHAIN defaults to auto and auto never downgrades, so without this an image
+# carrying a newer Go than the directive would silently win, and the two GO_IMAGE pins
+# above could drift onto different compilers without anything noticing.
+GO_TOOLCHAIN="$(bash "$(dirname "$0")/go-toolchain.sh")"
 
-docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 sh -c '
+echo "build-static: target linux/$ARCH, libgcc pin $LIBGCC_DIR, toolchain $GO_TOOLCHAIN"
+
+docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src \
+  -e "GOTOOLCHAIN=$GO_TOOLCHAIN" "$GO_IMAGE" sh -c '
   set -e
   apk add --no-cache build-base git
   git config --global --add safe.directory /src

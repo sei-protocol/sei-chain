@@ -11,12 +11,12 @@ import (
 
 func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
-	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cw20 := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 1)
 	tx3Data := send(0)
 	signedTx3 := signTxWithMnemonic(send(0), mnemonic1)
 	tx3 := encodeEvmTx(tx3Data, signedTx3)
-	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
 			// if eth_, the first tx should be tx3 since both tx1 and tx2 are non-EVM.
 			res := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x0")
@@ -29,12 +29,12 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 
 func TestGetTransactionByHash(t *testing.T) {
 	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
-	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cw20 := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 1)
 	tx3Data := send(0)
 	signedTx3 := signTxWithMnemonic(send(0), mnemonic1)
 	tx3 := encodeEvmTx(tx3Data, signedTx3)
-	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
 			// if eth_, the first tx should be tx3 since both tx1 and tx2 are non-EVM.
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx3.Hash().Hex())

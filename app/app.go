@@ -11,7 +11,6 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +29,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/admin"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -98,8 +98,6 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
@@ -161,8 +159,6 @@ import (
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
-	// unnamed import of statik for openapi/swagger UI support
-	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
@@ -441,6 +437,7 @@ type App struct {
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
+	cosmosMetrics         *cosmosmetrics.Reporter
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -626,7 +623,6 @@ func New(
 	supportedFeatures := "iterator,staking,stargate,sei"
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
-			&app.OracleKeeper,
 			&app.EpochKeeper,
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
@@ -717,6 +713,21 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
 	}
+	cosmosMetricsConfig, err := cosmosmetrics.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading cosmos metrics config due to %s", err))
+	}
+	if cosmosMetricsConfig.Enabled {
+		app.cosmosMetrics, err = cosmosmetrics.NewReporter(cosmosMetricsConfig, cosmosmetrics.Keepers{
+			Staking:      app.StakingKeeper,
+			Slashing:     app.SlashingKeeper,
+			Distribution: app.DistrKeeper,
+			Bank:         app.BankKeeper,
+		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) })
+		if err != nil {
+			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))
+		}
+	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading evm query config due to %s", err))
@@ -789,7 +800,7 @@ func New(
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
+		AddRoute(evmtypes.RouterKey, evm.ProposalHandler)
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
@@ -999,6 +1010,12 @@ func New(
 		panic(err)
 	}
 
+	if app.cosmosMetrics != nil {
+		if err := app.cosmosMetrics.Start(); err != nil {
+			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))
+		}
+	}
+
 	// Create hard fork manager and register all hard fork upgrade handlers. Note,
 	// when creating the manager, BaseApp must already be instantiated.
 	//
@@ -1019,7 +1036,15 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 	return app.EvmKeeper.FlushTransientReceipts(ctx)
 }
 
-// Close closes all items that needs closing (called by baseapp)
+// Close stops readers of committed state before baseapp closes the stores.
+func (app *App) Close() error {
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.Stop()
+	}
+	return app.BaseApp.Close()
+}
+
+// HandleClose closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
 
@@ -1321,7 +1346,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
+			resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1351,7 +1376,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
+	resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -1763,6 +1788,14 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
+// flushCommittedStateForUpgradeExit waits for the last committed block to reach
+// every backend's log before the process exits for an upgrade.
+func (app *App) flushCommittedStateForUpgradeExit() {
+	if err := app.rootStore.Flush(); err != nil {
+		logger.Error("failed to flush commit store before upgrade exit", "err", err)
+	}
+}
+
 // ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
@@ -1774,6 +1807,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
 			if upgradePanicRe.MatchString(panicMsg) {
 				logger.Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				app.flushCommittedStateForUpgradeExit()
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
 			stack := string(debug.Stack())
@@ -2312,6 +2346,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 }
 
 func (app *App) getFinalizeBlockResponse(
+	ctx context.Context,
 	appHash []byte,
 	events []abci.Event,
 	txResults []*abci.ExecTxResult,
@@ -2320,6 +2355,9 @@ func (app *App) getFinalizeBlockResponse(
 ) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
+	}
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.ObserveTxResults(ctx, txResults)
 	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
@@ -2485,11 +2523,6 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
 
-	// register swagger API from root so that other applications can override easily
-	if apiConfig.Swagger {
-		RegisterSwaggerAPI(apiSvr.Router)
-	}
-
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
@@ -2577,7 +2610,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	headNotifier, _ := app.blockHeaderNotifier.Get()
-	if app.evmRPCConfig.HTTPEnabled {
+	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
+	// the same 8545 once Initialized fires (mock-app forwards InitChain).
+	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
 		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
@@ -2591,7 +2626,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}()
 	}
 
-	if app.evmRPCConfig.WSEnabled {
+	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
 		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
@@ -2614,17 +2649,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	} else {
 		logger.Debug("Admin gRPC server is disabled")
 	}
-}
-
-// RegisterSwaggerAPI registers swagger route with API Server
-func RegisterSwaggerAPI(rtr *mux.Router) {
-	statikFS, err := fs.NewWithNamespace("swagger")
-	if err != nil {
-		panic(err)
-	}
-
-	staticServer := http.FileServer(statikFS)
-	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of

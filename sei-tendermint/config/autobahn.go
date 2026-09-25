@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -60,19 +61,29 @@ type AutobahnBlockDBConfig struct {
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
-	Validators         []AutobahnValidator  `json:"validators"`
-	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
-	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
-	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
-	BlockInterval      utils.Duration       `json:"block_interval"`
-	ViewTimeout        utils.Duration       `json:"view_timeout"`
-	PersistentStateDir utils.Option[string] `json:"persistent_state_dir,omitzero"`
-	DialInterval       utils.Duration       `json:"dial_interval"`
+	Validators       []AutobahnValidator  `json:"validators"`
+	MaxTxsPerBlock   uint64               `json:"max_txs_per_block"`
+	MaxTxsPerSecond  utils.Option[uint64] `json:"max_txs_per_second"`
+	AllowEmptyBlocks bool                 `json:"allow_empty_blocks"`
+	BlockInterval    utils.Duration       `json:"block_interval"`
+	ViewTimeout      utils.Duration       `json:"view_timeout"`
+	// PersistentStateDir is the on-disk root for Autobahn's durable state
+	// (Giga storage, BlockDB, hashvault, epoch snapshots, and the validator's
+	// consensus persister, each in a subdirectory). A relative path is
+	// resolved against the node's home dir. Required: every Autobahn node
+	// runs on on-disk storage.
+	PersistentStateDir string         `json:"persistent_state_dir"`
+	DialInterval       utils.Duration `json:"dial_interval"`
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
+	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
+	// runs concurrently for incoming broadcast_tx requests, so that ingest
+	// cannot starve the consensus and data loops of CPU.
+	// Absent ⇒ half of GOMAXPROCS (at least 1).
+	MaxConcurrentCheckTx utils.Option[uint64] `json:"max_concurrent_check_tx,omitzero"`
 	// Whether validators proxy mempool EVM RPC requests to the validator
 	// handling a given shard of addresses.
 	// No-op on fullnodes: they do not have a local mempool, so EVM RPC
@@ -80,14 +91,13 @@ type AutobahnFileConfig struct {
 	// Useful for loadtesting (to compare enabled/disabled performance).
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
-	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
-	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
-	// (see AutobahnBlockDBConfig for field semantics). Ignored when
-	// PersistentStateDir is absent (memblock). Omitted from JSON when empty.
+	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig.
+	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
+	// for field semantics). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 }
 
-// AutobahnEVMOnlyChainID is the chain ID of the test-only EVM executor.
+// AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
 const AutobahnEVMOnlyChainID uint64 = 713715
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
@@ -125,6 +135,12 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")
+	}
+	if v, ok := fc.MaxConcurrentCheckTx.Get(); ok && (v == 0 || v > math.MaxInt32) {
+		return fmt.Errorf("max_concurrent_check_tx must be in 1..%d when set", math.MaxInt32)
+	}
+	if fc.PersistentStateDir == "" {
+		return errors.New("persistent_state_dir must not be empty")
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)

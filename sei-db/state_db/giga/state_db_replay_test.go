@@ -13,6 +13,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// SS keeps no changelog of its own under giga, the state WAL being what catchUpTo replays into it.
+// The absence is pinned here rather than left to the config, since recovery rests on it.
+func TestGigaOpensSSWithoutAChangelog(t *testing.T) {
+	newStateDB := func(t *testing.T) *StateDB {
+		t.Helper()
+		ssCfg := config.DefaultStateStoreConfig()
+		ssCfg.Enable = true
+		ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+		return &StateDB{
+			flatkvCfg: flatkvconfig.DefaultTestConfig(t),
+			// As the constructors settle it, which is what makes both paths below agree.
+			ssCfg: stateStoreConfigFor(ssCfg),
+		}
+	}
+
+	t.Run("opened to commit", func(t *testing.T) {
+		s := newStateDB(t)
+		require.NoError(t, s.openSS())
+		t.Cleanup(func() { _ = s.ss.Close() })
+		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
+	})
+
+	// The rollback path opens the same databases through DiscardStateAbove rather than openSS, so a
+	// config settled per-open would miss it. StoredVersions opens nothing when the directory is
+	// absent, so the store has to exist first.
+	t.Run("opened to roll back", func(t *testing.T) {
+		s := newStateDB(t)
+		require.NoError(t, s.openSS())
+		require.NoError(t, s.ss.Close())
+
+		require.NoError(t, s.discardStateAbove(storedWALRange{first: 1, last: 9}, 7))
+		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
+	})
+}
+
+// TestStateStoreConfigForDisablesTheInternalWAL pins what the constructors apply, every path that
+// opens SS reading the config they settled rather than disabling the log for itself.
+func TestStateStoreConfigForDisablesTheInternalWAL(t *testing.T) {
+	handedIn := config.DefaultStateStoreConfig()
+	require.False(t, handedIn.DisableInternalWAL, "a caller is not expected to have set it")
+	require.True(t, stateStoreConfigFor(handedIn).DisableInternalWAL)
+}
+
+func requireNoSSChangelog(t *testing.T, evmDBDirectory string) {
+	t.Helper()
+	changelog := utils.GetChangelogPath(evmDBDirectory)
+	_, err := os.Stat(changelog)
+	require.True(t, os.IsNotExist(err),
+		"SS must keep no changelog under giga; found one at %s", changelog)
+}
+
 // A node that keeps no EVM state store never reaches it, so nothing probes a store it does not have.
 // The directory is one an earlier run with SS on could have left, and the WAL reaches block 1, so a
 // rollback that read it would come back with a rewind to run.

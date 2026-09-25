@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -20,6 +19,8 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -72,23 +73,38 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 		_, _ = ts.app.Commit(context.Background())
 		ts.mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
-	pinStateStoreLatestVersion(ts.app, ts.ctxProvider)
+	settleCommittedBlocks(ts.app, ts.ctxProvider)
 }
 
-// pinStateStoreLatestVersion advances the state store's latest version to the app's
-// committed height so the RPC watermark does not lag behind the asynchronous SS writer.
-func pinStateStoreLatestVersion(a *app.App, ctxProvider func(int64) sdk.Context) {
-	stateStore := a.GetStateStore()
-	if stateStore == nil {
-		return
-	}
+// settleCommittedBlocks blocks until the state store and receipt store have applied every block the
+// app has committed. Both apply writes in the background, so a query served from either right after
+// Commit would otherwise read state that is not there yet.
+func settleCommittedBlocks(a *app.App, ctxProvider func(int64) sdk.Context) {
 	latest := ctxProvider(evmrpc.LatestCtxHeight).BlockHeight()
-	if stateStore.GetLatestVersion() < latest {
-		if err := stateStore.SetLatestVersion(latest); err != nil {
-			panic(err)
+	if stateStore := a.GetStateStore(); stateStore != nil {
+		if w, ok := stateStore.(dbtypes.PendingWriteWaiter); ok {
+			w.WaitForPendingWrites()
+		}
+		if stateStore.GetLatestVersion() < latest {
+			if err := stateStore.SetLatestVersion(latest); err != nil {
+				panic(err)
+			}
+		}
+	}
+	if store := a.EvmKeeper.ReceiptStore(); store != nil {
+		deadline := time.Now().Add(receiptSettleTimeout)
+		for store.LatestVersion() < latest {
+			if time.Now().After(deadline) {
+				panic(fmt.Sprintf("receipt store still at version %d after committing height %d", store.LatestVersion(), latest))
+			}
+			time.Sleep(time.Millisecond)
 		}
 	}
 }
+
+// receiptSettleTimeout bounds how long settleCommittedBlocks waits for the receipt writer, which
+// otherwise has no failure signal a caller can observe short of the package test timeout.
+const receiptSettleTimeout = 30 * time.Second
 
 func initializeApp(
 	t *testing.T,
@@ -185,13 +201,12 @@ func setupTestServer(
 	if err != nil {
 		panic(err)
 	}
-	pinStateStoreLatestVersion(a, ctxProvider)
+	settleCommittedBlocks(a, ctxProvider)
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
-		latest := int64(math.MaxInt64)
-		if err := store.SetLatestVersion(latest); err != nil {
+		// These tests seed receipts by other means and would otherwise read against an unset window.
+		if err := receipt.PinVersions(store, 1, store.LatestVersion()); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1)
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a, ctxProvider: ctxProvider}
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // This file pins one property: an iterator serves the manager's state as of the instant it was
@@ -75,9 +74,9 @@ func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("d"), []byte("4")), "adding a key")
 	require.NoError(t, manager.Set([]byte("a"), []byte("clobbered")), "overwriting a key")
 	require.NoError(t, manager.Delete([]byte("b")), "deleting a key")
-	require.NoError(t, manager.BatchSet([]*proto.KVPair{
-		{Key: []byte("e"), Value: []byte("5")},
-		{Key: []byte("c"), Delete: true},
+	require.NoError(t, manager.BatchSet([]Write{
+		{Key: "e", Value: []byte("5")},
+		{Key: "c"},
 	}), "a batch mixing a write and a delete")
 
 	require.Equal(t, sortedPairs(map[string]string{"a": "1", "b": "2", "c": "3"}), collectIterator(t, it),
@@ -320,13 +319,13 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 
 	// Keys chosen to span shards; the batch is atomic from the writer's point of view, so a reader
 	// must see all of it or none of it.
-	batch := make([]*proto.KVPair, 0, 32)
+	batch := make([]Write, 0, 32)
 	before := make(map[string]string, 32)
 	after := make(map[string]string, 32)
 	for i := 0; i < 32; i++ {
 		key := fmt.Sprintf("spread-%02d", i)
 		require.NoError(t, manager.Set([]byte(key), []byte("before")))
-		batch = append(batch, &proto.KVPair{Key: []byte(key), Value: []byte("after")})
+		batch = append(batch, Write{Key: key, Value: []byte("after")})
 		before[key] = "before"
 		after[key] = "after"
 	}
@@ -367,10 +366,10 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 }
 
 // revert turns a write batch into one that restores the "before" value for the same keys.
-func revert(batch []*proto.KVPair) []*proto.KVPair {
-	out := make([]*proto.KVPair, 0, len(batch))
+func revert(batch []Write) []Write {
+	out := make([]Write, 0, len(batch))
 	for _, pair := range batch {
-		out = append(out, &proto.KVPair{Key: pair.Key, Value: []byte("before")})
+		out = append(out, Write{Key: pair.Key, Value: []byte("before")})
 	}
 	return out
 }

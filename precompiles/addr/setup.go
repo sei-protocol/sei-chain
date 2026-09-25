@@ -4,44 +4,16 @@ package addr
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	addrv552 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v552"
-	addrv555 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v555"
-	addrv562 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v562"
-	addrv575 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v575"
-	addrv600 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v600"
-	addrv601 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v601"
-	addrv603 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v603"
-	addrv605 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v605"
-	addrv606 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v606"
-	addrv610 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v610"
-	addrv614 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v614"
-	addrv620 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v620"
-	addrv630 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v630"
-	addrv640 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v640"
-	addrv65 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v65"
 	addrv66 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v66"
+	addrv67 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(addrv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(addrv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(addrv562.NewPrecompile(keepers)),
-		"v5.7.5":      check(addrv575.NewPrecompile(keepers)),
-		"v6.0.0":      check(addrv600.NewPrecompile(keepers)),
-		"v6.0.1":      check(addrv601.NewPrecompile(keepers)),
-		"v6.0.3":      check(addrv603.NewPrecompile(keepers)),
-		"v6.0.5":      check(addrv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(addrv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(addrv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(addrv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(addrv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(addrv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(addrv640.NewPrecompile(keepers)),
-		"v6.5":        check(addrv65.NewPrecompile(keepers)),
 		"v6.6":        check(addrv66.NewPrecompile(keepers)),
+		"v6.7":        check(addrv67.NewPrecompile(keepers)),
 	}
 }
 

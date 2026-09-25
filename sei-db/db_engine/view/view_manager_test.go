@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func TestNewViewManagerValid(t *testing.T) {
@@ -54,7 +53,7 @@ func TestNewViewManagerRejectsInvalidConfig(t *testing.T) {
 	c.ShardCount = 3 // invalid: not a power of two
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
-	_, err := NewViewManager(c, newTestDB(nil), pool, pool)
+	_, err := NewViewManager(c, newTestDB(nil), pool, pool, pool)
 	require.Error(t, err)
 }
 
@@ -107,10 +106,10 @@ func TestManagerGetPropagatesDBError(t *testing.T) {
 
 func TestManagerBatchSetThenBatchGet(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 4, 1<<20)
-	require.NoError(t, manager.BatchSet([]*proto.KVPair{
-		{Key: []byte("a"), Value: []byte("1")},
-		{Key: []byte("b"), Value: []byte("2")},
-		{Key: []byte("c"), Delete: true}, // delete of a non-existent key
+	require.NoError(t, manager.BatchSet([]Write{
+		{Key: "a", Value: []byte("1")},
+		{Key: "b", Value: []byte("2")},
+		{Key: "c"}, // delete of a non-existent key
 	}))
 
 	got, err := manager.BatchGet([][]byte{[]byte("a"), []byte("b"), []byte("c"), []byte("missing")})

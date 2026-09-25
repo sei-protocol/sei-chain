@@ -3,14 +3,17 @@ package gigasim
 import (
 	"context"
 	"fmt"
-	"hash"
 
-	"golang.org/x/crypto/sha3"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
+
+// writesPerTransaction is how many keys one transfer writes: both accounts' records and both of their
+// ERC20 storage slots. The fee account is written once per block rather than once per transaction, so
+// it is not counted here.
+const writesPerTransaction = 4
 
 // simulatedBlock is one block's worth of work: the transactions the execution phase runs, the payload
 // the block store persists, and the receipts that execution is taken to have produced.
@@ -22,17 +25,27 @@ type simulatedBlock struct {
 	// executor pool, so a block's transaction count is also its degree of parallelism.
 	transactions []*transaction
 
-	// The receipts written to the receipt store, empty when receipts are disabled.
-	receipts []*evmtypes.Receipt
+	// The receipts written to the receipt store, in the form it takes them, empty when receipts are
+	// disabled. They are marshaled here because execution does not change them and its loop paces
+	// the run.
+	receiptRecords []receipt.ReceiptRecord
+
+	// What those records marshaled to, which the run reports as bytes written.
+	receiptBytes int64
 
 	// The transaction bytes the block store persists. These stand in for encoded transactions, which
 	// the block store holds as opaque bytes.
 	payload [][]byte
 
-	// The identifier counters as of this block, committed alongside it so that a resumed run mints
-	// identifiers where this one stopped. They travel with the block because the account model that
-	// produced them keeps moving on the generator's goroutine.
-	counters identifierCounters
+	// The state changes this block makes, in the form the state DB takes, carrying the identifier
+	// counters as of this block so that a resumed run mints identifiers where this one stopped.
+	//
+	// Staged when the block is generated rather than by the executors: a transaction's written values
+	// are drawn up front and depend on nothing it reads, so the whole block's writes are known before
+	// any of it executes. Executing it is then reads alone, and committing it has nothing to convert.
+	// A real system could not do this; simulating an execution layer's consistency is explicitly not
+	// what this benchmark measures.
+	writes blockWrites
 }
 
 // identifierCounters is the account and contract population recorded in state at a given height.
@@ -60,6 +73,10 @@ type blockGenerator struct {
 	accounts *accountModel
 	blocks   *blockStoreWriter
 
+	// Stages the writes of the block being built. Reused across blocks: draining it hands the pairs to
+	// the block and leaves the batch empty.
+	batch *stateBatch
+
 	// The height the next block generated commits at.
 	next int64
 
@@ -77,7 +94,7 @@ type blockGenerator struct {
 
 	// The keccak hasher every receipt's bloom is built with, held here because only this goroutine
 	// builds receipts.
-	bloomHasher hash.Hash
+	receiptCache *receiptCache
 
 	// This goroutine's share of a block's critical path: building it and storing it.
 	lifecycle *metrics.PhaseTimer
@@ -111,9 +128,10 @@ func newBlockGenerator(
 		config:          config,
 		accounts:        accounts,
 		blocks:          blocks,
+		batch:           newStateBatch(writesPerTransaction*config.TransactionsPerBlock + 1),
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
-		bloomHasher:     sha3.NewLegacyKeccak256(),
+		receiptCache:    newReceiptCache(),
 		lifecycle:       gigasimMetrics.NewBlockProducingTimer(),
 		blockStoreWrite: blockStoreWrite,
 		metrics:         gigasimMetrics,
@@ -201,8 +219,8 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	}
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
-		receipts = newReceiptBuffer(count, g.bloomHasher)
-		block.receipts = receipts.receipts
+		receipts = newReceiptBuffer(count, g.receiptCache)
+		block.receiptRecords = receipts.records
 	}
 
 	for i := range count {
@@ -212,16 +230,37 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		}
 		block.transactions[i] = txn
 		block.payload[i] = g.accounts.Rand().Bytes(g.config.BytesPerTransaction)
+		g.stageTransactionWrites(txn)
 
 		if receipts != nil {
-			receipts.build(i, g.accounts.Rand(), txn, number)
+			if err := receipts.build(i, g.accounts.Rand(), txn, number); err != nil {
+				return nil, err
+			}
 		}
 	}
+	if receipts != nil {
+		block.receiptBytes = receipts.encodedBytes
+	}
+
+	// Staged once, after the transactions, because they all name this one key: every transaction draws
+	// a fee balance, since the draw is part of the sequence the block's randomness is defined by, but
+	// only the last draw survives into the block. Staging it per transaction made the same entry
+	// TransactionsPerBlock times and threw all but one away.
+	g.batch.Put(g.accounts.FeeCollectionAddress(), transactions[count-1].newFeeBalance)
 
 	// Accounts minted for this block become legal read targets once it is complete.
 	g.accounts.ReportEndOfBlock()
-	block.counters = g.accounts.Counters()
+	block.writes = g.batch.drainToChangeSet(g.accounts.Counters())
 	return block, nil
+}
+
+// stageTransactionWrites stages the writes one transfer makes: both accounts' records and both of their
+// ERC20 storage slots. The fee account is staged once per block instead; see buildBlock().
+func (g *blockGenerator) stageTransactionWrites(txn *transaction) {
+	g.batch.Put(txn.srcAccount, txn.newSrcBalance)
+	g.batch.Put(txn.dstAccount, txn.newDstBalance)
+	g.batch.Put(txn.srcAccountSlot, txn.newSrcAccountSlot)
+	g.batch.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
 }
 
 // storeBlock appends a block to the ledger and flushes on the configured cadence.

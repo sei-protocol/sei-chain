@@ -558,7 +558,8 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	require.Nil(t, result)
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 
-	tx, sender, err := parseTx(rawTx, ethtypes.LatestSignerForChainID(chainID))
+	tx := decodeTx(t, rawTx)
+	sender, err = ethtypes.Sender(ethtypes.LatestSignerForChainID(chainID), tx)
 	require.NoError(t, err)
 	result, err = executor.ExecutePreparedBlock(t.Context(), PreparedBlock{
 		Context: ctx,
@@ -1646,7 +1647,7 @@ func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 
 	stateDB.SelfDestruct(contract)
 
-	_, writes := stateDB.accessSets()
+	_, writes := stateDB.takeAccessSets()
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessAccount, address: contract})
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
 }
@@ -2126,7 +2127,7 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 	stateDB.enableAccessTracking()
 
 	require.Equal(t, ethtypes.EmptyCodeHash, stateDB.GetCodeHash(eoa))
-	readSet, _ := stateDB.accessSets()
+	readSet, _ := stateDB.takeAccessSets()
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessCode, address: eoa})
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessBalance, address: eoa})
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessNonce, address: eoa})

@@ -22,7 +22,6 @@ services:
       - GIGA_OCC
       - RECEIPT_BACKEND
       - AUTOBAHN
-      - AUTOBAHN_EVMONLY
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY

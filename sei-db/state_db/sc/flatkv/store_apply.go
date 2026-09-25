@@ -1,7 +1,10 @@
 package flatkv
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -224,15 +227,7 @@ func (p preparedWrites) accountCount() int {
 	return len(p.accounts.keys)
 }
 
-// writeToStores writes one successful ApplyChangeSets batch into the four data stores and records the
-// changesets and the block height they belong to.
-//
-// A store that already has this block is skipped. That happens only when a startup replay is catching
-// the stores up to each other, where its hash already includes the block and writing it again would
-// count it twice.
-//
-// The writes must come after the account reads in prepareWrites, because writing here is what makes
-// this block's values visible to a read through the same store.
+// writeToStores writes one block's prepared values into the four data stores.
 func (s *CommitStore) writeToStores(
 	prepared preparedWrites,
 	changeSets []*proto.NamedChangeSet,
@@ -241,39 +236,86 @@ func (s *CommitStore) writeToStores(
 ) error {
 	s.phaseTimer.SetPhase("apply_change_write_to_stores")
 
-	// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay is external,
-	// we may be able to simplify this code since we will be able to assume that all stores start at the same block.
-	if alreadyHave[accountDBDir] < version && prepared.accounts != nil {
-		start := time.Now()
-		err := s.accountStore.BatchUpdate(prepared.accounts.keys, prepared.accounts)
-		otelMetrics.AccountUpdateLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
-		if err != nil {
-			return fmt.Errorf("write %s values: %w", accountDBDir, err)
-		}
-		addKVPairs(s.ctx, accountDBDir, len(prepared.accounts.keys))
-	}
-	if alreadyHave[storageDBDir] < version {
-		if err := serializeAndPut(s.storageStore, prepared.storage); err != nil {
-			return fmt.Errorf("write %s values: %w", storageDBDir, err)
-		}
-		addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
-	}
-	if alreadyHave[codeDBDir] < version {
-		if err := serializeAndPut(s.codeStore, prepared.code); err != nil {
-			return fmt.Errorf("write %s values: %w", codeDBDir, err)
-		}
-		addKVPairs(s.ctx, codeDBDir, len(prepared.code))
-	}
-	if alreadyHave[miscDBDir] < version {
-		if err := serializeAndPut(s.miscStore, prepared.misc); err != nil {
-			return fmt.Errorf("write %s values: %w", miscDBDir, err)
-		}
-		addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
+	// The four databases are independent view managers with independent locks, so their writes run
+	// concurrently rather than one store's fan-out waiting on the last.
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	var accountErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		accountErr = s.writeAccountStore(prepared.accounts, version, alreadyHave)
+	})
+	var storageErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		storageErr = writeStore(s.ctx, s.storageStore, storageDBDir, prepared.storage, version, alreadyHave)
+	})
+	var codeErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		codeErr = writeStore(s.ctx, s.codeStore, codeDBDir, prepared.code, version, alreadyHave)
+	})
+	var miscErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		miscErr = writeStore(s.ctx, s.miscStore, miscDBDir, prepared.misc, version, alreadyHave)
+	})
+
+	wg.Wait()
+	if err := errors.Join(accountErr, storageErr, codeErr, miscErr); err != nil {
+		return err
 	}
 
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 	s.pendingBlockHeight = version
+	return nil
+}
+
+// writeStore writes one database's values, and is a no-op for a store that already holds this block.
+func writeStore[T vtype.VType](
+	ctx context.Context,
+	store view.ViewManager,
+	dbDir string,
+	values map[string]T,
+	version int64,
+	alreadyHave map[string]int64,
+) error {
+	if alreadyHave[dbDir] >= version {
+		// A store already holds the block only when a startup replay is catching the stores up to each
+		// other, where its hash already includes the block and writing it again would count it twice.
+		//
+		// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL
+		// replay is external, we may be able to simplify this code since we will be able to assume that
+		// all stores start at the same block.
+		return nil
+	}
+	if err := serializeAndPut(store, values); err != nil {
+		return fmt.Errorf("write %s values: %w", dbDir, err)
+	}
+	addKVPairs(ctx, dbDir, len(values))
+	return nil
+}
+
+// writeAccountStore writes the block's accounts, each folded onto the row its key already holds. A batch
+// touching no account, and a store that already holds this block, are both no-ops.
+func (s *CommitStore) writeAccountStore(
+	updater *accountUpdater,
+	version int64,
+	alreadyHave map[string]int64,
+) error {
+	if alreadyHave[accountDBDir] >= version || updater == nil {
+		// The store already holding the block is the replay case described in writeStore().
+		return nil
+	}
+	start := time.Now()
+	err := s.accountStore.BatchUpdate(updater.keys, updater)
+	otelMetrics.AccountUpdateLatency.Record(s.ctx, secondsSince(start),
+		metric.WithAttributes(successAttr(err)))
+	if err != nil {
+		return fmt.Errorf("write %s values: %w", accountDBDir, err)
+	}
+	addKVPairs(s.ctx, accountDBDir, len(updater.keys))
 	return nil
 }
 
@@ -285,15 +327,19 @@ func serializeAndPut[T vtype.VType](store view.ViewManager, values map[string]T)
 	if len(values) == 0 {
 		return nil
 	}
-	pairs := make([]*proto.KVPair, 0, len(values))
+	// One slice of values rather than a slice of pointers, and the physical keys handed over as the
+	// strings they already are: the store keys its own structures by string, so converting them to
+	// []byte here only to have them converted back is the whole cost of this loop.
+	writes := make([]view.Write, 0, len(values))
 	for key, value := range values {
 		if value.IsDelete() {
-			pairs = append(pairs, &proto.KVPair{Key: []byte(key), Delete: true})
+			// A nil value is the manager's tombstone.
+			writes = append(writes, view.Write{Key: key})
 			continue
 		}
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value.Serialize()})
+		writes = append(writes, view.Write{Key: key, Value: value.Serialize()})
 	}
-	if err := store.BatchSet(pairs); err != nil {
+	if err := store.BatchSet(writes); err != nil {
 		return fmt.Errorf("batch write: %w", err)
 	}
 	return nil
@@ -328,6 +374,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 		return m
 	}
 
+	keyBuf := make([]byte, 0, physKeyBufLen)
 	for _, cs := range changeSets {
 		if cs == nil || len(cs.Changeset.Pairs) == 0 {
 			continue
@@ -342,10 +389,11 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 
 				var physKey string
 				if kind == keys.EVMKeyMisc {
-					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
+					keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
 				} else {
-					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
+					keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
 				}
+				physKey = string(keyBuf)
 
 				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
 				if pair.Delete {
@@ -367,7 +415,8 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 			}
 			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
-				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
+				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], cs.Name, pair.Key)
+				physKey := string(keyBuf)
 				if pair.Delete {
 					miscMap[physKey] = nil
 				} else {

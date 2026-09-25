@@ -4,24 +4,16 @@ package solo
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	solov614 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v614"
-	solov620 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v620"
-	solov630 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v630"
-	solov640 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v640"
-	solov65 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v65"
 	solov66 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v66"
+	solov67 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v6.1.4":      check(solov614.NewPrecompile(keepers)),
-		"v6.2.0":      check(solov620.NewPrecompile(keepers)),
-		"v6.3.0":      check(solov630.NewPrecompile(keepers)),
-		"v6.4.0":      check(solov640.NewPrecompile(keepers)),
-		"v6.5":        check(solov65.NewPrecompile(keepers)),
 		"v6.6":        check(solov66.NewPrecompile(keepers)),
+		"v6.7":        check(solov67.NewPrecompile(keepers)),
 	}
 }
 

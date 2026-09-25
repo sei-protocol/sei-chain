@@ -77,7 +77,7 @@ func (a *application) startRemoteColocatedCluster(ctx context.Context, state clu
 	}
 	command := strings.Join([]string{
 		"cd " + shellQuote(state.AWS.RemoteDir),
-		"AUTOBAHN=true AUTOBAHN_EVMONLY=true DOCKER_DETACH=true make docker-cluster-start-monitoring",
+		"AUTOBAHN=true DOCKER_DETACH=true make docker-cluster-start-monitoring",
 	}, " && ")
 	if err := a.remoteStream(ctx, state, host, command); err != nil {
 		return fmt.Errorf("start colocated cluster: %w", err)
@@ -199,7 +199,7 @@ func (a *application) startLoadHost(ctx context.Context, state clusterState, loa
 func remoteMake(state clusterState, target string, extra map[string]string) string {
 	parts := []string{
 		"cd " + shellQuote(state.AWS.RemoteDir),
-		"AUTOBAHN=true AUTOBAHN_EVMONLY=true",
+		"AUTOBAHN=true",
 	}
 	keys := make([]string, 0, len(extra))
 	for key := range extra {

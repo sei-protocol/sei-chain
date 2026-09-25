@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -27,9 +31,29 @@ func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Cli
 	return utils.None[*ethrpc.Client]()
 }
 
+// EvmProxyEnabled reports whether EvmProxy can return a client for any sender.
+func (env *Environment) EvmProxyEnabled() bool {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxyEnabled()
+	}
+	return false
+}
+
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	return env.App.EvmBalance(address, nil)
+}
+
+// EvmGasLimit returns the gas limit of the wrapped application's most
+// recently committed block.
+func (env *Environment) EvmGasLimit() (uint64, error) {
+	return env.App.EvmGasLimit()
+}
+
+// EvmMinGasPrice returns the minimum effective gas price the wrapped
+// application admits a transaction at.
+func (env *Environment) EvmMinGasPrice() (*big.Int, error) {
+	return env.App.EvmMinGasPrice()
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -64,7 +88,8 @@ func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.Req
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		go func() { _, _ = v.TryInsertTx(ctx, req.Tx) }()
+		// The request ctx is cancelled as soon as the handler returns; the insert must outlive it.
+		go func() { _, _ = v.TryInsertTx(context.WithoutCancel(ctx), req.Tx) }()
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 	}
 	mp, err := env.requireMempool()
@@ -299,6 +324,51 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 		Total:      total,
 		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 	}, nil
+}
+
+// EvmTransactionCount returns the address transaction count (nonce) from the
+// current committed EVM state.
+func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
+	return env.App.EvmNonce(address)
+}
+
+// EvmBlockNumber returns the height of the most recently committed block.
+func (env *Environment) EvmBlockNumber() uint64 {
+	return utils.Clamp[uint64](env.App.LastBlockHeight())
+}
+
+// EvmChainID returns the EVM chain ID this node is configured for.
+func (env *Environment) EvmChainID() uint64 {
+	return env.App.EvmChainID()
+}
+
+// EvmChainConfig returns the EVM chain configuration of the wrapped application.
+func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
+	return env.App.EvmChainConfig()
+}
+
+// EvmCode returns the contract code at address in the current committed EVM
+// state.
+func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
+	return env.App.EvmCode(address)
+}
+
+// EvmCall executes msg as a read-only call against the current committed EVM
+// state, without creating a transaction or persisting any state change.
+func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	return env.App.EvmCall(ctx, msg)
+}
+
+// EvmBaseFee returns the base fee the wrapped application executes every
+// block at.
+func (env *Environment) EvmBaseFee() (*big.Int, error) {
+	return env.App.EvmBaseFee()
+}
+
+// EvmEstimateGas returns the lowest gas limit that lets msg succeed against
+// the current committed EVM state, persisting no state change.
+func (env *Environment) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
+	return env.App.EvmEstimateGas(ctx, msg, gasCap)
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't
