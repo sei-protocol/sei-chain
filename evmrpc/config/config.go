@@ -401,18 +401,7 @@ var DefaultConfig = Config{
 	BodyReadIdleTimeout:       10 * time.Second,
 	RPCDefaultTimeout:         30 * time.Second,
 	RPCMethodTimeouts: []string{
-		"eth_call=60s",
-		"eth_estimateGas=60s",
-		"eth_createAccessList=60s",
 		"eth_estimateGasAfterCalls=5m",
-		// These already carry their own deadline (methodTimeout / TraceTimeout)
-		// applied inside the handler; a zero entry keeps this enforcer from
-		// also imposing RPCDefaultTimeout on top of and possibly shorter than
-		// that existing deadline. See DeadlineEnforcerConfig.
-		"eth_sendRawTransaction=0",
-		"eth_sendTransaction=0",
-		"eth_getTransactionCount=0",
-		"debug_trace*=0",
 	},
 }
 
@@ -898,9 +887,34 @@ func (c Config) DeadlineEnforcerConfig() (ratelimiter.DeadlineConfig, error) {
 	if c.RPCDefaultTimeout < 0 {
 		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s must be >= 0 (0 disables the default deadline), got %s", flagRPCDefaultTimeout, c.RPCDefaultTimeout)
 	}
-	exact, prefixes, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
+	configuredExact, configuredPrefixes, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
 	if err != nil {
 		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", flagRPCMethodTimeouts, err)
+	}
+
+	// Simulation handlers already use SimulationEVMTimeout internally. Keep
+	// the dispatch deadline aligned with that setting unless the operator
+	// explicitly overrides a method through RPCMethodTimeouts.
+	exact := map[string]time.Duration{
+		"eth_call":             c.SimulationEVMTimeout,
+		"eth_estimateGas":      c.SimulationEVMTimeout,
+		"eth_createAccessList": c.SimulationEVMTimeout,
+
+		// These handlers already apply methodTimeout themselves. Exempt them
+		// here so replacing RPCMethodTimeouts cannot silently shorten them.
+		"eth_sendRawTransaction":  0,
+		"eth_sendTransaction":     0,
+		"eth_getTransactionCount": 0,
+	}
+	prefixes := map[string]time.Duration{
+		// Trace handlers already apply TraceTimeout themselves.
+		"debug_trace": 0,
+	}
+	for method, timeout := range configuredExact {
+		exact[method] = timeout
+	}
+	for prefix, timeout := range configuredPrefixes {
+		prefixes[prefix] = timeout
 	}
 	return ratelimiter.DeadlineConfig{
 		Default:         c.RPCDefaultTimeout,

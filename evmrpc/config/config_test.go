@@ -707,8 +707,12 @@ func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
 	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
 	require.Equal(t, 5*time.Minute, deadlineCfg.Overrides["eth_estimateGasAfterCalls"])
 
-	// Methods that already carry their own deadline get an explicit "=0" entry
-	// so this enforcer never double-wraps or shortens it.
+	// Methods that already carry their own deadline remain exempt even though
+	// the operator-provided list replaces RPCMethodTimeouts.
+	cfg.RPCMethodTimeouts = []string{"eth_call=90s"}
+	deadlineCfg, err = cfg.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	require.Equal(t, 90*time.Second, deadlineCfg.Overrides["eth_call"])
 	require.Contains(t, deadlineCfg.Overrides, "eth_sendRawTransaction")
 	require.Zero(t, deadlineCfg.Overrides["eth_sendRawTransaction"])
 	require.Contains(t, deadlineCfg.Overrides, "eth_sendTransaction")
@@ -717,6 +721,15 @@ func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
 	require.Zero(t, deadlineCfg.Overrides["eth_getTransactionCount"])
 	require.Contains(t, deadlineCfg.PrefixOverrides, "debug_trace")
 	require.Zero(t, deadlineCfg.PrefixOverrides["debug_trace"])
+
+	// Simulation dispatch deadlines track the handler's configured timeout,
+	// while an explicit per-method override still takes precedence.
+	cfg.SimulationEVMTimeout = 2 * time.Minute
+	deadlineCfg, err = cfg.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	require.Equal(t, 90*time.Second, deadlineCfg.Overrides["eth_call"])
+	require.Equal(t, 2*time.Minute, deadlineCfg.Overrides["eth_estimateGas"])
+	require.Equal(t, 2*time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
 
 	cfg.RPCDefaultTimeout = -time.Second
 	_, err = cfg.DeadlineEnforcerConfig()
