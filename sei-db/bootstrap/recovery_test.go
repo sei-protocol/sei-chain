@@ -271,16 +271,33 @@ func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
 // discards it, and the empty store that opens in its place takes the next block's receipts, where the
 // store found on disk would have refused that write for skipping blocks.
 func TestRecoveryDiscardsAStaleReceiptStoreAndResumesReceipts(t *testing.T) {
-	manager, _ := openManager(t, nil)
+	const rollbackWindow = 1
+	manager, cfg := openManager(t, func(cfg *config.GigaStorageConfig) {
+		cfg.PruningConfig.RollbackWindow = rollbackWindow
+	})
 	commitBlocks(t, manager, 5)
 	writeReceipts(t, manager, 2)
 	closeStateDB(t, manager)
 	closeReceiptDB(t, manager)
 
-	require.NoError(t, manager.recoverStores(t.Context(), 5))
+	// The block store holds no blocks here, so its head stands in as 5, level with the state WAL.
+	stateHeight, err := manager.stateWALHead()
+	require.NoError(t, err)
+	receiptHeight, err := receipt.GetLatestBlock(cfg.ReceiptDBConfig)
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), stateHeight)
+	require.Equal(t, uint64(2), receiptHeight)
+	target := recoveryTarget(5, stateHeight, receiptHeight, rollbackWindow)
+	require.Equal(t, uint64(5), target, "a stale receipt head must not pull the target down")
+	require.True(t, receiptHeadIsStale(receiptHeight, target, rollbackWindow))
+
+	require.NoError(t, manager.recoverStores(t.Context(), int64(target)))
 	require.NoError(t, manager.discardReceiptStore())
 	require.NoError(t, manager.openReceiptStore())
 
+	scVersion, err := manager.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(5), scVersion, "state stays where it was; only the receipt store is reset")
 	require.Equal(t, int64(0), manager.ReceiptDB().LatestVersion())
 	writeReceiptAt(t, manager, 6)
 	// Receipt writes are applied off the caller's goroutine, so the head moves after SetReceipts returns.
