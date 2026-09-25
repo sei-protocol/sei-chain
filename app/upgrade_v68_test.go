@@ -61,13 +61,6 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 	require.Equal(t, once, app.UpgradeKeeper.GetModuleVersionMap(app.Ctx()))
 }
 
-func TestV68DeletesOracleStore(t *testing.T) {
-	app := newV68Chain(t)
-	require.Nil(t, app.GetKey("oracle"))
-	applyV68(t, app)
-	require.Nil(t, app.GetKey("oracle"))
-}
-
 // TestV68RejectsOracleTxsWithoutCharging pins that retired oracle transactions
 // are refused before fees are charged.
 func TestV68RejectsOracleTxsWithoutCharging(t *testing.T) {
@@ -114,11 +107,11 @@ func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
 	applyV68(t, app)
 	exported, err := app.ExportAppStateAndValidators(false, nil)
 	require.NoError(t, err)
-	var state struct {
-		AppState map[string]json.RawMessage `json:"app_state"`
-	}
+	var state map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(exported.AppState, &state))
-	_, found := state.AppState["oracle"]
+	_, found := state["bank"]
+	require.True(t, found)
+	_, found = state["oracle"]
 	require.False(t, found)
 }
 

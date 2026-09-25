@@ -9,6 +9,7 @@ import (
 	"time"
 
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -50,11 +51,13 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	commitOfflineUpgradeApp(t, testApp)
 	closeOfflineUpgradeApp(t, testApp)
 	reopened := openOfflineUpgradeApp(t, root, false)
-	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	require.Nil(t, reopened.GetKey("oracle"))
-	return committedOfflineUpgradeHash(t, reopened)
+	requireV68OfflineOracleStoreDeleted(t, reopened)
+	hash := committedOfflineUpgradeHash(t, reopened)
+	closeOfflineUpgradeApp(t, reopened)
+	requireV68OfflineOracleTreeDeleted(t, root)
+	return hash
 }
 
 func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
@@ -71,11 +74,13 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 	commitOfflineUpgradeApp(t, interrupted)
 	closeOfflineUpgradeApp(t, interrupted)
 	reopened := openOfflineUpgradeApp(t, root, false)
-	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	require.Nil(t, reopened.GetKey("oracle"))
-	return committedOfflineUpgradeHash(t, reopened)
+	requireV68OfflineOracleStoreDeleted(t, reopened)
+	hash := committedOfflineUpgradeHash(t, reopened)
+	closeOfflineUpgradeApp(t, reopened)
+	requireV68OfflineOracleTreeDeleted(t, root)
+	return hash
 }
 
 func requireV68OfflinePersistedPlanHasHandler(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
@@ -124,7 +129,24 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	reopened := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineVersionMap(t, reopened, beforeVersions)
-	require.Nil(t, reopened.GetKey("oracle"))
+}
+
+func requireV68OfflineOracleStoreDeleted(t *testing.T, testApp *App) {
+	t.Helper()
+	for _, key := range testApp.CommitMultiStore().StoreKeys() {
+		require.NotEqual(t, "oracle", key.Name())
+	}
+}
+
+func requireV68OfflineOracleTreeDeleted(t *testing.T, root string) {
+	t.Helper()
+	store := memiavl.NewCommitStore(filepath.Join(root, "home"), memiavl.DefaultConfig())
+	defer func() {
+		require.NoError(t, store.Close())
+	}()
+	_, err := store.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Nil(t, store.GetDB().TreeByName("oracle"))
 }
 
 func requireV68OfflineVersionMap(t *testing.T, testApp *App, before []string) {
