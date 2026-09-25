@@ -3,7 +3,6 @@ package migration
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -168,7 +167,7 @@ func buildMigrateEVMRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
-		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
+		NewMigrationMetrics(ctx, Version1_MigrateEVM),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
@@ -300,7 +299,7 @@ func buildMigrateAllButBankRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
-		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
+		NewMigrationMetrics(ctx, Version2_MigrateAllButBank),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
@@ -427,7 +426,7 @@ func buildMigrateBankRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
-		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
+		NewMigrationMetrics(ctx, Version3_FlatKVOnly),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
