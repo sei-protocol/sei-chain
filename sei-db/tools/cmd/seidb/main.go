@@ -22,6 +22,7 @@ func main() {
 		benchmark.DBIterationCmd(),
 		benchmark.DBReverseIterationCmd(),
 		operations.DumpDbCmd(),
+		operations.InspectCmd(),
 		operations.PruneCmd(),
 		operations.DumpIAVLCmd(),
 		operations.DumpFlatKVCmd(),

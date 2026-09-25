@@ -54,7 +54,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
-	PruneCommitBatchSize  = 50
+	PruneCommitBatchSize  = 10000
 	DeleteCommitBatchSize = 50
 	MinWALEntriesToKeep   = 1000
 
@@ -154,14 +154,14 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		// making the database incompatible with older software versions.
 		// When upgrading this version, ensure it's an intentional, documented change.
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
-		L0CompactionThreshold:       2,
+		L0CompactionThreshold:       6,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               64 << 20, // 64 MiB
-		MemTableSize:                64 << 20,
+		LBaseMaxBytes:               512 << 20, // 64 MiB
+		MemTableSize:                256 << 20,
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
 		// the tombstone churn produced by pruning. See maxConcurrentCompactions.
-		CompactionConcurrencyRange: func() (int, int) { return 1, maxConcurrentCompactions },
+		CompactionConcurrencyRange: func() (int, int) { return 6, 20 },
 	}
 
 	// Configure L0 with explicit settings
@@ -985,7 +985,41 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		prevStore                       string
 		scanReads                       int64
 		firstDeletedKey, lastDeletedKey []byte
+		// runStart/runEnd bound the current logical key's contiguous run of
+		// stale versions seen so far. Under descending encoding all versions of
+		// a key sort together, so this run is exactly that key's deleted span;
+		// flushRun turns it into one range tombstone instead of one point
+		// tombstone per version.
+		runStart, runEnd []byte
 	)
+
+	// flushRun commits the pending run, if any, as a single DeleteRange rather
+	// than the point Deletes this replaces. Called on every key change and
+	// once more after the scan for the last key's run.
+	flushRun := func() error {
+		if runStart == nil {
+			return nil
+		}
+		// Same exclusive-bound trick compactPrunedRange uses below: appending a
+		// zero byte yields a key strictly greater than runEnd under both the
+		// MVCC and default comparers, without reaching into the next key.
+		end := append(bytes.Clone(runEnd), 0)
+		if err := batch.DeleteRange(runStart, end, nil); err != nil {
+			return err
+		}
+		runStart, runEnd = nil, nil
+		counter++
+		if counter >= PruneCommitBatchSize {
+			writeCount := int64(batch.Count())
+			if err := batch.Commit(defaultWriteOpts); err != nil {
+				return err
+			}
+			db.operationMetrics.AddWrite(writeCount)
+			counter = 0
+			batch.Reset()
+		}
+		return nil
+	}
 
 	for itr.First(); itr.Valid(); {
 		scanReads++
@@ -1028,6 +1062,9 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 		// Reset per-logical-key state when the logical key changes.
 		if !bytes.Equal(prevKey, currKey) {
+			if err := flushRun(); err != nil {
+				return err
+			}
 			prevKey = bytes.Clone(currKey)
 			keptBelowPrune = false
 
@@ -1049,9 +1086,13 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 			if db.config.KeepLastVersion && !keptBelowPrune {
 				keptBelowPrune = true
 			} else {
-				if err := batch.Delete(currKeyEncoded, nil); err != nil {
-					return err
+				// Extend this key's run rather than deleting the version by
+				// itself; flushRun turns the whole run into one range tombstone
+				// once this key (or the pass) ends.
+				if runStart == nil {
+					runStart = currKeyEncoded
 				}
+				runEnd = currKeyEncoded
 				// Track the deleted span (keys are visited in comparer order, so
 				// the first delete is the smallest and the last is the largest)
 				// to compact just that range once pruning completes.
@@ -1059,20 +1100,16 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 					firstDeletedKey = currKeyEncoded
 				}
 				lastDeletedKey = currKeyEncoded
-				counter++
-				if counter >= PruneCommitBatchSize {
-					writeCount := int64(batch.Count())
-					if err := batch.Commit(defaultWriteOpts); err != nil {
-						return err
-					}
-					db.operationMetrics.AddWrite(writeCount)
-					counter = 0
-					batch.Reset()
-				}
 			}
 		}
 
 		itr.Next()
+	}
+
+	// Flush the last key's run: nothing later triggers the key-change check
+	// that normally does this.
+	if err := flushRun(); err != nil {
+		return err
 	}
 
 	// Close the scan iterator now rather than leaving it to the deferred close
@@ -1095,6 +1132,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
+	logger.Info("pruneDescending started")
 	compactStart := time.Now()
 	err = db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 	logger.Info("pruneDescending: compacted pruned range", "version", version, "elapsed", time.Since(compactStart), "err", err)
