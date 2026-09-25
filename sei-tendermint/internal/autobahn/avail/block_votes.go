@@ -2,6 +2,7 @@ package avail
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -31,7 +32,10 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 		return false
 	}
 	bv.byKey[k] = vote
-	bv.credit(ep, vote)
+	metrics.ObserveLaneVoteIngested()
+	if bv.credit(ep, vote) {
+		metrics.ObserveLaneQC()
+	}
 	return true
 }
 
@@ -43,15 +47,18 @@ func (bv *blockVotes) reweight(ep *types.Epoch) {
 	}
 }
 
-func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) {
+// credit adds the vote's weight to its header bucket, reporting whether that
+// completed the LaneQC. A reweight re-forms a QC that already formed once, so
+// only pushVote treats the result as a new LaneQC.
+func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
 	if bv.qc.IsPresent() {
-		return
+		return false
 	}
 	c := ep.Committee()
 	k := vote.Key()
 	w := c.Weight(k)
 	if w == 0 {
-		return
+		return false
 	}
 	h := vote.Msg().Header().Hash()
 	byHash, ok := bv.byHash[h]
@@ -63,7 +70,9 @@ func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote
 	byHash.votes = append(byHash.votes, vote)
 	if byHash.weight >= c.LaneQuorum() {
 		bv.qc = utils.Some(types.NewLaneQC(byHash.votes))
+		return true
 	}
+	return false
 }
 
 func (bv *blockVotes) header(want types.BlockHeaderHash) utils.Option[*types.BlockHeader] {

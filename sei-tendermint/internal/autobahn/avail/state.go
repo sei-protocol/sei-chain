@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
+	consmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -177,6 +179,10 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		return nil, err
 	}
 	i.refreshConsensusSpec()
+	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
+		metrics.SetCommitRoadIndex(qc.Index())
+		metrics.SetCommitGlobalBlockNumber(qc.GlobalRange().Next)
+	}
 	return i, nil
 }
 
@@ -345,6 +351,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
+		consmetrics.ObserveCommit(epoch.Committee().Leader(qc.Proposal().View()))
 		// The persist goroutine publishes persistedCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
@@ -596,15 +603,28 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epo
 // WaitForCapacity waits until lane has room for toProduce.
 // Returns ErrLaneClosed if the lane map is missing. Does not wait for future lanes.
 func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
+	var blocked bool
+	var start time.Time
+	defer func() {
+		if blocked {
+			metrics.ObserveLaneCapacityWait(time.Since(start))
+		}
+	}()
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool {
+		ready := func() bool {
 			q, ok := inner.blocks[lane]
 			if !ok {
 				return true
 			}
 			return toProduce < q.first+BlocksPerLane
-		}); err != nil {
-			return err
+		}
+		if !ready() {
+			defer metrics.EnterLaneCapacityWait()()
+			start = time.Now()
+			blocked = true
+			if err := ctrl.WaitUntil(ctx, ready); err != nil {
+				return err
+			}
 		}
 		if _, ok := inner.blocks[lane]; !ok {
 			return ErrLaneClosed
@@ -618,6 +638,13 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 func (s *State) WaitForLaneQCs(
 	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
 ) (map[types.LaneID]*types.LaneQC, error) {
+	var blocked bool
+	var start time.Time
+	defer func() {
+		if blocked {
+			metrics.ObserveLaneQCWait(time.Since(start))
+		}
+	}()
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
@@ -633,6 +660,11 @@ func (s *State) WaitForLaneQCs(
 			}
 			if len(laneQCs) > 0 {
 				return laneQCs, nil
+			}
+			if !blocked {
+				defer metrics.EnterLaneQCWait()()
+				start = time.Now()
+				blocked = true
 			}
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -363,4 +364,62 @@ func TestPushTimeoutVote_RejectsWrongEpoch(t *testing.T) {
 	view.EpochIndex++
 
 	require.Error(t, s.PushTimeoutVote(types.NewFullTimeoutVote(keys[0], view, utils.None[*types.PrepareQC]())))
+}
+
+func TestPushTimeoutQC_CountsLeaderTimeout(t *testing.T) {
+	rng := utils.TestRng()
+	s, keys, registry := newTestState(rng)
+	view := types.View{Index: 0, Number: 0}
+	leader := registry.MustEpoch(0).Committee().Leader(view)
+	timeouts := metrics.Timeouts(leader)
+
+	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
+	require.Equal(t, timeouts+1, metrics.Timeouts(leader))
+
+	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
+	require.Equal(t, timeouts+1, metrics.Timeouts(leader))
+
+	next := view
+	next.Number++
+	nextLeader := registry.MustEpoch(0).Committee().Leader(next)
+	nextTimeouts := metrics.Timeouts(nextLeader)
+	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, next, utils.None[*types.PrepareQC]())))
+	require.Equal(t, nextTimeouts+1, metrics.Timeouts(nextLeader))
+
+	require.NoError(t, s.PushTimeoutQC(t.Context(), makeTimeoutQC(keys, view, utils.None[*types.PrepareQC]())))
+	require.Equal(t, timeouts+1, metrics.Timeouts(leader))
+	require.Equal(t, nextTimeouts+1, metrics.Timeouts(nextLeader))
+}
+
+func TestVoteTimeout_RecordsPhases(t *testing.T) {
+	rng := utils.TestRng()
+	view := types.View{Index: 0, Number: 0}
+
+	s, keys, registry := newTestState(rng)
+	leader := registry.MustEpoch(0).Committee().Leader(view)
+	proposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), view)
+
+	noProposal := metrics.TimeoutVotes(leader, metrics.PhaseNoProposal)
+	require.NoError(t, s.voteTimeout(t.Context(), view))
+	require.Equal(t, noProposal+1, metrics.TimeoutVotes(leader, metrics.PhaseNoProposal))
+	require.NoError(t, s.voteTimeout(t.Context(), view))
+	require.Equal(t, noProposal+1, metrics.TimeoutVotes(leader, metrics.PhaseNoProposal))
+
+	s, keys, registry = newTestState(rng)
+	leader = registry.MustEpoch(0).Committee().Leader(view)
+	for isend := range s.inner.Lock() {
+		i := isend.Load()
+		i.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
+		isend.Store(i)
+	}
+	noPrepareQC := metrics.TimeoutVotes(leader, metrics.PhaseNoPrepareQC)
+	require.NoError(t, s.voteTimeout(t.Context(), view))
+	require.Equal(t, noPrepareQC+1, metrics.TimeoutVotes(leader, metrics.PhaseNoPrepareQC))
+
+	s, keys, registry = newTestState(rng)
+	leader = registry.MustEpoch(0).Committee().Leader(view)
+	require.NoError(t, s.pushPrepareQC(t.Context(), makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view))))
+	noCommit := metrics.TimeoutVotes(leader, metrics.PhaseNoCommit)
+	require.NoError(t, s.voteTimeout(t.Context(), view))
+	require.Equal(t, noCommit+1, metrics.TimeoutVotes(leader, metrics.PhaseNoCommit))
 }

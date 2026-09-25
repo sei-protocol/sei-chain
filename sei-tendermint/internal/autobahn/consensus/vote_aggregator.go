@@ -35,11 +35,11 @@ func (a *voteAggregator[V, B]) pushVote(
 	bucket B,
 	vote V,
 	quorum uint64,
-) utils.Option[[]V] {
+) (accepted bool, qcVotes utils.Option[[]V]) {
 	// Check if the key has already voted.
 	if old, ok := a.byKey[key]; ok {
 		if !old.view.Less(view) {
-			return utils.None[[]V]() // Ignore older or equal votes.
+			return false, utils.None[[]V]() // Ignore older or equal votes.
 		}
 		// Prune the old vote.
 		oldSet := a.byBucket[old.bucket]
@@ -61,12 +61,12 @@ func (a *voteAggregator[V, B]) pushVote(
 
 	// Check if we have enough votes for a QC.
 	if set.weight < quorum {
-		return utils.None[[]V]()
+		return true, utils.None[[]V]()
 	}
 
 	votes := make([]V, 0, len(set.votes))
 	for _, vote := range set.votes {
 		votes = append(votes, vote)
 	}
-	return utils.Some(votes)
+	return true, utils.Some(votes)
 }

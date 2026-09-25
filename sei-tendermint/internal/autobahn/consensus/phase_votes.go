@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -30,6 +31,8 @@ type phaseVotes[V any, B comparable, QC any] struct {
 	phase votePhase[V, B, QC]
 	votes *voteAggregator[V, B]
 	qc    utils.AtomicSend[utils.Option[QC]]
+	// voteType is the votes_ingested{type} label; empty means not counted.
+	voteType string
 }
 
 func newPhaseVotes[V any, B comparable, QC any](phase votePhase[V, B, QC]) *phaseVotes[V, B, QC] {
@@ -44,7 +47,11 @@ func newPhaseVotes[V any, B comparable, QC any](phase votePhase[V, B, QC]) *phas
 // once the vote completes a quorum at a view later than the last QC published.
 func (p *phaseVotes[V, B, QC]) pushVerifiedVote(c *types.Committee, vote V) {
 	ph := p.phase
-	votes, ok := p.votes.pushVote(c, ph.key(vote), ph.view(vote), ph.bucket(vote), vote, ph.quorum(c)).Get()
+	accepted, votesOpt := p.votes.pushVote(c, ph.key(vote), ph.view(vote), ph.bucket(vote), vote, ph.quorum(c))
+	if accepted && p.voteType != "" {
+		metrics.ObserveVoteIngested(p.voteType)
+	}
+	votes, ok := votesOpt.Get()
 	if !ok {
 		return
 	}
@@ -57,7 +64,7 @@ func (p *phaseVotes[V, B, QC]) pushVerifiedVote(c *types.Committee, vote V) {
 
 // newPrepareVotes returns an empty prepare-phase vote aggregator.
 func newPrepareVotes() *prepareVotes {
-	return newPhaseVotes(votePhase[spv, hpv, *types.PrepareQC]{
+	p := newPhaseVotes(votePhase[spv, hpv, *types.PrepareQC]{
 		key:    func(v spv) types.PublicKey { return v.Key() },
 		view:   func(v spv) types.View { return v.Msg().Proposal().View() },
 		bucket: func(v spv) hpv { return v.Hash() },
@@ -65,11 +72,13 @@ func newPrepareVotes() *prepareVotes {
 		qcView: func(qc *types.PrepareQC) types.View { return qc.Proposal().View() },
 		newQC:  types.NewPrepareQC,
 	})
+	p.voteType = metrics.VotePrepare
+	return p
 }
 
 // newCommitVotes returns an empty commit-phase vote aggregator.
 func newCommitVotes() *commitVotes {
-	return newPhaseVotes(votePhase[scv, hcv, *types.CommitQC]{
+	p := newPhaseVotes(votePhase[scv, hcv, *types.CommitQC]{
 		key:    func(v scv) types.PublicKey { return v.Key() },
 		view:   func(v scv) types.View { return v.Msg().Proposal().View() },
 		bucket: func(v scv) hcv { return v.Hash() },
@@ -77,11 +86,13 @@ func newCommitVotes() *commitVotes {
 		qcView: func(qc *types.CommitQC) types.View { return qc.Proposal().View() },
 		newQC:  types.NewCommitQC,
 	})
+	p.voteType = metrics.VoteCommit
+	return p
 }
 
 // newTimeoutVotes returns an empty timeout-phase vote aggregator.
 func newTimeoutVotes() *timeoutVotes {
-	return newPhaseVotes(votePhase[*types.FullTimeoutVote, types.View, *types.TimeoutQC]{
+	p := newPhaseVotes(votePhase[*types.FullTimeoutVote, types.View, *types.TimeoutQC]{
 		key:    func(v *types.FullTimeoutVote) types.PublicKey { return v.Vote().Key() },
 		view:   (*types.FullTimeoutVote).View,
 		bucket: (*types.FullTimeoutVote).View,
@@ -89,4 +100,6 @@ func newTimeoutVotes() *timeoutVotes {
 		qcView: (*types.TimeoutQC).View,
 		newQC:  types.NewTimeoutQC,
 	})
+	p.voteType = metrics.VoteTimeout
+	return p
 }

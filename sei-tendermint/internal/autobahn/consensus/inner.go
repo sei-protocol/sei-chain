@@ -88,6 +88,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -188,16 +189,23 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	if err := qc.Verify(i.spec.Epoch, i.spec.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
+	var leader types.PublicKey
+	applied := false
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
 		if qc.View().Less(i.View()) {
 			return nil
 		}
 		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
+		leader = i.spec.Epoch.Committee().Leader(qc.View())
 		isend.Store(inner{
 			persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(qc)},
 			spec:           i.spec,
 		})
+		applied = true
+	}
+	if applied {
+		metrics.ObserveTimeout(leader)
 	}
 	return nil
 }
@@ -261,6 +269,9 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 	if _, err := s.waitForView(ctx, view); err != nil {
 		return err
 	}
+	var leader types.PublicKey
+	var phase metrics.TimeoutPhase
+	voted := false
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
 		if i.View() != view || i.TimeoutVote.IsPresent() {
@@ -274,9 +285,27 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		if tqc, ok := i.TimeoutQC.Get(); ok && !pqc.IsPresent() {
 			pqc = tqc.LatestPrepareQC()
 		}
+		phase = i.timeoutPhase()
+		leader = i.spec.Epoch.Committee().Leader(view)
 		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc)
 		i.TimeoutVote = utils.Some(v)
 		isend.Store(i)
+		voted = true
+	}
+	if voted {
+		metrics.ObserveTimeoutVote(leader, phase)
 	}
 	return nil
+}
+
+// timeoutPhase is this replica's progress in the current view for a timeout vote.
+// A PrepareQC inherited from a prior TimeoutQC is not this view's proposal.
+func (i inner) timeoutPhase() metrics.TimeoutPhase {
+	if i.PrepareQC.IsPresent() {
+		return metrics.PhaseNoCommit
+	}
+	if i.PrepareVote.IsPresent() {
+		return metrics.PhaseNoPrepareQC
+	}
+	return metrics.PhaseNoProposal
 }

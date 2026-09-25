@@ -11,6 +11,7 @@ var Global = newMetrics()
 
 func init() {
 	prometheus.MustRegister(
+		Global.anchorRoadIndex,
 		Global.latency,
 		Global.nextBlock,
 		Global.gasUsed,
@@ -20,6 +21,12 @@ func init() {
 
 func newMetrics() *metrics {
 	return &metrics{
+		anchorRoadIndex: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "anchor_road_index",
+			Help:      "Road index of the current Anchor.",
+		}, nil),
 		latency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -46,6 +53,10 @@ func newMetrics() *metrics {
 			Help:      "size of executed transactions in bytes",
 		}, nil),
 	}
+}
+
+func (m *metrics) anchorRoadIndexAt() *tmprometheus.GaugeInt {
+	return m.anchorRoadIndex.WithLabelValues()
 }
 
 func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogram {

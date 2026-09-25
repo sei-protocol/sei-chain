@@ -13,6 +13,8 @@ func init() {
 	prometheus.MustRegister(
 		Global.fetch,
 		Global.serve,
+		Global.votesSent,
+		Global.votesReceived,
 	)
 }
 
@@ -30,6 +32,18 @@ func newMetrics() *metrics {
 			Name:      "serve",
 			Help:      "Server replies that did not return the requested object.",
 		}, []string{"resource", "reason"}),
+		votesSent: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "votes_sent",
+			Help:      "Votes/QCs sent on a giga stream, counted once per peer stream.",
+		}, []string{"type"}),
+		votesReceived: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "votes_received",
+			Help:      "Votes/QCs decoded from a giga stream.",
+		}, []string{"type"}),
 	}
 }
 
@@ -39,4 +53,12 @@ func (m *metrics) fetchAt(resource string, reason string) *tmprometheus.CounterI
 
 func (m *metrics) serveAt(resource string, reason string) *tmprometheus.CounterInt {
 	return m.serve.WithLabelValues(resource, reason)
+}
+
+func (m *metrics) votesSentAt(l0_type string) *tmprometheus.CounterInt {
+	return m.votesSent.WithLabelValues(l0_type)
+}
+
+func (m *metrics) votesReceivedAt(l0_type string) *tmprometheus.CounterInt {
+	return m.votesReceived.WithLabelValues(l0_type)
 }

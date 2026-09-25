@@ -16,6 +16,11 @@ func init() {
 		Global.proposalToCommitLatency,
 		Global.commitToCommitLatency,
 		Global.producedTxs,
+		Global.laneCapacityWaitLatency,
+		Global.laneQcWaitLatency,
+		Global.inFlight,
+		Global.laneQcs,
+		Global.laneVotesIngested,
 	)
 }
 
@@ -52,6 +57,38 @@ func newMetrics() *metrics {
 			Name:      "produced_txs",
 			Help:      "Transactions included in locally produced lane blocks.",
 		}, nil),
+		laneCapacityWaitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_capacity_wait_latency",
+			Help:      "Time a WaitForCapacity call spent blocked waiting for lane window.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 22),
+		}, nil),
+		laneQcWaitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_qc_wait_latency",
+			Help:      "Time a WaitForLaneQCs call spent blocked waiting for a new LaneQC.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 22),
+		}, nil),
+		inFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "in_flight",
+			Help:      "Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.",
+		}, []string{"wait"}),
+		laneQcs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_qcs",
+			Help:      "LaneQCs formed by lane votes reaching quorum.",
+		}, nil),
+		laneVotesIngested: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_votes_ingested",
+			Help:      "Lane votes newly stored.",
+		}, nil),
 	}
 }
 
@@ -73,4 +110,24 @@ func (m *metrics) commitToCommitLatencyAt(timeouts string) *tmprometheus.Histogr
 
 func (m *metrics) producedTxsAt() *tmprometheus.CounterInt {
 	return m.producedTxs.WithLabelValues()
+}
+
+func (m *metrics) laneCapacityWaitLatencyAt() *tmprometheus.Histogram {
+	return m.laneCapacityWaitLatency.WithLabelValues()
+}
+
+func (m *metrics) laneQcWaitLatencyAt() *tmprometheus.Histogram {
+	return m.laneQcWaitLatency.WithLabelValues()
+}
+
+func (m *metrics) inFlightAt(wait string) *tmprometheus.GaugeInt {
+	return m.inFlight.WithLabelValues(wait)
+}
+
+func (m *metrics) laneQcsAt() *tmprometheus.CounterInt {
+	return m.laneQcs.WithLabelValues()
+}
+
+func (m *metrics) laneVotesIngestedAt() *tmprometheus.CounterInt {
+	return m.laneVotesIngested.WithLabelValues()
 }

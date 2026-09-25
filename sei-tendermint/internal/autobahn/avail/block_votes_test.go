@@ -5,9 +5,42 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
+
+func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
+	rng := utils.TestRng()
+	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	weights := make(map[types.PublicKey]uint64, len(keys))
+	for _, k := range keys {
+		weights[k.Public()] = 1
+	}
+	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: 10}, time.Time{},
+		utils.OrPanic1(types.NewCommittee(weights)), 0)
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+
+	bv := newBlockVotes()
+	beforeQC := metrics.LaneQCs()
+	beforeVotes := metrics.LaneVotesIngested()
+	first := types.Sign(keys[0], types.NewLaneVote(h))
+	bv.pushVote(ep, first)
+	bv.pushVote(ep, first)
+	for _, k := range keys[1:] {
+		bv.pushVote(ep, types.Sign(k, types.NewLaneVote(h)))
+	}
+	require.True(t, bv.qc.IsPresent())
+	require.Equal(t, beforeQC+1, metrics.LaneQCs())
+	require.Equal(t, beforeVotes+int64(len(keys)), metrics.LaneVotesIngested())
+
+	// Re-forming the same QC under a new committee is not a new LaneQC.
+	bv.reweight(ep)
+	require.True(t, bv.qc.IsPresent())
+	require.Equal(t, beforeQC+1, metrics.LaneQCs())
+	require.Equal(t, beforeVotes+int64(len(keys)), metrics.LaneVotesIngested())
+}
 
 func TestBlockVotes_Reweight(t *testing.T) {
 	rng := utils.TestRng()

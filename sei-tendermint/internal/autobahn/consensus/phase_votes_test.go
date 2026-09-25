@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -21,6 +22,18 @@ func TestPrepareVotes_QuorumFormsQC(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, e.view, got.Proposal().View())
 	require.NoError(t, got.Verify(e.ep))
+}
+
+func TestPrepareVotes_CountsAcceptedNotDuplicates(t *testing.T) {
+	rng := utils.TestRng()
+	e := newVoteTestEnv(rng)
+	pv := newPrepareVotes()
+	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
+	vote := types.Sign(e.quorum[0], types.NewPrepareVote(proposal))
+	before := metrics.VotesIngested(metrics.VotePrepare)
+	pv.pushVerifiedVote(e.ep.Committee(), vote)
+	pv.pushVerifiedVote(e.ep.Committee(), vote)
+	require.Equal(t, before+1, metrics.VotesIngested(metrics.VotePrepare))
 }
 
 func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {

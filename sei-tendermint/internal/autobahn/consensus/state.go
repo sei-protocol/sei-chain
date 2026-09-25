@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -132,6 +133,8 @@ func newState(
 		myTimeoutVote: utils.NewAtomicSend(utils.None[*types.FullTimeoutVote]()),
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
+	view := s.myView.Load()
+	metrics.SetView(view.View())
 	return s, nil
 }
 
@@ -279,6 +282,7 @@ func (s *State) runOutputs(ctx context.Context) error {
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
+			metrics.SetView(vs.View())
 		}
 		// Persist to disk before broadcasting votes to the network.
 		if p, ok := s.persister.Get(); ok {

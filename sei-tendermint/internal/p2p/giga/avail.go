@@ -67,6 +67,7 @@ func (x *validatorService) serverStreamLaneVotes(ctx context.Context, server rpc
 				if err := stream.Send(ctx, LaneVoteConv.Encode(vote)); err != nil {
 					return fmt.Errorf("stream.Send(): %w", err)
 				}
+				recordVoteSent(voteLane)
 			}
 		}
 	})
@@ -88,6 +89,7 @@ func (x *validatorService) serverStreamAppVotes(ctx context.Context, server rpc.
 			if err := stream.Send(ctx, AppVoteConv.Encode(vote)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
+			recordVoteSent(voteApp)
 		}
 	})
 }
@@ -194,6 +196,7 @@ func (x *validatorService) clientStreamLaneVotes(ctx context.Context, c rpc.Clie
 		if err != nil {
 			return fmt.Errorf("LaneVoteConv.Decode(): %w", err)
 		}
+		recordVoteReceived(voteLane)
 		if err := x.state.Avail().PushVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
 		}
@@ -248,6 +251,7 @@ func (x *validatorService) clientStreamAppVotes(ctx context.Context, c rpc.Clien
 		if err != nil {
 			return fmt.Errorf("AppVoteConv.Decode(): %w", err)
 		}
+		recordVoteReceived(voteApp)
 		if err := x.state.Avail().PushAppVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
 		}

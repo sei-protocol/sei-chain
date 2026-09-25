@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	consmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -900,7 +901,10 @@ func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	qc := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
 	require.Equal(t, epoch.FirstRoad(f.m), qc.Proposal().Index())
 
+	leader := f.ep.Committee().Leader(qc.Proposal().View())
+	commits := consmetrics.Commits(leader)
 	require.NoError(t, f.state.PushCommitQC(t.Context(), qc))
+	require.Equal(t, commits+1, consmetrics.Commits(leader))
 	require.Equal(t, epoch.FirstRoad(f.m)+1, nextRoad(f.state))
 }
 

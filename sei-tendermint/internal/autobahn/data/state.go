@@ -1009,11 +1009,13 @@ func (s *State) runPersist(ctx context.Context) error {
 func (i *inner) setAnchor() {
 	if i.first < i.persisted.NextAppQC {
 		entry := i.qcs[i.first]
+		qc := entry.qc.QC()
 		i.anchor.Store(utils.Some(Anchor{
-			CommitQC: entry.qc.QC(),
+			CommitQC: qc,
 			AppQC:    i.appQCs[i.first],
 			Epoch:    entry.epoch,
 		}))
+		metrics.SetAnchorRoadIndex(qc.Index())
 	}
 }
 

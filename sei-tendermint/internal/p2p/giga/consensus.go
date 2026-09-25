@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// Sends a consensus message to the peer whenever atomic watch is updated.
+// sendUpdates sends each new consensus message on the consensus stream.
 func sendUpdates[T interface {
 	comparable
 	types.ConsensusReq
@@ -20,6 +20,31 @@ func sendUpdates[T interface {
 	ctx context.Context,
 	client rpc.Client[API],
 	w utils.AtomicRecv[utils.Option[T]],
+) error {
+	return sendConsensusUpdates(ctx, client, w, func() {})
+}
+
+// sendVoteUpdates sends each new consensus vote on the consensus stream and counts it.
+func sendVoteUpdates[T interface {
+	comparable
+	types.ConsensusReq
+}](
+	ctx context.Context,
+	client rpc.Client[API],
+	w utils.AtomicRecv[utils.Option[T]],
+	typ string,
+) error {
+	return sendConsensusUpdates(ctx, client, w, func() { recordVoteSent(typ) })
+}
+
+func sendConsensusUpdates[T interface {
+	comparable
+	types.ConsensusReq
+}](
+	ctx context.Context,
+	client rpc.Client[API],
+	w utils.AtomicRecv[utils.Option[T]],
+	record func(),
 ) error {
 	stream, err := Consensus.Call(ctx, client)
 	if err != nil {
@@ -38,6 +63,7 @@ func sendUpdates[T interface {
 		if err := stream.Send(ctx, types.ConsensusReqConv.Encode(last)); err != nil {
 			return fmt.Errorf("stream.Send(): %w", err)
 		}
+		record()
 	}
 }
 
@@ -46,9 +72,9 @@ func (x *validatorService) clientConsensus(ctx context.Context, c rpc.Client[API
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Send updates about new consensus messages.
 		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeProposal()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribePrepareVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeCommitVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutVote()) })
+		s.Spawn(func() error { return sendVoteUpdates(ctx, c, x.state.SubscribePrepareVote(), votePrepare) })
+		s.Spawn(func() error { return sendVoteUpdates(ctx, c, x.state.SubscribeCommitVote(), voteCommit) })
+		s.Spawn(func() error { return sendVoteUpdates(ctx, c, x.state.SubscribeTimeoutVote(), voteTimeout) })
 		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutQC()) })
 		return nil
 	})
@@ -68,14 +94,17 @@ func (x *validatorService) serverConsensus(ctx context.Context, server rpc.Serve
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:
+				recordVoteReceived(votePrepare)
 				if err := x.state.PushPrepareVote(req.Signed); err != nil {
 					return fmt.Errorf("x.state.PushPrepareVote(): %w", err)
 				}
 			case *types.ConsensusReqCommitVote:
+				recordVoteReceived(voteCommit)
 				if err := x.state.PushCommitVote(req.Signed); err != nil {
 					return fmt.Errorf("x.state.PushCommitVote(): %w", err)
 				}
 			case *types.FullTimeoutVote:
+				recordVoteReceived(voteTimeout)
 				if err := x.state.PushTimeoutVote(req); err != nil {
 					return fmt.Errorf("x.state.PushTimeoutVote(): %w", err)
 				}

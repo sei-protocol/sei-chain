@@ -72,6 +72,7 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 			recordFetch(ctx, resAppQC, "decode")
 			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
 		}
+		recordVoteReceived(qcApp)
 		if err := x.data.PushAppQC(ctx, appQC); err != nil {
 			recordFetch(ctx, resAppQC, "process")
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
@@ -244,6 +245,7 @@ func (s *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
+			recordVoteSent(qcApp)
 		}
 	})
 }
