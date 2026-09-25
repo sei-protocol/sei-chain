@@ -62,6 +62,26 @@ func TestChainIdEndToEnd(t *testing.T) {
 	require.Equal(t, *big.NewInt(713715), big.Int(got))
 }
 
+func TestSyncing(t *testing.T) {
+	api := &infoAPI{}
+	require.False(t, api.Syncing(t.Context()))
+}
+
+func TestSyncingEndToEnd(t *testing.T) {
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore())
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var got bool
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_syncing"))
+	require.False(t, got)
+}
+
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return &testBackend{
 		gasLimit:    func() (uint64, error) { return gasLimit, nil },

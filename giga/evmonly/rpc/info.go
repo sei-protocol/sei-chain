@@ -49,6 +49,11 @@ func (api *infoAPI) ChainId(_ context.Context) *hexutil.Big {
 	return (*hexutil.Big)(new(big.Int).SetUint64(api.backend.EvmChainID()))
 }
 
+// Syncing reports whether the EVM-only executor is catching up.
+func (api *infoAPI) Syncing(_ context.Context) bool {
+	return false
+}
+
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
 // congested-chain reward, matching v2's eth_gasPrice.
 const gasPriceCongestionThresholdPercent = 80
