@@ -115,6 +115,7 @@ func readerValues(t *testing.T) map[string]string {
 		"grpc.max-in-flight-per-ip":            fmt.Sprint(cfg.GRPC.MaxInFlightPerIP),
 		"grpc.rate-limiting-enabled":           fmt.Sprint(cfg.GRPC.RateLimitingEnabled),
 		"grpc.trusted-proxy-cidrs":             fmt.Sprint(cfg.GRPC.TrustedProxyCIDRs),
+		"grpc.request-timeout":                 fmt.Sprint(cfg.GRPC.RequestTimeout),
 		"telemetry.service-name":               fmt.Sprint(cfg.Telemetry.ServiceName),
 		"telemetry.enabled":                    fmt.Sprint(cfg.Telemetry.Enabled),
 		"telemetry.enable-hostname":            fmt.Sprint(cfg.Telemetry.EnableHostname),

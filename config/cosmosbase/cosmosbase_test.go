@@ -79,7 +79,7 @@ func TestTheGRPCKeysAreTheOnesItsReaderResolves(t *testing.T) {
 		"grpc.keepalive-time", "grpc.keepalive-timeout", "grpc.keepalive-min-time",
 		"grpc.keepalive-permit-without-stream",
 		"grpc.ip-rate-limit-rps", "grpc.ip-rate-limit-burst", "grpc.max-in-flight-per-ip",
-		"grpc.rate-limiting-enabled", "grpc.trusted-proxy-cidrs",
+		"grpc.rate-limiting-enabled", "grpc.trusted-proxy-cidrs", "grpc.request-timeout",
 	})
 }
 
