@@ -58,7 +58,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// predates them, leaving nothing to supply them. Read first, the worst case is a view that
 	// already holds them and an overlay that replays the same values over the top.
 	pending := e.pipelinePending()
-	e.blockPhases.SetPhase("open_view")
+	e.blockPhases.SetPhase(phaseOpenView)
 	snapshot := stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
@@ -74,7 +74,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	source = newPendingOverlay(source, pending)
 
-	e.blockPhases.SetPhase("execute")
+	e.blockPhases.SetPhase(phaseExecute)
 	result, err := e.executePreparedBlock(ctx, req, source)
 	if err != nil {
 		return nil, err
@@ -95,12 +95,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// changes runs while that commit is still going, and waits below instead.
 	settleBeforeEncoding := e.encodingReadsTheStore(&result.ChangeSet)
 	if settleBeforeEncoding {
-		e.blockPhases.SetPhase("await_commit")
+		e.blockPhases.SetPhase(phaseAwaitCommit)
 		if err := e.awaitPipelineCommit(); err != nil {
 			return nil, err
 		}
 	}
-	e.blockPhases.SetPhase("encode_changesets")
+	e.blockPhases.SetPhase(phaseEncodeChangesets)
 	changesets, err := e.changeSetEncoder(result.ChangeSet)
 	if err != nil {
 		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
@@ -109,12 +109,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		return nil, err
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
-		e.blockPhases.SetPhase("encode_receipts")
+		e.blockPhases.SetPhase(phaseEncodeReceipts)
 		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
 		}
-		e.blockPhases.SetPhase("write_receipts")
+		e.blockPhases.SetPhase(phaseWriteReceipts)
 		if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}
@@ -122,12 +122,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// One commit is in flight at a time, so the previous one lands before this block starts its
 	// own. It has had this block's whole execution to run, so it rarely still holds.
 	if !settleBeforeEncoding {
-		e.blockPhases.SetPhase("await_commit")
+		e.blockPhases.SetPhase(phaseAwaitCommit)
 		if err := e.awaitPipelineCommit(); err != nil {
 			return nil, err
 		}
 	}
-	e.blockPhases.SetPhase("commit_state")
+	e.blockPhases.SetPhase(phaseCommitState)
 	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}

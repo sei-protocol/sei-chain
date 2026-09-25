@@ -65,7 +65,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 
 	results := make([]occTxExecution, len(req.Txs))
 	chunkSize := occChunkSize(len(req.Txs), workers)
-	e.blockPhases.SetPhase("occ_speculate")
+	e.blockPhases.SetPhase(phaseOCCSpeculate)
 	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
 			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
@@ -73,7 +73,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 		return nil, err
 	}
 
-	e.blockPhases.SetPhase("occ_validate")
+	e.blockPhases.SetPhase(phaseOCCValidate)
 	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, source, results)
 	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
 		reason := validation.fallbackReason
@@ -88,7 +88,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	if err != nil {
 		return nil, err
 	}
-	e.blockPhases.SetPhase("occ_merge")
+	e.blockPhases.SetPhase(phaseOCCMerge)
 	result, err := e.mergeOCCResults(ctx, results, finalState)
 	if err != nil {
 		return nil, err

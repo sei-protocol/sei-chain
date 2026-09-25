@@ -18,11 +18,7 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"go.opentelemetry.io/otel"
 )
-
-// executorMeterName is the OTel meter this package's instruments are created on.
-const executorMeterName = "evmonly_executor"
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
@@ -74,7 +70,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
 		cfg:         cfg.WithDefaults(),
 		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
+		blockPhases: newBlockPhases(),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -113,10 +109,6 @@ func (e *Executor) ResultPoolStats() BlockResultPoolStats {
 	return e.resultPool.stats()
 }
 
-// waitingForBlockPhase names time an executor loop spends blocked with nothing to run. It is part
-// of the phase totals so they account for the loop's whole wall time.
-const waitingForBlockPhase = "waiting_for_block"
-
 // MarkWaitingForBlock records that the caller's loop is about to block waiting for a block to
 // arrive. The next ExecutePreparedBlock ends the phase.
 //
@@ -130,7 +122,7 @@ func (e *Executor) MarkWaitingForBlock() {
 	if e == nil {
 		return
 	}
-	e.blockPhases.SetPhase(waitingForBlockPhase)
+	e.blockPhases.SetPhase(phaseWaitingForBlock)
 }
 
 // ExecuteBlock prepares and executes a block, and returns once its state is committed.

@@ -1310,11 +1310,11 @@
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": false
+          "showLegend": true
         },
         "tooltip": {
           "hideZeros": false,
-          "mode": "single",
+          "mode": "multi",
           "sort": "none"
         }
       },
@@ -1326,11 +1326,18 @@
           "legendFormat": "queued",
           "range": true,
           "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "evmonly_loadtest_reorder_pending_blocks",
+          "legendFormat": "built ahead (reorder buffer)",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Queued Blocks",
       "type": "timeseries",
-      "description": "Prepared blocks waiting for the executor. Pinned at queue-size means the executor is behind; near zero means it is starved."
+      "description": "Prepared blocks waiting for the executor. Pinned at queue-size means the executor is behind; near zero means it is starved. Built ahead counts streaming blocks held behind a slower height; pinned near twice --builders means one builder is holding the rest back."
     },
     {
       "datasource": {

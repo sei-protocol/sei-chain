@@ -93,6 +93,51 @@ func TestOverlayReportsAWipedAccountsSlotsAsUnset(t *testing.T) {
 	require.Equal(t, common.HexToHash("0x2"), overlay.GetState(kept, slot))
 }
 
+// A block that writes several slots and then clears the account's storage must hand the overlay,
+// and the store, only the clear plus what was written after it.
+func TestMergedClearDropsTheWritesBeforeIt(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	a, b, c := common.HexToHash("0xa"), common.HexToHash("0xb"), common.HexToHash("0xc")
+	base := NewMemoryState()
+	base.SetState(addr, a, common.HexToHash("0x1"))
+
+	state := newBlockSTMState(base)
+	state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{
+		{Address: addr, Key: a, Value: common.HexToHash("0x11")},
+		{Address: addr, Key: b, Value: common.HexToHash("0x12")},
+		{Address: addr, Key: c, Value: common.HexToHash("0x13")},
+	}}})
+	state.apply(occTxExecution{changeSet: StateChangeSet{StorageClears: []common.Address{addr}}})
+	state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{
+		{Address: addr, Key: b, Value: common.HexToHash("0x22")},
+	}}})
+
+	changes := state.ChangeSet()
+	require.Equal(t, []common.Address{addr}, changes.StorageClears)
+	require.Equal(t, []StorageChange{{Address: addr, Key: b, Value: common.HexToHash("0x22")}}, changes.Storage,
+		"a slot written before the clear must not survive it")
+}
+
+// Reading through an overlay that holds a clear and a later write, only the later write shows: every
+// other slot reads as unset, including slots the view beneath still holds.
+func TestOverlayServesOnlyTheWritesAfterAClear(t *testing.T) {
+	addr := common.HexToAddress("0x1")
+	a, b, c := common.HexToHash("0xa"), common.HexToHash("0xb"), common.HexToHash("0xc")
+	base := fixedStateReader{storage: map[storageChangeKey]common.Hash{
+		{address: addr, key: a}: common.HexToHash("0x1"),
+		{address: addr, key: b}: common.HexToHash("0x2"),
+		{address: addr, key: c}: common.HexToHash("0x3"),
+	}}
+
+	overlay := newPendingOverlay(base, &StateChangeSet{
+		StorageClears: []common.Address{addr},
+		Storage:       []StorageChange{{Address: addr, Key: b, Value: common.HexToHash("0x22")}},
+	})
+	require.Equal(t, common.Hash{}, overlay.GetState(addr, a))
+	require.Equal(t, common.HexToHash("0x22"), overlay.GetState(addr, b))
+	require.Equal(t, common.Hash{}, overlay.GetState(addr, c))
+}
+
 func TestOverlayReportsDeletedCodeAsAbsent(t *testing.T) {
 	addr := common.HexToAddress("0x1")
 	base := fixedStateReader{code: map[common.Address][]byte{addr: {0x01}}}

@@ -353,6 +353,7 @@ func streamBlocks(
 				delete(pending, next)
 				next++
 			}
+			metrics.recordReorderPending(len(pending))
 			select {
 			case <-groupCtx.Done():
 				return nil
