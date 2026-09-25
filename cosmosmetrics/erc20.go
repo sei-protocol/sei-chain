@@ -126,15 +126,22 @@ func (r *Reporter) readERC20Token(ctx sdk.Context, addr common.Address) (erc20To
 	if !ok {
 		return erc20Token{}, fmt.Errorf("decimals: unexpected return %T", decimals[0])
 	}
+	return erc20Token{address: addr, symbol: r.readERC20Symbol(ctx, from, addr), scale: math.Pow10(int(dec))}, nil
+}
+
+// readERC20Symbol returns the token's symbol, or "" when the contract has no symbol() or returns
+// one that is not an ABI string. The symbol is only a label, so its absence does not stop the
+// balance from being reported.
+func (r *Reporter) readERC20Symbol(ctx sdk.Context, from sdk.AccAddress, addr common.Address) string {
 	symbol, err := r.erc20Call(ctx, from, addr, "symbol")
 	if err != nil {
-		return erc20Token{}, fmt.Errorf("symbol: %w", err)
+		return ""
 	}
 	sym, ok := symbol[0].(string)
 	if !ok {
-		return erc20Token{}, fmt.Errorf("symbol: unexpected return %T", symbol[0])
+		return ""
 	}
-	return erc20Token{address: addr, symbol: sym, scale: math.Pow10(int(dec))}, nil
+	return sym
 }
 
 func (r *Reporter) erc20Call(ctx sdk.Context, from sdk.AccAddress, to common.Address, method string, args ...interface{}) ([]interface{}, error) {

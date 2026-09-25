@@ -27,11 +27,13 @@ var (
 // fakeEVM answers ERC-20 static calls for testToken, exhausts the caller's gas meter for
 // testLoopToken the way a looping contract does, and reverts for anything else. One wallet is
 // associated to testAssocAddr; every other wallet resolves to its cast address. Its symbol answer
-// can be changed between refreshes.
+// can be changed between refreshes, or replaced wholesale with symbolRaw to mimic a contract whose
+// symbol() is not an ABI string.
 type fakeEVM struct {
 	associated sdk.AccAddress
 	balances   map[common.Address]*big.Int
 	symbol     *string
+	symbolRaw  []byte
 	gasLimits  *[]uint64
 }
 
@@ -60,6 +62,9 @@ func (f fakeEVM) StaticCallEVM(ctx sdk.Context, _ sdk.AccAddress, to *common.Add
 	case "decimals":
 		return method.Outputs.Pack(uint8(6))
 	case "symbol":
+		if f.symbolRaw != nil {
+			return f.symbolRaw, nil
+		}
 		if f.symbol != nil {
 			return method.Outputs.Pack(*f.symbol)
 		}
@@ -208,6 +213,24 @@ func TestReadKeepsTheSymbolItFirstRead(t *testing.T) {
 			require.Equal(t, "USDC", observedAttr(t, s, "symbol"), "the symbol label must not follow the contract")
 		}
 	}
+}
+
+func TestReadReportsATokenWhoseSymbolIsNotAString(t *testing.T) {
+	newTestReader(t)
+	bytes32 := make([]byte, 32)
+	copy(bytes32, "MKR")
+	evm := fakeEVM{balances: map[common.Address]*big.Int{}, symbolRaw: bytes32}
+	c, _, logs := newERC20Reporter(t, []string{testToken.Hex()}, evm)
+	c.refresh()
+	ok, reported := readOK(t, c)
+	require.Equal(t, []common.Address{testToken, testToken}, reported, "the balance must be reported without a symbol")
+	require.Equal(t, map[common.Address]float64{testToken: 1}, ok)
+	for _, s := range *c.snapshot.Load() {
+		if s.inst == cosmosMetrics.walletERC20Balance {
+			require.Equal(t, "", observedAttr(t, s, "symbol"))
+		}
+	}
+	require.Empty(t, logs.String(), "a missing symbol is not an error")
 }
 
 func TestNewReporterRequiresAnEVMKeeperForTokens(t *testing.T) {
