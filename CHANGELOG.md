@@ -52,6 +52,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.7
 sei-chain
+* [#4347](https://github.com/sei-protocol/sei-chain/pull/4347) Backport `release/v6.7`: fix(flatkv): keep 10 old checkpoints instead of mirroring memIAVL's count
 * [#4334](https://github.com/sei-protocol/sei-chain/pull/4334) Backport `release/v6.7`: Fail dynamic-gas precompile out-of-gas as an EVM out-of-gas call
 * [#4315](https://github.com/sei-protocol/sei-chain/pull/4315) Backport `release/v6.7`: Pin the Go builder image per architecture in build-static.sh
 * [#4313](https://github.com/sei-protocol/sei-chain/pull/4313) Backport `release/v6.7`: fix(memiavl): hold a snapshot reference for an iterator's lifetime
