@@ -28,11 +28,11 @@ func TestObserveWaitLatency(t *testing.T) {
 }
 
 func TestEnterWait(t *testing.T) {
-	g := Global.inFlightAt("lane_capacity")
+	g := Global.inFlightAt(WaitLaneCapacity)
 	var m dto.Metric
 	require.NoError(t, g.Write(&m))
 	before := m.GetGauge().GetValue()
-	leave := EnterLaneCapacityWait()
+	leave := EnterWait(WaitLaneCapacity)
 	require.NoError(t, g.Write(&m))
 	require.Equal(t, before+1, m.GetGauge().GetValue())
 	leave()

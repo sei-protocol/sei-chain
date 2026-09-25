@@ -34,7 +34,7 @@ func sendVoteUpdates[T interface {
 	w utils.AtomicRecv[utils.Option[T]],
 	typ string,
 ) error {
-	return sendConsensusUpdates(ctx, client, w, func() { recordVoteSent(typ) })
+	return sendConsensusUpdates(ctx, client, w, func() { Global.votesSentAt(typ).Add(1) })
 }
 
 func sendConsensusUpdates[T interface {
@@ -94,17 +94,17 @@ func (x *validatorService) serverConsensus(ctx context.Context, server rpc.Serve
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:
-				recordVoteReceived(votePrepare)
+				Global.votesReceivedAt(votePrepare).Add(1)
 				if err := x.state.PushPrepareVote(req.Signed); err != nil {
 					return fmt.Errorf("x.state.PushPrepareVote(): %w", err)
 				}
 			case *types.ConsensusReqCommitVote:
-				recordVoteReceived(voteCommit)
+				Global.votesReceivedAt(voteCommit).Add(1)
 				if err := x.state.PushCommitVote(req.Signed); err != nil {
 					return fmt.Errorf("x.state.PushCommitVote(): %w", err)
 				}
 			case *types.FullTimeoutVote:
-				recordVoteReceived(voteTimeout)
+				Global.votesReceivedAt(voteTimeout).Add(1)
 				if err := x.state.PushTimeoutVote(req); err != nil {
 					return fmt.Errorf("x.state.PushTimeoutVote(): %w", err)
 				}

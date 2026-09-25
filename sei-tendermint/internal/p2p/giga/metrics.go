@@ -48,11 +48,3 @@ func recordFetch(ctx context.Context, resource, reason string) {
 func recordServe(resource, reason string) {
 	Global.serveAt(resource, reason).Add(1)
 }
-
-func recordVoteSent(typ string) {
-	Global.votesSentAt(typ).Add(1)
-}
-
-func recordVoteReceived(typ string) {
-	Global.votesReceivedAt(typ).Add(1)
-}

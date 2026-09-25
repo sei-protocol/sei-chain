@@ -67,8 +67,7 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
-		SetCommitRoadIndex(qc.Index())
-		SetCommitGlobalBlockNumber(qc.GlobalRange().Next)
+		SetCommitQC(qc)
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
@@ -78,19 +77,15 @@ func ObserveProducedTxs(n int) {
 	Global.producedTxsAt().Add(int64(n))
 }
 
-// SetCommitRoadIndex records the road index of the highest observed commitQC.
-func SetCommitRoadIndex(idx types.RoadIndex) {
-	Global.commitRoadIndexAt().Set(int64(idx)) // nolint: gosec
+// SetCommitQC records the road index and next global block number of the highest observed commitQC.
+func SetCommitQC(qc *types.CommitQC) {
+	Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
+	Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 }
 
 // CommitRoadIndex returns the road index recorded for the highest observed commitQC.
 func CommitRoadIndex() int64 {
 	return gaugeValue(Global.commitRoadIndexAt())
-}
-
-// SetCommitGlobalBlockNumber records the global block number of the highest observed commitQC.
-func SetCommitGlobalBlockNumber(n types.GlobalBlockNumber) {
-	Global.commitGlobalBlockNumberAt().Set(int64(n)) // nolint: gosec
 }
 
 // CommitGlobalBlockNumber returns the global block number recorded for the highest observed commitQC.
@@ -112,17 +107,18 @@ func ObserveLaneCapacityWait(d time.Duration) {
 	Global.laneCapacityWaitLatencyAt().Observe(d.Seconds())
 }
 
-func enterWait(wait string) func() {
+// in_flight{wait} labels.
+const (
+	WaitLaneCapacity = "lane_capacity"
+	WaitLaneQC       = "lane_qc"
+)
+
+// EnterWait marks one call of the given wait as in flight until the returned func runs.
+func EnterWait(wait string) func() {
 	g := Global.inFlightAt(wait)
 	g.Add(1)
 	return func() { g.Add(-1) }
 }
-
-// EnterLaneCapacityWait marks a WaitForCapacity call as in flight.
-func EnterLaneCapacityWait() func() { return enterWait("lane_capacity") }
-
-// EnterLaneQCWait marks a WaitForLaneQCs call as in flight.
-func EnterLaneQCWait() func() { return enterWait("lane_qc") }
 
 // ObserveLaneQCWait records how long one WaitForLaneQCs call blocked.
 // A call that finds a LaneQC immediately is not recorded. A call canceled while blocked is.

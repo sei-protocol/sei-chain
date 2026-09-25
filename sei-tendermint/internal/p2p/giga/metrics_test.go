@@ -19,8 +19,8 @@ func counterValue(t *testing.T, c *prometheus.CounterInt) int64 {
 func TestVoteSentAndReceived(t *testing.T) {
 	sent := counterValue(t, Global.votesSentAt(votePrepare))
 	recv := counterValue(t, Global.votesReceivedAt(voteApp))
-	recordVoteSent(votePrepare)
-	recordVoteReceived(voteApp)
+	Global.votesSentAt(votePrepare).Add(1)
+	Global.votesReceivedAt(voteApp).Add(1)
 	require.Equal(t, sent+1, counterValue(t, Global.votesSentAt(votePrepare)))
 	require.Equal(t, recv+1, counterValue(t, Global.votesReceivedAt(voteApp)))
 }
@@ -28,8 +28,8 @@ func TestVoteSentAndReceived(t *testing.T) {
 func TestLaneVoteSentAndReceived(t *testing.T) {
 	sent := counterValue(t, Global.votesSentAt(voteLane))
 	recv := counterValue(t, Global.votesReceivedAt(voteLane))
-	recordVoteSent(voteLane)
-	recordVoteReceived(voteLane)
+	Global.votesSentAt(voteLane).Add(1)
+	Global.votesReceivedAt(voteLane).Add(1)
 	require.Equal(t, sent+1, counterValue(t, Global.votesSentAt(voteLane)))
 	require.Equal(t, recv+1, counterValue(t, Global.votesReceivedAt(voteLane)))
 }

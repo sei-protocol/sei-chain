@@ -180,8 +180,7 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	}
 	i.refreshConsensusSpec()
 	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
-		metrics.SetCommitRoadIndex(qc.Index())
-		metrics.SetCommitGlobalBlockNumber(qc.GlobalRange().Next)
+		metrics.SetCommitQC(qc)
 	}
 	return i, nil
 }
@@ -619,7 +618,7 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 			return toProduce < q.first+BlocksPerLane
 		}
 		if !ready() {
-			defer metrics.EnterLaneCapacityWait()()
+			defer metrics.EnterWait(metrics.WaitLaneCapacity)()
 			start = time.Now()
 			blocked = true
 			if err := ctrl.WaitUntil(ctx, ready); err != nil {
@@ -662,7 +661,7 @@ func (s *State) WaitForLaneQCs(
 				return laneQCs, nil
 			}
 			if !blocked {
-				defer metrics.EnterLaneQCWait()()
+				defer metrics.EnterWait(metrics.WaitLaneQC)()
 				start = time.Now()
 				blocked = true
 			}
