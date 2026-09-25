@@ -74,9 +74,9 @@ func (k BaseViewKeeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom s
 }
 
 // LockedCoins returns the coins at addr that cannot be spent, which are none.
-// Re-tracing a block from before cosmosbankkeeper.VestingRemovalUpgrade reads
-// the account first, as executing that block did, so the trace consumes the
-// gas the block did.
+// When cosmosbankkeeper.RetracesLockedCoinsLookup reports that ctx re-traces
+// a block from before cosmosbankkeeper.VestingRemovalUpgrade, it first reads
+// the account, as that block did.
 func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
 	if cosmosbankkeeper.RetracesLockedCoinsLookup(ctx) {
 		k.ak.GetAccount(ctx, addr)

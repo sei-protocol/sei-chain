@@ -160,15 +160,19 @@ func (k BaseViewKeeper) IterateAllBalances(ctx sdk.Context, cb func(sdk.AccAddre
 // semver, against the ClosestUpgradeName of a context re-tracing a block.
 const VestingRemovalUpgrade = "v6.8"
 
-// RetracesLockedCoinsLookup reports whether ctx re-traces a block from before
-// VestingRemovalUpgrade.
+// RetracesLockedCoinsLookup reports whether ctx re-traces a block that its
+// ClosestUpgradeName places before VestingRemovalUpgrade. The RPC context names
+// the first upgrade applied at or after the block's parent, so once
+// VestingRemovalUpgrade is applied this reports false for v6.7 blocks after the
+// first two, whose traces then use less gas than the blocks did; v6.7 freeze
+// nodes serve those traces.
 func RetracesLockedCoinsLookup(ctx sdk.Context) bool {
 	return ctx.IsTracing() && semver.Compare(ctx.ClosestUpgradeName(), VestingRemovalUpgrade) < 0
 }
 
 // LockedCoins returns the coins at addr that cannot be spent, which are none.
-// Re-tracing a block from before VestingRemovalUpgrade reads the account first,
-// as executing that block did, so the trace consumes the gas the block did.
+// When RetracesLockedCoinsLookup reports that ctx re-traces a block from
+// before VestingRemovalUpgrade, it first reads the account, as that block did.
 func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
 	if RetracesLockedCoinsLookup(ctx) {
 		k.ak.GetAccount(ctx, addr)
