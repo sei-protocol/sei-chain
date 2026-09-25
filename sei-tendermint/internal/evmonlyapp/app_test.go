@@ -427,6 +427,35 @@ func TestEVMOnlyApplicationCommitsBlockWithStaleNonce(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
 }
 
+// A transaction rejected for a nonce gap leaves no receipt behind, so its hash is
+// still free for the receipt of the block in which it finally executes.
+func TestEVMOnlyApplicationReceiptFollowsLateExecution(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	first := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+	second := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
+
+	response, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1, second))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), response.TxResults[0].GasUsed)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, first))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3, second))
+
+	receiptDB := app.(*evmOnlyApplication).storage.ReceiptDB()
+	waitForReceiptVersion(t, receiptDB, 3)
+	secondTx := new(ethtypes.Transaction)
+	require.NoError(t, secondTx.UnmarshalBinary(second))
+	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 3}, false).WithContext(t.Context())
+	got, err := receiptDB.GetReceipt(receiptCtx, secondTx.Hash())
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), got.BlockNumber)
+	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), got.Status)
+	require.Equal(t, uint64(21_000), got.GasUsed)
+}
+
 // evmMinGasPricer is implemented by an application that exposes its
 // admission gas-price floor, matching proxy.evmMinGasPriceProvider.
 type evmMinGasPricer interface {

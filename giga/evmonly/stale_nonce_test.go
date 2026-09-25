@@ -115,3 +115,24 @@ func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
 		}
 	}
 }
+
+func TestReceiptRecordsOmitCurableRejections(t *testing.T) {
+	result := &BlockResult{
+		Txs: []TxResult{
+			{},
+			{Rejected: true, Err: core.ErrNonceTooHigh},
+			{Rejected: true, Err: core.ErrInsufficientFunds},
+			{Rejected: true, Err: fmt.Errorf("replay: %w", core.ErrNonceTooLow)},
+		},
+	}
+	for i := range result.Txs {
+		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})
+	}
+	records, err := receiptRecords(1, result)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	require.Equal(t, uint32(0), records[0].Receipt.TransactionIndex)
+	require.False(t, records[0].KeepExisting)
+	require.Equal(t, uint32(3), records[1].Receipt.TransactionIndex)
+	require.True(t, records[1].KeepExisting)
+}

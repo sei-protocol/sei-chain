@@ -323,13 +323,13 @@ func (api *infoAPI) receiptRecordsFromBlock(ctx context.Context, height int64) (
 			return nil, fmt.Errorf("decode transaction in block %d: %w", height, err)
 		}
 		hash := tx.Hash()
-		stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
+		stored, err := receiptFor(ctx, api.store, hash)
 		if err != nil {
 			return nil, fmt.Errorf("read receipt %s for block %d: %w", hash, height, err)
 		}
 		// A replayed transaction keeps the receipt of its original execution, which
-		// belongs to another block's stats.
-		if stored.BlockNumber != uint64(height) || uint64(stored.TransactionIndex) != uint64(i) { //nolint:gosec // G115: height and index are non-negative.
+		// belongs to another block's stats; a curable rejection has none at all.
+		if stored == nil || stored.BlockNumber != uint64(height) || uint64(stored.TransactionIndex) != uint64(i) { //nolint:gosec // G115: height and index are non-negative.
 			continue
 		}
 		records = append(records, receiptRecordFor(hash, stored))

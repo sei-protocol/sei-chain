@@ -2,10 +2,12 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -18,10 +20,16 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 	if len(result.Receipts) != len(result.Txs) {
 		return nil, fmt.Errorf("receipt count %d does not match transaction result count %d", len(result.Receipts), len(result.Txs))
 	}
-	records := make([]receipt.ReceiptRecord, len(result.Receipts))
+	records := make([]receipt.ReceiptRecord, 0, len(result.Receipts))
 	for i, ethReceipt := range result.Receipts {
 		if ethReceipt == nil {
 			return nil, fmt.Errorf("receipt %d is nil", i)
+		}
+		txResult := result.Txs[i]
+		// A rejection the sender can still cure (nonce too high, insufficient funds)
+		// leaves the hash unclaimed so a later execution can store its receipt.
+		if txResult.Rejected && !errors.Is(txResult.Err, core.ErrNonceTooLow) {
+			continue
 		}
 		transactionIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
 		if !ok {
@@ -31,7 +39,6 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 		if !ok {
 			return nil, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
 		}
-		txResult := result.Txs[i]
 		stored := &evmtypes.Receipt{
 			TxType:            uint32(ethReceipt.Type),
 			CumulativeGasUsed: ethReceipt.CumulativeGasUsed,
@@ -62,10 +69,10 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 		if ethReceipt.EffectiveGasPrice != nil {
 			reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
 		}
-		records[i] = receipt.ReceiptRecord{
+		records = append(records, receipt.ReceiptRecord{
 			TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
 			KeepExisting: txResult.Rejected,
-		}
+		})
 	}
 	return records, nil
 }
