@@ -54,31 +54,35 @@ type offlineUpgradeArtifact struct {
 // between. TxSenderKey is a throwaway key generated for the fixture database,
 // which the target phase needs in order to sign as that account.
 type offlineUpgradeRetainedState struct {
-	FeegrantGranter     string `json:"feegrant_granter"`
-	FeegrantGrantee     string `json:"feegrant_grantee"`
-	FeegrantKey         string `json:"feegrant_key"`
-	CapabilityName      string `json:"capability_name"`
-	CapabilityIndex     uint64 `json:"capability_index"`
-	CapabilityOwnersKey string `json:"capability_owners_key"`
-	IBCClientID         string `json:"ibc_client_id"`
-	IBCClientStateKey   string `json:"ibc_client_state_key"`
-	IBCConnectionID     string `json:"ibc_connection_id"`
-	IBCConnectionKey    string `json:"ibc_connection_key"`
-	IBCPortID           string `json:"ibc_port_id"`
-	IBCChannelID        string `json:"ibc_channel_id"`
-	IBCChannelKey       string `json:"ibc_channel_key"`
-	TransferDenomHash   string `json:"transfer_denom_hash"`
-	TransferIBCDenom    string `json:"transfer_ibc_denom"`
-	TransferTraceKey    string `json:"transfer_trace_key"`
-	EscrowAddress       string `json:"escrow_address"`
-	EscrowAmount        string `json:"escrow_amount"`
-	EscrowSupply        string `json:"escrow_supply"`
-	VoucherHolder       string `json:"voucher_holder"`
-	VoucherAmount       string `json:"voucher_amount"`
-	VoucherSupply       string `json:"voucher_supply"`
-	TxSender            string `json:"tx_sender"`
-	TxSenderKey         string `json:"tx_sender_key"`
-	TxRecipient         string `json:"tx_recipient"`
+	FeegrantGranter        string `json:"feegrant_granter"`
+	FeegrantGrantee        string `json:"feegrant_grantee"`
+	FeegrantKey            string `json:"feegrant_key"`
+	CapabilityName         string `json:"capability_name"`
+	CapabilityIndex        uint64 `json:"capability_index"`
+	CapabilityOwnersKey    string `json:"capability_owners_key"`
+	IBCClientID            string `json:"ibc_client_id"`
+	IBCClientStateKey      string `json:"ibc_client_state_key"`
+	IBCConnectionID        string `json:"ibc_connection_id"`
+	IBCConnectionKey       string `json:"ibc_connection_key"`
+	IBCPortID              string `json:"ibc_port_id"`
+	IBCChannelID           string `json:"ibc_channel_id"`
+	IBCChannelKey          string `json:"ibc_channel_key"`
+	TransferDenomHash      string `json:"transfer_denom_hash"`
+	TransferIBCDenom       string `json:"transfer_ibc_denom"`
+	TransferTraceKey       string `json:"transfer_trace_key"`
+	EscrowAddress          string `json:"escrow_address"`
+	EscrowAmount           string `json:"escrow_amount"`
+	EscrowSupply           string `json:"escrow_supply"`
+	VoucherHolder          string `json:"voucher_holder"`
+	VoucherAmount          string `json:"voucher_amount"`
+	VoucherSupply          string `json:"voucher_supply"`
+	IBCProposalID          uint64 `json:"ibc_proposal_id"`
+	IBCProposalTitle       string `json:"ibc_proposal_title"`
+	IBCProposalDescription string `json:"ibc_proposal_description"`
+	UpgradedIBCStateKey    string `json:"upgraded_ibc_state_key"`
+	TxSender               string `json:"tx_sender"`
+	TxSenderKey            string `json:"tx_sender_key"`
+	TxRecipient            string `json:"tx_recipient"`
 }
 
 func requireOfflineUpgradePhase(t *testing.T, want string) string {
@@ -535,6 +539,49 @@ func requireOfflineUpgradeRetainedStores(t *testing.T, testApp *App, want map[st
 		got := snapshotCommittedOfflineUpgradeStore(t, testApp, name)
 		require.Equal(t, want[name], got, "v6.7 changed retained %s state", name)
 		requireOfflineUpgradeStoreProof(t, testApp, name, want[name])
+	}
+}
+
+// offlineUpgradeStoreDiff lists the snapshotted keys of one store whose value
+// changed or that disappeared, as base64 key -> "before -> after".
+func offlineUpgradeStoreDiff(want, got map[string]string) map[string]string {
+	diff := map[string]string{}
+	for key, before := range want {
+		after, ok := got[key]
+		switch {
+		case !ok:
+			diff[key] = before + " -> <deleted>"
+		case after != before:
+			diff[key] = before + " -> " + after
+		}
+	}
+	return diff
+}
+
+// requireOfflineUpgradeRetainedStoresExcept checks that every snapshotted key of
+// every retained store is still present with its recorded value, except keys the
+// upgrade is specified to touch, which touched reports.
+func requireOfflineUpgradeRetainedStoresExcept(
+	t *testing.T,
+	testApp *App,
+	want map[string]map[string]string,
+	touched func(storeName string, key []byte) bool,
+) {
+	t.Helper()
+	names := make([]string, 0, len(want))
+	for name := range want {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	requireOfflineUpgradeStoresMounted(t, testApp, names)
+	for _, name := range names {
+		got := snapshotCommittedOfflineUpgradeStore(t, testApp, name)
+		for encodedKey, change := range offlineUpgradeStoreDiff(want[name], got) {
+			key, err := base64.StdEncoding.DecodeString(encodedKey)
+			require.NoError(t, err)
+			require.True(t, touched(name, key),
+				"upgrade changed retained %s key %q: %s", name, key, change)
+		}
 	}
 }
 

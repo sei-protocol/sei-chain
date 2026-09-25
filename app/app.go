@@ -91,7 +91,6 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/sync/errgroup"
@@ -103,8 +102,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/app/retiredibc"
-	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -224,7 +221,6 @@ var (
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		transferModuleName:             {authtypes.Minter, authtypes.Burner},
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
@@ -232,6 +228,11 @@ var (
 	}
 
 	allowedReceivingModAcc = map[string]bool{}
+
+	// retiredModuleAccounts are module accounts whose modules no longer exist
+	// but whose deterministic addresses stay blocked so funds cannot be sent
+	// to an account nothing can sign for.
+	retiredModuleAccounts = []string{"transfer"}
 
 	// kvStoreKeyNames is the canonical, in-order list of module KV store
 	// names mounted on the SeiDB / memiavl backend. It is the single source
@@ -242,8 +243,8 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, storekeys.IBCStoreKey, upgradetypes.StoreKey, feegrantModuleName,
-		evidencetypes.StoreKey, transferModuleName, capabilityModuleName,
+		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
+		evidencetypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
@@ -278,10 +279,8 @@ var (
 )
 
 const (
-	MinGasEVMTx          = 21000
-	capabilityModuleName = "capability"
-	feegrantModuleName   = "feegrant"
-	transferModuleName   = "transfer"
+	MinGasEVMTx        = 21000
+	feegrantModuleName = "feegrant"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -457,14 +456,6 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
-}
-
-// Query handles ABCI queries without exposing retired IBC stores.
-func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
-	if response := retiredibc.QueryResponse(req.Path); response != nil {
-		return response, nil
-	}
-	return app.BaseApp.Query(ctx, req)
 }
 
 type AppOption func(*App)
@@ -782,7 +773,6 @@ func New(
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
-		AddRoute(retiredibcgov.RouterKey, retiredibcgov.ProposalHandler).
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
@@ -1143,7 +1133,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "v6.8" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Deleted: []string{retiredoracle.ModuleName},
+			Deleted: v68DeletedStores,
 		}
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
@@ -1172,14 +1162,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
-	app.initializeRetiredTransferModuleAccount(ctx)
-	return response
-}
-
-// initializeRetiredTransferModuleAccount materializes the retained transfer module account during genesis.
-func (app *App) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
-	app.AccountKeeper.GetModuleAccount(ctx, transferModuleName)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
@@ -2434,6 +2417,9 @@ func (app *App) LoadHeight(height int64) error {
 func (app *App) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)
 	for acc := range maccPerms {
+		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
+	}
+	for _, acc := range retiredModuleAccounts {
 		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
 	}
 

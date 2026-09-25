@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -20,18 +19,6 @@ var retainedStores = map[string]struct {
 	feegrantModuleName: {
 		upgrade: "v6.7",
 		reason:  "module removed in v6.7; allowances kept for historical state access",
-	},
-	capabilityModuleName: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; capabilities kept for freeze-mode historical state access",
-	},
-	transferModuleName: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; transfer state kept for historical state access",
-	},
-	storekeys.IBCStoreKey: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; client, connection and channel state kept for historical state access",
 	},
 }
 
@@ -69,14 +56,15 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 		registered[name] = struct{}{}
 	}
 
-	// Model a chain that carried every retained store's module version across
-	// earlier upgrades, which is what a real node upgrading into this release
-	// has in state.
+	// Model a chain that carried every removed module's version across earlier
+	// upgrades, which is what a node upgrading into this release straight from
+	// v6.6 has in state.
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(ctx)
-	for name, retained := range retainedStores {
-		if retained.upgrade == LatestUpgrade {
-			versionMap[name] = 1
-		}
+	for name := range retainedStores {
+		versionMap[name] = 1
+	}
+	for _, name := range v68DeletedStores {
+		versionMap[name] = 1
 	}
 	testApp.UpgradeKeeper.SetModuleVersionMap(ctx, versionMap)
 

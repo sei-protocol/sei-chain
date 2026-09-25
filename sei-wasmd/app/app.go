@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -65,7 +64,6 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -74,7 +72,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
-	"github.com/sei-protocol/sei-chain/app/retiredibc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -93,8 +90,6 @@ import (
 const (
 	appName              = "WasmApp"
 	feegrantStoreKeyName = "feegrant"
-	retiredIBCStoreName  = storekeys.IBCStoreKey
-	retiredTransferName  = storekeys.IBCTransferStoreKey
 )
 
 // We pull these out so we can set them with LDFLAGS in the Makefile
@@ -188,9 +183,13 @@ var (
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		retiredTransferName:            {authtypes.Minter, authtypes.Burner},
 		wasm.ModuleName:                {authtypes.Burner},
 	}
+
+	// retiredModuleAccounts are module accounts whose modules no longer exist
+	// but whose deterministic addresses stay blocked so funds cannot be sent
+	// to an account nothing can sign for.
+	retiredModuleAccounts = []string{"transfer"}
 )
 
 var (
@@ -232,14 +231,6 @@ type WasmApp struct {
 	txDecoder sdk.TxDecoder
 }
 
-// Query handles ABCI queries without exposing retired IBC stores.
-func (app *WasmApp) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
-	if response := retiredibc.QueryResponse(req.Path); response != nil {
-		return response, nil
-	}
-	return app.BaseApp.Query(ctx, req)
-}
-
 // NewWasmApp returns a reference to an initialized WasmApp.
 func NewWasmApp(
 	db dbm.DB,
@@ -265,8 +256,8 @@ func NewWasmApp(
 	keys := sdk.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, retiredIBCStoreName, upgradetypes.StoreKey,
-		evidencetypes.StoreKey, retiredTransferName,
+		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
+		evidencetypes.StoreKey,
 		feegrantStoreKeyName, authzkeeper.StoreKey, wasm.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
@@ -610,14 +601,7 @@ func (app *WasmApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci
 
 	app.upgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 
-	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
-	app.initializeRetiredTransferModuleAccount(ctx)
-	return response
-}
-
-// initializeRetiredTransferModuleAccount preserves the account identity and permissions created by the retired transfer module.
-func (app *WasmApp) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
-	app.accountKeeper.GetModuleAccount(ctx, retiredTransferName)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
 }
 
 func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
@@ -634,6 +618,9 @@ func (app *WasmApp) LoadHeight(height int64) error {
 func (app *WasmApp) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)
 	for acc := range maccPerms {
+		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
+	}
+	for _, acc := range retiredModuleAccounts {
 		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
 	}
 

@@ -11,7 +11,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/upgradetest"
@@ -113,7 +112,7 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	testWrapper.App.RegisterUpgradeHandlers()
 
 	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	versionMap[storekeys.IBCStoreKey] = 1
+	versionMap["ibc"] = 1
 	versionMap["capability"] = 1
 	versionMap["feegrant"] = 1
 	versionMap["transfer"] = 2
@@ -125,7 +124,7 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	})
 
 	versionMap = testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	require.NotContains(t, versionMap, storekeys.IBCStoreKey)
+	require.NotContains(t, versionMap, "ibc")
 	require.NotContains(t, versionMap, "capability")
 	require.NotContains(t, versionMap, "feegrant")
 	require.NotContains(t, versionMap, "transfer")

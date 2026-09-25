@@ -12,8 +12,7 @@ For the most up to date documentation please visit https://www.docs.sei.io/
 
 Developer reference in this repo: [EVM JSON-RPC explicitly unsupported methods](docs/evm_jsonrpc_unsupported.md) (methods that return `-32000` with a clear message).
 
-Starting with v6.7, IBC module source and wiring are removed. IBC queries, historical transfer transaction decoding, and pre-v6.7 IBC precompile tracing are not served by v6.7 nodes. Run a v6.6 freeze node to serve pre-v6.7 IBC history.
-See [IBC retirement](docs/ibc_retirement.md) for the retained CosmWasm and state behavior.
+Starting with v6.7, IBC module source and wiring are removed. IBC queries, historical transfer transaction decoding, and pre-v6.7 IBC precompile tracing are not served by v6.7 nodes. Run a v6.6 freeze node to serve pre-v6.7 IBC history. The IBC precompile at `0x1009` remains registered only as a tombstone that reverts every call. Starting with v6.8, the `ibc`, `transfer` and `capability` stores are deleted from state. CosmWasm IBC entry points, messages and queries are still compiled into `sei-wasmd` but have no IBC module behind them; they go away with the CosmWasm teardown.
 
 # Sei Optimizations
 Sei introduces four major innovations:

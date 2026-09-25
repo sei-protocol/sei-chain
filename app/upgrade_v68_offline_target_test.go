@@ -3,19 +3,29 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 )
 
-var v68OfflineRemovedModules = []string{"oracle"}
+var v68OfflineRemovedModules = []string{"capability", "ibc", "oracle", "transfer"}
 var v68OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
 
 func TestV68OfflineUpgradeTarget(t *testing.T) {
@@ -51,12 +61,10 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	commitOfflineUpgradeApp(t, testApp)
 	closeOfflineUpgradeApp(t, testApp)
 	reopened := openOfflineUpgradeApp(t, root, false)
-	requireV68OfflineAppliedName(t, reopened, artifact)
-	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	requireV68OfflineOracleStoreDeleted(t, reopened)
+	requireV68OfflineMigrated(t, reopened, artifact)
 	hash := committedOfflineUpgradeHash(t, reopened)
 	closeOfflineUpgradeApp(t, reopened)
-	requireV68OfflineOracleTreeDeleted(t, root)
+	requireV68OfflineTreesDeleted(t, root)
 	return hash
 }
 
@@ -74,13 +82,68 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 	commitOfflineUpgradeApp(t, interrupted)
 	closeOfflineUpgradeApp(t, interrupted)
 	reopened := openOfflineUpgradeApp(t, root, false)
-	requireV68OfflineAppliedName(t, reopened, artifact)
-	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	requireV68OfflineOracleStoreDeleted(t, reopened)
+	requireV68OfflineMigrated(t, reopened, artifact)
 	hash := committedOfflineUpgradeHash(t, reopened)
 	closeOfflineUpgradeApp(t, reopened)
-	requireV68OfflineOracleTreeDeleted(t, root)
+	requireV68OfflineTreesDeleted(t, root)
 	return hash
+}
+
+// requireV68OfflineMigrated checks a reopened migrated database: the upgrade
+// is recorded, the retired module versions and stores are gone, the retired
+// IBC proposal reads back as a text proposal, the upgraded IBC client record
+// is pruned, and the IBC voucher balance and supply are intact and spendable.
+func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
+	t.Helper()
+	requireV68OfflineAppliedName(t, testApp, artifact)
+	requireV68OfflineVersionMap(t, testApp, artifact.ModuleVersions)
+	requireV68OfflineStoresDeleted(t, testApp)
+	requireV68OfflineProposalRewritten(t, testApp, artifact.Retained)
+	requireV68OfflineUpgradedIBCStatePruned(t, testApp, artifact.Retained)
+	requireV68OfflineVoucher(t, testApp, artifact.Retained)
+	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(artifact))
+}
+
+// v68OfflineTouchedKey reports the retained-store keys the v6.8 upgrade block
+// is specified to change: the rewritten IBC proposal, the pruned upgraded IBC
+// state, the plan, done and version-map entries of the upgrade store, and the
+// bank entries block rewards move every block.
+func v68OfflineTouchedKey(artifact offlineUpgradeArtifact) func(storeName string, key []byte) bool {
+	proposalKey := string(govtypes.ProposalKey(artifact.Retained.IBCProposalID))
+	return func(storeName string, key []byte) bool {
+		switch storeName {
+		case govtypes.StoreKey:
+			return string(key) == proposalKey
+		case upgradetypes.StoreKey:
+			if strings.HasPrefix(string(key), upgradedIBCStateKeyPrefix) {
+				return true
+			}
+			return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
+		case banktypes.StoreKey:
+			return v68OfflineBlockRewardKey(key)
+		}
+		return false
+	}
+}
+
+// v68OfflineBlockRewardKey reports bank keys that minting and distribution
+// rewrite on every block: the usei supply and the balances of the module
+// accounts rewards flow through.
+func v68OfflineBlockRewardKey(key []byte) bool {
+	if bytes.HasPrefix(key, banktypes.SupplyKey) {
+		return string(key[len(banktypes.SupplyKey):]) == sdk.DefaultBondDenom
+	}
+	for _, prefix := range [][]byte{banktypes.BalancesPrefix, banktypes.WeiBalancesPrefix} {
+		if !bytes.HasPrefix(key, prefix) {
+			continue
+		}
+		for _, name := range []string{authtypes.FeeCollectorName, distrtypes.ModuleName, minttypes.ModuleName} {
+			if bytes.HasPrefix(key[len(prefix):], address.MustLengthPrefix(authtypes.NewModuleAddress(name))) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func requireV68OfflinePersistedPlanHasHandler(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
@@ -129,16 +192,78 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	reopened := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	defer closeOfflineUpgradeApp(t, reopened)
 	requireV68OfflineVersionMap(t, reopened, beforeVersions)
+	requireV68OfflineNoRetiredProposals(t, reopened)
 }
 
-func requireV68OfflineOracleStoreDeleted(t *testing.T, testApp *App) {
+func requireV68OfflineStoresDeleted(t *testing.T, testApp *App) {
 	t.Helper()
+	for _, name := range v68OfflineRemovedModules {
+		require.Nil(t, testApp.GetKey(name))
+	}
 	for _, key := range testApp.CommitMultiStore().StoreKeys() {
-		require.NotEqual(t, "oracle", key.Name())
+		require.NotContains(t, v68OfflineRemovedModules, key.Name())
 	}
 }
 
-func requireV68OfflineOracleTreeDeleted(t *testing.T, root string) {
+func requireV68OfflineProposalRewritten(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {
+	t.Helper()
+	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
+	proposal, found := testApp.GovKeeper.GetProposal(ctx, retained.IBCProposalID)
+	require.True(t, found)
+	require.Equal(t, govtypes.StatusPassed, proposal.Status)
+	require.Equal(t, "/cosmos.gov.v1beta1.TextProposal", proposal.Content.TypeUrl)
+	content := proposal.GetContent()
+	require.NotNil(t, content)
+	require.Equal(t, retained.IBCProposalTitle, content.GetTitle())
+	require.Equal(t, retained.IBCProposalDescription, content.GetDescription())
+	requireV68OfflineNoRetiredProposals(t, testApp)
+}
+
+func requireV68OfflineNoRetiredProposals(t *testing.T, testApp *App) {
+	t.Helper()
+	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
+	testApp.GovKeeper.IterateProposals(ctx, func(proposal govtypes.Proposal) bool {
+		require.NotNil(t, proposal.GetContent(), "proposal %d has undecodable content", proposal.ProposalId)
+		require.False(t, strings.HasPrefix(proposal.Content.TypeUrl, retiredIBCProposalTypeURLPrefix))
+		return false
+	})
+}
+
+func requireV68OfflineUpgradedIBCStatePruned(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {
+	t.Helper()
+	key, err := base64.StdEncoding.DecodeString(retained.UpgradedIBCStateKey)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(key), upgradedIBCStateKeyPrefix))
+	store := committedUpgradeStore(t, testApp)
+	require.False(t, store.Has(key))
+	iterator := sdk.KVStorePrefixIterator(store, []byte(upgradedIBCStateKeyPrefix))
+	defer iterator.Close()
+	require.False(t, iterator.Valid())
+}
+
+func requireV68OfflineVoucher(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {
+	t.Helper()
+	ctx, _ := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()).CacheContext()
+	holder, err := sdk.AccAddressFromBech32(retained.VoucherHolder)
+	require.NoError(t, err)
+	amount, ok := sdk.NewIntFromString(retained.VoucherAmount)
+	require.True(t, ok)
+	supply, ok := sdk.NewIntFromString(retained.VoucherSupply)
+	require.True(t, ok)
+	voucher := sdk.NewCoin(retained.TransferIBCDenom, amount)
+	require.Equal(t, voucher, testApp.BankKeeper.GetBalance(ctx, holder, voucher.Denom))
+	require.Equal(t, sdk.NewCoin(voucher.Denom, supply), testApp.BankKeeper.GetSupply(ctx, voucher.Denom))
+
+	recipient := sdk.AccAddress("v68-voucher-receiver")
+	testApp.AccountKeeper.SetAccount(ctx, testApp.AccountKeeper.NewAccountWithAddress(ctx, recipient))
+	send := sdk.NewCoin(voucher.Denom, sdk.OneInt())
+	require.NoError(t, testApp.BankKeeper.SendCoins(ctx, holder, recipient, sdk.NewCoins(send)))
+	require.Equal(t, send, testApp.BankKeeper.GetBalance(ctx, recipient, voucher.Denom))
+	require.Equal(t, voucher.Sub(send), testApp.BankKeeper.GetBalance(ctx, holder, voucher.Denom))
+	require.Equal(t, sdk.NewCoin(voucher.Denom, supply), testApp.BankKeeper.GetSupply(ctx, voucher.Denom))
+}
+
+func requireV68OfflineTreesDeleted(t *testing.T, root string) {
 	t.Helper()
 	store := memiavl.NewCommitStore(filepath.Join(root, "home"), memiavl.DefaultConfig())
 	defer func() {
@@ -151,13 +276,16 @@ func requireV68OfflineOracleTreeDeleted(t *testing.T, root string) {
 	require.NoError(t, err)
 	require.Equal(t, latestVersion, store.Version())
 	require.NotNil(t, store.GetDB().TreeByName("bank"))
-	require.Nil(t, store.GetDB().TreeByName("oracle"))
+	for _, name := range v68OfflineRemovedModules {
+		require.Nil(t, store.GetDB().TreeByName(name))
+	}
 }
 
 func requireV68OfflineVersionMap(t *testing.T, testApp *App, before []string) {
 	t.Helper()
 	after := offlineUpgradeModuleVersions(t, testApp)
-	require.Equal(t, v68OfflineRemovedModules, offlineUpgradeDifference(before, after))
+	require.Subset(t, v68OfflineRemovedModules, offlineUpgradeDifference(before, after))
+	require.Contains(t, offlineUpgradeDifference(before, after), "oracle")
 	for _, module := range v68OfflineRemovedModules {
 		require.False(t, offlineUpgradeHasModuleVersion(t, testApp, module))
 	}
