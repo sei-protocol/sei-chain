@@ -14,9 +14,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // vaultTestStores is the set of configs a StateDB under test opens, kept so the test can reopen it.
@@ -318,4 +320,53 @@ func TestTheVaultJoinsThePruneCycle(t *testing.T) {
 		names = append(names, store.Name())
 	}
 	require.Contains(t, names, "HashVault")
+}
+
+// emptyWAL drops every block from the closed StateDB's WAL, leaving the stores where they are.
+func emptyWAL(t *testing.T, stores *vaultTestStores) {
+	t.Helper()
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(stores.flatkvCfg.DataDir), 0))
+}
+
+// With no WAL blocks nothing can replay, so an open over stores that already agree is the only one allowed.
+func TestAnEmptyWALOpensWhenTheStoresAgree(t *testing.T) {
+	stores := newVaultTestStores(t)
+	db := stores.open(t)
+	commitBlocks(t, db, 1, 3)
+	require.NoError(t, db.Close())
+	emptyWAL(t, stores)
+
+	reopened := stores.open(t)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.Equal(t, uint64(3), reopened.GetBlockHeight())
+}
+
+// An empty WAL cannot bring SS up to SC, so a difference between them is refused, even for an SS that holds
+// nothing yet.
+func TestAnEmptyWALRefusesStoresOnDifferentHeights(t *testing.T) {
+	stores := newVaultTestStores(t)
+	db := stores.open(t)
+	commitBlocks(t, db, 1, 3)
+	require.NoError(t, db.Close())
+	emptyWAL(t, stores)
+
+	stores.ssCfg = config.DefaultStateStoreConfig()
+	stores.ssCfg.Enable = true
+	stores.ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+
+	_, err := stores.openErr()
+	require.ErrorContains(t, err, "the EVM state store is on block 0")
+}
+
+// An empty WAL cannot replay the loaded block, so a vault without its hash is refused.
+func TestAnEmptyWALRefusesAVaultWithoutTheLoadedBlock(t *testing.T) {
+	stores := newVaultTestStores(t)
+	db := stores.open(t)
+	commitBlocks(t, db, 1, 3)
+	require.NoError(t, db.Close())
+	emptyWAL(t, stores)
+	require.NoError(t, os.RemoveAll(stores.hashVaultCfg.DataDir))
+
+	_, err := stores.openErr()
+	require.ErrorContains(t, err, "the hash vault holds no hash for block 3")
 }

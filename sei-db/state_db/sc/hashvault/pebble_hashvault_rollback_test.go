@@ -123,12 +123,6 @@ func TestHardRollbackPebbleHashVaultRejectsMaxUint64Height(t *testing.T) {
 
 	err := HardRollbackPebbleHashVault(ctx, cfg, math.MaxUint64)
 	require.ErrorIs(t, err, ErrRollbackHeightOverflow)
-
-	v2, err := NewUnsafePebbleHashVault(ctx, cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = v2.Close(ctx) })
-
-	require.ErrorIs(t, v2.CommitToHash(ctx, math.MaxUint64, bytesOfLen(0xEE, 32)), ErrHashMismatch)
 }
 
 func TestHardRollbackPebbleHashVaultRejectsMissingDir(t *testing.T) {

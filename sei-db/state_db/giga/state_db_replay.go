@@ -8,8 +8,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
@@ -333,4 +335,40 @@ func matchHeight(sc *flatkv.CommitStore, ss *evm.EVMStateStore, wal statewal.Sta
 		}
 	}
 	return fmt.Errorf("the EVM state store landed on %d", got)
+}
+
+// requireAgreementWithoutWAL refuses a WAL that holds no blocks unless SC, SS and the hash vault already
+// agree on the block SC is on, since no replay can bring them together. ss is nil when SS is disabled.
+func requireAgreementWithoutWAL(
+	sc *flatkv.CommitStore,
+	ss *evm.EVMStateStore,
+	vault *hashvault.PebbleHashVault,
+	wal statewal.StateWAL,
+) error {
+	stored, _, _, err := wal.GetStoredRange()
+	if err != nil {
+		return fmt.Errorf("read the state WAL's range: %w", err)
+	}
+	if stored {
+		return nil
+	}
+	height := sc.Version()
+	if height == 0 {
+		return nil
+	}
+	if ss != nil {
+		if got := ss.GetLatestVersion(); got != height {
+			return fmt.Errorf("the state commit store is on block %d but the EVM state store is on "+
+				"block %d", height, got)
+		}
+	}
+	_, status, err := vault.Get(uint64(height)) //nolint:gosec // a committed version is never negative
+	if err != nil {
+		return fmt.Errorf("read the hash vault at block %d: %w", height, err)
+	}
+	if status != gigatypes.BlockHashStatusFound {
+		return fmt.Errorf("the hash vault holds no hash for block %d, the block the state commit store is on",
+			height)
+	}
+	return nil
 }

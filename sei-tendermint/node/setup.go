@@ -393,8 +393,6 @@ func openAutobahnStorageManager(
 	storageConfig.BlockDBConfig = &blockConfig
 	storageConfig.HashVaultConfig.HaltOnMismatch = conf.HashVaultHaltOnMismatch
 	storageConfig.HashVaultConfig.EmptyVaultRollbackBlocks = conf.HashVaultEmptyRollbackBlocks
-	// The Pebble-backed vault the giga router kept here before the vault moved into the state DB.
-	storageConfig.HashVaultConfig.LegacyPebbleDir = filepath.Join(directory, "hashvault")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 

@@ -34,10 +34,10 @@ type PebbleHashVault struct {
 	pruneBoundary uint64
 	cache         *lru.Cache[uint64, []byte]
 
-	// head is the newest recorded height. Meaningless when recorded is false.
+	// head is the newest recorded height. Meaningless when notEmpty is false.
 	head uint64
-	// recorded is true when the vault holds at least one hash.
-	recorded bool
+	// notEmpty is true when the vault holds at least one hash.
+	notEmpty bool
 
 	// outerFloor is the floor PruneBelow has raised. Only ever rises.
 	outerFloor atomic.Uint64
@@ -65,10 +65,6 @@ func NewUnsafePebbleHashVault(ctx context.Context, config HashVaultConfig) (*Peb
 func newPebbleHashVault(_ context.Context, config HashVaultConfig) (*PebbleHashVault, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid hashvault config: %w", err)
-	}
-
-	if err := deleteLegacyVault(config.LegacyPebbleDir); err != nil {
-		return nil, fmt.Errorf("failed to open hashvault: %w", err)
 	}
 
 	if err := os.MkdirAll(config.DataDir, 0o750); err != nil {
@@ -166,14 +162,14 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	if len(hash) != BlockHashSize {
 		return ErrInvalidHashLength
 	}
-	if p.recorded && blockHeight > p.head && blockHeight-p.head > 1 {
+	if p.notEmpty && blockHeight > p.head+1 {
 		return fmt.Errorf("block %d would leave a gap after the newest recorded block %d", blockHeight, p.head)
 	}
 
 	if cached, ok := p.cache.Get(blockHeight); ok {
 		if !bytes.Equal(cached, hash) {
 			if !p.config.HaltOnMismatch {
-				return p.replaceFrom(blockHeight, cached, hash)
+				return p.acceptMismatchedHash(blockHeight, cached, hash)
 			}
 			p.logHashMismatch(blockHeight, cached, hash)
 			return ErrHashMismatch
@@ -185,10 +181,10 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	raw, closer, err := p.db.Get(key)
 	switch {
 	case errors.Is(err, pebble.ErrNotFound):
-		if p.recorded && blockHeight <= p.head {
+		if p.notEmpty && blockHeight <= p.head {
 			// Below the oldest recorded height, where there is nothing to check the hash against.
 			if !p.config.HaltOnMismatch {
-				return p.replaceFrom(blockHeight, nil, hash)
+				return p.acceptMismatchedHash(blockHeight, nil, hash)
 			}
 			return ErrBelowPruneBoundary
 		}
@@ -199,7 +195,7 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 		}
 		p.cache.Add(blockHeight, bytes.Clone(hash))
 		p.head = max(p.head, blockHeight)
-		p.recorded = true
+		p.notEmpty = true
 		return nil
 	case err != nil:
 		return fmt.Errorf("failed to read hash for block %d: %w", blockHeight, err)
@@ -217,7 +213,7 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	}
 	if !bytes.Equal(existing, hash) {
 		if !p.config.HaltOnMismatch {
-			return p.replaceFrom(blockHeight, existing, hash)
+			return p.acceptMismatchedHash(blockHeight, existing, hash)
 		}
 		p.logHashMismatch(blockHeight, existing, hash)
 		return ErrHashMismatch
@@ -292,28 +288,6 @@ func (p *PebbleHashVault) logHashMismatch(blockHeight uint64, existing, incoming
 	)
 }
 
-// deleteLegacyVault deletes the app-hash vault this one replaces, if it is present. Its hashes are app
-// hashes rather than state hashes, so none of them can be carried over.
-//
-// This can be deleted once every node that ran the app-hash vault has started on this one.
-func deleteLegacyVault(dir string) error {
-	if dir == "" {
-		return nil
-	}
-	if _, err := os.Stat(dir); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to stat legacy hashvault dir %q: %w", dir, err)
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("failed to delete legacy hashvault dir %q: %w", dir, err)
-	}
-	logger.Info("deleted the legacy app-hash hashvault; its app hashes cannot be compared with state hashes",
-		"dir", dir)
-	return nil
-}
-
 // loadHead reads the newest recorded height from disk and populates p.head and p.recorded.
 func (p *PebbleHashVault) loadHead() error {
 	_, head, recorded, err := storedRange(p.db)
@@ -321,13 +295,13 @@ func (p *PebbleHashVault) loadHead() error {
 		return fmt.Errorf("failed to read the newest recorded height: %w", err)
 	}
 	p.head = head
-	p.recorded = recorded
+	p.notEmpty = recorded
 	return nil
 }
 
-// replaceFrom discards every hash from blockHeight up and records hash as blockHeight's, in one atomic
-// batch. It is how a mismatch is resolved when HaltOnMismatch is false. p.mu must be held.
-func (p *PebbleHashVault) replaceFrom(blockHeight uint64, existing []byte, hash []byte) error {
+// Records a hash that differs from the recorded one, discarding every hash from blockHeight up in the same
+// atomic batch. Used when HaltOnMismatch is false. p.mu must be held.
+func (p *PebbleHashVault) acceptMismatchedHash(blockHeight uint64, existing []byte, hash []byte) error {
 	logger.Error("Hashvault detected a state hash mismatch; hash-vault-halt-on-mismatch is false, so the "+
 		"recorded hashes from this block up are discarded and the new hash replaces them.",
 		"blockHeight", blockHeight,
@@ -349,7 +323,7 @@ func (p *PebbleHashVault) replaceFrom(blockHeight uint64, existing []byte, hash 
 	p.cache.Purge()
 	p.cache.Add(blockHeight, bytes.Clone(hash))
 	p.head = blockHeight
-	p.recorded = true
+	p.notEmpty = true
 	return nil
 }
 
@@ -357,7 +331,7 @@ func (p *PebbleHashVault) replaceFrom(blockHeight uint64, existing []byte, hash 
 func (p *PebbleHashVault) Head() (uint64, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.head, p.recorded
+	return p.head, p.notEmpty
 }
 
 // Get returns the hash recorded for blockHeight, without blocking.
@@ -367,7 +341,7 @@ func (p *PebbleHashVault) Get(blockHeight uint64) ([32]byte, gigatypes.BlockHash
 	if p.closed {
 		return [32]byte{}, gigatypes.BlockHashStatusError, ErrClosed
 	}
-	if !p.recorded || blockHeight > p.head {
+	if !p.notEmpty || blockHeight > p.head {
 		return [32]byte{}, gigatypes.BlockHashStatusNotReady, nil
 	}
 	if blockHeight < p.pruneBoundary {
@@ -424,7 +398,7 @@ func (p *PebbleHashVault) Reset(ctx context.Context, blockHeight uint64, hash []
 	p.cache.Purge()
 	p.cache.Add(blockHeight, bytes.Clone(hash))
 	p.head = blockHeight
-	p.recorded = true
+	p.notEmpty = true
 	return nil
 }
 

@@ -43,11 +43,6 @@ func GetFlatKVPath(homePath string) string {
 	return filepath.Join(homePath, "data", "state_commit", "flatkv")
 }
 
-// GetHashVaultPath returns the path for the hash vault that guards the live state DB's block hashes.
-func GetHashVaultPath(homePath string) string {
-	return filepath.Join(homePath, "data", "state_commit", "hashvault")
-}
-
 // GetStateStorePath returns the path for the Cosmos state store (SS).
 // New nodes use data/state_store/cosmos/{backend}; existing nodes with
 // data/{backend} continue using the legacy path for backward compatibility.

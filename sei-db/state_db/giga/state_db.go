@@ -125,6 +125,9 @@ func NewStateDB(
 		}
 	}
 
+	if err := requireAgreementWithoutWAL(sc, ss, vault, wal); err != nil {
+		return nil, fmt.Errorf("open the state DB on an empty state WAL: %w", err)
+	}
 	if err := recordLoadedBlockHash(sc, vault); err != nil {
 		return nil, fmt.Errorf("record the loaded block's hash in the hash vault: %w", err)
 	}

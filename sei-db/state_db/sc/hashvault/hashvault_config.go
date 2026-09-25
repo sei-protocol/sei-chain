@@ -27,10 +27,6 @@ type HashVaultConfig struct {
 	// EmptyVaultRollbackBlocks is how many blocks the state DB rewinds and replays when it opens over an
 	// empty vault, so that the vault holds the hashes of recent blocks and not just the loaded one.
 	EmptyVaultRollbackBlocks uint64
-
-	// LegacyPebbleDir is the directory of the app-hash vault this one replaces, deleted when the vault
-	// opens. Empty when there is none to delete.
-	LegacyPebbleDir string
 }
 
 // DefaultHashVaultConfig returns a HashVaultConfig with production defaults.

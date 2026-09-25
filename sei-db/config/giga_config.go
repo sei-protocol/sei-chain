@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -28,7 +29,6 @@ const gigaReceiptBackend = "littidx"
 // DefaultGigaStorageConfig returns a config rooted at homePath:
 //
 //	data/state_commit/flatkv
-//	data/state_commit/hashvault
 //	data/state_store/evm/{backend}
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
@@ -50,7 +50,9 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.DisableInternalWAL = true
 
 	hashVaultConfig := hashvault.DefaultHashVaultConfig()
-	hashVaultConfig.DataDir = utils.GetHashVaultPath(homePath)
+	// Existing Autobahn nodes keep their hash vault here, under the persistent state dir. Moving it loses
+	// the hashes they have recorded.
+	hashVaultConfig.DataDir = filepath.Join(homePath, "hashvault")
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend

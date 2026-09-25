@@ -2,7 +2,6 @@ package hashvault
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -179,16 +178,4 @@ func TestStoredRange(t *testing.T) {
 	require.True(t, recorded)
 	require.Equal(t, uint64(4), oldest)
 	require.Equal(t, uint64(9), newest)
-}
-
-func TestOpenDeletesTheLegacyVault(t *testing.T) {
-	legacy := filepath.Join(t.TempDir(), "hashvault")
-	require.NoError(t, os.MkdirAll(legacy, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(legacy, "000001.log"), []byte("x"), 0o600))
-
-	newTestPebbleVault(t, func(cfg *HashVaultConfig) { cfg.LegacyPebbleDir = legacy })
-	_, err := os.Stat(legacy)
-	require.True(t, os.IsNotExist(err), "the legacy vault must be gone, got %v", err)
-
-	newTestPebbleVault(t, func(cfg *HashVaultConfig) { cfg.LegacyPebbleDir = legacy })
 }
