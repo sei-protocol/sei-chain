@@ -1015,7 +1015,7 @@ func (i *inner) setAnchor(m *metrics.Metrics) {
 			AppQC:    i.appQCs[i.first],
 			Epoch:    entry.epoch,
 		}))
-		m.AnchorRoadIndex.Set(int64(qc.Index())) // nolint: gosec
+		m.AnchorRoad.Set(int64(qc.Index())) // nolint: gosec
 	}
 }
 

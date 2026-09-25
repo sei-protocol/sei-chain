@@ -21,31 +21,6 @@ func sendUpdates[T interface {
 	client rpc.Client[API],
 	w utils.AtomicRecv[utils.Option[T]],
 ) error {
-	return sendConsensusUpdates(ctx, client, w, func() {})
-}
-
-// sendVoteUpdates sends each new consensus vote on the consensus stream and counts it.
-func sendVoteUpdates[T interface {
-	comparable
-	types.ConsensusReq
-}](
-	ctx context.Context,
-	client rpc.Client[API],
-	w utils.AtomicRecv[utils.Option[T]],
-	typ string,
-) error {
-	return sendConsensusUpdates(ctx, client, w, func() { Global.votesSentAt(typ).Add(1) })
-}
-
-func sendConsensusUpdates[T interface {
-	comparable
-	types.ConsensusReq
-}](
-	ctx context.Context,
-	client rpc.Client[API],
-	w utils.AtomicRecv[utils.Option[T]],
-	record func(),
-) error {
 	stream, err := Consensus.Call(ctx, client)
 	if err != nil {
 		return fmt.Errorf("p.client.Consensus(): %w", err)
@@ -63,7 +38,14 @@ func sendConsensusUpdates[T interface {
 		if err := stream.Send(ctx, types.ConsensusReqConv.Encode(last)); err != nil {
 			return fmt.Errorf("stream.Send(): %w", err)
 		}
-		record()
+		switch any(last).(type) {
+		case *types.ConsensusReqPrepareVote:
+			Global.votesSentAt(votePrepare).Add(1)
+		case *types.ConsensusReqCommitVote:
+			Global.votesSentAt(voteCommit).Add(1)
+		case *types.FullTimeoutVote:
+			Global.votesSentAt(voteTimeout).Add(1)
+		}
 	}
 }
 
@@ -72,9 +54,9 @@ func (x *validatorService) clientConsensus(ctx context.Context, c rpc.Client[API
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Send updates about new consensus messages.
 		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeProposal()) })
-		s.Spawn(func() error { return sendVoteUpdates(ctx, c, x.state.SubscribePrepareVote(), votePrepare) })
-		s.Spawn(func() error { return sendVoteUpdates(ctx, c, x.state.SubscribeCommitVote(), voteCommit) })
-		s.Spawn(func() error { return sendVoteUpdates(ctx, c, x.state.SubscribeTimeoutVote(), voteTimeout) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribePrepareVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeCommitVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutVote()) })
 		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutQC()) })
 		return nil
 	})

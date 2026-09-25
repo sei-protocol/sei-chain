@@ -44,17 +44,17 @@ type Metrics struct {
 	TxLatency    stageMetrics[*prometheus.Histogram]
 	GasUsed      *prometheus.CounterInt
 	// TxSize has no finite buckets; it exports count and sum only.
-	TxSize          *prometheus.Histogram
-	AnchorRoadIndex *prometheus.GaugeInt
+	TxSize     *prometheus.Histogram
+	AnchorRoad *prometheus.GaugeInt
 }
 
 func Get() *Metrics {
 	return &Metrics{
-		NextBlock:       newStageMetrics(Global.nextBlockAt),
-		BlockLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
-		TxLatency:       newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
-		GasUsed:         Global.gasUsedAt(),
-		TxSize:          Global.txSizeAt(),
-		AnchorRoadIndex: Global.anchorRoadIndexAt(),
+		NextBlock:    newStageMetrics(Global.nextBlockAt),
+		BlockLatency: newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
+		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
+		GasUsed:      Global.gasUsedAt(),
+		TxSize:       Global.txSizeAt(),
+		AnchorRoad:   Global.anchorRoadIndexAt(),
 	}
 }
