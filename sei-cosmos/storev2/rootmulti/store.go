@@ -978,6 +978,9 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	if err != nil {
 		return sdkerrors.QueryResult(err)
 	}
+	if rs.GetStoreByName(storeName) == nil {
+		return sdkerrors.QueryResult(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "no such store: %s", storeName))
+	}
 	req.Path = subPath
 	req.Height = version // keep downstream store.Query height consistent
 

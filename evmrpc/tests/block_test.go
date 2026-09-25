@@ -177,7 +177,7 @@ func TestBlockBloom(t *testing.T) {
 	tx1 := encodeEvmTx(txdata1, signedTx1)
 	tx2 := encodeEvmTx(txdata2, signedTx2)
 	cw20 := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
-	tx3 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 9, 0)
+	tx3 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 8, 0)
 	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, erc20Initializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
