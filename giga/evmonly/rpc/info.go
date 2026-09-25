@@ -57,6 +57,8 @@ const gasPriceCongestionThresholdPercent = 80
 // congested, matching v2's eth_gasPrice (evmrpc.InfoAPI.gasPriceHelper).
 const gasPriceCongestionPercentile = 50
 
+const defaultPriorityFeePerGas = 1_000_000_000
+
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
 // admission floor, or the latest congested block's median reward when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
@@ -65,14 +67,14 @@ func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 		return nil, err
 	}
 	margin := suggestedGasPrice(floor)
-	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
+	if reward, congested := api.congestionReward(ctx); congested && reward != nil && reward.Cmp(margin) >= 0 {
 		return (*hexutil.Big)(reward), nil
 	}
 	return (*hexutil.Big)(margin), nil
 }
 
-// congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but
-// only once its gasUsedRatio exceeds gasPriceCongestionThresholdPercent.
+// congestionReward returns the latest block's median reward and whether the block is congested.
+// The reward is nil when no reward-eligible receipts exist in a congested block.
 func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	current := api.store.LatestVersion()
 	if current <= 0 {
@@ -91,9 +93,21 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	}
 	reward, ok := stats.RewardAt(gasPriceCongestionPercentile)
 	if !ok {
-		return nil, false
+		return nil, true
 	}
 	return new(big.Int).SetUint64(reward), true
+}
+
+// MaxPriorityFeePerGas returns the suggested priority fee for the latest block.
+func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+	reward, congested := api.congestionReward(ctx)
+	if !congested {
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	if reward == nil {
+		return (*hexutil.Big)(new(big.Int)), nil
+	}
+	return (*hexutil.Big)(reward), nil
 }
 
 // suggestedGasPrice scales floor up by the gas-price suggestion margin,

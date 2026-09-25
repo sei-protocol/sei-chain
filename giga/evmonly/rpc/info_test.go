@@ -175,6 +175,53 @@ func TestGasPriceFallsBackWhenTheMedianIsntStored(t *testing.T) {
 	require.Equal(t, big.NewInt(1_100_000_000), price.ToInt())
 }
 
+func TestMaxPriorityFeePerGas(t *testing.T) {
+	tests := []struct {
+		name    string
+		records []receipt.ReceiptRecord
+		want    int64
+	}{
+		{
+			name: "not congested",
+			records: []receipt.ReceiptRecord{{
+				TxHash:  [32]byte{1},
+				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 800},
+				Reward:  big.NewInt(500),
+			}},
+			want: defaultPriorityFeePerGas,
+		},
+		{
+			name: "congested",
+			records: []receipt.ReceiptRecord{{
+				TxHash:  [32]byte{1},
+				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900},
+				Reward:  big.NewInt(500),
+			}},
+			want: 500,
+		},
+		{
+			name: "congested without reward data",
+			records: []receipt.ReceiptRecord{{
+				TxHash:  [32]byte{1},
+				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900},
+			}},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := evmonly.NewMemoryReceiptStore()
+			require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), tt.records))
+			api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+
+			got, err := api.MaxPriorityFeePerGas(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, big.NewInt(tt.want), got.ToInt())
+		})
+	}
+}
+
 func TestFeeHistoryEmptyBlockCountReturnsEmptyResult(t *testing.T) {
 	api := &infoAPI{backend: testInfoBackend(1000, 1), store: evmonly.NewMemoryReceiptStore()}
 	result, err := api.FeeHistory(t.Context(), 0, ethrpc.LatestBlockNumber, nil)
