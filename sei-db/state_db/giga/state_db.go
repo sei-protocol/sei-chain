@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
@@ -26,17 +27,11 @@ var logger = seilog.NewLogger("db", "state-db", "giga")
 var _ gigatypes.StateDB = (*StateDB)(nil)
 
 // StateDB writes a committed block to the state WAL, the state commit store (SC) and the EVM state
-// store (SS), and serves current-block reads from SC.
+// store (SS), serves current-block reads from SC, and records SC's block hashes in the hash vault.
 //
-// It opens all three stores, brings them onto one height, and closes them. SC and SS run without a WAL
+// It opens all four stores, brings them onto one height, and closes them. SC and SS run without a WAL
 // of their own, so every block either of them replays is read from the WAL here.
 type StateDB struct {
-	// Where the state commit store and the state WAL live.
-	flatkvCfg *flatkvconfig.Config
-
-	// Where the EVM state store lives, and whether it is enabled at all.
-	ssCfg config.StateStoreConfig
-
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
 
@@ -45,6 +40,9 @@ type StateDB struct {
 
 	// ss is nil when the EVM state store is disabled.
 	ss *evm.EVMStateStore
+
+	// The hash vault SC's block hashes are recorded in.
+	vault *hashvault.PebbleHashVault
 
 	// The checkpoint schedule SC and SS take their snapshot boundaries from.
 	checkpointer *controller.CheckpointScheduler
@@ -60,242 +58,182 @@ const commitPhaseTimerName = "giga_state_commit"
 // gigaMeterName is the OTel meter this package's instruments are created on.
 const gigaMeterName = "seidb_giga"
 
-// NewStateDB opens SC, SS and the state WAL from their configs and puts SC and SS on one checkpoint
-// schedule.
-//
-// Both stores are put on the WAL's head — replayed up to it, and rewound onto it when a lost WAL tail
-// left them above it — so the returned StateDB commits the block after it. NewStateDBWithRollback opens
-// them on an earlier height instead.
-//
-// The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
-// had already opened.
+// NewStateDB opens SC, SS, the state WAL and the hash vault, and puts SC and SS on one checkpoint schedule
+// and one height: the WAL's head, or rollbackTo when it is not 0. The returned StateDB commits the block
+// after that height, and its hash vault holds the hash of the block SC is on.
 func NewStateDB(
 	ctx context.Context,
 	flatkvCfg *flatkvconfig.Config,
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
-) (db *StateDB, retErr error) {
-	s := &StateDB{
-		flatkvCfg: flatkvCfg,
-		ssCfg:     stateStoreConfigFor(ssCfg),
+	hashVaultCfg hashvault.HashVaultConfig,
+	// The height to roll back to, or 0 to load the latest block possible. Data after rollbackTo target
+	// may be permanently deleted. Returns an error if not possible to roll back to requested block height.
+	rollbackTo uint64,
+) (_ *StateDB, retErr error) {
+	ssCfg.DisableInternalWAL = true
+
+	if err := recoverStores(flatkvCfg, ssCfg, hashVaultCfg, rollbackTo); err != nil {
+		return nil, fmt.Errorf("recover the state DB's stores: %w", err)
+	}
+
+	var err error
+	var ss *evm.EVMStateStore
+	var sc *flatkv.CommitStore
+	var vault *hashvault.PebbleHashVault
+	var wal statewal.StateWAL
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		if err := closeStores(ss, sc, vault, wal); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close a partially opened state DB: %w", err))
+		}
+	}()
+
+	if ss, err = openSS(ssCfg); err != nil {
+		return nil, fmt.Errorf("open the state DB: %w", err)
+	}
+
+	if sc, err = openSC(ctx, flatkvCfg); err != nil {
+		return nil, fmt.Errorf("open the state DB: %w", err)
+	}
+
+	if vault, err = hashvault.NewPebbleHashVault(ctx, hashVaultCfg); err != nil {
+		return nil, fmt.Errorf("open the state DB: %w", err)
+	}
+	// The vault must be SC's first listener, and registering it before SC is reachable from outside this
+	// StateDB is what makes it first. SC hands a hash to its listeners one at a time in registration order
+	// and stops at the first that refuses it, and the vault returns only once the hash is flushed, so no
+	// later listener sees a hash the vault has not recorded or has refused.
+	if _, err := sc.RegisterHashListener(hashVaultListener(vault)); err != nil {
+		return nil, fmt.Errorf("register the hash vault on the state commit store: %w", err)
+	}
+
+	if wal, err = flatkv.OpenStateWAL(flatkvCfg); err != nil {
+		return nil, fmt.Errorf("open state WAL: %w", err)
+	}
+
+	checkpointer := startCheckpointSchedule(checkpointCfg, sc, ss)
+
+	if err := catchUpToWAL(ctx, sc, ss, wal); err != nil {
+		return nil, fmt.Errorf("catch the state DB up to its WAL: %w", err)
+	}
+	if rollbackTo > 0 {
+		if err := matchHeight(sc, ss, wal, int64(rollbackTo)); err != nil { //nolint:gosec // a WAL block number
+			return nil, fmt.Errorf("cannot roll back to %d: %w", rollbackTo, err)
+		}
+	}
+
+	if err := requireAgreementWithoutWAL(sc, ss, vault, wal); err != nil {
+		return nil, fmt.Errorf("open the state DB on an empty state WAL: %w", err)
+	}
+	if err := recordLoadedBlockHash(sc, vault); err != nil {
+		return nil, fmt.Errorf("record the loaded block's hash in the hash vault: %w", err)
+	}
+
+	return &StateDB{
+		wal:          wal,
+		sc:           sc,
+		ss:           ss,
+		vault:        vault,
+		checkpointer: checkpointer,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
-	}
-	defer s.closeOnFailure(&retErr)
-
-	wal, err := s.storedWALRange()
-	if err != nil {
-		return nil, err
-	}
-	// Before either store opens, the rewinds it may run needing their files closed.
-	if err := s.discardStateAboveTheWAL(wal); err != nil {
-		return nil, err
-	}
-	if err := s.openSS(); err != nil {
-		return nil, err
-	}
-	if err := s.openSC(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.openWAL(); err != nil {
-		return nil, err
-	}
-	s.startCheckpointSchedule(checkpointCfg)
-
-	if err := s.catchUpToWAL(ctx); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-// stateStoreConfigFor is the config a StateDB opens SS with. It is settled here rather than at each
-// open because the rollback path opens the same databases through DiscardStateAbove. The changelog
-// is off: this StateDB's own state WAL is what catchUpTo replays into SS.
-func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
-	cfg.DisableInternalWAL = true
-	return cfg
-}
-
-// NewStateDBWithRollback rolls SC, SS and the state WAL back to target and then opens them, so the
-// returned StateDB commits target+1. It cuts the WAL's tail to target and puts whichever of SC and SS
-// sits above target on its newest snapshot at or below it, all while the stores are closed, then opens
-// them the ordinary way and checks both landed on target.
-//
-// target must be positive, and a target the surviving snapshots and the WAL cannot span is refused. A
-// refusal leaves the WAL uncut, so no target this one could reach is lost, but one from SS comes back
-// with SC already rewound.
-func NewStateDBWithRollback(
-	ctx context.Context,
-	flatkvCfg *flatkvconfig.Config,
-	ssCfg config.StateStoreConfig,
-	checkpointCfg config.CheckpointConfig,
-	target int64,
-) (*StateDB, error) {
-	if target <= 0 {
-		// An empty WAL has a head of 0, which rewindTo reads as nothing to rewind, so without this a
-		// caller asking for a rollback would get a plain open instead.
-		return nil, fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is "+
-			"nothing to roll back to", target)
-	}
-
-	// rewindTo only moves files, so it needs no store open, only where they live.
-	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: stateStoreConfigFor(ssCfg)}
-	if err := offline.rewindTo(target); err != nil {
-		return nil, err
-	}
-	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := db.matchHeight(target); err != nil {
-		return nil, errors.Join(fmt.Errorf("cannot roll back to %d: %w", target, err), db.Close())
-	}
-	return db, nil
-}
-
-// closeOnFailure closes the stores a failed open had reached, so a caller that gets an error holds no
-// store this StateDB left open. It is deferred against the constructor's named error.
-func (s *StateDB) closeOnFailure(retErr *error) {
-	if *retErr == nil {
-		return
-	}
-	if err := s.Close(); err != nil {
-		*retErr = errors.Join(*retErr, fmt.Errorf("close a partially opened state DB: %w", err))
-	}
-}
-
-// openWAL opens the state WAL this StateDB commits blocks to.
-func (s *StateDB) openWAL() error {
-	wal, err := flatkv.OpenStateWAL(s.flatkvCfg)
-	if err != nil {
-		return fmt.Errorf("open state WAL: %w", err)
-	}
-	s.wal = wal
-	return nil
+	}, nil
 }
 
 // openSC opens SC with no WAL of its own, on the version its files hold: the working copy, or the
 // snapshot a rollback has just repointed it at. It replays nothing, so it comes up at or below the
 // WAL's head and catchUpTo carries it forward from there.
-func (s *StateDB) openSC(ctx context.Context) error {
-	sc, err := flatkv.NewCommitStore(ctx, s.flatkvCfg, nil)
+func openSC(ctx context.Context, flatkvCfg *flatkvconfig.Config) (*flatkv.CommitStore, error) {
+	sc, err := flatkv.NewCommitStore(ctx, flatkvCfg, nil)
 	if err != nil {
-		return fmt.Errorf("open state commit store: %w", err)
+		return nil, fmt.Errorf("open state commit store: %w", err)
 	}
-	s.sc = sc
 	// Every readonly-* directory under the store is deleted, so this has to run before the process
 	// opens a read-only view of its own: after that, the ones a crashed process left are no longer
 	// the only ones there.
-	if err := s.sc.CleanupOrphanedReadOnlyDirs(); err != nil {
-		return fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err)
+	if err := sc.CleanupOrphanedReadOnlyDirs(); err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err), sc.Close())
 	}
-	if err := s.sc.LoadWorkingCopy(); err != nil {
-		return fmt.Errorf("load the state commit store: %w", err)
+	if err := sc.LoadWorkingCopy(); err != nil {
+		return nil, errors.Join(fmt.Errorf("load the state commit store: %w", err), sc.Close())
 	}
-	return nil
+	return sc, nil
 }
 
-// openSS opens the EVM state store and its snapshot manager, leaving it nil when the store is disabled.
-func (s *StateDB) openSS() error {
-	if !s.ssCfg.Enable {
-		return nil
+// openSS opens the EVM state store and its snapshot manager, returning nil when the store is disabled.
+func openSS(ssCfg config.StateStoreConfig) (*evm.EVMStateStore, error) {
+	if !ssCfg.Enable {
+		return nil, nil
 	}
-	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
+	ss, err := evm.NewEVMStateStore(ssCfg.EVMDBDirectory, ssCfg)
 	if err != nil {
-		return fmt.Errorf("open EVM state store: %w", err)
+		return nil, fmt.Errorf("open EVM state store: %w", err)
 	}
-	s.ss = ss
-	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), s.ssCfg, nil); err != nil {
-		return fmt.Errorf("start EVM state store snapshot manager: %w", err)
+	snapshotRoot := utils.GetStateStoreSnapshotsSiblingPath(ssCfg.EVMDBDirectory)
+	if err := ss.StartSnapshots(snapshotRoot, ssCfg, nil); err != nil {
+		return nil, errors.Join(fmt.Errorf("start EVM state store snapshot manager: %w", err), ss.Close())
 	}
-	return nil
+	return ss, nil
 }
 
-// startCheckpointSchedule puts SC and SS on one snapshot cadence. It runs before either store is on a
-// height, so the blocks SC replays offer themselves to the schedule as live commits do.
-func (s *StateDB) startCheckpointSchedule(cfg config.CheckpointConfig) {
-	s.checkpointer = controller.NewCheckpointScheduler(cfg)
-	s.sc.SetCheckpointScheduler(s.checkpointer)
-	if s.ss != nil {
-		s.ss.SetCheckpointScheduler(s.checkpointer)
+// startCheckpointSchedule puts SC and SS on one snapshot cadence, and returns it. ss is nil when SS is
+// disabled. It runs before either store is on a height, so the blocks SC replays offer themselves to the
+// schedule as live commits do.
+func startCheckpointSchedule(
+	cfg config.CheckpointConfig,
+	sc *flatkv.CommitStore,
+	ss *evm.EVMStateStore,
+) *controller.CheckpointScheduler {
+	checkpointer := controller.NewCheckpointScheduler(cfg)
+	sc.SetCheckpointScheduler(checkpointer)
+	if ss != nil {
+		ss.SetCheckpointScheduler(checkpointer)
 	}
+	return checkpointer
 }
 
-// ssSnapshotRoot returns the directory SS keeps its snapshots in.
-func (s *StateDB) ssSnapshotRoot() string {
-	return utils.GetStateStoreSnapshotsSiblingPath(s.ssCfg.EVMDBDirectory)
-}
-
-// storedWALRange is the block range a state WAL holds on disk: the lowest and highest blocks in it,
-// both 0 when it holds none.
-type storedWALRange struct {
-	first, last int64
-}
-
-// walConfig returns the config that locates the state WAL on disk.
-func (s *StateDB) walConfig() *statewal.Config {
-	return flatkv.StateWALConfig(s.flatkvCfg.DataDir)
-}
-
-// storedWALRange reads the state WAL's block range from its directory. It takes that directory's
-// exclusive lock, so it is only for the window before the WAL opens; GetStoredRange on the open handle
-// answers the same question afterwards.
-func (s *StateDB) storedWALRange() (storedWALRange, error) {
-	stored, first, last, err := statewal.GetRange(s.walConfig())
-	if err != nil {
-		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
-	}
-	if !stored {
-		return storedWALRange{}, nil
-	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return storedWALRange{first: int64(first), last: int64(last)}, nil
-}
-
-// openWALRange reads the block range from the open WAL handle, which storedWALRange's directory lock
-// rules out reading once the WAL is open.
-func (s *StateDB) openWALRange() (storedWALRange, error) {
-	stored, first, last, err := s.wal.GetStoredRange()
-	if err != nil {
-		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
-	}
-	if !stored {
-		return storedWALRange{}, nil
-	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return storedWALRange{first: int64(first), last: int64(last)}, nil
-}
-
-// truncateWAL drops every WAL block above target so the next commit is target+1. A live WAL prunes only
-// from its start, so this cuts the tail through the directory, which requires that no WAL be open on it.
-func (s *StateDB) truncateWAL(target int64) error {
-	//nolint:gosec // target > 0 here, checked by NewStateDBWithRollback
-	if err := statewal.PruneAfter(s.walConfig(), uint64(target)); err != nil {
-		return fmt.Errorf("truncate state WAL to %d: %w", target, err)
-	}
-	return nil
-}
-
-// Close closes SC, SS and the state WAL, reporting every failure rather than stopping at the first.
-// The WAL closes last, since SC replays through it.
-//
-// How long each of the three took is logged, since each drains its own write queue and waits on the
-// compactions behind it, and those dominate the time a shutdown takes.
+// Close closes SC, SS, the hash vault and the state WAL, reporting every failure rather than stopping at
+// the first.
 func (s *StateDB) Close() error {
+	return closeStores(s.ss, s.sc, s.vault, s.wal)
+}
+
+// closeStores closes whichever of the stores are not nil, reporting every failure rather than stopping at
+// the first. The hash vault closes after SC, which hands it the hashes of the blocks it drains, and the
+// WAL closes last, since SC replays through it.
+//
+// How long each store took is logged, since each drains its own write queue and waits on the
+// compactions behind it, and those dominate the time a shutdown takes.
+func closeStores(
+	ss *evm.EVMStateStore,
+	sc *flatkv.CommitStore,
+	vault *hashvault.PebbleHashVault,
+	wal statewal.StateWAL,
+) error {
 	var errs error
 	var timer utils.CloseTimer
-	if s.ss != nil {
-		if err := timer.Close("ss", s.ss.Close); err != nil {
+	if ss != nil {
+		if err := timer.Close("ss", ss.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
 		}
 	}
-	if s.sc != nil {
-		if err := timer.Close("sc", s.sc.Close); err != nil {
+	if sc != nil {
+		if err := timer.Close("sc", sc.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state commit store: %w", err))
 		}
 	}
-	if s.wal != nil {
-		if err := timer.Close("wal", s.wal.Close); err != nil {
+	if vault != nil {
+		closeVault := func() error { return vault.Close(context.Background()) }
+		if err := timer.Close("hashvault", closeVault); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close hash vault: %w", err))
+		}
+	}
+	if wal != nil {
+		if err := timer.Close("wal", wal.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 		}
 	}
@@ -318,7 +256,7 @@ func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return
 
 // PrunableStores returns the opened stores that can join a prune cycle.
 func (s *StateDB) PrunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 3)
+	stores := make([]controller.PrunableStore, 0, 4)
 	if s.sc != nil {
 		stores = append(stores, s.sc)
 	}
@@ -327,6 +265,9 @@ func (s *StateDB) PrunableStores() []controller.PrunableStore {
 	}
 	if s.ss != nil {
 		stores = append(stores, s.ss)
+	}
+	if s.vault != nil {
+		stores = append(stores, s.vault)
 	}
 	return stores
 }
@@ -388,4 +329,24 @@ func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (lthash.
 		return mostRecentHash, fmt.Errorf("register hash listener on the state commit store: %w", err)
 	}
 	return mostRecentHash, nil
+}
+
+// GetBlockHeight returns the version SC is on.
+func (s *StateDB) GetBlockHeight() uint64 {
+	return uint64(s.sc.Version()) //nolint:gosec // a committed version is never negative
+}
+
+// GetBlockHash returns the hash the hash vault holds for blockNumber.
+func (s *StateDB) GetBlockHash(blockNumber uint64) ([32]byte, gigatypes.BlockHashStatus, error) {
+	hash, status, err := s.vault.Get(blockNumber)
+	if err != nil {
+		return hash, status, fmt.Errorf("get the hash of block %d: %w", blockNumber, err)
+	}
+	return hash, status, nil
+}
+
+// PruneBlockHashesBelow permits the hash vault to delete the hashes of blocks below blockNumber.
+func (s *StateDB) PruneBlockHashesBelow(blockNumber uint64) error {
+	s.vault.PruneBelow(blockNumber)
+	return nil
 }

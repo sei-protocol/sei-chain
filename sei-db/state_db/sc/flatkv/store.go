@@ -1182,7 +1182,7 @@ func (s *CommitStore) deriveGlobalState() {
 	}
 
 	s.committedVersion = version
-	s.loadedHashes.BlockNumber = version
+	s.loadedHashes.BlockNumber = uint64(version) //nolint:gosec // a loaded version is never negative
 	s.loadedHashes.Global = lthash.SumDBHashes(dataDBDirs, s.loadedHashes.PerDB)
 }
 

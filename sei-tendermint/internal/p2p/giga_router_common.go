@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"sort"
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -217,7 +215,7 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
 	app := r.app
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -254,15 +252,6 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	}
 
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-
-	// Commit this height's app hash to the equivocation guard before persisting app state, so the
-	// vault always records our commitment to a height before the state it implies is committed (and
-	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
-	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
-	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
-	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, err
-	}
 
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
@@ -315,75 +304,7 @@ func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
 	return total
 }
 
-// buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
-// returns a durable Pebble-backed vault rooted at <PersistentStateDir>/hashvault, alongside the
-// other Autobahn on-disk state. It returns a no-op vault (no protection) when the operator
-// explicitly sets HashVaultDisabledUnsafe, logged loudly.
-func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault.HashVault, error) {
-	if cfg.HashVaultDisabledUnsafe {
-		logger.Error("################################################################")
-		logger.Error("# HASHVAULT DISABLED (hash-vault-disabled-unsafe=true).        #")
-		logger.Error("# This node has NO app-hash equivocation protection and is     #")
-		logger.Error("# running in an UNSAFE configuration. Re-enable as soon as the #")
-		logger.Error("# underlying issue is resolved.                                #")
-		logger.Error("################################################################")
-		return hashvault.NewNoopHashVault(), nil
-	}
-	hvCfg := hashvault.DefaultHashVaultConfig()
-	hvCfg.DataDir = filepath.Join(cfg.PersistentStateDir, "hashvault")
-	return hashvault.NewPebbleHashVault(ctx, hvCfg)
-}
-
-// commitAppHashToVault records the app hash for the given height in the equivocation guard and halts
-// the node on any error. Every executed height is guarded, so a node can never commit to two
-// different app hashes for the same height without deliberate human intervention.
-func commitAppHashToVault(
-	ctx context.Context,
-	vault hashvault.HashVault,
-	height atypes.GlobalBlockNumber,
-	hash []byte,
-) error {
-	err := vault.CommitToHash(ctx, uint64(height), hash)
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		logger.Info("HashVault commit aborted by context cancellation during shutdown; not recording hash",
-			"height", height, "err", err)
-		return fmt.Errorf("hashvault CommitToHash aborted at height %d: %w", height, err)
-	}
-	// Build the fatal message once and use it for both the log and the panic. The logger writes
-	// directly (no in-process buffer), but a hard crash could still drop the final line, so the
-	// panic string carries the full guidance too — panic output is what an operator sees first.
-	var msg string
-	if errors.Is(err, hashvault.ErrHashMismatch) {
-		// The HashVault has already logged the conflicting hashes, its data directory, and the
-		// bypass/slashing guidance immediately before returning this error; don't duplicate it.
-		msg = fmt.Sprintf("FATAL: HashVault detected an app-hash equivocation at height %d; halting. "+
-			"See the preceding HashVault error for the conflicting hashes and recovery steps. "+
-			"DO NOT RESTART WITHOUT HUMAN INTERVENTION.", height)
-	} else {
-		msg = fmt.Sprintf("FATAL: HashVault could not commit the app hash at height %d (operational "+
-			"error, not a confirmed equivocation): %v. hashHex=%x. Halting.", height, err, hash)
-	}
-	logger.Error(msg)
-	panic(msg)
-}
-
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
-	// runExecute is the single block-execution loop spawned by both the validator and fullnode Run
-	// methods, so it owns the equivocation guard for both roles: build it here (set before the first
-	// executeBlock, the only other reader) and close it on exit.
-	hashVault, err := buildHashVault(ctx, r.cfg)
-	if err != nil {
-		return fmt.Errorf("buildHashVault(): %w", err)
-	}
-	defer func() {
-		if err := hashVault.Close(context.Background()); err != nil {
-			logger.Error("failed to close hashvault", "err", err)
-		}
-	}()
-
 	app := r.app
 
 	info := app.Info()
@@ -429,15 +350,6 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			// TODO: for consistency we should also set proposerAddress here,
 			// but this is a placeholder solution so maybe we don't care.
 		}).ToProto())
-		// Re-commit the last finalized block's app hash to the equivocation guard before re-proposing it
-		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
-		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was
-		// first executed; if the committed app state has diverged from what the vault recorded (e.g. an
-		// out-of-band rollback/restore), this halts the node instead of externalizing a conflicting
-		// hash. A returned error is a benign shutdown cancellation; genuine faults panic inside.
-		if err := commitAppHashToVault(ctx, hashVault, last, info.LastBlockAppHash); err != nil {
-			return err
-		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
 		// once everyone votes on apphashes of a suffix of finalized blocks.
 		weights, err := committeeWeights(app.GetValidators())
@@ -456,7 +368,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
+		commitResp, err := r.executeBlock(ctx, b)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
@@ -466,17 +378,6 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 		if err := r.data.PruneBefore(pruneBefore); err != nil {
 			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
-		}
-		// Align the vault's retention with the data layer's prune boundary.
-		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			// A canceled context just means we're shutting down between a successful executeBlock
-			// and this prune; that's benign, not a prune failure, so don't alarm operators.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				logger.Info("hashvault prune aborted by context cancellation during shutdown",
-					"prune_before", pruneBefore, "err", err)
-			} else {
-				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
-			}
 		}
 	}
 }

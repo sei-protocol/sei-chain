@@ -372,6 +372,26 @@ func (s *MemoryStore) RegisterHashListener(_ gigatypes.HashListener) (lthash.Blo
 	return lthash.BlockHash{}, fmt.Errorf("evmonly: an in-memory store computes no block hashes")
 }
 
+// GetBlockHeight returns the last block committed, or 0 when none has been.
+func (s *MemoryStore) GetBlockHeight() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.hasCurrentHeight {
+		return 0
+	}
+	return uint64(s.currentHeight) //nolint:gosec // CommitStateChanges refuses a negative block number
+}
+
+// GetBlockHash reports every block's hash as not ready, since this store computes no block hashes.
+func (s *MemoryStore) GetBlockHash(uint64) ([32]byte, gigatypes.BlockHashStatus, error) {
+	return [32]byte{}, gigatypes.BlockHashStatusNotReady, nil
+}
+
+// PruneBlockHashesBelow does nothing, since this store records no block hashes.
+func (s *MemoryStore) PruneBlockHashesBelow(uint64) error {
+	return nil
+}
+
 // Close releases nothing. This store holds no handle outside its own maps, which go with it.
 func (s *MemoryStore) Close() error { return nil }
 

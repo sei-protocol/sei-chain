@@ -176,24 +176,22 @@ var tmKeys = []tmKey{
 	},
 }
 
-// FuzzHashVaultDisabledUnsafeResolution pins the root-scope kill switch for the
-// app-hash equivocation guard.
+// FuzzHashVaultHaltOnMismatchResolution pins the root-scope switch that selects whether a hash vault
+// mismatch halts the node.
 //
-// Two things make it worth its own target. It is a bool whose safe value is the
-// default, so an absent key must resolve false — setting it true removes
-// equivocation protection with only a log banner. And it lives at TOML root scope,
-// before any [section] header: nested under a section it parses as a different key
-// and is silently ignored, which reads as "I disabled the guard" while the guard
-// stays on, and would read the other way round if the scope were ever mishandled.
-// The document is built from the fuzzer's choices rather than taken as free text,
-// so the expected outcome follows from construction instead of being a second
-// input the fuzzer can mutate out of agreement with the first.
-func FuzzHashVaultDisabledUnsafeResolution(f *testing.F) {
+// Two things make it worth its own target. It is a bool whose safe value is the default, so an absent
+// key must resolve true — setting it false lets a node replace a recorded state hash with only an error
+// log. And it lives at TOML root scope, before any [section] header: nested under a section it parses as
+// a different key and is silently ignored, which reads as "I turned halting off" while the node still
+// halts. The document is built from the fuzzer's choices rather than taken as free text, so the expected
+// outcome follows from construction instead of being a second input the fuzzer can mutate out of
+// agreement with the first.
+func FuzzHashVaultHaltOnMismatchResolution(f *testing.F) {
 	f.Add(false, false, false)
-	f.Add(true, true, false)  // root scope, true: the guard is off
-	f.Add(true, false, false) // root scope, false
-	f.Add(true, true, true)   // nested under a section: silently ignored
-	f.Add(true, false, true)
+	f.Add(true, false, false) // root scope, false: a mismatch only logs
+	f.Add(true, true, false)  // root scope, true
+	f.Add(true, false, true)  // nested under a section: silently ignored
+	f.Add(true, true, true)
 
 	f.Fuzz(func(t *testing.T, present, value, underSection bool) {
 		configtest.Isolate(t)
@@ -204,37 +202,44 @@ func FuzzHashVaultDisabledUnsafeResolution(f *testing.F) {
 			if underSection {
 				doc.WriteString("[p2p]\n")
 			}
-			fmt.Fprintf(&doc, "hash-vault-disabled-unsafe = %t\n", value)
+			fmt.Fprintf(&doc, "hash-vault-halt-on-mismatch = %t\n", value)
 		}
 		if doc.Len() > 0 {
 			home.WriteConfigTOML(t, []byte(doc.String()))
 		}
 
 		// Root scope is the only placement that resolves. Nested under a section the
-		// key becomes p2p.hash-vault-disabled-unsafe, which nothing reads.
-		wantDisabled := present && value && !underSection
+		// key becomes p2p.hash-vault-halt-on-mismatch, which nothing reads.
+		wantHalt := true
+		if present && !underSection {
+			wantHalt = value
+		}
 
 		got := applyLegacy(t, home, nil)
 		if got.err != nil {
 			t.Fatalf("Apply must succeed on a well-formed config.toml, got %v", got.err)
 		}
-		if got.ctx.Config.HashVaultDisabledUnsafe != wantDisabled {
-			t.Fatalf("hash-vault-disabled-unsafe resolved to %v, want %v, from:\n%s",
-				got.ctx.Config.HashVaultDisabledUnsafe, wantDisabled, doc.String())
+		if got.ctx.Config.HashVaultHaltOnMismatch != wantHalt {
+			t.Fatalf("hash-vault-halt-on-mismatch resolved to %v, want %v, from:\n%s",
+				got.ctx.Config.HashVaultHaltOnMismatch, wantHalt, doc.String())
 		}
 	})
 }
 
-// TestHashVaultDisabledUnsafeDefaultsToEnabledGuard states the default on its own,
-// so the guard's safe value is pinned even if every seed above were removed.
-func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
+// TestHashVaultDefaultsHaltOnMismatch states the defaults on their own, so the safe value is pinned even
+// if every seed above were removed.
+func TestHashVaultDefaultsHaltOnMismatch(t *testing.T) {
 	configtest.Isolate(t)
 	got := applyLegacy(t, configtest.NewHome(t), nil)
 	if got.err != nil {
 		t.Fatalf("Apply: %v", got.err)
 	}
-	if got.ctx.Config.HashVaultDisabledUnsafe {
-		t.Fatal("an empty home must leave the app-hash equivocation guard enabled")
+	if !got.ctx.Config.HashVaultHaltOnMismatch {
+		t.Fatal("an empty home must leave a hash vault mismatch halting the node")
+	}
+	if got.ctx.Config.HashVaultEmptyRollbackBlocks != 1000 {
+		t.Fatalf("an empty home must rewind 1000 blocks over an empty hash vault, got %d",
+			got.ctx.Config.HashVaultEmptyRollbackBlocks)
 	}
 }
 

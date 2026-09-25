@@ -183,7 +183,7 @@ func TestHashEngineAgreesWithSynchronousCompute(t *testing.T) {
 
 	require.Equal(t, want.Global.Checksum(), got.Global.Checksum(),
 		"the pipeline must produce the hash a single-call fold produces")
-	require.Equal(t, int64(1), got.BlockNumber)
+	require.Equal(t, uint64(1), got.BlockNumber)
 }
 
 // mustViews is blockViews without the stub handles, for a caller that only wants the views.
@@ -210,7 +210,7 @@ func TestHashEngineStreamsOneHashPerBlockInOrder(t *testing.T) {
 	for height := int64(1); height <= blocks; height++ {
 		got := <-engine.AwaitHash()
 		require.NoError(t, got.Error)
-		require.Equal(t, height, got.BlockNumber, "hashes must arrive in block order with no gaps")
+		require.Equal(t, uint64(height), got.BlockNumber, "hashes must arrive in block order with no gaps")
 	}
 	require.NoError(t, engine.Close())
 
@@ -284,7 +284,7 @@ func TestHashEngineFlushWaitsForScheduledBlocks(t *testing.T) {
 	for height := int64(1); height <= blocks; height++ {
 		select {
 		case got := <-engine.AwaitHash():
-			require.Equal(t, height, got.BlockNumber)
+			require.Equal(t, uint64(height), got.BlockNumber)
 		default:
 			t.Fatalf("Flush returned before block %d was published", height)
 		}
@@ -401,7 +401,7 @@ func TestHashEngineDeliversFailureAndStops(t *testing.T) {
 	got := <-engine.AwaitHash()
 	require.Error(t, got.Error)
 	require.ErrorContains(t, got.Error, "injected diff failure")
-	require.Equal(t, int64(1), got.BlockNumber)
+	require.Equal(t, uint64(1), got.BlockNumber)
 
 	require.ErrorContains(t, engine.Close(), "injected diff failure")
 

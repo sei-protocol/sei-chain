@@ -18,13 +18,24 @@ type HashVaultConfig struct {
 
 	// CacheSize is the number of recent (height -> verified hash) entries in the in-process LRU cache.
 	CacheSize int
+
+	// HaltOnMismatch selects what a hash that differs from the recorded one does. When true, CommitToHash
+	// returns ErrHashMismatch. When false, the mismatch is logged, the recorded hashes from that block up
+	// are discarded, and the new hash is recorded in their place.
+	HaltOnMismatch bool
+
+	// EmptyVaultRollbackBlocks is how many blocks the state DB rewinds and replays when it opens over an
+	// empty vault, so that the vault holds the hashes of recent blocks and not just the loaded one.
+	EmptyVaultRollbackBlocks uint64
 }
 
 // DefaultHashVaultConfig returns a HashVaultConfig with production defaults.
 func DefaultHashVaultConfig() HashVaultConfig {
 	return HashVaultConfig{
-		Fsync:     false,
-		CacheSize: 1024,
+		Fsync:                    false,
+		CacheSize:                1024,
+		HaltOnMismatch:           true,
+		EmptyVaultRollbackBlocks: 1000,
 	}
 }
 

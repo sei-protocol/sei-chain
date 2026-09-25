@@ -107,7 +107,7 @@ func (he *HashEngine) ScheduleHash(
 		return fmt.Errorf("schedule hash: current and previous views are both required")
 	}
 	request := &hashRequest{
-		blockNumber: current.BlockHeight(),
+		blockNumber: uint64(current.BlockHeight()), //nolint:gosec // a sealed view's height is never negative
 		current:     current,
 		previous:    previous,
 	}

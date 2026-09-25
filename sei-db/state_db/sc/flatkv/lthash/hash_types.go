@@ -41,7 +41,7 @@ type ModuleHashInfo struct {
 // and later blocks do not disturb it.
 type BlockHash struct {
 	// BlockNumber is the height this state describes.
-	BlockNumber int64
+	BlockNumber uint64
 
 	// PerDB is each data database's lattice hash root, with an entry for every database the engine was
 	// configured with, so a caller can swap the map in wholesale.

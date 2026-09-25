@@ -7,53 +7,24 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
 )
 
 // SS keeps no changelog of its own under giga, the state WAL being what catchUpTo replays into it.
-// The absence is pinned here rather than left to the config, since recovery rests on it.
+// The absence is pinned here rather than left to the config, since recovery rests on it: a config that
+// leaves the changelog on still opens without one.
 func TestGigaOpensSSWithoutAChangelog(t *testing.T) {
-	newStateDB := func(t *testing.T) *StateDB {
-		t.Helper()
-		ssCfg := config.DefaultStateStoreConfig()
-		ssCfg.Enable = true
-		ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
-		return &StateDB{
-			flatkvCfg: flatkvconfig.DefaultTestConfig(t),
-			// As the constructors settle it, which is what makes both paths below agree.
-			ssCfg: stateStoreConfigFor(ssCfg),
-		}
-	}
+	stores := newVaultTestStores(t)
+	stores.ssCfg = config.DefaultStateStoreConfig()
+	stores.ssCfg.Enable = true
+	stores.ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+	require.False(t, stores.ssCfg.DisableInternalWAL, "a caller is not expected to have set it")
 
-	t.Run("opened to commit", func(t *testing.T) {
-		s := newStateDB(t)
-		require.NoError(t, s.openSS())
-		t.Cleanup(func() { _ = s.ss.Close() })
-		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
-	})
-
-	// The rollback path opens the same databases through DiscardStateAbove rather than openSS, so a
-	// config settled per-open would miss it. StoredVersions opens nothing when the directory is
-	// absent, so the store has to exist first.
-	t.Run("opened to roll back", func(t *testing.T) {
-		s := newStateDB(t)
-		require.NoError(t, s.openSS())
-		require.NoError(t, s.ss.Close())
-
-		require.NoError(t, s.discardStateAbove(storedWALRange{first: 1, last: 9}, 7))
-		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
-	})
-}
-
-// TestStateStoreConfigForDisablesTheInternalWAL pins what the constructors apply, every path that
-// opens SS reading the config they settled rather than disabling the log for itself.
-func TestStateStoreConfigForDisablesTheInternalWAL(t *testing.T) {
-	handedIn := config.DefaultStateStoreConfig()
-	require.False(t, handedIn.DisableInternalWAL, "a caller is not expected to have set it")
-	require.True(t, stateStoreConfigFor(handedIn).DisableInternalWAL)
+	db := stores.open(t)
+	require.NoError(t, db.Close())
+	requireNoSSChangelog(t, stores.ssCfg.EVMDBDirectory)
 }
 
 func requireNoSSChangelog(t *testing.T, evmDBDirectory string) {
@@ -68,14 +39,11 @@ func requireNoSSChangelog(t *testing.T, evmDBDirectory string) {
 // The directory is one an earlier run with SS on could have left, and the WAL reaches block 1, so a
 // rollback that read it would come back with a rewind to run.
 func TestDiscardStateAboveLeavesANodeThatKeepsNoEVMStoreAlone(t *testing.T) {
-	const target = int64(7)
+	const target = uint64(7)
 	dir := t.TempDir()
-	s := &StateDB{
-		flatkvCfg: flatkvconfig.DefaultTestConfig(t),
-		ssCfg:     config.StateStoreConfig{Enable: false, EVMDBDirectory: dir},
-	}
+	ssCfg := config.StateStoreConfig{Enable: false, EVMDBDirectory: dir}
 
-	require.NoError(t, s.discardStateAbove(storedWALRange{first: 1, last: 9}, target))
+	require.NoError(t, discardSSAbove(ssCfg, 1, target))
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -136,23 +104,20 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 
 	t.Run("the state commit store", func(t *testing.T) {
 		_, _, sc := newTestStateDB(t)
-		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc}
-
-		require.ErrorContains(t, s.catchUpTo(t.Context(), 4), missingBlocks)
+		require.ErrorContains(t, catchUpTo(t.Context(), sc, nil, &gapWAL{first: 3, last: 4}, 4), missingBlocks)
 	})
 
 	t.Run("the EVM state store", func(t *testing.T) {
-		_, _, sc := newTestStateDB(t)
-		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+		ss := &evm.EVMStateStore{}
 
 		// The store holds nothing, so the gap is its whole history rather than a hole in it. Refusing
 		// here would report data loss for a store that is merely new, and would do it on every node
 		// past its first retention cut, so it is left out of the replay to fill forward from the target.
-		_, replays, err := s.ssReplayStart(4)
+		_, replays, err := ssReplayStart(ss, &gapWAL{first: 3, last: 4}, 4)
 
 		require.NoError(t, err)
 		require.False(t, replays)
-		require.Zero(t, s.ss.GetLatestVersion())
+		require.Zero(t, ss.GetLatestVersion())
 	})
 }
 
@@ -163,9 +128,7 @@ func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
 	for block := int64(1); block <= 4; block++ {
 		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
 	}
-	s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
-
-	require.NoError(t, s.matchHeight(4))
+	require.NoError(t, matchHeight(sc, &evm.EVMStateStore{}, &gapWAL{first: 3, last: 4}, 4))
 }
 
 // An empty SS is only excused when the WAL cannot rebuild it. Excusing every version-0 store would
@@ -175,9 +138,7 @@ func TestMatchHeightDoesNotExcuseAnEmptyStoreTheWALCanRebuild(t *testing.T) {
 	for block := int64(1); block <= 4; block++ {
 		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
 	}
-	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
-
-	err := s.matchHeight(4)
+	err := matchHeight(sc, &evm.EVMStateStore{}, &gapWAL{first: 1, last: 4}, 4)
 
 	require.ErrorContains(t, err, "EVM state store")
 	// Both the open and a rollback converge here, so the height belongs to whichever asked. Naming a
@@ -190,10 +151,7 @@ func TestMatchHeightDoesNotExcuseAnEmptyStoreTheWALCanRebuild(t *testing.T) {
 // reaches back far enough for comes out of recovery holding real history, which is strictly better, and
 // is how a store that lagged the WAL is populated on restart.
 func TestCatchUpRebuildsAnEmptyStoreTheWALStillCovers(t *testing.T) {
-	_, _, sc := newTestStateDB(t)
-	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
-
-	fillForward, err := s.ssFillsForward()
+	fillForward, err := ssFillsForward(&evm.EVMStateStore{}, &gapWAL{first: 1, last: 4})
 	require.NoError(t, err)
 	require.False(t, fillForward, "a WAL starting at block 1 can rebuild an empty store")
 }

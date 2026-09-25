@@ -39,7 +39,7 @@ func (c *captureLogger) ReportChangeset(uint64, []*proto.NamedChangeSet) {}
 
 // HashListener is unused here: memIAVL reports its hashes synchronously through RecordHashes, and a
 // listener is for the store that publishes hashes asynchronously.
-func (c *captureLogger) HashListener(context.Context, int64, *lthash.BlockHash) error { return nil }
+func (c *captureLogger) HashListener(context.Context, uint64, *lthash.BlockHash) error { return nil }
 
 func (c *captureLogger) Close() error { return nil }
 

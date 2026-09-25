@@ -109,3 +109,51 @@ func wipeEntireStore(db *pebble.DB, dataDir string, target, boundary uint64) err
 		"dataDir", dataDir, "rollbackTarget", target, "pruneBoundary", boundary)
 	return nil
 }
+
+// StoredRange returns the oldest and newest heights the closed vault under config.DataDir records, and
+// false when it records none. A vault that has never been created records none.
+func StoredRange(config HashVaultConfig) (oldest uint64, newest uint64, recorded bool, err error) {
+	if _, err := os.Stat(config.DataDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, fmt.Errorf("hashvault data dir %q is not accessible: %w", config.DataDir, err)
+	}
+	db, err := pebble.Open(config.DataDir, &pebble.Options{ReadOnly: true})
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("failed to open hashvault pebble db at %q read-only: %w",
+			config.DataDir, err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to close read-only hashvault: %w", closeErr))
+		}
+	}()
+	return storedRange(db)
+}
+
+// storedRange returns the oldest and newest heights db records, and false when it records none.
+func storedRange(db *pebble.DB) (oldest uint64, newest uint64, recorded bool, err error) {
+	iter, err := db.NewIter(&pebble.IterOptions{LowerBound: hashKey(0), UpperBound: hashKeyUpperBound()})
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("failed to open hashvault iterator: %w", err)
+	}
+	defer func() {
+		if closeErr := iter.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to close hashvault iterator: %w", closeErr))
+		}
+	}()
+	if !iter.First() {
+		return 0, 0, false, nil
+	}
+	if oldest, err = decodeHashKey(iter.Key()); err != nil {
+		return 0, 0, false, fmt.Errorf("failed to decode the oldest hashvault key: %w", err)
+	}
+	if !iter.Last() {
+		return 0, 0, false, fmt.Errorf("hashvault iterator found an oldest key but no newest key")
+	}
+	if newest, err = decodeHashKey(iter.Key()); err != nil {
+		return 0, 0, false, fmt.Errorf("failed to decode the newest hashvault key: %w", err)
+	}
+	return oldest, newest, true, nil
+}

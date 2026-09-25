@@ -78,7 +78,7 @@ func (m *GigaStorageManager) startGarbageCollector(ctx context.Context, pruningC
 // prunableStores returns the opened stores that can join the shared prune cycle. The state stores come
 // from the StateDB that owns them.
 func (m *GigaStorageManager) prunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 5)
+	stores := make([]controller.PrunableStore, 0, 6)
 	if m.stateDB != nil {
 		stores = append(stores, m.stateDB.PrunableStores()...)
 	}

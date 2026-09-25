@@ -57,8 +57,9 @@ var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
 type nodeRootSchema struct {
 	tmcfg.BaseConfig `mapstructure:",squash"`
 
-	AutobahnConfigFile      string `mapstructure:"autobahn-config-file"`
-	HashVaultDisabledUnsafe bool   `mapstructure:"hash-vault-disabled-unsafe"`
+	AutobahnConfigFile           string `mapstructure:"autobahn-config-file"`
+	HashVaultHaltOnMismatch      bool   `mapstructure:"hash-vault-halt-on-mismatch"`
+	HashVaultEmptyRollbackBlocks uint64 `mapstructure:"hash-vault-empty-rollback-blocks"`
 }
 
 // removedSettings are the consensus paths this section does not declare. Each names a field the node's
@@ -289,9 +290,10 @@ func privValidatorDefaults(mode registry.Mode) any { return *forMode(mode).PrivV
 func rootDefaults(mode registry.Mode) any {
 	live := forMode(mode)
 	return nodeRootSchema{
-		BaseConfig:              live.BaseConfig,
-		AutobahnConfigFile:      live.AutobahnConfigFile,
-		HashVaultDisabledUnsafe: live.HashVaultDisabledUnsafe,
+		BaseConfig:                   live.BaseConfig,
+		AutobahnConfigFile:           live.AutobahnConfigFile,
+		HashVaultHaltOnMismatch:      live.HashVaultHaltOnMismatch,
+		HashVaultEmptyRollbackBlocks: live.HashVaultEmptyRollbackBlocks,
 	}
 }
 

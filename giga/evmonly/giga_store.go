@@ -23,6 +23,10 @@ var (
 
 var _ StateReader = gigaSnapshotStateReader{}
 
+// placeholderBlockHashRetention is how many of the newest blocks keep their state hashes. It is a
+// placeholder until a real threshold is wired in.
+const placeholderBlockHashRetention = 10_000
+
 // NamedChangeSetEncoder converts an executor-native state result into the
 // on-disk changesets understood by a giga store. It is called synchronously
 // while the block's read snapshot is still open. It must treat the input as
@@ -97,6 +101,11 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
+	// PLACEHOLDER: keeps the newest placeholderBlockHashRetention blocks' hashes. A real threshold, set by
+	// what giga execution needs block hashes for, should be wired in here.
+	if err := stateStore.PruneBlockHashesBelow(blockHashesPrunedBelow(req.Context.Number)); err != nil {
+		return nil, fmt.Errorf("prune block hashes after block %d: %w", req.Context.Number, err)
+	}
 	ok = true
 	return result, nil
 }
@@ -145,4 +154,13 @@ func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) 
 // fallback is configured and the snapshot holds no account for addr.
 func (r gigaSnapshotStateReader) useMissingState(addr common.Address) bool {
 	return r.missingState != nil && !r.snapshot.AccountExists(addr)
+}
+
+// blockHashesPrunedBelow returns the block below which state hashes may be pruned once blockNumber is
+// committed.
+func blockHashesPrunedBelow(blockNumber uint64) uint64 {
+	if blockNumber < placeholderBlockHashRetention {
+		return 0
+	}
+	return blockNumber - placeholderBlockHashRetention
 }

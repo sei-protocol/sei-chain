@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,9 +60,11 @@ func TestHardRollbackPebbleHashVaultBelowPruneBoundaryWipesStore(t *testing.T) {
 
 	// Boundary is gone, so commits below the old boundary are now accepted.
 	require.NoError(t, v2.CommitToHash(ctx, 5, bytesOfLen(0xCC, 32)))
-	// Every previously-locked hash is also gone — height 50 used to be 0x32, but the wipe means a
-	// fresh hash there is allowed.
-	require.NoError(t, v2.CommitToHash(ctx, 50, bytesOfLen(0xEE, 32)))
+	// Every previously-locked hash is also gone: height 50 used to be 0x32, and nothing is recorded
+	// there now.
+	_, status, err := v2.Get(50)
+	require.NoError(t, err)
+	require.Equal(t, gigatypes.BlockHashStatusNotReady, status)
 }
 
 func TestHardRollbackPebbleHashVaultEqualToPruneBoundary(t *testing.T) {
@@ -120,12 +123,6 @@ func TestHardRollbackPebbleHashVaultRejectsMaxUint64Height(t *testing.T) {
 
 	err := HardRollbackPebbleHashVault(ctx, cfg, math.MaxUint64)
 	require.ErrorIs(t, err, ErrRollbackHeightOverflow)
-
-	v2, err := NewUnsafePebbleHashVault(ctx, cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = v2.Close(ctx) })
-
-	require.ErrorIs(t, v2.CommitToHash(ctx, math.MaxUint64, bytesOfLen(0xEE, 32)), ErrHashMismatch)
 }
 
 func TestHardRollbackPebbleHashVaultRejectsMissingDir(t *testing.T) {

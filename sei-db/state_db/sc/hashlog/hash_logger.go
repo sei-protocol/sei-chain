@@ -75,7 +75,7 @@ type HashLogger interface {
 	//
 	// The columns reported here are fixed, and a node declares them when it constructs the logger
 	// (see HashLoggerConfig.HashTypes). Nothing registers a column per block.
-	HashListener(ctx context.Context, blockNumber int64, hash *lthash.BlockHash) error
+	HashListener(ctx context.Context, blockNumber uint64, hash *lthash.BlockHash) error
 
 	// Shut down the HashLogger and release any resources. Flushes pending writes before returning. Only blocks
 	// that are complete (a hash has been reported for every configured type) are written; a block still missing a

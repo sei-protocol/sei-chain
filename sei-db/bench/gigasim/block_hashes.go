@@ -34,7 +34,7 @@ type blockHashWaiter struct {
 	committed int
 
 	// The block the next hash taken must describe, or 0 until the first one has been taken.
-	nextExpected int64
+	nextExpected uint64
 
 	// How long to wait for one hash before reporting a state DB that has stopped hashing.
 	waitTimeout time.Duration
@@ -55,7 +55,7 @@ func newBlockHashWaiter(lagBlocks int, metrics *GigasimMetrics) *blockHashWaiter
 // listen takes one block's hash from the state DB, blocking while the benchmark is further ahead than
 // its window allows. That block is the backpressure on hashing; the context releases it when the state
 // DB shuts down, since a send with no taker left would never return.
-func (w *blockHashWaiter) listen(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
+func (w *blockHashWaiter) listen(ctx context.Context, _ uint64, hash *lthash.BlockHash) error {
 	select {
 	case w.hashes <- hash:
 		return nil
@@ -103,4 +103,12 @@ func (w *blockHashWaiter) takeHash() (*lthash.BlockHash, error) {
 		return nil, fmt.Errorf("no block hash arrived in %s: the state DB has stopped hashing, "+
 			"%d blocks behind the block just committed", w.waitTimeout, w.lagBlocks)
 	}
+}
+
+// blockHashRetention is how many of the newest blocks keep their hashes.
+const blockHashRetention = 10_000
+
+// blockHashesPrunedBelow returns the block below which the hashes of blocks up to blockNum may be pruned.
+func blockHashesPrunedBelow(blockNum int64) uint64 {
+	return uint64(max(blockNum-blockHashRetention, 0)) //nolint:gosec // clamped non-negative
 }

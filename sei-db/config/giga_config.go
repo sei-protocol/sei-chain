@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 )
 
 // GigaStorageConfig composes the store configs a Giga node opens. It is not read from
@@ -18,6 +20,7 @@ type GigaStorageConfig struct {
 	BlockDBConfig    *littblock.BlockDBConfig       // required
 	PruningConfig    *StorageGarbageCollectorConfig // required
 	CheckpointConfig CheckpointConfig
+	HashVaultConfig  hashvault.HashVaultConfig
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -46,6 +49,11 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.ExternalPruning = true
 	ssConfig.DisableInternalWAL = true
 
+	hashVaultConfig := hashvault.DefaultHashVaultConfig()
+	// Existing Autobahn nodes keep their hash vault here, under the persistent state dir. Moving it loses
+	// the hashes they have recorded.
+	hashVaultConfig.DataDir = filepath.Join(homePath, "hashvault")
+
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
@@ -59,6 +67,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 		BlockDBConfig:    blockDBConfig,
 		PruningConfig:    DefaultStorageGarbageCollectorConfig(),
 		CheckpointConfig: DefaultCheckpointConfig(),
+		HashVaultConfig:  hashVaultConfig,
 	}, nil
 }
 
@@ -114,6 +123,10 @@ func (c *GigaStorageConfig) Validate() error {
 	// correct-as-written config fails it. Only DataDir is checked here.
 	if c.FlatKVConfig.DataDir == "" {
 		return fmt.Errorf("flatkv data dir is required")
+	}
+
+	if err := c.HashVaultConfig.Validate(); err != nil {
+		return fmt.Errorf("hash vault config is invalid: %w", err)
 	}
 
 	if c.BlockDBConfig == nil {
