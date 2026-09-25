@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -208,22 +209,122 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 	return nil
 }
 
-// FilterLogs reports that the in-memory backend does not support range queries.
-func (*MemoryReceiptStore) FilterLogs(
+// FilterLogs returns the logs in [fromBlock, toBlock] matching crit, in block
+// then transaction order, converted and matched by the same receipt package
+// code as the disk-backed stores: BlockHash is zero and Index carries the
+// block-wide first-log offset of its transaction on top of the stored index.
+func (s *MemoryReceiptStore) FilterLogs(
 	ctx sdk.Context,
-	_, _ uint64,
-	_ filters.FilterCriteria,
-	_ *receipt.LogBudget,
+	fromBlock, toBlock uint64,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
 ) ([]*ethtypes.Log, error) {
 	if err := receiptContextError(ctx); err != nil {
 		return nil, err
 	}
-	return nil, receipt.ErrRangeQueryNotSupported
+	if fromBlock > toBlock {
+		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
+	}
+	it, err := s.IterateReceipts(fromBlock)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = it.Close() }()
+
+	var logs []*ethtypes.Log
+	var currentBlock uint64
+	firstLogIndex := uint(0)
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok || it.BlockNumber() > toBlock {
+			return logs, nil
+		}
+		if it.BlockNumber() != currentBlock {
+			currentBlock = it.BlockNumber()
+			firstLogIndex = 0
+		}
+		stored, err := it.Receipt()
+		if err != nil {
+			return nil, err
+		}
+		for _, lg := range receipt.LogsForTx(stored, firstLogIndex) {
+			if !receipt.MatchLogForQuery(ctx.Context(), lg, crit) {
+				continue
+			}
+			if err := budget.Reserve(lg); err != nil {
+				return nil, err
+			}
+			logs = append(logs, lg)
+		}
+		firstLogIndex += uint(len(stored.Logs))
+	}
 }
 
-// IterateReceipts reports that the in-memory backend does not support walking its receipts.
-func (*MemoryReceiptStore) IterateReceipts(_ uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+// IterateReceipts walks a snapshot of the retained receipts at or above
+// startBlock in block then transaction order.
+func (s *MemoryReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.earliestVersion > 0 && startBlock < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
+		startBlock = uint64(s.earliestVersion) //nolint:gosec // earliestVersion is positive.
+	}
+	var entries []memoryReceiptEntry
+	for blockNumber, blockReceipts := range s.blocks {
+		if blockNumber < startBlock {
+			continue
+		}
+		for _, stored := range blockReceipts {
+			entries = append(entries, memoryReceiptEntry{blockNumber: blockNumber, receipt: stored})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].blockNumber != entries[j].blockNumber {
+			return entries[i].blockNumber < entries[j].blockNumber
+		}
+		return entries[i].receipt.TransactionIndex < entries[j].receipt.TransactionIndex
+	})
+	return &memoryReceiptIterator{entries: entries, pos: -1}, nil
+}
+
+// memoryReceiptIterator walks a sorted snapshot of MemoryReceiptStore entries.
+type memoryReceiptIterator struct {
+	entries []memoryReceiptEntry
+	pos     int
+}
+
+// Next advances to the next receipt, reporting false once the walk is complete.
+func (it *memoryReceiptIterator) Next() (bool, error) {
+	if it.pos+1 >= len(it.entries) {
+		it.pos = len(it.entries)
+		return false, nil
+	}
+	it.pos++
+	return true, nil
+}
+
+// BlockNumber returns the block holding the current receipt.
+func (it *memoryReceiptIterator) BlockNumber() uint64 {
+	return it.entries[it.pos].blockNumber
+}
+
+// TxHash returns the hash of the current receipt's transaction.
+func (it *memoryReceiptIterator) TxHash() common.Hash {
+	return common.HexToHash(it.entries[it.pos].receipt.TxHashHex)
+}
+
+// Receipt returns a caller-owned copy of the current receipt.
+func (it *memoryReceiptIterator) Receipt() (*evmtypes.Receipt, error) {
+	return cloneStoredReceipt(it.entries[it.pos].receipt), nil
+}
+
+// Close releases the iterator's snapshot.
+func (it *memoryReceiptIterator) Close() error {
+	it.entries = nil
+	it.pos = 0
+	return nil
 }
 
 // Close closes the receipt store.

@@ -17,27 +17,33 @@ import (
 func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Client[API]) error {
 	stream, err := StreamFullCommitQCs.Call(ctx, client)
 	if err != nil {
+		recordFetch(ctx, resFullCommitQC, "open_stream")
 		return fmt.Errorf("client.StreamFullCommitQCs(): %w", err)
 	}
 	defer stream.Close()
 	if err := stream.Send(ctx, StreamFullCommitQCsReqConv.Encode(&StreamFullCommitQCsReq{
 		NextBlock: s.data.NextBlock(),
 	})); err != nil {
+		recordFetch(ctx, resFullCommitQC, "send")
 		return fmt.Errorf("stream.Send(): %w", err)
 	}
 	for ctx.Err() == nil {
 		rawQC, err := stream.Recv(ctx)
 		if err != nil {
+			recordFetch(ctx, resFullCommitQC, "receive")
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		qc, err := types.FullCommitQCConv.Decode(rawQC)
 		if err != nil {
+			recordFetch(ctx, resFullCommitQC, "decode")
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
 		if err := s.data.PushQC(ctx, qc, nil); err != nil {
+			recordFetch(ctx, resFullCommitQC, "process")
 			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
+		recordFetch(ctx, resFullCommitQC, "ok")
 	}
 	return ctx.Err()
 }
@@ -45,26 +51,32 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {
 	stream, err := StreamAppQCs.Call(ctx, c)
 	if err != nil {
+		recordFetch(ctx, resAppQC, "open_stream")
 		return fmt.Errorf("client.StreamAppQCs(): %w", err)
 	}
 	defer stream.Close()
 	if err := stream.Send(ctx, StreamAppQCsReqConv.Encode(&StreamAppQCsReq{
 		NextBlock: x.data.NextAppQC(),
 	})); err != nil {
+		recordFetch(ctx, resAppQC, "send")
 		return err
 	}
 	for {
 		resp, err := stream.Recv(ctx)
 		if err != nil {
+			recordFetch(ctx, resAppQC, "receive")
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		appQC, err := types.AppQCConv.Decode(resp)
 		if err != nil {
+			recordFetch(ctx, resAppQC, "decode")
 			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
 		}
 		if err := x.data.PushAppQC(ctx, appQC); err != nil {
+			recordFetch(ctx, resAppQC, "process")
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
+		recordFetch(ctx, resAppQC, "ok")
 	}
 }
 
@@ -90,6 +102,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 		for ctx.Err() == nil {
 			stream, err := GetBlock.Call(ctx, client)
 			if err != nil {
+				recordFetch(ctx, resBlock, "open_stream")
 				return fmt.Errorf("GetBlock.Call(): %w", err)
 			}
 			req, err := utils.Recv(ctx, s.getBlockReqs)
@@ -100,17 +113,21 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 			scope.Spawn(func() error {
 				defer stream.Close()
 				defer close(req.done)
+				operation := "send"
 				resp, err := utils.WithTimeout1(ctx, BlockFetchTimeout, func(ctx context.Context) (*pb.GetBlockResp, error) {
 					if err := stream.Send(ctx, GetBlockReqConv.Encode(&GetBlockReq{GlobalNumber: req.n})); err != nil {
 						return nil, fmt.Errorf("stream.Send(): %w", err)
 					}
+					operation = "receive"
 					return stream.Recv(ctx)
 				})
 				if err != nil {
+					recordFetch(ctx, resBlock, operation)
 					return err
 				}
 				block, err := GetBlockRespConv.Decode(resp)
 				if err != nil {
+					recordFetch(ctx, resBlock, "decode")
 					return fmt.Errorf("GetBlockRespConv.Decode(): %w", err)
 				}
 				b, ok := block.Get()
@@ -118,11 +135,14 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 					// Peer doesn't have block n yet (e.g. they're a fullnode
 					// catching up too). runBlockFetcher's outer loop will
 					// retry after BlockFetchRetryInterval.
+					recordFetch(ctx, resBlock, "unavailable")
 					return nil
 				}
 				if err := s.data.PushBlock(ctx, req.n, b); err != nil {
+					recordFetch(ctx, resBlock, "process")
 					return fmt.Errorf("s.PushBlock(): %w", err)
 				}
+				recordFetch(ctx, resBlock, "ok")
 				return nil
 			})
 		}
@@ -243,9 +263,15 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 			// Absent (not yet / pruned) is a successful empty response so the
 			// peer can retry. Any other error is a store failure — do not
 			// disguise it as "not available".
-			if errors.Is(err, types.ErrPruned) || errors.Is(err, types.ErrNotFound) {
+			if errors.Is(err, types.ErrPruned) {
+				recordServe(resBlock, "pruned")
 				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
 			}
+			if errors.Is(err, types.ErrNotFound) {
+				recordServe(resBlock, "not_found")
+				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
+			}
+			recordServe(resBlock, "store_error")
 			return fmt.Errorf("TryBlock(%d): %w", req.GlobalNumber, err)
 		}
 		return stream.Send(ctx, GetBlockRespConv.Encode(utils.Some(block)))
