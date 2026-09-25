@@ -5,6 +5,7 @@ package staking
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	stakingv66 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v66"
+	stakingv67 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(stakingv66.NewPrecompile(keepers)),
+		"v6.7":        check(stakingv67.NewPrecompile(keepers)),
 	}
 }
 

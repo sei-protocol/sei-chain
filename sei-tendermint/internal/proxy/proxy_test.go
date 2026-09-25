@@ -112,6 +112,44 @@ func TestEvmCallDelegatesToASupportingApplication(t *testing.T) {
 	require.Same(t, msg, gotMsg)
 }
 
+func TestEvmEstimateGasErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, _, err := proxyApp.EvmEstimateGas(t.Context(), &core.Message{}, 0)
+
+	require.Error(t, err)
+}
+
+type testEvmGasEstimatorApp struct {
+	testApp
+	estimateGas func(context.Context, *core.Message, uint64) (uint64, []byte, error)
+}
+
+func (app testEvmGasEstimatorApp) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	return app.estimateGas(ctx, msg, gasCap)
+}
+
+func TestEvmEstimateGasDelegatesToASupportingApplication(t *testing.T) {
+	var gotMsg *core.Message
+	var gotGasCap uint64
+	proxyApp := New(testEvmGasEstimatorApp{
+		estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+			gotMsg = msg
+			gotGasCap = gasCap
+			return 21_000, nil, nil
+		},
+	})
+	msg := &core.Message{GasLimit: 21_000}
+
+	got, revert, err := proxyApp.EvmEstimateGas(t.Context(), msg, 10_000_000)
+
+	require.NoError(t, err)
+	require.Equal(t, uint64(21_000), got)
+	require.Empty(t, revert)
+	require.Same(t, msg, gotMsg)
+	require.Equal(t, uint64(10_000_000), gotGasCap)
+}
+
 func TestEvmCodeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
 	proxyApp := New(testApp{})
 

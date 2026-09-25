@@ -33,7 +33,11 @@ cp docker/localnode/config/config.toml "$TENDERMINT_CONFIG_FILE"
 
 # Set up persistent peers
 SEI_NODE_ID=$(seid tendermint show-node-id)
-NODE_IP=$(hostname -i | awk '{print $1}')
+if [ -n "$ADVERTISE_IP" ]; then
+  NODE_IP="$ADVERTISE_IP"
+else
+  NODE_IP=$(hostname -i | awk '{print $1}')
+fi
 P2P_PORT=26656  # Must match [p2p] laddr in config.toml
 EVMRPC_PORT=8545  # Must match the EVM RPC HTTP port (evmrpc DefaultConfig HTTPPort).
 echo "$SEI_NODE_ID@$NODE_IP:$P2P_PORT" >> build/generated/persistent_peers.txt
