@@ -20,8 +20,9 @@ type BlockDBConfig struct {
 	// reclaimed. Reclamation requires BOTH this age to elapse AND the prune
 	// watermark to advance past the record. Must be positive.
 	//
-	// It is an age floor, not a retention policy: how much history this store keeps
-	// is the RollbackWindow and LookbackWindow on config.StorageGarbageCollectorConfig.
+	// It is an age floor, not a retention policy. How much history stays readable
+	// is the prune watermark: the older of the collector's history cut and
+	// giga.storage.block_retention blocks behind the head.
 	//
 	// Default: 1h.
 	RetentionTime time.Duration
