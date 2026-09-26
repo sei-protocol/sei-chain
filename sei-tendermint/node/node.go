@@ -261,7 +261,7 @@ func makeNode(
 		consensusPolicy:    consensusPolicy,
 		freezeHeight:       opts.freezeHeight,
 		gigaStorageManager: gigaStorageManager,
-		evmOnlyRPCPort:     opts.giga.Execution.HTTPPort,
+		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
 
 		nodeKey: nodeKey,
 

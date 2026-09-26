@@ -45,7 +45,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.occ_workers":             "3",
 		"giga.execution.parse_workers":           "2",
 		"giga.execution.block_result_pool_size":  "4",
-		"giga.execution.http_port":               "8600",
+		"giga.execution.evm_rpc_port":            "8600",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -63,7 +63,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			OCCWorkers:          3,
 			ParseWorkers:        2,
 			BlockResultPoolSize: 4,
-			HTTPPort:            8600,
+			EvmRpcPort:          8600,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -79,8 +79,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"empty result pool":       {"giga.execution.block_result_pool_size": "0"},
 		"non-numeric gas price":   {"giga.execution.min_gas_price": "cheap"},
 		"negative block interval": {"giga.storage.checkpoint_block_interval": "-1"},
-		"http port zero":          {"giga.execution.http_port": "0"},
-		"http port too high":      {"giga.execution.http_port": "65536"},
+		"evm rpc port zero":       {"giga.execution.evm_rpc_port": "0"},
+		"evm rpc port too high":   {"giga.execution.evm_rpc_port": "65536"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
