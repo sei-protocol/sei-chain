@@ -51,6 +51,7 @@ func TestCollectorSurface(t *testing.T) {
 			t.Run("RollbackFloor", func(t *testing.T) { testCollectorRollbackFloor(t, impl.build) })
 			t.Run("PruneHistory", func(t *testing.T) { testCollectorPruneHistory(t, impl.build) })
 			t.Run("PruneSnapshotsIsANoOp", func(t *testing.T) { testCollectorPruneSnapshots(t, impl.build) })
+			t.Run("RetainingPruneHistory", func(t *testing.T) { testCollectorRetainingPruneHistory(t, impl.build) })
 		})
 	}
 }
@@ -137,6 +138,27 @@ func testCollectorPruneSnapshots(t *testing.T, build collectorBuilder) {
 	// does nothing. It is still called every cycle.
 	require.NoError(t, db.PruneSnapshots(uint64(batches[1].first)))
 	require.Equal(t, uint64(0), uint64(db.First()), "a snapshot prune must not move the history floor")
+}
+
+func testCollectorRetainingPruneHistory(t *testing.T, build collectorBuilder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db := build(t)
+	defer func() { _ = db.Close() }()
+
+	writeAll(t, db, batches)
+	writeAppData(t, db, utils.TestRng(), keys, batches)
+	head := uint64(batches[len(batches)-1].next - 1)
+	cut := uint64(batches[2].first)
+
+	require.NoError(t, db.Retaining(head).PruneHistory(cut))
+	require.Equal(t, uint64(0), uint64(db.First()), "a store within its retention keeps every block")
+
+	require.NoError(t, db.Retaining(head-uint64(batches[1].first)).PruneHistory(cut))
+	require.Equal(t, batches[1].first, db.First(), "the retention lowers the collector's cut line")
+
+	require.NoError(t, db.Retaining(0).PruneHistory(cut))
+	require.Equal(t, batches[2].first, db.First(), "a retention of 0 prunes where the collector asks")
 }
 
 func gatherPruneWatermark(t *testing.T) int64 {
