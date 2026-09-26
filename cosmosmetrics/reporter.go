@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -77,6 +78,8 @@ type Keepers struct {
 	Slashing     SlashingKeeper
 	Distribution DistributionKeeper
 	Bank         BankKeeper
+	// EVM may be nil when no ERC-20 tokens are configured.
+	EVM EVMKeeper
 }
 
 // QueryContextFunc returns a read-only context over the latest committed state.
@@ -90,6 +93,10 @@ type Reporter struct {
 	queryCtx QueryContextFunc
 	wallets  []sdk.AccAddress
 	scale    float64
+
+	erc20Tokens []common.Address
+	// erc20Metadata is only touched by the refresh goroutine.
+	erc20Metadata map[common.Address]erc20Token
 
 	snapshot atomic.Pointer[[]sample]
 
@@ -115,14 +122,23 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc) (*Repor
 		}
 		wallets = append(wallets, acc)
 	}
+	tokens, err := parseERC20Tokens(cfg.ERC20Tokens)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokens) > 0 && keepers.EVM == nil {
+		return nil, fmt.Errorf("%s: set but no EVM keeper", flagERC20Tokens)
+	}
 	return &Reporter{
-		cfg:       cfg,
-		keepers:   keepers,
-		queryCtx:  queryCtx,
-		wallets:   wallets,
-		scale:     math.Pow10(int(cfg.DenomExponent)),
-		transfers: newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
-		stop:      func() {},
+		cfg:           cfg,
+		keepers:       keepers,
+		queryCtx:      queryCtx,
+		wallets:       wallets,
+		scale:         math.Pow10(int(cfg.DenomExponent)),
+		erc20Tokens:   tokens,
+		erc20Metadata: make(map[common.Address]erc20Token, len(tokens)),
+		transfers:     newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
+		stop:          func() {},
 	}, nil
 }
 
@@ -204,6 +220,7 @@ func (r *Reporter) read() (samples []sample, ok bool) {
 	r.readGeneral(ctx, b, bondDenom)
 	r.readValidators(ctx, b, bondDenom)
 	r.readWallets(ctx, b, bondDenom)
+	r.readERC20Balances(ctx, b)
 	for _, err := range b.errs {
 		logger.Error("cosmos metrics: metric skipped", "err", err)
 	}
