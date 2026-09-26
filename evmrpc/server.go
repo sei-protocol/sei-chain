@@ -87,7 +87,15 @@ func NewEVMHTTPServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
-	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	// NewHTTPServer sanitizes the timeouts it was handed, so this is the write timeout
+	// the listener actually enforces rather than the one config asked for.
+	writeTimeout := httpServer.timeouts.WriteTimeout
+	methodTimeout := tmutils.Some(writeTimeout)
+	deadlineCfg, err := config.DeadlineEnforcerConfig()
+	if err != nil {
+		return nil, err
+	}
+	InitGlobalDeadlineEnforcer(ratelimiter.NewDeadlineEnforcer(deadlineCfg))
 	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
@@ -269,7 +277,13 @@ func NewEVMWebSocketServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
-	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	writeTimeout := httpServer.timeouts.WriteTimeout
+	methodTimeout := tmutils.Some(writeTimeout)
+	deadlineCfg, err := config.DeadlineEnforcerConfig()
+	if err != nil {
+		return nil, err
+	}
+	InitGlobalDeadlineEnforcer(ratelimiter.NewDeadlineEnforcer(deadlineCfg))
 	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err

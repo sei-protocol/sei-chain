@@ -65,6 +65,8 @@ type opts struct {
 	traceBakeTracers             interface{}
 	maxStateOverrideAccounts     interface{}
 	maxStateOverrideSlots        interface{}
+	rpcDefaultTimeout            interface{}
+	rpcMethodTimeouts            interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -238,6 +240,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_state_override_slots" {
 		return o.maxStateOverrideSlots
 	}
+	if k == "evm.rpc_default_timeout" {
+		return o.rpcDefaultTimeout
+	}
+	if k == "evm.rpc_method_timeouts" {
+		return o.rpcMethodTimeouts
+	}
 	panic("unknown key")
 }
 
@@ -297,6 +305,8 @@ func getDefaultOpts() opts {
 		nil,
 		7,
 		9,
+		30 * time.Second,
+		[]string{"eth_estimateGasAfterCalls=5m"},
 	}
 }
 
@@ -609,6 +619,121 @@ func TestReadConfigMaxOpenConnections(t *testing.T) {
 	o.maxOpenConnections = -1
 	_, err = config.ReadConfig(&o)
 	require.Error(t, err)
+}
+
+func TestReadConfigDeadlineEnforcer(t *testing.T) {
+	// Defaults flow through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.RPCDefaultTimeout, cfg.RPCDefaultTimeout)
+	require.Equal(t, config.DefaultConfig.RPCMethodTimeouts, cfg.RPCMethodTimeouts)
+
+	o := getDefaultOpts()
+	o.rpcDefaultTimeout = 10 * time.Second
+	o.rpcMethodTimeouts = []string{"eth_call=1m"}
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 10*time.Second, cfg.RPCDefaultTimeout)
+	require.Equal(t, []string{"eth_call=1m"}, cfg.RPCMethodTimeouts)
+
+	methodTimeouts, prefixTimeouts, err := config.ParseMethodTimeouts(cfg.RPCMethodTimeouts)
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, methodTimeouts["eth_call"])
+	require.Empty(t, prefixTimeouts)
+
+	deadlineCfg, err := cfg.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	require.Equal(t, 10*time.Second, deadlineCfg.Default)
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_call"])
+
+	badOpts := o
+	badOpts.rpcDefaultTimeout = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.Error(t, err)
+
+	badOpts = o
+	badOpts.rpcMethodTimeouts = []string{"not-formatted-as-method-and-duration"}
+	_, err = config.ReadConfig(&badOpts)
+	require.Error(t, err)
+
+	badOpts = o
+	badOpts.rpcMethodTimeouts = []string{"eth_call=not-a-duration"}
+	_, err = config.ReadConfig(&badOpts)
+	require.Error(t, err)
+
+	badOpts = o
+	badOpts.rpcDefaultTimeout = -time.Second
+	_, err = config.ReadConfig(&badOpts)
+	require.ErrorContains(t, err, "evm.rpc_default_timeout must be >= 0")
+
+	badOpts = o
+	badOpts.rpcMethodTimeouts = []string{"eth_call=-1s"}
+	_, err = config.ReadConfig(&badOpts)
+	require.ErrorContains(t, err, `"eth_call=-1s" duration must be >= 0`)
+
+	zeroOpts := o
+	zeroOpts.rpcDefaultTimeout = time.Duration(0)
+	zeroOpts.rpcMethodTimeouts = []string{"eth_call=0"}
+	_, err = config.ReadConfig(&zeroOpts)
+	require.NoError(t, err)
+}
+
+func TestParseMethodTimeoutsWildcard(t *testing.T) {
+	exact, prefixes, err := config.ParseMethodTimeouts([]string{"eth_call=1m", "debug_trace*=0"})
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, exact["eth_call"])
+	require.NotContains(t, exact, "debug_trace*")
+	require.Contains(t, prefixes, "debug_trace")
+	require.Zero(t, prefixes["debug_trace"])
+
+	_, _, err = config.ParseMethodTimeouts([]string{"*=0"})
+	require.Error(t, err, "a wildcard with an empty prefix is rejected")
+
+	_, _, err = config.ParseMethodTimeouts([]string{"debug_*trace*=0"})
+	require.Error(t, err, "more than one \"*\" is rejected")
+
+	_, _, err = config.ParseMethodTimeouts([]string{"debug_*trace=0"})
+	require.Error(t, err, "\"*\" only supported as a trailing wildcard")
+}
+
+func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+
+	deadlineCfg, err := cfg.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_call"])
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_estimateGas"])
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
+	require.Equal(t, 5*time.Minute, deadlineCfg.Overrides["eth_estimateGasAfterCalls"])
+
+	// Methods that already carry their own deadline remain exempt even though
+	// the operator-provided list replaces RPCMethodTimeouts.
+	cfg.RPCMethodTimeouts = []string{"eth_call=90s"}
+	deadlineCfg, err = cfg.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	require.Equal(t, 90*time.Second, deadlineCfg.Overrides["eth_call"])
+	require.Contains(t, deadlineCfg.Overrides, "eth_sendRawTransaction")
+	require.Zero(t, deadlineCfg.Overrides["eth_sendRawTransaction"])
+	require.Contains(t, deadlineCfg.Overrides, "eth_sendTransaction")
+	require.Zero(t, deadlineCfg.Overrides["eth_sendTransaction"])
+	require.Contains(t, deadlineCfg.Overrides, "eth_getTransactionCount")
+	require.Zero(t, deadlineCfg.Overrides["eth_getTransactionCount"])
+	require.Contains(t, deadlineCfg.PrefixOverrides, "debug_trace")
+	require.Zero(t, deadlineCfg.PrefixOverrides["debug_trace"])
+
+	// Simulation dispatch deadlines track the handler's configured timeout,
+	// while an explicit per-method override still takes precedence.
+	cfg.SimulationEVMTimeout = 2 * time.Minute
+	deadlineCfg, err = cfg.DeadlineEnforcerConfig()
+	require.NoError(t, err)
+	require.Equal(t, 90*time.Second, deadlineCfg.Overrides["eth_call"])
+	require.Equal(t, 2*time.Minute, deadlineCfg.Overrides["eth_estimateGas"])
+	require.Equal(t, 2*time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
+
+	cfg.RPCDefaultTimeout = -time.Second
+	_, err = cfg.DeadlineEnforcerConfig()
+	require.ErrorContains(t, err, "evm.rpc_default_timeout must be >= 0")
 }
 
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {

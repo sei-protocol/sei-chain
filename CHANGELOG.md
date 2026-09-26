@@ -51,6 +51,7 @@ sei-chain
 * [#4302](https://github.com/sei-protocol/sei-chain/pull/4302) Remove dead oracle CLI, REST, wasm query and precompile keeper surfaces
 * [#4301](https://github.com/sei-protocol/sei-chain/pull/4301) use new hash algorithm for benchmarks
 * [#4300](https://github.com/sei-protocol/sei-chain/pull/4300) Use Pebble batch directly in SS
+* [#4299](https://github.com/sei-protocol/sei-chain/pull/4299) Apply per-method deadlines to EVM JSON-RPC over HTTP and WebSocket
 * [#4298](https://github.com/sei-protocol/sei-chain/pull/4298) Report cosmos exporter metrics from within seid
 * [#4293](https://github.com/sei-protocol/sei-chain/pull/4293) Update v6.7 changelog in prep to cut rc2
 * [#4291](https://github.com/sei-protocol/sei-chain/pull/4291) fix(memiavl): hold a snapshot reference for an iterator's lifetime

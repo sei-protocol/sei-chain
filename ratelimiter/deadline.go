@@ -2,6 +2,8 @@ package ratelimiter
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -10,29 +12,25 @@ import (
 
 // DeadlineConfig configures a DeadlineEnforcer.
 type DeadlineConfig struct {
-	// Default is the deadline applied to a method with no entry in Overrides.
-	// Zero means no deadline is applied by default.
+	// Default is the deadline applied to a method with no entry in Overrides
+	// or matching entry in PrefixOverrides. Zero means no deadline is applied
+	// by default.
 	Default time.Duration
 	// Overrides maps a method name to its own deadline, taking precedence over
-	// Default. A zero entry marks that method as deliberately unbounded (for
-	// example a long-poll subscription), overriding Default for it.
+	// PrefixOverrides and Default. A zero entry marks that method as
+	// deliberately unbounded (for example a long-poll subscription),
+	// overriding Default for it.
 	Overrides map[string]time.Duration
-	// Ceiling caps every positive resolved deadline, from Default or
-	// Overrides, to at most this duration. Zero means no ceiling. It never
-	// turns a zero (unbounded) resolved deadline into a positive one.
-	//
-	// This is what makes one method behave the same way on every transport: a
-	// method whose own configured timeout differs by transport (for example
-	// eth_call, which today gets an accidental ~30s ceiling on HTTP from
-	// WriteTimeout but a genuine 60s on WS from SimulationEVMTimeout) gets a
-	// single effective deadline once its configured value is routed through
-	// Overrides and clamped by the same Ceiling on both transports.
-	Ceiling time.Duration
+	// PrefixOverrides maps a method-name prefix to its own deadline, applied
+	// to any method that starts with that prefix and has no exact entry in
+	// Overrides. When more than one prefix matches, the longest prefix wins.
+	// A zero entry marks every method under that prefix as deliberately
+	// unbounded (for example debug_trace*, whose methods already carry their
+	// own TraceTimeout).
+	PrefixOverrides map[string]time.Duration
 }
 
-// DeadlineEnforcer resolves and applies a request deadline for RPC methods that
-// have no existing Sei-specific timeout, and clamps configured method deadlines
-// to a shared ceiling so the same method behaves the same way across transports.
+// DeadlineEnforcer resolves and applies configured request deadlines for RPC methods.
 type DeadlineEnforcer struct {
 	cfg DeadlineConfig
 }
@@ -43,18 +41,34 @@ func NewDeadlineEnforcer(cfg DeadlineConfig) *DeadlineEnforcer {
 	return &DeadlineEnforcer{cfg: cfg}
 }
 
-// Deadline returns the effective deadline for method: its entry in Overrides if
-// present, else Default, clamped to Ceiling when both the resolved deadline and
-// Ceiling are positive. Zero means no deadline should be applied.
+// Deadline returns the exact-match override for method when present, else the
+// longest matching PrefixOverrides entry, else Default. Zero means no deadline
+// should be applied.
 func (e *DeadlineEnforcer) Deadline(method string) time.Duration {
-	d := e.cfg.Default
 	if override, ok := e.cfg.Overrides[method]; ok {
-		d = override
+		return override
 	}
-	if d > 0 && e.cfg.Ceiling > 0 && d > e.cfg.Ceiling {
-		d = e.cfg.Ceiling
+	if d, ok := longestPrefixMatch(e.cfg.PrefixOverrides, method); ok {
+		return d
 	}
-	return d
+	return e.cfg.Default
+}
+
+// longestPrefixMatch returns the value of the longest key in prefixes that is
+// a prefix of method, so a more specific prefix (e.g. debug_traceCall*) takes
+// precedence over a broader one (e.g. debug_trace*) configured alongside it.
+func longestPrefixMatch(prefixes map[string]time.Duration, method string) (time.Duration, bool) {
+	bestLen := -1
+	var best time.Duration
+	found := false
+	for prefix, d := range prefixes {
+		if len(prefix) > bestLen && strings.HasPrefix(method, prefix) {
+			bestLen = len(prefix)
+			best = d
+			found = true
+		}
+	}
+	return best, found
 }
 
 // WithDeadline returns a context bounded by the effective deadline for method,
@@ -73,6 +87,18 @@ func (e *DeadlineEnforcer) WithDeadline(ctx context.Context, method string) (con
 		return context.WithCancel(ctx)
 	}
 	return context.WithDeadline(ctx, deadline)
+}
+
+// WithDeadlineAndRecord returns a context bounded by the effective deadline for
+// method and a cleanup function that records when the deadline was exceeded.
+func (e *DeadlineEnforcer) WithDeadlineAndRecord(ctx context.Context, plane, method string) (context.Context, context.CancelFunc) {
+	deadlineCtx, cancel := e.WithDeadline(ctx, method)
+	return deadlineCtx, func() {
+		if errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
+			e.RecordExceeded(deadlineCtx, plane, method)
+		}
+		cancel()
+	}
 }
 
 // RecordExceeded increments rpc_deadline_exceeded_total{plane, method_namespace}.

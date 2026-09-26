@@ -317,6 +317,20 @@ type Config struct {
 	// (HTTP and WS each get their own budget). Excess connections block in the
 	// accept queue until an active connection closes. Zero disables the limit.
 	MaxOpenConnections int `mapstructure:"max_open_connections"`
+
+	// RPCDefaultTimeout is the deadline applied to an RPC method (HTTP and WS)
+	// that has no existing Sei-specific timeout, such as eth_getBalance or
+	// eth_getBlockByNumber. Zero disables the default (no deadline applied).
+	RPCDefaultTimeout time.Duration `mapstructure:"rpc_default_timeout"`
+
+	// RPCMethodTimeouts overrides RPCDefaultTimeout for individual RPC methods
+	// (both HTTP and WS), taking precedence over it. A method with no matching
+	// entry here falls back to RPCDefaultTimeout. Each entry is a
+	// "method=duration" string (for example "eth_call=60s"). A method name
+	// ending in "*" (for example "debug_trace*=0") matches every method with
+	// that prefix instead of one exact name; the longest matching prefix wins
+	// when more than one could apply.
+	RPCMethodTimeouts []string `mapstructure:"rpc_method_timeouts"`
 }
 
 const defaultBatchRequestLimit = 1000
@@ -385,6 +399,10 @@ var DefaultConfig = Config{
 	WSAdmissionTimeout:        30 * time.Second,  // matches go-ethereum rpc defaultWSAdmissionTimeout
 	MaxOpenConnections:        2000,
 	BodyReadIdleTimeout:       10 * time.Second,
+	RPCDefaultTimeout:         30 * time.Second,
+	RPCMethodTimeouts: []string{
+		"eth_estimateGasAfterCalls=5m",
+	},
 }
 
 const (
@@ -447,6 +465,8 @@ const (
 	flagWSAdmissionTimeout           = "evm.ws_admission_timeout"
 	flagMaxOpenConnections           = "evm.max_open_connections"
 	flagBodyReadIdleTimeout          = "evm.body_read_idle_timeout"
+	flagRPCDefaultTimeout            = "evm.rpc_default_timeout"
+	flagRPCMethodTimeouts            = "evm.rpc_method_timeouts"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -768,6 +788,19 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the idle guard), got %s", flagBodyReadIdleTimeout, cfg.BodyReadIdleTimeout)
 		}
 	}
+	if v := opts.Get(flagRPCDefaultTimeout); v != nil {
+		if cfg.RPCDefaultTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagRPCMethodTimeouts); v != nil {
+		if cfg.RPCMethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if _, err = cfg.DeadlineEnforcerConfig(); err != nil {
+		return cfg, err
+	}
 	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
 		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
 		return cfg, fmt.Errorf(
@@ -799,6 +832,42 @@ func normalizeNativeTracerNames(flagName string, names []string) ([]string, erro
 	return out, nil
 }
 
+// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries (for
+// example "eth_call=60s") into an exact-match map and a prefix-match map. An
+// entry whose method name ends in "*" (for example "debug_trace*=0") matches
+// every method starting with the text before "*", instead of one exact name,
+// and is returned in prefixes rather than exact. Returns an error naming the
+// malformed entry.
+func ParseMethodTimeouts(entries []string) (exact map[string]time.Duration, prefixes map[string]time.Duration, err error) {
+	exact = make(map[string]time.Duration, len(entries))
+	prefixes = make(map[string]time.Duration)
+	for _, entry := range entries {
+		method, raw, ok := strings.Cut(entry, "=")
+		if !ok || method == "" {
+			return nil, nil, fmt.Errorf("%q must be formatted as method=duration, for example eth_estimateGasAfterCalls=5m", entry)
+		}
+		d, err := cast.ToDurationE(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%q: %w", entry, err)
+		}
+		if d < 0 {
+			return nil, nil, fmt.Errorf("%q duration must be >= 0 (0 disables the method deadline), got %s", entry, d)
+		}
+		if prefix, isWildcard := strings.CutSuffix(method, "*"); isWildcard {
+			if prefix == "" || strings.Contains(prefix, "*") {
+				return nil, nil, fmt.Errorf("%q: wildcard entry must have a single non-empty prefix before a trailing \"*\", for example debug_trace*", entry)
+			}
+			prefixes[prefix] = d
+			continue
+		}
+		if strings.Contains(method, "*") {
+			return nil, nil, fmt.Errorf("%q: \"*\" is only supported as a trailing wildcard, for example debug_trace*", entry)
+		}
+		exact[method] = d
+	}
+	return exact, prefixes, nil
+}
+
 // RateLimiterConfig builds the ratelimiter.Config used by EVM JSON-RPC admission.
 func (c Config) RateLimiterConfig() ratelimiter.Config {
 	return ratelimiter.Config{
@@ -806,6 +875,52 @@ func (c Config) RateLimiterConfig() ratelimiter.Config {
 		Burst:             c.IPRateLimitBurst,
 		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
 	}
+}
+
+// DeadlineEnforcerConfig builds the ratelimiter.DeadlineConfig used by every
+// method dispatched through the EVM JSON-RPC server (see evmrpc.withDeadline,
+// wired via rpc.Server.SetDeadlineHook), including methods that already carry
+// their own deadline applied inside the handler: eth_sendRawTransaction,
+// eth_sendTransaction, eth_getTransactionCount (methodTimeout) and debug_trace*
+// (TraceTimeout).
+func (c Config) DeadlineEnforcerConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.RPCDefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s must be >= 0 (0 disables the default deadline), got %s", flagRPCDefaultTimeout, c.RPCDefaultTimeout)
+	}
+	configuredExact, configuredPrefixes, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", flagRPCMethodTimeouts, err)
+	}
+
+	// Simulation handlers already use SimulationEVMTimeout internally. Keep
+	// the dispatch deadline aligned with that setting unless the operator
+	// explicitly overrides a method through RPCMethodTimeouts.
+	exact := map[string]time.Duration{
+		"eth_call":             c.SimulationEVMTimeout,
+		"eth_estimateGas":      c.SimulationEVMTimeout,
+		"eth_createAccessList": c.SimulationEVMTimeout,
+
+		// These handlers already apply methodTimeout themselves. Exempt them
+		// here so replacing RPCMethodTimeouts cannot silently shorten them.
+		"eth_sendRawTransaction":  0,
+		"eth_sendTransaction":     0,
+		"eth_getTransactionCount": 0,
+	}
+	prefixes := map[string]time.Duration{
+		// Trace handlers already apply TraceTimeout themselves.
+		"debug_trace": 0,
+	}
+	for method, timeout := range configuredExact {
+		exact[method] = timeout
+	}
+	for prefix, timeout := range configuredPrefixes {
+		prefixes[prefix] = timeout
+	}
+	return ratelimiter.DeadlineConfig{
+		Default:         c.RPCDefaultTimeout,
+		Overrides:       exact,
+		PrefixOverrides: prefixes,
+	}, nil
 }
 
 // ConfigTemplate defines the TOML configuration template for EVM RPC
@@ -1069,5 +1184,19 @@ body_read_idle_timeout = "{{ .EVM.BodyReadIdleTimeout }}"
 # max_open_connections caps the number of simultaneously accepted connections on
 # the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.
 max_open_connections = {{ .EVM.MaxOpenConnections }}
+
+# rpc_default_timeout is the deadline applied (on both HTTP and WebSocket) to an
+# RPC method with no entry in rpc_method_timeouts, such as eth_getBalance or
+# eth_getBlockByNumber. Set to 0 to disable. HTTP requests are also bounded by
+# write_timeout; raise it to permit a longer method timeout over HTTP.
+rpc_default_timeout = "{{ .EVM.RPCDefaultTimeout }}"
+
+# rpc_method_timeouts overrides rpc_default_timeout for individual RPC methods
+# (both HTTP and WebSocket). A method with no matching entry here falls back
+# to rpc_default_timeout. Each entry is "method=duration", e.g. "eth_call=60s".
+# A method name ending in "*" (e.g. "debug_trace*=0") matches every method
+# with that prefix; the longest matching prefix wins. A duration of 0 means no
+# deadline is applied by this mechanism.
+rpc_method_timeouts = [{{- range $i, $e := .EVM.RPCMethodTimeouts }}{{- if $i }}, {{ end }}"{{ $e }}"{{- end }}]
 
 `

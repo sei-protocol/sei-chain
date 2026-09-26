@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -66,8 +67,9 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 }
 
 // GetReceiptWithRetry attempts to get a receipt with retries to handle race conditions
-// where the receipt might not be immediately available after the transaction.
-func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
+// where the receipt might not be immediately available after the transaction. The wait
+// between retries aborts early once goCtx is done.
+func (k *Keeper) GetReceiptWithRetry(goCtx context.Context, ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		rcpt, err := k.GetReceipt(ctx, txHash)
@@ -81,7 +83,11 @@ func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRet
 		}
 
 		// Wait before retrying, with increasing delay, 200ms, 400ms, 600ms, etc.
-		time.Sleep(time.Millisecond * 200 * time.Duration(i+1))
+		select {
+		case <-goCtx.Done():
+			return nil, goCtx.Err()
+		case <-time.After(time.Millisecond * 200 * time.Duration(i+1)):
+		}
 		lastErr = err
 	}
 	return nil, lastErr
