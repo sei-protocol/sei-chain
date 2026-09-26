@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// Sends a consensus message to the peer whenever atomic watch is updated.
+// sendUpdates sends each new consensus message on the consensus stream.
 func sendUpdates[T interface {
 	comparable
 	types.ConsensusReq
@@ -37,6 +37,14 @@ func sendUpdates[T interface {
 		}
 		if err := stream.Send(ctx, types.ConsensusReqConv.Encode(last)); err != nil {
 			return fmt.Errorf("stream.Send(): %w", err)
+		}
+		switch any(last).(type) {
+		case *types.ConsensusReqPrepareVote:
+			Global.votesSentAt(votePrepare).Add(1)
+		case *types.ConsensusReqCommitVote:
+			Global.votesSentAt(voteCommit).Add(1)
+		case *types.FullTimeoutVote:
+			Global.votesSentAt(voteTimeout).Add(1)
 		}
 	}
 }
@@ -68,14 +76,17 @@ func (x *validatorService) serverConsensus(ctx context.Context, server rpc.Serve
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:
+				Global.votesReceivedAt(votePrepare).Add(1)
 				if err := x.state.PushPrepareVote(req.Signed); err != nil {
 					return fmt.Errorf("x.state.PushPrepareVote(): %w", err)
 				}
 			case *types.ConsensusReqCommitVote:
+				Global.votesReceivedAt(voteCommit).Add(1)
 				if err := x.state.PushCommitVote(req.Signed); err != nil {
 					return fmt.Errorf("x.state.PushCommitVote(): %w", err)
 				}
 			case *types.FullTimeoutVote:
+				Global.votesReceivedAt(voteTimeout).Add(1)
 				if err := x.state.PushTimeoutVote(req); err != nil {
 					return fmt.Errorf("x.state.PushTimeoutVote(): %w", err)
 				}

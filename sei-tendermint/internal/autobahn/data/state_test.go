@@ -9,6 +9,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -1326,4 +1328,62 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 	got, err := state.TryBlock(last)
 	require.NoError(t, err)
 	require.Equal(t, blocks2[last-gr2.First], got)
+}
+
+// gathered reads one series from the default registry. A missing label set is 0.
+func gathered(t *testing.T, name string, labels map[string]string) int64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, fam := range families {
+		if fam.GetName() != name {
+			continue
+		}
+		for _, m := range fam.GetMetric() {
+			got := map[string]string{}
+			for _, lp := range m.GetLabel() {
+				got[lp.GetName()] = lp.GetValue()
+			}
+			if len(got) != len(labels) {
+				continue
+			}
+			match := true
+			for k, v := range labels {
+				if got[k] != v {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+			if c := m.GetCounter(); c != nil {
+				return int64(c.GetValue())
+			}
+			return int64(m.GetGauge().GetValue())
+		}
+		return 0
+	}
+	return 0
+}
+
+func TestPushQC_RecordsNextBlockQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	store := newTestBlockStore(t, t.TempDir())
+	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+
+	state := newTestState(t, &Config{Registry: registry}, store)
+	gr1 := qc1.QC().GlobalRange()
+	require.Equal(t, int64(gr1.Next), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
+
+	qc2, _ := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
+	require.NoError(t, state.PushQC(ctx, qc2, nil))
+	gr2 := qc2.QC().GlobalRange()
+	require.Equal(t, int64(gr2.Next), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
+
+	require.NoError(t, state.PushQC(ctx, qc2, nil))
+	require.Equal(t, int64(gr2.Next), gathered(t, "tendermint_internal_autobahn_data_next_block", map[string]string{"stage": "qc"}))
 }

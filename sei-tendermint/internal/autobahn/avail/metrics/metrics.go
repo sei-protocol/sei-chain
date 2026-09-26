@@ -17,7 +17,7 @@ type metrics struct {
 	// Road index of the highest observed commitQC.
 	commitRoadIndex prometheus.GaugeIntVec
 
-	// Global block number of the highest observed commitQC.
+	// First global block number not covered by the highest observed CommitQC.
 	commitGlobalBlockNumber prometheus.GaugeIntVec
 
 	// Latency from proposal being constructed to commit being observed.
@@ -26,6 +26,16 @@ type metrics struct {
 	commitToCommitLatency prometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckets:"none"`
 	// Transactions included in locally produced lane blocks.
 	producedTxs prometheus.CounterIntVec
+	// Time a WaitForCapacity call spent blocked waiting for lane window.
+	laneCapacityWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 2, 22)"`
+	// Time a WaitForLaneQCs call spent blocked waiting for a new LaneQC.
+	laneQcWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 2, 22)"`
+	// Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.
+	inFlight prometheus.GaugeIntVec `metrics_labels:"wait"`
+	// LaneQCs formed by lane votes reaching quorum.
+	laneQcs prometheus.CounterIntVec
+	// Lane votes newly stored.
+	laneVotesIngested prometheus.CounterIntVec
 }
 
 type observed[T any] struct {
@@ -64,4 +74,30 @@ func ObserveCommitQC(qc *types.CommitQC) {
 // ObserveProducedTxs counts txs included in a successfully produced local lane block.
 func ObserveProducedTxs(n int) {
 	Global.producedTxsAt().Add(int64(n))
+}
+
+// Metrics are the avail instruments callers write directly.
+type Metrics struct {
+	CommitRoadIndex         *prometheus.GaugeInt
+	CommitGlobalBlockNumber *prometheus.GaugeInt
+	LaneCapacityWait        *prometheus.Histogram
+	LaneQCWait              *prometheus.Histogram
+	LaneCapacityInFlight    *prometheus.GaugeInt
+	LaneQCInFlight          *prometheus.GaugeInt
+	LaneQCs                 *prometheus.CounterInt
+	LaneVotesIngested       *prometheus.CounterInt
+}
+
+// Get returns the avail instruments.
+func Get() *Metrics {
+	return &Metrics{
+		CommitRoadIndex:         Global.commitRoadIndexAt(),
+		CommitGlobalBlockNumber: Global.commitGlobalBlockNumberAt(),
+		LaneCapacityWait:        Global.laneCapacityWaitLatencyAt(),
+		LaneQCWait:              Global.laneQcWaitLatencyAt(),
+		LaneCapacityInFlight:    Global.inFlightAt("lane_capacity"),
+		LaneQCInFlight:          Global.inFlightAt("lane_qc"),
+		LaneQCs:                 Global.laneQcsAt(),
+		LaneVotesIngested:       Global.laneVotesIngestedAt(),
+	}
 }

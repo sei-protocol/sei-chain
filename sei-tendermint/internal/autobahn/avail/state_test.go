@@ -900,7 +900,10 @@ func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	qc := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
 	require.Equal(t, epoch.FirstRoad(f.m), qc.Proposal().Index())
 
+	leader := f.ep.Committee().Leader(qc.Proposal().View()).ED25519().Address().String()
+	commits := gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader})
 	require.NoError(t, f.state.PushCommitQC(t.Context(), qc))
+	require.Equal(t, commits+1, gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader}))
 	require.Equal(t, epoch.FirstRoad(f.m)+1, nextRoad(f.state))
 }
 

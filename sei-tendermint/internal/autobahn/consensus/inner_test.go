@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -1113,7 +1114,6 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	ep0 := registry.MustEpoch(0)
 	qc := commitQCAtRoad(ep0, keys, epoch.LastRoad(0))
 	require.Equal(t, epoch.LastRoad(0), qc.Proposal().Index())
-
 	// Avail resolves the next-view epoch; pushSpec advances to it verbatim.
 	ep1, err := registry.EpochAt(epoch.FirstRoad(1))
 	require.NoError(t, err)
@@ -1121,4 +1121,28 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	got := s.innerRecv.Load()
 	require.Equal(t, types.EpochIndex(1), got.spec.Epoch.EpochIndex())
 	require.Equal(t, epoch.FirstRoad(1), got.View().Index)
+}
+
+func TestTimeoutPhase(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	view := types.View{Index: 0, Number: 0}
+	proposal := types.GenProposalForEpoch(rng, ep, view)
+	pqc := makePrepareQC(keys, proposal)
+
+	empty := inner{spec: types.ConsensusSpec{Epoch: ep}}
+	require.Equal(t, metrics.PhaseNoProposal, empty.timeoutPhase())
+
+	withVote := empty
+	withVote.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
+	require.Equal(t, metrics.PhaseNoPrepareQC, withVote.timeoutPhase())
+
+	withQC := empty
+	withQC.PrepareQC = utils.Some(pqc)
+	require.Equal(t, metrics.PhaseNoCommit, withQC.timeoutPhase())
+
+	inherited := empty
+	inherited.TimeoutQC = utils.Some(makeTimeoutQC(keys, view, utils.Some(pqc)))
+	require.Equal(t, metrics.PhaseNoProposal, inherited.timeoutPhase())
 }

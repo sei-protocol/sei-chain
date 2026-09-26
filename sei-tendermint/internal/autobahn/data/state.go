@@ -249,6 +249,7 @@ func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
 		return nil, fmt.Errorf("loadFromBlockStore: %w", err)
 	}
 	m := metrics.Get()
+	m.NextBlock.QC.Set(utils.Clamp[int64](inner.nextQC))
 	m.NextBlock.Receive.Set(utils.Clamp[int64](inner.nextBlock))
 	m.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 	m.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
@@ -423,6 +424,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 				inner.qcs[inner.nextQC] = qcEntry{qc: qc, epoch: ep}
 				inner.nextQC += 1
 			}
+			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextQC))
 			inner.advanceCommitRoad(s.cfg.Registry, qc.QC().Proposal().Index())
 			ctrl.Updated()
 		}

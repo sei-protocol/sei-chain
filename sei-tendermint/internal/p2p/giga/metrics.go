@@ -17,12 +17,25 @@ const (
 	resLaneProposal = "lane_proposal"
 )
 
+const (
+	votePrepare = "prepare"
+	voteCommit  = "commit"
+	voteTimeout = "timeout"
+	voteApp     = "app"
+	voteLane    = "lane"
+	qcApp       = "app_qc"
+)
+
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
 	// Client fetches by resource and reason, including ok.
 	fetch prometheus.CounterIntVec `metrics_labels:"resource,reason"`
 	// Server replies that did not return the requested object.
 	serve prometheus.CounterIntVec `metrics_labels:"resource,reason"`
+	// Votes/QCs sent on a giga stream, counted once per peer stream.
+	votesSent prometheus.CounterIntVec `metrics_labels:"type"`
+	// Votes/QCs decoded from a giga stream.
+	votesReceived prometheus.CounterIntVec `metrics_labels:"type"`
 }
 
 func recordFetch(ctx context.Context, resource, reason string) {
