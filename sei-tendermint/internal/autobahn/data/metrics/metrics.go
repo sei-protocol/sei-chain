@@ -9,9 +9,6 @@ const MetricsSubsystem = "internal_autobahn_data"
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
-	// Road index of the current Anchor.
-	anchorRoadIndex prometheus.GaugeIntVec
-
 	// latency of resource processing up from production to the given stage
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
 	// Next block to process in the given stage.
@@ -63,8 +60,7 @@ type Metrics struct {
 	TxLatency    stageMetrics[*prometheus.Histogram]
 	GasUsed      *prometheus.CounterInt
 	// TxSize has no finite buckets; it exports count and sum only.
-	TxSize     *prometheus.Histogram
-	AnchorRoad *prometheus.GaugeInt
+	TxSize *prometheus.Histogram
 }
 
 func Get() *Metrics {
@@ -74,6 +70,5 @@ func Get() *Metrics {
 		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
 		GasUsed:      Global.gasUsedAt(),
 		TxSize:       Global.txSizeAt(),
-		AnchorRoad:   Global.anchorRoadIndexAt(),
 	}
 }
