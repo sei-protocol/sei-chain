@@ -591,11 +591,10 @@ func (s *nativeStateDB) PointCache() *ethutils.PointCache {
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
-		journalLen:     len(s.journal),
-		refund:         s.refund,
-		logsLen:        len(s.logs),
-		journaledAddrs: map[common.Address]struct{}{},
-		err:            s.err,
+		journalLen: len(s.journal),
+		refund:     s.refund,
+		logsLen:    len(s.logs),
+		err:        s.err,
 	})
 	return id
 }
@@ -771,6 +770,9 @@ func (s *nativeStateDB) recordAccount(addr common.Address) {
 	snapshot := &s.snapshots[len(s.snapshots)-1]
 	if _, ok := snapshot.journaledAddrs[addr]; ok {
 		return
+	}
+	if snapshot.journaledAddrs == nil {
+		snapshot.journaledAddrs = make(map[common.Address]struct{})
 	}
 	snapshot.journaledAddrs[addr] = struct{}{}
 	s.journal = append(s.journal, nativeJournalEntry{

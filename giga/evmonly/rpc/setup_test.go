@@ -126,6 +126,20 @@ func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) 
 	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
 }
 
+// hashOnlyReceiptStore answers ErrBlockStatsNotSupported and ErrRangeQueryNotSupported on an
+// otherwise real store, so tests can exercise the by-hash recompute path pebble takes.
+type hashOnlyReceiptStore struct {
+	receipt.ReceiptStore
+}
+
+func (hashOnlyReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+}
+
+func (hashOnlyReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
+	return nil, receipt.ErrRangeQueryNotSupported
+}
+
 // stubIteratingReceiptStore overrides IterateReceipts on an otherwise real store, so tests can
 // exercise the iterator path without a real block-ordered backend.
 type stubIteratingReceiptStore struct {
