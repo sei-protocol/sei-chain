@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -18,7 +19,9 @@ func (s *CommitStore) OpenView() gigatypes.StateView {
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: OpenView: %v", err))
 	}
-	return &flatKVStateView{blockView: blockView}
+	v := &flatKVStateView{blockView: blockView}
+	v.closed = utils.MustClose(v, "flatkv state view")
+	return v
 }
 
 // Get returns the value for the given key within the specified module.

@@ -505,6 +505,8 @@ func TestInvalidTableName(t *testing.T) {
 	table, err = db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
+
+	require.NoError(t, db.Close())
 }
 
 // secondaryKeyBasicsTest runs against every table implementation registered in tableBuilders. It

@@ -857,10 +857,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 	}
 	require.Len(t, nodes, 1, "corrupt value should still be exported as raw bytes")
 	require.Equal(t, []byte{0xDE, 0xAD}, nodes[0].Value)
-	if exp.iter != nil {
-		_ = exp.iter.Close()
-		exp.iter = nil
-	}
+	require.NoError(t, exp.Close())
 }
 
 // TestExporterImporterNonEVMMiscRoundTrip drives non-EVM module data

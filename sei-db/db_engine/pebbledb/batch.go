@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -14,6 +16,9 @@ type pebbleBatch struct {
 	b                *pebble.Batch
 	operationMetrics *OperationMetrics
 	commitMetrics    *CommitMetrics
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleBatch]
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
@@ -22,11 +27,13 @@ var _ types.Batch = (*pebbleBatch)(nil)
 // Asking pebble for a sized batch instead replaces that buffer with a fresh allocation on every call,
 // which is why nothing here does.
 func (p *pebbleDB) NewBatch() types.Batch {
-	return &pebbleBatch{
+	pb := &pebbleBatch{
 		b:                p.db.NewBatch(),
 		operationMetrics: p.operationMetrics,
 		commitMetrics:    p.commitMetrics,
 	}
+	pb.closed = utils.MustClose(pb, "pebbledb batch")
+	return pb
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
@@ -75,5 +82,6 @@ func (pb *pebbleBatch) Reset() {
 }
 
 func (pb *pebbleBatch) Close() error {
+	pb.closed.Close(pb)
 	return pb.b.Close()
 }

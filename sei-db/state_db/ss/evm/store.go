@@ -13,6 +13,7 @@ import (
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -46,6 +47,9 @@ type EVMStateStore struct {
 	commitPhases *metrics.PhaseTimer
 
 	externalPruning bool
+
+	// Closed by Close().
+	closed utils.CloseMarker[EVMStateStore]
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -59,6 +63,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 		commitPhases:    metrics.NewPhaseTimer(otel.Meter("seidb_ss_evm"), "ss_evm_commit"),
 		externalPruning: ssConfig.ExternalPruning,
 	}
+	store.closed = utils.MustClose(store, "EVM state store")
 	if err := store.openDBs(); err != nil {
 		_ = store.Close()
 		return nil, err
@@ -557,6 +562,7 @@ func subDBPath(base string, storeType EVMStoreType) string {
 }
 
 func (s *EVMStateStore) Close() error {
+	s.closed.Close(s)
 	// A snapshot being published reads and stamps these databases, so it has to finish before they
 	// close rather than race the shutdown.
 	s.stopCheckpoints()

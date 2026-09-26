@@ -90,10 +90,15 @@ func (g *blockGatherer) run() {
 	}
 }
 
-// Drain the queue without hashing it, releasing each block's reservation.
+// Drain the queue without hashing it and stop the combiner.
 func (g *blockGatherer) teardown() {
 	defer close(g.combineJobChan)
+	g.discardQueued()
+}
 
+// discardQueued empties the queue without hashing it, releasing each block's reservation. It runs when
+// the gatherer stops, and from the engine's enqueue() for a message that reaches the queue after that.
+func (g *blockGatherer) discardQueued() {
 	for {
 		select {
 		case message := <-g.scheduledBlockChan:

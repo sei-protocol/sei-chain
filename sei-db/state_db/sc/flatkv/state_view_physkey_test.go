@@ -43,6 +43,10 @@ func (v *recordingView) Release() error {
 	panic("unexpected call")
 }
 
+func (v *recordingView) Abandon() {
+	panic("unexpected call")
+}
+
 func (v *recordingView) Finalize([]*proto.KVPair) error {
 	panic("unexpected call")
 }

@@ -246,6 +246,7 @@ func TestComposite_SetWriteModeRequiresAutoConfig(t *testing.T) {
 func TestComposite_SetWriteModeBeforeLoadVersion(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
 }
 
@@ -632,6 +633,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 func TestComposite_Auto_InitializeRejectsNonCanonicalStores(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.Error(t, cs.Initialize([]string{"not-a-canonical-store"}),
 		"Auto must enforce canonical store names since the mode may become mixed")
 }

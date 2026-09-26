@@ -36,6 +36,8 @@ func (s *stubView) Release() error {
 	return s.releaseErr
 }
 
+func (s *stubView) Abandon() {}
+
 func (s *stubView) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	panic("stubView: unexpected Get")
 }

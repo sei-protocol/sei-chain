@@ -4,6 +4,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -18,6 +19,9 @@ type pebbleIterator struct {
 	reverse          bool
 	operationMetrics *OperationMetrics
 	readCount        int64
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleIterator]
 }
 
 func newPebbleIterator(it *pebble.Iterator, opts *types.IterOptions, operationMetrics *OperationMetrics) *pebbleIterator {
@@ -35,6 +39,7 @@ func newPebbleIterator(it *pebble.Iterator, opts *types.IterOptions, operationMe
 	if pi.it.Valid() {
 		pi.readCount++
 	}
+	pi.closed = utils.MustClose(pi, "pebbledb iterator")
 	return pi
 }
 
@@ -73,6 +78,7 @@ func (pi *pebbleIterator) Error() error {
 }
 
 func (pi *pebbleIterator) Close() error {
+	pi.closed.Close(pi)
 	if pi.operationMetrics != nil {
 		pi.operationMetrics.AddRead(pi.readCount)
 	}
