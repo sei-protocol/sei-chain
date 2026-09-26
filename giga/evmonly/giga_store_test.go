@@ -107,6 +107,17 @@ func (s *memoryGigaSnapshot) GetCode(address gigatypes.Address) []byte {
 	return s.code[address]
 }
 
+func (s *memoryGigaSnapshot) ReadAccount(address gigatypes.Address) (gigatypes.Account, bool) {
+	if !s.AccountExists(address) {
+		return gigatypes.Account{}, false
+	}
+	return gigatypes.Account{
+		Balance:  s.balances[address],
+		Nonce:    s.nonces[address],
+		CodeHash: s.GetCodeHash(address),
+	}, true
+}
+
 func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
 	return s.height
 }
