@@ -10,6 +10,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -62,11 +63,45 @@ func TestChainIdEndToEnd(t *testing.T) {
 	require.Equal(t, *big.NewInt(713715), big.Int(got))
 }
 
+func TestSyncing(t *testing.T) {
+	api := &infoAPI{}
+	_, err := api.Syncing(t.Context())
+	var notSupported *evmrpc.ErrEVMNotSupported
+	require.ErrorAs(t, err, &notSupported)
+}
+
+func TestSyncingEndToEnd(t *testing.T) {
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore())
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var got any
+	err = client.CallContext(t.Context(), &got, "eth_syncing")
+	var rpcErr ethrpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, rpcErr.ErrorCode())
+	require.Contains(t, err.Error(), "eth_syncing")
+}
+
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return &testBackend{
 		gasLimit:    func() (uint64, error) { return gasLimit, nil },
 		minGasPrice: func() (*big.Int, error) { return big.NewInt(minGasPrice), nil },
 	}
+}
+
+type uncachedMedianBlockStatsStore struct {
+	receipt.ReceiptStore
+	stats receipt.BlockStats
+}
+
+func (s uncachedMedianBlockStatsStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+	return s.stats, nil
 }
 
 // emptyBlockBackend answers Block with a real, empty block for any height: the shape a height
@@ -173,6 +208,76 @@ func TestGasPriceFallsBackWhenTheMedianIsntStored(t *testing.T) {
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(1_100_000_000), price.ToInt())
+}
+
+func TestMaxPriorityFeePerGas(t *testing.T) {
+	tests := []struct {
+		name    string
+		records []receipt.ReceiptRecord
+		want    int64
+	}{
+		{
+			name: "not congested",
+			records: []receipt.ReceiptRecord{{
+				TxHash:  [32]byte{1},
+				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 800},
+				Reward:  big.NewInt(500),
+			}},
+			want: defaultPriorityFeePerGas,
+		},
+		{
+			name: "congested",
+			records: []receipt.ReceiptRecord{{
+				TxHash:  [32]byte{1},
+				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900},
+				Reward:  big.NewInt(500),
+			}},
+			want: 500,
+		},
+		{
+			name: "congested without reward data",
+			records: []receipt.ReceiptRecord{{
+				TxHash:  [32]byte{1},
+				Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900},
+			}},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := evmonly.NewMemoryReceiptStore()
+			require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), tt.records))
+			api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+
+			got, err := api.MaxPriorityFeePerGas(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, big.NewInt(tt.want), got.ToInt())
+		})
+	}
+}
+
+func TestMaxPriorityFeePerGasRecomputesUnstoredMedian(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash:  [32]byte{1},
+		Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900, EffectiveGasPrice: 500},
+		Reward:  big.NewInt(500),
+	}}))
+	api := &infoAPI{
+		backend: testInfoBackend(1000, 1),
+		store: uncachedMedianBlockStatsStore{
+			ReceiptStore: store,
+			stats: receipt.BlockStats{
+				TotalGasUsed:      900,
+				RewardPercentiles: []receipt.RewardPercentile{{Percentile: 25, Reward: 500}},
+			},
+		},
+	}
+
+	got, err := api.MaxPriorityFeePerGas(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(500), got.ToInt())
 }
 
 func TestFeeHistoryEmptyBlockCountReturnsEmptyResult(t *testing.T) {
