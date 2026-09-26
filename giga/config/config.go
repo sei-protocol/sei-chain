@@ -42,6 +42,9 @@ type StorageConfig struct {
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
 	LookbackWindow int64 `mapstructure:"lookback_window"`
+	// BlockRetention is the minimum number of blocks behind head the block store keeps, whatever
+	// rollback_window and lookback_window would prune; 0 adds nothing to them.
+	BlockRetention uint64 `mapstructure:"block_retention"`
 	// PruneInterval is how often the storage garbage collector runs.
 	PruneInterval time.Duration `mapstructure:"prune_interval"`
 	// CheckpointTimeInterval is the wall-clock gap between state-commit checkpoints.
@@ -84,6 +87,7 @@ func defaultStorageConfig() StorageConfig {
 		Receipts:                true,
 		RollbackWindow:          gc.RollbackWindow,
 		LookbackWindow:          gc.LookbackWindow,
+		BlockRetention:          seidbconfig.DefaultAutobahnBlockRetention,
 		PruneInterval:           gc.PruneInterval,
 		CheckpointTimeInterval:  cp.TimeInterval,
 		CheckpointBlockInterval: cp.BlockInterval,
@@ -96,6 +100,7 @@ const (
 	FlagStorageReceipts                = "giga.storage.receipts"
 	FlagStorageRollbackWindow          = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow          = "giga.storage.lookback_window"
+	FlagStorageBlockRetention          = "giga.storage.block_retention"
 	FlagStoragePruneInterval           = "giga.storage.prune_interval"
 	FlagStorageCheckpointTimeInterval  = "giga.storage.checkpoint_time_interval"
 	FlagStorageCheckpointBlockInterval = "giga.storage.checkpoint_block_interval"
@@ -127,6 +132,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageLookbackWindow); v != nil {
 		if cfg.Storage.LookbackWindow, err = cast.ToInt64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageLookbackWindow, err)
+		}
+	}
+	if v := opts.Get(FlagStorageBlockRetention); v != nil {
+		if cfg.Storage.BlockRetention, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageBlockRetention, err)
 		}
 	}
 	if v := opts.Get(FlagStoragePruneInterval); v != nil {
@@ -228,6 +238,10 @@ rollback_window = {{ .Giga.Storage.RollbackWindow }}
 # lookback_window is how many queryable blocks are kept below the rollback window.
 # -1 keeps all history.
 lookback_window = {{ .Giga.Storage.LookbackWindow }}
+
+# block_retention is the minimum number of blocks behind head the block store keeps,
+# whatever rollback_window and lookback_window would prune. 0 adds nothing to them.
+block_retention = {{ .Giga.Storage.BlockRetention }}
 
 # prune_interval is how often the storage garbage collector runs.
 prune_interval = "{{ .Giga.Storage.PruneInterval }}"
