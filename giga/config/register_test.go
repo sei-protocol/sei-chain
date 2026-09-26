@@ -21,6 +21,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagStorageReceipts,
 		FlagStorageRollbackWindow,
 		FlagStorageLookbackWindow,
+		FlagStorageBlockRetention,
 		FlagStoragePruneInterval,
 		FlagStorageCheckpointTimeInterval,
 		FlagStorageCheckpointBlockInterval,

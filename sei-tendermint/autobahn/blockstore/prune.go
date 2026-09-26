@@ -33,6 +33,34 @@ func (s *Store) PruneHistory(blockNumber uint64) error {
 	return s.PruneBefore(types.GlobalBlockNumber(blockNumber))
 }
 
+// RetainingStore is a block store whose history the collector never prunes closer than a fixed
+// number of blocks behind its head.
+type RetainingStore struct {
+	*Store
+	retention uint64
+}
+
+var _ controller.PrunableStore = RetainingStore{}
+
+// Retaining returns s as the collector prunes it when at least retention blocks behind the head
+// must stay readable. A retention of 0 prunes wherever the collector asks.
+func (s *Store) Retaining(retention uint64) RetainingStore {
+	return RetainingStore{Store: s, retention: retention}
+}
+
+// PruneHistory prunes below blockNumber, lowered so that at least retention blocks behind the head
+// are kept. It prunes nothing while the whole store is within the retention.
+func (s RetainingStore) PruneHistory(blockNumber uint64) error {
+	head, err := s.GetLatestBlock()
+	if err != nil {
+		return err
+	}
+	if head <= s.retention {
+		return nil
+	}
+	return s.Store.PruneHistory(min(blockNumber, head-s.retention))
+}
+
 // PruneSnapshots does nothing: the block store keeps no snapshots.
 func (s *Store) PruneSnapshots(uint64) error {
 	return nil

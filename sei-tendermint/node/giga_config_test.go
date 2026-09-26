@@ -35,6 +35,7 @@ func TestBuildGigaStorageConfigDefaultsMatchAutobahnStorageConfig(t *testing.T) 
 	require.Equal(t, want.SSConfig.Enable, got.SSConfig.Enable)
 	require.Equal(t, want.ReceiptDBConfig.Enable, got.ReceiptDBConfig.Enable)
 	require.Equal(t, want.PruningConfig, got.PruningConfig)
+	require.Equal(t, want.BlockRetention, got.BlockRetention)
 	require.Equal(t, want.CheckpointConfig, got.CheckpointConfig)
 }
 
@@ -44,6 +45,7 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 		Receipts:                true,
 		RollbackWindow:          42,
 		LookbackWindow:          7,
+		BlockRetention:          11,
 		PruneInterval:           time.Second,
 		CheckpointTimeInterval:  time.Minute,
 		CheckpointBlockInterval: 9,
@@ -54,6 +56,7 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	require.True(t, got.ReceiptDBConfig.Enable)
 	require.Equal(t, uint64(42), got.PruningConfig.RollbackWindow)
 	require.Equal(t, int64(7), got.PruningConfig.LookbackWindow)
+	require.Equal(t, uint64(11), got.BlockRetention)
 	require.Equal(t, time.Second, got.PruningConfig.PruneInterval)
 	require.Equal(t, time.Minute, got.CheckpointConfig.TimeInterval)
 	require.Equal(t, int64(9), got.CheckpointConfig.BlockInterval)

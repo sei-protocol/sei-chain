@@ -18,7 +18,13 @@ type GigaStorageConfig struct {
 	BlockDBConfig    *littblock.BlockDBConfig       // required
 	PruningConfig    *StorageGarbageCollectorConfig // required
 	CheckpointConfig CheckpointConfig
+	// BlockRetention is the minimum number of blocks behind its head the block store keeps,
+	// whatever PruningConfig would prune. 0 leaves the block store to PruningConfig alone.
+	BlockRetention uint64
 }
+
+// DefaultAutobahnBlockRetention is 12 hours of blocks at 100 blocks per second.
+const DefaultAutobahnBlockRetention uint64 = 12 * 60 * 60 * 100
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
 const gigaReceiptBackend = "littidx"
@@ -75,7 +81,7 @@ func (c *GigaStorageConfig) WithFullNodeMode() *GigaStorageConfig {
 }
 
 // AutobahnStorageConfig is the disk-backed Giga layout Autobahn opens: FlatKV,
-// receipts, and BlockDB. SS stays off.
+// receipts, and BlockDB. SS stays off, and BlockDB keeps DefaultAutobahnBlockRetention blocks.
 func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	storageConfig, err := DefaultGigaStorageConfig(homePath)
 	if err != nil {
@@ -83,6 +89,7 @@ func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	}
 	storageConfig.WithValidatorMode()
 	storageConfig.ReceiptDBConfig.Enable = true
+	storageConfig.BlockRetention = DefaultAutobahnBlockRetention
 	return storageConfig, nil
 }
 
