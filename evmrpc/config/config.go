@@ -330,6 +330,13 @@ type Config struct {
 	// ending in "*" (for example "debug_trace*=0") matches every method with
 	// that prefix instead of one exact name; the longest matching prefix wins
 	// when more than one could apply.
+	//
+	// A wildcard entry cannot change the timeout for eth_call,
+	// eth_estimateGas, eth_createAccessList, eth_sendRawTransaction,
+	// eth_sendTransaction, eth_getTransactionCount, or any debug_trace*
+	// method: each already has its own exact or prefix entry that takes
+	// precedence. To change one of these, name it exactly, for example
+	// "eth_call=1s".
 	RPCMethodTimeouts []string `mapstructure:"rpc_method_timeouts"`
 }
 
@@ -1197,6 +1204,11 @@ rpc_default_timeout = "{{ .EVM.RPCDefaultTimeout }}"
 # A method name ending in "*" (e.g. "debug_trace*=0") matches every method
 # with that prefix; the longest matching prefix wins. A duration of 0 means no
 # deadline is applied by this mechanism.
+#
+# A wildcard here cannot change the timeout for eth_call, eth_estimateGas,
+# eth_createAccessList, eth_sendRawTransaction, eth_sendTransaction,
+# eth_getTransactionCount, or debug_trace* methods - each already has its own
+# entry that wins. To change one of these, name it exactly, e.g. "eth_call=1s".
 rpc_method_timeouts = [{{- range $i, $e := .EVM.RPCMethodTimeouts }}{{- if $i }}, {{ end }}"{{ $e }}"{{- end }}]
 
 `
