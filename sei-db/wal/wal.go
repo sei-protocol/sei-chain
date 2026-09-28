@@ -399,6 +399,11 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 func (walLog *WAL[T]) handleTruncate(req *truncateRequest) {
 	var err error
 	if req.before {
+		// Entries below the first index are already gone, e.g. removed by pruning.
+		if first, ferr := walLog.log.FirstIndex(); ferr == nil && req.index < first {
+			req.errChan <- nil
+			return
+		}
 		err = walLog.log.TruncateFront(req.index)
 	} else {
 		err = walLog.log.TruncateBack(req.index)

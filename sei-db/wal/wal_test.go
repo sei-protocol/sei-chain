@@ -249,6 +249,12 @@ func TestTruncateBefore(t *testing.T) {
 	entry, err := changelog.ReadAt(2)
 	require.NoError(t, err)
 	require.Equal(t, []byte("hello1"), entry.Changesets[0].Changeset.Pairs[0].Key)
+
+	// Truncating below the current first index is a no-op.
+	require.NoError(t, changelog.TruncateBefore(1))
+	firstIndex, err = changelog.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), firstIndex)
 }
 
 func TestCloseSyncMode(t *testing.T) {
