@@ -1,13 +1,16 @@
 package cosmosmetrics
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"strings"
+	"unicode"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"go.opentelemetry.io/otel/attribute"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -23,6 +26,12 @@ type EVMKeeper interface {
 // to StaticCall by default. A configured token that loops burns this much and is skipped, not the
 // refresh.
 const erc20CallGasLimit uint64 = 300_000
+
+// erc20SymbolMaxLen bounds the symbol label; a contract controls the string it returns.
+const erc20SymbolMaxLen = 32
+
+// errERC20OutOfGas is returned by staticCall when the contract ran the call's gas out.
+var errERC20OutOfGas = errors.New("out of gas")
 
 // erc20ABI is the read-only ERC-20 surface the reporter calls.
 var erc20ABI = must(abi.JSON(strings.NewReader(`[
@@ -40,11 +49,17 @@ type erc20Token struct {
 
 func parseERC20Tokens(addrs []string) ([]common.Address, error) {
 	tokens := make([]common.Address, 0, len(addrs))
+	seen := make(map[common.Address]struct{}, len(addrs))
 	for _, a := range addrs {
 		if !common.IsHexAddress(a) {
 			return nil, fmt.Errorf("%s: %q: not a 0x address", flagERC20Tokens, a)
 		}
-		tokens = append(tokens, common.HexToAddress(a))
+		addr := common.HexToAddress(a)
+		if _, dup := seen[addr]; dup {
+			return nil, fmt.Errorf("%s: %q: listed more than once", flagERC20Tokens, a)
+		}
+		seen[addr] = struct{}{}
+		tokens = append(tokens, addr)
 	}
 	return tokens, nil
 }
@@ -80,6 +95,10 @@ func (r *Reporter) readERC20Balances(ctx sdk.Context, b *builder) {
 			if err != nil {
 				b.errs = append(b.errs, fmt.Errorf("wallet %s: erc20 %s balanceOf: %w", acc, addr, err))
 				b.gauge(cosmosMetrics.walletERC20ReadOK, 0, identity...)
+				if errors.Is(err, errERC20OutOfGas) {
+					// A balanceOf that loops for one wallet loops for all of them; do not pay for it again this refresh.
+					delete(tokens, addr)
+				}
 				continue
 			}
 			b.gauge(cosmosMetrics.walletERC20ReadOK, 1, identity...)
@@ -101,22 +120,11 @@ func (r *Reporter) erc20BalanceOf(ctx sdk.Context, acc sdk.AccAddress, token, ev
 	return amount, nil
 }
 
-// erc20Token returns a token's symbol and decimals, read from the contract the first time they are
-// needed and then fixed for the life of the reporter so the balance series' labels never change
-// underneath the alerts keyed on them.
+// erc20Token returns a token's symbol and scale. The scale is read from the contract on every
+// refresh so a token that changes its decimals is reported in its current units. The symbol is a
+// series label, so it is read once and then fixed for the life of the reporter and the series'
+// identity never changes underneath the alerts keyed on it.
 func (r *Reporter) erc20Token(ctx sdk.Context, addr common.Address) (erc20Token, error) {
-	if token, ok := r.erc20Metadata[addr]; ok {
-		return token, nil
-	}
-	token, err := r.readERC20Token(ctx, addr)
-	if err != nil {
-		return erc20Token{}, err
-	}
-	r.erc20Metadata[addr] = token
-	return token, nil
-}
-
-func (r *Reporter) readERC20Token(ctx sdk.Context, addr common.Address) (erc20Token, error) {
 	from := r.wallets[0]
 	decimals, err := r.erc20Call(ctx, from, addr, "decimals")
 	if err != nil {
@@ -126,7 +134,12 @@ func (r *Reporter) readERC20Token(ctx sdk.Context, addr common.Address) (erc20To
 	if !ok {
 		return erc20Token{}, fmt.Errorf("decimals: unexpected return %T", decimals[0])
 	}
-	return erc20Token{address: addr, symbol: r.readERC20Symbol(ctx, from, addr), scale: math.Pow10(int(dec))}, nil
+	symbol, ok := r.erc20Symbols[addr]
+	if !ok {
+		symbol = r.readERC20Symbol(ctx, from, addr)
+		r.erc20Symbols[addr] = symbol
+	}
+	return erc20Token{address: addr, symbol: symbol, scale: math.Pow10(int(dec))}, nil
 }
 
 // readERC20Symbol returns the token's symbol, or "" when the contract has no symbol() or returns
@@ -141,7 +154,25 @@ func (r *Reporter) readERC20Symbol(ctx sdk.Context, from sdk.AccAddress, addr co
 	if !ok {
 		return ""
 	}
-	return sym
+	return sanitizeERC20Symbol(sym)
+}
+
+// sanitizeERC20Symbol keeps the printable, non-space characters of a contract-supplied symbol,
+// at most erc20SymbolMaxLen of them.
+func sanitizeERC20Symbol(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, c := range s {
+		if !unicode.IsPrint(c) || unicode.IsSpace(c) {
+			continue
+		}
+		if n == erc20SymbolMaxLen {
+			break
+		}
+		b.WriteRune(c)
+		n++
+	}
+	return b.String()
 }
 
 func (r *Reporter) erc20Call(ctx sdk.Context, from sdk.AccAddress, to common.Address, method string, args ...interface{}) ([]interface{}, error) {
@@ -163,14 +194,23 @@ func (r *Reporter) erc20Call(ctx sdk.Context, from sdk.AccAddress, to common.Add
 	return out, nil
 }
 
-// staticCall runs one EVM static call under a finite gas meter. The EVM reports running out of gas
-// as an error, and the Sei gas meter reports it by panicking; both surface as the returned error.
+// staticCall runs one EVM static call under a finite gas meter. Running out of gas, whether the EVM
+// reports it as an error or the Sei gas meter reports it by panicking, is returned as
+// errERC20OutOfGas; any other panic is returned as an error too.
 func (r *Reporter) staticCall(ctx sdk.Context, from sdk.AccAddress, to common.Address, data []byte) (ret []byte, err error) {
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, erc20CallGasLimit))
 	defer func() {
-		if p := recover(); p != nil {
+		switch p := recover().(type) {
+		case nil:
+		case sdk.ErrorOutOfGas:
+			ret, err = nil, fmt.Errorf("%w: %s", errERC20OutOfGas, p.Descriptor)
+		default:
 			ret, err = nil, fmt.Errorf("static call panicked: %v", p)
 		}
 	}()
-	return r.keepers.EVM.StaticCallEVM(ctx, from, &to, data)
+	ret, err = r.keepers.EVM.StaticCallEVM(ctx, from, &to, data)
+	if errors.Is(err, vm.ErrOutOfGas) {
+		err = fmt.Errorf("%w: %v", errERC20OutOfGas, err)
+	}
+	return ret, err
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,12 @@ type fakeEVM struct {
 	balances   map[common.Address]*big.Int
 	symbol     *string
 	symbolRaw  []byte
+	decimals   *uint8
 	gasLimits  *[]uint64
+	// calls records "<method>@<token>" for every static call.
+	calls *[]string
+	// loopBalanceOf makes testLoopToken answer decimals and symbol but loop in balanceOf.
+	loopBalanceOf bool
 }
 
 func (f fakeEVM) GetEVMAddressOrDefault(_ sdk.Context, addr sdk.AccAddress) common.Address {
@@ -48,18 +54,24 @@ func (f fakeEVM) StaticCallEVM(ctx sdk.Context, _ sdk.AccAddress, to *common.Add
 	if f.gasLimits != nil {
 		*f.gasLimits = append(*f.gasLimits, ctx.GasMeter().Limit())
 	}
-	if *to == testLoopToken {
-		ctx.GasMeter().ConsumeGas(ctx.GasMeter().Limit()+1, "loop")
-	}
-	if *to != testToken {
-		return nil, errors.New("execution reverted")
-	}
 	method, err := erc20ABI.MethodById(data[:4])
 	if err != nil {
 		return nil, err
 	}
+	if f.calls != nil {
+		*f.calls = append(*f.calls, method.Name+"@"+to.Hex())
+	}
+	if *to == testLoopToken && (!f.loopBalanceOf || method.Name == "balanceOf") {
+		ctx.GasMeter().ConsumeGas(ctx.GasMeter().Limit()+1, "loop")
+	}
+	if *to != testToken && !(*to == testLoopToken && f.loopBalanceOf) {
+		return nil, errors.New("execution reverted")
+	}
 	switch method.Name {
 	case "decimals":
+		if f.decimals != nil {
+			return method.Outputs.Pack(*f.decimals)
+		}
 		return method.Outputs.Pack(uint8(6))
 	case "symbol":
 		if f.symbolRaw != nil {
@@ -200,6 +212,60 @@ func TestReadBoundsEVMGasAndSkipsATokenThatExhaustsIt(t *testing.T) {
 	}
 }
 
+func TestReadCallsALoopingBalanceOfOncePerRefresh(t *testing.T) {
+	newTestReader(t)
+	var calls []string
+	evm := fakeEVM{balances: map[common.Address]*big.Int{}, calls: &calls, loopBalanceOf: true}
+	c, _, logs := newERC20Reporter(t, []string{testLoopToken.Hex(), testToken.Hex()}, evm)
+	c.refresh()
+	require.Contains(t, logs.String(), "erc20 "+testLoopToken.Hex()+" balanceOf: out of gas")
+	ok, reported := readOK(t, c)
+	require.Equal(t, []common.Address{testToken, testToken}, reported)
+	require.Equal(t, map[common.Address]float64{testLoopToken: 0, testToken: 1}, ok)
+	loops := 0
+	for _, call := range calls {
+		if call == "balanceOf@"+testLoopToken.Hex() {
+			loops++
+		}
+	}
+	require.Equal(t, 1, loops, "a balanceOf that runs out of gas must not be retried for the other wallets")
+}
+
+func TestReadFollowsATokenThatChangesItsDecimals(t *testing.T) {
+	newTestReader(t)
+	decimals := uint8(6)
+	wallets := testWallets()
+	evm := fakeEVM{balances: map[common.Address]*big.Int{common.BytesToAddress(wallets[0]): big.NewInt(5_000_000)}, decimals: &decimals}
+	c, _, _ := newERC20Reporter(t, []string{testToken.Hex()}, evm)
+	balance := func() float64 {
+		for _, s := range *c.snapshot.Load() {
+			if s.inst == cosmosMetrics.walletERC20Balance && observedAttr(t, s, "address") == wallets[0].String() {
+				return s.value
+			}
+		}
+		t.Fatal("no balance sample")
+		return 0
+	}
+	c.refresh()
+	require.Equal(t, 5.0, balance())
+	decimals = 3
+	c.refresh()
+	require.Equal(t, 5000.0, balance(), "the scale must follow the contract's decimals")
+}
+
+func TestReadBoundsAndSanitizesTheSymbol(t *testing.T) {
+	newTestReader(t)
+	symbol := "US\x00DC \n" + strings.Repeat("x", 40)
+	evm := fakeEVM{balances: map[common.Address]*big.Int{}, symbol: &symbol}
+	c, _, _ := newERC20Reporter(t, []string{testToken.Hex()}, evm)
+	c.refresh()
+	for _, s := range *c.snapshot.Load() {
+		if s.inst == cosmosMetrics.walletERC20Balance {
+			require.Equal(t, "USDC"+strings.Repeat("x", erc20SymbolMaxLen-4), observedAttr(t, s, "symbol"))
+		}
+	}
+}
+
 func TestReadKeepsTheSymbolItFirstRead(t *testing.T) {
 	newTestReader(t)
 	symbol := "USDC"
@@ -242,4 +308,8 @@ func TestNewReporterRequiresAnEVMKeeperForTokens(t *testing.T) {
 	cfg.ERC20Tokens = []string{"sei1notanevmaddress"}
 	_, err = NewReporter(cfg, Keepers{EVM: fakeEVM{}}, func() (sdk.Context, error) { return testQueryCtx(), nil })
 	require.ErrorContains(t, err, "not a 0x address")
+
+	cfg.ERC20Tokens = []string{testToken.Hex(), strings.ToLower(testToken.Hex())}
+	_, err = NewReporter(cfg, Keepers{EVM: fakeEVM{}}, func() (sdk.Context, error) { return testQueryCtx(), nil })
+	require.ErrorContains(t, err, "listed more than once")
 }
