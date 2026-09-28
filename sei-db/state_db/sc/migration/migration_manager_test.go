@@ -859,7 +859,7 @@ func TestNewMigrationManager_AcceptsZeroBatchSize(t *testing.T) {
 }
 
 // Until the first batch moves the boundary, caller writes of new keys stay in the old DB, and nothing is
-// written to the new DB. Once the boundary moves, new keys go to the new DB.
+// written to the new DB.
 func TestApplyChangeSets_NotStartedKeepsWritesInOldDB(t *testing.T) {
 	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
 	oldDB := newMockDB()
@@ -890,20 +890,37 @@ func TestApplyChangeSets_NotStartedKeepsWritesInOldDB(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []byte("2"), val)
 	require.Empty(t, newDB.data, "nothing may reach the new DB before the migration starts")
+}
 
-	mgr.SetMigrationBatchSize(1)
+// The first batch moves the boundary before caller writes are routed, so a new key written in the block
+// that starts the migration goes to the new DB.
+func TestApplyChangeSets_FirstBatchMovesBoundaryBeforeRouting(t *testing.T) {
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMockMigrationIterator(copyData(data), false)
+
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 1,
+	)
+	require.NoError(t, err)
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryNotStarted))
+
 	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
 		Name: "bank",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: []byte("new2"), Value: []byte("n2")},
+			{Key: []byte("new"), Value: []byte("n")},
 		}},
 	}}, true))
 
 	require.Equal(t, MigrationInProgress, mgr.boundary.Status())
-	val, ok = newDB.get("bank", "new2")
-	require.True(t, ok, "a new key must go to the new DB once the migration has started")
-	require.Equal(t, []byte("n2"), val)
-	_, ok = oldDB.get("bank", "new2")
+	val, ok := newDB.get("bank", "new")
+	require.True(t, ok, "a new key in the block that starts the migration must go to the new DB")
+	require.Equal(t, []byte("n"), val)
+	_, ok = oldDB.get("bank", "new")
 	require.False(t, ok)
 }
 
