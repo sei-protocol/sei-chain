@@ -23,7 +23,8 @@ import (
 )
 
 // baseAppSimulateFn is the signature of the Baseapp#Simulate function. ctx
-// bounds the simulation: a deadline it carries aborts execution.
+// bounds the simulation: a deadline it carries aborts execution before the
+// next message in a multi-message tx runs.
 type baseAppSimulateFn func(ctx context.Context, txBytes []byte) (sdk.GasInfo, *sdk.Result, error)
 
 // txServer is the server for the protobuf Tx service.

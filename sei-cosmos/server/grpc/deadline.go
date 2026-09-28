@@ -14,7 +14,10 @@ import (
 const deadlinePlane = "grpc"
 
 func recordDeadlineExceeded(ctx context.Context, enforcer *ratelimiter.DeadlineEnforcer, method string, err error) {
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded {
 		enforcer.RecordExceeded(ctx, deadlinePlane, method)
 	}
 }

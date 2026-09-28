@@ -81,6 +81,24 @@ func TestUnaryDeadlineInterceptor_NonDeadlineErrorPassesThroughUnchanged(t *test
 	require.Equal(t, wantErr, err)
 }
 
+func TestUnaryDeadlineInterceptor_StatusDeadlineErrorRecordsMetric(t *testing.T) {
+	reader := collectRejectionMetrics(t)
+	const metricName = "rpc_deadline_exceeded_total"
+	before := rejectionCounts(t, reader, metricName)["other"]
+
+	enforcer := newEnforcer(time.Minute)
+	ic := UnaryDeadlineInterceptor(enforcer)
+	info := &grpc.UnaryServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/Simulate"}
+
+	handler := func(ctx context.Context, req any) (any, error) {
+		return nil, status.Error(codes.DeadlineExceeded, "simulation deadline exceeded")
+	}
+
+	_, err := ic(t.Context(), nil, info, handler)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	require.Equal(t, before+1, rejectionCounts(t, reader, metricName)["other"])
+}
+
 type fakeServerStream struct {
 	grpc.ServerStream
 	ctx context.Context
