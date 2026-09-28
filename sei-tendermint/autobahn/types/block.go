@@ -15,6 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// ExecutedBlocksWindow is the number of committed blocks ExecutedBlocks retains.
+const ExecutedBlocksWindow = 128
+
 // NodeID represents a unique identifier for a node in the network.
 type NodeID string
 
@@ -30,9 +33,6 @@ type ExecutedBlock struct {
 	Number  GlobalBlockNumber
 	GasUsed uint64
 }
-
-// ExecutedBlocksWindow is the number of committed blocks ExecutedBlocks retains.
-const ExecutedBlocksWindow = 128
 
 // ExecutedBlocks is an immutable window of the most recently committed blocks,
 // consecutive by number and newest last. The zero value holds no blocks.
