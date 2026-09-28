@@ -17,6 +17,7 @@ func newTestPebbleVault(t *testing.T, configMutators ...func(*HashVaultConfig)) 
 	t.Helper()
 	cfg := DefaultHashVaultConfig()
 	cfg.DataDir = filepath.Join(t.TempDir(), "vault")
+	cfg.HaltOnMismatch = true
 	for _, m := range configMutators {
 		m(&cfg)
 	}
@@ -36,6 +37,7 @@ func reopenTestPebbleVault(t *testing.T, v *PebbleHashVault) *PebbleHashVault {
 	require.NoError(t, v.Close(context.Background()))
 	cfg := DefaultHashVaultConfig()
 	cfg.DataDir = dir
+	cfg.HaltOnMismatch = true
 	reopened, err := NewUnsafePebbleHashVault(context.Background(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {

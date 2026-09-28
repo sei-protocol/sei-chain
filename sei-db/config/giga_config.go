@@ -50,8 +50,8 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.DisableInternalWAL = true
 
 	hashVaultConfig := hashvault.DefaultHashVaultConfig()
-	// Existing Autobahn nodes keep their hash vault here, under the persistent state dir. Moving it loses
-	// the hashes they have recorded.
+	// Existing Autobahn nodes already have a hash vault here, holding the ABCI app hashes the GigaRouter
+	// recorded rather than FlatKV checksums, so the first hash checked after an upgrade does not match.
 	hashVaultConfig.DataDir = filepath.Join(homePath, "hashvault")
 
 	receiptConfig := DefaultReceiptStoreConfig()

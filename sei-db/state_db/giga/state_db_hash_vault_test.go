@@ -45,6 +45,7 @@ func newVaultTestStores(t *testing.T) *vaultTestStores {
 	hashVaultCfg := hashvault.DefaultHashVaultConfig()
 	hashVaultCfg.DataDir = filepath.Join(t.TempDir(), "hashvault")
 	hashVaultCfg.Fsync = false
+	hashVaultCfg.HaltOnMismatch = true
 	return &vaultTestStores{
 		flatkvCfg:     flatkvCfg,
 		ssCfg:         config.StateStoreConfig{Enable: false},

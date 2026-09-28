@@ -34,7 +34,7 @@ func DefaultHashVaultConfig() HashVaultConfig {
 	return HashVaultConfig{
 		Fsync:                    false,
 		CacheSize:                1024,
-		HaltOnMismatch:           true,
+		HaltOnMismatch:           false,
 		EmptyVaultRollbackBlocks: 1000,
 	}
 }

@@ -387,11 +387,6 @@ func (s *MemoryStore) GetBlockHash(uint64) ([32]byte, gigatypes.BlockHashStatus,
 	return [32]byte{}, gigatypes.BlockHashStatusNotReady, nil
 }
 
-// PruneBlockHashesBelow does nothing, since this store records no block hashes.
-func (s *MemoryStore) PruneBlockHashesBelow(uint64) error {
-	return nil
-}
-
 // Close releases nothing. This store holds no handle outside its own maps, which go with it.
 func (s *MemoryStore) Close() error { return nil }
 

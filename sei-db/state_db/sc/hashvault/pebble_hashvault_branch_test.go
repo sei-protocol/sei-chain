@@ -120,23 +120,20 @@ func TestResetLeavesOnlyTheGivenHeight(t *testing.T) {
 	require.Equal(t, uint64(1001), newest)
 }
 
-func TestPruneHistoryDeletesOnlyBelowBothFloors(t *testing.T) {
+func TestPruneHistoryDeletesBelowTheCutLine(t *testing.T) {
 	v := newTestPebbleVault(t)
 	commitHeights(t, v, 1, 150)
 
 	require.NoError(t, v.PruneHistory(60))
-	requireRecorded(t, v, 1, 1)
-
-	v.PruneBelow(100)
-	require.NoError(t, v.PruneHistory(60))
 	requireStatus(t, v, 59, gigatypes.BlockHashStatusTooOld)
 	requireRecorded(t, v, 60, 60)
 
-	require.NoError(t, v.PruneHistory(200))
-	requireStatus(t, v, 99, gigatypes.BlockHashStatusTooOld)
-	requireRecorded(t, v, 100, 100)
+	// A lower cut line than one already applied restores nothing.
+	require.NoError(t, v.PruneHistory(30))
+	requireStatus(t, v, 59, gigatypes.BlockHashStatusTooOld)
+	requireRecorded(t, v, 60, 60)
 
-	v.PruneBelow(1000)
+	// A cut line above the head keeps the newest hash.
 	require.NoError(t, v.PruneHistory(1000))
 	requireStatus(t, v, 149, gigatypes.BlockHashStatusTooOld)
 	requireRecorded(t, v, 150, 150)

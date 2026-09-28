@@ -104,11 +104,3 @@ func (w *blockHashWaiter) takeHash() (*lthash.BlockHash, error) {
 			"%d blocks behind the block just committed", w.waitTimeout, w.lagBlocks)
 	}
 }
-
-// blockHashRetention is how many of the newest blocks keep their hashes.
-const blockHashRetention = 10_000
-
-// blockHashesPrunedBelow returns the block below which the hashes of blocks up to blockNum may be pruned.
-func blockHashesPrunedBelow(blockNum int64) uint64 {
-	return uint64(max(blockNum-blockHashRetention, 0)) //nolint:gosec // clamped non-negative
-}

@@ -65,9 +65,6 @@ type StateDB interface {
 	// BlockHashStatusError. A returned hash is crash durable.
 	GetBlockHash(blockNumber uint64) (hash [32]byte, status BlockHashStatus, err error)
 
-	// PruneBlockHashesBelow permits the hashes of blocks below blockNumber to be deleted.
-	PruneBlockHashesBelow(blockNumber uint64) error
-
 	// Close releases everything this StateDB was built over, reporting every failure rather than
 	// stopping at the first.
 	Close() error

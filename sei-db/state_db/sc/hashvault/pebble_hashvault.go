@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common/lru"
@@ -38,11 +37,6 @@ type PebbleHashVault struct {
 	head uint64
 	// notEmpty is true when the vault holds at least one hash.
 	notEmpty bool
-
-	// outerFloor is the floor PruneBelow has raised. Only ever rises.
-	outerFloor atomic.Uint64
-	// gcFloor is the floor PruneHistory has raised. Only ever rises.
-	gcFloor atomic.Uint64
 }
 
 // NewPebbleHashVault opens (or creates) a PebbleHashVault rooted at config.DataDir.
@@ -402,37 +396,19 @@ func (p *PebbleHashVault) Reset(ctx context.Context, blockHeight uint64, hash []
 	return nil
 }
 
-// PruneBelow permits the hashes of blocks below blockHeight to be deleted, as far as the vault's owner is
-// concerned. A hash is deleted only once PruneHistory has permitted it too.
-func (p *PebbleHashVault) PruneBelow(blockHeight uint64) {
-	raiseFloor(&p.outerFloor, blockHeight)
-}
-
-// raiseFloor raises floor to blockHeight, leaving it where it is when it is already higher.
-func raiseFloor(floor *atomic.Uint64, blockHeight uint64) {
-	for {
-		current := floor.Load()
-		if blockHeight <= current || floor.CompareAndSwap(current, blockHeight) {
-			return
-		}
-	}
-}
-
 // Name implements controller.PrunableStore.
 func (p *PebbleHashVault) Name() string {
 	return "HashVault"
 }
 
-// PruneHistory implements controller.PrunableStore. It permits the hashes of blocks below blockHeight to
-// be deleted, as far as the storage garbage collector is concerned, and prunes every hash below both that
-// and the floor PruneBelow has raised. The newest recorded hash is always kept.
+// PruneHistory implements controller.PrunableStore. It deletes the hashes of blocks below blockHeight,
+// always keeping the newest recorded hash.
 func (p *PebbleHashVault) PruneHistory(blockHeight uint64) error {
-	raiseFloor(&p.gcFloor, blockHeight)
 	head, recorded := p.Head()
 	if !recorded {
 		return nil
 	}
-	floor := min(p.outerFloor.Load(), p.gcFloor.Load(), head)
+	floor := min(blockHeight, head)
 	if err := p.Prune(context.Background(), floor); err != nil {
 		return fmt.Errorf("failed to prune hashvault below %d: %w", floor, err)
 	}

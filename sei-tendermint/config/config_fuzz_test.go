@@ -152,7 +152,7 @@ func FuzzRootScopeKeysRequireRootScope(f *testing.F) {
 				doc.WriteString("[p2p]\n")
 			}
 			doc.WriteString("autobahn-config-file = \"" + path + "\"\n")
-			doc.WriteString("hash-vault-halt-on-mismatch = false\n")
+			doc.WriteString("hash-vault-halt-on-mismatch = true\n")
 		}
 
 		conf, err := unmarshalConfigTOML(t, doc.String())
@@ -161,10 +161,10 @@ func FuzzRootScopeKeysRequireRootScope(f *testing.F) {
 		}
 
 		wantPath := ""
-		wantHalt := true
+		wantHalt := false
 		if present && !underSection {
 			wantPath = path
-			wantHalt = false
+			wantHalt = true
 		}
 		if conf.AutobahnConfigFile != wantPath {
 			t.Fatalf("autobahn-config-file resolved to %q, want %q (present=%v underSection=%v); "+
@@ -295,8 +295,8 @@ func TestAutobahnPointerAbsenceDisablesTheSubsystem(t *testing.T) {
 	if conf.AutobahnConfigFile != "" {
 		t.Fatalf("the default autobahn pointer must be empty, got %q", conf.AutobahnConfigFile)
 	}
-	if !conf.HashVaultHaltOnMismatch {
-		t.Fatal("the default must leave a hash vault mismatch halting the node")
+	if conf.HashVaultHaltOnMismatch {
+		t.Fatal("the default must log a hash vault mismatch rather than halt the node")
 	}
 }
 

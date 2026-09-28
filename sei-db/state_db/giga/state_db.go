@@ -344,9 +344,3 @@ func (s *StateDB) GetBlockHash(blockNumber uint64) ([32]byte, gigatypes.BlockHas
 	}
 	return hash, status, nil
 }
-
-// PruneBlockHashesBelow permits the hash vault to delete the hashes of blocks below blockNumber.
-func (s *StateDB) PruneBlockHashesBelow(blockNumber uint64) error {
-	s.vault.PruneBelow(blockNumber)
-	return nil
-}
