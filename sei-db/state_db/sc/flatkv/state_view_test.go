@@ -203,6 +203,42 @@ func TestStateViewEVMAccessors(t *testing.T) {
 	})
 }
 
+// ReadAccount must agree with the per-field getters it stands in for, including the empty-code hash
+// for an account without code and the absence of an account that was never written.
+func TestStateViewReadAccountMatchesFieldGetters(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	contract, funded, missing := addrN(1), addrN(2), addrN(3)
+	codeHash := codeHashN(0xAB)
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(
+		noncePair(contract, 3),
+		codeHashPair(contract, codeHash),
+		codePair(contract, []byte{0x60, 0x80}),
+		balancePair(funded, balanceN(42)),
+		noncePair(funded, 9),
+	)}))
+
+	stateView := s.OpenView()
+	defer stateView.Close()
+
+	for _, addr := range []gigatypes.Address{gigaAddr(contract), gigaAddr(funded)} {
+		account, ok := stateView.ReadAccount(addr)
+		require.True(t, ok)
+		require.Equal(t, gigatypes.Account{
+			Balance:  stateView.GetBalance(addr),
+			Nonce:    stateView.GetNonce(addr),
+			CodeHash: stateView.GetCodeHash(addr),
+		}, account)
+	}
+	fundedAccount, _ := stateView.ReadAccount(gigaAddr(funded))
+	require.Equal(t, gigatypes.Hash(balanceN(42)), fundedAccount.Balance)
+	require.Equal(t, gigatypes.EmptyCodeHash, fundedAccount.CodeHash)
+
+	_, ok := stateView.ReadAccount(gigaAddr(missing))
+	require.False(t, ok)
+}
+
 // GetBalance projects the balance field out of the account row. An account whose row exists only for
 // its nonce reads zero, the same answer an address with no row gets: a single return cannot say which.
 func TestStateViewGetBalance(t *testing.T) {

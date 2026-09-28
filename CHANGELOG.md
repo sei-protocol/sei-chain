@@ -30,10 +30,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## Unreleased
 sei-chain
+* [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics
 * [#4325](https://github.com/sei-protocol/sei-chain/pull/4325) feat(evmonly): add eth_estimateGas via existing libraries
 * [#4323](https://github.com/sei-protocol/sei-chain/pull/4323) Add [giga] app.toml section and honor it on the Autobahn node
+* [#4322](https://github.com/sei-protocol/sei-chain/pull/4322) fix(flatkv): keep 10 old checkpoints instead of mirroring memIAVL's count
 * [#4321](https://github.com/sei-protocol/sei-chain/pull/4321) Fix pruning issue in SS causing huge disk spike
 * [#4320](https://github.com/sei-protocol/sei-chain/pull/4320) Generate v6.8 precompiles
 * [#4318](https://github.com/sei-protocol/sei-chain/pull/4318) Fail dynamic-gas precompile out-of-gas as an EVM out-of-gas call
