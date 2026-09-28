@@ -1,9 +1,5 @@
 package keys
 
-import (
-	"bytes"
-)
-
 // AddressLen is the length in bytes of an EVM address (20 bytes, eth-style).
 // Exported so that other packages (e.g. common/rand, benchmarks) can share a
 // single canonical definition instead of maintaining their own copies.
@@ -20,12 +16,23 @@ const FlatKVStoreKey = "flatkv"
 // These are immutable on-disk format markers; changing them would break
 // all existing state, so duplicating here is safe and avoids pulling in the
 // heavy x/evm/types dependency (which transitively imports cosmos-sdk).
+const (
+	stateKeyPrefixByte    byte = 0x03
+	codeKeyPrefixByte     byte = 0x07
+	codeHashKeyPrefixByte byte = 0x08
+	nonceKeyPrefixByte    byte = 0x0a
+	balanceKeyPrefixByte  byte = 0x21
+)
+
+// evmKeyPrefixLen is the length of every EVM key prefix above.
+const evmKeyPrefixLen = 1
+
 var (
-	stateKeyPrefix    = []byte{0x03}
-	codeKeyPrefix     = []byte{0x07}
-	codeHashKeyPrefix = []byte{0x08}
-	nonceKeyPrefix    = []byte{0x0a}
-	balanceKeyPrefix  = []byte{0x21}
+	stateKeyPrefix    = []byte{stateKeyPrefixByte}
+	codeKeyPrefix     = []byte{codeKeyPrefixByte}
+	codeHashKeyPrefix = []byte{codeHashKeyPrefixByte}
+	nonceKeyPrefix    = []byte{nonceKeyPrefixByte}
+	balanceKeyPrefix  = []byte{balanceKeyPrefixByte}
 )
 
 // StateKeyPrefix returns the storage state key prefix (0x03).
@@ -61,36 +68,37 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 		return EVMKeyEmpty, nil
 	}
 
-	switch {
-	case bytes.HasPrefix(key, nonceKeyPrefix):
-		if len(key) != len(nonceKeyPrefix)+AddressLen {
+	// Every prefix is a single byte, so the first byte alone names the family.
+	switch key[0] {
+	case nonceKeyPrefixByte:
+		if len(key) != evmKeyPrefixLen+AddressLen {
 			return EVMKeyMisc, key // Malformed but still EVM data
 		}
-		return EVMKeyNonce, key[len(nonceKeyPrefix):]
+		return EVMKeyNonce, key[evmKeyPrefixLen:]
 
-	case bytes.HasPrefix(key, codeHashKeyPrefix):
-		if len(key) != len(codeHashKeyPrefix)+AddressLen {
+	case codeHashKeyPrefixByte:
+		if len(key) != evmKeyPrefixLen+AddressLen {
 			return EVMKeyMisc, key
 		}
-		return EVMKeyCodeHash, key[len(codeHashKeyPrefix):]
+		return EVMKeyCodeHash, key[evmKeyPrefixLen:]
 
-	case bytes.HasPrefix(key, codeKeyPrefix):
-		if len(key) != len(codeKeyPrefix)+AddressLen {
+	case codeKeyPrefixByte:
+		if len(key) != evmKeyPrefixLen+AddressLen {
 			return EVMKeyMisc, key
 		}
-		return EVMKeyCode, key[len(codeKeyPrefix):]
+		return EVMKeyCode, key[evmKeyPrefixLen:]
 
-	case bytes.HasPrefix(key, stateKeyPrefix):
-		if len(key) != len(stateKeyPrefix)+AddressLen+slotLen {
+	case stateKeyPrefixByte:
+		if len(key) != evmKeyPrefixLen+AddressLen+slotLen {
 			return EVMKeyMisc, key
 		}
-		return EVMKeyStorage, key[len(stateKeyPrefix):]
+		return EVMKeyStorage, key[evmKeyPrefixLen:]
 
-	case bytes.HasPrefix(key, balanceKeyPrefix):
-		if len(key) != len(balanceKeyPrefix)+AddressLen {
+	case balanceKeyPrefixByte:
+		if len(key) != evmKeyPrefixLen+AddressLen {
 			return EVMKeyMisc, key
 		}
-		return EVMKeyBalance, key[len(balanceKeyPrefix):]
+		return EVMKeyBalance, key[evmKeyPrefixLen:]
 	}
 
 	// All other EVM keys go to the misc store (address mappings, codesize, etc.)
