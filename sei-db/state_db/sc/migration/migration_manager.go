@@ -418,25 +418,22 @@ func (m *MigrationManager) logMigrationCompleteSummary() {
 }
 
 // shouldForwardWriteToNewDB reports whether a caller-supplied write for
-// (store, key) should be routed to the new DB rather than the old DB
-// during migration. Two cases route to the new DB:
-//
-//   - The key is already on the migrated side of the boundary. Writing
-//     it back to the old DB would resurrect a deleted entry and create
-//     two sources of truth.
-//   - The key does not currently exist in the old DB. Brand-new keys go
-//     straight to the new DB; otherwise a continuously-created stream
-//     of monotonically increasing keys (e.g. EVM logs / block-indexed
-//     entries) could keep extending the old-DB tail and prevent the
-//     migration boundary from ever reaching completion.
-//
-// Existing not-yet-migrated keys keep going to the old DB so their
-// latest value is picked up when the migration iterator reaches them.
+// (store, key) goes to the new DB rather than the old DB. Before the
+// migration has started, every write goes to the old DB. After it has
+// started, a write goes to the new DB when the key is on the migrated side
+// of the boundary, or when the key does not exist in the old DB.
 func (m *MigrationManager) shouldForwardWriteToNewDB(store string, key []byte) (bool, error) {
 	if m.boundary.IsMigrated(store, key) {
-		// Always forward writes to migrated keys to the new store.
+		// Writing a migrated key back to the old DB would resurrect a deleted entry.
 		return true, nil
 	}
+	if m.boundary.Status() == MigrationNotStarted {
+		// The commit layer keeps the new DB out of the AppHash until the boundary first moves, so a write
+		// sent there now would be committed without being hashed.
+		return false, nil
+	}
+	// A new key goes to the new DB, so that a stream of ever-increasing keys cannot keep extending the
+	// old DB's unmigrated tail and stop the migration from completing.
 	_, foundInOld, err := m.oldDBReader(store, key)
 	if err != nil {
 		return false, fmt.Errorf("failed to check old database for store %q key %x: %w", store, key, err)

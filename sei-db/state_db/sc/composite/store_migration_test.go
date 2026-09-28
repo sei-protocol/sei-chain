@@ -1263,3 +1263,39 @@ func TestMigrateEVMBeforeTheBoundaryDrainsTheHashStream(t *testing.T) {
 	require.False(t, containsLatticeStoreInfo(cs.LastCommitInfo().StoreInfos),
 		"a paused migration must keep evm_lattice out of the AppHash")
 }
+
+// TestMigrateEVMPausedBeforeTheBoundaryHashesEveryWrite pins that a MigrateEVM store whose migration
+// never started commits exactly what a MemiavlOnly store commits for the same writes. Its lattice is
+// outside the AppHash, so a write that reached flatkv instead of memiavl would be committed unhashed.
+func TestMigrateEVMPausedBeforeTheBoundaryHashesEveryWrite(t *testing.T) {
+	open := func(mode types.WriteMode) *CompositeCommitStore {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.WriteMode = mode
+		cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+		require.NoError(t, err)
+		require.NoError(t, cs.SetMigrationBatchSize(0))
+		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+		require.NoError(t, cs.LoadLatest())
+		t.Cleanup(func() { _ = cs.Close() })
+		return cs
+	}
+	paused := open(types.MigrateEVM)
+	reference := open(types.MemiavlOnly)
+
+	for i := 0; i < 8; i++ {
+		changeSets := func() []*proto.NamedChangeSet {
+			return []*proto.NamedChangeSet{
+				{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+					{Key: []byte(fmt.Sprintf("evm_%d", i)), Value: []byte{byte(i + 1)}},
+				}}},
+			}
+		}
+		for _, cs := range []*CompositeCommitStore{paused, reference} {
+			require.NoError(t, cs.ApplyChangeSets(changeSets()))
+			_, err := cs.Commit(cs.Version() + 1)
+			require.NoError(t, err)
+		}
+		requireCommitInfoEqual(t, reference.LastCommitInfo(), paused.LastCommitInfo(),
+			fmt.Sprintf("paused MigrateEVM must hash block %d like MemiavlOnly", i+1))
+	}
+}
