@@ -18,6 +18,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 
 	want := []string{
 		FlagStorageMode,
+		FlagStorageReceipts,
 		FlagStorageRollbackWindow,
 		FlagStorageLookbackWindow,
 		FlagStoragePruneInterval,
@@ -27,6 +28,8 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagExecutionOCCWorkers,
 		FlagExecutionParseWorkers,
 		FlagExecutionBlockResultPoolSize,
+		FlagExecutionEvmRpcPort,
+		FlagExecutionEvmWsPort,
 	}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)

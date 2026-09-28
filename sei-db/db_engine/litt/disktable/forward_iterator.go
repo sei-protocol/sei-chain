@@ -3,6 +3,7 @@ package disktable
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
@@ -51,8 +52,8 @@ type forwardIterator struct {
 	// readerSeg is the segment that reader was created for, so we can detect when to recreate it.
 	readerSeg *segment.Segment
 
-	// closed is true once Close has been called.
-	closed bool
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[forwardIterator]
 
 	// groupValid is true once a primary key in the current group has been visited, meaning groupAddr and
 	// groupValue describe that group's primary value.
@@ -69,11 +70,13 @@ type forwardIterator struct {
 // newForwardIterator creates a forward iterator over the given snapshot of sealed segments, owned by a
 // live table.
 func newForwardIterator(table *DiskTable, segs []*segment.Segment) *forwardIterator {
-	return &forwardIterator{
+	it := &forwardIterator{
 		onClose: closeLiveIterator(table, segs),
 		segs:    segs,
 		segPos:  0,
 	}
+	it.closed = utils.MustClose(it, "littdb forward iterator")
+	return it
 }
 
 // newForwardIteratorAt creates a forward iterator over the given snapshot positioned so that the first
@@ -87,20 +90,22 @@ func newForwardIteratorAt(
 	keys []*types.ScopedKey,
 	keyPos int,
 ) *forwardIterator {
-	return &forwardIterator{
+	it := &forwardIterator{
 		onClose: closeLiveIterator(table, segs),
 		segs:    segs,
 		segPos:  segPos,
 		keys:    keys,
 		keyPos:  keyPos,
 	}
+	it.closed = utils.MustClose(it, "littdb forward iterator")
+	return it
 }
 
 // NewOfflineForwardIterator creates a forward iterator over the given snapshot of segments, gathered
 // directly from disk rather than from a live table. release is called once, by Close, in place of the
 // live path's segment-reservation release and control-loop notification.
 func NewOfflineForwardIterator(segs []*segment.Segment, release func()) litt.Iterator {
-	return &forwardIterator{
+	it := &forwardIterator{
 		onClose: func() error {
 			release()
 			return nil
@@ -108,11 +113,13 @@ func NewOfflineForwardIterator(segs []*segment.Segment, release func()) litt.Ite
 		segs:   segs,
 		segPos: 0,
 	}
+	it.closed = utils.MustClose(it, "littdb forward iterator")
+	return it
 }
 
 // Next advances the iterator to the next key in insertion order.
 func (it *forwardIterator) Next() (bool, error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return false, fmt.Errorf("iterator is closed")
 	}
 
@@ -159,7 +166,7 @@ func (it *forwardIterator) Next() (bool, error) {
 
 // GetKey returns the current key and whether it is a primary key.
 func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil, false, fmt.Errorf("iterator is closed")
 	}
 	if it.current == nil {
@@ -170,7 +177,7 @@ func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
 
 // GetValue reads and returns the value associated with the current key.
 func (it *forwardIterator) GetValue() (value []byte, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		// Close released the snapshot's segment reservations, so reading now would open a new
 		// reader on segments GC is free to have deleted.
 		return nil, fmt.Errorf("iterator is closed")
@@ -256,10 +263,10 @@ func (it *forwardIterator) secondaryWithinGroup(addr types.Address) bool {
 
 // Close releases the resources held by the iterator, via onClose.
 func (it *forwardIterator) Close() error {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil
 	}
-	it.closed = true
+	it.closed.Close(it)
 
 	// Close the buffered reader.
 	var readerErr error

@@ -1,13 +1,16 @@
 package evmonlyapp
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"hash"
 	"math/big"
 	"runtime"
 	"slices"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
@@ -15,14 +18,19 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/seilog"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"go.opentelemetry.io/otel"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
 
 // evmOnlyBaseFee is the base fee this application executes every block at.
 // Admission and block validity both price against it, so they cannot diverge.
@@ -87,11 +95,34 @@ type evmOnlyApplication struct {
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
 	state            utils.Mutex[*evmOnlyState]
+	// settler publishes the executor to readers of committed state, which settle
+	// its in-flight block commit before opening a store view without waiting for
+	// FinalizeBlock to release state.
+	settler utils.AtomicSend[utils.Option[*evmonly.Executor]]
+	// settleFailureLogged is set once a committed-state reader has logged a
+	// failed commit; the failure is latched, so it is logged once.
+	settleFailureLogged atomic.Bool
 	// checkedSenders maps the hash of every transaction this process admitted
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[*senderCache]
+	// finalizePhases times FinalizeBlock's stages around the executor. It is a
+	// field so each application instance has its own last-phase clock.
+	// FinalizeBlock is serialized by state, so one timer is enough per app.
+	finalizePhases *seidbmetrics.PhaseTimer
 }
+
+const (
+	// finalizeMeterName is the OTel meter FinalizeBlock's phase timer records to,
+	// as evmonly_finalize_phase_duration_seconds_total.
+	finalizeMeterName = "evmonly_app"
+	finalizeTimerName = "evmonly_finalize"
+
+	finalizePhaseTakeSenders = "take_senders"
+	finalizePhasePrepare     = "prepare"
+	finalizePhaseExecute     = "execute"
+	finalizePhaseTxResults   = "tx_results"
+)
 
 type evmOnlyState struct {
 	executor        utils.Option[*evmonly.Executor]
@@ -138,7 +169,9 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
+		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
+		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 }
 
@@ -157,16 +190,21 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		if state.executor.IsPresent() {
 			return nil, fmt.Errorf("EVM-only application already initialized")
 		}
-		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
-			ChainConfig:         a.chainConfig,
-			MinGasPrice:         big.NewInt(evmOnlyBlockMinGasPrice),
-			OCCWorkers:          workersOrGOMAXPROCS(a.execution.OCCWorkers),
-			ParseWorkers:        workersOrGOMAXPROCS(a.execution.ParseWorkers),
-			BlockResultPoolSize: a.execution.BlockResultPoolSize,
+		executor := evmonly.NewExecutor(evmonly.Config{
+			ChainConfig:  a.chainConfig,
+			MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
+			OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
+			ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
+			// Autobahn orders transactions without validating them, so a block can hold one
+			// the executor cannot apply; failing the block would halt every validator.
+			RejectUnappliableTxs: true,
+			BlockResultPoolSize:  a.execution.BlockResultPoolSize,
 		},
 			evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 			evmonly.WithMissingAccountState(evmOnlyFundedState{}),
-		))
+		)
+		state.executor = utils.Some(executor)
+		a.settler.Store(utils.Some(executor))
 		state.gasLimit = gasLimit
 		state.nextHeight = req.InitialHeight
 		state.committedHeight = req.InitialHeight - 1
@@ -316,14 +354,35 @@ func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
 	return storeAddress
 }
 
+// AwaitCommits blocks until every block this application has finalized is in
+// its store, and reports the first commit that failed.
+func (a *evmOnlyApplication) AwaitCommits() error {
+	executor, ok := a.settler.Load().Get()
+	if !ok {
+		return nil
+	}
+	return executor.AwaitCommits()
+}
+
+// openSettledView opens a store view that holds every block finalized so far.
+// A failed commit is logged once rather than returned: the view is still a
+// consistent version, and the failure halts the node through the next
+// FinalizeBlock.
+func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
+	if err := a.AwaitCommits(); err != nil && !a.settleFailureLogged.Swap(true) {
+		logger.Error("EVM-only block commit failed; serving the last committed state", "err", err)
+	}
+	return a.storage.StateDB().OpenView()
+}
+
 func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
-	snapshot := a.storage.StateDB().OpenView()
+	snapshot := a.openSettledView()
 	defer snapshot.Close()
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
 }
 
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
-	snapshot := a.storage.StateDB().OpenView()
+	snapshot := a.openSettledView()
 	defer snapshot.Close()
 	if !snapshot.AccountExists(evmOnlyStoreAddress(address)) {
 		return *uint256.MustFromBig(evmOnlyBaseBalance)
@@ -349,7 +408,7 @@ func workersOrGOMAXPROCS(n int) int {
 // EvmCode returns the contract code at address in the most recently committed
 // EVM state, or nil when the account holds none.
 func (a *evmOnlyApplication) EvmCode(address common.Address) []byte {
-	snapshot := a.storage.StateDB().OpenView()
+	snapshot := a.openSettledView()
 	defer snapshot.Close()
 	return slices.Clone(snapshot.GetCode(evmOnlyStoreAddress(address)))
 }
@@ -388,6 +447,11 @@ func (a *evmOnlyApplication) currentExecutionContext(action string) (*evmonly.Ex
 		number, ok := utils.SafeCast[uint64](state.committedHeight)
 		if !ok {
 			return nil, evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+		}
+		// The committed block's state may still be landing. Holding state keeps
+		// the next block from starting, so once settled the store is at number.
+		if err := executor.AwaitCommits(); err != nil {
+			return nil, evmonly.BlockContext{}, err
 		}
 		// Coinbase and ParentHash are left zero.
 		//
@@ -453,7 +517,11 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if height != state.nextHeight {
 			return nil, fmt.Errorf("EVM-only block height %d does not match next height %d", height, state.nextHeight)
 		}
-		result, err := executor.ExecuteBlock(ctx, evmonly.BlockRequest{
+		// Closes the stage in flight, so the gap until the next block is charged to neither.
+		defer a.finalizePhases.Reset()
+		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
+		senders := a.takeSenders(req.Txs)
+		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
 				Number:      number,
 				Time:        timestamp,
@@ -466,7 +534,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
 			Txs:     req.Txs,
-			Senders: a.takeSenders(req.Txs),
+			Senders: senders,
 		})
 		if err != nil {
 			return nil, err
@@ -478,6 +546,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		}
 		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
 		state.pendingBlockTime = timestamp
+		a.finalizePhases.SetPhase(finalizePhaseTxResults)
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -486,6 +555,23 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 	panic("unreachable")
 }
 
+// executeBlockPipelined executes the block and returns once its state commit
+// has started, leaving the commit to land while the next block executes.
+// Readers of committed state settle it through AwaitCommits.
+func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+	a.finalizePhases.SetPhase(finalizePhasePrepare)
+	prepared, err := executor.PrepareBlock(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// The executor's own timer breaks execution down further.
+	a.finalizePhases.SetPhase(finalizePhaseExecute)
+	return executor.ExecutePreparedBlock(ctx, prepared)
+}
+
+// Commit acknowledges the finalized block as the one the chain builds on. The
+// block's state commit is not waited for; a commit that fails halts the node
+// through the next FinalizeBlock.
 func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
 	for state := range a.state.Lock() {
 		pending, ok := state.pending.Get()
@@ -506,12 +592,10 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 // evmOnlyABCIResults reports a block's executed transactions to consensus, each
 // one an OK result carrying the EVM failure reason, if it had one, in its log.
 //
-// A reverted transaction is a successfully executed one at this layer: it consumed
-// its nonce and gas, and the receipt status carries its failure, which is why every
-// result here is OK. A non-OK code would put the hash in the mempool's failed set,
-// which holds a transaction for a second chance rather than recording it as
-// executed. The log is safe to vary with the failure because the results hash
-// covers only the code, data and gas.
+// Every result is OK, including a reverted or rejected transaction: the hash is
+// recorded as executed rather than held in the mempool's failed set for a retry,
+// and the receipt status carries the failure. The log may vary with the failure
+// because the results hash covers only the code, data and gas.
 func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
@@ -537,36 +621,72 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 
 func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
 	h := sha256.New()
-	_, _ = h.Write(previous[:])
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, height))
-	_, _ = h.Write(blockHash[:])
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, result.GasUsed))
+	w := newEVMOnlyHashWriter(h)
+	w.write(previous[:])
+	w.writeUint64(height)
+	w.write(blockHash[:])
+	w.writeUint64(result.GasUsed)
 	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
 	if err != nil {
 		return common.Hash{}, err
 	}
 	for _, changeset := range changesets {
-		writeEVMOnlyHashBytes(h, []byte(changeset.Name))
+		w.writeSizedString(changeset.Name)
 		for _, pair := range changeset.Changeset.Pairs {
-			writeEVMOnlyHashBytes(h, pair.Key)
+			w.writeSized(pair.Key)
 			if pair.Delete {
-				_, _ = h.Write([]byte{1})
+				w.writeByte(1)
 			} else {
-				_, _ = h.Write([]byte{0})
+				w.writeByte(0)
 			}
-			writeEVMOnlyHashBytes(h, pair.Value)
+			w.writeSized(pair.Value)
 		}
+	}
+	if err := w.flush(); err != nil {
+		return common.Hash{}, err
 	}
 	return common.BytesToHash(h.Sum(nil)), nil
 }
 
-type byteWriter interface {
-	Write([]byte) (int, error)
+// evmOnlyHashBufferSize is the buffer between the stream and the hash.
+const evmOnlyHashBufferSize = 32 << 10
+
+// evmOnlyHashWriter buffers the app-hash byte stream into a hash; flush before reading the digest.
+type evmOnlyHashWriter struct {
+	buf     *bufio.Writer
+	scratch [8]byte
 }
 
-func writeEVMOnlyHashBytes(w byteWriter, value []byte) {
-	_, _ = w.Write(binary.BigEndian.AppendUint64(nil, uint64(len(value))))
-	_, _ = w.Write(value)
+func newEVMOnlyHashWriter(h hash.Hash) *evmOnlyHashWriter {
+	return &evmOnlyHashWriter{buf: bufio.NewWriterSize(h, evmOnlyHashBufferSize)}
+}
+
+func (w *evmOnlyHashWriter) write(value []byte) {
+	_, _ = w.buf.Write(value)
+}
+
+func (w *evmOnlyHashWriter) writeByte(value byte) {
+	_ = w.buf.WriteByte(value)
+}
+
+func (w *evmOnlyHashWriter) writeUint64(value uint64) {
+	binary.BigEndian.PutUint64(w.scratch[:], value)
+	_, _ = w.buf.Write(w.scratch[:])
+}
+
+// writeSized writes value behind its length.
+func (w *evmOnlyHashWriter) writeSized(value []byte) {
+	w.writeUint64(uint64(len(value)))
+	_, _ = w.buf.Write(value)
+}
+
+func (w *evmOnlyHashWriter) writeSizedString(value string) {
+	w.writeUint64(uint64(len(value)))
+	_, _ = w.buf.WriteString(value)
+}
+
+func (w *evmOnlyHashWriter) flush() error {
+	return w.buf.Flush()
 }
 
 type evmOnlyFundedState struct{}

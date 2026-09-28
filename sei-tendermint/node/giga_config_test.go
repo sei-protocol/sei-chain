@@ -41,6 +41,7 @@ func TestBuildGigaStorageConfigDefaultsMatchAutobahnStorageConfig(t *testing.T) 
 func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	storage := gigaconfig.StorageConfig{
 		Mode:                    gigaconfig.StorageModeAuto,
+		Receipts:                true,
 		RollbackWindow:          42,
 		LookbackWindow:          7,
 		PruneInterval:           time.Second,
@@ -60,6 +61,14 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	got, err = buildGigaStorageConfig(t.TempDir(), config.ModeValidator, storage)
 	require.NoError(t, err)
 	require.False(t, got.SSConfig.Enable)
+	require.True(t, got.ReceiptDBConfig.Enable)
+
+	storage.Receipts = false
+	got, err = buildGigaStorageConfig(t.TempDir(), config.ModeFull, storage)
+	require.NoError(t, err)
+	require.True(t, got.SSConfig.Enable)
+	require.False(t, got.ReceiptDBConfig.Enable)
+	require.NoError(t, got.Validate())
 }
 
 func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
@@ -75,6 +84,23 @@ func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.NotNil(t, manager.SS())
+}
+
+func TestPrepareApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
+	validator := makeValidator([]byte("receipts-validator"), []byte("receipts-node"), "localhost:26660")
+	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
+	giga := gigaconfig.DefaultConfig
+	giga.Storage.Receipts = false
+
+	_, storage, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
+		AutobahnConfigFile: autobahnConfigFile,
+	}, abci.BaseApplication{}, giga)
+	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.Nil(t, manager.ReceiptDB())
 }
 
 func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {

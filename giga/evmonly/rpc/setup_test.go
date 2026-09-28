@@ -4,6 +4,8 @@ import (
 	"context"
 	"math/big"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/params"
@@ -33,7 +35,12 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
+}
+
+func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
+	return b.executedBlocks()
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
@@ -124,6 +131,20 @@ func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) 
 		return receipt.BlockStats{}, receipt.ErrNotFound
 	}
 	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
+}
+
+// hashOnlyReceiptStore answers ErrBlockStatsNotSupported and ErrRangeQueryNotSupported on an
+// otherwise real store, so tests can exercise the by-hash recompute path pebble takes.
+type hashOnlyReceiptStore struct {
+	receipt.ReceiptStore
+}
+
+func (hashOnlyReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+}
+
+func (hashOnlyReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
+	return nil, receipt.ErrRangeQueryNotSupported
 }
 
 // stubIteratingReceiptStore overrides IterateReceipts on an otherwise real store, so tests can

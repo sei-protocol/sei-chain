@@ -1028,6 +1028,8 @@ func TestMempoolConfig() *MempoolConfig {
 	testCfg := mempoolcfg.TestConfig()
 	cfg.CacheSize = testCfg.CacheSize
 	cfg.DropUtilisationThreshold = testCfg.DropUtilisationThreshold
+	cfg.TTLDuration = testCfg.TTLDuration.Or(0)
+	cfg.TTLNumBlocks = testCfg.TTLNumBlocks.Or(0)
 	return cfg
 }
 

@@ -10,11 +10,14 @@ import (
 	"net/http"
 	"time"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+	"golang.org/x/net/netutil"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -23,14 +26,22 @@ import (
 )
 
 const (
-	listenAddress = "0.0.0.0:8545"
-	shutdownWait  = 5 * time.Second
+	shutdownWait = 5 * time.Second
+	// maxWSConns bounds concurrently open WebSocket connections; each one is
+	// hijacked and held with its own goroutine until the peer disconnects.
+	maxWSConns = 2000
 )
+
+// wsAllowedOrigins accepts WebSocket upgrades from any Origin header. WebSocket
+// is exempt from the browser same-origin policy, so this is the only origin
+// gate on the listener.
+var wsAllowedOrigins = []string{"*"}
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
 // Backend submits transactions, reads committed EVM state and finalized
-// blocks, and returns the RPC client for an Autobahn shard owner.
+// blocks, publishes new block heights, and returns the RPC client for an
+// Autobahn shard owner.
 // EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
@@ -40,6 +51,7 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
+	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
@@ -56,23 +68,34 @@ type Backend interface {
 	EvmTransactionCount(common.Address) uint64
 }
 
-// Server serves the EVM-only JSON-RPC API on port 8545.
+// Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.
 type Server struct {
-	listener net.Listener
-	http     *http.Server
-	rpc      *ethrpc.Server
+	listener   net.Listener
+	http       *http.Server
+	wsListener net.Listener
+	ws         *http.Server
+	rpc        *ethrpc.Server
 }
 
-// Start binds the EVM-only JSON-RPC listener and returns its server.
-func Start(backend Backend, receiptStore receipt.ReceiptStore) (*Server, error) {
+// Start binds the EVM-only JSON-RPC HTTP listener on port and WebSocket listener on wsPort, on
+// all interfaces, and returns their server.
+func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int) (*Server, error) {
 	rpcServer, err := newHandler(backend, receiptStore)
 	if err != nil {
 		return nil, err
 	}
+	listenAddress := fmt.Sprintf("0.0.0.0:%d", port)
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", listenAddress)
 	if err != nil {
 		rpcServer.Stop()
 		return nil, fmt.Errorf("listen for EVM-only RPC on %s: %w", listenAddress, err)
+	}
+	wsListenAddress := fmt.Sprintf("0.0.0.0:%d", wsPort)
+	wsListener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", wsListenAddress)
+	if err != nil {
+		_ = listener.Close()
+		rpcServer.Stop()
+		return nil, fmt.Errorf("listen for EVM-only WebSocket RPC on %s: %w", wsListenAddress, err)
 	}
 	return &Server{
 		listener: listener,
@@ -80,8 +103,19 @@ func Start(backend Backend, receiptStore receipt.ReceiptStore) (*Server, error) 
 			Handler:           rpcServer,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
+		wsListener: netutil.LimitListener(wsListener, maxWSConns),
+		ws: &http.Server{
+			Handler:           websocketHandler(rpcServer),
+			ReadHeaderTimeout: 5 * time.Second,
+		},
 		rpc: rpcServer,
 	}, nil
+}
+
+// websocketHandler upgrades incoming connections to WebSocket and serves the
+// same JSON-RPC methods as the HTTP listener over them.
+func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
+	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
 func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Server, error) {
@@ -116,13 +150,20 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
 	}
+	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
+	}
 	return rpcServer, nil
 }
 
-// Serve handles requests until the server stops or ctx is canceled.
+// Serve handles HTTP and WebSocket requests until either listener stops or
+// ctx is canceled.
 func (s *Server) Serve(ctx context.Context) error {
-	logger.Info("Starting Autobahn EVM-only RPC server", "laddr", s.listener.Addr())
-	err := s.http.Serve(s.listener)
+	logger.Info("Starting Autobahn EVM-only RPC server", "laddr", s.listener.Addr(), "ws_laddr", s.wsListener.Addr())
+	errs := make(chan error, 2)
+	go func() { errs <- s.http.Serve(s.listener) }()
+	go func() { errs <- s.ws.Serve(s.wsListener) }()
+	err := <-errs
 	if errors.Is(err, http.ErrServerClosed) && ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -138,5 +179,9 @@ func (s *Server) Stop() {
 		logger.Error("EVM-only RPC graceful shutdown failed", "err", err)
 		_ = s.http.Close()
 	}
+	// Shutdown does not wait for hijacked WebSocket connections; rpc.Stop above
+	// has already closed them, so Close only releases the listener.
+	_ = s.ws.Close()
 	_ = s.listener.Close()
+	_ = s.wsListener.Close()
 }

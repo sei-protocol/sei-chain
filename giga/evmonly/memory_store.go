@@ -476,6 +476,17 @@ func (s *memoryStoreSnapshot) GetCode(address gigatypes.Address) []byte {
 	return cloneBytes(s.store.base.GetCode(address))
 }
 
+func (s *memoryStoreSnapshot) ReadAccount(address gigatypes.Address) (gigatypes.Account, bool) {
+	if !s.AccountExists(address) {
+		return gigatypes.Account{}, false
+	}
+	return gigatypes.Account{
+		Balance:  s.GetBalance(address),
+		Nonce:    s.GetNonce(address),
+		CodeHash: crypto.Keccak256Hash(s.GetCode(address)),
+	}, true
+}
+
 func (s *memoryStoreSnapshot) GetBlockHeight() int64 {
 	s.requireOpen()
 	return s.height

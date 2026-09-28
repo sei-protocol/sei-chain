@@ -9,7 +9,6 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -219,22 +218,25 @@ func handshakeAgainst(
 		a, b := tcp.TestPipe()
 		s.SpawnBg(func() error { return utils.IgnoreCancel(a.Run(ctx)) })
 		s.SpawnBg(func() error { return utils.IgnoreCancel(b.Run(ctx)) })
-		s.Spawn(func() error {
+		// The remote's error is a value rather than a task failure: when the
+		// local side rejects and closes the pipe, the remote's pending write or
+		// read fails too, and that must not race the local verdict for being
+		// the scope's first error.
+		remoteDone := scope.Spawn1(s, func() (error, error) {
 			sc, err := conn.MakeSecretConnection(ctx, b)
 			if err != nil {
-				return err
+				return err, nil
 			}
-			if err := remote(ctx, sc); err != nil {
-				return err
-			}
-			// Only the local handshake's verdict is asserted. This read keeps
-			// the pipe open until it reaches one, and sees EOF when the local
-			// side rejects and closes first.
-			_, _ = conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize()))
-			return nil
+			return remote(ctx, sc), nil
 		})
-		_, err := handshake(ctx, a, localKey, localSpec, localOffer)
-		return err
+		if _, err := handshake(ctx, a, localKey, localSpec, localOffer); err != nil {
+			return err
+		}
+		remoteErr, err := remoteDone.Join(ctx)
+		if err != nil {
+			return err
+		}
+		return remoteErr
 	})
 }
 

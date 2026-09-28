@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 )
@@ -100,4 +101,43 @@ func TestReceiptRecordsRejectMalformedBlockResult(t *testing.T) {
 		Txs:      []TxResult{{}},
 	})
 	require.ErrorContains(t, err, "status")
+}
+
+// The pooled path must store exactly the records the serial one does, including skipping a
+// curable rejection and keeping an existing receipt for a spent nonce.
+func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
+	const txs = 2 * occParallelReceiptThreshold
+	result := &BlockResult{}
+	curable := 0
+	for i := range txs {
+		hash := common.BigToHash(big.NewInt(int64(i) + 1))
+		result.Receipts = append(result.Receipts, &ethtypes.Receipt{
+			TxHash:            hash,
+			Status:            ethtypes.ReceiptStatusSuccessful,
+			EffectiveGasPrice: big.NewInt(1),
+			TransactionIndex:  uint(i),
+		})
+		tx := TxResult{Hash: hash, Sender: common.Address{byte(i)}, Status: ethtypes.ReceiptStatusSuccessful}
+		switch i % 3 {
+		case 1:
+			tx.Rejected, tx.Err = true, core.ErrNonceTooHigh
+			curable++
+		case 2:
+			tx.Rejected, tx.Err = true, core.ErrNonceTooLow
+		}
+		result.Txs = append(result.Txs, tx)
+	}
+	executor := NewExecutor(Config{OCCWorkers: 4})
+	defer executor.Close()
+
+	serial, err := receiptRecords(7, result)
+	require.NoError(t, err)
+	parallel, err := executor.receiptRecordsParallel(t.Context(), 7, result)
+	require.NoError(t, err)
+
+	require.Equal(t, serial, parallel)
+	require.Len(t, parallel, txs-curable, "a curable rejection must store no receipt")
+	for _, record := range parallel {
+		require.NotEqual(t, core.ErrNonceTooHigh.Error(), record.Receipt.VmError)
+	}
 }
