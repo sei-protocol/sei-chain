@@ -1,22 +1,8 @@
-# Wiring only. The review logic lives in sei-protocol/uci and the reviewer binary in
-# sei-protocol/sei-internal-skills; both document their own behaviour and inputs.
-#
-#   @seidroid review                  review this pull request
-#   @seidroid review close            destroy this pull request's session now
-#
-# A review request is read from a top-level comment, an inline review comment or a
-# review body. A teardown is read from a top-level comment only.
 name: seidroid review
 
 on:
   issue_comment:
     types: [created]
-  # The two review events as well, so `@seidroid review` reaches the pipeline when it
-  # is typed where the discussion is -- inside an inline thread or in a review body.
-  # The workflow this replaced carried them for the same reason: without them a
-  # re-review needs a pushed commit, which means manufacturing an empty one when the
-  # change is to the description or to out-of-band evidence. The callee admits both
-  # events and applies the same author checks to them.
   pull_request_review_comment:
     types: [created]
   pull_request_review:
@@ -39,7 +25,7 @@ jobs:
           '@seidroid review') &&
         !contains(github.event.comment.body || github.event.review.body,
           '@seidroid review close'))
-    uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@5675a177894163e9bfd13d03aeb85dbeb271faae # v0.0.23
+    uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@5675a177894163e9bfd13d03aeb85dbeb271faae
     permissions:
       contents: read
       pull-requests: write
@@ -52,21 +38,14 @@ jobs:
     with:
       mode: review
       allowed-team: 'sei-protocol/sei-core'
-      allowed-bots: '["seidroid[bot]"]' # To allow review on automatically backported PRs.
+      allowed-bots: '["seidroid[bot]"]'
 
-  # Anchored, unlike the review job's `contains`. A comment that merely quotes the
-  # teardown command -- which the header above tells a fork author to do -- would
-  # otherwise destroy a live session. The review job keeps `contains`, so such a
-  # comment still starts nothing; the difference is that nothing is destroyed
-  # either. Anchoring both jobs would trade the misroute for a silent no-op, so
-  # only the destructive half is anchored here. PLT-1182 fixes the grammar once in
-  # the callee, which is the reader that can compare the parsed line to `mode`.
   seidroid-review-close:
     if: >-
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request != null &&
       startsWith(github.event.comment.body, '@seidroid review close')
-    uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@5675a177894163e9bfd13d03aeb85dbeb271faae # v0.0.23
+    uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@5675a177894163e9bfd13d03aeb85dbeb271faae
     permissions:
       contents: read
       pull-requests: write
@@ -80,12 +59,9 @@ jobs:
       mode: close
       allowed-team: 'sei-protocol/sei-core'
 
-  # Does not cover a fork: GitHub withholds secrets from a `pull_request` run whose
-  # head is a fork, so the close fails and the sandbox is left running. On a fork
-  # pull request, comment `@seidroid review close` before merging.
   seidroid-review-reclaim:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@5675a177894163e9bfd13d03aeb85dbeb271faae # v0.0.23
+    uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@5675a177894163e9bfd13d03aeb85dbeb271faae
     permissions:
       contents: read
       pull-requests: write
