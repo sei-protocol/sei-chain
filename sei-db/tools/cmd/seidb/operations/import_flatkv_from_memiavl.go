@@ -227,7 +227,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	}
 	defer func() { _ = exporter.Close() }()
 
-	importer, err := store.Importer(height)
+	importer, err := store.TrustedImporter(height)
 	if err != nil {
 		return fmt.Errorf("failed to create FlatKV importer at height %d: %w", height, err)
 	}

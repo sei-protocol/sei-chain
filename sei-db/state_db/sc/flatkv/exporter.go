@@ -14,9 +14,9 @@ import (
 var _ types.Exporter = (*KVExporter)(nil)
 
 // KVExporter exports all committed data from a read-only FlatKV store as raw
-// physical key/value pairs. It uses RawGlobalIterator to walk every data DB
-// in global lexicographic order and emits each row as a single
-// SnapshotNode without any parsing or conversion.
+// physical key/value pairs, one SnapshotNode per row, in strictly ascending
+// physical-key order across every data DB. CommitStore.Importer rejects any
+// other order, so that order is part of the snapshot format.
 //
 // The stream is self-describing: the first item is the keys.FlatKVStoreKey
 // module header (a string), mirroring the memiavl MultiTreeExporter which
