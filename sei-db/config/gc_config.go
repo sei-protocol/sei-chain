@@ -41,7 +41,7 @@ type StorageGarbageCollectorConfig struct {
 func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 	return &StorageGarbageCollectorConfig{
 		RollbackWindow: 1_000,
-		LookbackWindow: 0,
+		LookbackWindow: 12 * 60 * 60 * 100, // 12 hours at 100 blocks/s
 		PruneInterval:  5 * time.Minute,
 	}
 }
