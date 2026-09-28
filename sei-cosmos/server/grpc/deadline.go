@@ -68,3 +68,28 @@ type deadlineServerStream struct {
 }
 
 func (s deadlineServerStream) Context() context.Context { return s.ctx }
+
+func (s deadlineServerStream) RecvMsg(m any) error {
+	return streamOpWithContext(s.ctx, func() error { return s.ServerStream.RecvMsg(m) })
+}
+
+func (s deadlineServerStream) SendMsg(m any) error {
+	return streamOpWithContext(s.ctx, func() error { return s.ServerStream.SendMsg(m) })
+}
+
+func streamOpWithContext(ctx context.Context, op func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	type result struct{ err error }
+	ch := make(chan result, 1)
+	go func() {
+		ch <- result{op()}
+	}()
+	select {
+	case r := <-ch:
+		return r.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

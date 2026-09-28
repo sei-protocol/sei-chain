@@ -3,15 +3,19 @@ package grpc
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/status"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc/gogoreflection"
 )
 
 func newEnforcer(d time.Duration) *ratelimiter.DeadlineEnforcer {
@@ -118,6 +122,111 @@ func TestStreamDeadlineInterceptor_HandlerObservesBoundedContext(t *testing.T) {
 
 	err := ic(nil, fakeServerStream{ctx: t.Context()}, info, handler)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+}
+
+// blockingRecvStream simulates a handler parked in RecvMsg while the client sends nothing
+type blockingRecvStream struct {
+	grpc.ServerStream
+	ctx  context.Context
+	recv func() error
+}
+
+func (s blockingRecvStream) Context() context.Context { return s.ctx }
+
+func (s blockingRecvStream) RecvMsg(any) error { return s.recv() }
+
+func TestStreamDeadlineInterceptor_RecvMsgUnblocksOnDeadline(t *testing.T) {
+	enforcer := newEnforcer(10 * time.Millisecond)
+	ic := StreamDeadlineInterceptor(enforcer)
+	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
+
+	recvEntered := make(chan struct{})
+	blockRecv := make(chan struct{})
+
+	underlying := blockingRecvStream{
+		ctx: t.Context(),
+		recv: func() error {
+			close(recvEntered)
+			<-blockRecv
+			return nil
+		},
+	}
+
+	handler := func(_ any, stream grpc.ServerStream) error {
+		return stream.RecvMsg(nil)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ic(nil, underlying, info, handler)
+	}()
+
+	<-recvEntered
+	start := time.Now()
+	err := <-errCh
+	require.Less(t, time.Since(start), time.Second)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+}
+
+func TestStreamDeadlineAfterRateLimit_RecvMsgUnblocksOnDeadline(t *testing.T) {
+	reg := mustNewRegistry(t, cfg(1000, 1000))
+	enforcer := newEnforcer(10 * time.Millisecond)
+	rateIC := StreamRateLimitInterceptor(reg)
+	deadlineIC := StreamDeadlineInterceptor(enforcer)
+	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
+
+	recvEntered := make(chan struct{})
+	blockRecv := make(chan struct{})
+
+	underlying := blockingRecvStream{
+		ctx: grpcCtx(t.Context(), "10.0.0.1:9000"),
+		recv: func() error {
+			close(recvEntered)
+			<-blockRecv
+			return nil
+		},
+	}
+
+	handler := func(_ any, stream grpc.ServerStream) error {
+		return stream.RecvMsg(nil)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		wrapped := func(srv any, stream grpc.ServerStream) error {
+			return deadlineIC(srv, stream, info, handler)
+		}
+		errCh <- rateIC(nil, underlying, info, wrapped)
+	}()
+
+	<-recvEntered
+	err := <-errCh
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+}
+
+func TestStreamDeadlineInterceptor_IdleStreamOnWire(t *testing.T) {
+	enforcer := newEnforcer(50 * time.Millisecond)
+	srv := grpc.NewServer(grpc.ChainStreamInterceptor(StreamDeadlineInterceptor(enforcer)))
+	gogoreflection.Register(srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(listener) }()
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.Dial(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	stream, err := rpb.NewServerReflectionClient(conn).ServerReflectionInfo(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stream.CloseSend() })
+
+	start := time.Now()
+	_, err = stream.Recv()
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 2*time.Second)
+	require.GreaterOrEqual(t, time.Since(start), 40*time.Millisecond)
 }
 
 func TestDeadlineStatusError(t *testing.T) {
