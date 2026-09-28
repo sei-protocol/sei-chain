@@ -5,6 +5,7 @@ import (
 	"fmt"
 	mrand "math/rand"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,8 +193,12 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	}
 
 	// Launch scanner routines that will rapidly iterate over elements.
+	var wg sync.WaitGroup
+	errs := make(chan error, numScanners)
 	for i := 0; i < numScanners; i++ {
+		wg.Add(1)
 		go func(scannerID int) {
+			defer wg.Done()
 			var el *CElement[int]
 			restartCounter := 0
 			counter := 0
@@ -208,7 +213,10 @@ func TestScanRightDeleteRandom(t *testing.T) {
 				if el == nil {
 					var err error
 					el, err = l.WaitFront(t.Context())
-					require.NoError(t, err)
+					if err != nil {
+						errs <- err
+						return
+					}
 					restartCounter++
 				}
 				el = el.Next()
@@ -238,8 +246,13 @@ func TestScanRightDeleteRandom(t *testing.T) {
 
 	}
 
-	// Stop scanners
+	// Stop scanners and wait for them before the list is emptied.
 	close(stop)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
 
 	// And remove all the elements.
 	l.Clear()
