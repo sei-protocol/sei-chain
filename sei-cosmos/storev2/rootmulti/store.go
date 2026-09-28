@@ -1262,6 +1262,12 @@ loop:
 			}
 			logger.Info("Start restoring store", "key", storeKey)
 		case *snapshottypes.SnapshotItem_IAVL:
+			// Importers route each node to the store opened by the last store item, so a node with no
+			// named store before it has nowhere to go.
+			if storeKey == "" {
+				restoreErr = errors.Wrap(sdkerrors.ErrLogic, "snapshot node appears outside a named store section")
+				break loop
+			}
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
 					item.IAVL.Height, math.MaxInt8)
