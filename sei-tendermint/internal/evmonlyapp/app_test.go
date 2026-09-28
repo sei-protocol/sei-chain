@@ -5,7 +5,9 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -742,4 +745,51 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	latest, err := storage.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), latest)
+}
+
+// Committed-state readers running alongside FinalizeBlock observe every block
+// in order and never see a block's state go backwards while its commit lands.
+func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
+	const blocks = 16
+	app := newInitializedEVMOnlyTestApp(t)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	txs := make([][]byte, blocks)
+	for i := range txs {
+		txs[i] = signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(i)) //nolint:gosec // G115: i is non-negative.
+	}
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		var done atomic.Bool
+		s.Spawn(func() error {
+			var last uint64
+			for !done.Load() {
+				nonce := app.EvmNonce(sender)
+				if nonce < last {
+					return fmt.Errorf("nonce went back from %d to %d", last, nonce)
+				}
+				last = nonce
+				// A call may be refused while a finalized block awaits Commit;
+				// what matters is that it never races the commit it settles.
+				_, _ = settler.EvmCall(ctx, callMessage(sender, nil))
+			}
+			return nil
+		})
+		defer done.Store(true)
+		for height := range int64(blocks) {
+			if _, err := app.FinalizeBlock(ctx, evmOnlyTestBlock(height+1, txs[height])); err != nil {
+				return err
+			}
+			if _, err := app.Commit(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, settler.AwaitCommits())
+	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
 }
