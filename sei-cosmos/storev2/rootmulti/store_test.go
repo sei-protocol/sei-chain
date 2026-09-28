@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -50,6 +51,24 @@ func TestGetCommitKVStore_ReaderRespectsWriteLock(t *testing.T) {
 func TestLastCommitID(t *testing.T) {
 	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
+}
+
+func TestQueryUnknownStore(t *testing.T) {
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	store.MountStoreWithDB(types.NewKVStoreKey("bank"), types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	response := store.Query(context.Background(), abci.RequestQuery{
+		Path: "/doesnotexist/key",
+	})
+	require.Equal(t, uint32(sdkerrors.ErrUnknownRequest.ABCICode()), response.Code)
+	require.Contains(t, response.Log, "no such store: doesnotexist")
 }
 
 // waitUntilSSVersion waits until the SS latest version reaches at least target or times out.

@@ -35,10 +35,11 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 
 	// TODO(concurrency): This takes a single coarse write lock for the whole
 	// commit, so it also blocks readers/iterator construction during the WAL
-	// fsync and the periodic auto-snapshot. That is fine today because commits
-	// are not pipelined with reads (there is currently no pipelining at all).
-	// When commit pipelining is introduced, replace this with a finer-grained
-	// scheme.
+	// fsync and the periodic auto-snapshot. Views are unaffected, since
+	// OpenView reads do not take this lock, but a caller on Get or Iterator
+	// waits out the whole commit. Commits are now pipelined behind the next
+	// block's execution, so that wait is on the execution path: replace this
+	// with a finer-grained scheme.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

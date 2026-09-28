@@ -5,6 +5,11 @@ state DB alone, gigasim runs both together with the receipt store, through the s
 engines behave *together* — whether pruning, checkpointing and hashing on one store show up as latency
 on another.
 
+Gigasim does not start validators or accept RPC traffic. For a four-validator Autobahn EVM-only
+cluster, local or on AWS, use [`autobahn-e2e`](../../../integration_test/autobahn/README.md). AWS
+deploy takes `--topology distributed` (default: one validator per EC2, plus a load/monitoring host)
+or `--topology colocated` (all four Docker validators on a single EC2).
+
 # Running Gigasim
 
 Run from anywhere in the repository; the script builds what it needs first:

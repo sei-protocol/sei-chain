@@ -24,6 +24,7 @@ type nodeReport struct {
 	Status     string `json:"status"`
 	Height     string `json:"height"`
 	EVMTarget  string `json:"evm_target"`
+	Dashboard  string `json:"dashboard,omitempty"`
 	InstanceID string `json:"instance_id,omitempty"`
 	PublicIP   string `json:"public_ip,omitempty"`
 }
@@ -91,7 +92,21 @@ func (a *application) list(ctx context.Context, options listOptions) error {
 			report.InstanceID,
 		)
 	}
-	return writer.Flush()
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	printed := map[string]struct{}{}
+	for _, report := range reports {
+		if report.Dashboard == "" {
+			continue
+		}
+		if _, ok := printed[report.Dashboard]; ok {
+			continue
+		}
+		printed[report.Dashboard] = struct{}{}
+		_, _ = fmt.Fprintf(a.stdout, "\nDASHBOARD  %s  (admin / admin)\n", report.Dashboard)
+	}
+	return nil
 }
 
 func (a *application) inspectCluster(ctx context.Context, state clusterState) ([]nodeReport, error) {
@@ -142,7 +157,8 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 	if state.AWS == nil {
 		return nil, fmt.Errorf("aws metadata is missing")
 	}
-	if state.AWS.InstanceID == "" {
+	ids := state.AWS.instanceIDs()
+	if len(ids) == 0 {
 		reports := make([]nodeReport, len(state.Nodes))
 		for i, node := range state.Nodes {
 			reports[i] = nodeReport{
@@ -151,7 +167,7 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 				Node:      node.Name,
 				Status:    state.Status,
 				Height:    "-",
-				EVMTarget: fmt.Sprintf("SSH→127.0.0.1:%d", node.EVMHostPort),
+				EVMTarget: fmt.Sprintf("SSH→127.0.0.1:%d", state.AWS.evmPort(node)),
 			}
 		}
 		return reports, nil
@@ -160,27 +176,41 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 	if err := a.ensureAWSCredentials(ctx, client); err != nil {
 		return nil, err
 	}
-	instanceStatus, err := client.output(ctx,
-		"ec2", "describe-instances",
-		"--instance-ids", state.AWS.InstanceID,
-		"--query", "Reservations[0].Instances[0].State.Name",
-		"--output", "text",
-	)
+	args := append([]string{"ec2", "describe-instances", "--instance-ids"}, ids...)
+	args = append(args, "--query", "Reservations[].Instances[].[InstanceId,State.Name]", "--output", "text")
+	value, err := client.output(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
-	instanceStatus = strings.TrimSpace(instanceStatus)
+	instanceStatus := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(value), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			instanceStatus[fields[0]] = fields[1]
+		}
+	}
+	dashboard := ""
+	if load, ok := state.AWS.loadHost(); ok {
+		dashboard = grafanaPublicURL(load.PublicIP)
+	}
 	reports := make([]nodeReport, len(state.Nodes))
 	for i, node := range state.Nodes {
-		status := instanceStatus
+		host, ok := state.AWS.validatorByIndex(node.Index)
+		if !ok {
+			host = awsHost{InstanceID: state.AWS.InstanceID, PublicIP: state.AWS.PublicIP}
+		}
+		status := instanceStatus[host.InstanceID]
+		if status == "" {
+			status = state.Status
+		}
 		height := "-"
-		if instanceStatus == "running" && state.AWS.PublicIP != "" {
-			value, inspectErr := a.runner.output(ctx, sshCommand(state,
+		if status == "running" && host.PublicIP != "" {
+			value, inspectErr := a.runner.output(ctx, sshCommandTo(state, host,
 				"docker inspect --format '{{.State.Status}}' "+shellQuote(node.Container)))
 			if inspectErr == nil {
 				status = strings.TrimSpace(value)
 			}
-			value, heightErr := a.runner.output(ctx, sshCommand(state,
+			value, heightErr := a.runner.output(ctx, sshCommandTo(state, host,
 				"docker exec "+shellQuote(node.Container)+" curl -fsS http://127.0.0.1:26660/metrics"))
 			if heightErr == nil {
 				height = parseAutobahnExecutedHeight(value)
@@ -192,9 +222,10 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 			Node:       node.Name,
 			Status:     status,
 			Height:     height,
-			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", node.EVMHostPort),
-			InstanceID: state.AWS.InstanceID,
-			PublicIP:   state.AWS.PublicIP,
+			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", state.AWS.evmPort(node)),
+			Dashboard:  dashboard,
+			InstanceID: host.InstanceID,
+			PublicIP:   host.PublicIP,
 		}
 	}
 	return reports, nil

@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -28,28 +28,14 @@ import (
 
 const v68OfflineUpgradeName = "v6.8"
 
-const v68OfflineUpgradeBlockTimeUnix = 1_700_000_000
-
 const (
 	v68OfflineAuthVersionAfter   uint64 = 4
 	v68OfflinePostUpgradeFee     int64  = 200000
 	v68OfflineLegacyVestingTypes        = "/cosmos.vesting.v1beta1."
 )
 
-var v68OfflineUpgradeBlockTime = time.Unix(v68OfflineUpgradeBlockTimeUnix, 0).UTC()
-
-func v68OfflineStoreNames(testApp *App) []string {
-	keys := testApp.CommitMultiStore().StoreKeys()
-	names := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if testApp.GetKey(key.Name()) == nil {
-			continue
-		}
-		names = append(names, key.Name())
-	}
-	sort.Strings(names)
-	return names
-}
+var v68OfflineRemovedModules = []string{"oracle", "vesting"}
+var v68OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
 
 func TestV68OfflineUpgradeTarget(t *testing.T) {
 	t.Run("fixture", testV68OfflineUpgradeTargetFixture)
@@ -94,7 +80,6 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	requireV68OfflinePersistedPlanHasHandler(t, testApp, artifact)
 	require.Equal(t, artifact.ModuleVersions, offlineUpgradeModuleVersions(t, testApp),
 		"v6.8 did not reopen the v6.7 module version map")
-	require.Equal(t, sortedOfflineStoreNames(artifact.Stores), v68OfflineStoreNames(testApp))
 	requireV68OfflineLegacyAccountsStored(t, testApp, artifact)
 
 	finalizeV68OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
@@ -102,13 +87,15 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	closeOfflineUpgradeApp(t, testApp)
 
 	reopened := openOfflineUpgradeApp(t, root, false)
-	defer closeOfflineUpgradeApp(t, reopened)
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	require.Equal(t, sortedOfflineStoreNames(artifact.Stores), v68OfflineStoreNames(reopened))
+	requireV68OfflineOracleStoreDeleted(t, reopened)
 	requireV68OfflineAccountsRewritten(t, reopened, artifact)
-	return committedOfflineUpgradeHash(t, reopened)
+	hash := committedOfflineUpgradeHash(t, reopened)
+	closeOfflineUpgradeApp(t, reopened)
+	requireV68OfflineOracleTreeDeleted(t, root)
+	return hash
 }
 
 func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
@@ -130,12 +117,15 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 	closeOfflineUpgradeApp(t, interrupted)
 
 	reopened := openOfflineUpgradeApp(t, root, false)
-	defer closeOfflineUpgradeApp(t, reopened)
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
+	requireV68OfflineOracleStoreDeleted(t, reopened)
 	requireV68OfflineAccountsRewritten(t, reopened, artifact)
-	return committedOfflineUpgradeHash(t, reopened)
+	hash := committedOfflineUpgradeHash(t, reopened)
+	closeOfflineUpgradeApp(t, reopened)
+	requireV68OfflineOracleTreeDeleted(t, root)
+	return hash
 }
 
 func requireV68OfflinePersistedPlanHasHandler(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
@@ -164,9 +154,7 @@ func finalizeV68OfflineUpgrade(t *testing.T, testApp *App, height int64) {
 	_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Hash: []byte("offline-upgrade"),
 		Header: &tmproto.Header{
-			ChainID: offlineUpgradeChainID,
-			Height:  height,
-			Time:    v68OfflineUpgradeBlockTime,
+			ChainID: offlineUpgradeChainID, Height: height, Time: v68OfflineUpgradeBlockTime,
 		},
 	})
 	require.NoError(t, err)
@@ -188,13 +176,38 @@ func requireV68OfflineLegacyAccountsStored(t *testing.T, testApp *App, artifact 
 func requireV68OfflineVersionMap(t *testing.T, testApp *App, before []string) {
 	t.Helper()
 	after := offlineUpgradeModuleVersions(t, testApp)
-	require.Equal(t, []string{"vesting"}, offlineUpgradeDifference(before, after),
+	require.Equal(t, v68OfflineRemovedModules, offlineUpgradeDifference(before, after),
 		"v6.8 removed an unexpected set of module versions")
 	require.Empty(t, offlineUpgradeDifference(after, before), "v6.8 added a module version")
-	require.False(t, offlineUpgradeHasModuleVersion(t, testApp, "vesting"),
-		"upgrade store still has a version-map entry for vesting")
+	for _, module := range v68OfflineRemovedModules {
+		require.False(t, offlineUpgradeHasModuleVersion(t, testApp, module),
+			"upgrade store still has a version-map entry for %s", module)
+	}
 	versions := testApp.UpgradeKeeper.GetModuleVersionMap(offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()))
 	require.Equal(t, v68OfflineAuthVersionAfter, versions[authtypes.ModuleName])
+}
+
+func requireV68OfflineOracleStoreDeleted(t *testing.T, testApp *App) {
+	t.Helper()
+	for _, key := range testApp.CommitMultiStore().StoreKeys() {
+		require.NotEqual(t, "oracle", key.Name())
+	}
+}
+
+func requireV68OfflineOracleTreeDeleted(t *testing.T, root string) {
+	t.Helper()
+	store := memiavl.NewCommitStore(filepath.Join(root, "home"), memiavl.DefaultConfig())
+	defer func() {
+		require.NoError(t, store.Close())
+	}()
+	latestVersion, err := store.GetLatestVersion()
+	require.NoError(t, err)
+	require.NotZero(t, latestVersion)
+	_, err = store.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, latestVersion, store.Version())
+	require.NotNil(t, store.GetDB().TreeByName("bank"))
+	require.Nil(t, store.GetDB().TreeByName("oracle"))
 }
 
 // requireV68OfflineAccountsRewritten requires every recorded vesting account to
@@ -371,6 +384,7 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	testApp := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	sourceHeight := testApp.LastBlockHeight()
 	beforeVersions := offlineUpgradeModuleVersions(t, testApp)
+	require.Contains(t, beforeVersions, "oracle")
 	require.Contains(t, beforeVersions, "vesting",
 		"%s is not a pre-v6.8 snapshot: module version map is missing vesting", home)
 	legacy := v68OfflineLegacyVestingAccounts(t, testApp, offlineUpgradeContext(testApp, sourceHeight, chainID))
@@ -394,8 +408,7 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 
 	reopened := openOfflineUpgradeSnapshotApp(t, home, chainID)
 	defer closeOfflineUpgradeApp(t, reopened)
-	require.Equal(t, []string{"vesting"}, offlineUpgradeDifference(beforeVersions, offlineUpgradeModuleVersions(t, reopened)),
-		"v6.8 removed an unexpected set of module versions")
+	requireV68OfflineVersionMap(t, reopened, beforeVersions)
 	ctx := offlineUpgradeContext(reopened, reopened.LastBlockHeight(), chainID)
 	require.Empty(t, v68OfflineLegacyVestingAccounts(t, reopened, ctx), "accounts are still stored under a vesting type")
 	for _, address := range legacy {
@@ -422,13 +435,4 @@ func v68OfflineLegacyVestingAccounts(t *testing.T, testApp *App, ctx sdk.Context
 		}
 	}
 	return addresses
-}
-
-func sortedOfflineStoreNames(stores map[string]map[string]string) []string {
-	names := make([]string, 0, len(stores))
-	for name := range stores {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

@@ -5,9 +5,10 @@ package app
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -34,37 +35,19 @@ const (
 	v68OfflineAuthVersion    uint64 = 3
 )
 
-func v68OfflineStoreNames(testApp *App) []string {
-	keys := testApp.CommitMultiStore().StoreKeys()
-	names := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if testApp.GetKey(key.Name()) == nil {
-			continue
-		}
-		names = append(names, key.Name())
-	}
-	sort.Strings(names)
-	return names
-}
+var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank"}
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
-
+	seedV68OfflineOracleState(t, testApp, ctx)
 	vesting, retained := seedV68OfflineVestingAccounts(t, testApp, ctx)
 	requireV68OfflineBalancesLocked(t, testApp, ctx, retained)
-	stores := make(map[string]map[string]string)
-	for _, name := range v68OfflineStoreNames(testApp) {
-		stores[name] = map[string]string{}
-	}
-	stores[authtypes.StoreKey] = snapshotOfflineUpgradeStore(t, testApp, ctx, authtypes.StoreKey)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
-		Name:   v68OfflineUpgradeName,
-		Height: upgradeHeight,
+		Name: v68OfflineUpgradeName, Height: upgradeHeight,
 	}))
-
 	commitOfflineUpgradeApp(t, testApp)
 	sourceHeight := testApp.LastBlockHeight()
 	plan, found := committedOfflineUpgradePlan(t, testApp)
@@ -72,77 +55,55 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.Equal(t, v68OfflineUpgradeName, plan.Name)
 	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
+	require.Contains(t, moduleVersions, "oracle")
 	require.Contains(t, moduleVersions, "vesting", "v6.7 module version map does not contain vesting")
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(offlineUpgradeReadContext(testApp, sourceHeight))
 	require.Equal(t, v68OfflineAuthVersion, versionMap[authtypes.ModuleName])
+	storeNames := make([]string, 0, len(v68OfflineSourceStores))
+	for _, name := range v68OfflineSourceStores {
+		if testApp.GetKey(name) == nil {
+			continue
+		}
+		storeNames = append(storeNames, name)
+	}
+	stores := snapshotOfflineUpgradeStores(t, testApp, ctx, storeNames)
 	closeOfflineUpgradeApp(t, testApp)
-
 	writeOfflineUpgradeArtifact(t, root, offlineUpgradeArtifact{
-		Upgrade:         v68OfflineUpgradeName,
-		SourceHeight:    sourceHeight,
-		UpgradeHeight:   upgradeHeight,
-		ModuleVersions:  moduleVersions,
-		Stores:          stores,
-		Retained:        retained,
+		Upgrade: plan.Name, SourceHeight: sourceHeight, UpgradeHeight: upgradeHeight,
+		ModuleVersions: moduleVersions, Stores: stores, Retained: retained,
 		VestingAccounts: vesting,
 	})
-
 	requireV68OfflineUnupgradedHalt(t, root, sourceHeight, upgradeHeight)
+	copyV68OfflineUpgradeInfo(t, root, upgradeHeight)
 }
 
+// TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose Oracle tree v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
-	require.Equal(t, v68OfflineUpgradeName, artifact.Upgrade)
-	require.NotEmpty(t, artifact.UpgradeHash, "target phase did not record the post-upgrade application hash")
-
+	require.Equal(t, "v6.8", artifact.Upgrade)
+	require.NotEmpty(t, artifact.UpgradeHash)
 	migrated := offlineUpgradeMigratedDatabase(t, root, artifact)
 	reopenRoot := filepath.Join(root, "reopen")
 	copyOfflineUpgradeDatabase(t, migrated, reopenRoot)
 
-	testApp := openOfflineUpgradeApp(t, reopenRoot, false)
-	defer closeOfflineUpgradeApp(t, testApp)
-
-	require.Equal(t, artifact.UpgradeHeight, testApp.LastBlockHeight(),
-		"v6.7 opened the migrated database at a different height than v6.8 left it")
-	require.NotContains(t, offlineUpgradeModuleVersions(t, testApp), "vesting",
-		"v6.7 still sees a vesting version-map entry after v6.8 deleted it")
-	requireOfflineUpgradeStoresMounted(t, testApp, sortedOfflineStoreNames(artifact.Stores))
-
-	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
-	for _, recorded := range artifact.VestingAccounts {
-		address := sdk.MustAccAddressFromBech32(recorded.Address)
-		account, ok := testApp.AccountKeeper.GetAccount(ctx, address).(*authtypes.BaseAccount)
-		require.True(t, ok, "v6.7 does not read the %s v6.8 rewrote as a base account", recorded.TypeURL)
-		require.Equal(t, recorded.AccountNumber, account.GetAccountNumber())
-		require.Equal(t, recorded.Sequence, account.GetSequence())
-		require.Equal(t, recorded.PubKey, hex.EncodeToString(account.GetPubKey().Bytes()))
-		balance, err := sdk.ParseCoinsNormalized(recorded.Balance)
-		require.NoError(t, err)
-		require.Equal(t, balance, testApp.BankKeeper.SpendableCoins(ctx, address),
-			"v6.7 still locks the balance of the %s v6.8 rewrote", recorded.TypeURL)
-	}
-
-	lastName, lastHeight := testApp.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
-	require.Equal(t, artifact.Upgrade, lastName)
-	require.Equal(t, artifact.UpgradeHeight, lastHeight)
-	require.False(t, testApp.UpgradeKeeper.HasHandler(v68OfflineUpgradeName), "v6.7 registered a v6.8 upgrade handler")
-
-	var panicked any
+	var recovered any
 	func() {
-		defer func() { panicked = recover() }()
-		_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Hash: []byte("offline-upgrade-reopen"),
-			Header: &tmproto.Header{
-				ChainID: offlineUpgradeChainID,
-				Height:  artifact.UpgradeHeight + 1,
-			},
-		})
-		require.NoError(t, err, "v6.7 returned from FinalizeBlock without panicking")
+		defer func() {
+			recovered = recover()
+		}()
+		testApp := openOfflineUpgradeApp(t, reopenRoot, false)
+		closeOfflineUpgradeApp(t, testApp)
 	}()
-	require.NotNil(t, panicked, "v6.7 produced a block on the migrated database")
-	require.Contains(t, fmt.Sprint(panicked), "upgrade handler is missing for v6.8 upgrade plan",
-		"v6.7 panicked for a different reason: %v", panicked)
+	require.NotNil(t, recovered,
+		"v6.7 binary reopened a database whose oracle tree was deleted")
+	require.Contains(t, fmt.Sprint(recovered), `store "oracle"`)
+}
+
+// seedV68OfflineOracleState writes an entry to the oracle store v6.8 deletes.
+func seedV68OfflineOracleState(t *testing.T, testApp *App, ctx sdk.Context) {
+	t.Helper()
+	ctx.KVStore(testApp.GetKey("oracle")).Set([]byte("historical"), []byte("retained"))
 }
 
 // seedV68OfflineVestingAccounts writes one account of every vesting type
@@ -267,11 +228,22 @@ func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, up
 		"v6.7 left committed state behind after halting at the v6.8 plan height")
 }
 
-func sortedOfflineStoreNames(stores map[string]map[string]string) []string {
-	names := make([]string, 0, len(stores))
-	for name := range stores {
-		names = append(names, name)
+func copyV68OfflineUpgradeInfo(t *testing.T, root string, upgradeHeight int64) {
+	t.Helper()
+	source := filepath.Join(root, "unupgraded-halt", "home", "data", "upgrade-info.json")
+	info, err := os.Stat(source)
+	require.NoError(t, err)
+	require.False(t, info.IsDir())
+	data, err := os.ReadFile(source)
+	require.NoError(t, err)
+	var upgradeInfo struct {
+		Name   string `json:"name"`
+		Height int64  `json:"height"`
 	}
-	sort.Strings(names)
-	return names
+	require.NoError(t, json.Unmarshal(data, &upgradeInfo))
+	require.Equal(t, "v6.8", upgradeInfo.Name)
+	require.Equal(t, upgradeHeight, upgradeInfo.Height)
+	target := filepath.Join(root, "home", "data", "upgrade-info.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o750))
+	copyOfflineUpgradeFile(t, source, target)
 }

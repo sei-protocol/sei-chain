@@ -20,6 +20,7 @@ func storedInfoConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cfg.MemIAVLConfig.SnapshotKeepRecent = 1000
+	cfg.FlatKVConfig.SnapshotKeepRecent = 1000
 	return cfg
 }
 

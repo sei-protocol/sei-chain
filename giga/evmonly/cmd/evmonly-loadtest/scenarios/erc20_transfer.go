@@ -16,6 +16,8 @@ type ERC20TransferWorkload struct {
 	scenario             loadoffline.Scenario
 	conflictParticipants int
 	accountCursor        atomic.Uint64
+	poolSeeded           atomic.Bool
+	pool                 []common.Address
 }
 
 func NewERC20TransferWorkload(cfg Config, state State) (*ERC20TransferWorkload, error) {
@@ -36,19 +38,23 @@ func NewERC20TransferWorkload(cfg Config, state State) (*ERC20TransferWorkload, 
 
 func (w *ERC20TransferWorkload) BuildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
 	txs := make([][]byte, w.cfg.TxsPerBlock)
+	base := senderRangeBase(w.cfg, number, &w.accountCursor)
 	for i := 0; i < w.cfg.TxsPerBlock; i++ {
 		select {
 		case <-ctx.Done():
 			return evmonly.BlockRequest{}, ctx.Err()
 		default:
 		}
-		accountIndex := w.accountCursor.Add(1)
+		accountIndex := base + uint64(i) //nolint:gosec // i is bounded by txsPerBlock.
+		slot := w.cfg.senderFor(accountIndex)
 		recipient := w.Recipient(number, i, accountIndex)
-		raw, sender, err := w.buildTransferTx(accountIndex, recipient)
+		raw, sender, err := w.buildTransferTx(slot, recipient)
 		if err != nil {
 			return evmonly.BlockRequest{}, err
 		}
-		w.scenario.SeedSender(w.state, sender)
+		if !w.poolSeeded.Load() {
+			w.scenario.SeedSender(w.state, sender)
+		}
 		txs[i] = raw
 	}
 	return evmonly.BlockRequest{
@@ -57,13 +63,13 @@ func (w *ERC20TransferWorkload) BuildBlock(ctx context.Context, number uint64) (
 	}, nil
 }
 
-func (w *ERC20TransferWorkload) buildTransferTx(accountIndex uint64, recipient common.Address) ([]byte, common.Address, error) {
-	key, err := DeterministicPrivateKey(accountIndex)
+func (w *ERC20TransferWorkload) buildTransferTx(slot senderSlot, recipient common.Address) ([]byte, common.Address, error) {
+	key, err := DeterministicPrivateKey(slot.account)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	signed, err := w.scenario.BuildTransaction(key, 0, recipient)
+	signed, err := w.scenario.BuildTransaction(key, slot.nonce, recipient)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
@@ -75,9 +81,22 @@ func (w *ERC20TransferWorkload) buildTransferTx(accountIndex uint64, recipient c
 }
 
 func (w *ERC20TransferWorkload) Recipient(blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
-	return workloadRecipient(w.cfg, w.conflictParticipants, "sei-evmonly-loadtest-erc20-recipient", "sei-evmonly-loadtest-erc20-conflict-recipient", blockNumber, txIndex, accountIndex)
+	return workloadRecipient(w.cfg, w.pool, w.conflictParticipants, "sei-evmonly-loadtest-erc20-recipient", "sei-evmonly-loadtest-erc20-conflict-recipient", blockNumber, txIndex, accountIndex)
 }
 
 func ERC20BalanceSlot(owner common.Address) common.Hash {
 	return loadoffline.ERC20BalanceSlot(owner)
+}
+
+// SeedAccountPool satisfies PoolSeeder.
+func (w *ERC20TransferWorkload) SeedAccountPool(ctx context.Context) error {
+	pool, err := seedAccountPool(ctx, w.cfg, func(addr common.Address) { w.scenario.SeedSender(w.state, addr) })
+	if err != nil {
+		return err
+	}
+	w.pool = pool
+	// Blocks are built after genesis is committed, and the state refuses writes by then. Every sender
+	// they draw is already in it, so the per-transaction seed has nothing left to add.
+	w.poolSeeded.Store(true)
+	return nil
 }

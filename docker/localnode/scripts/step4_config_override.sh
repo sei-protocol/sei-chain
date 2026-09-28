@@ -37,7 +37,11 @@ if [ "$VALIDATOR" != "true" ]; then
 fi
 
 # Override up persistent peers
-NODE_IP=$(hostname -i | awk '{print $1}')
+if [ -n "$ADVERTISE_IP" ]; then
+  NODE_IP="$ADVERTISE_IP"
+else
+  NODE_IP=$(hostname -i | awk '{print $1}')
+fi
 PEERS=$(cat build/generated/persistent_peers.txt |grep -v "$NODE_IP" | paste -sd "," -)
 sed -i'' -e 's/persistent-peers = ""/persistent-peers = "'$PEERS'"/g' ~/.sei/config/config.toml
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -23,12 +24,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// v6.8 removes the vesting module. The module owned no store: its state is the
-// accounts it wrote to the auth account store, which the auth 3 to 4 migration
-// rewrites as the base accounts they embed, and its version-map entry, which
-// the handler deletes. These tests cover the rewrite of every vesting account
-// type, spending a balance a schedule had locked, the message the module
-// served, genesis export over the migrated store, and the handler itself.
+// v6.8 removes the oracle and vesting modules. The store loader deletes the
+// oracle store at the upgrade height, and the handler deletes both modules'
+// version-map entries. Vesting owned no store: its state is the accounts it
+// wrote to the auth account store, which the auth 3 to 4 migration rewrites as
+// the base accounts they embed. These tests cover the rewrite of every vesting
+// account type, spending a balance a schedule had locked, the messages both
+// modules served, genesis export over the migrated store, and the handler
+// itself.
 
 const (
 	v68UpgradeName = "v6.8"
@@ -95,12 +98,13 @@ type v68VestingFixture struct {
 	balance sdk.Coins
 }
 
-// seedV67VersionMap records auth at its v6.7 consensus version and vesting in
-// the version map, as every chain upgrading from v6.7 carries them.
+// seedV67VersionMap records in the version map what every chain upgrading from
+// v6.7 carries: auth at its v6.7 consensus version, oracle, and vesting.
 func seedV67VersionMap(t *testing.T, a *processblock.App) {
 	t.Helper()
 	versionMap := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	versionMap[authtypes.ModuleName] = v68AuthVersionBefore
+	versionMap[retiredoracle.ModuleName] = 1
 	versionMap[v68VestingModule] = 1
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
 }
@@ -174,36 +178,18 @@ func v68BankSupply(a *processblock.App) map[string]string {
 	return supplies
 }
 
-func TestV68Upgrade(t *testing.T) {
-	app := newV68Chain(t)
-	beforeVersions := app.UpgradeKeeper.GetModuleVersionMap(app.Ctx())
-	require.Contains(t, beforeVersions, "oracle")
-	sender := app.NewSignableAccount("v68-sender")
-	receiver := app.NewAccount()
-	app.FundAccount(sender, 1_000_000)
-	require.Equal(t, []uint32{0}, app.RunBlock([]signing.Tx{
-		app.Sign(sender, 0, msgs.Send(sender, receiver, 1)),
-	}))
-
-	applyV68(t, app)
-	require.Equal(t, beforeVersions, app.UpgradeKeeper.GetModuleVersionMap(app.Ctx()))
-	require.Equal(t, []uint32{0}, app.RunBlock([]signing.Tx{
-		app.Sign(sender, 0, msgs.Send(sender, receiver, 1)),
-	}))
-}
-
 func TestV68UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
 	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
-	app := processblock.NewTestApp(t)
-	processblock.CommonPreset(app)
-	app.RegisterUpgradeHandlers()
-	require.False(t, app.UpgradeKeeper.HasHandler(v68UpgradeName))
-	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(app.Ctx(), upgradetypes.Plan{
+	a := processblock.NewTestApp(t)
+	processblock.CommonPreset(a)
+	a.RegisterUpgradeHandlers()
+	require.False(t, a.UpgradeKeeper.HasHandler(v68UpgradeName))
+	require.NoError(t, a.UpgradeKeeper.ScheduleUpgrade(a.Ctx(), upgradetypes.Plan{
 		Name: v68UpgradeName, Height: 3,
 	}))
-	app.RunBlock(nil)
-	app.RunBlock(nil)
-	require.Panics(t, func() { app.RunBlock(nil) })
+	a.RunBlock(nil)
+	a.RunBlock(nil)
+	require.Panics(t, func() { a.RunBlock(nil) })
 }
 
 // TestV68RewritesVestingAccountsAsBaseAccounts applies v6.8 to an account of
@@ -245,13 +231,15 @@ func TestV68RewritesVestingAccountsAsBaseAccounts(t *testing.T) {
 	require.Equal(t, supplyBefore, v68BankSupply(a), "v6.8 moved or burned supply")
 
 	versionsAfter := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
+	require.NotContains(t, versionsAfter, retiredoracle.ModuleName)
 	require.NotContains(t, versionsAfter, v68VestingModule)
 	require.Equal(t, v68AuthVersion, versionsAfter[authtypes.ModuleName])
+	delete(versionsBefore, retiredoracle.ModuleName)
 	delete(versionsBefore, v68VestingModule)
 	delete(versionsBefore, authtypes.ModuleName)
 	delete(versionsAfter, authtypes.ModuleName)
 	require.Equal(t, versionsBefore, versionsAfter,
-		"v6.8 changed a module version other than removing vesting and moving auth")
+		"v6.8 changed a module version other than removing oracle and vesting and moving auth")
 }
 
 // TestV68ConvertedAccountSpendsTheBalanceItsScheduleLocked delivers a bank send
@@ -294,6 +282,8 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 	onceVersions := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	onceDone := a.UpgradeKeeper.GetDoneHeight(a.Ctx(), v68UpgradeName)
 	onceAppVersion := a.AppVersion()
+	require.NotContains(t, onceVersions, retiredoracle.ModuleName)
+	require.NotContains(t, onceVersions, v68VestingModule)
 	require.Equal(t, a.Ctx().BlockHeight(), onceDone)
 
 	require.NotPanics(t, func() { applyV68(t, a) })
@@ -306,6 +296,47 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 		"second ApplyUpgrade changed the done height")
 	require.Equal(t, onceAppVersion+1, a.AppVersion(),
 		"second ApplyUpgrade is not a no-op: ApplyUpgrade increments protocol version on every call")
+}
+
+// TestV68RejectsOracleTxsWithoutCharging pins that retired oracle transactions
+// are refused before fees are charged.
+func TestV68RejectsOracleTxsWithoutCharging(t *testing.T) {
+	app := newV68Chain(t)
+	applyV68(t, app)
+	signers := []sdk.AccAddress{
+		app.NewSignableAccount("oracle-spammer-1"),
+		app.NewSignableAccount("oracle-spammer-2"),
+	}
+	for _, signer := range signers {
+		app.FundAccount(signer, 1000000000)
+	}
+	before := make([]sdk.Coin, len(signers))
+	txs := []signing.Tx{
+		app.Sign(signers[0], 200000, retiredoracle.NewMsgAggregateExchangeRateVote(
+			"1.5uatom", signers[0], sdk.ValAddress(signers[0]))),
+		app.Sign(signers[1], 200000, retiredoracle.NewMsgDelegateFeedConsent(
+			sdk.ValAddress(signers[1]), signers[1])),
+	}
+	for i, signer := range signers {
+		before[i] = app.BankKeeper.GetBalance(app.Ctx(), signer, "usei")
+	}
+
+	results := app.RunBlockDetailed(txs)
+	require.Len(t, results, len(txs))
+	for i, result := range results {
+		require.Equal(t, uint32(retiredoracle.ErrDeprecated.ABCICode()), result.Code)
+		require.Equal(t, retiredoracle.ErrDeprecated.Codespace(), result.Codespace)
+		require.Contains(t, result.Log, retiredoracle.ErrDeprecated.Error())
+		require.Equal(t, before[i], app.BankKeeper.GetBalance(app.Ctx(), signers[i], "usei"))
+	}
+
+	for _, tx := range txs {
+		txBytes, err := processblock.TxConfig.TxEncoder()(tx)
+		require.NoError(t, err)
+		check := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+		require.Equal(t, uint32(retiredoracle.ErrDeprecated.ABCICode()), check.Code)
+		require.Equal(t, retiredoracle.ErrDeprecated.Codespace(), check.Codespace)
+	}
 }
 
 // TestV68RejectsTheVestingMessageWithoutCharging delivers and checks a signed
@@ -341,6 +372,19 @@ func TestV68RejectsTheVestingMessageWithoutCharging(t *testing.T) {
 	check := a.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
 	require.Equal(t, retiredvesting.ErrDeprecated.ABCICode(), check.Code, check.Log)
 	require.Equal(t, retiredvesting.ErrDeprecated.Codespace(), check.Codespace)
+}
+
+func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
+	app := newV68Chain(t)
+	applyV68(t, app)
+	exported, err := app.ExportAppStateAndValidators(false, nil)
+	require.NoError(t, err)
+	var state map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(exported.AppState, &state))
+	_, found := state["bank"]
+	require.True(t, found)
+	_, found = state["oracle"]
+	require.False(t, found)
 }
 
 // TestV68ExportsNoVestingState exports genesis after v6.8. Export decodes every
@@ -382,16 +426,17 @@ func TestV68ExportsNoVestingState(t *testing.T) {
 // ID where v6.7 refuses to create vesting accounts, so the account rewrite is
 // covered by the tests above and the offline upgrade, not here.
 func TestV68CrossVersion(t *testing.T) {
-	upgradetest.RunCrossVersion(t, seedV67VestingModule, verifyV68VestingRemoval)
+	upgradetest.RunCrossVersion(t, seedV67State, verifyV68State)
 }
 
-// seedV67VestingModule records the v6.7 version map, which carries vesting and
-// auth at consensus version 3, requires v6.7 to serve the vesting command, and
-// delivers a bank send before the upgrade.
-func seedV67VestingModule(t *testing.T, chain *upgradetest.CrossVersion) {
+// seedV67State records the v6.7 version map, which carries oracle and vesting
+// with auth at consensus version 3, requires v6.7 to serve the vesting command,
+// and delivers a bank send before the upgrade.
+func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 
 	versions := v68ModuleVersions(t, chain)
+	require.Contains(t, versions, retiredoracle.ModuleName, "v6.7 module version map does not carry oracle")
 	require.Equal(t, uint64(1), versions[v68VestingModule], "v6.7 module version map does not carry vesting")
 	require.Equal(t, v68AuthVersionBefore, versions[authtypes.ModuleName])
 	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
@@ -415,7 +460,7 @@ func seedV67VestingModule(t *testing.T, chain *upgradetest.CrossVersion) {
 	))
 }
 
-func verifyV68VestingRemoval(t *testing.T, chain *upgradetest.CrossVersion) {
+func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 
 	appliedHeight := v68AppliedHeight(t, chain)
@@ -431,16 +476,25 @@ func verifyV68VestingRemoval(t *testing.T, chain *upgradetest.CrossVersion) {
 	for name, version := range before {
 		want[name] = version
 	}
+	delete(want, retiredoracle.ModuleName)
 	delete(want, v68VestingModule)
 	want[authtypes.ModuleName] = v68AuthVersion
 	want[govtypes.ModuleName] = v68GovVersion
 	after := v68ModuleVersions(t, chain)
 	chain.Record(t, "module_versions_after", after)
 	require.Equal(t, want, after,
-		"v6.8 changed the version map beyond removing vesting, moving auth to %d and moving gov to %d",
+		"v6.8 changed the version map beyond removing oracle and vesting, moving auth to %d and moving gov to %d",
 		v68AuthVersion, v68GovVersion)
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.8 upgrade store still carries the vesting version-map entry")
+
+	oracleCommand := chain.Seid("", "q", retiredoracle.ModuleName)
+	require.Error(t, oracleCommand.Err)
+	require.Contains(t, oracleCommand.Combined(), `unknown command "oracle"`)
+	oracleStore := chain.Binary("", "curl", "-s",
+		"http://127.0.0.1:26657/abci_query?path=%2Fstore%2Foracle%2Fkey")
+	require.NotContains(t, oracleStore.Combined(), retiredoracle.ErrDeprecated.Error())
+	require.Contains(t, oracleStore.Combined(), "no such store: oracle")
 
 	vestingCommand := chain.Seid("", "tx", v68VestingModule)
 	chain.WriteDiagnostic(t, "v68-tx-vesting.stdout", []byte(vestingCommand.Stdout))
@@ -470,9 +524,6 @@ func verifyV68VestingRemoval(t *testing.T, chain *upgradetest.CrossVersion) {
 	currentGenesis := chain.Export(t, v68RunningSeid, "v68-export")
 	require.NotContains(t, currentGenesis.AppState, v68VestingModule,
 		"v6.8 export still carries a vesting section")
-	releaseGenesis := chain.Export(t, chain.ReleaseBinary(t), "v67-export-after-v68")
-	require.Contains(t, releaseGenesis.AppState, authtypes.ModuleName,
-		"v6.7 cannot export the accounts v6.8 left behind")
 }
 
 // v68ModuleVersions returns the on-chain module version map by module name.
