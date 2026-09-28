@@ -1312,8 +1312,9 @@ loop:
 	}
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any
-	// caller that reads it in that window.
-	if rs.ssStore != nil {
+	// caller that reads it in that window. A failed restore may have imported only
+	// part of the snapshot, so it must not claim the height.
+	if rs.ssStore != nil && restoreErr == nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
 			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}

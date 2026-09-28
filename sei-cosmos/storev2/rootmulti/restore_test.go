@@ -97,50 +97,89 @@ func TestRestoreRejectsMalformedStream(t *testing.T) {
 	}
 }
 
-// failingStateStore is a state store whose Import fails, either at once or after reading every node.
-type failingStateStore struct {
+// fakeStateStore is a state store whose Import returns importErr, either at once or after reading every
+// node, and which counts the version writes restore makes.
+type fakeStateStore struct {
 	seidbtypes.StateStore
-	drain bool
+	returnEarly   bool
+	importErr     error
+	versionWrites int
 }
 
-func (f failingStateStore) Import(_ int64, ch <-chan seidbtypes.SnapshotNode) error {
-	if f.drain {
+func (f *fakeStateStore) Import(_ int64, ch <-chan seidbtypes.SnapshotNode) error {
+	if !f.returnEarly {
 		for range ch {
 		}
 	}
-	return errors.New("import failed")
+	return f.importErr
 }
 
-func (failingStateStore) SetEarliestVersion(int64, bool) error { return nil }
+func (f *fakeStateStore) SetEarliestVersion(int64, bool) error {
+	f.versionWrites++
+	return nil
+}
 
-func (failingStateStore) SetLatestVersion(int64) error { return nil }
+func (f *fakeStateStore) SetLatestVersion(int64) error {
+	f.versionWrites++
+	return nil
+}
 
-// TestRestoreReportsStateStoreImportFailure pins that a failed state-store import fails the restore,
-// whether Import returns early with the stream still being sent or after reading all of it.
-func TestRestoreReportsStateStoreImportFailure(t *testing.T) {
-	leaves := func(n int) []snapshottypes.SnapshotItem {
-		items := []snapshottypes.SnapshotItem{storeItem("bank")}
-		for i := 0; i < n; i++ {
-			items = append(items, nodeItem(0, fmt.Sprintf("k%05d", i)))
-		}
-		return items
+func leafStream(n int) []snapshottypes.SnapshotItem {
+	items := []snapshottypes.SnapshotItem{storeItem("bank")}
+	for i := 0; i < n; i++ {
+		items = append(items, nodeItem(0, fmt.Sprintf("k%05d", i)))
 	}
+	return items
+}
+
+// TestRestoreFailureLeavesStateStoreVersionsUnset pins that a failed restore returns an error and does
+// not record the snapshot height on the state store, whether the state store or the SC stream failed.
+func TestRestoreFailureLeavesStateStoreVersionsUnset(t *testing.T) {
+	importErr := errors.New("import failed")
 	cases := map[string]struct {
-		drain bool
-		items []snapshottypes.SnapshotItem
+		ss      *fakeStateStore
+		items   []snapshottypes.SnapshotItem
+		wantErr string
 	}{
 		// More leaves than the import buffer holds, so sending blocks once Import has stopped reading.
-		"returns early": {drain: false, items: leaves(20000)},
+		"state store import returns early": {
+			ss:      &fakeStateStore{returnEarly: true, importErr: importErr},
+			items:   leafStream(20000),
+			wantErr: "state store import",
+		},
 		// A single leaf is a complete tree, so only the state store fails.
-		"returns after draining": {drain: true, items: leaves(1)},
+		"state store import fails after draining": {
+			ss:      &fakeStateStore{importErr: importErr},
+			items:   leafStream(1),
+			wantErr: "state store import",
+		},
+		"SC stream fails": {
+			ss:      &fakeStateStore{},
+			items:   []snapshottypes.SnapshotItem{storeItem("bank"), nodeItem(1, "k")},
+			wantErr: "pending children",
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			store, _ := newTestRootMulti(t, t.TempDir(), memiavlOnlyConfig())
-			store.ssStore = failingStateStore{drain: tc.drain}
+			store.ssStore = tc.ss
 			err := restoreWithin(t, store, snapshotStream(t, tc.items))
-			require.ErrorContains(t, err, "state store import")
+			require.ErrorContains(t, err, tc.wantErr)
+			require.Zero(t, tc.ss.versionWrites, "a failed restore must not record the snapshot height")
 		})
 	}
+}
+
+// TestRestoreSuccessSetsStateStoreVersions pins that a successful restore records the snapshot height
+// on the state store.
+func TestRestoreSuccessSetsStateStoreVersions(t *testing.T) {
+	store, _ := newTestRootMulti(t, t.TempDir(), memiavlOnlyConfig())
+	ss := &fakeStateStore{}
+	store.ssStore = ss
+	require.NoError(t, store.scStore.Close())
+
+	_, err := store.restore(1, snapshotStream(t, leafStream(1)))
+	require.NoError(t, err)
+	require.Equal(t, 2, ss.versionWrites)
 }
