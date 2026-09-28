@@ -22,10 +22,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-const (
-	listenAddress = "0.0.0.0:8545"
-	shutdownWait  = 5 * time.Second
-)
+const shutdownWait = 5 * time.Second
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
@@ -56,19 +53,21 @@ type Backend interface {
 	EvmTransactionCount(common.Address) uint64
 }
 
-// Server serves the EVM-only JSON-RPC API on port 8545.
+// Server serves the EVM-only JSON-RPC API.
 type Server struct {
 	listener net.Listener
 	http     *http.Server
 	rpc      *ethrpc.Server
 }
 
-// Start binds the EVM-only JSON-RPC listener and returns its server.
-func Start(backend Backend, receiptStore receipt.ReceiptStore) (*Server, error) {
+// Start binds the EVM-only JSON-RPC listener on the given port, on all interfaces, and returns
+// its server.
+func Start(backend Backend, receiptStore receipt.ReceiptStore, port int) (*Server, error) {
 	rpcServer, err := newHandler(backend, receiptStore)
 	if err != nil {
 		return nil, err
 	}
+	listenAddress := fmt.Sprintf("0.0.0.0:%d", port)
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", listenAddress)
 	if err != nil {
 		rpcServer.Stop()

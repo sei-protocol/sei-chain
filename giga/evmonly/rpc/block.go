@@ -75,8 +75,7 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 // encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
 // sha3Uncles, difficulty, extraData, uncles, and totalDifficulty are always
 // their Ethereum-inapplicable zero value, matching evmrpc's v2 encoder.
-// logsBloom is always zero: unlike v2, this execution path does not read a
-// receipt per transaction to aggregate one.
+// logsBloom is always zero; receipt blooms are not aggregated here.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
 	number := block.Block.Height
 	blockHash := common.BytesToHash(block.BlockID.Hash)
@@ -95,7 +94,6 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 
 	txs := block.Block.Txs
 	transactions := make([]any, len(txs))
-	var lastReceipt *evmtypes.Receipt
 	if fullTx {
 		chainConfig, err := api.backend.EvmChainConfig()
 		if err != nil {
@@ -108,7 +106,7 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 			if err != nil {
 				return nil, err
 			}
-			stored, err := api.receiptFor(ctx, ethtx.Hash())
+			stored, err := receiptFor(ctx, api.store, ethtx.Hash())
 			if err != nil {
 				return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
 			}
@@ -117,9 +115,6 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 				replaceFrom(result, stored)
 			}
 			transactions[i] = result
-			if i == len(txs)-1 {
-				lastReceipt = stored
-			}
 		}
 	} else {
 		for i, raw := range txs {
@@ -127,27 +122,12 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 			if err != nil {
 				return nil, err
 			}
-			hash := ethtx.Hash()
-			transactions[i] = hash
-			if i == len(txs)-1 {
-				lastReceipt, err = api.receiptFor(ctx, hash)
-				if err != nil {
-					return nil, fmt.Errorf("read last transaction receipt for block %d: %w", number, err)
-				}
-			}
+			transactions[i] = ethtx.Hash()
 		}
 	}
-	// The last transaction's CumulativeGasUsed already equals the whole
-	// block's gas used; summing every transaction's own GasUsed would need a
-	// receipt per transaction instead of one.
-	//
-	// This total is scoped to the one Autobahn lane this block belongs to,
-	// not every lane executing concurrently at this point in the chain.
-	// Revisit once superblocks merge lanes into a single block; punted for
-	// now since a block today is exactly one lane's transactions.
-	var gasUsed hexutil.Uint64
-	if lastReceipt != nil {
-		gasUsed = hexutil.Uint64(lastReceipt.CumulativeGasUsed)
+	gasUsed, err := blockGasUsed(ctx, api.store, block)
+	if err != nil {
+		return nil, err
 	}
 
 	result := map[string]any{
@@ -163,7 +143,7 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
 		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
 		"gasLimit":         hexutil.Uint64(gasLimit),
-		"gasUsed":          gasUsed,
+		"gasUsed":          hexutil.Uint64(gasUsed),
 		"timestamp":        hexutil.Uint64(blockUnix),
 		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec // G115: block timestamps are positive.
 		"transactionsRoot": common.BytesToHash(block.Block.DataHash),
@@ -181,8 +161,8 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 
 // receiptFor returns hash's stored receipt, or nil with a nil error when no
 // receipt is stored for it.
-func (api *blockAPI) receiptFor(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, error) {
-	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
+func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.Hash) (*evmtypes.Receipt, error) {
+	stored, err := store.GetReceipt(receiptContext(ctx), hash)
 	if errors.Is(err, receiptpkg.ErrNotFound) {
 		return nil, nil
 	}
@@ -190,4 +170,35 @@ func (api *blockAPI) receiptFor(ctx context.Context, hash common.Hash) (*evmtype
 		return nil, err
 	}
 	return stored, nil
+}
+
+// blockGasUsed returns the gas used by block: its stored BlockStats when the store
+// has them, otherwise the total recomputed from the receipts that belong to the
+// block at their original index. It is zero when the store does not cover block.
+func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
+	// The total covers this lane's block; superblocks merging lanes would need a
+	// combined total instead.
+	height := block.Block.Height
+	if store == nil || height > store.LatestVersion() || height < store.EarliestVersion() {
+		return 0, nil
+	}
+	stats, err := store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
+	if err == nil {
+		return stats.TotalGasUsed, nil
+	}
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		// Pruned between the version check and the read.
+		return 0, nil
+	}
+	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
+		return 0, fmt.Errorf("read block stats for block %d: %w", height, err)
+	}
+	records, err := receiptRecordsFromIterator(ctx, store, height)
+	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+		records, err = receiptRecordsFromBlock(ctx, store, block)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return receiptpkg.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }

@@ -16,6 +16,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
@@ -36,7 +37,6 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,7 +101,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
 
-	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+	oracleMsg := &retiredoracle.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        account,
 		Validator:     validator,
@@ -194,7 +194,7 @@ func TestProcessBlockWithPreDecoded(t *testing.T) {
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
 
-	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+	oracleMsg := &retiredoracle.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        account,
 		Validator:     validator,

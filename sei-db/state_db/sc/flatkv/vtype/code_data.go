@@ -47,16 +47,23 @@ func NewCodeData() *CodeData {
 	return &CodeData{version: CodeDataVersion0}
 }
 
+// SerializeCode returns the serialized code value for bytecode written at blockHeight. bytecode is
+// copied, so the caller may reuse it.
+func SerializeCode(blockHeight int64, bytecode []byte) []byte {
+	data := make([]byte, codeBytecodeStart+len(bytecode))
+	data[codeVersionStart] = byte(CodeDataVersion0)
+	heightBytes := data[codeBlockHeightStart:codeBytecodeStart]
+	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	copy(data[codeBytecodeStart:], bytecode)
+	return data
+}
+
 // Serialize the code data to a byte slice.
 func (c *CodeData) Serialize() []byte {
 	if c == nil {
 		return make([]byte, codeBytecodeStart)
 	}
-	data := make([]byte, codeBytecodeStart+len(c.bytecode))
-	data[codeVersionStart] = byte(c.version)
-	binary.BigEndian.PutUint64(data[codeBlockHeightStart:codeBytecodeStart], uint64(c.blockHeight)) //nolint:gosec
-	copy(data[codeBytecodeStart:], c.bytecode)
-	return data
+	return SerializeCode(c.blockHeight, c.bytecode)
 }
 
 // Deserialize the code data from the given byte slice.
