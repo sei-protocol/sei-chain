@@ -67,6 +67,7 @@ func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 	t.Helper()
 	w, err := newStateWAL(f)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	return w
 }
 
