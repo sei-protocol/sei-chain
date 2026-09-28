@@ -86,7 +86,7 @@ func (m *GigaStorageManager) prunableStores() []controller.PrunableStore {
 		stores = append(stores, m.receiptDB)
 	}
 	if m.blockStore != nil {
-		stores = append(stores, m.blockStore.Retaining(m.cfg.BlockRetention))
+		stores = append(stores, m.blockStore)
 	}
 	return stores
 }
