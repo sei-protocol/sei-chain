@@ -215,7 +215,11 @@ func handshakeAgainst(
 	remote func(context.Context, *conn.SecretConnection) error,
 ) error {
 	t.Helper()
-	return scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+	// The local verdict takes precedence: once the local side rejects, tearing
+	// down its half of the pipe can fail the connection tasks with EOF or EPIPE
+	// before the verdict reaches the scope.
+	var localErr error
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		a, b := tcp.TestPipe()
 		s.SpawnBg(func() error { return utils.IgnoreCancel(a.Run(ctx)) })
 		s.SpawnBg(func() error { return utils.IgnoreCancel(b.Run(ctx)) })
@@ -233,9 +237,13 @@ func handshakeAgainst(
 			_, _ = conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize()))
 			return nil
 		})
-		_, err := handshake(ctx, a, localKey, localSpec, localOffer)
-		return err
+		_, localErr = handshake(ctx, a, localKey, localSpec, localOffer)
+		return localErr
 	})
+	if localErr != nil {
+		return localErr
+	}
+	return err
 }
 
 func writeHandshake(
