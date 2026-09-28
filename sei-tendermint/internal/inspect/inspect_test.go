@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	indexermocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/mocks"
 	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	httpclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -575,16 +576,12 @@ func TestBlockSearch(t *testing.T) {
 	})
 }
 
-// testRPCConfig returns the test RPC config listening on a free loopback port,
-// so tests do not collide with each other or with other test binaries.
+// testRPCConfig returns the test RPC config listening on a reserved loopback
+// port, so tests do not collide with each other or with other test binaries.
 func testRPCConfig(t testing.TB) *config.RPCConfig {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	addr := l.Addr().String()
-	require.NoError(t, l.Close())
 	cfg := config.TestRPCConfig()
-	cfg.ListenAddress = "tcp://" + addr
+	cfg.ListenAddress = "tcp://" + tcp.TestReserveAddr().String()
 	return cfg
 }
 
