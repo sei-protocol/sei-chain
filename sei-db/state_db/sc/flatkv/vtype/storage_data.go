@@ -57,6 +57,26 @@ func NewStorageData() *StorageData {
 	}
 }
 
+// SerializeStorage returns the serialized storage value for a raw 32-byte slot value written at
+// blockHeight, or nil when rawValue is all zeros, which the store records as a deletion.
+//
+// rawValue is copied, so the caller may reuse it.
+func SerializeStorage(blockHeight int64, rawValue []byte) ([]byte, error) {
+	if len(rawValue) != StorageValueLength {
+		return nil, fmt.Errorf("invalid storage value length: got %d, expected %d",
+			len(rawValue), StorageValueLength)
+	}
+	if isZero(rawValue) {
+		return nil, nil
+	}
+	data := make([]byte, storageDataLength)
+	data[storageVersionStart] = byte(StorageDataVersion0)
+	heightBytes := data[storageBlockHeightStart:storageValueStart]
+	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	copy(data[storageValueStart:], rawValue)
+	return data, nil
+}
+
 // Serialize the storage data to a byte slice.
 //
 // The returned byte slice is not safe to modify without first copying it.

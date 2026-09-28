@@ -191,3 +191,31 @@ func TestMemoryReceiptStoreHonorsCanceledContext(t *testing.T) {
 	_, err = store.FilterLogs(receiptCtx, 1, 1, filters.FilterCriteria{}, nil)
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestMemoryReceiptStoreKeepExistingPreservesReceiptAndStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	txHash := common.Hash{1}
+	original := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 7, TransactionIndex: 0, GasUsed: 21_000, Status: 1}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: original}}))
+
+	other := common.Hash{2}
+	stale := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8, TransactionIndex: 1}
+	replay := []receipt.ReceiptRecord{
+		{TxHash: other, Receipt: &evmtypes.Receipt{TxHashHex: other.Hex(), BlockNumber: 8, GasUsed: 30_000, Status: 1}},
+		{TxHash: txHash, Receipt: stale, KeepExisting: true},
+	}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8), replay))
+
+	kept, err := store.GetReceipt(newReceiptContext(t.Context(), 8), txHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), kept.BlockNumber)
+	require.Equal(t, uint64(21_000), kept.GasUsed)
+
+	stats, err := store.GetBlockStats(newReceiptContext(t.Context(), 8), 8)
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), stats.TxCount)
+	require.Equal(t, uint64(30_000), stats.TotalGasUsed)
+	stats, err = store.GetBlockStats(newReceiptContext(t.Context(), 8), 7)
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), stats.TxCount)
+}
