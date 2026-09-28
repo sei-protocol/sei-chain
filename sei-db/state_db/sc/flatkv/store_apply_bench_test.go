@@ -34,11 +34,16 @@ func BenchmarkClassifyAndPrefix(b *testing.B) {
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: miscPairs}},
 	}
 
+	// Sized from the previous iteration, as ApplyChangeSets sizes each call from the one before it.
+	var sizeHints [keys.EVMKeyKindCount]int
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := classifyAndPrefix(changeSets); err != nil {
+		classified, err := classifyAndPrefix(changeSets, sizeHints)
+		if err != nil {
 			b.Fatal(err)
 		}
+		sizeHints = classified.bucketSizes()
 	}
 }

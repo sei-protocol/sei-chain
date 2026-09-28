@@ -166,6 +166,10 @@ type CommitStore struct {
 
 	phaseTimer *metrics.PhaseTimer
 
+	// classifyBucketSizes is the length of each kind's bucket in the previous ApplyChangeSets call, used to size
+	// the next call's buckets. Zero for a kind that call did not touch.
+	classifyBucketSizes [keys.EVMKeyKindCount]int
+
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
 
