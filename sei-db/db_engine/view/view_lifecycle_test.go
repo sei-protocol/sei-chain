@@ -226,7 +226,7 @@ func TestCloseDoesNotFlush(t *testing.T) {
 	// v1 is never finalized, which deterministically keeps the background flusher away from v2:
 	// the flush frontier stops at the first unfinalized version.
 	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
-	_, err := manager.Commit()
+	view1, err := manager.Commit()
 	require.NoError(t, err)
 
 	require.NoError(t, manager.Set([]byte("k2"), []byte("v2")))
@@ -238,6 +238,8 @@ func TestCloseDoesNotFlush(t *testing.T) {
 	require.NoError(t, manager.Close())
 	require.False(t, db.has("k1"), "Close must not flush unfinalized views")
 	require.False(t, db.has("k2"), "Close must not flush finalized views either")
+	// view1 outlives its manager, so it is given up rather than released.
+	view1.Abandon()
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
@@ -251,9 +253,12 @@ func TestCloseSkipsUnfinalizedView(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 1, 4096)
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	_, err := manager.Commit()
+	view, err := manager.Commit()
 	require.NoError(t, err)
 	// Never finalized.
 	require.NoError(t, manager.Close())
 	require.False(t, db.has("k"), "Close must not flush unfinalized views")
+
+	// The view outlives its manager, so it is given up rather than released.
+	view.Abandon()
 }
