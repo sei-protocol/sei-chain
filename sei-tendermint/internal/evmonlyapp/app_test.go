@@ -1,14 +1,18 @@
 package evmonlyapp
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -18,12 +22,15 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -140,16 +147,38 @@ func newEVMOnlyTestAppWithStorage(
 	storageConfig *seidbconfig.GigaStorageConfig,
 ) abci.Application {
 	t.Helper()
-	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	return NewEVMOnlyApplication(
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	app := NewEVMOnlyApplication(
 		evmOnlyTestChainID,
 		validators,
 		storage,
 		evmonly.NewFlatKVChangeSetEncoder(storage.SC()),
 		execution,
 	)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	return app
+}
+
+// openEVMOnlyTestStorage opens Giga storage that outlives the test body: the
+// last block's commit may still be landing when it ends, and it is settled from
+// a cleanup, which runs after t.Context() is cancelled.
+func openEVMOnlyTestStorage(t *testing.T, storageConfig *seidbconfig.GigaStorageConfig) *bootstrap.GigaStorageManager {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	require.NoError(t, err)
+	return storage
+}
+
+// closeEVMOnlyTestApp closes storage the way the node does: after the
+// application has landed every block commit it started.
+func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
+	t.Helper()
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	require.NoError(t, settler.AwaitCommits())
+	require.NoError(t, storage.Close())
 }
 
 // waitForReceiptVersion blocks until the receipt store has published height. The store applies
@@ -629,8 +658,138 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{finalizePhaseTakeSenders, finalizePhaseExecute, finalizePhaseTxResults} {
+	for _, want := range []string{finalizePhaseTakeSenders, finalizePhasePrepare, finalizePhaseExecute, finalizePhaseTxResults} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
+}
+
+// A block's state lands in the store behind FinalizeBlock. Readers of committed
+// state see it before Commit, and the next block builds on it whether or not
+// the store has caught up.
+func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	block := func(height int64) *abci.RequestFinalizeBlock {
+		return evmOnlyTestBlock(height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height-1))) //nolint:gosec // G115: test heights are positive.
+	}
+
+	for height := range int64(4) {
+		_, err := app.FinalizeBlock(t.Context(), block(height+1))
+		require.NoError(t, err)
+		require.Equal(t, uint64(height+1), app.EvmNonce(sender)) //nolint:gosec // G115: test heights are positive.
+		require.Equal(t, height, app.LastBlockHeight())
+		_, err = app.Commit(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, height+1, app.LastBlockHeight())
+	}
+
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	require.NoError(t, settler.AwaitCommits())
+	latest, err := settler.storage.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(4), latest)
+}
+
+// unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store
+// refuses to apply, so the block executes and encodes cleanly and its commit is
+// the first thing that fails.
+func unwritableEVMChangeSetEncoder(evmonly.StateChangeSet) ([]*proto.NamedChangeSet, error) {
+	return []*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nil, Value: []byte{1}}}},
+	}}, nil
+}
+
+// A block's commit lands behind FinalizeBlock: the block whose commit fails is
+// still finalized and committed, and the failure surfaces from the next
+// FinalizeBlock, from read-only calls, and from settling the store, while the
+// store itself stays at the last version that landed.
+func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	app := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder, gigaconfig.DefaultConfig.Execution)
+	_, err = app.InitChain(&abci.RequestInitChain{
+		InitialHeight: 1,
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{MaxGas: 30_000_000},
+		},
+	})
+	require.NoError(t, err)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+
+	// Block 1 is unwritable, yet it finalizes and commits: the write has not
+	// been waited for.
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
+	require.Equal(t, int64(1), app.LastBlockHeight())
+
+	// The failed write is reported by the next block, and stays reported.
+	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
+	require.Error(t, err)
+	require.Error(t, settler.AwaitCommits())
+	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(big.Int), Value: new(big.Int)})
+	require.Error(t, err)
+
+	// The block that failed to finalize left nothing staged, and the store never
+	// moved past genesis.
+	_, err = app.Commit(t.Context())
+	require.Error(t, err)
+	require.Equal(t, int64(1), app.LastBlockHeight())
+	latest, err := storage.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), latest)
+}
+
+// Committed-state readers running alongside FinalizeBlock observe every block
+// in order and never see a block's state go backwards while its commit lands.
+func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
+	const blocks = 16
+	app := newInitializedEVMOnlyTestApp(t)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	txs := make([][]byte, blocks)
+	for i := range txs {
+		txs[i] = signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(i)) //nolint:gosec // G115: i is non-negative.
+	}
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		var done atomic.Bool
+		s.Spawn(func() error {
+			var last uint64
+			for !done.Load() {
+				nonce := app.EvmNonce(sender)
+				if nonce < last {
+					return fmt.Errorf("nonce went back from %d to %d", last, nonce)
+				}
+				last = nonce
+				// A call may be refused while a finalized block awaits Commit;
+				// what matters is that it never races the commit it settles.
+				_, _ = settler.EvmCall(ctx, callMessage(sender, nil))
+			}
+			return nil
+		})
+		defer done.Store(true)
+		for height := range int64(blocks) {
+			if _, err := app.FinalizeBlock(ctx, evmOnlyTestBlock(height+1, txs[height])); err != nil {
+				return err
+			}
+			if _, err := app.Commit(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, settler.AwaitCommits())
+	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
 }

@@ -8,6 +8,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -35,13 +36,18 @@ type KVExporter struct {
 	version    int64
 	iter       dbm.Iterator
 	headerSent bool
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[KVExporter]
 }
 
 func NewKVExporter(store *CommitStore, version int64) *KVExporter {
-	return &KVExporter{
+	e := &KVExporter{
 		store:   store,
 		version: version,
 	}
+	e.closed = utils.MustClose(e, "flatkv exporter")
+	return e
 }
 
 func (e *KVExporter) Next() (interface{}, error) {
@@ -86,6 +92,7 @@ func (e *KVExporter) Next() (interface{}, error) {
 }
 
 func (e *KVExporter) Close() error {
+	e.closed.Close(e)
 	if e.iter != nil {
 		_ = e.iter.Close()
 		e.iter = nil
