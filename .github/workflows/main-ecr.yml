@@ -10,8 +10,10 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # Never cancelled: an in-flight publish always pushes its tag, and GitHub keeps
+  # only the newest pending run, so a burst of merges still ends on main's head.
   group: main-ecr
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publish:
