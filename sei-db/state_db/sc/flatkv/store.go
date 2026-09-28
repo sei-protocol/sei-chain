@@ -1420,7 +1420,8 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 }
 
 // TrustedImporter returns an importer for data from a trusted source, such as an offline migration of this
-// node's own state. It accepts physical keys in any order.
+// node's own state. It accepts physical keys in any order, but each key must appear at most once: a repeat
+// is not detected and leaves the imported hash wrong.
 func (s *CommitStore) TrustedImporter(version int64) (types.Importer, error) {
 	return s.newImporter(version, false)
 }

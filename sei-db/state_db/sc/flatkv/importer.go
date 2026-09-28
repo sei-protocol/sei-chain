@@ -295,8 +295,16 @@ func (imp *KVImporter) dispatch() {
 // checkAscending returns an error unless key is strictly greater than prevKey. A nil prevKey means key is
 // the first of the import.
 func checkAscending(prevKey []byte, key []byte) error {
-	if prevKey != nil && bytes.Compare(prevKey, key) >= 0 {
-		return fmt.Errorf("flatkv import: physical key %x does not strictly follow %x", key, prevKey)
+	if prevKey == nil {
+		return nil
+	}
+	switch cmp := bytes.Compare(prevKey, key); {
+	case cmp == 0:
+		return fmt.Errorf("flatkv import: duplicate physical key %x", key)
+	case cmp > 0:
+		return fmt.Errorf(
+			"flatkv import: physical key %x is below preceding key %x; keys must be in ascending order",
+			key, prevKey)
 	}
 	return nil
 }

@@ -502,7 +502,7 @@ func TestKVImporter_RepeatedPairRejected(t *testing.T) {
 		imp.AddNode(forged)
 	}
 
-	require.ErrorContains(t, imp.Close(), "does not strictly follow")
+	require.ErrorContains(t, imp.Close(), "duplicate physical key")
 	require.Equal(t, int64(0), dst.Version(), "a rejected import must not finalize")
 }
 
@@ -514,7 +514,7 @@ func TestKVImporter_OutOfOrderKeyRejected(t *testing.T) {
 	imp.AddNode(storageNode(t, addrN(0x02), slotN(0x02), padLeft32(0x22)))
 	imp.AddNode(storageNode(t, addrN(0x01), slotN(0x01), padLeft32(0x11)))
 
-	require.ErrorContains(t, imp.Close(), "does not strictly follow")
+	require.ErrorContains(t, imp.Close(), "keys must be in ascending order")
 	require.Equal(t, int64(0), s.Version(), "a rejected import must not finalize")
 }
 
