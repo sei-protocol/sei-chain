@@ -1299,3 +1299,67 @@ func TestMigrateEVMPausedBeforeTheBoundaryHashesEveryWrite(t *testing.T) {
 			fmt.Sprintf("paused MigrateEVM must hash block %d like MemiavlOnly", i+1))
 	}
 }
+
+// TestMigrateEVMPausedMidMigrationHashesEveryWrite pins that lowering the batch size to 0 after the
+// boundary has moved keeps flatkv in the AppHash, across a restart, so the new keys it takes are hashed.
+func TestMigrateEVMPausedMidMigrationHashesEveryWrite(t *testing.T) {
+	dir := t.TempDir()
+	open := func(batch int) *CompositeCommitStore {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.WriteMode = types.MigrateEVM
+		cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+		require.NoError(t, err)
+		require.NoError(t, cs.SetMigrationBatchSize(batch))
+		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+		require.NoError(t, cs.LoadLatest())
+		return cs
+	}
+	commit := func(cs *CompositeCommitStore, key string) {
+		var changeSets []*proto.NamedChangeSet
+		if key != "" {
+			changeSets = []*proto.NamedChangeSet{
+				{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+					{Key: []byte(key), Value: []byte(key)},
+				}}},
+			}
+		}
+		require.NoError(t, cs.ApplyChangeSets(changeSets))
+		_, err := cs.Commit(cs.Version() + 1)
+		require.NoError(t, err)
+	}
+	hashOf := func(cs *CompositeCommitStore, name string) []byte {
+		for _, si := range cs.LastCommitInfo().StoreInfos {
+			if si.Name == name {
+				return append([]byte(nil), si.CommitId.Hash...)
+			}
+		}
+		return nil
+	}
+
+	cs := open(0)
+	for i := 0; i < 10; i++ {
+		commit(cs, fmt.Sprintf("evm_%02d", i))
+	}
+	require.NoError(t, cs.SetMigrationBatchSize(2))
+	commit(cs, "")
+	require.True(t, containsLatticeStoreInfo(cs.LastCommitInfo().StoreInfos),
+		"the first batch must open the lattice gate")
+
+	require.NoError(t, cs.SetMigrationBatchSize(0))
+	lattice, memiavlEVM := hashOf(cs, "evm_lattice"), hashOf(cs, keys.EVMStoreKey)
+	commit(cs, "evm_new_1")
+	require.NotEqual(t, lattice, hashOf(cs, "evm_lattice"), "a paused write to flatkv must change the lattice hash")
+	require.Equal(t, memiavlEVM, hashOf(cs, keys.EVMStoreKey),
+		"a paused migration must not move keys out of memiavl, and a new key must not land there")
+
+	before := cs.LastCommitInfo()
+	require.NoError(t, cs.Close())
+	cs = open(0)
+	t.Cleanup(func() { _ = cs.Close() })
+	requireCommitInfoEqual(t, before, cs.LastCommitInfo(), "a restart must keep the paused migration's commit info")
+
+	lattice = hashOf(cs, "evm_lattice")
+	commit(cs, "evm_new_2")
+	require.NotEqual(t, lattice, hashOf(cs, "evm_lattice"),
+		"after a restart, a paused write to flatkv must still change the lattice hash")
+}
