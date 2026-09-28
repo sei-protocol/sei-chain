@@ -14,7 +14,6 @@ import (
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmbindings "github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorybindings "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -35,10 +34,6 @@ func NewQueryPlugin(eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.To
 		evmHandler:          *evmh,
 		stakingKeeper:       sk,
 	}
-}
-
-func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
-	return nil, oracletypes.ErrOracleDeprecated
 }
 
 func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {

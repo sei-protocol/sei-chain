@@ -113,6 +113,17 @@ func (s *memoryGigaSnapshot) GetCode(address gigatypes.Address) []byte {
 	return s.code[address]
 }
 
+func (s *memoryGigaSnapshot) ReadAccount(address gigatypes.Address) (gigatypes.Account, bool) {
+	if !s.AccountExists(address) {
+		return gigatypes.Account{}, false
+	}
+	return gigatypes.Account{
+		Balance:  s.balances[address],
+		Nonce:    s.nonces[address],
+		CodeHash: s.GetCodeHash(address),
+	}, true
+}
+
 func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
 	return s.height
 }
@@ -304,14 +315,15 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Nil(t, result)
 	})
 
-	t.Run("missing receipt store", func(t *testing.T) {
+	t.Run("no receipt store commits state without receipts", func(t *testing.T) {
 		store := NewMemoryStore(NewMemoryState())
 		executor := NewExecutor(Config{}, WithStore(store, store.EncodeChangeSet))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, errMissingReceiptStore)
-		require.Nil(t, result)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		result.Release()
 	})
 
 	t.Run("missing encoder", func(t *testing.T) {

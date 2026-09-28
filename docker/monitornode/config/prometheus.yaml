@@ -8,6 +8,14 @@ scrape_configs:
       - targets: ['host.docker.internal:9090']
     scrape_interval: 5s
 
+  # evmonly-loadtest, which defaults to this port rather than the 9090 the sims use. It serves the
+  # storage stack's OTel instruments alongside its own counters, so the phase timers behind a slow
+  # block arrive on the same scrape.
+  - job_name: 'evmonly-loadtest'
+    static_configs:
+      - targets: ['host.docker.internal:9698']
+    scrape_interval: 5s
+
   # Host CPU, memory, disk, filesystem. Run by start-node-exporter.sh as a container, or by
   # scripts/install-exporters.sh as a systemd service on an EC2 node. Both listen on 9100, and the
   # start scripts pass --add-host=host.docker.internal:host-gateway on Linux so this name resolves

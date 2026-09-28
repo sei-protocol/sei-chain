@@ -17,6 +17,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
+const (
+	flatKVAddressKeyLen = 1 + common.AddressLength
+	flatKVStorageKeyLen = 1 + common.AddressLength + common.HashLength
+)
+
 // NewFlatKVChangeSetEncoder returns an encoder for FlatKV's EVM keyspace. The
 // store is used to expand storage-prefix clears.
 func NewFlatKVChangeSetEncoder(store *flatkv.CommitStore) NamedChangeSetEncoder {
@@ -29,65 +34,137 @@ func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([
 	if store == nil {
 		return nil, errors.New("flatkv changeset encoder requires a store")
 	}
-	pairs := make([]*proto.KVPair, 0,
-		len(changes.Balances)+len(changes.Nonces)+2*len(changes.Code)+len(changes.Storage))
+	b := newFlatKVChangeSetBuilder(changes)
 
 	for i, change := range changes.Balances {
-		value, err := flatKVBalanceBytes(change.Balance)
-		if err != nil {
+		if err := validateFlatKVBalance(change.Balance); err != nil {
 			return nil, fmt.Errorf("balance change %d for %s: %w", i, change.Address, err)
 		}
-		pair := &proto.KVPair{Key: flatKVAddressKey(keys.EVMKeyBalance, change.Address), Value: value}
+		pair := b.addAddressPair(keys.EVMKeyBalance, change.Address)
 		if change.Balance == nil || change.Balance.Sign() == 0 {
-			pair.Value = nil
 			pair.Delete = true
+			continue
 		}
-		pairs = append(pairs, pair)
+		pair.Value = b.takeFixedValue(vtype.BalanceLen)
+		change.Balance.FillBytes(pair.Value)
 	}
 	for _, change := range changes.Nonces {
-		value := make([]byte, vtype.NonceLen)
-		binary.BigEndian.PutUint64(value, change.Nonce)
-		pairs = append(pairs, &proto.KVPair{
-			Key:   flatKVAddressKey(keys.EVMKeyNonce, change.Address),
-			Value: value,
-		})
+		pair := b.addAddressPair(keys.EVMKeyNonce, change.Address)
+		pair.Value = b.takeFixedValue(vtype.NonceLen)
+		binary.BigEndian.PutUint64(pair.Value, change.Nonce)
 	}
 	for _, change := range changes.Code {
-		codeHashPair := &proto.KVPair{Key: flatKVAddressKey(keys.EVMKeyCodeHash, change.Address)}
-		codePair := &proto.KVPair{Key: flatKVAddressKey(keys.EVMKeyCode, change.Address)}
+		codeHashPair := b.addAddressPair(keys.EVMKeyCodeHash, change.Address)
+		codePair := b.addAddressPair(keys.EVMKeyCode, change.Address)
 		if change.Delete || len(change.Code) == 0 {
 			codeHashPair.Delete = true
 			codePair.Delete = true
-		} else {
-			codeHash := crypto.Keccak256Hash(change.Code)
-			codeHashPair.Value = codeHash[:]
-			codePair.Value = cloneBytes(change.Code)
+			continue
 		}
-		pairs = append(pairs, codeHashPair, codePair)
+		codeHashPair.Value = b.takeFixedValue(vtype.CodeHashLen)
+		codeHash := crypto.Keccak256Hash(change.Code)
+		copy(codeHashPair.Value, codeHash[:])
+		codePair.Value = b.takeCodeValue(len(change.Code))
+		copy(codePair.Value, change.Code)
 	}
 	for _, address := range changes.StorageClears {
+		// Clears are discovered by iterating the store, so they are allocated per pair.
 		var err error
-		pairs, err = appendFlatKVStorageClearPairs(store, pairs, address)
+		b.pairPtrs, err = appendFlatKVStorageClearPairs(store, b.pairPtrs, address)
 		if err != nil {
 			return nil, err
 		}
 	}
 	for _, change := range changes.Storage {
-		pair := &proto.KVPair{Key: flatKVStorageKey(change.Address, change.Key)}
+		pair := b.addStoragePair(change.Address, change.Key)
 		if change.Delete || change.Value == (common.Hash{}) {
 			pair.Delete = true
-		} else {
-			pair.Value = cloneBytes(change.Value[:])
+			continue
 		}
-		pairs = append(pairs, pair)
+		pair.Value = b.takeFixedValue(common.HashLength)
+		copy(pair.Value, change.Value[:])
 	}
-	if len(pairs) == 0 {
+	if len(b.pairPtrs) == 0 {
 		return nil, nil
 	}
 	return []*proto.NamedChangeSet{{
 		Name:      keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: b.pairPtrs},
 	}}, nil
+}
+
+// flatKVChangeSetBuilder assembles a block's KVPairs, keys and values from per-call
+// slabs. Keys and values are subslices of those slabs and outlive the changeset.
+type flatKVChangeSetBuilder struct {
+	pairs       []proto.KVPair
+	pairPtrs    []*proto.KVPair
+	keys        []byte
+	fixedValues []byte
+	codeValues  []byte
+	pairOffset  int
+	keyOffset   int
+	fixedOffset int
+	codeOffset  int
+}
+
+func newFlatKVChangeSetBuilder(changes StateChangeSet) *flatKVChangeSetBuilder {
+	addressPairs := len(changes.Balances) + len(changes.Nonces) + 2*len(changes.Code)
+	pairCount := addressPairs + len(changes.Storage)
+	// Sized for every pair that could carry a value.
+	fixedValueBytes := len(changes.Balances)*vtype.BalanceLen +
+		len(changes.Nonces)*vtype.NonceLen +
+		len(changes.Code)*vtype.CodeHashLen +
+		len(changes.Storage)*common.HashLength
+	codeValueBytes := 0
+	for _, change := range changes.Code {
+		if !change.Delete {
+			codeValueBytes += len(change.Code)
+		}
+	}
+	return &flatKVChangeSetBuilder{
+		pairs:       make([]proto.KVPair, pairCount),
+		pairPtrs:    make([]*proto.KVPair, 0, pairCount),
+		keys:        make([]byte, addressPairs*flatKVAddressKeyLen+len(changes.Storage)*flatKVStorageKeyLen),
+		fixedValues: make([]byte, fixedValueBytes),
+		codeValues:  make([]byte, codeValueBytes),
+	}
+}
+
+func (b *flatKVChangeSetBuilder) addAddressPair(kind keys.EVMKeyKind, address common.Address) *proto.KVPair {
+	pair := b.nextPair(flatKVAddressKeyLen)
+	if !keys.PutEVMKey(pair.Key, kind, address[:]) {
+		panic(fmt.Sprintf("no EVM key prefix for kind %v", kind))
+	}
+	return pair
+}
+
+func (b *flatKVChangeSetBuilder) addStoragePair(address common.Address, slot common.Hash) *proto.KVPair {
+	pair := b.nextPair(flatKVStorageKeyLen)
+	if !keys.PutEVMKey(pair.Key, keys.EVMKeyStorage, address[:], slot[:]) {
+		panic("no EVM key prefix for storage")
+	}
+	return pair
+}
+
+func (b *flatKVChangeSetBuilder) nextPair(keyLen int) *proto.KVPair {
+	pair := &b.pairs[b.pairOffset]
+	b.pairOffset++
+	b.pairPtrs = append(b.pairPtrs, pair)
+	pair.Key = b.keys[b.keyOffset : b.keyOffset+keyLen : b.keyOffset+keyLen]
+	b.keyOffset += keyLen
+	return pair
+}
+
+func (b *flatKVChangeSetBuilder) takeFixedValue(size int) []byte {
+	value := b.fixedValues[b.fixedOffset : b.fixedOffset+size : b.fixedOffset+size]
+	b.fixedOffset += size
+	return value
+}
+
+func (b *flatKVChangeSetBuilder) takeCodeValue(size int) []byte {
+	value := b.codeValues[b.codeOffset : b.codeOffset+size : b.codeOffset+size]
+	b.codeOffset += size
+	return value
 }
 
 func appendFlatKVStorageClearPairs(
@@ -116,17 +193,6 @@ func appendFlatKVStorageClearPairs(
 	return pairs, nil
 }
 
-func flatKVAddressKey(kind keys.EVMKeyKind, address common.Address) []byte {
-	return keys.BuildEVMKey(kind, address[:])
-}
-
-func flatKVStorageKey(address common.Address, slot common.Hash) []byte {
-	key := make([]byte, 0, common.AddressLength+common.HashLength)
-	key = append(key, address[:]...)
-	key = append(key, slot[:]...)
-	return keys.BuildEVMKey(keys.EVMKeyStorage, key)
-}
-
 func flatKVStoragePrefix(address common.Address) []byte {
 	return keys.BuildEVMKey(keys.EVMKeyStorage, address[:])
 }
@@ -139,14 +205,12 @@ func flatKVStoragePrefixByte() byte {
 	return prefix
 }
 
-func flatKVBalanceBytes(balance *big.Int) ([]byte, error) {
-	value := make([]byte, vtype.BalanceLen)
+func validateFlatKVBalance(balance *big.Int) error {
 	if balance == nil {
-		return value, nil
+		return nil
 	}
 	if balance.Sign() < 0 || balance.BitLen() > 8*vtype.BalanceLen {
-		return nil, errors.New("balance must fit in an unsigned 256-bit integer")
+		return errors.New("balance must fit in an unsigned 256-bit integer")
 	}
-	balance.FillBytes(value)
-	return value, nil
+	return nil
 }

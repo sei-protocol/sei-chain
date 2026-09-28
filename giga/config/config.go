@@ -34,6 +34,10 @@ type StorageConfig struct {
 	// Mode selects the store layout: "validator" skips the state store, "full" opens it for
 	// serving queries. Empty follows the node's mode from config.toml.
 	Mode string `mapstructure:"mode"`
+	// Receipts opens the receipt store, which the node's EVM RPC serves transaction receipts,
+	// logs and fee history from. When false the node starts no EVM RPC, and refuses to start while a
+	// receipt store with history is on disk: move that directory away first.
+	Receipts bool `mapstructure:"receipts"`
 	// RollbackWindow is how many blocks behind head the node must remain able to roll back to.
 	RollbackWindow uint64 `mapstructure:"rollback_window"`
 	// LookbackWindow is how many queryable blocks are kept below the rollback window; -1 keeps all.
@@ -58,6 +62,8 @@ type ExecutionConfig struct {
 	ParseWorkers int `mapstructure:"parse_workers"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
+	// EvmRpcPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
+	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
@@ -69,6 +75,7 @@ var DefaultConfig = Config{
 		OCCWorkers:          0,
 		ParseWorkers:        0,
 		BlockResultPoolSize: 1,
+		EvmRpcPort:          8545,
 	},
 }
 
@@ -77,6 +84,7 @@ func defaultStorageConfig() StorageConfig {
 	cp := seidbconfig.DefaultCheckpointConfig()
 	return StorageConfig{
 		Mode:                    StorageModeAuto,
+		Receipts:                true,
 		RollbackWindow:          gc.RollbackWindow,
 		LookbackWindow:          gc.LookbackWindow,
 		PruneInterval:           gc.PruneInterval,
@@ -88,6 +96,7 @@ func defaultStorageConfig() StorageConfig {
 // The keys this package's reader resolves.
 const (
 	FlagStorageMode                    = "giga.storage.mode"
+	FlagStorageReceipts                = "giga.storage.receipts"
 	FlagStorageRollbackWindow          = "giga.storage.rollback_window"
 	FlagStorageLookbackWindow          = "giga.storage.lookback_window"
 	FlagStoragePruneInterval           = "giga.storage.prune_interval"
@@ -97,6 +106,7 @@ const (
 	FlagExecutionOCCWorkers            = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers          = "giga.execution.parse_workers"
 	FlagExecutionBlockResultPoolSize   = "giga.execution.block_result_pool_size"
+	FlagExecutionEvmRpcPort            = "giga.execution.evm_rpc_port"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -106,6 +116,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageMode); v != nil {
 		if cfg.Storage.Mode, err = cast.ToStringE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageMode, err)
+		}
+	}
+	if v := opts.Get(FlagStorageReceipts); v != nil {
+		if cfg.Storage.Receipts, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageReceipts, err)
 		}
 	}
 	if v := opts.Get(FlagStorageRollbackWindow); v != nil {
@@ -153,6 +168,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionBlockResultPoolSize, err)
 		}
 	}
+	if v := opts.Get(FlagExecutionEvmRpcPort); v != nil {
+		if cfg.Execution.EvmRpcPort, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmRpcPort, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -189,6 +209,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
 			c.Execution.BlockResultPoolSize)
 	}
+	if c.Execution.EvmRpcPort < 1 || c.Execution.EvmRpcPort > 65535 {
+		return fmt.Errorf("%s: must be in 1..65535, got %d", FlagExecutionEvmRpcPort, c.Execution.EvmRpcPort)
+	}
 	return nil
 }
 
@@ -205,6 +228,11 @@ const ConfigTemplate = `
 # mode selects the store layout. "validator" skips the state store; "full" opens it
 # for serving queries. Empty follows the node's mode in config.toml.
 mode = "{{ .Giga.Storage.Mode }}"
+
+# receipts opens the receipt store, which the node's EVM RPC serves transaction receipts,
+# logs and fee history from. When false the node starts no EVM RPC, and refuses to start while a
+# receipt store with history is on disk: move that directory away first.
+receipts = {{ .Giga.Storage.Receipts }}
 
 # rollback_window is how many blocks behind head the node must remain able to roll back to.
 rollback_window = {{ .Giga.Storage.RollbackWindow }}
@@ -236,4 +264,7 @@ parse_workers = {{ .Giga.Execution.ParseWorkers }}
 
 # block_result_pool_size is the number of block results kept pooled between executions.
 block_result_pool_size = {{ .Giga.Execution.BlockResultPoolSize }}
+
+# evm_rpc_port is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
+evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 `

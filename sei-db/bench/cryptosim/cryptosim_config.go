@@ -267,6 +267,14 @@ type CryptoSimConfig struct {
 	LogLevel string
 }
 
+// cryptoSimPruningConfig is the collector config for a cryptosim run. Lookback is 0, so history
+// ends at the rollback window.
+func cryptoSimPruningConfig() *config.StorageGarbageCollectorConfig {
+	cfg := config.DefaultStorageGarbageCollectorConfig()
+	cfg.LookbackWindow = 0
+	return cfg
+}
+
 // Returns the default configuration for the cryptosim benchmark.
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 
@@ -300,7 +308,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		StateStoreConfig:                  ssConfig,
 		CheckpointConfig:                  config.DefaultCheckpointConfig(),
-		PruningConfig:                     config.DefaultStorageGarbageCollectorConfig(),
+		PruningConfig:                     cryptoSimPruningConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,

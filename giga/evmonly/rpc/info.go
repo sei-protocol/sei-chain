@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gmath "github.com/ethereum/go-ethereum/common/math"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -273,17 +272,25 @@ func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewar
 // it — each one already scoped to height by the iterator's own BlockNumber, not trusted from a
 // tx-hash lookup — falling back to decoding the block and fetching receipts by hash otherwise.
 func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) ([]receiptpkg.ReceiptRecord, error) {
-	records, err := api.receiptRecordsFromIterator(ctx, height)
+	records, err := receiptRecordsFromIterator(ctx, api.store, height)
 	if !errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
 		return records, err
 	}
-	return api.receiptRecordsFromBlock(ctx, height)
+	blockHeight := coretypes.Int64(height)
+	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &blockHeight})
+	if err != nil {
+		return nil, fmt.Errorf("read block %d to recompute stats: %w", height, err)
+	}
+	if block == nil || block.Block == nil {
+		return nil, fmt.Errorf("block %d body is not available to recompute stats", height)
+	}
+	return receiptRecordsFromBlock(ctx, api.store, block)
 }
 
 // receiptRecordsFromIterator answers height's receipts by walking IterateReceipts from height,
 // stopping at the first receipt belonging to a later block (or immediately, for an empty block).
-func (api *infoAPI) receiptRecordsFromIterator(ctx context.Context, height int64) ([]receiptpkg.ReceiptRecord, error) {
-	it, err := api.store.IterateReceipts(uint64(height)) //nolint:gosec // G115: height is positive here.
+func receiptRecordsFromIterator(ctx context.Context, store receiptpkg.ReceiptStore, height int64) ([]receiptpkg.ReceiptRecord, error) {
+	it, err := store.IterateReceipts(uint64(height)) //nolint:gosec // G115: height is positive here.
 	if err != nil {
 		return nil, err
 	}
@@ -305,27 +312,25 @@ func (api *infoAPI) receiptRecordsFromIterator(ctx context.Context, height int64
 	}
 }
 
-// receiptRecordsFromBlock answers height's receipts by decoding its block body and fetching each
+// receiptRecordsFromBlock answers block's receipts by decoding its body and fetching each
 // transaction's receipt by hash, for a store whose IterateReceipts is unsupported.
-func (api *infoAPI) receiptRecordsFromBlock(ctx context.Context, height int64) ([]receiptpkg.ReceiptRecord, error) {
-	blockHeight := coretypes.Int64(height)
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &blockHeight})
-	if err != nil {
-		return nil, fmt.Errorf("read block %d to recompute stats: %w", height, err)
-	}
-	if block == nil || block.Block == nil {
-		return nil, fmt.Errorf("block %d body is not available to recompute stats", height)
-	}
+func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]receiptpkg.ReceiptRecord, error) {
+	height := block.Block.Height
 	records := make([]receiptpkg.ReceiptRecord, 0, len(block.Block.Txs))
-	for _, txbz := range block.Block.Txs {
-		tx := new(ethtypes.Transaction)
-		if err := tx.UnmarshalBinary(txbz); err != nil {
-			return nil, fmt.Errorf("decode transaction in block %d: %w", height, err)
+	for i, txbz := range block.Block.Txs {
+		tx, err := decodeBlockTx(txbz, height, i)
+		if err != nil {
+			return nil, err
 		}
 		hash := tx.Hash()
-		stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
+		stored, err := receiptFor(ctx, store, hash)
 		if err != nil {
 			return nil, fmt.Errorf("read receipt %s for block %d: %w", hash, height, err)
+		}
+		// A replayed transaction keeps the receipt of its original execution, which
+		// belongs to another block's stats; a curable rejection has none at all.
+		if stored == nil || stored.BlockNumber != uint64(height) || uint64(stored.TransactionIndex) != uint64(i) { //nolint:gosec // G115: height and index are non-negative.
+			continue
 		}
 		records = append(records, receiptRecordFor(hash, stored))
 	}

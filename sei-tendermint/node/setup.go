@@ -417,6 +417,7 @@ func buildGigaStorageConfig(
 	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
 		storageConfig.WithFullNodeMode()
 	}
+	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
 	return storageConfig, nil
 }
 

@@ -253,17 +253,21 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
 
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	weights, err := committeeWeights(app.GetValidators())
 	if err != nil {
 		return nil, err
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhasePushAppHash)
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 	return commitResp, nil
 }
@@ -376,9 +380,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 		}
+		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
 		if err := r.data.PruneBefore(pruneBefore); err != nil {
 			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
 		}
+		gigametrics.EndStoragePhase()
 	}
 }
 
