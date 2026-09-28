@@ -151,33 +151,38 @@ func (mti *MultiTreeImporter) Close() (err error) {
 // TreeImporter import a single memiavl tree from state-sync snapshot
 type TreeImporter struct {
 	nodesChan chan *types.SnapshotNode
-	quitChan  chan error
+	// done is closed once the import goroutine has returned; err holds its result.
+	done chan struct{}
+	err  error
 }
 
 func NewTreeImporter(ctx context.Context, dir string, version int64) *TreeImporter {
-	nodesChan := make(chan *types.SnapshotNode, nodeChanSize)
-	quitChan := make(chan error)
+	nodes := make(chan *types.SnapshotNode, nodeChanSize)
+	ai := &TreeImporter{nodesChan: nodes, done: make(chan struct{})}
 	go func() {
-		defer close(quitChan)
-		quitChan <- doImport(ctx, dir, version, nodesChan)
+		defer close(ai.done)
+		ai.err = doImport(ctx, dir, version, nodes)
 	}()
-	return &TreeImporter{nodesChan, quitChan}
+	return ai
 }
 
+// Add queues node for import. It drops node once the import has stopped; Close reports why.
 func (ai *TreeImporter) Add(node *types.SnapshotNode) {
-	ai.nodesChan <- node
+	select {
+	case ai.nodesChan <- node:
+	case <-ai.done:
+	}
 }
 
 func (ai *TreeImporter) Close() error {
-	var err error
 	// tolerate double close
-	if ai.nodesChan != nil {
-		close(ai.nodesChan)
-		err = <-ai.quitChan
+	if ai.nodesChan == nil {
+		return nil
 	}
+	close(ai.nodesChan)
 	ai.nodesChan = nil
-	ai.quitChan = nil
-	return err
+	<-ai.done
+	return ai.err
 }
 
 // doImport a stream of `types.SnapshotNode`s into a new snapshot.
@@ -272,6 +277,9 @@ func (i *importer) Add(n *types.SnapshotNode) error {
 	}
 
 	// branch node
+	if len(i.nodeStack) < 2 {
+		return fmt.Errorf("branch node at height %d has %d pending children, want 2", n.Height, len(i.nodeStack))
+	}
 	keyLeaf := i.leavesStack[len(i.leavesStack)-2]
 	leftNode := i.nodeStack[len(i.nodeStack)-2]
 	rightNode := i.nodeStack[len(i.nodeStack)-1]

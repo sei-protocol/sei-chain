@@ -1224,7 +1224,7 @@ func (rs *Store) Restore(
 
 func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	var (
-		ssImporter   chan seidbtypes.SnapshotNode
+		ssImport     *stateStoreImport
 		snapshotItem snapshottypes.SnapshotItem
 		storeKey     string
 		restoreErr   error
@@ -1234,13 +1234,7 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 		return snapshottypes.SnapshotItem{}, err
 	}
 	if rs.ssStore != nil {
-		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
-		go func() {
-			err := rs.ssStore.Import(height, ssImporter)
-			if err != nil {
-				panic(err)
-			}
-		}()
+		ssImport = startStateStoreImport(rs.ssStore, height)
 	}
 loop:
 	for {
@@ -1290,11 +1284,14 @@ loop:
 			scImporter.AddNode(node)
 
 			// Check if we should also import to SS store
-			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- seidbtypes.SnapshotNode{
+			if ssImport != nil && node.Height == 0 {
+				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,
+				}); err != nil {
+					restoreErr = err
+					break loop
 				}
 			}
 		default:
@@ -1308,8 +1305,10 @@ loop:
 			restoreErr = err
 		}
 	}
-	if ssImporter != nil {
-		close(ssImporter)
+	if ssImport != nil {
+		if err = ssImport.finish(); err != nil && restoreErr == nil {
+			restoreErr = err
+		}
 	}
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any
@@ -1324,6 +1323,53 @@ loop:
 	}
 
 	return snapshotItem, restoreErr
+}
+
+// stateStoreImport feeds restored leaves to a state store's Import running on its own goroutine.
+type stateStoreImport struct {
+	nodes chan seidbtypes.SnapshotNode
+	// done is closed once Import has returned; err holds its result.
+	done chan struct{}
+	err  error
+}
+
+func startStateStoreImport(ss seidbtypes.StateStore, height int64) *stateStoreImport {
+	imp := &stateStoreImport{
+		nodes: make(chan seidbtypes.SnapshotNode, 10000),
+		done:  make(chan struct{}),
+	}
+	go func() {
+		defer close(imp.done)
+		imp.err = ss.Import(height, imp.nodes)
+	}()
+	return imp
+}
+
+// send queues node for import. It returns an error when Import has already returned.
+func (imp *stateStoreImport) send(node seidbtypes.SnapshotNode) error {
+	select {
+	case imp.nodes <- node:
+		return nil
+	case <-imp.done:
+		return imp.stoppedErr()
+	}
+}
+
+// finish closes the input and waits for Import to return, returning its error.
+func (imp *stateStoreImport) finish() error {
+	close(imp.nodes)
+	<-imp.done
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return nil
+}
+
+func (imp *stateStoreImport) stoppedErr() error {
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return fmt.Errorf("state store import returned before the snapshot stream ended")
 }
 
 // Snapshot Implements the interface from Snapshotter
