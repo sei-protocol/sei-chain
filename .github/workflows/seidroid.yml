@@ -39,6 +39,7 @@ jobs:
       mode: review
       allowed-team: 'sei-protocol/sei-core'
       allowed-bots: '["seidroid[bot]"]'
+      approve-on-success: false
 
   seidroid-review-close:
     if: >-
