@@ -18,15 +18,8 @@ import (
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
-// deliverDecodedSections puts the resolved values of the decoded sections into the node's own
-// configuration.
-//
-// Putting a value into the source a node reads is the whole delivery for a section whose reader looks its
-// keys up one at a time. It is no delivery at all for the sections this covers, which the boot's handler
-// reads once into a struct before this runs. Those values are decoded into that struct instead, which is
-// the same mechanism the handler used and therefore the same casts, the same tags and the same hooks.
-//
-// Nothing here can stop a node starting.
+// deliverDecodedSections decodes each decoded section's resolved values into the node's configuration
+// struct, one section at a time, so a refused value costs only its own section.
 func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string]any,
 	log *slog.Logger, said func(string, ...any)) {
 	if len(bySection) == 0 {
@@ -38,15 +31,7 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 		return
 	}
 
-	// Each section names why its values need decoding rather than installing, and the reason names the
-	// struct they are decoded into. Reported here because this is the only place that claim is acted on:
-	// a section whose reason no longer describes what reads it is delivered the wrong way, and there is
-	// nothing else that would show it.
 	reasons := registry.DecodedSections()
-
-	// One section at a time. A decode is all or nothing for what it is handed. Handed the whole file, a
-	// single refused value would cost every key in it. An operator who fixes one setting and mistypes
-	// another has to end up with the first one applied.
 	for _, name := range sortedKeys(bySection) {
 		log.Debug("delivering a section by decoding it rather than by a lookup",
 			"section", name, "why", reasons[name], "keys", len(bySection[name]))
@@ -54,14 +39,9 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 	}
 }
 
-// deliverOneSection decodes one section's resolved values into the node's configuration.
-//
-// Decoded into a copy of that configuration first, and published into the live one only once the whole
-// section has decoded. A decoder gathers errors and keeps going. A value it refuses partway therefore
-// leaves its target holding some new values and some old ones, with nothing to compare against and no way
-// back. Rehearsing into a copy of the configuration the node already has, rather than into a fresh one, is
-// what makes the rehearsal answer the same question: what a decoder writes can depend on what the target
-// already holds, and only a copy holds the same things.
+// deliverOneSection decodes one section's resolved values into a copy of the node's configuration, checks
+// the section's own rules, and publishes the copy only if both succeed, since a failed decode leaves its
+// target half-written.
 func deliverOneSection(ctx *server.Context, name string, values map[string]any, log *slog.Logger,
 	said func(string, ...any)) {
 	keys := sortedKeys(values)
@@ -71,12 +51,9 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 		source.Set(key, value)
 	}
 
-	// Refused before the decode, because a plain number where a length of time belongs decodes cleanly
-	// and means nanoseconds. Nothing after this can tell that apart from a value somebody meant.
+	// Before the decode, which accepts these silently.
 	fields := keyFieldTypes(reflect.TypeOf(*ctx.Config), "")
 	if bad := whatDecodesToSomethingElse(fields, values); len(bad) > 0 {
-		// Each message says what is wrong with the value it names, and there is more than one thing that
-		// can be. Stating one of them here would describe the others wrongly.
 		log.Error("a written value in this section decodes to something other than what it says; none of "+
 			"the section is applied and every one of its keys reads as it always has",
 			"section", name, "written", strings.Join(problemsInOrder(bad), "; "))
@@ -99,16 +76,7 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 		return
 	}
 
-	// The node's own rules, on the copy, before anything is published. A value can decode cleanly, mean
-	// what it says, and still be one the node refuses: a negative transaction-size ceiling decodes to
-	// minus one and then every transaction measures larger than it, so the node accepts none. Around
-	// thirty such checks live here and nothing above this can see any of them.
-	//
-	// Cheap here and nowhere else, because this is the one place a copy exists to test. It also inherits
-	// the section-scoped refusal, so a bad value costs its own section and not the whole file.
-	// Held to this section's own rules, not the whole configuration's. The whole set stops at the first
-	// failing section, so a node already failing on one section makes every other section's failure
-	// unattributable, and a value written here lands under a line saying the node was already broken.
+	// Values can decode cleanly and still break the node's own rules.
 	if err := whatTheSectionsOwnRulesSay(candidate, keys); err != nil {
 		log.Error("this section's written values break its own rules, so none of the section is applied "+
 			"and every one of its keys reads as it always has",
@@ -123,15 +91,13 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	}
 	after, unreadAfter, afterErr := describe(ctx.Config, keys)
 	if readErr != nil || afterErr != nil {
-		// Reported rather than compared. Two unreadable sides look identical, so comparing them would
-		// say every value matched, which is a statement about nothing produced by reading nothing.
+		// Two unreadable sides would compare equal, so do not compare.
 		log.Error("this section was applied and what moved cannot be read, so nothing here says which "+
 			"settings now differ from the node's own file", "section", name,
 			"keys", strings.Join(keys, ","), "err", cmp.Or(readErr, afterErr))
 		return
 	}
-	// The same hazard one key at a time. A key absent from both answers compares equal, so it would be
-	// reported as a setting that did not move, which is what a key an operator wrote and got looks like.
+	// Likewise per key.
 	unread := asSet(append(unreadBefore, unreadAfter...))
 	if len(unread) > 0 {
 		shown, omitted := capLoggedItems(sortedKeys(unread))
@@ -143,16 +109,8 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	reportWhatMoved(name, whatBothSidesCouldBeReadFor(keys, unread), before, after, log, said)
 }
 
-// copyNodeConfig returns a configuration that holds what this one holds and shares nothing with it.
-//
-// A shallow copy shares every section. A decode into it would write through to the original, and a refused
-// value would leave the half-written configuration the copy exists to prevent. This copies the top level
-// and every section under it.
-//
-// Written against the type rather than field by field, so a section added to it is copied without this
-// function changing. Every exported reference gets one of its own and one that cannot is an error rather
-// than a silent share. An unexported field is copied by value and shared, which is safe only because the
-// decoder this protects against cannot write to one.
+// copyNodeConfig returns a copy of from whose exported references share nothing with it. See
+// detachReferences.
 func copyNodeConfig(from *tmcfg.Config) (*tmcfg.Config, error) {
 	if from == nil {
 		return nil, fmt.Errorf("no configuration to copy")
@@ -164,11 +122,7 @@ func copyNodeConfig(from *tmcfg.Config) (*tmcfg.Config, error) {
 	return &out, nil
 }
 
-// whatBothSidesCouldBeReadFor drops the keys neither side could be read for.
-//
-// A key missing from both answers compares equal. Left in, it makes the report say the section matches the
-// node's own file, which is what the line above it withholds. Dropped here rather than inside the
-// comparison: the comparison says what moved, and this says which keys it can speak for.
+// whatBothSidesCouldBeReadFor returns keys minus those in unread.
 func whatBothSidesCouldBeReadFor(keys []string, unread map[string]struct{}) []string {
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -179,21 +133,8 @@ func whatBothSidesCouldBeReadFor(keys []string, unread map[string]struct{}) []st
 	return out
 }
 
-// reportWhatMoved names every key whose value this delivery changed.
-//
-// The node's own configuration file still says what it said. Every tool an operator reaches for reads that
-// file, and none of them describes the running node afterwards. This line is the only place that names
-// which of their keys now read differently.
-//
-// Key names, never a value. A declared key can hold a secret: tx-index.psql-conn is a PostgreSQL
-// connection string, and validator operators share their logs with third parties. The name says which
-// setting to go and read.
-//
-// A key that did not move is not named, because naming it buries the keys that did. The section still
-// reports that it matched, at a level a routine boot does not raise.
-//
-// The rendered list is capped. The count is what an operator alerts on, and one line per key of a large
-// section buries whichever of them mattered.
+// reportWhatMoved logs the keys whose value this delivery changed from what config.toml gave. It names
+// keys, never values, because a value can be a secret such as tx-index.psql-conn.
 func reportWhatMoved(name string, keys []string, before, after map[string]string, log *slog.Logger,
 	said func(string, ...any)) {
 	var moved []string
@@ -212,10 +153,8 @@ func reportWhatMoved(name string, keys []string, before, after map[string]string
 		"section", name, "count", len(moved), "keys", strings.Join(shown, ","), "omitted", omitted)
 }
 
-// loggerOwnVariable is the environment variable the logger itself reads when it starts.
-//
-// Not the variable this key answers to in the resolution, which carries the binary's own prefix. Two names
-// for one setting, and the older one is read before any of this runs.
+// loggerOwnVariable is the environment variable the logger reads at start-up, distinct from the key's
+// SEID_ variable.
 const loggerOwnVariable = "SEI_LOG_LEVEL"
 
 // asSet collapses repeats, so a key unread on both sides is named once.
@@ -227,38 +166,21 @@ func asSet(keys []string) map[string]struct{} {
 	return out
 }
 
-// applyTheLevelTheStructNowHolds hands the logger the level the node's configuration holds, which the
-// struct alone does not reach.
-//
-// The boot's handler reads the level off the struct and sets it before any of this runs. A value that only
-// reaches the struct therefore moves a field and changes no logging. This key space exists to remove a
-// setting that appears to take and does not.
-//
-// Read from the struct rather than from the resolution, and after the deliveries, so the two always agree.
-// The section carrying this key is refused as a whole when any of its values is wrong, and the resolution
-// still holds a level for it, so applying that would move the process while the struct kept what it had.
-//
-// Nothing is applied when the boot already took a level from above the node's own file, or when the
-// logger's own variable is set. A level that cannot be read is reported and skipped.
+// applyTheLevelTheStructNowHolds applies the log level the delivered configuration struct holds, since the
+// boot set the level before delivery. It defers to a level from a flag, SEID_LOG_LEVEL, or
+// loggerOwnVariable.
 func applyTheLevelTheStructNowHolds(ctx *server.Context, log *slog.Logger) {
 	if ctx == nil || ctx.Config == nil {
 		return
 	}
 	text := ctx.Config.LogLevel
 
-	// The command line does not reach this struct, whose key is spelled with a hyphen where the flag uses
-	// an underscore, so a refused section leaves the struct on the file's level while the process runs the
-	// flag's. Applying the struct's level then puts the file back over the command line.
 	if applied := theLevelTheBootApplied(ctx); applied != "" {
 		log.Info("the boot already applied a log level that outranks this node's configuration file; the "+
 			"level that file holds is not used", "level", applied, "ignored", text)
 		return
 	}
 
-	// The logger reads its own variable at start-up, under a different name from this key. The boot's own
-	// handler steps aside when that variable is set: a flag beats it, a file does not. Applying here
-	// regardless would put the file above it. An operator who exported a level and then adopted this file
-	// would find the exported level ignored.
 	if os.Getenv(loggerOwnVariable) != "" {
 		log.Info("a log level is set in the environment under the logger's own variable, which the "+
 			"node already applied; the level this node's configuration holds is not used",
@@ -272,17 +194,13 @@ func applyTheLevelTheStructNowHolds(ctx *server.Context, log *slog.Logger) {
 		return
 	}
 	seilog.SetDefaultLevel(level, true)
-	// That set every logger in the process, this one included, so the floor goes back on.
+	// That reset this package's floor too.
 	keepOwnReportingVisible()
 	log.Info("log level applied", "level", text)
 }
 
-// theLevelTheBootApplied returns the log level the boot's handler set the process from, and empty when
-// nothing above the node's own file supplied one.
-//
-// The same read the handler makes, on the same source, so the two cannot answer differently. It carries
-// the --log_level flag and the variable of that name under the binary's own prefix. A non-empty answer is
-// a level the handler has already parsed and applied.
+// theLevelTheBootApplied returns the log level the boot took from --log_level or its SEID_ variable, or
+// empty when neither was set.
 func theLevelTheBootApplied(ctx *server.Context) string {
 	if ctx.Viper == nil {
 		return ""
@@ -290,16 +208,8 @@ func theLevelTheBootApplied(ctx *server.Context) string {
 	return ctx.Viper.GetString(flags.FlagLogLevel)
 }
 
-// whatTheSectionsOwnRulesSay reports what the rules of the section holding these keys say about a
-// candidate.
-//
-// Each section type states its own, and the whole configuration's rules are those called in turn, stopping
-// at the first failure. So asking the whole set cannot say which section a failure belongs to: on a node
-// already failing elsewhere every answer is the other section's, and on a node that is not, a failure
-// anywhere reads as this section's.
-//
-// The keys pick the section out, because the name the registry gives the root of the file matches no tag in
-// the node's own type. Returns nil for a section whose type states no rules of its own.
+// whatTheSectionsOwnRulesSay runs ValidateBasic for the one section of candidate that holds keys, so a
+// failure is attributable to that section. It returns nil for a section with no ValidateBasic.
 func whatTheSectionsOwnRulesSay(candidate *tmcfg.Config, keys []string) error {
 	prefix := sectionPrefix(keys)
 	holder := reflect.ValueOf(candidate).Elem()
@@ -309,8 +219,7 @@ func whatTheSectionsOwnRulesSay(candidate *tmcfg.Config, keys []string) error {
 		name := strings.Split(tag, ",")[0]
 		squashed := strings.Contains(tag, ",squash")
 
-		// A section with no prefix keeps its keys at the root of the file, which is the group the node's
-		// own type squashes in, so its rules are that group's.
+		// Root keys belong to the squashed base group.
 		if (prefix == "" && squashed) || (prefix != "" && name == prefix) {
 			value := holder.Field(i)
 			if value.Kind() == reflect.Pointer && value.IsNil() {

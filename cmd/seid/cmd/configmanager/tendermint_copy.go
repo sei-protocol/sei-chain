@@ -10,18 +10,9 @@ import (
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
-// detachReferences replaces every reference under cfg with one nothing else holds, so a decode into cfg
-// cannot write through to whatever cfg was copied from.
-//
-// A copy of the struct alone shares every section, every list and every map it points at. A decoder writes
-// a list into the array its target already holds, so a shared one means the rehearsal edits the original
-// and a refused value leaves exactly the half-written configuration the copy exists to prevent.
-//
-// Walked over the type rather than field by field, so a section or a list added to the node's configuration
-// is detached without this changing. Every exported reference gets one of its own and one that cannot is an
-// error; an unexported field keeps what it was copied with, which is safe only because the decoder this
-// guards against cannot write to one either. The test beside this walks the same type and holds each
-// reference it finds to having been detached.
+// detachReferences replaces every exported pointer, slice, map and interface under cfg with a copy, so a
+// decode into cfg cannot write through to what it was copied from. A channel or func is an error.
+// Unexported fields stay shared; the decoder cannot write them.
 func detachReferences(cfg *tmcfg.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("no configuration to detach")
@@ -29,10 +20,7 @@ func detachReferences(cfg *tmcfg.Config) error {
 	return detachValue(reflect.ValueOf(cfg).Elem(), "")
 }
 
-// detachValue replaces every reference under v with one nothing else holds.
-//
-// An unexported field is skipped rather than refused. The copy this walks was made by assigning the struct,
-// which copies unexported fields by value, and a decoder cannot write to one either.
+// detachValue replaces every settable reference under v with a copy.
 func detachValue(v reflect.Value, path string) error {
 	switch v.Kind() {
 	case reflect.Pointer:
@@ -98,8 +86,7 @@ func detachValue(v reflect.Value, path string) error {
 		v.Set(fresh)
 
 	case reflect.Array:
-		// An array holds its elements rather than pointing at them, so the copy already has its own. Each
-		// element still needs detaching, because what an element holds can be a reference.
+		// Elements are already copies, but may hold references.
 		if !v.CanSet() {
 			return nil
 		}
@@ -123,17 +110,8 @@ func join(path, field string) string {
 	return path + "." + field
 }
 
-// describe reads the value the node's configuration currently holds for each key, as text, and names the
-// keys it could not read.
-//
-// Read through the same tags the decode writes through, so a key names the same field in both directions.
-// Held as text. A report needs to know whether two values differ, and what they are. Comparing the shapes a
-// decode produced against the shapes a struct holds would answer a different question.
-//
-// The unread keys are returned rather than left out of the answer. A key missing from a map reads as an
-// empty value, so a caller comparing two answers finds an unread key equal on both sides and reports that
-// it did not move. That is the same statement as a key an operator wrote and got, produced by having read
-// nothing.
+// describe renders, through mapstructure tags, the value cfg holds for each key as text, and returns the
+// keys it could not find so a caller does not compare them as equal.
 func describe(cfg *tmcfg.Config, keys []string) (values map[string]string, unread []string, err error) {
 	values = map[string]string{}
 	if cfg == nil {
@@ -172,16 +150,8 @@ func flatten(prefix string, in map[string]any, out map[string]any) {
 	}
 }
 
-// whatAPointerHolds returns the value behind a pointer, or the value itself.
-//
-// The decoder flattens a pointer to a struct by following it and leaves a pointer to anything else as a
-// pointer. Rendering one of those gives an address. Publishing assigns a fresh pointer for a leaf that is
-// not a struct, so the address differs on each side of a delivery. The report would name the key as moved
-// on every boot and print two addresses for it.
-//
-// Nothing reaches this today: every pointer leaf the node's configuration carries is left
-// undeclared. The walk around it is driven from the type so that a field added later is covered, and this
-// keeps that true for one more shape.
+// whatAPointerHolds returns the value behind a pointer, or the value itself, so a pointer leaf renders as
+// its value rather than an address.
 func whatAPointerHolds(value any) any {
 	v := reflect.ValueOf(value)
 	if v.Kind() != reflect.Pointer {
@@ -193,23 +163,13 @@ func whatAPointerHolds(value any) any {
 	return v.Elem().Interface()
 }
 
-// TestReporter is the part of a test's own type this file needs.
-//
-// Named as an interface rather than taking *testing.T, so this file does not pull the testing package into
-// a binary the boot path links. The behaviour is the point: the helper below has to be able to end the
-// test, because a caller that could carry on would compare two answers produced by reading nothing.
+// TestReporter is the subset of testing.TB DescribeForTest needs, so this file does not import testing.
 type TestReporter interface {
 	Helper()
 	Fatalf(format string, args ...any)
 }
 
-// DescribeForTest reads what a node's configuration holds for each key, as text.
-//
-// Exported for the tests that measure a booted node's configuration, which live beside the boot because
-// only a boot produces one.
-//
-// It fails the test rather than answering partially. Two empty answers compare equal across a hundred keys.
-// An answer produced by reading nothing is therefore indistinguishable from a node where nothing moved.
+// DescribeForTest is describe for tests, failing the test if any key cannot be read.
 func DescribeForTest(t TestReporter, cfg *tmcfg.Config, keys []string) map[string]string {
 	t.Helper()
 	values, unread, err := describe(cfg, keys)
@@ -223,17 +183,8 @@ func DescribeForTest(t TestReporter, cfg *tmcfg.Config, keys []string) map[strin
 	return values
 }
 
-// publishNodeConfig makes a node's configuration hold what the candidate holds, without replacing it.
-//
-// Field by field rather than by assigning the whole struct. The configuration is one struct behind one
-// pointer, and every section under it is a pointer of its own that components take and keep: constructors
-// throughout the node ask for a section rather than for the configuration holding it. Assigning the whole
-// struct swaps every one of those pointers for a fresh one, so anything already holding a section goes on
-// reading the values that section had before the delivery, and nothing says so.
-//
-// Assigning through each pointer instead leaves every pointer identity as it was, so a component reads the
-// delivered values whether it took its pointer before this ran or after. That removes the ordering the
-// delivery would otherwise depend on, which is an ordering nothing states and no test holds.
+// publishNodeConfig copies candidate into target through each section pointer rather than replacing the
+// pointers, so a component already holding a section sees the delivered values.
 func publishNodeConfig(target, candidate *tmcfg.Config) error {
 	if target == nil || candidate == nil {
 		return fmt.Errorf("no configuration to publish into")
@@ -241,14 +192,8 @@ func publishNodeConfig(target, candidate *tmcfg.Config) error {
 	return publishValue(reflect.ValueOf(target).Elem(), reflect.ValueOf(candidate).Elem(), "")
 }
 
-// publishValue assigns candidate into target, following a pointer rather than replacing it.
-//
-// A pointer to a struct is followed and assigned through, which is what keeps the identity whatever holds it
-// depends on. Everything else is assigned, and that is what carries the values. A pointer the target does
-// not have yet is assigned rather than followed, because there is nothing to assign through.
-//
-// An unexported field is skipped, for the reason the detach skips one: the candidate was made by assigning
-// the struct, so it already holds the same value, and a decoder cannot write to one either.
+// publishValue assigns candidate into target field by field, assigning through non-nil struct pointers
+// on both sides and skipping unexported fields.
 func publishValue(target, candidate reflect.Value, path string) error {
 	if target.Kind() != reflect.Struct {
 		target.Set(candidate)

@@ -14,11 +14,8 @@ import (
 	"github.com/creachadair/tomledit/transform"
 )
 
-// Set writes one key's value, replacing it in place when the key is already present.
-//
-// Replacing the value on the existing line preserves the comment an operator wrote above or beside
-// the key. Rewriting the file from a decoded map drops every comment in it, leaving the operator no
-// way to recover the reasoning they recorded.
+// Set writes one key's value, replacing it in place when the key is already present so its comments
+// survive.
 func (f *File) Set(key string, v any) error {
 	path, err := keyOf(key)
 	if err != nil {
@@ -31,28 +28,22 @@ func (f *File) Set(key string, v any) error {
 
 	if e := f.doc.First(path...); e != nil && e.KeyValue != nil {
 		f.changed()
-		// The comment beside a value hangs off the value, so replacing the value drops it unless it is
-		// carried across. The block above the key hangs off the key instead and survives on its own.
+		// The trailing comment belongs to the value, so carry it across.
 		value.Trailer = e.Value.Trailer
 		e.Value = value
 		return nil
 	}
 	f.changed()
 
-	// A key the document does not hold yet lands in a namespace that may already use its name for a
-	// table, or use a table's name for it. Rather than enumerate the shapes that collide, insert and then
-	// ask the decoder, which is the same one the node reads with: if the document no longer decodes, the
-	// insert is undone and the key is named. Enumerating them by hand missed three.
+	// A new key can collide with a table name. Rather than enumerate collisions, insert and undo if the
+	// document no longer decodes.
 	undo, inserted := f.insert(path, value)
 	if !inserted {
-		// Unreachable: the lookup above established the key is absent, and the dotted name insert builds
-		// addresses the same place. Reported rather than returned as success, because a caller told a
-		// write landed when nothing was written has no way to find out.
+		// Unreachable, since the lookup above found no such key.
 		return fmt.Errorf("%s: the document already holds this key", key)
 	}
 	if err := f.decodable(); err != nil {
-		// Nothing to drop: the decode that just failed left no cache behind, which is why the undo needs
-		// no invalidation of its own.
+		// The failed decode cached nothing, so the undo needs no invalidation.
 		undo()
 		return fmt.Errorf("%s: %w", key, err)
 	}
@@ -60,21 +51,13 @@ func (f *File) Set(key string, v any) error {
 }
 
 // decodable reports whether the document still renders to something the node's decoder can read.
-//
-// The check an insert passes through, because only an insert can name a place the document already uses.
-// Replacing a value on an existing line changes no shape, and neither does removing a name, so neither
-// asks; Save asks over the whole document instead, which is the gate every file reaching disk crosses.
-// Rendering is what a later process reads, so this asks the question in the form the answer matters in.
 func (f *File) decodable() error {
 	_, err := f.decoded()
 	return err
 }
 
-// insert adds a key the document does not have yet.
-//
-// A key with no dots belongs at the top level. Otherwise it goes in the table its prefix names,
-// which is created when it is absent so writing the first key of a section works without the
-// operator having to add the heading by hand.
+// insert adds a key the document does not have yet, creating its table when absent, and returns how to
+// undo it.
 func (f *File) insert(path parser.Key, value parser.Value) (func(), bool) {
 	leaf := parser.Key{path[len(path)-1]}
 	kv := &parser.KeyValue{Name: leaf, Value: value}
@@ -87,8 +70,6 @@ func (f *File) insert(path parser.Key, value parser.Value) (func(), bool) {
 	if e := transform.FindTable(f.doc, table...); e != nil {
 		return appendItem(e.Section, kv)
 	}
-	// No section carries this name, so the table is new and gets a heading. There is no second spelling to
-	// choose between: a dotted key is the other way to name a table and the document cannot hold one.
 	before := len(f.doc.Sections)
 	f.doc.Sections = append(f.doc.Sections, &tomledit.Section{
 		Heading: &parser.Heading{Name: copyKey(table)},
@@ -98,16 +79,10 @@ func (f *File) insert(path parser.Key, value parser.Value) (func(), bool) {
 }
 
 // copyKey returns a key that shares no storage with its argument.
-//
-// The paths here are slices of one another, so appending to a shorter one would write into the longer
-// one's storage.
 func copyKey(k parser.Key) parser.Key { return append(parser.Key(nil), k...) }
 
-// appendItem adds an item to a section, and reports how to remove it again and whether it went in.
-//
-// Told not to replace, so a key already present is reported rather than overwritten. The distinction
-// matters twice: replacing would leave the undo deleting an entry that predated the edit, and a caller
-// needs to know a write did not happen rather than being told it did.
+// appendItem adds an item to a section without replacing an existing one, and reports how to remove it
+// again and whether it went in.
 func appendItem(s *tomledit.Section, kv *parser.KeyValue) (func(), bool) {
 	if !transform.InsertMapping(s, kv, false) {
 		return nil, false
@@ -130,11 +105,7 @@ func (f *File) insertGlobal(kv *parser.KeyValue) (func(), bool) {
 	return appendItem(f.doc.Global, kv)
 }
 
-// Unset removes a key and reports whether the file carried one.
-//
-// This removes the key rather than writing a zero, because an absent key resolves to the running
-// binary's default. A key set to its default value looks identical in the file but is a commitment
-// that survives a release changing that default, which is the opposite of what unset means.
+// Unset removes a key, so it resolves to the binary's default, and reports whether the file carried one.
 func (f *File) Unset(key string) (bool, error) {
 	path, err := keyOf(key)
 	if err != nil {
@@ -146,22 +117,13 @@ func (f *File) Unset(key string) (bool, error) {
 	}
 	f.changed()
 	if !e.Remove() {
-		// Reported rather than returned as an absent key, which is what the file carrying one and the
-		// removal doing nothing would otherwise look like to a caller.
 		return false, fmt.Errorf("%s: the file carries this key and it could not be removed", key)
 	}
 	return true, nil
 }
 
-// tomlValue renders a Go value as the TOML literal that parses back to it.
-//
-// One case per type rather than a general formatter, so an unsupported type errors here instead of
-// becoming a plausible-looking line in an operator's file. The cases are the widths configuration
-// structs in this tree actually declare, which is why a narrower integer is a named refusal rather
-// than a case: adding one is what you do when a field needs it.
-//
-// A duration goes in as its string form, since a bare number of nanoseconds is unreadable and reads
-// back as an integer.
+// tomlValue renders a Go value as the TOML literal that parses back to it. It supports the types
+// configuration structs here declare and refuses the rest. A duration is written as its string form.
 func tomlValue(v any) (parser.Value, error) {
 	switch x := v.(type) {
 	case bool:
@@ -199,9 +161,7 @@ func tomlValue(v any) (parser.Value, error) {
 		}
 		return parser.ParseValue("[" + strings.Join(quoted, ", ") + "]")
 	case []any:
-		// The shape reading an array back produces. Without this, anything that reads a list and writes
-		// it again fails on a value this package handed it. Every element is a value the reader can
-		// produce, and every one of those has a case above, so the reader and the writer agree.
+		// The shape a decoded list has, so a value read can be written back.
 		rendered := make([]string, 0, len(x))
 		for i, item := range x {
 			element, err := tomlValue(item)
@@ -216,11 +176,8 @@ func tomlValue(v any) (parser.Value, error) {
 	}
 }
 
-// unsignedValue renders an unsigned integer, refusing one no reader can hand back.
-//
-// A TOML integer is signed and decodes into an int64, so a value above its maximum renders as a line
-// that reads back as an error rather than a number. Refused here for the same reason an infinity is:
-// this package does not write what it cannot read.
+// unsignedValue renders an unsigned integer, refusing one above math.MaxInt64 since TOML integers are
+// signed 64-bit.
 func unsignedValue(x uint64) (parser.Value, error) {
 	if x > math.MaxInt64 {
 		return parser.Value{}, fmt.Errorf("%d is larger than a configuration file's integers go, which "+
@@ -229,15 +186,8 @@ func unsignedValue(x uint64) (parser.Value, error) {
 	return parser.ParseValue(strconv.FormatUint(x, 10))
 }
 
-// floatValue renders a float as a TOML float, which the shortest form of an integral one is not.
-//
-// TOML tells a float from an integer by the fractional part or the exponent, and the shortest form of
-// 1.0 is "1", which reads back as an integer. A key declared as a float would then resolve as one type
-// from a node's own files and as another from its sei.toml, and which of the two an operator gets
-// depends on the value they chose: 0.5 survives and 1.0 does not.
-//
-// Infinities and NaN are refused, because this file format has no form for either. The alternative is
-// a line no reader can load, written into an operator's file with nothing said.
+// floatValue renders a finite float as a TOML float, adding ".0" to an integral one so it does not read
+// back as an integer.
 func floatValue(x float64) (parser.Value, error) {
 	if math.IsInf(x, 0) || math.IsNaN(x) {
 		return parser.Value{}, fmt.Errorf("%v cannot be written to a configuration file, which holds "+
@@ -250,15 +200,10 @@ func floatValue(x float64) (parser.Value, error) {
 	return parser.ParseValue(text)
 }
 
-// basicString renders a Go string as a quoted TOML basic string.
-//
-// The escaping is the scanner's own rather than Go's. Go's quoter writes a control character as \x07
-// or \a and TOML defines neither, so such a value was refused with a diagnostic naming an offset into
-// a string the operator never saw.
+// basicString renders a Go string as a quoted TOML basic string, using TOML's escapes rather than Go's.
 func basicString(s string) (string, error) {
 	if !utf8.ValidString(s) {
-		// The escaper substitutes a replacement rune for a byte that is not valid UTF-8, so writing one
-		// would store a different value than the caller passed and no error would say so.
+		// The escaper would silently substitute a replacement rune.
 		return "", fmt.Errorf("the value is not valid UTF-8, and a configuration file holds text")
 	}
 	return `"` + string(scanner.Escape(s)) + `"`, nil

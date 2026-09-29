@@ -8,18 +8,13 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-// Values returns every key the file writes, as dotted paths to Go values.
-//
-// This leaves out the schema version and the node mode. Both describe the file rather than configuring
-// the node, so a reader checking written keys against the declared set would otherwise report them as
-// keys no section owns, on every node, forever.
+// Values returns every key the file writes, as dotted paths to Go values, except VersionKey and ModeKey.
 func (f *File) Values() (map[string]any, error) {
 	all, err := f.decoded()
 	if err != nil {
 		return nil, err
 	}
-	// Built rather than filtered in place, because decoded hands back the cache itself. Deleting the two
-	// describing keys from it made every later Version, Mode and Get read them as absent.
+	// Copied, because decoded returns the cache.
 	out := make(map[string]any, len(all))
 	for key, v := range all {
 		if key == VersionKey || key == ModeKey {
@@ -44,15 +39,8 @@ func (f *File) Get(key string) (any, bool, error) {
 	return handedOut(v), ok, nil
 }
 
-// handedOut returns a value a caller can change without changing what a later read answers.
-//
-// A list decodes to a slice the cache holds, so returning that slice shares its backing array, and a
-// caller sorting or index-assigning what it was given rewrites the cache. Copied on the way out rather
-// than once at decode, because a caller changes what it holds at any point after it holds it.
-//
-// Only a list needs copying. A scalar is copied by the assignment, and a leaf is never a table: the two
-// shapes that would put one here, an inline table and an array of tables, are both refused when the file
-// is read and neither can be written, so nothing reaches here as a map.
+// handedOut returns a copy of a cached value that shares no storage with the cache. Only lists need
+// copying: a leaf is never a table, since the file refuses inline tables and arrays of tables.
 func handedOut(v any) any {
 	list, ok := v.([]any)
 	if !ok {
@@ -65,24 +53,8 @@ func handedOut(v any) any {
 	return out
 }
 
-// decoded renders the document and reads it back as Go values, keyed by dotted path.
-//
-// The values come from the decoder a node reads its configuration with, which is what makes "this file
-// parses" and "this node can boot from it" the same statement. viper decodes TOML with
-// pelletier/go-toml/v2, so this does too, and a shape that library refuses is refused here rather than
-// discovered on a node.
-//
-// The editing parser locates lines and preserves comments, which is why it is also here, and it stops
-// short of interpreting a literal. Deciding what "1_000" or a multi-line string means is a second
-// implementation of the specification, and a hand-written one went wrong in four places.
-//
-// Rendering first rather than holding the source means an unsaved edit is read back through the same
-// path a later process would use, so a value this package cannot express fails here rather than on a
-// node.
-//
-// The map returned is the cache, and so is every list in it. Every caller here reads them, and one that
-// hands either outward passes it through handedOut; writing into this map or a list it holds would
-// change what a later read answers.
+// decoded renders the document and decodes it with the node's own TOML decoder, keyed by dotted path.
+// The result is cached; callers must not modify it and pass anything they return through handedOut.
 func (f *File) decoded() (map[string]any, error) {
 	if f.values != nil {
 		return f.values, nil
@@ -100,9 +72,6 @@ func (f *File) decoded() (map[string]any, error) {
 }
 
 // decodeBytes reads a rendered document as dotted paths to Go values.
-//
-// Separate from decoded so that a caller holding the rendering already, such as Save, does not render it
-// a second time to check it.
 func decodeBytes(raw []byte) (map[string]any, error) {
 	var nested map[string]any
 	if err := toml.Unmarshal(raw, &nested); err != nil {
@@ -116,15 +85,9 @@ func decodeBytes(raw []byte) (map[string]any, error) {
 	return out, nil
 }
 
-// refuseNonFiniteNumbers rejects an infinity or a NaN a decoder accepted.
-//
-// TOML spells both as words and a conforming decoder reads them, so a file can hold one. This file
-// cannot write one back, because rendering it produces a line no reader loads, so accepting one here
-// would mean any later edit of any other key failed on a value this package had handed out.
+// refuseNonFiniteNumbers rejects an infinity or a NaN, which the file cannot write back.
 func refuseNonFiniteNumbers(values map[string]any) error {
-	// Sorted, because this returns the first refusal it finds and a map hands its keys back in a
-	// different order each time. Unsorted, a file holding two of these names one of them on one read and
-	// the other on the next, so an operator fixes what they were told and meets the same refusal again.
+	// Sorted so the first refusal reported is stable.
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -156,9 +119,6 @@ func finite(key string, v any) error {
 }
 
 // flatten expands a decoded table into dotted keys, keeping only the leaves.
-//
-// A table contributes its name as a prefix and no value of its own, which is what makes the result one
-// entry per written key and comparable against a set of declared keys.
 func flatten(prefix string, in, out map[string]any) {
 	for name, v := range in {
 		key := name
@@ -173,10 +133,7 @@ func flatten(prefix string, in, out map[string]any) {
 	}
 }
 
-// stringValue reads one of the keys that describe the file.
-//
-// Parse reads both before it returns a file, and neither has a sensible reading when it is absent or
-// holds something other than a string, so each caller states its own consequence rather than sharing one.
+// stringValue reads a top-level string key, reporting whether it is present.
 func (f *File) stringValue(key string) (string, bool, error) {
 	all, err := f.decoded()
 	if err != nil {

@@ -16,49 +16,25 @@ import (
 	"github.com/creachadair/tomledit/scanner"
 )
 
-// SchemaVersion is the schema this binary writes and reads.
-//
-// A counter rising by one per migration, and not a release version. Most releases change no schema, so a
-// release version could not answer whether the schema moved between two of them without a
-// release-to-schema table, which is this counter reintroduced as an indirection. Releases also do not
-// form the total order a chain needs: a hotfix can ship after a later minor, so ordering steps by
-// release would run them in an order nobody intended.
+// SchemaVersion is the schema this binary writes and reads. It rises by one per migration and is not a
+// release version.
 const SchemaVersion = 1
 
-// VersionKey records which schema the file follows.
-//
-// At the document's top level rather than inside a table, so reading it never depends on knowing
-// the shape of the file it describes.
+// VersionKey is the top-level key recording which schema the file follows.
 const VersionKey = "schema_version"
 
-// ModeKey records which node mode the file's values resolve for.
-//
-// At the top level beside VersionKey, not inside a section, because the mode selects which defaults
-// apply and so cannot itself have a per-mode default. It is also the only durable record of an
-// archive node: seid init writes config.toml's mode as "full" for one, since Tendermint has no
-// archive mode, so nothing else on disk distinguishes the two.
+// ModeKey is the top-level key recording which node mode the file's values resolve for. It is the only
+// on-disk record of an archive node, since config.toml records one as "full".
 const ModeKey = "node_mode"
 
-// newFileMode is the permission a file created here gets, and only that.
-//
-// A save onto an existing file inherits whatever mode that file already has, so this value describes
-// the first save and nothing after it. Narrow rather than the usual 0644 because a configuration names
-// the paths of a node's key files and its peers, and because it is the narrower of the two modes used
-// by the files it consolidates. Widening one an operator deliberately narrowed is worse than a default
-// nobody wanted, which is why the existing mode wins.
+// newFileMode is the permission of a newly created file. A save onto an existing file keeps its mode.
 const newFileMode os.FileMode = 0o600
 
-// File is a parsed sei.toml that survives editing with its comments and layout intact.
-//
-// A File is for one goroutine at a time. Reading is not a pure operation: every read decodes the
-// document and holds the result, so two concurrent reads of a shared File race.
+// File is a parsed sei.toml that survives editing with its comments and layout intact. It is for one
+// goroutine at a time: reads populate a cache.
 type File struct {
 	doc *tomledit.Document
 	// values caches the last decode, and is nil whenever the document has changed since.
-	//
-	// Reading asks the decoder rather than the editing parser, which means rendering the document, so a
-	// caller walking every declared key would otherwise render and decode once per key. Building a file
-	// would be quadratic in its size for the same reason, since every edit checks the result.
 	values map[string]any
 }
 
@@ -75,11 +51,7 @@ func Parse(r io.Reader) (*File, error) {
 	if err := f.refuseUnsupportedShapes(); err != nil {
 		return nil, err
 	}
-	// Both keys that describe the file are read here rather than left to whoever calls Version or Mode.
-	// Asked at the door, every verb below answers for a file whose schema and mode are established;
-	// asked only by the verb that returns one, a caller that never calls it resolves values from a file
-	// a newer release wrote, or against the wrong mode's defaults, and boots on a configuration nobody
-	// intended.
+	// Checked here so no caller can use a file whose schema or mode is invalid.
 	if _, err := f.Version(); err != nil {
 		return nil, err
 	}
@@ -89,17 +61,10 @@ func Parse(r io.Reader) (*File, error) {
 	return f, nil
 }
 
-// refuseUnsupportedShapes rejects TOML this format does not carry.
-//
-// TOML permits more shapes than a node's configuration uses, and each of these reaches an edit that has
-// nowhere to land: a mixed-case key is read back under a different name, an inline table and a dotted key
-// each name a table with no line of its own, and an array of tables gives no entry a line of its own.
-// Refusing at the door is what keeps one spelling per table and one answer per key, and it leaves every
-// verb below with a document it can round-trip.
+// refuseUnsupportedShapes rejects TOML this package cannot edit in place or write back.
 func (f *File) refuseUnsupportedShapes() error {
 	headings := map[string]bool{}
-	// Every entry in Sections is a named table, so each carries a heading; the global section is a field
-	// of its own and is not in here.
+	// Sections holds the named tables; the global section is separate.
 	for _, s := range f.doc.Sections {
 		if s.IsArray {
 			return fmt.Errorf("[[%s]] is an array of tables, which this file does not carry; every key "+
@@ -110,8 +75,7 @@ func (f *File) refuseUnsupportedShapes() error {
 		}
 		name := s.Name.String()
 		if headings[name] {
-			// Also refused by the decoder, and kept for the same reason as a duplicate key: this says
-			// which heading and what an edit would reach.
+			// The decoder refuses this too; this error names the heading.
 			return fmt.Errorf("[%s] appears more than once, and an edit reaches only the first, so a "+
 				"value written into this file would not be the one read back", name)
 		}
@@ -139,9 +103,7 @@ func (f *File) refuseUnsupportedShapes() error {
 				full, full[:len(full)-1], full[len(full)-1])
 			return false
 		}
-		// The decoder below refuses this too. It stays because it names the key and says what an edit
-		// would do to it, where the decoder names a line, and a duplicate key is the mistake an operator
-		// is most likely to make by hand.
+		// The decoder refuses this too; this error names the key.
 		key := full.String()
 		if written[key] {
 			bad = fmt.Errorf("%s is written more than once, and an edit reaches only the first, so a "+
@@ -154,17 +116,11 @@ func (f *File) refuseUnsupportedShapes() error {
 	if bad != nil {
 		return bad
 	}
-	// One name used for both a value and a table, a table defined twice, a key written twice: all of it
-	// is the decoder's answer rather than a list kept here. A hand-written list missed an implicitly
-	// created table, an empty section, and any collision a hyphen sorted between.
+	// Every other collision is the decoder's to find.
 	return f.decodable()
 }
 
-// keyIsAddressable reports whether every segment of a key can be read back as written.
-//
-// A source enumerates lower-cased, so an upper-case segment is read under a name that is not the one
-// in the file, and a segment carrying a dot or a space cannot be split back into the segments it came
-// from.
+// keyIsAddressable reports whether every segment of a key is a lower-case bare key, within maxKeyDepth.
 func keyIsAddressable(key parser.Key) error {
 	if len(key) > maxKeyDepth {
 		return fmt.Errorf("%s is %d segments deep and this file is read to %d. A setting here is a "+
@@ -189,11 +145,7 @@ func keyIsAddressable(key parser.Key) error {
 	return nil
 }
 
-// notBareKeyRune reports whether a character cannot appear in a bare TOML key.
-//
-// A key outside this set has to be quoted where it is written, and the two readers of this file spell a
-// quoted key differently: the decoder hands back the name itself, while looking one up rebuilds the
-// quoting. Values would then report a key Get answers absent for.
+// notBareKeyRune reports whether a character cannot appear in a lower-case bare TOML key.
 func notBareKeyRune(r rune) bool {
 	switch {
 	case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
@@ -203,23 +155,14 @@ func notBareKeyRune(r rune) bool {
 	}
 }
 
-// valueIsAddressable rejects an inline table, at the top level of a value or inside an array.
-//
-// An inline table holds several keys in one written value. Its leaves flatten into the same dotted
-// space a table's do, so a caller works in that space and an edit there defines the table a second
-// time, producing a file a conforming reader refuses to load.
+// valueIsAddressable rejects an inline table or a date/time, at the top level of a value or inside an
+// array.
 func valueIsAddressable(key parser.Key, v parser.Value) error {
 	return valueIsAddressableWithin(key, v, 0)
 }
 
-// valueIsAddressableWithin is valueIsAddressable, carrying how deep into nested arrays it already is.
-//
-// The depth is carried rather than derived because the walk is what finds it: an array holds arrays, so
-// nothing but the walk knows how deep it went.
-//
-// Refused here, between the parse and the decode. Parsing is linear in the bytes whatever shape they take,
-// measured within 14 percent across a deep key, a deep array and a flat file of the same size. What grows
-// faster than the bytes is decoding the result, and nothing downstream of that can refuse a boot.
+// valueIsAddressableWithin is valueIsAddressable at an array nesting depth, refusing one past
+// maxArrayDepth before the decode.
 func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
 	if depth > maxArrayDepth {
 		return fmt.Errorf("%s nests arrays %d deep and this file is read to %d. No setting here is a "+
@@ -250,15 +193,8 @@ func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
 	return nil
 }
 
-// The bounds this file is read within.
-//
-// None of them is a limit an operator can reach by writing configuration. They exist because nothing
-// downstream of reading can refuse a boot, so a file whose cost outruns its size has to be refused while
-// reading it.
-//
-// They apply at two different points. The byte bound is checked before anything is parsed. The two depth
-// bounds are checked after the parse and before the decode, which is where a cost that outruns the bytes
-// actually falls: parsing is linear in the bytes whatever shape they take.
+// The bounds this file is read within, far above anything legitimate configuration reaches. The byte
+// bound applies before parsing; the depth bounds apply between parse and decode.
 const (
 	// maxFileBytes bounds the bytes Load will read. A file stating every declared key is a few tens
 	// of kilobytes.
@@ -269,11 +205,7 @@ const (
 	maxArrayDepth = 8
 )
 
-// shortKey renders a key for a message, bounded.
-//
-// The message that refuses a key for being too deep is the one place that key is certain to be rendered,
-// and rendering it whole makes the refusal as large as the file. Bounded here rather than at each message,
-// because the caller holding the key is the one that cannot know how deep it is.
+// shortKey renders a key for a message, truncated past maxKeyDepth segments.
 func shortKey(key parser.Key) string {
 	if len(key) <= maxKeyDepth {
 		return key.String()
@@ -281,15 +213,9 @@ func shortKey(key parser.Key) string {
 	return fmt.Sprintf("%s and %d more segments", key[:maxKeyDepth].String(), len(key)-maxKeyDepth)
 }
 
-// whatALinkToNothingIs reports the error for a path that is a link to a file that is not there. It returns
-// nil for anything else, leaving the caller the error it already has.
-//
-// A caller stays quiet on fs.ErrNotExist, because a node without this file is the ordinary case. A broken
-// link reads as that same error, so without this it would take the same silence and whoever placed it would
-// never learn the file is doing nothing.
+// whatALinkToNothingIs returns an error if path is a dangling symlink, and nil otherwise, so a broken
+// link is not mistaken for an absent file.
 func whatALinkToNothingIs(path string) error {
-	// The link itself, not its target, and the path has to be a link. Lstat also succeeds for a regular
-	// file, so testing only its error would report any readable path as a broken link.
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		return nil
@@ -297,18 +223,10 @@ func whatALinkToNothingIs(path string) error {
 	return fmt.Errorf("%s is a link to something that is not there", path)
 }
 
-// Load reads the document at path.
-//
-// A path with no file there reports fs.ErrNotExist, which errors.Is matches. That is the one outcome a
-// caller acts on rather than reports, since a node with no sei.toml yet needs New instead.
+// Load reads the document at path. A missing file reports an error matching fs.ErrNotExist.
 func Load(path string) (*File, error) {
-	// The kind of thing this is, before opening it. Opening a FIFO blocks until something writes, so a
-	// check made on the open file never runs and the node hangs on start with nothing to say.
-	//
-	// Stat rather than Lstat, so a symlink is judged by what it points at. A configuration file mounted
-	// from a Kubernetes ConfigMap is a symlink, and so is any layout that keeps the real file elsewhere
-	// and links it in, and all of those are ordinary. A symlink to a FIFO is still refused, because Stat
-	// reports the FIFO.
+	// Checked before opening, since opening a FIFO blocks. Stat follows symlinks, which a mounted
+	// ConfigMap uses.
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		if dangling := whatALinkToNothingIs(path); dangling != nil {
@@ -325,9 +243,7 @@ func Load(path string) (*File, error) {
 
 	fh, err := os.Open(path) //nolint:gosec // the caller's configured path is the subject
 	if err != nil {
-		// The target can be removed between the check above and this open, which is what a mounted file's
-		// directory swap looks like. Checked again here so the error names the broken link instead of
-		// reporting the file as absent.
+		// A mounted file's target can be swapped out between the Stat and the open.
 		if errors.Is(err, fs.ErrNotExist) {
 			if dangling := whatALinkToNothingIs(path); dangling != nil {
 				return nil, dangling
@@ -337,8 +253,7 @@ func Load(path string) (*File, error) {
 	}
 	defer func() { _ = fh.Close() }()
 
-	// Read through the bound rather than against the size reported a moment ago, so the guard applies to
-	// the bytes that actually arrive. One byte past the limit is enough to know it was exceeded.
+	// Bound the bytes actually read rather than trusting the Stat size.
 	raw, err := io.ReadAll(io.LimitReader(fh, maxFileBytes+1))
 	if err != nil {
 		return nil, err
@@ -355,11 +270,7 @@ func Load(path string) (*File, error) {
 	return f, nil
 }
 
-// New returns an empty document carrying this binary's schema version and the given node mode.
-//
-// The mode is required rather than optional. Every value a caller goes on to write resolves for one
-// mode, and a file that does not say which cannot be compared against a binary's defaults or checked
-// against the mode the node actually runs.
+// New returns an empty document carrying this binary's schema version and the given, required, node mode.
 func New(mode string) (*File, error) {
 	if mode == "" {
 		return nil, fmt.Errorf("a sei.toml needs a node mode: every value in it resolves for one, and " +
@@ -375,11 +286,7 @@ func New(mode string) (*File, error) {
 	return f, nil
 }
 
-// Mode returns the node mode the file's values resolve for.
-//
-// An absent mode is an error rather than a guess. Guessing picks one binary's idea of a default and
-// silently compares an archive node's file against a validator's defaults, which is the mistake
-// this key exists to make impossible.
+// Mode returns the node mode the file's values resolve for. An absent or empty mode is an error.
 func (f *File) Mode() (string, error) {
 	mode, present, err := f.stringValue(ModeKey)
 	switch {
@@ -394,10 +301,8 @@ func (f *File) Mode() (string, error) {
 	return mode, nil
 }
 
-// Version returns the schema version the file records.
-//
-// An absent or unparsable version is an error, never a zero. A migration chain reads this to decide
-// which steps to run, so guessing here transforms a file whose shape nobody established.
+// Version returns the schema version the file records. An absent version, or one outside
+// 1..SchemaVersion, is an error.
 func (f *File) Version() (int, error) {
 	n, present, err := f.intValue(VersionKey)
 	switch {
@@ -413,17 +318,12 @@ func (f *File) Version() (int, error) {
 			"cannot be established, so no migration can safely run against it", VersionKey, n)
 	}
 	if n > int64(SchemaVersion) {
-		// The rollback case, and the reason the counter exists. A release migrates the file forward on
-		// the node's own disk, so rolling the binary back does not roll the file back with it. Read
-		// anyway, this binary would silently ignore every key the newer schema added or renamed and boot
-		// on a configuration neither release produced.
+		// A binary rolled back past a migration.
 		return 0, fmt.Errorf("sei.toml is at %s %d and this binary understands %d. It was written by a "+
 			"newer release, so reading it would apply only the keys this binary still recognises",
 			VersionKey, n, SchemaVersion)
 	}
-	// Narrowed only past both bounds, so the counter fits whatever width int has here. Comparing after
-	// the cast let a counter too wide for int wrap into the accepted range, and the file then read as a
-	// version it does not hold.
+	// Narrowed after the bounds check so a wide value cannot wrap into range.
 	return int(n), nil
 }
 
@@ -436,27 +336,14 @@ func (f *File) Bytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Save writes the document to path, atomically.
-//
-// The document is offered to the decoder first, so no file reaches disk that a node cannot read. A
-// non-nil error means the values are not on disk.
-//
-// The rename makes it atomic, and the temporary file sits in the destination's own directory so the
-// rename stays within one filesystem. A crash at any point leaves either the previous file or the
-// new one, never a truncated file a node cannot parse.
-//
-// A destination that is a symbolic link, or that is not a regular file, is refused: a rename replaces
-// either one rather than writing through it. An existing file keeps its own permission, and a new one is
-// created readable and writable by its owner alone.
+// Save atomically writes the document to path after checking that Parse accepts it. A destination that
+// is a symlink or not a regular file is refused. An existing file keeps its permission; a new one gets
+// newFileMode. A non-nil error means nothing was written.
 func (f *File) Save(path string) error {
 	raw, err := f.Bytes()
 	if err != nil {
 		return err
 	}
-	// The one function every write to disk passes through, so the check belongs here rather than at each
-	// verb that edits. Asked as Parse rather than as a decode, because what has to hold of a file on disk
-	// is that this package can load it, and Parse is where that is decided. A refusal added there is then
-	// enforced on the way out too, without the verb that writes having to remember it.
 	if _, err := Parse(bytes.NewReader(raw)); err != nil {
 		return err
 	}
@@ -473,8 +360,7 @@ func (f *File) Save(path string) error {
 	}
 	tmpName := tmp.Name()
 	defer func() {
-		// Removing a temporary file that was already renamed fails harmlessly; leaving one behind
-		// after a failed write does not, since the next save would find the directory littered.
+		// Fails harmlessly once the file has been renamed.
 		_ = os.Remove(tmpName)
 	}()
 
@@ -488,22 +374,14 @@ func (f *File) Save(path string) error {
 	return nil
 }
 
-// modeToWrite returns the permission a save should use, and refuses a destination it must not replace.
-//
-// An existing file keeps its own mode, so a save never widens what an operator narrowed. Two
-// destinations are refused instead, because a rename replaces either one rather than writing through
-// it. A symbolic link would leave whatever it pointed at holding the old values, with nothing about the
-// result saying the link is gone. Anything else that is not a regular file is a device node, a socket
-// or a pipe, and replacing one destroys it and hands the configuration whatever permission it carried,
-// which for a device node is world-writable.
+// modeToWrite returns the permission a save should use: the existing file's, or newFileMode. It refuses
+// a symlink or non-regular destination, which a rename would replace rather than write through.
 func modeToWrite(path string) (os.FileMode, error) {
 	info, err := os.Lstat(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return newFileMode, nil // no file there yet, which is the ordinary first save
 	case err != nil:
-		// A path this process cannot inspect is not a first save, and calling it one writes at the
-		// default mode on a guess.
 		return 0, fmt.Errorf("inspect %s: %w", path, err)
 	case info.Mode()&os.ModeSymlink != 0:
 		target, err := os.Readlink(path)
@@ -522,16 +400,8 @@ func modeToWrite(path string) (os.FileMode, error) {
 	}
 }
 
-// writeAndSync writes the whole payload, sets the mode, and flushes to the device.
-//
-// The sync is what makes the rename meaningful: without it the rename can land before the contents,
-// leaving a file whose name is new and whose bytes are absent, which is the one outcome a node cannot
-// boot from.
-//
-// This is the reason the write is by hand rather than through creachadair/atomicfile, which this module
-// already depends on and which sei-tendermint's confix uses for the same job. That package renames on
-// Close and never syncs, and its temporary file is unexported, so the flush cannot be added from
-// outside. Fewer lines are not worth the flush here.
+// writeAndSync writes the whole payload, sets the mode, and fsyncs before the caller renames.
+// creachadair/atomicfile is not used because it does not sync.
 func writeAndSync(tmp *os.File, raw []byte, mode os.FileMode) error {
 	defer func() { _ = tmp.Close() }()
 
@@ -547,17 +417,11 @@ func writeAndSync(tmp *os.File, raw []byte, mode os.FileMode) error {
 	return tmp.Close()
 }
 
-// syncDir asks the filesystem to flush dir's entries, so a rename into it survives a power loss.
-//
-// It reports nothing, because nothing a caller does with the answer is right. Past the rename the new
-// file is what a node reads, so a flush that did not complete is not a failed save. Retrying is worse
-// than doing nothing: Linux reports a writeback error once per descriptor and does not write the pages
-// again, so a second flush can succeed over data that never reached the device.
+// syncDir flushes dir's entries so a rename into it survives a power loss. It is best effort: the rename
+// has already happened, and retrying a failed fsync is unreliable on Linux.
 func syncDir(dir string) {
 	d, err := os.Open(dir) //nolint:gosec // the destination's own directory
 	if err != nil {
-		// A directory this process cannot open for reading is not a save that failed. The rename has
-		// already happened and a reader sees the new values.
 		return
 	}
 	_ = d.Sync()
@@ -576,10 +440,7 @@ func keyOf(key string) (parser.Key, error) {
 		}
 	}
 	out := parser.Key(parts)
-	// Folded to lower case above and then held to the rule Parse applies, which is not quite that rule:
-	// Parse refuses an upper-case segment because a file is read lower-cased and the written name would
-	// not be the one read, where a caller naming a key has no written spelling to disagree with. Held
-	// here rather than at each verb, so Set cannot write a key the next Parse refuses.
+	// So Set cannot write a key the next Parse refuses.
 	if err := keyIsAddressable(out); err != nil {
 		return nil, fmt.Errorf("key %q: %w", key, err)
 	}

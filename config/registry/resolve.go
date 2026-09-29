@@ -9,82 +9,28 @@ import (
 
 // Resolved is every declared key's value, plus what a caller has to be told about how it got there.
 type Resolved struct {
-	// Values carries one value per declared key.
-	//
-	// A key's Go type depends on which source answered it, and a caller that type-asserts has to expect
-	// all three. A default arrives as the field's own type, so a duration is a duration and a list is a
-	// list. A file arrives as whatever the file format decodes to, so the same duration is text and the
-	// same list is a list of untyped elements. An environment variable arrives as one string, always. This
-	// resolves values and does not convert them, so the reader that owns a key remains the thing that
-	// turns any of the three into what that key means.
-	//
-	// A value is the caller's to write into. Nothing here shares storage with a section's own default.
+	// Values carries one value per declared key, unconverted: a default has the field's type, a file
+	// value the file format's type, and an environment value is always a string. Values share no storage
+	// with a section's defaults.
 	Values map[string]any
-	// Overrides are the declared keys something other than this node's defaults supplied, sorted.
-	//
-	// The keys an operator has taken responsibility for, as distinct from the ones tracking the
-	// binary's judgement. This is what a diff renders.
+	// Overrides are the declared keys a source other than the defaults supplied, sorted.
 	Overrides []string
-	// Ignored are declared keys an environment variable was set for and could not supply, and the reason
-	// for each.
-	//
-	// Separate from the undeclared keys because the two are different mistakes. An undeclared key is one
-	// nothing reads. An ignored one is read, and the operator reached for the one channel that cannot
-	// carry it, so the value they wrote elsewhere is what applies.
-	//
-	// The reason travels with the key rather than being looked up beside it. A caller reporting an ignored
-	// key is the only thing that can tell the operator why their variable did nothing, and a reason it has
-	// to fetch from somewhere else is one it can be handed empty without noticing.
+	// Ignored maps each declared key an environment variable was set for but cannot carry to the reason.
 	Ignored map[string]string
-	// Refused are the registrations and delivery declarations this package could not use.
-	//
-	// A refused registration means the key space is missing every key it declared. A refused declaration
-	// leaves the key space whole and means a section's values do not reach the thing that reads them.
-	//
-	// Reported rather than an error, for the reason Defect is recorded rather than panicked: every one
-	// of these comes from a call in this binary's own source, so a defect is a mistake a compiler could
-	// have caught and never something an operator wrote. Refusing to resolve would turn that mistake
-	// into a node that will not start, which is the fleet-wide incident the recording exists to avoid.
-	//
-	// What to do about one is the caller's, the same division the undeclared keys draw: a path that writes
-	// a configuration file has cause to refuse, because it would render a file missing whole sections,
-	// while a booting node has cause to say so and run.
-	//
-	// A section named here is absent from Values, so an operator's written value for one of its keys is
-	// not applied and arrives in UnknownInFile, reading as a key nothing declares.
+	// Refused are the registry's defects. A refused section is absent from Values, so a file value for
+	// one of its keys lands in UnknownInFile. Whether to fail on one is the caller's decision.
 	Refused []Defect
 	// UnknownInFile are keys the file carried that no section declares, sorted.
-	//
-	// Reported rather than an error, because what to do about one is the caller's decision: a
-	// generate path may want to refuse, while a boot on an operator's existing file must not.
 	UnknownInFile []string
-	// UnknownFromFlags are flag names the caller passed that match no declared key, sorted.
-	//
-	// Held apart from the file's keys rather than counted with them, because the two have different
-	// authors and only one of them is a mistake. A caller passing its whole flag set passes flags that
-	// name no setting at all, and every one of those arrives here on every invocation. A key in the file
-	// is something an operator typed meaning to change a setting.
-	//
-	// Counted together, a report about the file names flags the file does not contain, and the one signal
-	// an operator has for catching a typo fires on every run whether or not they made one.
+	// UnknownFromFlags are flag names the caller passed that match no declared key, sorted. Kept apart
+	// from UnknownInFile because a caller passing its whole flag set routinely includes non-settings.
 	UnknownFromFlags []string
 }
 
-// Sources are a node's configuration sources other than its defaults, which Resolve derives itself.
-//
-// A zero field contributes nothing, which is how a caller resolves deliberately without a source.
-//
-// Named fields rather than positional parameters, because File and Flags are the same type: passed
-// positionally, swapping the two compiles and silently inverts the precedence for every key both
-// supply. LookupEnv is a function rather than a map because an environment cannot be enumerated for a
-// prefix, since a variable is only findable if you already know its name.
+// Sources are a node's configuration sources other than its defaults. A zero field contributes nothing.
 type Sources struct {
-	// File is one flat map whose keys are whole dotted paths, matched without regard to case.
-	//
-	// Flat rather than nested, because that is the shape the other two sources carry: a flag name and
-	// an environment variable are each one string naming one key. A decoded configuration file is the
-	// wrong shape, since a table there is a nested map and every key an operator wrote sits a level
-	// below where anything matches it. Resolve refuses that shape rather than resolving past it.
+	// File is a flat map keyed by whole dotted paths, matched case-insensitively. Resolve refuses a
+	// nested map.
 	File      map[string]any
 	LookupEnv func(string) (string, bool)
 	Flags     map[string]any
@@ -100,39 +46,18 @@ func known(mode Mode) bool {
 	return false
 }
 
-// Resolve reduces a node's configuration sources to one value per declared key.
-//
-// The precedence is stated once, in this function, and a caller cannot reorder its way to a different
-// answer. That is the difference between a declared precedence and an emergent one: the legacy path's
-// answer depends on which viper instance a caller asked, which is why two different orders are
-// observable across its key set.
-//
-// Every declared key resolves, because the defaults are a source like any other. A key no source
-// mentions therefore carries its mode's default rather than being absent, which is what makes an
-// absent key track the binary's judgement instead of a zero value.
-//
-// That is a property of the whole answer, so a section whose defaults cannot supply it refuses the
-// resolution rather than returning one with a hole in it. A caller handed an error has no resolved
-// values; a caller handed a Resolved has one for every declared key.
+// Resolve reduces a node's configuration sources to one value per declared key, in rising precedence:
+// the mode's defaults, File, LookupEnv, Flags. It returns a value for every declared key or an error.
 func Resolve(mode Mode, from Sources) (Resolved, error) {
 	var out Resolved
 
-	// Refused before anything is resolved, because a section's defaults answer per mode and a mode this
-	// package does not know reaches whatever each section does with an argument it cannot match. What that
-	// is varies by section and none of them is a decision anyone made: the upstream mode rules answer for
-	// an unrecognised mode as though it were a full node, so an empty string, a capitalised name or one
-	// with a trailing space resolves the interfaces a full node serves onto whatever asked.
+	// Sections' defaults do not agree on what an unknown mode means, so refuse it up front.
 	if !known(mode) {
 		return out, fmt.Errorf("%q is not a mode this binary declares defaults for; the modes are %v",
 			mode, Modes())
 	}
 
-	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
-	// same registry: asking again leaves a window a concurrent registration fits through, and a section
-	// arriving in that window is declared by one part of the answer and not by another. The refusals come
-	// from the same read, because they are what says which keys the key space is missing, and a list of
-	// missing keys taken separately from the space it describes can name a section the space has or omit
-	// one it lacks.
+	// Every part of the answer comes from this one snapshot, so it describes a single registry.
 	registered, refused, _ := snapshot()
 	out.Refused = refused
 
@@ -159,7 +84,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	out.Ignored = ignored
 
 	// resolveFrom writes one source's values over what is resolved so far, and collects the keys it
-	// carried that no section declares. Dropping one silently is how an operator's typo becomes invisible.
+	// carried that no section declares.
 	resolveFrom := func(values map[string]any, undeclared map[string]bool) {
 		for key, v := range values {
 			if !declared[key] {
@@ -171,13 +96,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 		}
 	}
 
-	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
-	// order, which is why nothing exports it.
-	//
-	// The file's undeclared keys and the flags' are kept apart, because what a caller tells an operator
-	// about one is not what it tells them about the other. The environment needs no set of its own: a
-	// variable is found only by asking for a declared key's own name, so every value it answers with is
-	// declared, and the set handed here stays empty.
+	// Lowest precedence first. The environment is only asked for declared keys, so it has no unknowns.
 	resolveFrom(fileValues(from.File), unknownInFile)
 	resolveFrom(fromEnv, map[string]bool{})
 	resolveFrom(from.Flags, unknownFromFlags)
@@ -212,12 +131,8 @@ func declaredKeys(registered []Section) map[string]bool {
 	return out
 }
 
-// defaultValues renders every section's defaults for a mode into one set of keys.
-//
-// This is a second walk, not the one that derived the keys. The two share tagOf and isLeaf and
-// nothing else, so they can and did disagree: the type walk unwraps a pointer to derive a subtree's
-// keys and the value walk skips a nil one. matchesDeclaration is what holds them together, by
-// refusing a rendered default that does not state one value per declared key.
+// defaultValues renders every section's defaults for a mode into one set of keys, refusing a section
+// whose rendered default does not match its declared keys.
 func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
 	out := map[string]any{}
 	for _, s := range registered {
@@ -225,8 +140,6 @@ func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
 		if err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
-		// The same paths the declaration left out. Both walks read the one struct, so a path dropped from
-		// the declared side and kept here would be a value under a key nothing declares.
 		for _, key := range s.Excluded {
 			delete(values, key)
 		}
@@ -240,16 +153,8 @@ func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
 	return out, nil
 }
 
-// matchesDeclaration refuses a rendered default that does not state one value for each declared key.
-//
-// A declared key its default omits cannot resolve, and neither way of filling the hole is honest. A
-// zero value claims a judgement the binary never made, and dropping the key from the declared set
-// makes an operator's written value indistinguishable from a typo. An optional subtree left nil is
-// how a default arrives short, because the type walk unwraps a pointer to derive its keys and the
-// value walk skips a nil one rather than claiming defaults the section does not have.
-//
-// A default carrying a key the section does not declare means it is not the registered struct's
-// type, which is the general case the missing keys are one instance of.
+// matchesDeclaration refuses a rendered default that does not state exactly one value per declared key.
+// A nil optional subtree is the usual way a default comes up short.
 func matchesDeclaration(declared []string, values map[string]any) error {
 	stated := make(map[string]bool, len(declared))
 	var missing, extra []string
@@ -280,10 +185,8 @@ func matchesDeclaration(declared []string, values map[string]any) error {
 	return nil
 }
 
-// sectionValues walks a section's struct instance and returns its per-key values.
-//
-// deriveKeys walks a type and this walks a value, over the same tag rules. They are separate
-// recursions, so agreement is checked rather than structural; see matchesDeclaration.
+// sectionValues walks a section's struct value and returns its per-key values, using the same tag
+// rules as deriveKeys.
 func sectionValues(section string, cfg any) (map[string]any, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no value")
@@ -311,8 +214,6 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if !f.IsExported() {
-			// The guard walk has on the type side, so a default's own struct cannot hide a tagged field
-			// the declaration would have refused.
 			if _, tagged := f.Tag.Lookup("mapstructure"); tagged {
 				return fmt.Errorf("%s.%s is unexported and carries a mapstructure tag; nothing can write "+
 					"to it, so the tag names a key that reaches no field", prefix, f.Name)
@@ -324,16 +225,13 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			return err
 		}
 		if skip {
-			// Skipped on the type side too, so the declared keys and the rendered defaults describe the
-			// same set of fields and matchesDeclaration has nothing to disagree about.
 			continue
 		}
 
 		fv := v.Field(i)
 		for fv.Kind() == reflect.Pointer {
 			if fv.IsNil() {
-				// A nil pointer contributes nothing rather than a zero value, so a section with an
-				// unset optional subtree does not claim defaults it does not have.
+				// A nil pointer contributes nothing rather than zero values.
 				fv = reflect.Value{}
 				break
 			}
@@ -344,9 +242,6 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 		}
 
 		if squash {
-			// The guard walk has on the type side. Without it a default whose type squashes a
-			// non-struct reaches NumField on a string, and Resolve panics in a package whose whole
-			// posture is that a bad registration never does.
 			if fv.Kind() != reflect.Struct {
 				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, fv.Kind())
 			}
@@ -367,22 +262,8 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	return nil
 }
 
-// detach returns a value that shares no storage with the one it was given.
-//
-// A section's default is usually a package-level variable, so handing out a list or a map field hands out
-// the storage behind it. One caller sorting what it was given rewrites the process-wide default and every
-// later resolution carries the sorted version. That happened here, to two deny lists.
-//
-// Copied all the way down rather than one level. A list of lists, or a map of lists, shares its inner
-// storage through a copy of the outer, so a caller sorting an inner list reaches the default just as
-// directly. Nothing declared today has that shape, and the copy runs once per boot over a hundred or so
-// keys, so the cost of being thorough here is not measurable and the cost of not being is a defect nobody
-// finds twice.
-//
-// This covers what a section's defaults answer. It is not the guarantee for a value a source supplied: the
-// file source hands out its own copies, recursively, where it reads them, and the flag source carries only
-// text. A source that grew a channel handing out live storage would have to do the same at its own edge,
-// because only the source knows what else holds it.
+// detach returns a deep copy of v's slices and maps, so a caller mutating a resolved default cannot
+// reach the section's package-level default.
 func detach(v reflect.Value) any {
 	switch v.Kind() {
 	case reflect.Slice:
@@ -413,26 +294,8 @@ func detach(v reflect.Value) any {
 	}
 }
 
-// envValues reads the keys an environment supplies, from the caller's declared set.
-//
-// Driven by the declared set rather than by the environment, which is also what makes it complete:
-// every declared key has exactly one canonical spelling and this asks for all of them.
-//
-// declared is passed in rather than read here, so this shares Resolve's snapshot. Reading the registry
-// again would ask for a key the caller's declared set does not hold, and the answer would come back
-// only to be reported as one no section declares.
-// keysNoVariableCanCarry returns the declared keys an environment variable cannot supply, with the reason.
-//
-// One rule rather than a list each section keeps. A variable holds one string per name: that is a value for
-// anything read as a single word or number, and by long convention a list of those written with commas
-// between them. Nothing conventional puts a structure inside one variable, so a key whose value is a list of
-// anything other than single words is not offered this channel.
-//
-// Derived from what the key resolves to rather than declared beside the section that owns it. A section
-// naming its own exceptions is a list somebody keeps in step with the reader, and the first one forgotten is
-// a variable that resolves to a string, lands above the file because the environment outranks it, and
-// reaches a reader that wanted rows. Deriving it cannot be forgotten, and the reason is the same sentence
-// for every key it covers, because it is a fact about the channel and not about the section.
+// keysNoVariableCanCarry returns the declared keys whose default's shape an environment variable cannot
+// hold, with the reason. See oneVariableCanCarry.
 func keysNoVariableCanCarry(defaults map[string]any) map[string]string {
 	out := map[string]string{}
 	for key, value := range defaults {
@@ -449,11 +312,8 @@ func keysNoVariableCanCarry(defaults map[string]any) map[string]string {
 	return out
 }
 
-// oneVariableCanCarry reports whether a value's shape is one an environment variable can hold.
-//
-// A single word or number, or a list of those. An element type that is itself a list, a map, or unconstrained
-// is not one: a comma-separated string cannot be trusted to become it, and a reader that asks for the exact
-// shape gets a string instead and stops the node.
+// oneVariableCanCarry reports whether an environment variable can hold a value of type t: a single word
+// or number, or a list of those.
 func oneVariableCanCarry(t reflect.Type) bool {
 	if isSingleValue(t.Kind()) {
 		return true
@@ -473,6 +333,8 @@ func isSingleValue(k reflect.Kind) bool {
 	return false
 }
 
+// envValues looks up each declared key's environment variable. It returns the values found, and the
+// keys in undeliverable whose variable was set anyway, with the reason it was ignored.
 func envValues(declared map[string]bool, undeliverable map[string]string,
 	lookup func(string) (string, bool)) (map[string]any, map[string]string) {
 	if lookup == nil {
@@ -481,23 +343,13 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 	out := map[string]any{}
 	ignored := map[string]string{}
 	for key := range declared {
-		// A key no variable can carry is left to the sources that can. Resolving it would put a string
-		// at the top of the order for a reader that takes the exact type, and installing that stops the
-		// node. What an operator loses is the channel; what they keep is a node that boots.
-		//
-		// The variable is still read, and the value still discarded. Asking is what turns this from a
-		// silent skip into something a caller can report: a reason nothing can attach to an operator's
-		// own action is a reason nobody is ever told.
 		if reason, refused := undeliverable[key]; refused {
 			if v, set := lookup(EnvName(key)); set && v != "" {
 				ignored[key] = reason
 			}
 			continue
 		}
-		// An empty value is treated as unset. A variable exported empty is far more often a shell
-		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
-		// that clearing a key by exporting it empty reads as touching nothing, and Overrides will not
-		// mention it.
+		// An empty variable is treated as unset.
 		if v, ok := lookup(EnvName(key)); ok && v != "" {
 			out[key] = v
 		}
@@ -508,17 +360,8 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 	return out, ignored
 }
 
-// refuseANestedFile refuses a file source whose tables were left nested.
-//
-// The shape a configuration reader hands back, and it resolves to pure defaults without complaint: every
-// key an operator wrote sits one level below where a dotted path matches it, so nothing is applied, and
-// the table's own name is the one thing reported, as a key no section declares. A caller that then
-// installs what it resolved writes the whole declared set over the file it was trying to read.
-//
-// Detected by a table sitting where a declared key's first segment does, which is that mistake and
-// nothing else. Nothing looks inside the table, because the shape is wrong whether or not the keys
-// beneath it are ones this space knows: an empty table and a table of typos are both nested. A declared
-// key whose own field is a map is left alone, since the value an operator writes for it is a table.
+// refuseANestedFile refuses a file source holding a table where a declared key's prefix sits, which
+// means the caller passed a decoded file without flattening it. A declared map-valued key is allowed.
 func refuseANestedFile(values map[string]any, declared map[string]bool) error {
 	for key, v := range values {
 		if _, isTable := v.(map[string]any); !isTable {
@@ -538,10 +381,7 @@ func refuseANestedFile(values map[string]any, declared map[string]bool) error {
 	return nil
 }
 
-// fileValues normalises a configuration file's keys to lower case.
-//
-// A source enumerates lower-cased while a file may not be written that way, and a key that differed
-// only in case would resolve as unknown while the operator's value went nowhere.
+// fileValues normalises a configuration file's keys to lower case, matching how sources enumerate.
 func fileValues(values map[string]any) map[string]any {
 	if values == nil {
 		return nil

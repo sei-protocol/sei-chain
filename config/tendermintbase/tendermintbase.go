@@ -19,41 +19,22 @@ const (
 	PrivValidatorSectionName   = "priv-validator"
 	SelfRemediationSectionName = "self-remediation"
 
-	// RootSectionName identifies the keys that sit at the top of the file with no table of their own. The
-	// name is for lookups and reports and is not part of any key.
+	// RootSectionName labels the keys at the top of the file. It is not part of any key.
 	RootSectionName = "node_base"
 )
 
-// notWritableInThisFile are root paths this section does not declare.
-//
-// Neither is a setting an operator can usefully write here. The home directory is where this file is
-// found, so a value inside it would be the file naming its own location, and the command line already
-// carries it. The node kind is the fact the file states at the top under its own name, and a second
-// spelling would let the two disagree.
-//
-// A generated file does state the node kind, so a reader handed a decoded file finds no section declaring
-// it and reports it beside an operator's typos. Exempting that one key belongs to the reader: the kind of
-// node is what a resolution is asked about, so a declared answer for it would be the question.
+// notWritableInThisFile are root paths the root section does not declare: the home directory comes from
+// the command line, and the node mode is the input a resolution is asked about.
 var notWritableInThisFile = []string{filledFromTheCommandLine, statedAtTheTopOfTheFile}
 
-// statedAtTheTopOfTheFile is the path the root section leaves out because the file already states it.
-//
-// A generated file names the node kind at the top under its own name, so a second spelling would let the
-// two disagree, with a resolution answering for one and the node reading the other.
+// statedAtTheTopOfTheFile is the node mode, which a generated file already states as node_mode.
 const statedAtTheTopOfTheFile = "mode"
 
-// removedFromTheNode are the root paths this section does not declare because nothing reads them. The
-// node marks each field deprecated, out-of-process ABCI having been removed along with peer filtering
-// through it, and two of the three state an address and a transport name that a writer would otherwise
-// render into new files.
+// removedFromTheNode are deprecated root paths nothing reads.
 var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
 
-// nodeRootSchema declares the keys that sit at the root of the node's configuration file.
-//
-// The node's own top-level type carries these and every table both, so declaring against it directly
-// would declare each table's keys a second time. This squashes the same base group that type squashes, so
-// the spellings still come from the node's own tags, and restates only the fields it holds beside that
-// group. A test holds those against it.
+// nodeRootSchema declares the root keys of the node's configuration file: tmcfg.Config without its
+// tables, which register as their own sections. A test holds the extra fields against tmcfg.Config.
 type nodeRootSchema struct {
 	tmcfg.BaseConfig `mapstructure:",squash"`
 
@@ -61,8 +42,7 @@ type nodeRootSchema struct {
 	HashVaultDisabledUnsafe bool   `mapstructure:"hash-vault-disabled-unsafe"`
 }
 
-// removedSettings are the consensus paths this section does not declare. Each names a field the node's
-// struct marks deprecated, so the key would offer a setting that a written value cannot change.
+// removedSettings are deprecated consensus paths a written value cannot change.
 var removedSettings = []string{
 	"unsafe-overrides-enabled",
 	"unsafe-propose-timeout-override",
@@ -82,42 +62,24 @@ var removedSettings = []string{
 	"stateless-leader-election",
 }
 
-// neverReachTheMempool are the mempool paths this section does not declare. No code reads them, so
-// declaring one would offer a setting that changes nothing, even though a generated file writes all
-// three. The similarly spelled ttl-duration and ttl-num-blocks are live and stay declared.
+// neverReachTheMempool are mempool paths no code reads, though a generated file writes them. The
+// similarly spelled ttl-duration and ttl-num-blocks are live.
 var neverReachTheMempool = []string{
 	unreadAndUnmarked,
 	"pending-ttl-duration",
 	"pending-ttl-num-blocks",
 }
 
-// unreadAndUnmarked is the one member of neverReachTheMempool whose field carries no deprecation note; the
-// field points at an upstream issue instead. No check on markings reaches it, so the name states the
-// reason for leaving it out.
+// unreadAndUnmarked is the member of neverReachTheMempool whose field is not marked deprecated.
 const unreadAndUnmarked = "max-batch-bytes"
 
-// reachesNoReactor is the self remediation path this section does not declare.
-//
-// The other four settings in that group reach a reactor, three to the block sync one and one to the state
-// sync one. This one reaches neither: the node checks its bound when validating and nothing else reads it,
-// so a written value changes nothing about when the node restarts. Its field carries no deprecation note
-// either, so no check on markings accounts for it.
+// reachesNoReactor is the self-remediation path that is validated but read by no reactor. Its field is
+// not marked deprecated.
 const reachesNoReactor = "p2p-no-peers-available-window-seconds"
 
-// fixedForEveryNode is the metric prefix this section does not declare. The node marks the field
-// deprecated and states that its metrics always use one fixed prefix, so the value is not an operator's
-// to set.
+// fixedForEveryNode is the deprecated metric prefix; metrics always use a fixed one.
 const fixedForEveryNode = "namespace"
 
-// Registration puts these sections in the configuration registry.
-//
-// Neither the package that defines these settings nor the package that decides them can register them. The
-// struct they are read into belongs to the node's own configuration package, and the rules that vary them
-// by node kind live in the parameters package, which imports that struct. So the importing direction is
-// already fixed and only a third package can see both.
-//
-// The keys derive from the struct's mapstructure tags, which is what the node's reader decodes through, so
-// a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
 	declareSection(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
 		filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing)
@@ -138,9 +100,7 @@ func init() {
 	declareRootKeys(RootSectionName, &nodeRootSchema{}, rootDefaults,
 		append(append([]string{}, notWritableInThisFile...), removedFromTheNode...)...)
 
-	// Every section here reaches its reader by a decode rather than a lookup, so the boot has to deliver
-	// them a second way. Walked over what the registrations recorded rather than a list beside them, so a
-	// section registered above cannot be left undelivered.
+	// Every section here is decoded rather than looked up.
 	for _, name := range registeredHere {
 		registry.DeclareDecodedNotLookedUp(name,
 			"decoded into the node's own configuration struct by the boot's handler, which reads that "+
@@ -148,12 +108,7 @@ func init() {
 	}
 }
 
-// registeredHere are the sections this package put in the registry, recorded as each one is registered.
-//
-// A test needs to know which sections are this package's, and a list written beside the registrations is a
-// second statement of the same fact: a section registered and left off the list is one nothing here checks,
-// which is the case the list exists to prevent. Recorded by the registration itself instead, so the two
-// cannot disagree.
+// registeredHere are the sections this package registered, in order.
 var registeredHere []string
 
 // declareSection registers a section and records that it belongs to this package.
@@ -162,130 +117,63 @@ func declareSection(name string, prototype any, defaults func(registry.Mode) any
 	registeredHere = append(registeredHere, name)
 }
 
-// declareRootKeys registers a section whose keys sit at the root of the file, and records it the same way.
+// declareRootKeys registers root keys and records that the section belongs to this package.
 func declareRootKeys(name string, prototype any, defaults func(registry.Mode) any, excluding ...string) {
 	registry.RegisterRootKeysExcluding(name, prototype, defaults, excluding...)
 	registeredHere = append(registeredHere, name)
 }
 
-// forMode is the configuration the seid init command writes for a kind of node.
-//
-// Pinned to that command's own pipeline rather than restated here: the defaults the node's package
-// declares, then the mode rules the binary applies to them. So a declared value is what a generated file
-// carries for every key but the ones in filledByTheGenerator, and a change to either half moves this
-// with it. That command goes on to set those from inputs no mode carries, which is why they are named
-// rather than described.
-//
-// The mode is written onto the configuration before the rules run, because the rules read it from there
-// rather than taking it as an argument. The command reaches the same rules by a different route for an
-// archive node, writing the full-node mode before it runs them, and the two agree only because the rules
-// answer alike for both. A rule that stopped answering alike would leave this the more specific of the
-// two answers, so the test holding what varies by node kind is what keeps them together.
+// forMode is the configuration seid init writes for a node of this kind, apart from
+// filledByTheGenerator: the node's defaults with the mode rules applied.
 func forMode(mode registry.Mode) *tmcfg.Config {
 	out := tmcfg.DefaultConfig()
+	// The mode rules read the mode from the config.
 	out.Mode = string(mode)
 	params.SetTendermintConfigByMode(out)
 	return out
 }
 
-// filledFromTheCommandLine is the root directory path several of these sections carry and none declares.
-//
-// Each holds a field tagged the same as the one at the top of the file, and the node fills every one of
-// them from the command line after the file is read, so the file never carries the value and what these
-// sections would state for it is the empty string. Declaring it would hand a delivery an empty root to
-// write over a running node's, and a node that cannot find its data directory, its genesis file or its
-// signing key does not start.
+// filledFromTheCommandLine is the home path several sections carry. The node sets it from the command
+// line after reading the file, so declaring it would deliver an empty home over the real one.
 const filledFromTheCommandLine = "home"
 
-// derivedFromTheConnectionLimit is the ceiling this section leaves out because unset is the setting.
-//
-// The field is a pointer the defaults leave unset, and unset is what selects the behaviour: the node
-// derives a ceiling from the total connection limit instead. Declaring it would need a default, and any
-// number written here would be this package inventing one that no generated file carries.
+// derivedFromTheConnectionLimit is an optional ceiling whose default is unset, meaning the node derives
+// it from the total connection limit. There is no value to declare as its default.
 const derivedFromTheConnectionLimit = "max-outbound-connections"
 
-// readByNothing is the dial hook this section leaves out because no code reads it.
-//
-// The field is declared beside the peer-to-peer settings and its own comment calls it a testing parameter,
-// but nothing in the tree reads it and the generated file does not write it. Declaring it would offer a
-// key that changes nothing about how the node runs.
+// readByNothing is a testing parameter no code reads.
 const readByNothing = "test-dial-fail"
 
-// filledByTheGenerator are keys the init command sets after the pipeline forMode mirrors, from an input a
-// mode does not carry.
-//
-// Declared rather than excluded, because the generated file writes each one into every node's
-// configuration, and a key this space refuses is a key an operator's own file reports as unknown. What
-// they cost is the invariant on forMode: for these, a declared value is not what a generated file
-// carries. The peer seeds come from the chain identifier and the node name is a required argument to the
-// command, both runtime inputs and neither a node kind, so no answer keyed on mode can be right. The node
-// name is the sharper of the two: its declared value is the hostname of whatever machine is asking, so
-// this key resolves differently on every host. A writer takes both from the generator instead.
+// filledByTheGenerator are declared keys seid init sets from its inputs (chain ID, moniker) rather than
+// the mode, so their declared defaults are not what a generated file carries. moniker's default is the
+// host name.
 var filledByTheGenerator = []string{P2PSectionName + ".bootstrap-peers", "moniker"}
 
-// p2pDefaults is what a generated file carries for the peer-to-peer section.
-//
-// Answered per mode. Three of these settings follow from what kind of node is asking: a validator refuses
-// duplicate addresses, a seed accepts them and raises its connection ceiling because serving peers is what
-// it exists for, and a node that serves queries binds an address where a validator leaves the default.
-//
-// The advertised address and the peer list are declared even though a cluster patches them in from live
-// discovery after the file is written. A node run by hand has nothing patching them, and an operator
-// sets both, so refusing the keys would leave that node unable to state its own address or its own peers
-// through this key space while its configuration file accepts both. What a patch and a declaration do to
-// each other is a question for whatever writes the file, and the same question the peer seeds raise: it
-// is answered by what a writer preserves, not by which keys exist.
+// p2pDefaults is the peer-to-peer section's default for a mode.
 func p2pDefaults(mode registry.Mode) any { return *forMode(mode).P2P }
 
-// rpcDefaults is what a generated file carries for the remote procedure call section.
-//
-// Answered per mode, for the listen address alone: a node that serves queries binds one and a validator
-// does not.
+// rpcDefaults is the RPC section's default for a mode. Only the listen address varies.
 func rpcDefaults(mode registry.Mode) any { return *forMode(mode).RPC }
 
-// consensusDefaults is what a generated file carries for the consensus section.
-//
-// The same values for every mode: nothing in the binary derives one of these from a node kind. What this
-// section declares is a log path, a proposer's own empty-block policy, a gossip mode, two reactor sleeps
-// and a local restart check. The timings that do have to agree across the validator set are the paths
-// removedSettings leaves out.
+// consensusDefaults is the consensus section's default, the same for every mode.
 func consensusDefaults(mode registry.Mode) any { return *forMode(mode).Consensus }
 
-// mempoolDefaults is what a generated file carries for the mempool section.
-//
-// The same values for every mode: these limits bound one node's own memory and bandwidth, and nothing in
-// the binary derives one from a node kind.
+// mempoolDefaults is the mempool section's default, the same for every mode.
 func mempoolDefaults(mode registry.Mode) any { return *forMode(mode).Mempool }
 
-// stateSyncDefaults is what a generated file carries for the state sync section.
-//
-// The same values for every mode. Whether a node starts from a snapshot is a decision about how it is being
-// brought up rather than about what it will be, and every kind of node can be brought up either way.
+// stateSyncDefaults is the state sync section's default, the same for every mode.
 func stateSyncDefaults(mode registry.Mode) any { return *forMode(mode).StateSync }
 
-// txIndexDefaults is what a generated file carries for the transaction index section.
-//
-// Answered per mode, for the indexer alone. A node that serves queries indexes transactions so it can
-// answer them, and a validator and a seed serve none, so they index nothing and keep the write.
+// txIndexDefaults is the transaction index section's default for a mode. Only the indexer varies.
 func txIndexDefaults(mode registry.Mode) any { return *forMode(mode).TxIndex }
 
-// instrumentationDefaults is what a generated file carries for the instrumentation section.
-//
-// The same values for every mode. What a node measures about itself is a decision about how it is operated,
-// and an operator who collects metrics collects them from every kind of node they run.
+// instrumentationDefaults is the instrumentation section's default, the same for every mode.
 func instrumentationDefaults(mode registry.Mode) any { return *forMode(mode).Instrumentation }
 
-// privValidatorDefaults is what a generated file carries for the signing key section.
-//
-// The same values for every mode. These are paths and an address for reaching a signer, and a node that
-// does not sign simply does not use them, so varying them by kind would state a difference the binary does
-// not make.
+// privValidatorDefaults is the signing key section's default, the same for every mode.
 func privValidatorDefaults(mode registry.Mode) any { return *forMode(mode).PrivValidator }
 
-// rootDefaults is what a generated file carries at the top of the node's configuration file.
-//
-// The same values for every mode. These name where a node keeps its data and how it logs, and nothing in
-// the binary makes either follow from what kind of node is asking.
+// rootDefaults is the root keys' default, the same for every mode.
 func rootDefaults(mode registry.Mode) any {
 	live := forMode(mode)
 	return nodeRootSchema{
@@ -295,8 +183,5 @@ func rootDefaults(mode registry.Mode) any {
 	}
 }
 
-// selfRemediationDefaults is what a generated file carries for the self remediation section.
-//
-// The same values for every mode. These are the thresholds at which a node restarts itself, and each one
-// describes a node that has stopped making progress, which is the same condition whatever the node is for.
+// selfRemediationDefaults is the self-remediation section's default, the same for every mode.
 func selfRemediationDefaults(mode registry.Mode) any { return *forMode(mode).SelfRemediation }
