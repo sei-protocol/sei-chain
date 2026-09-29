@@ -52,7 +52,6 @@ jobs:
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -coverprofile=coverage.out \
-            -coverpkg=./sei-db/state_db/... \
             ./sei-db/state_db/...
 
       - name: Upload coverage to Codecov

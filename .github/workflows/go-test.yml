@@ -66,9 +66,7 @@ jobs:
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
           echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
-          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} -coverprofile=coverage.out -coverpkg=./... < packages.txt
-          # sei-db-tests.yml reports state_db coverage.
-          sed -i "\#^${STATE_DB_PKG_PREFIX}/#d" coverage.out
+          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} -coverprofile=coverage.out < packages.txt
 
       - name: Upload coverage profile
         if: github.event_name != 'merge_group'
