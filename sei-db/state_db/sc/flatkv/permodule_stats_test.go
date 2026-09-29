@@ -211,17 +211,27 @@ func TestPerModuleStatsAfterImportSurvivesRestart(t *testing.T) {
 
 	imp, err := s1.Importer(7)
 	require.NoError(t, err)
+	var nodes []*scTypes.SnapshotNode
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
 		storVal := vtype.NewStorageData().SetBlockHeight(7).SetValue(&[32]byte{i, 0xAA}).Serialize()
 		acctVal := vtype.NewAccountData().SetBlockHeight(7).SetNonce(uint64(i)).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 7})
-		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 7})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     storagePhysKey(addr, slot),
+			Value:   storVal,
+			Version: 7,
+		})
+		nodes = append(nodes, &scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 7})
 
 		govVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xC0}).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: ktype.ModulePhysicalKey("gov", []byte{i}), Value: govVal, Version: 7})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Value:   govVal,
+			Version: 7,
+		})
 	}
+	addNodesInKeyOrder(imp, nodes)
 	require.NoError(t, imp.Close())
 	verifyModuleStats(t, s1)
 

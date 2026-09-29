@@ -86,8 +86,8 @@ snapshot:
 # includes the checksum-verification instructions, so losing it would be user-visible.
 #
 # Caveat if the release args ever change: `disable` also discards flag-supplied notes
-# (--release-notes / --release-header / --release-footer). uci passes a fixed
-# `release --clean`, so nothing here relies on those.
+# (--release-notes / --release-header / --release-footer). The callers pass
+# `release --clean --timeout 2h`, so nothing here relies on those.
 changelog:
   disable: true
 

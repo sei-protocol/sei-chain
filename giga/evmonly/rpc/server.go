@@ -147,6 +147,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only filter RPC: %w", err)
 	}
+	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
+		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
+	}
 	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
