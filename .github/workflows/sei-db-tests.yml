@@ -15,6 +15,7 @@ concurrency:
 env:
   GO_VERSION: '1.27.1'
   GO_TEST_TIMEOUT: 30m
+  GOTESTSUM_VERSION: v1.13.0
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
 
 jobs:
@@ -49,7 +50,7 @@ jobs:
 
       - name: Go test
         run: |
-          .github/scripts/ci-go-test.sh \
+          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             ./sei-db/state_db/...
 
@@ -181,7 +182,7 @@ jobs:
       - name: Go test with coverage (PR fast path)
         if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
         run: |
-          .github/scripts/ci-go-test.sh \
+          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
@@ -191,7 +192,7 @@ jobs:
       - name: Go test with coverage (full path)
         if: github.event_name != 'merge_group' && github.event_name != 'pull_request'
         run: |
-          .github/scripts/ci-go-test.sh \
+          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \

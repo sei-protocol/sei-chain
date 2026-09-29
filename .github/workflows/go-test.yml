@@ -15,6 +15,7 @@ concurrency:
 env:
   GO_VERSION: '1.27.1'
   GO_TEST_TIMEOUT: 30m
+  GOTESTSUM_VERSION: v1.13.0
   # state_db tests run in their own workflow (sei-db-tests.yml); exclude
   # that subtree everywhere in this workflow to avoid double-running them.
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
@@ -66,7 +67,7 @@ jobs:
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
           echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
-          xargs -r .github/scripts/ci-go-test.sh -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
+          xargs -r go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
 
   upgrade-test:
     name: Upgrade tests
@@ -232,7 +233,7 @@ jobs:
       - name: Go test with coverage (PR fast path)
         if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
         run: |
-          .github/scripts/ci-go-test.sh \
+          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
@@ -243,17 +244,19 @@ jobs:
         if: github.event_name != 'merge_group' && github.event_name != 'pull_request'
         run: |
           set -euo pipefail
-          PKG_LIST=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
-          PKGS=$(echo "$PKG_LIST" | tr '\n' ' ')
-          COVERPKG=$(echo "$PKG_LIST" | paste -sd, -)
+          PKGS=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}" | tr '\n' ' ')
           # Pass $PKGS unquoted so go test gets one invocation with N args,
           # not N invocations via xargs (which would each clobber coverage.out).
-          .github/scripts/ci-go-test.sh \
+          # go test prints the -coverpkg value on every package's coverage line,
+          # so keep it a single pattern and drop state_db from the profile after.
+          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
-            -coverpkg="$COVERPKG" \
+            -coverpkg=./... \
             $PKGS
+          grep -v "^${STATE_DB_PKG_PREFIX}/" coverage.out > coverage.filtered.out
+          mv coverage.filtered.out coverage.out
 
       - name: Upload coverage to Codecov
         if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true')
