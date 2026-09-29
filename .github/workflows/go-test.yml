@@ -66,7 +66,7 @@ jobs:
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
           echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
-          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
+          xargs -r .github/scripts/ci-go-test.sh -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
 
   upgrade-test:
     name: Upgrade tests
@@ -232,7 +232,7 @@ jobs:
       - name: Go test with coverage (PR fast path)
         if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
         run: |
-          go test \
+          .github/scripts/ci-go-test.sh \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
@@ -248,7 +248,7 @@ jobs:
           COVERPKG=$(echo "$PKG_LIST" | paste -sd, -)
           # Pass $PKGS unquoted so go test gets one invocation with N args,
           # not N invocations via xargs (which would each clobber coverage.out).
-          go test \
+          .github/scripts/ci-go-test.sh \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \

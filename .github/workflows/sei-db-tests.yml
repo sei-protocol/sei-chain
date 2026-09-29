@@ -49,7 +49,7 @@ jobs:
 
       - name: Go test
         run: |
-          go test \
+          .github/scripts/ci-go-test.sh \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             ./sei-db/state_db/...
 
@@ -181,7 +181,7 @@ jobs:
       - name: Go test with coverage (PR fast path)
         if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
         run: |
-          go test \
+          .github/scripts/ci-go-test.sh \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
@@ -191,7 +191,7 @@ jobs:
       - name: Go test with coverage (full path)
         if: github.event_name != 'merge_group' && github.event_name != 'pull_request'
         run: |
-          go test \
+          .github/scripts/ci-go-test.sh \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
