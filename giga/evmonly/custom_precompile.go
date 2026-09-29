@@ -46,7 +46,8 @@ func (c customPrecompile) Run(
 }
 
 // RunAndCalculateGas charges RequiredGas up front and runs the contract with
-// what remains, which the contract sees as Context.GasRemaining.
+// what remains, which the contract sees as Context.GasRemaining. A failed state
+// write takes precedence over the contract's own result.
 func (c customPrecompile) RunAndCalculateGas(
 	evm *vm.EVM,
 	sender common.Address,
@@ -54,7 +55,7 @@ func (c customPrecompile) RunAndCalculateGas(
 	input []byte,
 	suppliedGas uint64,
 	value *big.Int,
-	_ *tracing.Hooks,
+	logger *tracing.Hooks,
 	readOnly bool,
 	isFromDelegateCall bool,
 ) ([]byte, uint64, error) {
@@ -63,6 +64,9 @@ func (c customPrecompile) RunAndCalculateGas(
 		return nil, 0, vm.ErrOutOfGas
 	}
 	remaining := suppliedGas - gasCost
+	if logger != nil && logger.OnGasChange != nil {
+		logger.OnGasChange(suppliedGas, remaining, tracing.GasChangeCallPrecompiledContract)
+	}
 	output, err := c.run(evm, sender, input, value, readOnly, isFromDelegateCall, remaining)
 	return output, remaining, err
 }
@@ -92,13 +96,11 @@ func (c customPrecompile) run(
 		Logs:          state,
 	}
 	output, err := c.contract.Run(ctx, input)
-	if err != nil {
-		return nil, err
-	}
 	if state.err != nil {
 		return nil, state.err
 	}
-	return output, nil
+	// The output is kept on error so vm.ErrExecutionReverted carries revert data.
+	return output, err
 }
 
 // materializeAccount gives a precompile account with no nonce and no code a nonce

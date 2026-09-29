@@ -202,8 +202,16 @@ The first state-changing call to a precompile account with neither nonce nor
 code sets its nonce to 1, because the EVM otherwise treats a storage-only
 account as absent and recreates it, dropping its storage, on every call.
 
+A contract that returns `vm.ErrExecutionReverted` keeps its unused gas and
+its output is returned to the caller as revert data; any other error consumes
+the call's gas. `Context.Caller` follows go-ethereum: under `DELEGATECALL` it
+is the delegating contract's caller, and `DelegateCall` is set for both
+`DELEGATECALL` and `CALLCODE`. `Context.Address` is always the precompile's own
+address.
+
 An address the registry lists but does not resolve to a contract fails every
-call with `ErrCustomPrecompilesOpen`.
+call with `ErrCustomPrecompilesOpen`. A registry address that is also a
+go-ethereum builtin precompile is shadowed by the builtin.
 
 ## Block-STM execution
 

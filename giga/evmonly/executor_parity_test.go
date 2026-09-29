@@ -911,12 +911,26 @@ func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
 
 func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, ctx BlockContext, rawTxs [][]byte) (*gethReferenceResult, error) {
 	t.Helper()
+	return executeGethReferenceBlockWithPrecompiles(t, initial, cfg, ctx, rawTxs, nil)
+}
+
+// executeGethReferenceBlockWithPrecompiles runs rawTxs on go-ethereum's own
+// StateDB with customPrecompiles registered on the EVM.
+func executeGethReferenceBlockWithPrecompiles(
+	t *testing.T,
+	initial *MemoryState,
+	cfg Config,
+	ctx BlockContext,
+	rawTxs [][]byte,
+	customPrecompiles map[common.Address]vm.PrecompiledContract,
+) (*gethReferenceResult, error) {
+	t.Helper()
 	chainConfig := chainConfigForTest(cfg, ctx)
 	if err := validateBlockContext(chainConfig, ctx); err != nil {
 		return nil, err
 	}
 	stateDB := newGethStateFromMemory(t, initial)
-	evm := vm.NewEVM(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
+	evm := vm.NewEVM(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, customPrecompiles)
 	gasPool := new(core.GasPool).AddGas(ctx.GasLimit)
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(ctx.Number), ctx.Time)
