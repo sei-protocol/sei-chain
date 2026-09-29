@@ -1018,6 +1018,7 @@ function hex2uint8(hex) {
 }
 
 module.exports = {
+    isEvmOnlyChain,
     fundAddress,
     fundSeiAddress,
     getSeiBalance,
