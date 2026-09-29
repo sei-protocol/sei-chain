@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -166,21 +167,75 @@ func newReceiptBuffer(count int, cache *receiptCache) *receiptBuffer {
 	}
 }
 
-// build fills in the receipt an ERC20 transfer would leave behind: one Transfer log with two indexed
-// address topics, and a bloom covering them. The values are synthetic, since the receipt store is
-// measured on the volume and shape of what it stores rather than on the arithmetic behind it.
+// build fills in the receipt txn would leave behind and marshals it. The values are synthetic, since the
+// receipt store is measured on the volume and shape of what it stores rather than on the arithmetic
+// behind it.
 func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) error {
-	contract := b.cache.contract(addressFromKey(txn.erc20Contract))
-	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
-	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccount))
-
 	txType := uint32(ethtypes.DynamicFeeTxType)
 	if rand.Int64Range(0, 5) == 0 {
 		txType = uint32(ethtypes.LegacyTxType)
 	}
+	effectiveGasPrice := receiptGasPriceBase + rand.Int64Range(0, receiptGasPriceSpan)
+
+	var txHash [hashLen]byte
+	writeSyntheticTxHash(txHash[:], rand, blockNumber, index)
+
+	built := &b.storage[index]
+	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
+	*built = evmtypes.Receipt{
+		TxType:            txType,
+		TxHashHex:         bytesToHex(txHash[:]),
+		EffectiveGasPrice: uint64(effectiveGasPrice),
+		BlockNumber:       uint64(blockNumber),
+		TransactionIndex:  uint32(index),
+		Status:            uint32(ethtypes.ReceiptStatusSuccessful),
+		From:              bytesToHex(addressFromKey(txn.srcAccount)),
+	}
+	if txn.kind == nativeTransfer {
+		b.fillNativeTransfer(built, index, txn)
+	} else {
+		b.fillErc20Transfer(built, index, rand, txn)
+	}
+
+	// Marshaled here rather than on the execution loop, which is what paces the run. The receipt is
+	// final once built, so nothing downstream changes what this encodes.
+	encoded, err := built.Marshal()
+	if err != nil {
+		return fmt.Errorf("failed to marshal the receipt for transaction %d of block %d: %w",
+			index, blockNumber, err)
+	}
+	b.encodedBytes += int64(len(encoded))
+	b.records[index] = receipt.ReceiptRecord{
+		TxHash:       common.BytesToHash(txHash[:]),
+		Receipt:      built,
+		ReceiptBytes: encoded,
+	}
+	return nil
+}
+
+// fillNativeTransfer fills in what a native transfer's receipt adds to the common fields: the fixed
+// transaction gas and the recipient as the call's target. It emits no log, so its bloom is empty.
+func (b *receiptBuffer) fillNativeTransfer(built *evmtypes.Receipt, index int, txn *transaction) {
+	bloom := &b.blooms[index]
+	*bloom = ethtypes.Bloom{}
+
+	built.GasUsed = params.TxGas
+	built.CumulativeGasUsed = uint64(index+1) * params.TxGas //nolint:gosec // a transaction index is non-negative
+	built.To = bytesToHex(addressFromKey(txn.dstAccount))
+	built.LogsBloom = bloom[:]
+}
+
+// fillErc20Transfer fills in what an ERC20 transfer's receipt adds to the common fields: one Transfer log
+// with two indexed address topics, a bloom covering them, and the token contract as the call's target.
+func (b *receiptBuffer) fillErc20Transfer(
+	built *evmtypes.Receipt, index int, rand *crand.CannedRandom, txn *transaction,
+) {
+	contract := b.cache.contract(addressFromKey(txn.erc20Contract))
+	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
+	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccount))
+
 	gasUsed := receiptGasUsedBase + rand.Int64Range(0, receiptGasUsedSpan)
 	previousGas := receiptPreviousGasBase + rand.Int64Range(0, receiptPreviousGasSpan)
-	effectiveGasPrice := receiptGasPriceBase + rand.Int64Range(0, receiptGasPriceSpan)
 	transferAmount := receiptTransferBase + rand.Int64Range(0, receiptTransferSpan)
 
 	bloom := &b.blooms[index]
@@ -205,41 +260,13 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 		Index:   0,
 	}
 
-	var txHash [hashLen]byte
-	writeSyntheticTxHash(txHash[:], rand, blockNumber, index)
-
-	built := &b.storage[index]
 	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
-	*built = evmtypes.Receipt{
-		TxType:            txType,
-		CumulativeGasUsed: uint64(gasUsed + int64(index)*previousGas),
-		ContractAddress:   contract.hex,
-		TxHashHex:         bytesToHex(txHash[:]),
-		GasUsed:           uint64(gasUsed),
-		EffectiveGasPrice: uint64(effectiveGasPrice),
-		BlockNumber:       uint64(blockNumber),
-		TransactionIndex:  uint32(index),
-		Status:            uint32(ethtypes.ReceiptStatusSuccessful),
-		From:              bytesToHex(addressFromKey(txn.srcAccount)),
-		To:                contract.hex,
-		Logs:              b.logRefs[index : index+1],
-		LogsBloom:         bloom[:],
-	}
-
-	// Marshaled here rather than on the execution loop, which is what paces the run. The receipt is
-	// final once built, so nothing downstream changes what this encodes.
-	encoded, err := built.Marshal()
-	if err != nil {
-		return fmt.Errorf("failed to marshal the receipt for transaction %d of block %d: %w",
-			index, blockNumber, err)
-	}
-	b.encodedBytes += int64(len(encoded))
-	b.records[index] = receipt.ReceiptRecord{
-		TxHash:       common.BytesToHash(txHash[:]),
-		Receipt:      built,
-		ReceiptBytes: encoded,
-	}
-	return nil
+	built.CumulativeGasUsed = uint64(gasUsed + int64(index)*previousGas)
+	built.GasUsed = uint64(gasUsed) //nolint:gosec // bounded well below the conversion limit
+	built.ContractAddress = contract.hex
+	built.To = contract.hex
+	built.Logs = b.logRefs[index : index+1]
+	built.LogsBloom = bloom[:]
 }
 
 // addTransferLogToBloom sets the bits a Transfer log contributes: the emitting contract, the event

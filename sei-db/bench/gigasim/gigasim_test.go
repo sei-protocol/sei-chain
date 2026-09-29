@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,6 +99,56 @@ func TestEveryStoreAdvancesTogether(t *testing.T) {
 	require.NotNil(t, manager.SS(), "the state store was enabled, so it should be open")
 	require.True(t, dirHasContents(t, storageConfig.ReceiptDBConfig.DBDirectory),
 		"receipts were enabled, so the receipt store should hold data")
+}
+
+// TestBlocksLargerThanALedgerBlockAreStoredAndReopened pins that a block carrying more transactions than a
+// ledger block has entries still reaches the ledger, and that the ledger can read it back: the store
+// decodes its newest blocks on every open, and its decoder refuses a payload over the entry limit.
+func TestBlocksLargerThanALedgerBlockAreStoredAndReopened(t *testing.T) {
+	config := testConfig(t)
+	config.TransactionsPerBlock = maxLedgerEntries + 500
+	config.BytesPerTransaction = 16
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight())
+
+	stored, err := manager.BlockStore().ReadBlockByNumber(autobahn.GlobalBlockNumber(highest)) //nolint:gosec // test heights are small
+	require.NoError(t, err)
+	block, ok := stored.Get()
+	require.True(t, ok, "the newest block should be in the ledger")
+	require.Len(t, block.Payload().Txs(), maxLedgerEntries, "the transactions are packed into the ledger's entries")
+	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Payload().Txs()))
+}
+
+// TestNativeTransfersRunThroughTheWholeStack pins that the native transfer workload drives every store
+// and leaves them on one height, as the ERC20 one does.
+func TestNativeTransfersRunThroughTheWholeStack(t *testing.T) {
+	config := testConfig(t)
+	config.TransactionType = transactionTypeTransfer
+	highest := runBlocks(t, config)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight())
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest), blockStoreHead) //nolint:gosec // test heights are small
 }
 
 func TestDisabledStoresAreNeverWritten(t *testing.T) {
@@ -387,39 +439,83 @@ func TestPopulationSizesSurviveARestart(t *testing.T) {
 		"every account but the fee collection one belongs to exactly one class")
 }
 
-// TestAnAccountsSlotsAreItsOwn pins that storage slots follow the account that owns them. Drawn from
-// the whole slot space instead, a hot account's reads would scatter across every account's slots and
-// the hot set would produce no hot storage — the workload cryptosim models would not be reproduced.
-func TestAnAccountsSlotsAreItsOwn(t *testing.T) {
+// newTokenTestAccounts returns an account model past setup, with the default contract population. Token
+// selection reads only the config, the random buffer and the population sizes, so no store is opened.
+func newTokenTestAccounts() *accountModel {
+	config := DefaultGigasimConfig()
+	return &accountModel{
+		config:              config,
+		rand:                crand.NewCannedRandom(1<<20, config.Seed),
+		nextAccountID:       100_000,
+		nextErc20ContractID: int64(config.MinimumNumberOfErc20Contracts),
+	}
+}
+
+// TestAnAccountSendsFromItsOwnHoldings pins that an account's transfers move a fixed handful of tokens.
+// Drawing the token independently of the sender would give every account a slot in every token, and the
+// storage store would take close to two new keys per transfer for as long as the run lasts.
+func TestAnAccountSendsFromItsOwnHoldings(t *testing.T) {
 	t.Parallel()
 
-	config := DefaultGigasimConfig()
-	// Slot selection reads only the config, the random buffer and the population size, so no store has
-	// to be opened. The population is set to a realistic size: a global draw is only distinguishable
-	// from an owned one once there are many accounts to spread it over.
-	accounts := &accountModel{
-		config:        config,
-		rand:          crand.NewCannedRandom(1<<20, 1337),
-		nextAccountID: 100_000,
-	}
-
-	interactions := int64(config.Erc20InteractionsPerAccount)
+	accounts := newTokenTestAccounts()
+	holdings := accounts.config.Erc20InteractionsPerAccount
 	for _, accountID := range []int64{1, 7, 4096} {
-		seen := map[string]struct{}{}
-		for range 200 {
-			seen[string(accounts.RandomAccountSlot(accountID))] = struct{}{}
+		tokens, slots := map[string]bool{}, map[string]bool{}
+		for range 500 {
+			contract, err := accounts.HeldErc20Contract(accountID)
+			require.NoError(t, err)
+			tokens[string(contract)] = true
+			slots[string(accounts.Erc20BalanceSlot(contract, accountID))] = true
 		}
-		require.LessOrEqual(t, int64(len(seen)), interactions,
-			"account %d must draw from its own %d slots, not the whole space", accountID, interactions)
-		require.Greater(t, len(seen), 1, "the draw should still vary within the account's slots")
+		require.LessOrEqual(t, len(tokens), holdings, "account %d must send only the tokens it holds", accountID)
+		require.Greater(t, len(tokens), 1, "the draw should still vary within the account's holdings")
+		require.Len(t, slots, len(tokens), "an account has exactly one balance slot per token")
+	}
+}
+
+// TestBalanceSlotsLiveUnderTheirToken pins the key layout a token's balances take in state: the token
+// contract's address, then a slot that follows the holder alone. The storage store orders keys by that
+// address, so this is what makes a hot token a hot key range.
+func TestBalanceSlotsLiveUnderTheirToken(t *testing.T) {
+	t.Parallel()
+
+	accounts := newTokenTestAccounts()
+	tokenA, tokenB := accounts.contractAddress(1), accounts.contractAddress(500)
+
+	slot := accounts.Erc20BalanceSlot(tokenA, 42)
+	require.Len(t, slot, 1+storageKeyLen)
+	require.Equal(t, tokenA, addressFromKey(slot), "a balance slot lives under its token's address")
+
+	sameHolderOtherToken := accounts.Erc20BalanceSlot(tokenB, 42)
+	require.Equal(t, tokenB, addressFromKey(sameHolderOtherToken))
+	require.Equal(t, slot[1+keys.AddressLen:], sameHolderOtherToken[1+keys.AddressLen:],
+		"a holder's slot is the same in every token")
+
+	otherHolder := accounts.Erc20BalanceSlot(tokenA, 43)
+	require.NotEqual(t, slot, otherHolder, "distinct holders must not share a balance slot")
+}
+
+// TestHotTokensTakeTheConfiguredShareOfTransfers pins that holding tokens per account keeps the share
+// of transfers that move a hot token at HotErc20ContractProbability.
+func TestHotTokensTakeTheConfiguredShareOfTransfers(t *testing.T) {
+	t.Parallel()
+
+	accounts := newTokenTestAccounts()
+	hot := map[string]bool{}
+	for id := range int64(accounts.config.HotErc20ContractSetSize) {
+		hot[string(accounts.contractAddress(id))] = true
 	}
 
-	// Distinct accounts must not collide, or hot slots would be shared rather than owned.
-	first := string(accounts.RandomAccountSlot(1))
-	for range 200 {
-		require.NotEqual(t, first, string(accounts.RandomAccountSlot(9_999)),
-			"slots must not be shared between accounts")
+	const transfers = 20_000
+	hotTransfers := 0
+	for accountID := range int64(transfers) {
+		contract, err := accounts.HeldErc20Contract(1 + accountID)
+		require.NoError(t, err)
+		if hot[string(contract)] {
+			hotTransfers++
+		}
 	}
+	require.InDelta(t, accounts.config.HotErc20ContractProbability, float64(hotTransfers)/transfers, 0.02)
 }
 
 func TestARunResumesWhereTheLastOneStopped(t *testing.T) {

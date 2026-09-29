@@ -76,11 +76,30 @@ pool is drained before the block is committed — a block's writes reach state a
 
 ## Transaction Model
 
-Execution is simulated, not real: the benchmark replays the reads and writes an ERC20 transfer makes
-without doing the arithmetic, because what is under measurement is storage traffic rather than the EVM.
-Each transaction reads the contract code, both accounts, both storage slots and the fee account, then
-writes both accounts, both slots and the fee account. This is the same model `cryptosim` uses, so the
-two are comparable on the state DB.
+Execution is simulated, not real: the benchmark replays the reads and writes a transfer makes without
+doing the arithmetic, because what is under measurement is storage traffic rather than the EVM.
+`TransactionType` picks the kind of transfer every block carries:
+
+| `TransactionType` | Reads | Writes | Gas |
+| --- | --- | --- | --- |
+| `erc20` (default) | token code, sender's account, sender's and recipient's balance slots, fee account | sender's account, both balance slots | `Erc20GasPerTransaction` (50,000) |
+| `transfer` | sender's and recipient's accounts, fee account | both accounts | 21,000 |
+
+The fee account is written once per block, not once per transaction. Accounts are read and written
+through their native balance, which every transaction changes for the sender paying gas. An ERC20
+transfer never touches the recipient's account, as on chain: it names the recipient only as an argument
+to the token contract. A native transfer touches no contract code or storage.
+
+Balance slots live in the token's storage, keyed by the token contract's address and then a slot that
+follows the holder, so a token's balances share its address as a key prefix and a hot token is a hot
+key range. Each account holds `Erc20InteractionsPerAccount` tokens, drawn from the hot set on
+`HotErc20ContractProbability` of holdings, and a transfer moves one of the sender's holdings. The
+recipient may not hold that token yet, in which case the transfer creates its balance slot, as a
+payment to a first-time holder does.
+
+A native transfer's 21,000 gas is the EVM's fixed transaction cost. An ERC20 transfer between existing
+holders uses roughly 35,000 to 50,000 gas and one to a first-time holder around 55,000 to 65,000, which
+is what `Erc20GasPerTransaction` averages over.
 
 Accounts are drawn from a hot set chosen most of the time, a cold set chosen occasionally, and a
 dormant set that is never chosen and exists only to give the state DB a realistic resident size. All
@@ -115,12 +134,14 @@ read as worked examples.
 Two relationships between the options are worth knowing before changing any of them, because neither is
 visible from a single field.
 
-The default block carries as many transactions as consensus accepts, at roughly the size a real one
-is: `TransactionsPerBlock` sits at autobahn's `MaxTxsPerBlock`, while `BytesPerTransaction` is sized
-for an ERC20 transfer, which is about 180 bytes of RLP before Sei's envelope. The two multiply to a
-quarter of `MaxTxsBytesPerBlock`, so there is room to raise either — but only until the product
-reaches that budget, which configuration validation rejects rather than generating a block the ledger
-would refuse.
+The default block carries 10,000 transactions of 200 bytes, which is about the size of an ERC20
+transfer: some 180 bytes of RLP before Sei's envelope. A ledger block holds at most autobahn's
+`MaxTxsPerBlock` (2,000) payload entries, so a block with more transactions than that packs several into
+each entry. Every transaction is still executed and committed, one state commit per block. Packing
+leaves the bytes stored unchanged, and those are held to the ledger's byte budget, `MaxTxsBytesPerBlock`
+(2 MiB). The default block is 2 MB, just inside it, so `TransactionsPerBlock` and `BytesPerTransaction`
+trade off against each other: configuration validation rejects a product over the budget rather than
+generating a block the ledger would refuse.
 
 Generation is unthrottled by default, so a measured run reports what the stack sustains rather than a
 rate chosen in advance. `MaxTps` exists for the runs that are not measurements — the debug config

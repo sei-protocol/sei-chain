@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -110,6 +111,28 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	return nil
 }
 
+// maxLedgerEntries is the most payload entries one ledger block holds.
+const maxLedgerEntries = int(autobahn.MaxTxsPerBlock)
+
+// ledgerPayload draws the payload one block stores: TransactionsPerBlock transactions of
+// BytesPerTransaction bytes each, packed into at most maxLedgerEntries entries so that a block may carry
+// more transactions than a ledger block has entries. The total size is the same however they are packed.
+func ledgerPayload(rand *crand.CannedRandom, config *GigasimConfig) [][]byte {
+	transactions := config.TransactionsPerBlock
+	entries := min(transactions, maxLedgerEntries)
+	perEntry, remainder := transactions/entries, transactions%entries
+
+	payload := make([][]byte, entries)
+	for i := range payload {
+		packed := perEntry
+		if i < remainder {
+			packed++
+		}
+		payload[i] = rand.Bytes(packed * config.BytesPerTransaction)
+	}
+	return payload
+}
+
 // payloadBytes is the size of the transactions a block carries into the ledger.
 func payloadBytes(payload [][]byte) int64 {
 	var total int64
@@ -160,9 +183,10 @@ func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) err
 	return nil
 }
 
-// buildBlock wraps a payload as the block the store persists, chained onto the previous one.
+// buildBlock wraps a payload as the block the store persists, chained onto the previous one. Every block,
+// setup's included, carries TransactionsPerBlock transactions, however its payload packs them.
 func (w *blockStoreWriter) buildBlock(payload [][]byte) (*autobahn.Block, error) {
-	gas := uint64(w.config.gasUsedBy(len(payload))) //nolint:gosec // validation keeps the gas positive
+	gas := uint64(w.config.gasUsedBy(w.config.TransactionsPerBlock)) //nolint:gosec // validation keeps the gas positive
 	built, err := autobahn.PayloadBuilder{
 		CreatedAt:         time.Now(),
 		TotalGasWanted:    gas,

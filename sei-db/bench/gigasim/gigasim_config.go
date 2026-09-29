@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/params"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -21,16 +23,23 @@ var _ utils.Config = (*GigasimConfig)(nil)
 type GigasimConfig struct {
 
 	// The number of transactions in each simulated block. Every transaction is executed against the
-	// state DB and contributes one entry to the block payload written to the block store.
+	// state DB and contributes BytesPerTransaction bytes to the block payload written to the block store.
+	// A block may carry more transactions than a ledger block has payload entries; they are then packed
+	// several to an entry.
 	TransactionsPerBlock int
 
 	// The size of each simulated transaction in the block payload, in bytes. This governs the block
-	// store's write volume and is independent of the state each transaction touches.
+	// store's write volume and is independent of the state each transaction touches. A block's
+	// transactions together must fit the ledger's payload byte budget.
 	BytesPerTransaction int
 
-	// The average gas one simulated ERC20 transfer uses. It fills each block's gas totals and is what
-	// the reported gas throughput counts.
-	GasPerTransaction int
+	// The kind of transaction every block carries: "erc20", an ERC20 token transfer that reads and writes
+	// the token's storage, or "transfer", a native balance transfer that touches only the two accounts.
+	TransactionType string
+
+	// The average gas one ERC20 transfer uses. A native transfer always uses 21,000, the EVM's fixed
+	// transaction cost. It fills each block's gas totals and is what the reported gas throughput counts.
+	Erc20GasPerTransaction int
 
 	// Throttle block production to this many transactions per second, a whole block's worth at a time.
 	// 0 means unthrottled.
@@ -84,13 +93,15 @@ type GigasimConfig struct {
 	// The number of ERC20 contracts in the hot set, which are the low-numbered contracts.
 	HotErc20ContractSetSize int
 
-	// The probability in [0,1] that a transaction picks its ERC20 contract from the hot set.
+	// The share in [0,1] of account token holdings drawn from the hot set, and so of transfers that move a
+	// hot token.
 	HotErc20ContractProbability float64
 
 	// The size in bytes of an ERC20 contract's code record.
 	Erc20ContractSize int
 
-	// The number of distinct ERC20 storage slots each account may touch.
+	// The number of ERC20 tokens each account holds. A transfer moves one of the sender's holdings, so
+	// this is also how many balance slots an account sends from.
 	Erc20InteractionsPerAccount int
 
 	// How many blocks behind head the storage layer must remain able to roll back to. Every store keeps
@@ -214,12 +225,13 @@ type GigasimConfig struct {
 // stack driven at the largest block consensus accepts.
 func DefaultGigasimConfig() *GigasimConfig {
 	return &GigasimConfig{
-		TransactionsPerBlock:            2000,
-		BytesPerTransaction:             256,
-		GasPerTransaction:               60_000,
+		TransactionsPerBlock:            10_000,
+		BytesPerTransaction:             200,
+		TransactionType:                 transactionTypeErc20,
+		Erc20GasPerTransaction:          50_000,
 		MaxTps:                          0,
 		BlocksPerQc:                     1,
-		MaxPendingExecutionQueueSize:    100,
+		MaxPendingExecutionQueueSize:    20,
 		FlushIntervalBlocks:             1,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
@@ -287,9 +299,27 @@ func (c *GigasimConfig) blockPayloadBytes() int {
 	return c.TransactionsPerBlock * c.BytesPerTransaction
 }
 
+// The values TransactionType takes.
+const (
+	transactionTypeErc20    = "erc20"
+	transactionTypeTransfer = "transfer"
+)
+
+// transactionKind returns the kind of transaction TransactionType names.
+func (c *GigasimConfig) transactionKind() transactionKind {
+	if c.TransactionType == transactionTypeTransfer {
+		return nativeTransfer
+	}
+	return erc20Transfer
+}
+
 // gasUsedBy is the gas the given number of transactions use.
 func (c *GigasimConfig) gasUsedBy(transactions int) int64 {
-	return int64(transactions) * int64(c.GasPerTransaction)
+	gas := int64(c.Erc20GasPerTransaction)
+	if c.transactionKind() == nativeTransfer {
+		gas = int64(params.TxGas)
+	}
+	return int64(transactions) * gas
 }
 
 // storageConfig builds the config the storage manager opens every database from. DataDir must already
@@ -364,12 +394,15 @@ func (c *GigasimConfig) Validate() error {
 	return c.validateRuntime()
 }
 
-// validateBlockShape checks the generated block against the ceilings consensus places on a real one,
-// so the benchmark cannot be configured to write blocks the chain could never produce.
+// validateBlockShape checks the generated block against the ledger's payload budget and the simulation's
+// own ceilings, so the benchmark cannot be configured to write blocks the ledger would refuse.
 func (c *GigasimConfig) validateBlockShape() error {
-	if c.TransactionsPerBlock < 1 || uint64(c.TransactionsPerBlock) > autobahn.MaxTxsPerBlock {
+	// The transaction count is not held to the ledger's entry limit, since ledgerPayload packs a block's
+	// transactions into as few entries as that limit requires. Synthetic transaction hashes give each
+	// block txIDBlockStride identifiers, which is the ceiling instead.
+	if c.TransactionsPerBlock < 1 || int64(c.TransactionsPerBlock) > txIDBlockStride {
 		return fmt.Errorf("TransactionsPerBlock must be in [1, %d] (got %d)",
-			autobahn.MaxTxsPerBlock, c.TransactionsPerBlock)
+			txIDBlockStride, c.TransactionsPerBlock)
 	}
 	// Each factor is bounded before the product is taken, both because a single oversized transaction is
 	// its own error and because it keeps the multiplication below well inside the range of an int.
@@ -381,8 +414,14 @@ func (c *GigasimConfig) validateBlockShape() error {
 		return fmt.Errorf("TransactionsPerBlock*BytesPerTransaction must be at most %d (got %d)",
 			autobahn.MaxTxsBytesPerBlock, c.blockPayloadBytes())
 	}
-	if c.GasPerTransaction < 1 {
-		return fmt.Errorf("GasPerTransaction must be at least 1 (got %d)", c.GasPerTransaction)
+	switch c.TransactionType {
+	case transactionTypeErc20, transactionTypeTransfer:
+	default:
+		return fmt.Errorf("TransactionType must be %q or %q (got %q)",
+			transactionTypeErc20, transactionTypeTransfer, c.TransactionType)
+	}
+	if c.Erc20GasPerTransaction < 1 {
+		return fmt.Errorf("Erc20GasPerTransaction must be at least 1 (got %d)", c.Erc20GasPerTransaction)
 	}
 	if c.BlocksPerQc < 1 {
 		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)

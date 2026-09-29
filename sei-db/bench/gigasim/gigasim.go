@@ -392,12 +392,7 @@ func (g *GigaSim) setupAccounts() error {
 // of the configured shape so the block store sees the same write volume it will during measurement.
 func (g *GigaSim) finalizeSetupBlock() error {
 	number := g.highestBlock.Load() + 1
-	payload := make([][]byte, 0, g.config.TransactionsPerBlock)
-	for range g.config.TransactionsPerBlock {
-		payload = append(payload, g.accounts.Rand().Bytes(g.config.BytesPerTransaction))
-	}
-
-	if err := g.blocks.writeBlock(number, payload); err != nil {
+	if err := g.blocks.writeBlock(number, ledgerPayload(g.accounts.Rand(), g.config)); err != nil {
 		return err
 	}
 	writes := g.state.drainSetupWrites(g.accounts.Counters())
@@ -482,8 +477,8 @@ func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 	g.totalTransactions += int64(len(block.transactions))
 	g.totalPayloadBytes += block.payloadBytes()
 	g.highestBlock.Store(block.number)
-	g.metrics.ReportBlockProcessed(
-		block.number, int64(len(block.transactions)), g.config.gasUsedBy(len(block.transactions)))
+	g.metrics.ReportBlockProcessed(block.number, g.config.TransactionType,
+		int64(len(block.transactions)), g.config.gasUsedBy(len(block.transactions)))
 	return nil
 }
 

@@ -10,10 +10,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
-// writesPerTransaction is how many keys one transfer writes: both accounts' records and both of their
-// ERC20 storage slots. The fee account is written once per block rather than once per transaction, so
-// it is not counted here.
-const writesPerTransaction = 4
+// maxWritesPerTransaction is the most keys one transfer of any kind writes: an ERC20 transfer writes the
+// sender's account and both balance slots, and a native transfer both accounts. The fee account is
+// written once per block rather than once per transaction, so it is not counted here.
+const maxWritesPerTransaction = 3
 
 // simulatedBlock is one block's worth of work: the transactions the execution phase runs, the payload
 // the block store persists, and the receipts that execution is taken to have produced.
@@ -33,8 +33,8 @@ type simulatedBlock struct {
 	// What those records marshaled to, which the run reports as bytes written.
 	receiptBytes int64
 
-	// The transaction bytes the block store persists. These stand in for encoded transactions, which
-	// the block store holds as opaque bytes.
+	// The transaction bytes the block store persists, packed as ledgerPayload lays them out. These stand
+	// in for encoded transactions, which the block store holds as opaque bytes.
 	payload [][]byte
 
 	// The state changes this block makes, in the form the state DB takes, carrying the identifier
@@ -129,7 +129,7 @@ func newBlockGenerator(
 		config:          config,
 		accounts:        accounts,
 		blocks:          blocks,
-		batch:           newStateBatch(writesPerTransaction*config.TransactionsPerBlock + 1),
+		batch:           newStateBatch(maxWritesPerTransaction*config.TransactionsPerBlock + 1),
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
 		receiptCache:    newReceiptCache(),
@@ -216,7 +216,6 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	block := &simulatedBlock{
 		number:       number,
 		transactions: make([]*transaction, count),
-		payload:      make([][]byte, count),
 	}
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
@@ -230,7 +229,6 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 			return nil, fmt.Errorf("failed to build transaction %d: %w", i, err)
 		}
 		block.transactions[i] = txn
-		block.payload[i] = g.accounts.Rand().Bytes(g.config.BytesPerTransaction)
 		g.stageTransactionWrites(txn)
 
 		if receipts != nil {
@@ -242,6 +240,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	if receipts != nil {
 		block.receiptBytes = receipts.encodedBytes
 	}
+	block.payload = ledgerPayload(g.accounts.Rand(), g.config)
 
 	// Staged once, after the transactions, because they all name this one key: every transaction draws
 	// a fee balance, since the draw is part of the sequence the block's randomness is defined by, but
@@ -255,11 +254,15 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	return block, nil
 }
 
-// stageTransactionWrites stages the writes one transfer makes: both accounts' records and both of their
-// ERC20 storage slots. The fee account is staged once per block instead; see buildBlock().
+// stageTransactionWrites stages the writes one transfer makes: the sender's balance, then either the
+// recipient's balance for a native transfer or both token balance slots for an ERC20 transfer. The fee
+// account is staged once per block instead; see buildBlock().
 func (g *blockGenerator) stageTransactionWrites(txn *transaction) {
 	g.batch.Put(txn.srcAccount, txn.newSrcBalance)
-	g.batch.Put(txn.dstAccount, txn.newDstBalance)
+	if txn.kind == nativeTransfer {
+		g.batch.Put(txn.dstAccount, txn.newDstBalance)
+		return
+	}
 	g.batch.Put(txn.srcAccountSlot, txn.newSrcAccountSlot)
 	g.batch.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
 }

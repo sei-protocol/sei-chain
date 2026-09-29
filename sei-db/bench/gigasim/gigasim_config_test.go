@@ -101,7 +101,11 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		mutate func(*GigasimConfig)
 	}{
 		{"a block with no transactions", func(c *GigasimConfig) { c.TransactionsPerBlock = 0 }},
-		{"a block larger than consensus allows", func(c *GigasimConfig) { c.TransactionsPerBlock = 5000 }},
+		// One byte per transaction keeps the payload inside its budget, so only the count can reject it.
+		{"a block with more transactions than a block's hash space", func(c *GigasimConfig) {
+			c.TransactionsPerBlock = int(txIDBlockStride) + 1
+			c.BytesPerTransaction = 1
+		}},
 		{"a payload larger than consensus allows", func(c *GigasimConfig) { c.BytesPerTransaction = 1 << 20 }},
 		// The limit is on the product, so neither field alone says whether a config fits. The width is
 		// derived from the budget rather than written down, because a default that moves must not
@@ -111,7 +115,8 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		}},
 		{"a probability above one", func(c *GigasimConfig) { c.HotAccountProbability = 1.5 }},
 		{"a negative transaction rate", func(c *GigasimConfig) { c.MaxTps = -1 }},
-		{"a transaction that uses no gas", func(c *GigasimConfig) { c.GasPerTransaction = 0 }},
+		{"an ERC20 transfer that uses no gas", func(c *GigasimConfig) { c.Erc20GasPerTransaction = 0 }},
+		{"an unknown transaction type", func(c *GigasimConfig) { c.TransactionType = "swap" }},
 		{"a lookback window below the infinite sentinel", func(c *GigasimConfig) { c.LookbackWindow = -2 }},
 		{"a prune interval of zero", func(c *GigasimConfig) { c.PruneIntervalSeconds = 0 }},
 		{"a hot ERC20 set as large as the whole population", func(c *GigasimConfig) {
@@ -160,6 +165,19 @@ func TestStorageConfigCarriesTheConfiguredWindows(t *testing.T) {
 	require.Equal(t, 11*time.Second, storage.PruningConfig.PruneInterval)
 	require.Equal(t, 22*time.Second, storage.CheckpointConfig.TimeInterval)
 	require.Equal(t, int64(33), storage.CheckpointConfig.BlockInterval)
+}
+
+// TestGasFollowsTheTransactionType pins the gas each kind of transfer is charged: the configured
+// average for an ERC20 transfer, and the EVM's fixed 21,000 for a native one whatever that average is.
+func TestGasFollowsTheTransactionType(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	require.Equal(t, transactionTypeErc20, config.TransactionType, "ERC20 transfers are the default")
+	require.Equal(t, int64(10*config.Erc20GasPerTransaction), config.gasUsedBy(10))
+
+	config.TransactionType = transactionTypeTransfer
+	require.Equal(t, int64(10*21_000), config.gasUsedBy(10))
 }
 
 func TestStorageConfigCarriesTheConfiguredCacheSizes(t *testing.T) {

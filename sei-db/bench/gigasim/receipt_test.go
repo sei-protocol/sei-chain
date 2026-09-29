@@ -60,6 +60,32 @@ func TestBuiltRecordKeysOnItsOwnReceiptHash(t *testing.T) {
 	}
 }
 
+// TestNativeTransferReceiptCarriesNoLog pins a native transfer's receipt: the fixed 21,000 gas, the
+// recipient as the call's target, and no log, so an empty bloom.
+func TestNativeTransferReceiptCarriesNoLog(t *testing.T) {
+	t.Parallel()
+
+	buffer := newReceiptBuffer(2, newReceiptCache())
+	rand := crand.NewCannedRandom(1<<20, 1337)
+	txn := &transaction{
+		kind:       nativeTransfer,
+		srcAccount: testAccountKey(1),
+		dstAccount: testAccountKey(2),
+	}
+
+	for index := range 2 {
+		require.NoError(t, buffer.build(index, rand, txn, 3))
+
+		built := buffer.records[index].Receipt
+		require.Equal(t, uint64(21_000), built.GasUsed)
+		require.Equal(t, uint64(21_000*(index+1)), built.CumulativeGasUsed)
+		require.Equal(t, bytesToHex(addressFromKey(txn.dstAccount)), built.To)
+		require.Empty(t, built.Logs)
+		require.Empty(t, built.ContractAddress)
+		require.Equal(t, make([]byte, len(built.LogsBloom)), built.LogsBloom, "no log sets no bloom bit")
+	}
+}
+
 // A hash is recomputable from its position alone, which is what lets a run's transaction hashes be
 // derived rather than stored.
 func TestSyntheticTxHashDependsOnlyOnItsPosition(t *testing.T) {

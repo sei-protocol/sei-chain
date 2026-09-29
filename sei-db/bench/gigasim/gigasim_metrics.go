@@ -70,12 +70,12 @@ func NewGigasimMetrics() *GigasimMetrics {
 	)
 	transactionsExecutedTotal, _ := meter.Int64Counter(
 		"gigasim_transactions_executed_total",
-		metric.WithDescription("Total number of simulated transactions executed against the state DB"),
+		metric.WithDescription("Total number of simulated transactions executed against the state DB, by type"),
 		metric.WithUnit("{count}"),
 	)
 	gasUsedTotal, _ := meter.Int64Counter(
 		"gigasim_gas_used_total",
-		metric.WithDescription("Total gas used by the executed transactions, at GasPerTransaction each"),
+		metric.WithDescription("Total gas used by the executed transactions"),
 		metric.WithUnit("{gas}"),
 	)
 	storeBytesWrittenTotal, _ := meter.Int64Counter(
@@ -219,8 +219,8 @@ func (m *GigasimMetrics) NewTransactionPhaseTimer() *metrics.PhaseTimer {
 }
 
 // ReportBlockProcessed records one block completing every stage of the pipeline, and the transactions
-// and gas it carried.
-func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64, gas int64) {
+// it carried, labelled by transactionType, and the gas they used.
+func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactionType string, transactions int64, gas int64) {
 	if m == nil {
 		return
 	}
@@ -229,7 +229,8 @@ func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64, 
 		m.blocksProcessedTotal.Add(ctx, 1)
 	}
 	if m.transactionsExecutedTotal != nil {
-		m.transactionsExecutedTotal.Add(ctx, transactions)
+		m.transactionsExecutedTotal.Add(ctx, transactions,
+			metric.WithAttributes(attribute.String("type", transactionType)))
 	}
 	if m.gasUsedTotal != nil {
 		m.gasUsedTotal.Add(ctx, gas)
