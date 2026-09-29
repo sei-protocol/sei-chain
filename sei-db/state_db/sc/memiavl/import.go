@@ -105,6 +105,12 @@ func (mti *MultiTreeImporter) Close() (err error) {
 			err = unlockErr
 		}
 	}()
+	// A failed import leaves nothing behind.
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(mti.tmpDir())
+		}
+	}()
 
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
@@ -146,6 +152,23 @@ func (mti *MultiTreeImporter) Close() (err error) {
 	}
 
 	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
+}
+
+// Abort stops the open tree import and removes the temp directory. It publishes no snapshot and leaves
+// current where it was.
+func (mti *MultiTreeImporter) Abort(error) (err error) {
+	defer func() {
+		if unlockErr := mti.fileLock.Unlock(); unlockErr != nil && err == nil {
+			err = unlockErr
+		}
+	}()
+
+	if mti.importer != nil {
+		// The import is being discarded, so the tree's own error does not matter.
+		_ = mti.importer.Close()
+		mti.importer = nil
+	}
+	return os.RemoveAll(mti.tmpDir())
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot

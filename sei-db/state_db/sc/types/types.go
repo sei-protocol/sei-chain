@@ -223,6 +223,10 @@ type Importer interface {
 
 	AddNode(node *SnapshotNode)
 
+	// Abort discards the import in place of Close, publishing none of it. The returned error may be
+	// reason itself, or another error that already ended the import.
+	Abort(reason error) error
+
 	io.Closer
 }
 

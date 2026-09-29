@@ -1300,16 +1300,12 @@ loop:
 		}
 	}
 
-	if err = scImporter.Close(); err != nil {
-		if restoreErr == nil {
-			restoreErr = err
-		}
-	}
 	if ssImport != nil {
 		if err = ssImport.finish(); err != nil && restoreErr == nil {
 			restoreErr = err
 		}
 	}
+	restoreErr = finishSCImport(scImporter, restoreErr)
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any
 	// caller that reads it in that window. A failed restore may have imported only
@@ -1324,6 +1320,18 @@ loop:
 	}
 
 	return snapshotItem, restoreErr
+}
+
+// finishSCImport publishes the SC import when the restore has succeeded, and discards it otherwise, so a
+// failed restore leaves no snapshot behind. It returns the restore's final error.
+func finishSCImport(imp sctypes.Importer, restoreErr error) error {
+	if restoreErr != nil {
+		if err := imp.Abort(restoreErr); err != nil && !errors.IsOf(err, restoreErr) {
+			logger.Error("Failed to discard the SC import of a failed restore", "err", err)
+		}
+		return restoreErr
+	}
+	return imp.Close()
 }
 
 // stateStoreImport feeds restored leaves to a state store's Import running on its own goroutine.
