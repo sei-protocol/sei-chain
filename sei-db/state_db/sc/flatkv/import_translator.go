@@ -3,6 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -127,7 +128,10 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	for addr, batchUpdate := range batchAccts {
 		existing, ok := t.pendingAccts[addr]
 		if !ok {
-			t.pendingAccts[addr] = batchUpdate
+			// Cloned because addr is carved from a key arena and this map outlives the call: keeping it
+			// would pin the arena's chunk for the rest of the import. Only on first insert, since Go keeps
+			// a map's original key on reassignment.
+			t.pendingAccts[strings.Clone(addr)] = batchUpdate
 			continue
 		}
 		if batchUpdate.IsNonceSet() {

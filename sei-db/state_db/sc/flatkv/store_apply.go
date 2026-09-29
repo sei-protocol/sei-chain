@@ -380,7 +380,8 @@ func moduleOfKey(physicalKey []byte) (string, error) {
 
 // classifiedChange is one changeset pair with its physical key already built.
 type classifiedChange struct {
-	// key is the physical key: "module/" + the module's encoded key.
+	// key is the physical key: "module/" + the module's encoded key. It is carved from a keyArena, so anything that
+	// keeps it past the version that writes it must copy it.
 	key string
 
 	// value is the key's new raw bytes. A nil value means the key was deleted.
@@ -514,6 +515,7 @@ func newClassifiedChanges(sizeHints [keys.EVMKeyKindCount]int) classifiedChanges
 // classifyUnitPairs appends each of unit's pairs, with its physical key built, to the bucket for its kind.
 func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 	keyBuf := make([]byte, 0, physKeyBufLen)
+	var arena keyArena
 
 	if unit.moduleName == keys.EVMStoreKey {
 		for _, pair := range unit.pairs {
@@ -527,7 +529,7 @@ func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 			} else {
 				keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
 			}
-			into[kind] = append(into[kind], newClassifiedChange(string(keyBuf), pair))
+			into[kind] = append(into[kind], newClassifiedChange(arena.intern(keyBuf), pair))
 		}
 		return nil
 	}
@@ -545,7 +547,7 @@ func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 	miscBucket := &into[keys.EVMKeyMisc]
 	for _, pair := range unit.pairs {
 		keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], unit.moduleName, pair.Key)
-		*miscBucket = append(*miscBucket, newClassifiedChange(string(keyBuf), pair))
+		*miscBucket = append(*miscBucket, newClassifiedChange(arena.intern(keyBuf), pair))
 	}
 	return nil
 }
