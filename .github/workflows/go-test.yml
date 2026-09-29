@@ -66,7 +66,17 @@ jobs:
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
           echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
-          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
+          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} -coverprofile=coverage.out -coverpkg=./... < packages.txt
+          # sei-db-tests.yml reports state_db coverage.
+          sed -i "\#^${STATE_DB_PKG_PREFIX}/#d" coverage.out
+
+      - name: Upload coverage profile
+        if: github.event_name != 'merge_group'
+        # See: https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: coverage.out
 
   upgrade-test:
     name: Upgrade tests
@@ -119,51 +129,21 @@ jobs:
           fi
           echo "All race shards and upgrade tests passed."
 
+  # The race shards collect coverage; this job uploads it as one report.
   coverage:
     name: Coverage
-    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
-    # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
-    # GitHub does not support setting "Required" CI workflows for merge queue separately from PRs. If we skip the job at top
-    # level we then have to work around result not being present. Hence, the repeated if statements per step.
-    env:
-      GOFLAGS: -tags=ledger,test_ledger_mock
+    runs-on: ubuntu-latest
+    needs: race-shard
     steps:
-      - name: Check trigger
-        if: github.event_name == 'merge_group'
-        run: echo 'Coverage skipped in merge queue'
-
-      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # Merge-queue runs skip the upload per step rather than per job, so the
+      # required check still reports a result.
+      - name: Download coverage profiles
         if: github.event_name != 'merge_group'
-
-      - uses: actions/setup-go@v7
-        if: github.event_name != 'merge_group'
+        # See: https://github.com/actions/download-artifact/releases/tag/v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Login to Docker Hub
-        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
-        if: github.event_name != 'merge_group' && env.DOCKERHUB_USERNAME != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Go test with coverage
-        if: github.event_name != 'merge_group'
-        run: |
-          set -euo pipefail
-          go test \
-            -timeout=${{ env.GO_TEST_TIMEOUT }} \
-            -covermode=atomic \
-            -coverprofile=coverage.out \
-            -coverpkg=./... \
-            $(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
-          # sei-db-tests.yml reports state_db coverage.
-          sed -i "\#^${STATE_DB_PKG_PREFIX}/#d" coverage.out
+          pattern: coverage-*
+          path: coverage
 
       - name: Upload coverage to Codecov
         if: github.event_name != 'merge_group'
@@ -171,7 +151,6 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
-          disable_search: 'true'
+          directory: coverage
           name: sei-chain-coverage
-          files: ./coverage.out
           flags: sei-chain
