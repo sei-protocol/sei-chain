@@ -50,6 +50,9 @@ type StateDB struct {
 	// Splits a commit into the three stores it writes. Driven only by CommitStateChanges, which
 	// callers serialize.
 	commitPhases *metrics.PhaseTimer
+
+	// Closed by Close().
+	closed utils.CloseMarker[StateDB]
 }
 
 // commitPhaseTimerName prefixes the instruments the commit phase breakdown is published on.
@@ -132,7 +135,7 @@ func NewStateDB(
 		return nil, fmt.Errorf("record the loaded block's hash in the hash vault: %w", err)
 	}
 
-	return &StateDB{
+	s := &StateDB{
 		wal:          wal,
 		sc:           sc,
 		ss:           ss,
@@ -140,7 +143,9 @@ func NewStateDB(
 		checkpointer: checkpointer,
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
-	}, nil
+	}
+	s.closed = utils.MustClose(s, "giga state DB")
+	return s, nil
 }
 
 // openSC opens SC with no WAL of its own, on the version its files hold: the working copy, or the
@@ -199,6 +204,7 @@ func startCheckpointSchedule(
 // Close closes SC, SS, the hash vault and the state WAL, reporting every failure rather than stopping at
 // the first.
 func (s *StateDB) Close() error {
+	s.closed.Close(s)
 	return closeStores(s.ss, s.sc, s.vault, s.wal)
 }
 

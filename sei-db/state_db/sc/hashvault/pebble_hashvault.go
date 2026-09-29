@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/lru"
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -27,8 +28,8 @@ type PebbleHashVault struct {
 	writeOpts *pebble.WriteOptions
 
 	mu sync.Mutex
-	// closed is true after Close. Every other public method returns ErrClosed once set.
-	closed bool
+	// closed records whether Close has been called. Every other public method returns ErrClosed once it has.
+	closed utils.CloseMarker[PebbleHashVault]
 	// pruneBoundary is the lowest height that may still be committed.
 	pruneBoundary uint64
 	cache         *lru.Cache[uint64, []byte]
@@ -104,6 +105,7 @@ func newPebbleHashVault(_ context.Context, config HashVaultConfig) (*PebbleHashV
 			"dataDir", config.DataDir)
 	}
 
+	p.closed = utils.MustClose(p, "hashvault")
 	return p, nil
 }
 
@@ -147,7 +149,7 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.closed {
+	if p.closed.IsClosed() {
 		return ErrClosed
 	}
 	if blockHeight < p.pruneBoundary {
@@ -227,7 +229,7 @@ func (p *PebbleHashVault) Prune(ctx context.Context, blockHeight uint64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.closed {
+	if p.closed.IsClosed() {
 		return ErrClosed
 	}
 	if blockHeight <= p.pruneBoundary {
@@ -257,10 +259,10 @@ func (p *PebbleHashVault) Prune(ctx context.Context, blockHeight uint64) error {
 func (p *PebbleHashVault) Close(_ context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
+	if p.closed.IsClosed() {
 		return nil
 	}
-	p.closed = true
+	p.closed.Close(p)
 	p.cache.Purge()
 	if err := p.db.Close(); err != nil {
 		return fmt.Errorf("failed to close hashvault pebble db: %w", err)
@@ -332,7 +334,7 @@ func (p *PebbleHashVault) Head() (uint64, bool) {
 func (p *PebbleHashVault) Get(blockHeight uint64) ([32]byte, gigatypes.BlockHashStatus, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
+	if p.closed.IsClosed() {
 		return [32]byte{}, gigatypes.BlockHashStatusError, ErrClosed
 	}
 	if !p.notEmpty || blockHeight > p.head {
@@ -368,7 +370,7 @@ func (p *PebbleHashVault) Reset(ctx context.Context, blockHeight uint64, hash []
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
+	if p.closed.IsClosed() {
 		return ErrClosed
 	}
 	if len(hash) != BlockHashSize {

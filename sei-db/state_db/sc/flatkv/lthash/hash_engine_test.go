@@ -82,6 +82,7 @@ func (v *pipeView) BatchGet(keys [][]byte) (map[string][]byte, error) {
 
 func (v *pipeView) Reserve() error { v.reserves++; return nil }
 func (v *pipeView) Release() error { v.releases++; return nil }
+func (v *pipeView) Abandon()       {}
 
 func (v *pipeView) Get([]byte, bool) ([]byte, bool, error) { panic("pipeView: unexpected Get") }
 func (v *pipeView) Finalize([]*proto.KVPair) error         { panic("pipeView: unexpected Finalize") }

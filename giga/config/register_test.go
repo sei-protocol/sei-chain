@@ -29,6 +29,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagExecutionParseWorkers,
 		FlagExecutionBlockResultPoolSize,
 		FlagExecutionEvmRpcPort,
+		FlagExecutionEvmWsPort,
 	}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)

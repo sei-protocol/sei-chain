@@ -1,6 +1,7 @@
 package giga
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -48,7 +49,9 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 	t.Helper()
 
 	cfg := flatkvconfig.DefaultTestConfig(t)
-	liveStateDB, err := flatkv.NewCommitStore(t.Context(), cfg, nil)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	liveStateDB, err := flatkv.NewCommitStore(context.Background(), cfg, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
 	require.NoError(t, liveStateDB.LoadLatest())
