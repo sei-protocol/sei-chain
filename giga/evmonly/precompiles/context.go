@@ -22,6 +22,13 @@ type Contract interface {
 	Run(*Context, []byte) ([]byte, error)
 }
 
+// EndBlocker is a Contract that also runs once at the end of every block, after
+// the block's transactions and before its state changes are committed. Its
+// writes land in the block's changeset. A returned error fails the block.
+type EndBlocker interface {
+	EndBlock(BlockContext, State) error
+}
+
 // Context is the only execution context custom precompiles should receive in
 // the EVM-only path. It deliberately excludes sdk.Context and Cosmos keepers.
 type Context struct {

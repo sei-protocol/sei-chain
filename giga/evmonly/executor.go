@@ -41,6 +41,9 @@ type Executor struct {
 	// customPrecompiles is built once from cfg.CustomPrecompiles. NewEVM copies it, so
 	// concurrent OCC workers may share it.
 	customPrecompiles map[common.Address]vm.PrecompiledContract
+	// endBlockers are the registered custom precompiles that run at the end of
+	// every block, in address order.
+	endBlockers []endBlocker
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -99,6 +102,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		resultPool:        newBlockResultPool(cfg.BlockResultPoolSize),
 		blockPhases:       newBlockPhases(),
 		customPrecompiles: customPrecompileMap(cfg.CustomPrecompiles),
+		endBlockers:       customEndBlockers(cfg.CustomPrecompiles),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -211,6 +215,18 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	result, err := e.executeBlockTxs(ctx, req, source)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.runEndBlockers(req.Context, source, result); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
+}
+
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
