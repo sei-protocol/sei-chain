@@ -1,6 +1,8 @@
 package evmonlyapp
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -74,7 +76,7 @@ func TestEVMOnlyApplicationEvmEstimateGasDoesNotMutateCommittedState(t *testing.
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
-func TestEVMOnlyApplicationEvmEstimateGasRefusesDuringPendingCommit(t *testing.T) {
+func TestEVMOnlyApplicationEvmEstimateGasHandlesCommitBoundary(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
 
@@ -86,10 +88,17 @@ func TestEVMOnlyApplicationEvmEstimateGasRefusesDuringPendingCommit(t *testing.T
 		},
 	})
 	require.NoError(t, err)
+	require.NoError(t, evmApp.AwaitCommits())
 
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _, err = evmApp.EvmEstimateGas(ctx, callMessage(common.Address{}, nil), 0)
+	require.True(t, errors.Is(err, context.Canceled))
+
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
 	_, _, err = evmApp.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0)
-
-	require.Error(t, err)
+	require.NoError(t, err)
 }
 
 func TestEVMOnlyApplicationEvmEstimateGasRequiresInitChain(t *testing.T) {

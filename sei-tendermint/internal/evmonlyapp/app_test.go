@@ -942,6 +942,44 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.Equal(t, int64(0), latest)
 }
 
+// A failed write for the pending block must still be reported when the store
+// and committed cursor both remain at the previous, otherwise readable block.
+func TestEVMOnlyApplicationReadOnlyCallsReportLaterCommitFailure(t *testing.T) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	goodEncoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
+	encodes := 0
+	encoder := func(changes evmonly.StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		encodes++
+		if encodes == 2 {
+			return unwritableEVMChangeSetEncoder(changes)
+		}
+		return goodEncoder(changes)
+	}
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, encoder, gigaconfig.DefaultConfig.Execution)
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	settler := app.(*evmOnlyApplication)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	require.Equal(t, 1, encodes)
+	require.NoError(t, settler.AwaitCommits())
+
+	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
+	require.NoError(t, err)
+	require.Error(t, settler.AwaitCommits())
+	view := storage.StateDB().OpenView()
+	require.Equal(t, int64(1), view.GetBlockHeight())
+	view.Close()
+
+	_, err = settler.EvmCall(t.Context(), callMessage(common.Address{}, nil))
+	require.Error(t, err)
+	_, _, err = settler.EvmEstimateGas(t.Context(), callMessage(common.Address{}, nil), 0)
+	require.Error(t, err)
+}
+
 // Committed-state readers running alongside FinalizeBlock observe every block
 // in order and never see a block's state go backwards while its commit lands.
 func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
