@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -168,6 +169,8 @@ func (w *dbWorker) flush() (err error) {
 type KVImporter struct {
 	store   *CommitStore
 	version int64
+	// requireAscendingKeys rejects the import unless physical keys arrive in strictly ascending order.
+	requireAscendingKeys bool
 
 	ingestCh chan rawKVPair
 	workers  map[seidbtypes.KeyValueDB]*dbWorker
@@ -182,6 +185,7 @@ type KVImporter struct {
 	finishErr  error
 }
 
+<<<<<<< HEAD
 func NewKVImporter(store *CommitStore, version int64) types.Importer {
 	imp := &KVImporter{
 		store:    store,
@@ -189,6 +193,20 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 		ingestCh: make(chan rawKVPair, ingestChanSize),
 		workers:  make(map[seidbtypes.KeyValueDB]*dbWorker, 4),
 		done:     make(chan struct{}),
+=======
+// NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
+// are passed in rather than fetched off store, because an import writes beneath the view managers and so
+// must be handed the databases explicitly by whoever opened them. When requireAscendingKeys is set, the
+// import fails unless every physical key is strictly greater than the one before it.
+func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
+	imp := &KVImporter{
+		store:                store,
+		version:              version,
+		requireAscendingKeys: requireAscendingKeys,
+		ingestCh:             make(chan rawKVPair, ingestChanSize),
+		workers:              make(map[string]*dbWorker, len(dataDBDirs)),
+		done:                 make(chan struct{}),
+>>>>>>> 712fa98 (Fix FlatKV state sync bad-hash scenario. (#4370))
 	}
 
 	for _, ndb := range store.namedDataDBs() {
@@ -233,13 +251,25 @@ func (imp *KVImporter) dispatch() {
 		}
 	}()
 
+	var prevKey []byte
 	for {
 		select {
 		case kv, ok := <-imp.ingestCh:
 			if !ok {
 				return
 			}
+<<<<<<< HEAD
 			db, err := imp.store.routePhysicalKey(kv.Key)
+=======
+			if imp.requireAscendingKeys {
+				if err := checkAscending(prevKey, kv.Key); err != nil {
+					imp.setErr(err)
+					return
+				}
+				prevKey = kv.Key
+			}
+			dir, err := routePhysicalKey(kv.Key)
+>>>>>>> 712fa98 (Fix FlatKV state sync bad-hash scenario. (#4370))
 			if err != nil {
 				imp.setErr(fmt.Errorf("route key: %w", err))
 				return
@@ -253,6 +283,23 @@ func (imp *KVImporter) dispatch() {
 			return
 		}
 	}
+}
+
+// checkAscending returns an error unless key is strictly greater than prevKey. A nil prevKey means key is
+// the first of the import.
+func checkAscending(prevKey []byte, key []byte) error {
+	if prevKey == nil {
+		return nil
+	}
+	switch cmp := bytes.Compare(prevKey, key); {
+	case cmp == 0:
+		return fmt.Errorf("flatkv import: duplicate physical key %x", key)
+	case cmp > 0:
+		return fmt.Errorf(
+			"flatkv import: physical key %x is below preceding key %x; keys must be in ascending order",
+			key, prevKey)
+	}
+	return nil
 }
 
 func (imp *KVImporter) setErr(err error) {
