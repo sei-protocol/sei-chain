@@ -515,7 +515,7 @@ func newClassifiedChanges(sizeHints [keys.EVMKeyKindCount]int) classifiedChanges
 // classifyUnitPairs appends each of unit's pairs, with its physical key built, to the bucket for its kind.
 func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 	keyBuf := make([]byte, 0, physKeyBufLen)
-	var arena keyArena
+	arena := newKeyArena(unitKeyFootprint(unit))
 
 	if unit.moduleName == keys.EVMStoreKey {
 		for _, pair := range unit.pairs {
@@ -550,6 +550,17 @@ func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 		*miscBucket = append(*miscBucket, newClassifiedChange(arena.intern(keyBuf), pair))
 	}
 	return nil
+}
+
+// unitKeyFootprint returns an upper bound on the total length of unit's physical keys. Each is at most
+// len(moduleName)+1+len(pair.Key) bytes: a misc key is exactly "<module>/" + key, and an EVM key replaces a key
+// prefix of at least one byte with "evm/" and a single prefix byte.
+func unitKeyFootprint(unit classifyUnit) int {
+	footprint := len(unit.pairs) * (len(unit.moduleName) + 1)
+	for _, pair := range unit.pairs {
+		footprint += len(pair.Key)
+	}
+	return footprint
 }
 
 // mergeClassified concatenates each part's buckets in part order.

@@ -125,13 +125,13 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge account changes: %w", err)
 	}
-	for addr, batchUpdate := range batchAccts {
+	for arenaAddr, batchUpdate := range batchAccts {
+		// arenaAddr is carved from a key arena and this map outlives the call, so storing it as a key
+		// would pin the arena for the rest of the import. Every map write stores its key.
+		addr := strings.Clone(arenaAddr)
 		existing, ok := t.pendingAccts[addr]
 		if !ok {
-			// Cloned because addr is carved from a key arena and this map outlives the call: keeping it
-			// would pin the arena's chunk for the rest of the import. Only on first insert, since Go keeps
-			// a map's original key on reassignment.
-			t.pendingAccts[strings.Clone(addr)] = batchUpdate
+			t.pendingAccts[addr] = batchUpdate
 			continue
 		}
 		if batchUpdate.IsNonceSet() {

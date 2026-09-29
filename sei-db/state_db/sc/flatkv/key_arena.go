@@ -4,38 +4,29 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-// keyArenaChunkSize is how many bytes of keys one arena chunk holds.
-const keyArenaChunkSize = 64 * 1024
-
-// keyArena hands out immutable strings carved from shared chunks.
+// keyArena hands out immutable strings carved from one buffer of fixed capacity.
 //
-// A string from here keeps its whole chunk alive, so anything that retains one past the version that wrote it must
+// A string from here keeps the whole buffer alive, so anything that retains one past the version that wrote it must
 // copy it.
 type keyArena struct {
-	// The chunk being carved from. Nil until the first key.
-	chunk []byte
-
-	// How much of chunk has been handed out.
-	used int
+	// The bytes handed out so far. Its capacity is the arena's size, and it never grows past it.
+	buf []byte
 }
 
-// intern copies key into the arena and returns it as a string. A key longer than a chunk gets its own allocation.
+// newKeyArena returns an arena that holds capacity bytes of keys.
+func newKeyArena(capacity int) keyArena {
+	return keyArena{buf: make([]byte, 0, capacity)}
+}
+
+// intern copies key into the arena and returns it as a string. A key that does not fit in the arena's remaining
+// capacity gets its own allocation.
 func (a *keyArena) intern(key []byte) string {
-	if len(key) == 0 {
-		return ""
-	}
-	if len(key) > keyArenaChunkSize {
+	if len(key) > cap(a.buf)-len(a.buf) {
 		return string(key)
 	}
 
-	if a.chunk == nil || a.used+len(key) > len(a.chunk) {
-		// The old chunk's unused tail is abandoned. The strings already carved from it alias it, so it is never
-		// written again.
-		a.chunk = make([]byte, keyArenaChunkSize)
-		a.used = 0
-	}
-
-	start := a.used
-	a.used += copy(a.chunk[start:], key)
-	return util.UnsafeBytesToString(a.chunk[start:a.used])
+	// The append stays within capacity, so it never moves the bytes earlier strings alias.
+	start := len(a.buf)
+	a.buf = append(a.buf, key...)
+	return util.UnsafeBytesToString(a.buf[start:])
 }
