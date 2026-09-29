@@ -185,28 +185,16 @@ type KVImporter struct {
 	finishErr  error
 }
 
-<<<<<<< HEAD
-func NewKVImporter(store *CommitStore, version int64) types.Importer {
-	imp := &KVImporter{
-		store:    store,
-		version:  version,
-		ingestCh: make(chan rawKVPair, ingestChanSize),
-		workers:  make(map[seidbtypes.KeyValueDB]*dbWorker, 4),
-		done:     make(chan struct{}),
-=======
-// NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
-// are passed in rather than fetched off store, because an import writes beneath the view managers and so
-// must be handed the databases explicitly by whoever opened them. When requireAscendingKeys is set, the
-// import fails unless every physical key is strictly greater than the one before it.
-func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
+// NewKVImporter builds the import pipeline that writes into store at version. When requireAscendingKeys is
+// set, the import fails unless every physical key is strictly greater than the one before it.
+func NewKVImporter(store *CommitStore, version int64, requireAscendingKeys bool) types.Importer {
 	imp := &KVImporter{
 		store:                store,
 		version:              version,
 		requireAscendingKeys: requireAscendingKeys,
 		ingestCh:             make(chan rawKVPair, ingestChanSize),
-		workers:              make(map[string]*dbWorker, len(dataDBDirs)),
+		workers:              make(map[seidbtypes.KeyValueDB]*dbWorker, 4),
 		done:                 make(chan struct{}),
->>>>>>> 712fa98 (Fix FlatKV state sync bad-hash scenario. (#4370))
 	}
 
 	for _, ndb := range store.namedDataDBs() {
@@ -258,9 +246,6 @@ func (imp *KVImporter) dispatch() {
 			if !ok {
 				return
 			}
-<<<<<<< HEAD
-			db, err := imp.store.routePhysicalKey(kv.Key)
-=======
 			if imp.requireAscendingKeys {
 				if err := checkAscending(prevKey, kv.Key); err != nil {
 					imp.setErr(err)
@@ -268,8 +253,7 @@ func (imp *KVImporter) dispatch() {
 				}
 				prevKey = kv.Key
 			}
-			dir, err := routePhysicalKey(kv.Key)
->>>>>>> 712fa98 (Fix FlatKV state sync bad-hash scenario. (#4370))
+			db, err := imp.store.routePhysicalKey(kv.Key)
 			if err != nil {
 				imp.setErr(fmt.Errorf("route key: %w", err))
 				return

@@ -816,52 +816,8 @@ func (s *CommitStore) Flush() error {
 	return nil
 }
 
-<<<<<<< HEAD
-=======
-// FlushHashes blocks until every block committed so far has been hashed and its hash handed to every
-// registered listener.
-func (s *CommitStore) FlushHashes() error {
-	s.mu.RLock()
-	engine, finalizer := s.hashEngine, s.finalizer
-	s.mu.RUnlock()
-
-	if engine == nil {
-		return nil
-	}
-	// The engine first: its output is the finalizer's input, so waiting on the finalizer alone would
-	// return before blocks still inside the engine had reached it.
-	if err := engine.Flush(); err != nil {
-		return fmt.Errorf("flush hashes: %w", err)
-	}
-	if err := finalizer.Flush(); err != nil {
-		return fmt.Errorf("flush hashes: %w", err)
-	}
-	return nil
-}
-
-// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A no-op
-// on a store with no pending writes, which is every store between blocks and every read-only store.
-//
-// A block that has not been committed has no hash — the hash is computed from the views a commit
-// produces — so a caller wanting one mid-block is asking for the block to be committed. This is that
-// request, made explicitly. Post-Cosmos nothing asks for a hash mid-block and this goes away.
-func (s *CommitStore) CommitPendingBlock() error {
-	if s.readOnly {
-		return nil
-	}
-	pending := s.PendingVersion()
-	if pending == 0 {
-		return nil
-	}
-	if _, err := s.Commit(pending); err != nil {
-		return fmt.Errorf("commit pending block %d: %w", pending, err)
-	}
-	return nil
-}
-
 // Importer returns an importer for data from an untrusted source, such as a state sync peer. The import
 // fails unless physical keys arrive in strictly ascending order, which is the order KVExporter emits.
->>>>>>> 712fa98 (Fix FlatKV state sync bad-hash scenario. (#4370))
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	return s.newImporter(version, true)
 }
@@ -897,25 +853,7 @@ func (s *CommitStore) newImporter(version int64, requireAscendingKeys bool) (typ
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-<<<<<<< HEAD
-	return NewKVImporter(s, version), nil
-=======
-	return NewKVImporter(s, version, s.importDBs(), requireAscendingKeys), nil
-}
-
-// importDBs collects the raw databases an import writes into, taken from the view managers that
-// currently own them.
-//
-// An import writes beneath the managers, so it needs the databases themselves. Gathering them in one place
-// keeps that need visible as a single act rather than as a handle fetched per key.
-func (s *CommitStore) importDBs() rawDBs {
-	return rawDBs{
-		account: s.rawDBFor(accountDBDir),
-		code:    s.rawDBFor(codeDBDir),
-		storage: s.rawDBFor(storageDBDir),
-		misc:    s.rawDBFor(miscDBDir),
-	}
->>>>>>> 712fa98 (Fix FlatKV state sync bad-hash scenario. (#4370))
+	return NewKVImporter(s, version, requireAscendingKeys), nil
 }
 
 // resetForImport purges all existing data so that a subsequent import
