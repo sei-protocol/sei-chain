@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Sets up a clean Ubuntu install for compiling and running the cryptosim benchmark.
+# Sets up a clean Ubuntu install for compiling and running the gigasim benchmark.
 #
 # Usage: Run as root or with sudo
 #   sudo ./setup-ubuntu.sh

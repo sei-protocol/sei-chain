@@ -1,9 +1,7 @@
-The `gigasim` benchmark drives a Giga node's whole storage stack end to end. Where
-[`blocksim`](../blocksim) exercises the block ledger alone and [`cryptosim`](../cryptosim) exercises the
-state DB alone, gigasim runs both together with the receipt store, through the same
-`GigaStorageManager` a node opens. It is the benchmark to reach for when the question is how the
-engines behave *together* — whether pruning, checkpointing and hashing on one store show up as latency
-on another.
+The `gigasim` benchmark drives a Giga node's whole storage stack end to end: the block ledger, the state
+DB and the receipt store, through the same `GigaStorageManager` a node opens. It measures each engine
+under the traffic a node gives it, and how the engines behave *together* — whether pruning,
+checkpointing and hashing on one store show up as latency on another.
 
 Gigasim does not start validators or accept RPC traffic. For a four-validator Autobahn EVM-only
 cluster, local or on AWS, use [`autobahn-e2e`](../../../integration_test/autobahn/README.md). AWS
@@ -212,10 +210,47 @@ the time producers spent waiting for room, so a queue nobody waits on reports no
 gauges beside it are sampled on a timer and show how full a queue sits in the ordinary case, which a
 queue that fills only in bursts will understate.
 
-For local Prometheus and Grafana containers, see the corresponding section of the
-[cryptosim README](../cryptosim/README.md#setting-up-prometheus--grafana); the setup is the same.
-Grafana provisions every dashboard in `docker/monitornode/dashboards`, so the run appears under
-**GigaSim** without any import step.
+## Prometheus and Grafana
+
+To run local Prometheus and Grafana containers, run the following from the repository root, with Docker
+installed:
+
+```
+docker/monitornode/scripts/start-prometheus.sh
+docker/monitornode/scripts/start-grafana.sh
+docker/monitornode/scripts/start-node-exporter.sh
+```
+
+Grafana is at http://localhost:3000/, with username and password `admin`. It provisions every dashboard
+in `docker/monitornode/dashboards`, so the run appears under **GigaSim** without any import step.
+Prometheus scrapes gigasim at the default `MetricsAddr`. Stop the containers with the matching
+`stop-*.sh` scripts.
+
+# Running on AWS
+
+1. Clone the repository and install the dependencies (Go, build tools, tmux and Docker) on an Ubuntu
+   host:
+
+   ```
+   git clone https://github.com/sei-protocol/sei-chain.git
+   sudo ./sei-chain/sei-db/bench/gigasim/tools/setup-ubuntu.sh
+   ```
+
+2. Optionally, start Prometheus on the host: `./sei-chain/docker/monitornode/scripts/start-prometheus.sh`.
+
+3. Start the benchmark, inside tmux so that it survives a dropped connection:
+
+   ```
+   ./sei-chain/sei-db/bench/gigasim/gigasim.sh ./sei-chain/sei-db/bench/gigasim/config/full-node.json
+   ```
+
+4. Optionally, view the remote run in a local Grafana. With Prometheus running on the remote host and
+   Grafana (but not Prometheus) running locally, open an SSH tunnel to the remote Prometheus and keep it
+   open:
+
+   ```
+   ssh -L 9091:localhost:9091 user@remote-host
+   ```
 
 # Profiling
 
