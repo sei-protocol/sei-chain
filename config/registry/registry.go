@@ -488,12 +488,12 @@ const envPrefix = "SEID"
 // dots and hyphens as underscores, matching the boot's replacer.
 func EnvName(key string) string { return EnvNameUnder(envPrefix, key) }
 
-// EnvNameUnder is EnvName for a source whose environment prefix is prefix, upper-cased as viper does.
-// An empty prefix names the bare key.
+// EnvNameUnder is EnvName for a source whose environment prefix is prefix. As in viper, the replacer runs
+// over the prefix too, and an empty prefix names the bare key.
 func EnvNameUnder(prefix, key string) string {
-	name := strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(key))
-	if prefix == "" {
-		return name
+	name := key
+	if prefix != "" {
+		name = prefix + "_" + key
 	}
-	return strings.ToUpper(prefix) + "_" + name
+	return strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(name))
 }

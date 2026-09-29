@@ -538,6 +538,22 @@ func TestAVariableUnderADottedHyphenatedKeyIsRefused(t *testing.T) {
 	}
 }
 
+// TestAVariableUnderAHyphenatedPrefixIsRefused holds that the replacer covers the prefix, as it does
+// when the source reads the variable: a binary named seid-v6.7 reads SEID_V6_7_*.
+func TestAVariableUnderAHyphenatedPrefixIsRefused(t *testing.T) {
+	registry.Reset()
+	t.Setenv("SEID_V6_7_PRUNING_STRATEGY", "custom")
+	target := bootLike(t, "seid-v6.7", nil)
+	if got := target.Get("pruning.strategy"); got != "custom" {
+		t.Fatalf("the fixture does not read the variable: pruning.strategy = %#v", got)
+	}
+
+	_, err := appopts.Install(target, registry.Resolved{Values: map[string]any{"pruning": "default"}})
+	if err == nil || !strings.Contains(err.Error(), "SEID_V6_7_PRUNING_STRATEGY") {
+		t.Errorf("a variable under a hyphenated prefix was not refused by name: %v", err)
+	}
+}
+
 // TestAnEmptyVariableIsNotACollision holds that a variable the source ignores cannot be lost.
 func TestAnEmptyVariableIsNotACollision(t *testing.T) {
 	registry.Reset()

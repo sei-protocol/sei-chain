@@ -1630,6 +1630,7 @@ func TestEnvNameUnderFollowsTheSourcesPrefix(t *testing.T) {
 		{"seid", "state-store.ss-keep-recent", registry.EnvName("state-store.ss-keep-recent")},
 		{"testboot", "a.b-c", "TESTBOOT_A_B_C"},
 		{"", "a.b-c", "A_B_C"},
+		{"seid-v6.7", "a.b", "SEID_V6_7_A_B"},
 	} {
 		if got := registry.EnvNameUnder(tc.prefix, tc.key); got != tc.want {
 			t.Errorf("EnvNameUnder(%q, %q) = %q, want %q", tc.prefix, tc.key, got, tc.want)
