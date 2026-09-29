@@ -31,7 +31,7 @@
     ]
   },
   {
-    "_comment": "Disabled: needs precompile RPC, AssociateTest and the FlatKV fixture need Cosmos address association, and RPC to access state at past blocks, which EVM-only Autobahn does not serve. TODO(autobahn): re-enable with the other Autobahn EVM rows.",
+    "_comment": "Disabled: EVMPrecompileTest needs Sei precompiles, AssociateTest and the FlatKV fixture need Cosmos address association, and RPC to access state at past blocks, which EVM-only Autobahn does not serve. TODO(autobahn): re-enable with the other Autobahn EVM rows.",
     "name": "Autobahn EVM Module (Precompile & Endpoints)",
     "disabled": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
