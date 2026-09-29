@@ -7,11 +7,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/gasestimator"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -51,9 +53,10 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		Header:            buildEstimateHeader(blockCtx),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
+		BlockOverrides:    estimateBlockOverrides(blockCtx),
 		CustomPrecompiles: customPrecompileMap(e.cfg.CustomPrecompiles),
 	}
-	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
+	estimate, revert, err := gasestimator.Estimate(estimateCtx, msg, opts, gasCap)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		// Distinct from the timeout below: this is the caller's own cancellation.
 		return 0, nil, ctxErr
@@ -65,14 +68,14 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 	return estimate, revert, err
 }
 
-// resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg.
-func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
-	if msg.BlobGasFeeCap != nil {
-		return msg
+// estimateBlockOverrides returns the coinbase and blob base fee gas estimation applies.
+func estimateBlockOverrides(ctx BlockContext) *export.BlockOverrides {
+	coinbase := ctx.Coinbase
+	overrides := &export.BlockOverrides{FeeRecipient: &coinbase}
+	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); blobBaseFee != nil {
+		overrides.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
 	}
-	clone := *msg
-	clone.BlobGasFeeCap = new(big.Int)
-	return &clone
+	return overrides
 }
 
 // buildEstimateHeader builds the *types.Header core.NewEVMBlockContext needs.
