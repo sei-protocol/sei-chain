@@ -1146,7 +1146,7 @@ func assertFlatKVRowMatches(t *testing.T, physKey, rawVal []byte, exp flatKVExpe
 		sd, err := vtype.DeserializeStorageData(rawVal)
 		require.NoError(t, err, "decode storage row %x", physKey)
 		require.False(t, sd.IsDelete(), "storage row %x must not be a committed tombstone", physKey)
-		require.Equal(t, exp.storageValue[:], sd.GetValue()[:], "storage value mismatch for %x", physKey)
+		require.Equal(t, exp.storageValue, sd.GetValue(), "storage value mismatch for %x", physKey)
 	case rowCode:
 		cd, err := vtype.DeserializeCodeData(rawVal)
 		require.NoError(t, err, "decode code row %x", physKey)
@@ -1155,8 +1155,10 @@ func assertFlatKVRowMatches(t *testing.T, physKey, rawVal []byte, exp flatKVExpe
 		ad, err := vtype.DeserializeAccountData(rawVal)
 		require.NoError(t, err, "decode account row %x", physKey)
 		require.Equal(t, exp.nonce, ad.GetNonce(), "account nonce mismatch for %x", physKey)
-		require.Equal(t, exp.codeHash[:], ad.GetCodeHash()[:], "account code hash mismatch for %x", physKey)
-		require.Equal(t, exp.balance[:], ad.GetBalance()[:], "account balance mismatch for %x", physKey)
+		require.Equal(t, vtype.CodeHash(exp.codeHash), ad.GetCodeHash(),
+			"account code hash mismatch for %x", physKey)
+		require.Equal(t, vtype.Balance(exp.balance), ad.GetBalance(),
+			"account balance mismatch for %x", physKey)
 	case rowLegacy:
 		ld, err := vtype.DeserializeMiscData(rawVal)
 		require.NoError(t, err, "decode legacy row %x", physKey)

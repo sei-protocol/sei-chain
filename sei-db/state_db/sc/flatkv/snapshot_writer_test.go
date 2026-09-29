@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // The bulk of this package's suite reaches the writer through commitAndCheck, which flushes it so a
@@ -28,11 +29,11 @@ import (
 // the writer's own goroutine, so they build a writer directly over stubs rather than going through a
 // store.
 
-var _ view.View = (*fakeView)(nil)
+var _ view.View[vtype.AccountData] = typedFakeView[vtype.AccountData]{}
 
 // fakeView is a view whose flush and release outcomes the test chooses, and which counts both. The
 // methods a SnapshotWriter never reaches panic, so a use this stub was not written for is loud rather
-// than silently wrong.
+// than silently wrong. See typedFakeView for the typed reads.
 type fakeView struct {
 	// Reported by Name.
 	name string
@@ -86,20 +87,35 @@ func (v *fakeView) Release() error {
 
 func (v *fakeView) Abandon() {}
 
-func (v *fakeView) Get([]byte, bool) ([]byte, bool, error) {
+func (v *fakeView) Finalize([]*proto.KVPair) error {
+	panic("fakeView: unexpected Finalize")
+}
+
+// typedFakeView presents a fakeView as the view of a store whose values are V. A SnapshotWriter never
+// reads values, so the typed reads panic.
+type typedFakeView[V any] struct {
+	*fakeView
+}
+
+func (typedFakeView[V]) Get([]byte, bool) (V, bool, error) {
 	panic("fakeView: unexpected Get")
 }
 
-func (v *fakeView) BatchGet([][]byte) (map[string][]byte, error) {
+func (typedFakeView[V]) BatchGet([][]byte) (map[string]V, error) {
 	panic("fakeView: unexpected BatchGet")
 }
 
-func (v *fakeView) ForEachDiff(func(key string, value []byte) error) error {
+func (typedFakeView[V]) ForEachDiff(func(key string, value V, deleted bool) error) error {
 	panic("fakeView: unexpected ForEachDiff")
 }
 
-func (v *fakeView) Finalize([]*proto.KVPair) error {
-	panic("fakeView: unexpected Finalize")
+// storeViewOverFakes builds a store view at version over one stub per database, keyed by directory name.
+func storeViewOverFakes(version int64, stubs map[string]*fakeView) (*sview.StoreView, error) {
+	return sview.NewStoreView(version,
+		typedFakeView[vtype.AccountData]{stubs[accountDBDir]},
+		typedFakeView[vtype.CodeData]{stubs[codeDBDir]},
+		typedFakeView[vtype.StorageData]{stubs[storageDBDir]},
+		typedFakeView[vtype.MiscData]{stubs[miscDBDir]})
 }
 
 // fakeViews returns a store view at version backed by one stub per database, as a commit would hand
@@ -110,8 +126,7 @@ func fakeViews(t *testing.T, version int64) (*sview.StoreView, map[string]*fakeV
 	for _, name := range dataDBDirs {
 		stubs[name] = &fakeView{name: name}
 	}
-	blockView, err := sview.NewStoreView(version,
-		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
+	blockView, err := storeViewOverFakes(version, stubs)
 	require.NoError(t, err)
 	return blockView, stubs
 }
@@ -124,8 +139,7 @@ func bricksOnRelease(t *testing.T, version int64) (*sview.StoreView, map[string]
 	for _, name := range dataDBDirs {
 		stubs[name] = &fakeView{name: name, releaseErr: errors.New("view manager is bricked")}
 	}
-	blockView, err := sview.NewStoreView(version,
-		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
+	blockView, err := storeViewOverFakes(version, stubs)
 	require.NoError(t, err)
 	return blockView, stubs
 }

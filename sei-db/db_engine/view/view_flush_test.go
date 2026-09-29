@@ -153,7 +153,7 @@ func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	manager := newTestManagerWithConfig(t, cfg, db)
 
 	const versions = 5
-	views := make([]View, versions)
+	views := make([]View[[]byte], versions)
 	for i := 0; i < versions; i++ {
 		require.NoError(t, manager.Set([]byte{byte('a' + i), '1'}, []byte("v")))
 		require.NoError(t, manager.Set([]byte{byte('a' + i), '2'}, []byte("v")))
@@ -203,7 +203,7 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	ver := view.(*viewImpl[[]byte]).version
 	finalizeAndRelease(t, view)
 	awaitRetired(t, manager, ver)
 
@@ -215,7 +215,7 @@ func TestFinalizeAfterRetirementFails(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	ver := view.(*viewImpl[[]byte]).version
 	finalizeAndRelease(t, view)
 	awaitRetired(t, manager, ver)
 
@@ -227,7 +227,7 @@ func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	ver := view.(*viewImpl[[]byte]).version
 	finalizeAndRelease(t, view)
 	awaitRetired(t, manager, ver)
 

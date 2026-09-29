@@ -56,7 +56,7 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 		"k3": []byte("v3"),
 	})
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
-	shard := manager.(*viewManager).shards[0]
+	shard := manager.(*viewManager[[]byte]).shards[0]
 
 	db.getErrKeys = map[string]error{"k2": errors.New("io boom")}
 	_, err := manager.BatchGet([][]byte{[]byte("k1"), []byte("k2"), []byte("k3")})
@@ -100,7 +100,7 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 func TestBatchGetAfterFailureIsRefusedBeforeClassifying(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k1": []byte("v1")})
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
-	shard := manager.(*viewManager).shards[0]
+	shard := manager.(*viewManager[[]byte]).shards[0]
 
 	db.getErrKeys = map[string]error{"k2": errors.New("io boom")}
 	_, _, err := manager.Get([]byte("k2"), true)
@@ -171,7 +171,7 @@ func TestReadFailureStopsTheManager(t *testing.T) {
 func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
-	shard := manager.(*viewManager).shards[0]
+	shard := manager.(*viewManager[[]byte]).shards[0]
 
 	// Set the fault knobs only after construction: NewViewManager performs an initial-hash
 	// read through the same DB, which must neither block on the gate nor observe the error.

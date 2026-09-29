@@ -358,11 +358,13 @@ func normalizeEVMFlatKVPair(physKey, val []byte) (string, []byte, error) {
 		}
 		// Logical account payload, height-independent: balance(32)||nonce(8)||codeHash(32).
 		logical := make([]byte, 0, 72)
-		logical = append(logical, ad.GetBalance()[:]...)
+		balance := ad.GetBalance()
+		logical = append(logical, balance[:]...)
 		var nonce [8]byte
 		binary.BigEndian.PutUint64(nonce[:], ad.GetNonce())
 		logical = append(logical, nonce[:]...)
-		logical = append(logical, ad.GetCodeHash()[:]...)
+		codeHash := ad.GetCodeHash()
+		logical = append(logical, codeHash[:]...)
 		return bucket, logical, nil
 	case flatkvBucketCode:
 		cd, err := vtype.DeserializeCodeData(val)
@@ -879,7 +881,8 @@ func mergeCompositeFlatKVAccount(accounts map[string]*semanticAccountDigestState
 	bal := ad.GetBalance()
 	copy(acct.balance[:], bal[:])
 	acct.nonce = ad.GetNonce()
-	copy(acct.codeHash[:], ad.GetCodeHash()[:])
+	codeHash := ad.GetCodeHash()
+	copy(acct.codeHash[:], codeHash[:])
 	return nil
 }
 
@@ -1484,7 +1487,7 @@ func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumu
 		if err != nil {
 			return fmt.Errorf("parse storage value %X: %w", k, err)
 		}
-		leafVersion := int64(binary.LittleEndian.Uint32(leafbuf[:4]))
+		leafVersion := uint64(binary.LittleEndian.Uint32(leafbuf[:4]))
 		physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
 		storageData := vtype.NewStorageData().SetBlockHeight(leafVersion).SetValue(value)
 		if err := acc.consumeWithMeta(physKey, storageData.Serialize(), fmt.Sprintf("leaf_version=%d", leafVersion)); err != nil {

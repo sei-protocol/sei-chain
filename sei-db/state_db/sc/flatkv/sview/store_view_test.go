@@ -1,76 +1,22 @@
 package sview
 
 import (
-	"context"
 	"errors"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
-
-var _ view.View = (*stubView)(nil)
-
-// stubView is a view whose Release outcome the test chooses. Only Name, Reserve and Release are
-// implemented; every other method panics, so a use this stub was not written for is loud rather than
-// silently wrong.
-type stubView struct {
-	// Reported by Name.
-	name string
-
-	// Returned by every Release call.
-	releaseErr error
-
-	// Counts Release calls.
-	releaseCalls int
-}
-
-func (s *stubView) Name() string {
-	return s.name
-}
-
-func (s *stubView) Release() error {
-	s.releaseCalls++
-	return s.releaseErr
-}
-
-func (s *stubView) Abandon() {}
-
-func (s *stubView) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	panic("stubView: unexpected Get")
-}
-
-func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	panic("stubView: unexpected BatchGet")
-}
-
-func (s *stubView) ForEachDiff(func(key string, value []byte) error) error {
-	panic("stubView: unexpected ForEachDiff")
-}
-
-func (s *stubView) Reserve() error {
-	return nil
-}
-
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
-	panic("stubView: unexpected Finalize")
-}
-
-func (s *stubView) AwaitFlush(ctx context.Context) error {
-	panic("stubView: unexpected AwaitFlush")
-}
 
 // bricksOnRelease builds a store view over stubs that all fail to release, and returns the stubs so a
 // test can count the attempts.
-func bricksOnRelease(t *testing.T, version int64) (*StoreView, map[string]*stubView) {
+func bricksOnRelease(t *testing.T, version int64) (*StoreView, map[string]*fakeView) {
 	t.Helper()
-	stubs := make(map[string]*stubView, len(dataDBDirs))
+	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
-		stubs[name] = &stubView{name: name, releaseErr: errors.New("view manager is bricked")}
+		stubs[name] = &fakeView{name: name, releaseErr: errors.New("view manager is bricked")}
 	}
-	blockView, err := NewStoreView(version,
+	blockView, err := storeViewOver(version,
 		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
 	require.NoError(t, err)
 	return blockView, stubs
@@ -90,24 +36,20 @@ func requireBalanced(t *testing.T, stubs map[string]*fakeView) {
 // A nil view would surface much later as a panic inside whichever operation happened to walk it, so
 // construction rejects one and names the store it was missing.
 func TestNewStoreViewRejectsNilViews(t *testing.T) {
-	present := func() (view.View, view.View, view.View, view.View) {
-		return &fakeView{name: accountDBDir}, &fakeView{name: codeDBDir},
-			&fakeView{name: storageDBDir}, &fakeView{name: miscDBDir}
-	}
+	account := typedFakeView[vtype.AccountData]{&fakeView{name: accountDBDir}}
+	code := typedFakeView[vtype.CodeData]{&fakeView{name: codeDBDir}}
+	storage := typedFakeView[vtype.StorageData]{&fakeView{name: storageDBDir}}
+	misc := typedFakeView[vtype.MiscData]{&fakeView{name: miscDBDir}}
 
-	account, code, storage, misc := present()
 	_, err := NewStoreView(1, nil, code, storage, misc)
 	require.ErrorContains(t, err, "account view is nil")
 
-	account, code, storage, misc = present()
 	_, err = NewStoreView(1, account, nil, storage, misc)
 	require.ErrorContains(t, err, "code view is nil")
 
-	account, code, storage, misc = present()
 	_, err = NewStoreView(1, account, code, nil, misc)
 	require.ErrorContains(t, err, "storage view is nil")
 
-	account, code, storage, misc = present()
 	_, err = NewStoreView(1, account, code, storage, nil)
 	require.ErrorContains(t, err, "misc view is nil")
 }
@@ -118,7 +60,7 @@ func TestStoreViewReserveStopsAtFirstFailure(t *testing.T) {
 	bad := &fakeView{name: codeDBDir, reserveErr: errors.New("manager is bricked")}
 	rest := &fakeView{name: storageDBDir}
 
-	blockView, err := NewStoreView(1, &fakeView{name: accountDBDir}, bad, rest, &fakeView{name: miscDBDir})
+	blockView, err := storeViewOver(1, &fakeView{name: accountDBDir}, bad, rest, &fakeView{name: miscDBDir})
 	require.NoError(t, err)
 
 	err = blockView.Reserve()
@@ -137,9 +79,9 @@ func TestStoreViewReleaseStopsAtFirstFailure(t *testing.T) {
 	require.Error(t, err, "a failed release must be returned, not swallowed")
 	require.ErrorContains(t, err, "view manager is bricked")
 
-	attempted := 0
+	var attempted int64
 	for _, stub := range stubs {
-		attempted += stub.releaseCalls
+		attempted += stub.releases.Load()
 	}
-	require.Equal(t, 1, attempted, "release must stop at the first failure rather than attempt the rest")
+	require.Equal(t, int64(1), attempted, "release must stop at the first failure rather than attempt the rest")
 }

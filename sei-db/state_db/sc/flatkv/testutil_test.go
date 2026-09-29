@@ -420,27 +420,19 @@ func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingH
 		"maintained per-module stats mutated on failed Apply")
 }
 
-// stagedRow reads a physical key back through its store and decodes it. The store reports whatever
-// the block has staged so far merged over the on-disk row, so this is how a staged row is observed now
-// that the pending-write maps are gone. A nil result means the key is absent — either never written, or
-// deleted in this block, which the store deliberately does not distinguish.
-func stagedRow[T vtype.VType](
-	t *testing.T,
-	store view.ViewManager,
-	physKey []byte,
-	decode func([]byte) (T, error),
-) T {
+// stagedRow reads a physical key back through its store. The store reports whatever the block has
+// staged so far merged over the on-disk row, so this is how a staged row is observed now that the
+// pending-write maps are gone. The zero value means the key is absent — either never written, or deleted
+// in this block, which the store deliberately does not distinguish.
+func stagedRow[V any](t *testing.T, store view.ViewManager[V], physKey []byte) V {
 	t.Helper()
-	raw, found, err := store.Get(physKey, true)
-	require.NoError(t, err)
-	row, err := parseRow(raw, found, decode)
+	row, _, err := store.Get(physKey, true)
 	require.NoError(t, err)
 	return row
 }
 
-// requireStaged asserts physKey currently reads back a row from store. Presence needs no decoding, so
-// it asks the store directly rather than going through a row type.
-func requireStaged(t *testing.T, store view.ViewManager, physKey []byte, msgAndArgs ...any) {
+// requireStaged asserts physKey currently reads back a row from store.
+func requireStaged[V any](t *testing.T, store view.ViewManager[V], physKey []byte, msgAndArgs ...any) {
 	t.Helper()
 	_, found, err := store.Get(physKey, true)
 	require.NoError(t, err)
@@ -448,7 +440,7 @@ func requireStaged(t *testing.T, store view.ViewManager, physKey []byte, msgAndA
 }
 
 // requireNotStaged asserts physKey reads back nothing from store.
-func requireNotStaged(t *testing.T, store view.ViewManager, physKey []byte, msgAndArgs ...any) {
+func requireNotStaged[V any](t *testing.T, store view.ViewManager[V], physKey []byte, msgAndArgs ...any) {
 	t.Helper()
 	_, found, err := store.Get(physKey, true)
 	require.NoError(t, err)

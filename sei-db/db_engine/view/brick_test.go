@@ -17,7 +17,7 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitErr = errors.New("disk full")
 	manager := newTestManagerWithDB(t, db, 1, 4096)
-	e := manager.(*viewManager)
+	e := manager.(*viewManager[[]byte])
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view1, err := manager.Commit()
@@ -63,7 +63,7 @@ func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitErr = errors.New("disk full")
 	manager := newTestManagerWithDB(t, db, 1, 4096)
-	e := manager.(*viewManager)
+	e := manager.(*viewManager[[]byte])
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	commitFinalizeRelease(t, manager)
@@ -130,7 +130,7 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
-	e := manager.(*viewManager)
+	e := manager.(*viewManager[[]byte])
 
 	// Warm the cache, so the refused read below cannot be explained by a DB read.
 	v, found, err := manager.Get([]byte("k"), true)
@@ -166,7 +166,7 @@ func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
-	e := manager.(*viewManager)
+	e := manager.(*viewManager[[]byte])
 
 	require.Error(t, e.IncrementReferenceCount(9999))
 	_, err := e.DecrementReferenceCount(9999)
@@ -187,7 +187,7 @@ func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 func TestCloseCancelsShardContexts(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 2, 4096)
-	e := manager.(*viewManager)
+	e := manager.(*viewManager[[]byte])
 
 	require.NoError(t, manager.Close())
 	for i, s := range e.shards {

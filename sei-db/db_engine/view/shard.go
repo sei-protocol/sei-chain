@@ -31,21 +31,22 @@ import (
 // Method postfixes state the lock contract: RLocked and WLocked require the caller to hold the read or
 // write lock, and Unlocked requires the caller to hold neither. A bare name touches no guarded state,
 // or is external surface whose caller has no access to the lock.
-type shard struct {
+type shard[V any] struct {
 	// A lock to protect the shard's data. Also used by the read cache (see the cache field).
 	lock sync.RWMutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
-	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
+	versionedData map[string] /* key */ *structures.Deque[versionedValue[V]] /* values at various versions */
 
 	// The values set in each version not yet materialized: the current version, and any sealed version
-	// whose folds are still resolving. A key set more than once in a version keeps only its last value.
-	// Reading one key at a version through versionedData is far cheaper than scanning this map for it.
-	versionDiffs map[uint64] /* version */ map[string] /* key */ []byte /* value */
+	// whose folds are still resolving. A key set more than once in a version keeps only its last value,
+	// and a value that is not present is a delete. Reading one key at a version through versionedData is
+	// far cheaper than scanning this map for it.
+	versionDiffs map[uint64] /* version */ map[string] /* key */ optionalValue[V] /* value */
 
 	// One handle per sealed version, carrying that version's writes once they are ordered by key.
 	// Registered at the seal, and empty until the version is materialized.
-	sealedDiffs map[uint64] /* version */ *sealedDiff
+	sealedDiffs map[uint64] /* version */ *sealedDiff[V]
 
 	// The read-through DB cache backing this shard. A passive component sharing this shard's
 	// lock: its RLocked and WLocked methods require the lock held, while its Resolve methods and background
@@ -53,7 +54,10 @@ type shard struct {
 	// holding the lock — it never calls into the shard at all, and its one call into the manager
 	// (reportReadFailure, which acquires versionLock) is made only after releasing the lock — so
 	// nesting cache calls under the shard lock cannot deadlock. See readCache.
-	cache *readCache
+	cache *readCache[V]
+
+	// Converts values to the bytes an iterator yields.
+	codec *Codec[V]
 
 	// ViewManager-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *ViewManagerMetrics
@@ -92,37 +96,36 @@ type shard struct {
 
 // Write is one key's change: a value to store, or a deletion.
 //
-// A nil Value is a deletion. That is the manager's tombstone convention throughout — BatchUpdater
-// returns nil from NewValueFor to delete, and the version diff maps hold nil for a deleted key — so a
-// caller with a genuinely empty value passes a non-nil, zero-length slice.
-//
 // Key may be carved from a shared buffer; see setWLocked for what the manager retains.
-type Write struct {
+type Write[V any] struct {
 	// Key is the key to write.
 	Key string
 
-	// Value is the value to store, or nil to delete the key.
-	Value []byte
+	// Value is the value to store. Ignored when Delete is true.
+	Value V
+
+	// Delete is true when the key is to be deleted rather than set.
+	Delete bool
 }
 
 // sealedDiff is a sealed version's writes ordered by key. entries is valid only once done is closed;
 // before that the version's writes are still in versionDiffs.
-type sealedDiff struct {
-	entries []Write
+type sealedDiff[V any] struct {
+	entries []Write[V]
 	done    chan struct{}
 }
 
 // A single value at a specific version.
-type versionedValue struct {
-	// The value.
-	value []byte
+type versionedValue[V any] struct {
+	// The value, not present for a delete.
+	value optionalValue[V]
 	// The manager version at which this value was written. Note that this is NOT the same
 	// as block height, this is just a version number that monotonically increases over the lifetime
 	// of a view manager instance.
 	version uint64
 	// pending is non-nil while this value's bytes are still being folded. Every path that reads value
 	// must check it first.
-	pending *pendingValue
+	pending *pendingValue[V]
 }
 
 // versionLatch counts a version's unresolved staged values and lets an observer wait for the last of
@@ -139,11 +142,13 @@ type versionLatch struct {
 }
 
 // Creates a new Shard.
-func NewShard(
+func NewShard[V any](
 	ctx context.Context,
 	config *ViewManagerConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
+	// Converts between the database's bytes and values.
+	codec *Codec[V],
 	// A work pool for asynchronous reads.
 	readPool threading.Pool,
 	// The maximum size of this shard, in bytes.
@@ -157,7 +162,7 @@ func NewShard(
 	// Reports a fold that could not produce its value to the manager, which bricks. Distinct from
 	// reportReadFailure so the latched error names the failure that actually happened.
 	reportFoldFailure func(error),
-) (*shard, error) {
+) (*shard[V], error) {
 
 	if maxSize == 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
@@ -176,13 +181,14 @@ func NewShard(
 		return nil, fmt.Errorf("reportFoldFailure must be non-nil")
 	}
 
-	versionDiffs := make(map[uint64]map[string][]byte)
-	versionDiffs[1] = make(map[string][]byte) // versions start at 1
+	versionDiffs := make(map[uint64]map[string]optionalValue[V])
+	versionDiffs[1] = make(map[string]optionalValue[V]) // versions start at 1
 
-	s := &shard{
-		versionedData:  make(map[string]*structures.Deque[versionedValue]),
+	s := &shard[V]{
+		codec:          codec,
+		versionedData:  make(map[string]*structures.Deque[versionedValue[V]]),
 		versionDiffs:   versionDiffs,
-		sealedDiffs:    make(map[uint64]*sealedDiff),
+		sealedDiffs:    make(map[uint64]*sealedDiff[V]),
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
 		versionLatches: make(map[uint64]*versionLatch),
@@ -193,12 +199,12 @@ func NewShard(
 
 		reportFoldFailure: reportFoldFailure,
 	}
-	s.cache = NewReadCache(ctx, config, db, readPool, &s.lock, maxSize, shutdownError, reportReadFailure)
+	s.cache = NewReadCache(ctx, config, db, codec, readPool, &s.lock, maxSize, shutdownError, reportReadFailure)
 	return s, nil
 }
 
-// Get returns the value for the given key, or (nil, false, nil) if not found at the given version.
-func (s *shard) Get(
+// Get returns the value for the given key at the given version, and whether it was found.
+func (s *shard[V]) Get(
 	// The key to get.
 	key []byte,
 	// The version of the data to get.
@@ -207,18 +213,18 @@ func (s *shard) Get(
 	// performed multiple times in close succession on the same key, since it requires non-zero
 	// overhead to do so with little benefit.
 	updateLru bool,
-) ([]byte, bool, error) {
+) (V, bool, error) {
 	value, found, pending, done, err := s.attemptFastGetUnlocked(key, version, updateLru)
 	if pending != nil {
-		value, err := pending.await(s.ctx, s.shutdownError)
+		resolved, err := pending.await(s.ctx, s.shutdownError)
 		if err != nil {
-			return nil, false, fmt.Errorf("get key %x at version %d: %w", key, version, err)
+			return value, false, fmt.Errorf("get key %x at version %d: %w", key, version, err)
 		}
-		return value, value != nil, nil
+		return resolved.value, resolved.present, nil
 	}
 	if done {
 		if err != nil {
-			return nil, false, fmt.Errorf("get at version %d: %w", version, err)
+			return value, false, fmt.Errorf("get at version %d: %w", version, err)
 		}
 		return value, found, nil
 	}
@@ -232,26 +238,26 @@ func (s *shard) Get(
 	// not just those that would have reached the DB.
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
 		s.lock.Unlock()
-		return nil, false, fmt.Errorf("get key %x: %w", key, err)
+		return value, false, fmt.Errorf("get key %x: %w", key, err)
 	}
 
 	if err := s.validateVersionRLocked(version); err != nil {
 		s.lock.Unlock()
-		return nil, false, fmt.Errorf("get key %x: %w", key, err)
+		return value, false, fmt.Errorf("get key %x: %w", key, err)
 	}
 
 	// First, check to see if we have this value in the versioned data map.
 	if entry, found := s.lookupVersionedRLocked(key, version); found {
 		s.lock.Unlock()
 		if entry.pending != nil {
-			value, err := entry.pending.await(s.ctx, s.shutdownError)
+			resolved, err := entry.pending.await(s.ctx, s.shutdownError)
 			if err != nil {
-				return nil, false, fmt.Errorf("get key %x at version %d: %w", key, version, err)
+				return value, false, fmt.Errorf("get key %x at version %d: %w", key, version, err)
 			}
-			return value, value != nil, nil
+			return resolved.value, resolved.present, nil
 		}
 		s.metrics.reportCacheHits(1)
-		return entry.value, entry.value != nil, nil
+		return entry.value.value, entry.value.present, nil
 	}
 
 	outcome := s.cache.LookupWLocked(key, updateLru)
@@ -266,39 +272,39 @@ func (s *shard) Get(
 //
 // A key holding an unresolved fold is reported as pending, for the caller to await once it has
 // released the lock.
-func (s *shard) attemptFastGetUnlocked(
+func (s *shard[V]) attemptFastGetUnlocked(
 	key []byte,
 	version uint64,
 	updateLru bool,
-) (value []byte, found bool, pending *pendingValue, done bool, err error) {
+) (value V, found bool, pending *pendingValue[V], done bool, err error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
-		return nil, false, nil, true, fmt.Errorf("key %x: %w", key, err)
+		return value, false, nil, true, fmt.Errorf("key %x: %w", key, err)
 	}
 	if err := s.validateVersionRLocked(version); err != nil {
-		return nil, false, nil, true, fmt.Errorf("key %x: %w", key, err)
+		return value, false, nil, true, fmt.Errorf("key %x: %w", key, err)
 	}
 
 	if entry, found := s.lookupVersionedRLocked(key, version); found {
 		if entry.pending != nil {
-			return nil, false, entry.pending, false, nil
+			return value, false, entry.pending, false, nil
 		}
 		s.metrics.reportCacheHits(1)
-		return entry.value, entry.value != nil, nil, true, nil
+		return entry.value.value, entry.value.present, nil, true, nil
 	}
 
 	value, found, ok := s.cache.AttemptFastLookupRLocked(key, updateLru)
 	if !ok {
-		return nil, false, nil, false, nil
+		return value, false, nil, false, nil
 	}
 	s.metrics.reportCacheHits(1)
 	return value, found, nil, true, nil
 }
 
 // validateVersionRLocked checks that the given version is within the valid range.
-func (s *shard) validateVersionRLocked(version uint64) error {
+func (s *shard[V]) validateVersionRLocked(version uint64) error {
 	if version < s.oldestVersion {
 		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, s.oldestVersion)
 	}
@@ -313,19 +319,19 @@ func (s *shard) validateVersionRLocked(version uint64) error {
 //
 // The entry may be an unresolved fold, so every caller has to check its pending field before reading
 // its value. Resolving one requires releasing this lock first; see pendingValue.await.
-func (s *shard) lookupVersionedRLocked(key []byte, version uint64) (versionedValue, bool) {
+func (s *shard[V]) lookupVersionedRLocked(key []byte, version uint64) (versionedValue[V], bool) {
 	// Converted inline rather than by the caller: the compiler elides the conversion only where it
 	// indexes a map directly, and every single-key read pays an allocation for it otherwise.
 	deque, ok := s.versionedData[string(key)]
 	if !ok {
-		return versionedValue{}, false
+		return versionedValue[V]{}, false
 	}
 	if version == s.oldestVersion {
 		next := deque.PeekFront()
 		if next.version == version {
 			return next, true
 		}
-		return versionedValue{}, false
+		return versionedValue[V]{}, false
 	}
 	for i := deque.Len() - 1; i >= 0; i-- {
 		next := deque.Get(i)
@@ -333,24 +339,24 @@ func (s *shard) lookupVersionedRLocked(key []byte, version uint64) (versionedVal
 			return next, true
 		}
 	}
-	return versionedValue{}, false
+	return versionedValue[V]{}, false
 }
 
 // BatchGet reads the given keys at the given version, returning a map (keyed by string(key)) of the
 // keys that were found to their values. Not-found and deleted keys are absent from the map. Any read
 // error fails the whole call and returns a nil map.
-func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, error) {
-	results := make(map[string][]byte, len(keys))
+func (s *shard[V]) BatchGet(keys [][]byte, version uint64) (map[string]V, error) {
+	results := make(map[string]V, len(keys))
 
 	unresolved, staged, hits, err := s.attemptFastBatchGetUnlocked(keys, results, version)
 	if err != nil {
 		return nil, fmt.Errorf("batch get of %d keys at version %d: %w", len(keys), version, err)
 	}
 
-	var pending []pendingRead
+	var pending []pendingRead[V]
 	if len(unresolved) > 0 {
 		var remainingHits int64
-		var remainingStaged []*pendingValue
+		var remainingStaged []*pendingValue[V]
 		pending, remainingStaged, remainingHits, err =
 			s.batchGetRemainingUnlocked(keys, unresolved, results, version)
 		if err != nil {
@@ -377,15 +383,15 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 }
 
 // awaitStagedReadsUnlocked completes the staged folds a batch read ran into, writing each resolved value into
-// results. A deleted key resolves to nil and is left out, as it would be on any other read path.
-func (s *shard) awaitStagedReadsUnlocked(staged []*pendingValue, results map[string][]byte) error {
+// results. A deleted key is left out, as it would be on any other read path.
+func (s *shard[V]) awaitStagedReadsUnlocked(staged []*pendingValue[V], results map[string]V) error {
 	for _, pending := range staged {
-		value, err := pending.await(s.ctx, s.shutdownError)
+		resolved, err := pending.await(s.ctx, s.shutdownError)
 		if err != nil {
 			return fmt.Errorf("await staged value for key %x: %w", pending.key, err)
 		}
-		if value != nil {
-			results[pending.key] = value
+		if resolved.present {
+			results[pending.key] = resolved.value
 		}
 	}
 	return nil
@@ -393,11 +399,11 @@ func (s *shard) awaitStagedReadsUnlocked(staged []*pendingValue, results map[str
 
 // attemptFastBatchGetUnlocked resolves the keys it can while holding the read lock, writing found
 // values into results and returning the positions in keys of those it could not resolve.
-func (s *shard) attemptFastBatchGetUnlocked(
+func (s *shard[V]) attemptFastBatchGetUnlocked(
 	keys [][]byte,
-	results map[string][]byte,
+	results map[string]V,
 	version uint64,
-) (unresolved []int, staged []*pendingValue, hits int64, err error) {
+) (unresolved []int, staged []*pendingValue[V], hits int64, err error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -418,9 +424,9 @@ func (s *shard) attemptFastBatchGetUnlocked(
 				staged = append(staged, entry.pending)
 				continue
 			}
-			// found includes tombstones (nil value); only non-nil values are real hits to return.
-			if entry.value != nil {
-				results[keyStr] = entry.value
+			// found includes tombstones; only present values are real hits to return.
+			if entry.value.present {
+				results[keyStr] = entry.value.value
 			}
 			hits++
 			continue
@@ -443,13 +449,13 @@ func (s *shard) attemptFastBatchGetUnlocked(
 
 // batchGetRemainingUnlocked classifies the keys at the given positions in keys, which are those the
 // fast pass could not resolve, creating entries and scheduling DB reads as needed.
-func (s *shard) batchGetRemainingUnlocked(
+func (s *shard[V]) batchGetRemainingUnlocked(
 	keys [][]byte,
 	indices []int,
-	results map[string][]byte,
+	results map[string]V,
 	version uint64,
-) (pending []pendingRead, staged []*pendingValue, hits int64, err error) {
-	pending = make([]pendingRead, 0, len(indices))
+) (pending []pendingRead[V], staged []*pendingValue[V], hits int64, err error) {
+	pending = make([]pendingRead[V], 0, len(indices))
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -473,8 +479,8 @@ func (s *shard) batchGetRemainingUnlocked(
 				staged = append(staged, entry.pending)
 				continue
 			}
-			if entry.value != nil {
-				results[keyStr] = entry.value
+			if entry.value.present {
+				results[keyStr] = entry.value.value
 			}
 			hits++
 			continue
@@ -488,7 +494,7 @@ func (s *shard) batchGetRemainingUnlocked(
 			hits++
 			continue
 		}
-		pending = append(pending, pendingRead{
+		pending = append(pending, pendingRead[V]{
 			key:           keyStr,
 			entry:         outcome.entry,
 			valueChan:     outcome.valueChan,
@@ -499,7 +505,7 @@ func (s *shard) batchGetRemainingUnlocked(
 }
 
 // GetSizeInfo returns the current cache size (bytes) and entry count under the read lock.
-func (s *shard) GetSizeInfo() (bytes uint64, entries uint64) {
+func (s *shard[V]) GetSizeInfo() (bytes uint64, entries uint64) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.cache.SizeInfoRLocked()
@@ -507,7 +513,7 @@ func (s *shard) GetSizeInfo() (bytes uint64, entries uint64) {
 
 // IteratorOpened records that an iterator is reading this shard. Balanced by exactly one
 // IteratorClosed.
-func (s *shard) IteratorOpened() {
+func (s *shard[V]) IteratorOpened() {
 	s.lock.Lock()
 	s.openIterators++
 	s.lock.Unlock()
@@ -515,7 +521,7 @@ func (s *shard) IteratorOpened() {
 
 // IteratorClosed records that an iterator reading this shard has been closed. Closing more than were
 // opened is refused rather than wrapping the count, which would make the leak report at Close useless.
-func (s *shard) IteratorClosed() error {
+func (s *shard[V]) IteratorClosed() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -530,29 +536,36 @@ func (s *shard) IteratorClosed() error {
 //
 // A write to a shard that is out of service is refused: it would land in versioned data that no
 // lifecycle runner remains to flush, and so be discarded silently.
-func (s *shard) Set(key []byte, value []byte) error {
+func (s *shard[V]) Set(key []byte, value V) error {
+	return s.write(key, someValue(value))
+}
+
+// write records value for the given key at the current version, where a value that is not present
+// deletes the key. Refused on a shard that is out of service, for the reason given on Set.
+func (s *shard[V]) write(key []byte, value optionalValue[V]) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
-		return fmt.Errorf("set key %x: %w", key, err)
+		return fmt.Errorf("write key %x: %w", key, err)
 	}
 	s.setWLocked(string(key), value)
 	return nil
 }
 
-// setWLocked writes a value to the versioned data structures at the current version.
+// setWLocked writes a value to the versioned data structures at the current version. A value that is not
+// present deletes the key.
 //
 // key may be carved from a shared buffer: nothing retains it past this version's retirement without
 // copying it first, so a caller allocating its keys out of one arena does not pin that arena for the
 // life of the shard. value gets no such treatment — it is retained as given.
-func (s *shard) setWLocked(key string, value []byte) {
+func (s *shard[V]) setWLocked(key string, value optionalValue[V]) {
 	// Dropped whole when this version retires, so it can hold the caller's string as given.
 	s.versionDiffs[s.currentVersion][key] = value
 
 	deque, ok := s.versionedData[key]
 	if !ok {
-		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
+		deque = structures.NewDequeWithCapacity[versionedValue[V]](s.initialVersionsPerKey)
 		// Copied, because this map's entries outlive the version that created them and a Go string
 		// can be a window onto a much larger allocation: a caller that cut its keys from one shared
 		// buffer would pin that whole buffer here. Only on first insert — Go keeps a map's existing
@@ -560,16 +573,16 @@ func (s *shard) setWLocked(key string, value []byte) {
 		s.versionedData[strings.Clone(key)] = deque
 	}
 	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
-		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
+		deque.PushBack(versionedValue[V]{version: s.currentVersion, value: value})
 	} else {
 		deque.PopBack()
-		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
+		deque.PushBack(versionedValue[V]{version: s.currentVersion, value: value})
 	}
 }
 
 // batchSetAt applies the writes named by indices, which index into writes. Refused on a shard that
 // is out of service, for the reason given on Set.
-func (s *shard) batchSetAt(writes []Write, indices []int) error {
+func (s *shard[V]) batchSetAt(writes []Write[V], indices []int) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -578,7 +591,11 @@ func (s *shard) batchSetAt(writes []Write, indices []int) error {
 		return fmt.Errorf("batch set of %d keys: %w", len(indices), err)
 	}
 	for _, i := range indices {
-		s.setWLocked(writes[i].Key, writes[i].Value)
+		value := optionalValue[V]{}
+		if !writes[i].Delete {
+			value = someValue(writes[i].Value)
+		}
+		s.setWLocked(writes[i].Key, value)
 	}
 	return nil
 }
@@ -586,11 +603,11 @@ func (s *shard) batchSetAt(writes []Write, indices []int) error {
 // StageUpdates reserves a slot at the current version for each key named by indices, each holding an
 // unresolved fold, and reports where each of those folds gets the value it folds onto. Folds staged
 // for one key apply in the order they were staged.
-func (s *shard) StageUpdates(
+func (s *shard[V]) StageUpdates(
 	keys []string,
 	indices []int,
 	version uint64,
-) ([]stagedFold, error) {
+) ([]stagedFold[V], error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -603,12 +620,12 @@ func (s *shard) StageUpdates(
 			version, s.currentVersion)
 	}
 
-	folds := make([]stagedFold, len(indices))
+	folds := make([]stagedFold[V], len(indices))
 	for n, index := range indices {
 		key := keys[index]
-		folds[n] = stagedFold{
+		folds[n] = stagedFold[V]{
 			prior:  s.capturePriorValueWLocked(key),
-			result: newPendingValue(key),
+			result: newPendingValue[V](key),
 		}
 		s.stagePendingValueWLocked(key, version, folds[n].result)
 	}
@@ -618,29 +635,29 @@ func (s *shard) StageUpdates(
 // capturePriorValueWLocked reports what a fold staged now for key would be folding on top of: the newest
 // value the shard holds, resolved or not, or neither when the shard holds none and it has to come
 // from the read cache or the database.
-func (s *shard) capturePriorValueWLocked(key string) priorValueSource {
+func (s *shard[V]) capturePriorValueWLocked(key string) priorValueSource[V] {
 	deque, ok := s.versionedData[key]
 	if !ok || deque.IsEmpty() {
-		return priorValueSource{location: priorValueInReadCache}
+		return priorValueSource[V]{location: priorValueInReadCache}
 	}
 	// The newest entry is the right one to fold onto, whether it belongs to an earlier version or to
 	// an earlier write within this one. It can never belong to a later version: every write lands at
 	// the current version, and StageUpdates refuses any other, so nothing is ever appended above it.
 	newest := deque.PeekBack()
 	if newest.pending != nil {
-		return priorValueSource{location: priorValueInEarlierFold, pending: newest.pending}
+		return priorValueSource[V]{location: priorValueInEarlierFold, pending: newest.pending}
 	}
-	return priorValueSource{location: priorValueInVersionedData, value: newest.value}
+	return priorValueSource[V]{location: priorValueInVersionedData, value: newest.value}
 }
 
 // stagePendingValueWLocked puts an unresolved fold into the versioned data at the given version,
 // replacing any entry this version already had for the key.
-func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pendingValue) {
-	entry := versionedValue{version: version, pending: pending}
+func (s *shard[V]) stagePendingValueWLocked(key string, version uint64, pending *pendingValue[V]) {
+	entry := versionedValue[V]{version: version, pending: pending}
 
 	deque, ok := s.versionedData[key]
 	if !ok {
-		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
+		deque = structures.NewDequeWithCapacity[versionedValue[V]](s.initialVersionsPerKey)
 		// Cloned because this map entry outlives the batch that created it, and Go leaves a map's
 		// original key in place on reassignment. The copy is per key new to this shard, not per write.
 		s.versionedData[strings.Clone(key)] = deque
@@ -657,7 +674,7 @@ func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pe
 
 // markFoldStagedWLocked records one more of a version's folds as outstanding, creating the version's
 // latch if this is its first.
-func (s *shard) markFoldStagedWLocked(version uint64) {
+func (s *shard[V]) markFoldStagedWLocked(version uint64) {
 	latch, ok := s.versionLatches[version]
 	if !ok {
 		latch = &versionLatch{done: make(chan struct{})}
@@ -668,7 +685,7 @@ func (s *shard) markFoldStagedWLocked(version uint64) {
 
 // markFoldResolvedWLocked records one of a version's folds as no longer outstanding, opening the
 // version's latch when it was the last. A version left incomplete by a failure keeps its latch.
-func (s *shard) markFoldResolvedWLocked(version uint64) {
+func (s *shard[V]) markFoldResolvedWLocked(version uint64) {
 	latch, ok := s.versionLatches[version]
 	if !ok {
 		return
@@ -685,7 +702,7 @@ func (s *shard) markFoldResolvedWLocked(version uint64) {
 
 // awaitVersionFoldsUnlocked blocks until every fold staged in the given version has resolved, reporting
 // the failure that stopped one if any did. Must be called with no lock held.
-func (s *shard) awaitVersionFoldsUnlocked(version uint64) error {
+func (s *shard[V]) awaitVersionFoldsUnlocked(version uint64) error {
 	s.lock.RLock()
 	latch, outstanding := s.versionLatches[version]
 	s.lock.RUnlock()
@@ -715,7 +732,7 @@ func (s *shard) awaitVersionFoldsUnlocked(version uint64) error {
 // that has already failed has already cancelled the context an interruptible wait would observe.
 // Every fold resolves its version's latch whether it produced a value or failed, so the wait
 // terminates either way.
-func (s *shard) AwaitOutstandingFolds() {
+func (s *shard[V]) AwaitOutstandingFolds() {
 	s.lock.RLock()
 	latches := make([]*versionLatch, 0, len(s.versionLatches))
 	for _, latch := range s.versionLatches {
@@ -730,20 +747,24 @@ func (s *shard) AwaitOutstandingFolds() {
 
 // FoldStagedValues folds every value a batch staged and records what each produced. Either every fold
 // in the batch is recorded or none is.
-func (s *shard) FoldStagedValues(folds []stagedFold, updater BatchUpdater, version uint64) {
+func (s *shard[V]) FoldStagedValues(folds []stagedFold[V], updater BatchUpdater[V], version uint64) {
 	priorValues, err := s.resolvePriorValuesUnlocked(folds)
 	if err != nil {
 		s.FailStagedFolds(folds, version, err)
 		return
 	}
 
-	newValues := make([][]byte, len(folds))
+	newValues := make([]optionalValue[V], len(folds))
 	for n := range folds {
-		newValues[n], err = updater.NewValueFor(folds[n].result.key, priorValues[n])
+		prior := priorValues[n]
+		newValue, deleted, err := updater.NewValueFor(folds[n].result.key, prior.value, prior.present)
 		if err != nil {
 			s.FailStagedFolds(folds, version,
 				fmt.Errorf("fold key %x at version %d: %w", folds[n].result.key, version, err))
 			return
+		}
+		if !deleted {
+			newValues[n] = someValue(newValue)
 		}
 	}
 
@@ -751,8 +772,8 @@ func (s *shard) FoldStagedValues(folds []stagedFold, updater BatchUpdater, versi
 }
 
 // resolvePriorValuesUnlocked produces the value each staged fold applies on top of.
-func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error) {
-	values := make([][]byte, len(folds))
+func (s *shard[V]) resolvePriorValuesUnlocked(folds []stagedFold[V]) ([]optionalValue[V], error) {
+	values := make([]optionalValue[V], len(folds))
 	var needRead []int
 
 	for n := range folds {
@@ -781,7 +802,7 @@ func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error)
 	// Read through the cache rather than the versioned lookup: versioned data already holds this
 	// batch's own unresolved entry for these keys, so a versioned lookup would find each fold waiting
 	// on itself.
-	results := make(map[string][]byte, len(needRead))
+	results := make(map[string]V, len(needRead))
 	unresolved, err := s.priorValuesFromCacheUnlocked(folds, needRead, results)
 	if err != nil {
 		return nil, fmt.Errorf("read %d prior values from the cache: %w", len(needRead), err)
@@ -797,17 +818,18 @@ func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error)
 	}
 
 	for _, n := range needRead {
-		values[n] = results[folds[n].result.key]
+		value, found := results[folds[n].result.key]
+		values[n] = optionalValue[V]{value: value, present: found}
 	}
 	return values, nil
 }
 
 // priorValuesFromCacheUnlocked resolves the prior values the cache already holds, returning the
 // positions it could not.
-func (s *shard) priorValuesFromCacheUnlocked(
-	folds []stagedFold,
+func (s *shard[V]) priorValuesFromCacheUnlocked(
+	folds []stagedFold[V],
 	positions []int,
-	results map[string][]byte,
+	results map[string]V,
 ) ([]int, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -833,12 +855,12 @@ func (s *shard) priorValuesFromCacheUnlocked(
 
 // schedulePriorValueReadsUnlocked classifies the prior values the cache could not resolve, scheduling
 // database reads as needed. The reads themselves are completed by the caller, outside the lock.
-func (s *shard) schedulePriorValueReadsUnlocked(
-	folds []stagedFold,
+func (s *shard[V]) schedulePriorValueReadsUnlocked(
+	folds []stagedFold[V],
 	positions []int,
-	results map[string][]byte,
-) ([]pendingRead, error) {
-	pending := make([]pendingRead, 0, len(positions))
+	results map[string]V,
+) ([]pendingRead[V], error) {
+	pending := make([]pendingRead[V], 0, len(positions))
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -856,7 +878,7 @@ func (s *shard) schedulePriorValueReadsUnlocked(
 			}
 			continue
 		}
-		pending = append(pending, pendingRead{
+		pending = append(pending, pendingRead[V]{
 			key:           key,
 			entry:         outcome.entry,
 			valueChan:     outcome.valueChan,
@@ -868,7 +890,7 @@ func (s *shard) schedulePriorValueReadsUnlocked(
 
 // recordFoldsUnlocked stores what every fold in a batch produced: into the versioned entry staged for it,
 // into the version's diff, and into the handle its observers are waiting on.
-func (s *shard) recordFoldsUnlocked(folds []stagedFold, newValues [][]byte, version uint64) {
+func (s *shard[V]) recordFoldsUnlocked(folds []stagedFold[V], newValues []optionalValue[V], version uint64) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -888,11 +910,11 @@ func (s *shard) recordFoldsUnlocked(folds []stagedFold, newValues [][]byte, vers
 // fillStagedValueWLocked replaces a staged entry with the value its fold produced, reporting whether
 // that value is still the one the key holds at this version. A value that is not must be kept out of
 // the version's diff.
-func (s *shard) fillStagedValueWLocked(
+func (s *shard[V]) fillStagedValueWLocked(
 	key string,
 	version uint64,
-	pending *pendingValue,
-	value []byte,
+	pending *pendingValue[V],
+	value optionalValue[V],
 ) bool {
 	deque, ok := s.versionedData[key]
 	if !ok {
@@ -905,7 +927,7 @@ func (s *shard) fillStagedValueWLocked(
 	for i := deque.Len() - 1; i >= 0; i-- {
 		entry := deque.Get(i)
 		if entry.pending == pending {
-			deque.Set(i, versionedValue{value: value, version: version})
+			deque.Set(i, versionedValue[V]{value: value, version: version})
 			return true
 		}
 		if entry.version < version {
@@ -919,7 +941,7 @@ func (s *shard) fillStagedValueWLocked(
 
 // FailStagedFolds records a failed fold on every value a batch staged and takes the shard out of
 // service. The version keeps its latch, carrying the failure.
-func (s *shard) FailStagedFolds(folds []stagedFold, version uint64, err error) {
+func (s *shard[V]) FailStagedFolds(folds []stagedFold[V], version uint64, err error) {
 	s.lock.Lock()
 	if latch, ok := s.versionLatches[version]; ok && latch.err == nil {
 		latch.err = err
@@ -927,7 +949,7 @@ func (s *shard) FailStagedFolds(folds []stagedFold, version uint64, err error) {
 	s.cache.TakeOutOfServiceWLocked(err)
 	for n := range folds {
 		s.markFoldResolvedWLocked(version)
-		folds[n].result.inject(nil, err)
+		folds[n].result.inject(optionalValue[V]{}, err)
 	}
 	s.lock.Unlock()
 
@@ -937,8 +959,8 @@ func (s *shard) FailStagedFolds(folds []stagedFold, version uint64, err error) {
 }
 
 // Delete deletes the value for the given key.
-func (s *shard) Delete(key []byte) error {
-	return s.Set(key, nil)
+func (s *shard[V]) Delete(key []byte) error {
+	return s.write(key, optionalValue[V]{})
 }
 
 // Commit seals the current version, so that all future updates apply to the next one, and runs the
@@ -948,7 +970,7 @@ func (s *shard) Delete(key []byte) error {
 // A shard that is out of service seals nothing and reports why, leaving its version unchanged. The
 // check sits under the seal's own lock because a check that releases the lock first is one a shard
 // can fall out of service behind.
-func (s *shard) Commit() (uint64, error) {
+func (s *shard[V]) Commit() (uint64, error) {
 	s.lock.Lock()
 
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
@@ -962,11 +984,11 @@ func (s *shard) Commit() (uint64, error) {
 
 	// Registered at the seal rather than at the materialize, so that a consumer asking for a sealed
 	// version's diff always finds a handle to wait on, however far ahead of it they arrive.
-	s.sealedDiffs[sealedVersion] = &sealedDiff{done: make(chan struct{})}
+	s.sealedDiffs[sealedVersion] = &sealedDiff[V]{done: make(chan struct{})}
 	// Sized from the version just sealed, so a block's writes land in one allocation instead of
 	// growing the map up from empty. Doubled, so a block that writes somewhat more than the last one
 	// still does not resize.
-	s.versionDiffs[newVersion] = make(map[string][]byte, 2*len(s.versionDiffs[sealedVersion]))
+	s.versionDiffs[newVersion] = make(map[string]optionalValue[V], 2*len(s.versionDiffs[sealedVersion]))
 
 	// Sealing a version is the once-per-block moment the read cache does its eviction, so that no read
 	// has to pay for it.
@@ -987,7 +1009,7 @@ func (s *shard) Commit() (uint64, error) {
 //
 // This is the single place a sealed diff is produced: the flush, hashing, and retirement all read the
 // result rather than the map.
-func (s *shard) MaterializeSortedDiff(version uint64) error {
+func (s *shard[V]) MaterializeSortedDiff(version uint64) error {
 	// A sealed version keeps being written to while its folds resolve, so it can be materialized only
 	// once its latch has opened.
 	if err := s.awaitVersionFoldsUnlocked(version); err != nil {
@@ -1008,14 +1030,14 @@ func (s *shard) MaterializeSortedDiff(version uint64) error {
 	// Ordered outside the lock. The map is private to this call once claimed — it has left
 	// versionDiffs and the latch guarantees no writer remains — so the only work the lock covers is
 	// publishing the result.
-	entries := make([]Write, 0, len(diff))
+	entries := make([]Write[V], 0, len(diff))
 	for key, value := range diff {
-		entries = append(entries, Write{Key: key, Value: value})
+		entries = append(entries, Write[V]{Key: key, Value: value.value, Delete: !value.present})
 	}
 	// Ordering is what makes the diff cheap for pebble to absorb: its memtable is a skiplist that caches
 	// the splice it last inserted at, which map order defeated. Bytewise, to match pebble's default
 	// comparer, since that is what decides whether it ascends as far as the memtable is concerned.
-	slices.SortFunc(entries, func(a Write, b Write) int {
+	slices.SortFunc(entries, func(a Write[V], b Write[V]) int {
 		return strings.Compare(a.Key, b.Key)
 	})
 
@@ -1030,7 +1052,7 @@ func (s *shard) MaterializeSortedDiff(version uint64) error {
 // claimDiffToMaterialize takes a sealed version's diff map out of the shard for the caller to order,
 // returning the handle to publish the result on. A nil map means the version needs no freezing because
 // another caller has already claimed it.
-func (s *shard) claimDiffToMaterialize(version uint64) (*sealedDiff, map[string][]byte, error) {
+func (s *shard[V]) claimDiffToMaterialize(version uint64) (*sealedDiff[V], map[string]optionalValue[V], error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -1053,7 +1075,7 @@ func (s *shard) claimDiffToMaterialize(version uint64) (*sealedDiff, map[string]
 
 // SortedDiff returns a sealed version's writes ordered by key, waiting for them to be materialized if
 // that has not happened yet. The returned entries must not be mutated, but are otherwise thread safe to read.
-func (s *shard) SortedDiff(version uint64) ([]Write, error) {
+func (s *shard[V]) SortedDiff(version uint64) ([]Write[V], error) {
 	s.lock.RLock()
 	handle, sealed := s.sealedDiffs[version]
 	s.lock.RUnlock()
@@ -1079,7 +1101,7 @@ func (s *shard) SortedDiff(version uint64) ([]Write, error) {
 //
 // Because the target is always the current version, each key resolves to the back of its deque —
 // no version scan is needed, unlike lookupVersionedRLocked, which serves reads at older versions.
-func (s *shard) MaterializeCurrentOverrides(lowerBound []byte, upperBound []byte) ([]kvPair, error) {
+func (s *shard[V]) MaterializeCurrentOverrides(lowerBound []byte, upperBound []byte) ([]kvPair, error) {
 	// Retried rather than resolved in place, because a fold cannot complete while this lock is held.
 	// One retry is the normal case: iterator construction must not race a batch write, so no further
 	// values are staged while the first pass's folds are awaited.
@@ -1101,10 +1123,10 @@ func (s *shard) MaterializeCurrentOverrides(lowerBound []byte, upperBound []byte
 
 // materializeAttemptUnlocked copies the in-memory overrides in range, or reports the folds that have
 // to resolve before they can be copied. A non-empty staged result means pairs is incomplete.
-func (s *shard) materializeAttemptUnlocked(
+func (s *shard[V]) materializeAttemptUnlocked(
 	lowerBound []byte,
 	upperBound []byte,
-) (pairs []kvPair, staged []*pendingValue, err error) {
+) (pairs []kvPair, staged []*pendingValue[V], err error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -1130,9 +1152,14 @@ func (s *shard) materializeAttemptUnlocked(
 			staged = append(staged, newest.pending)
 			continue
 		}
+		// A delete stays nil, which is how an override marks a tombstone.
+		var value []byte
+		if newest.value.present {
+			value = s.codec.encode(newest.value.value)
+		}
 		out = append(out, kvPair{
 			key:   []byte(key),
-			value: newest.value,
+			value: value,
 		})
 	}
 	if len(staged) > 0 {
@@ -1143,7 +1170,7 @@ func (s *shard) materializeAttemptUnlocked(
 
 // Drop versions, pushing their data down into the read cache. The first version to drop must be
 // equal to the oldest version currently being tracked.
-func (s *shard) DropVersions(
+func (s *shard[V]) DropVersions(
 	// The first version to drop (inclusive).
 	firstVersion uint64,
 	// The last version to drop (exclusive).
@@ -1190,7 +1217,7 @@ func (s *shard) DropVersions(
 	// Gather the diffs oldest version first. The cache insert below replays them in that order, so a
 	// key written in several retiring versions ends up holding the newest of those values — which is
 	// what combining them into one map used to do.
-	diffs := make([][]Write, 0, lastVersion-firstVersion)
+	diffs := make([][]Write[V], 0, lastVersion-firstVersion)
 	for version := firstVersion; version < lastVersion; version++ {
 		handle, sealed := s.sealedDiffs[version]
 		if !sealed {
@@ -1243,7 +1270,7 @@ func (s *shard) DropVersions(
 
 // TakeOutOfService stops this shard from serving reads and accepting writes, reporting err as the
 // cause. Called on every shard when the manager shuts down, so a failure anywhere stops every shard.
-func (s *shard) TakeOutOfService(err error) {
+func (s *shard[V]) TakeOutOfService(err error) {
 	s.lock.Lock()
 	s.cache.TakeOutOfServiceWLocked(err)
 	s.lock.Unlock()

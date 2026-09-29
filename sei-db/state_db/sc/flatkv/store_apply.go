@@ -109,9 +109,9 @@ func (s *CommitStore) applyChangeSets(
 // writeToStores.
 type preparedWrites struct {
 	accounts *accountUpdater
-	storage  []view.Write
-	code     []view.Write
-	misc     []view.Write
+	storage  []view.Write[vtype.StorageData]
+	code     []view.Write[vtype.CodeData]
+	misc     []view.Write[vtype.MiscData]
 }
 
 // prepareWrites applies EVM value semantics and returns the values to write, per database.
@@ -141,7 +141,7 @@ func (s *CommitStore) prepareWrites(
 		accountWrites = writes
 	})
 
-	var storageWrites []view.Write
+	var storageWrites []view.Write[vtype.StorageData]
 	var storageErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
@@ -153,7 +153,7 @@ func (s *CommitStore) prepareWrites(
 		storageWrites = writes
 	})
 
-	var codeWrites []view.Write
+	var codeWrites []view.Write[vtype.CodeData]
 	var codeErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
@@ -165,7 +165,7 @@ func (s *CommitStore) prepareWrites(
 		codeWrites = writes
 	})
 
-	var miscWrites []view.Write
+	var miscWrites []view.Write[vtype.MiscData]
 	var miscErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
@@ -192,7 +192,7 @@ func (s *CommitStore) prepareWrites(
 	}, nil
 }
 
-var _ view.BatchUpdater = (*accountUpdater)(nil)
+var _ view.BatchUpdater[vtype.AccountData] = (*accountUpdater)(nil)
 
 // accountUpdater folds one block's per-field account changes onto the rows those accounts already
 // hold.
@@ -211,7 +211,7 @@ type accountUpdater struct {
 
 	// blockHeight is stamped on every row written, whether or not any field value changed, because
 	// GetBlockHeightModified reports it.
-	blockHeight int64
+	blockHeight uint64
 }
 
 // newAccountUpdater parses one batch's per-field account changes into the fields to set on each
@@ -237,30 +237,25 @@ func newAccountUpdater(
 	for key := range pending {
 		physKeys = append(physKeys, key)
 	}
-	return &accountUpdater{pending: pending, keys: physKeys, blockHeight: blockHeight}, nil
+	return &accountUpdater{
+		pending:     pending,
+		keys:        physKeys,
+		blockHeight: uint64(blockHeight), //nolint:gosec // block heights are non-negative
+	}, nil
 }
 
 // NewValueFor folds this block's changes to one account onto the row it already holds. An account the
 // store does not hold starts from zero, and a row left with no balance, nonce or code hash is deleted.
-func (u *accountUpdater) NewValueFor(key string, priorValue []byte) ([]byte, error) {
-	var stored *vtype.AccountData
-	if priorValue != nil {
-		parsed, err := vtype.DeserializeAccountData(priorValue)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
-		}
-		stored = parsed
-	}
-
+func (u *accountUpdater) NewValueFor(
+	key string,
+	priorValue vtype.AccountData,
+	// Unread: an account the store does not hold arrives as the zero AccountData, which is where it starts.
+	_ bool,
+) (vtype.AccountData, bool, error) {
 	// Copied out of the map so the pointer-receiver methods have something addressable to work on.
 	pending := u.pending[key]
-	// Merge copies rather than writing through, so the value handed back does not alias the row the
-	// store still holds for earlier versions.
-	merged := pending.Merge(stored, u.blockHeight)
-	if merged.IsDelete() {
-		return nil, nil
-	}
-	return merged.Serialize(), nil
+	merged := pending.Merge(priorValue, u.blockHeight)
+	return merged, merged.IsDelete(), nil
 }
 
 // accountCount reports how many accounts the block writes, treating a block that touches none as zero
@@ -318,11 +313,11 @@ func (s *CommitStore) writeToStores(
 }
 
 // writeStore writes one database's values, and is a no-op for a store that already holds this block.
-func writeStore(
+func writeStore[V any](
 	ctx context.Context,
-	store view.ViewManager,
+	store view.ViewManager[V],
 	dbDir string,
-	writes []view.Write,
+	writes []view.Write[V],
 	version int64,
 	alreadyHave map[string]int64,
 ) error {
@@ -596,7 +591,7 @@ func newClassifiedChange(physicalKey string, pair *proto.KVPair) classifiedChang
 }
 
 // nonNilValue normalizes a non-delete changeset value so the downstream
-// "nil value == deletion" convention in the to*Values helpers stays correct.
+// "nil value == deletion" convention of classifiedChange stays correct.
 //
 // A changeset pair is a deletion iff its Delete flag is set; an empty
 // (zero-length) value with Delete=false is a legitimate "set this key to an
@@ -621,19 +616,25 @@ func nonNilValue(v []byte) []byte {
 func toStorageValues(
 	rawChanges []classifiedChange,
 	blockHeight int64,
-) ([]view.Write, error) {
-	writes := make([]view.Write, 0, len(rawChanges))
+) ([]view.Write[vtype.StorageData], error) {
+	writes := make([]view.Write[vtype.StorageData], 0, len(rawChanges))
 
 	for _, change := range rawChanges {
 		if change.value == nil {
-			writes = append(writes, view.Write{Key: change.key})
+			writes = append(writes, view.Write[vtype.StorageData]{Key: change.key, Delete: true})
 			continue
 		}
-		value, err := vtype.SerializeStorage(blockHeight, change.value)
+		slot, err := vtype.ParseStorageValue(change.value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse storage value: %w", err)
 		}
-		writes = append(writes, view.Write{Key: change.key, Value: value})
+		var storage vtype.StorageData
+		storage.SetBlockHeight(uint64(blockHeight)).SetValue(slot) //nolint:gosec // non-negative
+		writes = append(writes, view.Write[vtype.StorageData]{
+			Key:    change.key,
+			Value:  storage,
+			Delete: storage.IsDelete(),
+		})
 	}
 
 	return writes, nil
@@ -645,16 +646,17 @@ func toStorageValues(
 func toCodeValues(
 	rawChanges []classifiedChange,
 	blockHeight int64,
-) ([]view.Write, error) {
-	writes := make([]view.Write, 0, len(rawChanges))
+) ([]view.Write[vtype.CodeData], error) {
+	writes := make([]view.Write[vtype.CodeData], 0, len(rawChanges))
 
 	for _, change := range rawChanges {
 		if len(change.value) == 0 {
-			writes = append(writes, view.Write{Key: change.key})
+			writes = append(writes, view.Write[vtype.CodeData]{Key: change.key, Delete: true})
 			continue
 		}
-		value := vtype.SerializeCode(blockHeight, change.value)
-		writes = append(writes, view.Write{Key: change.key, Value: value})
+		var code vtype.CodeData
+		code.SetBlockHeight(uint64(blockHeight)).SetBytecode(change.value) //nolint:gosec // non-negative
+		writes = append(writes, view.Write[vtype.CodeData]{Key: change.key, Value: code})
 	}
 	return writes, nil
 }
@@ -665,16 +667,17 @@ func toCodeValues(
 func toMiscValues(
 	rawChanges []classifiedChange,
 	blockHeight int64,
-) ([]view.Write, error) {
-	writes := make([]view.Write, 0, len(rawChanges))
+) ([]view.Write[vtype.MiscData], error) {
+	writes := make([]view.Write[vtype.MiscData], 0, len(rawChanges))
 
 	for _, change := range rawChanges {
 		if change.value == nil {
-			writes = append(writes, view.Write{Key: change.key})
+			writes = append(writes, view.Write[vtype.MiscData]{Key: change.key, Delete: true})
 			continue
 		}
-		value := vtype.SerializeMisc(blockHeight, change.value)
-		writes = append(writes, view.Write{Key: change.key, Value: value})
+		var misc vtype.MiscData
+		misc.SetBlockHeight(uint64(blockHeight)).SetValue(change.value) //nolint:gosec // non-negative
+		writes = append(writes, view.Write[vtype.MiscData]{Key: change.key, Value: misc})
 	}
 	return writes, nil
 }

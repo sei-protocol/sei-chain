@@ -136,7 +136,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(42), acct.GetNonce())
 	require.Equal(t, byte(0xDE), acct.GetCodeHash()[0])
-	require.Equal(t, &balanceVal, acct.GetBalance())
+	require.Equal(t, balanceVal, acct.GetBalance())
 }
 
 func TestExporterCodeKeys(t *testing.T) {
@@ -297,9 +297,9 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	acct, err := vtype.DeserializeAccountData(nodes[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), acct.GetNonce())
-	require.Equal(t, &balanceVal, acct.GetBalance())
+	require.Equal(t, balanceVal, acct.GetBalance())
 	var zeroHash vtype.CodeHash
-	require.Equal(t, &zeroHash, acct.GetCodeHash())
+	require.Equal(t, zeroHash, acct.GetCodeHash())
 }
 
 func TestImportSurvivesReopen(t *testing.T) {
@@ -794,7 +794,8 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 	require.Len(t, storageNodes, 1)
 	sd, err := vtype.DeserializeStorageData(storageNodes[0].Value)
 	require.NoError(t, err)
-	require.Equal(t, padLeft32(0x11), sd.GetValue()[:], "historical export should have v1 value")
+	value := sd.GetValue()
+	require.Equal(t, padLeft32(0x11), value[:], "historical export should have v1 value")
 }
 
 // The exporter does not parse values, so a row it cannot interpret is exported byte-for-byte rather

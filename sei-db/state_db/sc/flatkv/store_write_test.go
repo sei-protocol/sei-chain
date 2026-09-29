@@ -370,9 +370,9 @@ func TestAccountValueStorage(t *testing.T) {
 	ad, err := vtype.DeserializeAccountData(stored)
 	require.NoError(t, err)
 	require.Equal(t, uint64(42), ad.GetNonce(), "Nonce should be 42")
-	require.Equal(t, &expectedCodeHash, ad.GetCodeHash(), "CodeHash should match")
+	require.Equal(t, expectedCodeHash, ad.GetCodeHash(), "CodeHash should match")
 	var zeroBalance vtype.Balance
-	require.Equal(t, &zeroBalance, ad.GetBalance(), "Balance should be zero")
+	require.Equal(t, zeroBalance, ad.GetBalance(), "Balance should be zero")
 
 	// Get method should return individual fields
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
@@ -863,11 +863,11 @@ func TestAccountFieldsMergeIntoOneRow(t *testing.T) {
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NotNil(t, accountWrite)
+	requireStaged(t, s.accountStore, accountPhysKey(addr))
+	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr))
 	require.Equal(t, uint64(3), accountWrite.GetNonce())
-	require.Equal(t, &codeHash, accountWrite.GetCodeHash())
-	require.Equal(t, &balance, accountWrite.GetBalance())
+	require.Equal(t, codeHash, accountWrite.GetCodeHash())
+	require.Equal(t, balance, accountWrite.GetBalance())
 }
 
 // A balance is the only field an account needs to exist, and zeroing it is how one is deleted, so the
@@ -972,10 +972,10 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 
 	// Both changeset entries merge into one AccountValue: the single staged row carries the nonce and
 	// the codehash together.
-	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NotNil(t, accountWrite)
+	requireStaged(t, s.accountStore, accountPhysKey(addr))
+	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr))
 	require.Equal(t, uint64(10), accountWrite.GetNonce())
-	require.Equal(t, &codeHash, accountWrite.GetCodeHash())
+	require.Equal(t, codeHash, accountWrite.GetCodeHash())
 }
 
 // =============================================================================
@@ -1407,7 +1407,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), ad1.GetNonce())
 	var zeroHash vtype.CodeHash
-	require.Equal(t, &zeroHash, ad1.GetCodeHash(), "nonce-only should have zero codehash")
+	require.Equal(t, zeroHash, ad1.GetCodeHash(), "nonce-only should have zero codehash")
 
 	// Step 2: Add codehash
 	cs2 := namedCS(codeHashPair(addr, codeHashN(0xAB)))
@@ -1420,7 +1420,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), ad2.GetNonce(), "nonce should be preserved after codehash write")
 	expectedCH := codeHashN(0xAB)
-	require.Equal(t, &expectedCH, ad2.GetCodeHash())
+	require.Equal(t, expectedCH, ad2.GetCodeHash())
 
 	// Step 3: Delete codehash → back to zero codehash
 	cs3 := namedCS(codeHashDeletePair(addr))
@@ -1432,7 +1432,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	ad3, err := vtype.DeserializeAccountData(raw3)
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), ad3.GetNonce(), "nonce should survive codehash deletion")
-	require.Equal(t, &zeroHash, ad3.GetCodeHash(), "codehash should be zero after delete")
+	require.Equal(t, zeroHash, ad3.GetCodeHash(), "codehash should be zero after delete")
 }
 
 // =============================================================================

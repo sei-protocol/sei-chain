@@ -57,19 +57,17 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	// maintained per-module metadata against them, and accumulate the global
 	// root as the homomorphic sum of the derived per-DB roots.
 	perDB := make(map[string]*lthash.LtHash, len(dataDBDirs))
-	for _, store := range cs.stores {
-		scanHash, scanStats, err := scanStoreByModule(store)
-		if err != nil {
-			return fmt.Errorf("VerifyLtHash: scan %s: %w", store.Name(), err)
-		}
-		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), maintained, scanHash, scanStats)
-		if err != nil {
-			return err
-		}
-		if err := cs.verifyPersistedDBMetadata(store.Name(), dbRoot); err != nil {
-			return err
-		}
-		perDB[store.Name()] = dbRoot
+	if err := verifyStore(cs, cs.accountStore, maintained, perDB); err != nil {
+		return err
+	}
+	if err := verifyStore(cs, cs.codeStore, maintained, perDB); err != nil {
+		return err
+	}
+	if err := verifyStore(cs, cs.storageStore, maintained, perDB); err != nil {
+		return err
+	}
+	if err := verifyStore(cs, cs.miscStore, maintained, perDB); err != nil {
+		return err
 	}
 	global := lthash.SumDBHashes(dataDBDirs, perDB)
 
@@ -83,14 +81,37 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	return nil
 }
 
+// verifyStore recomputes one store's per-module hashes and stats from a full scan, checks the maintained
+// and persisted metadata against them, and records the store's root in perDB.
+func verifyStore[V any](
+	cs *CommitStore,
+	store view.ViewManager[V],
+	maintained *lthash.BlockHash,
+	perDB map[string]*lthash.LtHash,
+) error {
+	scanHash, scanStats, err := scanStoreByModule(store)
+	if err != nil {
+		return fmt.Errorf("VerifyLtHash: scan %s: %w", store.Name(), err)
+	}
+	dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), maintained, scanHash, scanStats)
+	if err != nil {
+		return err
+	}
+	if err := cs.verifyPersistedDBMetadata(store.Name(), dbRoot); err != nil {
+		return err
+	}
+	perDB[store.Name()] = dbRoot
+	return nil
+}
+
 // scanStoreByModule full-scans one data store and returns, per module, the
 // LtHash of its keys and their key-count / byte footprint. Only rows with a
 // non-empty key and non-empty value are counted — the same membership predicate
 // foldChunk / serializeKV use for LtHash MixIn — so the scan is directly
 // comparable to the maintained per-module metadata. Module membership uses the
 // same physical-key routing the write path uses.
-func scanStoreByModule(
-	store view.ViewManager,
+func scanStoreByModule[V any](
+	store view.ViewManager[V],
 ) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
 	iter, err := store.Iterator(nil)
 	if err != nil {

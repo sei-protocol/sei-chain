@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // These tests drive the engine over stub views, so they exercise the pipeline — ordering, backpressure,
@@ -33,10 +34,10 @@ var engineDBNames = []string{engineAccountName, engineCodeName, engineStorageNam
 // engineModuleOf puts every key in one module, which is all these tests need to distinguish.
 func engineModuleOf([]byte) (string, error) { return "m", nil }
 
-var _ view.View = (*pipeView)(nil)
+var _ view.View[vtype.MiscData] = typedPipeView[vtype.MiscData]{}
 
-// pipeView is a view holding one block's diff for one database, over a fixed prior state. Only the
-// three methods the gatherer reaches are implemented.
+// pipeView is a view holding one block's diff for one database, over a fixed prior state, as raw values.
+// typedPipeView serves them as a store's values; only the methods the gatherer reaches are implemented.
 type pipeView struct {
 	name string
 
@@ -56,37 +57,77 @@ type pipeView struct {
 
 func (v *pipeView) Name() string { return v.name }
 
-func (v *pipeView) ForEachDiff(visit func(key string, value []byte) error) error {
+func (v *pipeView) Reserve() error { v.reserves++; return nil }
+func (v *pipeView) Release() error { v.releases++; return nil }
+func (v *pipeView) Abandon()       {}
+
+func (v *pipeView) Finalize([]*proto.KVPair) error   { panic("pipeView: unexpected Finalize") }
+func (v *pipeView) AwaitFlush(context.Context) error { panic("pipeView: unexpected AwaitFlush") }
+
+// typedPipeView presents a pipeView as the view of a store whose values are V, each built from its raw
+// value by toValue.
+type typedPipeView[V any] struct {
+	*pipeView
+
+	// Builds a value from a raw one.
+	toValue func(raw []byte) V
+}
+
+func (v typedPipeView[V]) ForEachDiff(visit func(key string, value V, deleted bool) error) error {
 	if v.getDiffErr != nil {
 		return v.getDiffErr
 	}
 	// Sorted, because a real view walks each shard's run in key order and a test that depended on map
 	// order would be depending on something the production walk never produces.
 	for _, key := range slices.Sorted(maps.Keys(v.diff)) {
-		if err := visit(key, v.diff[key]); err != nil {
+		raw := v.diff[key]
+		var value V
+		if raw != nil {
+			value = v.toValue(raw)
+		}
+		if err := visit(key, value, raw == nil); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (v *pipeView) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	out := make(map[string][]byte, len(keys))
+func (v typedPipeView[V]) BatchGet(keys [][]byte) (map[string]V, error) {
+	out := make(map[string]V, len(keys))
 	for _, key := range keys {
-		if value, ok := v.prior[string(key)]; ok {
-			out[string(key)] = value
+		if raw, ok := v.prior[string(key)]; ok {
+			out[string(key)] = v.toValue(raw)
 		}
 	}
 	return out, nil
 }
 
-func (v *pipeView) Reserve() error { v.reserves++; return nil }
-func (v *pipeView) Release() error { v.releases++; return nil }
-func (v *pipeView) Abandon()       {}
+func (v typedPipeView[V]) Get([]byte, bool) (V, bool, error) { panic("pipeView: unexpected Get") }
 
-func (v *pipeView) Get([]byte, bool) ([]byte, bool, error) { panic("pipeView: unexpected Get") }
-func (v *pipeView) Finalize([]*proto.KVPair) error         { panic("pipeView: unexpected Finalize") }
-func (v *pipeView) AwaitFlush(context.Context) error       { panic("pipeView: unexpected AwaitFlush") }
+// miscValue wraps raw as a misc row, which can carry any bytes.
+func miscValue(raw []byte) vtype.MiscData {
+	var misc vtype.MiscData
+	misc.SetValue(raw)
+	return misc
+}
+
+// noValue stands in for the value builder of a database these tests leave untouched.
+func noValue[V any]([]byte) V {
+	panic("pipeView: only the misc database carries values in these tests")
+}
+
+// storeViewOver builds a StoreView over pipeViews ordered as engineDBNames.
+func storeViewOver(t *testing.T, height int64, views []*pipeView) *sview.StoreView {
+	t.Helper()
+	storeView, err := sview.NewStoreView(height,
+		typedPipeView[vtype.AccountData]{pipeView: views[0], toValue: noValue[vtype.AccountData]},
+		typedPipeView[vtype.CodeData]{pipeView: views[1], toValue: noValue[vtype.CodeData]},
+		typedPipeView[vtype.StorageData]{pipeView: views[2], toValue: noValue[vtype.StorageData]},
+		typedPipeView[vtype.MiscData]{pipeView: views[3], toValue: miscValue},
+	)
+	require.NoError(t, err)
+	return storeView
+}
 
 // blockViews builds the pair of store views for one block: current carries the diff, previous answers
 // for the values it replaced.
@@ -97,12 +138,12 @@ func blockViews(
 	prior map[string][]byte,
 ) (current *sview.StoreView, previous *sview.StoreView, views []*pipeView) {
 	t.Helper()
-	var currents, previouses []view.View
+	var currents, previouses []*pipeView
 	for _, dbName := range engineDBNames {
-		// The whole diff goes to the account database; the rest are untouched, as most blocks leave
-		// most databases alone.
+		// The whole diff goes to the misc database; the rest are untouched, as most blocks leave most
+		// databases alone.
 		blockDiff := map[string][]byte{}
-		if dbName == engineAccountName {
+		if dbName == engineMiscName {
 			blockDiff = diff
 		}
 		cur := &pipeView{name: dbName, diff: blockDiff}
@@ -111,11 +152,7 @@ func blockViews(
 		currents = append(currents, cur)
 		previouses = append(previouses, prev)
 	}
-	current, err := sview.NewStoreView(height, currents[0], currents[1], currents[2], currents[3])
-	require.NoError(t, err)
-	previous, err = sview.NewStoreView(height-1, previouses[0], previouses[1], previouses[2], previouses[3])
-	require.NoError(t, err)
-	return current, previous, views
+	return storeViewOver(t, height, currents), storeViewOver(t, height-1, previouses), views
 }
 
 // newTestEngine builds an engine over a small pool, with the given channel depths.

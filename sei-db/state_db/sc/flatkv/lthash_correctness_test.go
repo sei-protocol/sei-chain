@@ -909,7 +909,7 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(99), ad.GetNonce())
 	var zeroHash vtype.CodeHash
-	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero (EOA)")
+	require.Equal(t, zeroHash, ad.GetCodeHash(), "codehash should be zero (EOA)")
 }
 
 func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
@@ -936,7 +936,7 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), ad.GetNonce(), "nonce should be preserved")
 	var zeroHash vtype.CodeHash
-	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero after delete")
+	require.Equal(t, zeroHash, ad.GetCodeHash(), "codehash should be zero after delete")
 }
 
 // TestAccountPendingReadPartialDelete verifies that the isDelete guard in
@@ -968,8 +968,8 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
-	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NotNil(t, paw, "the staged account row must still be present")
+	requireStaged(t, s.accountStore, accountPhysKey(addr), "the staged account row must still be present")
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr))
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
 
@@ -1022,8 +1022,8 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	// inspectable — BatchSet turns an IsDelete row into a store-level delete, and reading a key
 	// deleted in the current version reports absent rather than handing back the tombstone — so assert
 	// the observable consequence instead.
-	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.Nil(t, paw, "a fully deleted account row must read back as absent")
+	requireNotStaged(t, s.accountStore, accountPhysKey(addr),
+		"a fully deleted account row must read back as absent")
 }
 
 // TestLtHashAccountWriteZeroGC verifies that writing a zero value (not a

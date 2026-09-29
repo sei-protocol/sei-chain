@@ -34,22 +34,20 @@ func TestMiscSerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeMiscData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, value, rt.GetValue())
 }
 
 func TestMiscNewWithValue(t *testing.T) {
 	value := []byte{0x01, 0x02, 0x03}
 	ld := NewMiscData().SetValue(value)
-	require.Equal(t, MiscDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, int64(0), ld.GetBlockHeight())
+	require.Equal(t, uint64(0), ld.GetBlockHeight())
 	require.Equal(t, value, ld.GetValue())
 }
 
 func TestMiscNewEmpty(t *testing.T) {
 	ld := NewMiscData()
-	require.Equal(t, MiscDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, int64(0), ld.GetBlockHeight())
+	require.Equal(t, uint64(0), ld.GetBlockHeight())
 	require.Empty(t, ld.GetValue())
 }
 
@@ -70,7 +68,7 @@ func TestMiscRoundTrip_WithValue(t *testing.T) {
 
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
 	require.Equal(t, value, rt.GetValue())
 }
 
@@ -79,54 +77,23 @@ func TestMiscRoundTrip_EmptyValue(t *testing.T) {
 
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(42), rt.GetBlockHeight())
+	require.Equal(t, uint64(42), rt.GetBlockHeight())
 	require.Empty(t, rt.GetValue())
 }
 
 func TestMiscRoundTrip_MaxBlockHeight(t *testing.T) {
-	ld := NewMiscData().SetBlockHeight(math.MaxInt64).SetValue([]byte{0xff})
+	ld := NewMiscData().SetBlockHeight(math.MaxUint64).SetValue([]byte{0xff})
 
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(math.MaxInt64), rt.GetBlockHeight())
+	require.Equal(t, uint64(math.MaxUint64), rt.GetBlockHeight())
 	require.Equal(t, []byte{0xff}, rt.GetValue())
 }
 
-func TestMiscIsDelete_Default(t *testing.T) {
-	ld := NewMiscData()
-	require.False(t, ld.IsDelete(), "newly created MiscData is not a deletion")
-}
-
-func TestMiscIsDelete_EmptySliceIsNotDelete(t *testing.T) {
+func TestMiscSetValue_EmptySliceIsPresent(t *testing.T) {
 	ld := NewMiscData().SetValue([]byte{})
 	require.NotNil(t, ld.GetValue(), "empty value is present data, not absence")
 	require.Empty(t, ld.GetValue())
-	require.False(t, ld.IsDelete(), "empty value is a valid write, not a deletion")
-}
-
-func TestMiscIsDelete_MarkDeleted(t *testing.T) {
-	ld := NewMiscData().MarkDeleted()
-	require.True(t, ld.IsDelete())
-}
-
-func TestMiscIsDelete_MarkDeletedThenSetValue(t *testing.T) {
-	ld := NewMiscData().MarkDeleted().SetValue([]byte{0x01})
-	require.False(t, ld.IsDelete(), "SetValue clears the delete flag")
-}
-
-func TestMiscIsDelete_SetValueThenMarkDeleted(t *testing.T) {
-	ld := NewMiscData().SetValue([]byte{0x01}).MarkDeleted()
-	require.True(t, ld.IsDelete())
-}
-
-func TestMiscIsDelete_NonEmptyValue(t *testing.T) {
-	ld := NewMiscData().SetValue([]byte{0x01})
-	require.False(t, ld.IsDelete())
-}
-
-func TestMiscIsDelete_SetBlockHeightDoesNotAffectDelete(t *testing.T) {
-	ld := NewMiscData().MarkDeleted().SetBlockHeight(42)
-	require.True(t, ld.IsDelete(), "SetBlockHeight does not clear the delete flag")
 }
 
 func TestMiscDeserialize_EmptyData(t *testing.T) {
@@ -148,6 +115,7 @@ func TestMiscDeserialize_HeaderOnly(t *testing.T) {
 	ld := NewMiscData()
 	rt, err := DeserializeMiscData(ld.Serialize())
 	require.NoError(t, err)
+	require.NotNil(t, rt.GetValue(), "an empty value on disk is present data, not absence")
 	require.Empty(t, rt.GetValue())
 }
 
@@ -160,7 +128,7 @@ func TestMiscDeserialize_UnsupportedVersion(t *testing.T) {
 
 func TestMiscSetterChaining(t *testing.T) {
 	ld := NewMiscData().SetValue([]byte{0x01}).SetBlockHeight(42)
-	require.Equal(t, int64(42), ld.GetBlockHeight())
+	require.Equal(t, uint64(42), ld.GetBlockHeight())
 	require.Equal(t, []byte{0x01}, ld.GetValue())
 }
 
@@ -175,45 +143,6 @@ func TestMiscNewCopiesValue(t *testing.T) {
 	require.Equal(t, byte(0x01), ld.GetValue()[0])
 }
 
-func TestNilMiscData_Getters(t *testing.T) {
-	var ld *MiscData
-
-	require.Equal(t, MiscDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, int64(0), ld.GetBlockHeight())
-	require.Empty(t, ld.GetValue())
-}
-
-func TestNilMiscData_IsDelete(t *testing.T) {
-	var ld *MiscData
-	require.True(t, ld.IsDelete())
-}
-
-func TestNilMiscData_Serialize(t *testing.T) {
-	var ld *MiscData
-	s := ld.Serialize()
-	require.Len(t, s, miscHeaderLength)
-}
-
-func TestNilMiscData_SerializeRoundTrips(t *testing.T) {
-	var ld *MiscData
-	rt, err := DeserializeMiscData(ld.Serialize())
-	require.NoError(t, err)
-	require.False(t, rt.IsDelete(), "deserialized data from disk is not a deletion")
-	require.Empty(t, rt.GetValue())
-}
-
-func TestNilMiscData_SettersAutoCreate(t *testing.T) {
-	var l1 *MiscData
-	l1 = l1.SetValue([]byte{0xAB})
-	require.NotNil(t, l1)
-	require.Equal(t, []byte{0xAB}, l1.GetValue())
-
-	var l2 *MiscData
-	l2 = l2.SetBlockHeight(42)
-	require.NotNil(t, l2)
-	require.Equal(t, int64(42), l2.GetBlockHeight())
-}
-
 func TestMiscData_SetValueOverwrite(t *testing.T) {
 	ld := NewMiscData().SetValue([]byte{0x01, 0x02, 0x03})
 	ld = ld.SetValue([]byte{0xAA})
@@ -225,12 +154,4 @@ func TestMiscData_SetValueNil(t *testing.T) {
 	ld = ld.SetValue(nil)
 	require.NotNil(t, ld.GetValue(), "nil input is normalized to present empty data")
 	require.Empty(t, ld.GetValue())
-	require.False(t, ld.IsDelete(), "SetValue(nil) is a write of empty data, not a deletion")
-}
-
-func TestMiscData_MarkDeletedNilReceiver(t *testing.T) {
-	var ld *MiscData
-	ld = ld.MarkDeleted()
-	require.NotNil(t, ld)
-	require.True(t, ld.IsDelete())
 }

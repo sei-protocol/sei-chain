@@ -11,7 +11,7 @@ import (
 // flush repeats the same call and reports it.
 //
 // Must be called without versionLock held: submitting can block when the pool's queue is full.
-func (c *viewManager) materializeDiffAtVersion(version uint64) {
+func (c *viewManager[V]) materializeDiffAtVersion(version uint64) {
 	c.sortPool.Submit(func() {
 		_, _ = c.materializeSortedDiffs(version)
 	})
@@ -19,8 +19,8 @@ func (c *viewManager) materializeDiffAtVersion(version uint64) {
 
 // materializeSortedDiffs materializes one version on every shard and collects the resulting diffs,
 // waiting for any shard another caller is already materializing.
-func (c *viewManager) materializeSortedDiffs(version uint64) ([][]Write, error) {
-	shardDiffs := make([][]Write, len(c.shards))
+func (c *viewManager[V]) materializeSortedDiffs(version uint64) ([][]Write[V], error) {
+	shardDiffs := make([][]Write[V], len(c.shards))
 	for i, shard := range c.shards {
 		if err := shard.MaterializeSortedDiff(version); err != nil {
 			return nil, fmt.Errorf("failed to materialize shard %d at version %d: %w", i, version, err)
@@ -35,7 +35,7 @@ func (c *viewManager) materializeSortedDiffs(version uint64) ([][]Write, error) 
 }
 
 // forEachMergedEntry walks every entry across a version's per-shard diffs in ascending key order.
-func forEachMergedEntry(shardDiffs [][]Write, visit func(entry Write) error) error {
+func forEachMergedEntry[V any](shardDiffs [][]Write[V], visit func(entry Write[V]) error) error {
 	cursors := make([]int, len(shardDiffs))
 
 	for {

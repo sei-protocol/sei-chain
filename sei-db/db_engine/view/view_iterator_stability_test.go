@@ -51,11 +51,11 @@ func reversed(pairs []kvPair) []kvPair {
 // Finalize and the flush wait both happen before Release: the manager may flush a still-reserved
 // version, but it stops tracking one that has been released and retired, and AwaitFlush needs it
 // tracked.
-func sealFlushRetire(t *testing.T, manager ViewManager) {
+func sealFlushRetire(t *testing.T, manager ViewManager[[]byte]) {
 	t.Helper()
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	version := view.(*viewImpl).version
+	version := view.(*viewImpl[[]byte]).version
 	require.NoError(t, view.Finalize(nil))
 	awaitFlushed(t, view, 2*time.Second)
 	require.NoError(t, view.Release())
@@ -74,9 +74,9 @@ func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("d"), []byte("4")), "adding a key")
 	require.NoError(t, manager.Set([]byte("a"), []byte("clobbered")), "overwriting a key")
 	require.NoError(t, manager.Delete([]byte("b")), "deleting a key")
-	require.NoError(t, manager.BatchSet([]Write{
+	require.NoError(t, manager.BatchSet([]Write[[]byte]{
 		{Key: "e", Value: []byte("5")},
-		{Key: "c"},
+		{Key: "c", Delete: true},
 	}), "a batch mixing a write and a delete")
 
 	require.Equal(t, sortedPairs(map[string]string{"a": "1", "b": "2", "c": "3"}), collectIterator(t, it),
@@ -319,13 +319,13 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 
 	// Keys chosen to span shards; the batch is atomic from the writer's point of view, so a reader
 	// must see all of it or none of it.
-	batch := make([]Write, 0, 32)
+	batch := make([]Write[[]byte], 0, 32)
 	before := make(map[string]string, 32)
 	after := make(map[string]string, 32)
 	for i := 0; i < 32; i++ {
 		key := fmt.Sprintf("spread-%02d", i)
 		require.NoError(t, manager.Set([]byte(key), []byte("before")))
-		batch = append(batch, Write{Key: key, Value: []byte("after")})
+		batch = append(batch, Write[[]byte]{Key: key, Value: []byte("after")})
 		before[key] = "before"
 		after[key] = "after"
 	}
@@ -366,10 +366,10 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 }
 
 // revert turns a write batch into one that restores the "before" value for the same keys.
-func revert(batch []Write) []Write {
-	out := make([]Write, 0, len(batch))
+func revert(batch []Write[[]byte]) []Write[[]byte] {
+	out := make([]Write[[]byte], 0, len(batch))
 	for _, pair := range batch {
-		out = append(out, Write{Key: pair.Key, Value: []byte("before")})
+		out = append(out, Write[[]byte]{Key: pair.Key, Value: []byte("before")})
 	}
 	return out
 }

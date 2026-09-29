@@ -8,23 +8,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-var _ View = (*viewImpl)(nil)
+var _ View[[]byte] = (*viewImpl[[]byte])(nil)
 
 // viewImpl is the ViewManager's implementation of View: an immutable, version-pinned
 // view of the data in the manager.
-type viewImpl struct {
+type viewImpl[V any] struct {
 	version       uint64
-	parentManager *viewManager
+	parentManager *viewManager[V]
 
 	// closed records whether the view's last reservation has been released, or the view abandoned.
-	closed utils.CloseMarker[viewImpl]
+	closed utils.CloseMarker[viewImpl[V]]
 }
 
-func (s *viewImpl) Name() string {
+func (s *viewImpl[V]) Name() string {
 	return s.parentManager.Name()
 }
 
-func (s *viewImpl) BatchGet(keys [][]byte) (map[string][]byte, error) {
+func (s *viewImpl[V]) BatchGet(keys [][]byte) (map[string]V, error) {
 	results, err := s.parentManager.BatchGetAtVersion(keys, s.version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch get: %w", err)
@@ -32,22 +32,23 @@ func (s *viewImpl) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	return results, nil
 }
 
-func (s *viewImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+func (s *viewImpl[V]) Get(key []byte, updateLru bool) (V, bool, error) {
 	value, ok, err := s.parentManager.GetAtVersion(key, s.version, updateLru)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to get: %w", err)
+		var zero V
+		return zero, false, fmt.Errorf("failed to get: %w", err)
 	}
 	return value, ok, nil
 }
 
-func (s *viewImpl) ForEachDiff(visit func(key string, value []byte) error) error {
+func (s *viewImpl[V]) ForEachDiff(visit func(key string, value V, deleted bool) error) error {
 	if err := s.parentManager.ForEachDiffAtVersion(s.version, visit); err != nil {
 		return fmt.Errorf("failed to walk diff: %w", err)
 	}
 	return nil
 }
 
-func (s *viewImpl) Reserve() error {
+func (s *viewImpl[V]) Reserve() error {
 	err := s.parentManager.IncrementReferenceCount(s.version)
 	if err != nil {
 		return fmt.Errorf("failed to increment reference count: %w", err)
@@ -55,7 +56,7 @@ func (s *viewImpl) Reserve() error {
 	return nil
 }
 
-func (s *viewImpl) Release() error {
+func (s *viewImpl[V]) Release() error {
 	lastReleased, err := s.parentManager.DecrementReferenceCount(s.version)
 	if err != nil {
 		// Every failure leaves the version already dropped or the manager bricked, so nothing more is
@@ -69,15 +70,15 @@ func (s *viewImpl) Release() error {
 	return nil
 }
 
-func (s *viewImpl) Abandon() {
+func (s *viewImpl[V]) Abandon() {
 	s.closed.Close(s)
 }
 
-func (s *viewImpl) Finalize(writes []*proto.KVPair) error {
+func (s *viewImpl[V]) Finalize(writes []*proto.KVPair) error {
 	return s.parentManager.FinalizeView(s.version, writes)
 }
 
-func (s *viewImpl) AwaitFlush(ctx context.Context) error {
+func (s *viewImpl[V]) AwaitFlush(ctx context.Context) error {
 	c := s.parentManager
 	version := s.version
 

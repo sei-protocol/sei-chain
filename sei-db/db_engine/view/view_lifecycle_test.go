@@ -28,7 +28,7 @@ func TestViewFinalizeWithNoWritesIsLegal(t *testing.T) {
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 
-	db := manager.(*viewManager).db.(*testDB)
+	db := manager.(*viewManager[[]byte]).db.(*testDB)
 	val, ok := db.get("k")
 	require.True(t, ok, "an empty finalization must still let the diff flush")
 	require.Equal(t, []byte("v"), val)
@@ -80,7 +80,7 @@ func TestViewReserveExtendsLifetime(t *testing.T) {
 
 func TestViewFinalizeGatesFlush(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
-	db := manager.(*viewManager).db.(*testDB)
+	db := manager.(*viewManager[[]byte]).db.(*testDB)
 
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
@@ -122,7 +122,7 @@ func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
-	ver := view.(*viewImpl).version
+	ver := view.(*viewImpl[[]byte]).version
 	finalizeAndRelease(t, view)
 	awaitRetired(t, manager, ver)
 

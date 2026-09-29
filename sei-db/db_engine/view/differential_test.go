@@ -65,7 +65,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 	model := newModelManager(seedData)
 
 	type openSnap struct {
-		view View
+		view View[[]byte]
 		ver  uint64
 	}
 	var opens []openSnap
@@ -136,7 +136,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 }
 
 // checkView deep-compares a held view against the oracle across all read surfaces.
-func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys [][]byte) {
+func checkView(t *testing.T, view View[[]byte], model *modelManager, ver uint64, keys [][]byte) {
 	label := fmt.Sprintf("view@v=%d", ver)
 	lookup := func(k []byte) ([]byte, bool) { return model.GetAt(ver, k) }
 
@@ -148,7 +148,7 @@ func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys []
 
 // checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator
 // must be closed before the caller writes again, since the manager refuses writes while one is open.
-func checkLiveIteration(t *testing.T, label string, manager ViewManager, model *modelManager) {
+func checkLiveIteration(t *testing.T, label string, manager ViewManager[[]byte], model *modelManager) {
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err, "%s Iterator", label)
 	compareIterator(t, label, it, model.IterateLive())
@@ -228,10 +228,18 @@ func randUpdateKeys(rng *testutil.TestRandom, keys [][]byte) []string {
 // state rather than carrying a second copy of the manager's logic.
 type foldUpdater struct{}
 
-var _ BatchUpdater = foldUpdater{}
+var _ BatchUpdater[[]byte] = foldUpdater{}
 
-func (foldUpdater) NewValueFor(_ string, priorValue []byte) ([]byte, error) {
-	return foldedValue(priorValue), nil
+func (foldUpdater) NewValueFor(_ string, priorValue []byte, priorFound bool) ([]byte, bool, error) {
+	switch {
+	case !priorFound:
+		priorValue = nil
+	case priorValue == nil:
+		// foldedValue reads nil as absent, so a found empty value has to reach it as non-nil.
+		priorValue = []byte{}
+	}
+	folded := foldedValue(priorValue)
+	return folded, folded == nil, nil
 }
 
 // foldedValue is a pure function of the value a key already held. A key holding nothing gets one, a
@@ -269,15 +277,15 @@ func pick(rng *testutil.TestRandom, keys [][]byte) []byte {
 	return keys[rng.IntRange(0, len(keys))]
 }
 
-func randMuts(rng *testutil.TestRandom, keys [][]byte) []Write {
+func randMuts(rng *testutil.TestRandom, keys [][]byte) []Write[[]byte] {
 	n := rng.IntRange(1, 9)
-	muts := make([]Write, n)
+	muts := make([]Write[[]byte], n)
 	for i := range muts {
 		k := string(pick(rng, keys))
 		if rng.BoolWithProbability(0.25) {
-			muts[i] = Write{Key: k} // a nil value is a delete
+			muts[i] = Write[[]byte]{Key: k, Delete: true}
 		} else {
-			muts[i] = Write{Key: k, Value: randVal(rng)}
+			muts[i] = Write[[]byte]{Key: k, Value: randVal(rng)}
 		}
 	}
 	return muts

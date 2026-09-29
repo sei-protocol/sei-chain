@@ -22,7 +22,7 @@ import (
 // Method postfixes state the lock contract: RLocked and WLocked require the caller to hold the read or
 // write lock, and Unlocked requires the caller to hold neither. A bare name touches no guarded state,
 // or is external surface whose caller has no access to the lock.
-type readCache struct {
+type readCache[V any] struct {
 	// Cancelled when the manager shuts down; interrupts blocked waits on in-flight reads.
 	ctx context.Context
 
@@ -31,6 +31,9 @@ type readCache struct {
 
 	// The underlying key-value database.
 	db types.KeyValueDB
+
+	// Converts the database's bytes to values, and sizes values for the budget.
+	codec *Codec[V]
 
 	// A pool for asynchronous reads.
 	readPool threading.Pool
@@ -60,7 +63,7 @@ type readCache struct {
 	maxSize uint64
 
 	// The cached entries, keyed by string(key).
-	entries map[string]*cacheEntry
+	entries map[string]*cacheEntry[V]
 
 	// The number of bytes counted toward the size budget. Only entries in a terminal data state
 	// (available/deleted) are counted.
@@ -76,9 +79,12 @@ type readCache struct {
 }
 
 // The result of a read from the underlying database.
-type readResult struct {
-	value []byte
-	err   error
+type readResult[V any] struct {
+	// The value read, not present when the database holds none.
+	value optionalValue[V]
+
+	// The failure that stopped the read, if it failed.
+	err error
 }
 
 // The status of a value in the cache.
@@ -101,21 +107,21 @@ const (
 )
 
 // A single entry in the cache. Records data for a single key.
-type cacheEntry struct {
+type cacheEntry[V any] struct {
 	// The parent cache that contains this entry.
-	cache *readCache
+	cache *readCache[V]
 
 	// The current status of this entry.
 	status valueStatus
 
-	// The value, if known.
-	value []byte
+	// The value, if known. The zero V unless the status is statusAvailable.
+	value V
 
 	// The channel carrying the result of the read currently in flight for this key. Non-nil
 	// exactly while the status is statusScheduled: set by LookupWLocked when it schedules a read,
 	// cleared by setTerminalEntryStateWLocked. Code running without the lock must use the channel
 	// reference bound at scheduling time rather than reading this field.
-	valueChan chan readResult
+	valueChan chan readResult[V]
 
 	// The epoch in which a reader last served a value from this entry.
 	lastRead atomic.Uint64
@@ -125,35 +131,35 @@ type cacheEntry struct {
 }
 
 // Tracks a key whose value is not yet available and must be waited on.
-type pendingRead struct {
+type pendingRead[V any] struct {
 	key           string
-	entry         *cacheEntry
-	valueChan     chan readResult
+	entry         *cacheEntry[V]
+	valueChan     chan readResult[V]
 	needsSchedule bool
 	// Populated after the read completes, used by bulkInjectValues.
-	result readResult
+	result readResult[V]
 }
 
 // lookupOutcome is the result of classifying a single read under the lock: either an immediate
 // terminal result, or a wait plan that Resolve completes outside the lock. Classification never
 // fails — a cache that has seen a read failure is out of service and the shard refuses the read
 // before classifying it.
-type lookupOutcome struct {
+type lookupOutcome[V any] struct {
 	// True when the read was resolved from the cache without waiting; value/found below carry the
 	// result.
 	immediate bool
 
 	// The value, when immediate and found.
-	value []byte
+	value V
 
 	// Whether the key was found, when immediate.
 	found bool
 
 	// The channel carrying the read result, when not immediate.
-	valueChan chan readResult
+	valueChan chan readResult[V]
 
 	// The entry being waited on, when not immediate.
-	entry *cacheEntry
+	entry *cacheEntry[V]
 
 	// True when this caller performed the unknown -> scheduled transition and must therefore
 	// submit the DB read; false when another goroutine's read is already in flight.
@@ -162,11 +168,13 @@ type lookupOutcome struct {
 
 // NewReadCache creates a readCache sharing the given lock (see the type doc for the locking
 // contract).
-func NewReadCache(
+func NewReadCache[V any](
 	ctx context.Context,
 	config *ViewManagerConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
+	// Converts the database's bytes to values, and sizes values for the budget.
+	codec *Codec[V],
 	// A work pool for asynchronous reads.
 	readPool threading.Pool,
 	// The shard's lock, borrowed by this cache.
@@ -177,71 +185,81 @@ func NewReadCache(
 	shutdownError func() error,
 	// Reports a failed DB read to the manager, which bricks and stops serving reads.
 	reportReadFailure func(error),
-) *readCache {
-	return &readCache{
+) *readCache[V] {
+	return &readCache[V]{
 		ctx:               ctx,
 		config:            config,
 		db:                db,
+		codec:             codec,
 		readPool:          readPool,
 		lock:              lock,
 		shutdownError:     shutdownError,
 		reportReadFailure: reportReadFailure,
 		maxSize:           maxSize,
-		entries:           make(map[string]*cacheEntry),
+		entries:           make(map[string]*cacheEntry[V]),
 	}
 }
 
-// readFromDB reads a single key from the underlying database, returning (nil, false, nil) if the
-// key is not found and reserving errors for actual failures (e.g. I/O errors).
-//
-// A nil value with found == true is impossible: per the types.KeyValueDB.Get contract, a found
-// zero-length value is a non-nil empty slice. The read-completion paths (injectValue, Resolve)
-// depend on this — they treat a nil value as not-found/deleted, so a backend that returned nil
-// for a stored empty value would silently turn that key into a tombstone.
-func (c *readCache) readFromDB(key []byte) (value []byte, found bool, err error) {
+// readFromDB reads a single key from the underlying database and decodes it, returning a value that
+// is not present if the key is not found and reserving errors for actual failures (e.g. I/O errors, or
+// bytes the codec cannot decode).
+func (c *readCache[V]) readFromDB(key []byte) (optionalValue[V], error) {
 	val, err := c.db.Get(key)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrNotFound) {
-			return nil, false, nil
+			return optionalValue[V]{}, nil
 		}
-		return nil, false, fmt.Errorf("failed to read value from database: %w", err)
+		return optionalValue[V]{}, fmt.Errorf("failed to read value from database: %w", err)
 	}
-	return val, true, nil
+	value, err := c.codec.Decode(val)
+	if err != nil {
+		return optionalValue[V]{}, fmt.Errorf("failed to decode value of key %x: %w", key, err)
+	}
+	return someValue(value), nil
 }
 
 // setTerminalEntryStateWLocked records the entry's final status and value for this key and counts it toward
-// the size budget, unless the status is statusFailed. Eviction is left to the caller.
-func (e *cacheEntry) setTerminalEntryStateWLocked(key []byte, status valueStatus, value []byte) {
+// the size budget, unless the status is statusFailed. value is ignored unless the status is statusAvailable.
+// Eviction is left to the caller.
+func (e *cacheEntry[V]) setTerminalEntryStateWLocked(key []byte, status valueStatus, value V) {
 	e.status = status
-	e.value = value
+	if status == statusAvailable {
+		e.value = value
+	} else {
+		var zero V
+		e.value = zero
+	}
 	// Every waiter holds the channel reference it was scheduled with (see injectValue), so
 	// detaching here cannot strand one. It stops the entry from retaining the channel, and the
 	// result buffered in it, for the rest of its life in the cache.
 	e.valueChan = nil
 
-	if status == statusFailed {
+	size := uint64(len(key)) + e.cache.config.EstimatedOverheadPerEntry
+	switch status {
+	case statusFailed:
 		return
+	case statusAvailable:
+		size += e.cache.codec.Size(value)
 	}
-	e.cache.trackWLocked(e, uint64(len(key))+uint64(len(value))+e.cache.config.EstimatedOverheadPerEntry)
+	e.cache.trackWLocked(e, size)
 }
 
 // AttemptFastLookupRLocked answers a read of the given key when the cache already holds the answer, which
-// is either a value or the knowledge that the key is absent. A found value is never nil, so found
-// distinguishes the two.
+// is either a value or the knowledge that the key is absent; found distinguishes the two.
 //
 // ok is false when the cache holds no answer yet, including when a read of the key is already in
 // flight; the caller must then retry under the write lock via LookupWLocked.
-func (c *readCache) AttemptFastLookupRLocked(
+func (c *readCache[V]) AttemptFastLookupRLocked(
 	// The key to look up.
 	key []byte,
 	// If true, a cache hit marks the entry recently used. False is useful when an operation is
 	// performed multiple times in close succession on the same key, since the stamp has non-zero
 	// overhead and little benefit in that case.
 	updateLru bool,
-) (value []byte, found bool, ok bool) {
+) (value V, found bool, ok bool) {
 	entry := c.entryRLocked(key)
 	if entry == nil {
-		return nil, false, false
+		return value, false, false
 	}
 
 	switch entry.status {
@@ -254,9 +272,9 @@ func (c *readCache) AttemptFastLookupRLocked(
 		if updateLru {
 			entry.markRecentlyUsed(c.epoch)
 		}
-		return nil, false, true
+		return value, false, true
 	default:
-		return nil, false, false
+		return value, false, false
 	}
 }
 
@@ -264,14 +282,14 @@ func (c *readCache) AttemptFastLookupRLocked(
 // immediate terminal result, or a wait plan for Resolve. Pure state transition: it never blocks,
 // and it performs the unknown -> scheduled transition under the lock, so a given read is
 // scheduled by exactly one caller.
-func (c *readCache) LookupWLocked(
+func (c *readCache[V]) LookupWLocked(
 	// The key to classify.
 	key []byte,
 	// If true, a cache hit marks the entry recently used. False is useful when an operation is
 	// performed multiple times in close succession on the same key, since the stamp has non-zero
 	// overhead and little benefit in that case.
 	updateLru bool,
-) lookupOutcome {
+) lookupOutcome[V] {
 	entry := c.entryOrCreateWLocked(key)
 
 	switch entry.status {
@@ -279,18 +297,18 @@ func (c *readCache) LookupWLocked(
 		if updateLru {
 			entry.markRecentlyUsed(c.epoch)
 		}
-		return lookupOutcome{immediate: true, value: entry.value, found: true}
+		return lookupOutcome[V]{immediate: true, value: entry.value, found: true}
 	case statusDeleted:
 		if updateLru {
 			entry.markRecentlyUsed(c.epoch)
 		}
-		return lookupOutcome{immediate: true}
+		return lookupOutcome[V]{immediate: true}
 	case statusScheduled:
-		return lookupOutcome{valueChan: entry.valueChan, entry: entry}
+		return lookupOutcome[V]{valueChan: entry.valueChan, entry: entry}
 	case statusUnknown:
 		entry.status = statusScheduled
-		entry.valueChan = make(chan readResult, 1)
-		return lookupOutcome{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
+		entry.valueChan = make(chan readResult[V], 1)
+		return lookupOutcome[V]{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
 	default:
 		// statusFailed lands here, and that is intended: an entry becomes statusFailed only in the
 		// same critical section that takes the cache out of service, and the shard checks that under
@@ -302,7 +320,7 @@ func (c *readCache) LookupWLocked(
 
 // ResolveUnlocked completes a read classified by LookupWLocked. It submits the DB read when this
 // caller owns scheduling, and may block until the in-flight read completes.
-func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, bool, error) {
+func (c *readCache[V]) ResolveUnlocked(key []byte, outcome lookupOutcome[V]) (V, bool, error) {
 	if outcome.immediate {
 		c.metrics.reportCacheHits(1)
 		return outcome.value, outcome.found, nil
@@ -315,8 +333,8 @@ func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, 
 		entry := outcome.entry
 		ch := outcome.valueChan
 		c.readPool.Submit(func() {
-			value, _, readErr := c.readFromDB(key)
-			entry.injectValueUnlocked(key, ch, readResult{value: value, err: readErr})
+			value, readErr := c.readFromDB(key)
+			entry.injectValueUnlocked(key, ch, readResult[V]{value: value, err: readErr})
 		})
 	}
 
@@ -325,13 +343,15 @@ func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, 
 	if err != nil {
 		// The pull is interrupted only by ctx cancellation, which means the manager is shutting
 		// down; report the manager's shutdown error per the Close contract.
-		return nil, false, fmt.Errorf("view manager shut down while awaiting read: %w", c.shutdownError())
+		var zero V
+		return zero, false, fmt.Errorf("view manager shut down while awaiting read: %w", c.shutdownError())
 	}
 	outcome.valueChan <- result // reload the channel in case there are other listeners
 	if result.err != nil {
-		return nil, false, fmt.Errorf("scheduled read failed: %w", result.err)
+		var zero V
+		return zero, false, fmt.Errorf("scheduled read failed: %w", result.err)
 	}
-	return result.value, result.value != nil, nil
+	return result.value.value, result.value.present, nil
 }
 
 // ResolveBatchUnlocked completes the pending reads of a batch classified via LookupWLocked, writing
@@ -340,7 +360,7 @@ func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, 
 //
 // A non-nil return means the whole batch failed. The first read error is returned after the full
 // drain, unless the manager shuts down first.
-func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[string][]byte) error {
+func (c *readCache[V]) ResolveBatchUnlocked(pending []pendingRead[V], results map[string]V) error {
 	if len(pending) == 0 {
 		return nil
 	}
@@ -354,8 +374,8 @@ func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[stri
 		if pending[i].needsSchedule {
 			p := &pending[i]
 			c.readPool.Submit(func() {
-				value, _, readErr := c.readFromDB([]byte(p.key))
-				p.valueChan <- readResult{value: value, err: readErr}
+				value, readErr := c.readFromDB([]byte(p.key))
+				p.valueChan <- readResult[V]{value: value, err: readErr}
 			})
 		}
 	}
@@ -382,8 +402,8 @@ func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[stri
 			}
 			continue
 		}
-		if result.value != nil {
-			results[pending[i].key] = result.value
+		if result.value.present {
+			results[pending[i].key] = result.value.value
 		}
 	}
 
@@ -396,7 +416,7 @@ func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[stri
 // This method is called by the read scheduler when a value becomes available. ch is the channel
 // bound at scheduling time (see Resolve), which is the one every waiter on this read is blocked
 // on; e.valueChan may already have been detached by then.
-func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result readResult) {
+func (e *cacheEntry[V]) injectValueUnlocked(key []byte, ch chan readResult[V], result readResult[V]) {
 	c := e.cache
 	c.lock.Lock()
 
@@ -409,12 +429,12 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
 			// over the bound channel, not from the entry.
-			e.setTerminalEntryStateWLocked(key, statusFailed, nil)
-		} else if result.value == nil {
-			e.setTerminalEntryStateWLocked(key, statusDeleted, nil)
+			e.setTerminalEntryStateWLocked(key, statusFailed, result.value.value)
+		} else if !result.value.present {
+			e.setTerminalEntryStateWLocked(key, statusDeleted, result.value.value)
 			failure = c.evictWLocked(c.hardCap())
 		} else {
-			e.setTerminalEntryStateWLocked(key, statusAvailable, result.value)
+			e.setTerminalEntryStateWLocked(key, statusAvailable, result.value.value)
 			failure = c.evictWLocked(c.hardCap())
 		}
 	}
@@ -437,7 +457,7 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 }
 
 // Applies deferred cache updates for a batch of reads under a single lock acquisition.
-func (c *readCache) bulkInjectValuesUnlocked(reads []pendingRead) {
+func (c *readCache[V]) bulkInjectValuesUnlocked(reads []pendingRead[V]) {
 	c.lock.Lock()
 	var failure error
 	for i := range reads {
@@ -457,11 +477,11 @@ func (c *readCache) bulkInjectValuesUnlocked(reads []pendingRead) {
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
 			// over the bound channel, not from the entry.
-			entry.setTerminalEntryStateWLocked(key, statusFailed, nil)
-		} else if result.value == nil {
-			entry.setTerminalEntryStateWLocked(key, statusDeleted, nil)
+			entry.setTerminalEntryStateWLocked(key, statusFailed, result.value.value)
+		} else if !result.value.present {
+			entry.setTerminalEntryStateWLocked(key, statusDeleted, result.value.value)
 		} else {
-			entry.setTerminalEntryStateWLocked(key, statusAvailable, result.value)
+			entry.setTerminalEntryStateWLocked(key, statusAvailable, result.value.value)
 		}
 	}
 	if failure != nil {
@@ -480,17 +500,17 @@ func (c *readCache) bulkInjectValuesUnlocked(reads []pendingRead) {
 }
 
 // entryRLocked returns the cache entry for a given key, or nil if the cache holds none.
-func (c *readCache) entryRLocked(key []byte) *cacheEntry {
+func (c *readCache[V]) entryRLocked(key []byte) *cacheEntry[V] {
 	return c.entries[string(key)]
 }
 
 // entryOrCreateWLocked returns the cache entry for a given key, creating one whose value is not yet
 // known if the cache holds none. Never returns nil.
-func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
+func (c *readCache[V]) entryOrCreateWLocked(key []byte) *cacheEntry[V] {
 	if entry, ok := c.entries[string(key)]; ok {
 		return entry
 	}
-	entry := &cacheEntry{
+	entry := &cacheEntry[V]{
 		cache:  c,
 		status: statusUnknown,
 	}
@@ -499,14 +519,14 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 }
 
 // PutRetiredWLocked installs the diffs retired out of the shard's MVCC layer, oldest version first, so
-// that a key several of them wrote is left holding the newest value. A nil value marks the key as
-// known-deleted (the manager-wide tombstone convention); any other value is cached as available.
-// Inserts everything, then evicts overflow once at the end.
-func (c *readCache) PutRetiredWLocked(diffs [][]Write) error {
+// that a key several of them wrote is left holding the newest value. A delete marks the key as
+// known-deleted; any other write is cached as available. Inserts everything, then evicts overflow once at
+// the end.
+func (c *readCache[V]) PutRetiredWLocked(diffs [][]Write[V]) error {
 	// Replayed in the order given, so that where diffs overlap on a key the last one wins.
 	for _, diff := range diffs {
 		for _, entry := range diff {
-			if entry.Value == nil {
+			if entry.Delete {
 				c.deleteRetiredWLocked([]byte(entry.Key))
 			} else {
 				c.setRetiredWLocked([]byte(entry.Key), entry.Value)
@@ -521,24 +541,25 @@ func (c *readCache) PutRetiredWLocked(diffs [][]Write) error {
 }
 
 // Set a retired value.
-func (c *readCache) setRetiredWLocked(key []byte, value []byte) {
+func (c *readCache[V]) setRetiredWLocked(key []byte, value V) {
 	entry := c.entryOrCreateWLocked(key)
 	entry.setTerminalEntryStateWLocked(key, statusAvailable, value)
 }
 
 // Delete a retired value.
-func (c *readCache) deleteRetiredWLocked(key []byte) {
+func (c *readCache[V]) deleteRetiredWLocked(key []byte) {
 	entry := c.entryRLocked(key)
 	if entry == nil {
 		// Key is not in the cache, so nothing to do.
 		return
 	}
-	entry.setTerminalEntryStateWLocked(key, statusDeleted, nil)
+	var zero V
+	entry.setTerminalEntryStateWLocked(key, statusDeleted, zero)
 }
 
 // markRecentlyUsed records that a reader served a value from this entry in the given epoch, making it
 // a later candidate for eviction.
-func (e *cacheEntry) markRecentlyUsed(epoch uint64) {
+func (e *cacheEntry[V]) markRecentlyUsed(epoch uint64) {
 	if e.lastRead.Load() != epoch {
 		// The load guards the store to keep this entry's cache line in shared state on a repeat read:
 		// concurrent readers need that same line for the value, and storing would take it exclusive.
@@ -548,7 +569,7 @@ func (e *cacheEntry) markRecentlyUsed(epoch uint64) {
 
 // trackWLocked records an entry's contribution to the size budget, replacing whatever it contributed
 // before, and stamps the entry as read in the current epoch.
-func (c *readCache) trackWLocked(entry *cacheEntry, size uint64) {
+func (c *readCache[V]) trackWLocked(entry *cacheEntry[V], size uint64) {
 	if entry.size == 0 {
 		c.trackedCount++
 	}
@@ -562,7 +583,7 @@ func (c *readCache) trackWLocked(entry *cacheEntry, size uint64) {
 }
 
 // untrackWLocked removes an entry from the size budget and from the cache.
-func (c *readCache) untrackWLocked(key string, entry *cacheEntry) {
+func (c *readCache[V]) untrackWLocked(key string, entry *cacheEntry[V]) {
 	c.trackedBytes -= entry.size
 	c.trackedCount--
 	entry.size = 0
@@ -571,10 +592,10 @@ func (c *readCache) untrackWLocked(key string, entry *cacheEntry) {
 
 // evictWLocked evicts entries until the cache is within the given budget, choosing each victim as the
 // oldest of a small sample of candidates.
-func (c *readCache) evictWLocked(budget uint64) error {
+func (c *readCache[V]) evictWLocked(budget uint64) error {
 	for c.trackedBytes > budget {
 		var victimKey string
-		var victim *cacheEntry
+		var victim *cacheEntry[V]
 		oldest := uint64(math.MaxUint64)
 
 		var visited uint64
@@ -610,17 +631,17 @@ func (c *readCache) evictWLocked(budget uint64) error {
 }
 
 // SizeInfoRLocked returns the current size (bytes) and entry count.
-func (c *readCache) SizeInfoRLocked() (bytes uint64, entries uint64) {
+func (c *readCache[V]) SizeInfoRLocked() (bytes uint64, entries uint64) {
 	return c.trackedBytes, c.trackedCount
 }
 
 // hardCap is the ceiling that insertions enforce inline.
-func (c *readCache) hardCap() uint64 {
+func (c *readCache[V]) hardCap() uint64 {
 	return c.maxSize + c.maxSize/c.config.EvictionSlackDivisor
 }
 
 // MaintainWLocked advances the epoch and brings the cache back within its size budget.
-func (c *readCache) MaintainWLocked() error {
+func (c *readCache[V]) MaintainWLocked() error {
 	c.epoch++
 	return c.evictWLocked(c.maxSize)
 }
@@ -628,7 +649,7 @@ func (c *readCache) MaintainWLocked() error {
 // ErrIfOutOfServiceRLocked returns a second-hand error if this cache has been taken out of service, or nil
 // while it is healthy. The error is inherited from the earlier failure rather than produced by the
 // caller's own operation.
-func (c *readCache) ErrIfOutOfServiceRLocked() error {
+func (c *readCache[V]) ErrIfOutOfServiceRLocked() error {
 	if c.outOfServiceErr == nil {
 		return nil
 	}
@@ -637,7 +658,7 @@ func (c *readCache) ErrIfOutOfServiceRLocked() error {
 
 // TakeOutOfServiceWLocked records the failure that stops this cache from serving reads. The first
 // failure wins; later ones are dropped so the reported cause is the original one.
-func (c *readCache) TakeOutOfServiceWLocked(err error) {
+func (c *readCache[V]) TakeOutOfServiceWLocked(err error) {
 	if c.outOfServiceErr == nil {
 		c.outOfServiceErr = err
 	}

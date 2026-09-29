@@ -46,14 +46,21 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 			s.pendingBlockHeight)
 	}
 
-	children := make([]dbm.Iterator, 0, len(s.stores))
-	for _, store := range s.stores {
-		storeIter, err := store.Iterator(nil)
-		if err != nil {
-			closeIterators(children)
-			return nil, fmt.Errorf("open %s store iterator: %w", store.Name(), err)
-		}
-		children = append(children, storeIter)
+	children, err := appendStoreIterator(make([]dbm.Iterator, 0, 4), s.accountStore)
+	if err != nil {
+		return nil, err
+	}
+	children, err = appendStoreIterator(children, s.codeStore)
+	if err != nil {
+		return nil, err
+	}
+	children, err = appendStoreIterator(children, s.storageStore)
+	if err != nil {
+		return nil, err
+	}
+	children, err = appendStoreIterator(children, s.miscStore)
+	if err != nil {
+		return nil, err
 	}
 	// NewMergingIterator takes ownership of children and closes all of them if
 	// construction fails, so we must not close them again here (Pebble's Close is
@@ -67,6 +74,17 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 		return nil, err
 	}
 	return merged, nil
+}
+
+// appendStoreIterator opens an iterator over the whole of store and appends it to children. On failure it
+// closes children instead.
+func appendStoreIterator[V any](children []dbm.Iterator, store view.ViewManager[V]) ([]dbm.Iterator, error) {
+	storeIter, err := store.Iterator(nil)
+	if err != nil {
+		closeIterators(children)
+		return nil, fmt.Errorf("open %s store iterator: %w", store.Name(), err)
+	}
+	return append(children, storeIter), nil
 }
 
 func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
@@ -261,8 +279,8 @@ func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBou
 // rows, with staged rows winning and deletions suppressed — adapted to a dbm.Iterator and then passed
 // through a transform that re-labels rows to their logical key and decodes the value. The per-lane
 // transform supplies the only behavior that differs between lanes.
-func buildLane(
-	source view.ViewManager,
+func buildLane[V any](
+	source view.ViewManager[V],
 	lowerBound, upperBound []byte,
 	ascending bool,
 	transform iterators.IteratorTransform,
@@ -354,7 +372,8 @@ func (s *CommitStore) buildStorageLane(
 		if err != nil {
 			return nil, nil, false, err
 		}
-		return keys.BuildEVMKey(keys.EVMKeyStorage, strippedKey), sd.GetValue()[:], false, nil
+		slot := sd.GetValue()
+		return keys.BuildEVMKey(keys.EVMKeyStorage, strippedKey), slot[:], false, nil
 	}
 	return buildLane(s.storageStore, lowerBound, upperBound, ascending, transform)
 }
@@ -404,8 +423,7 @@ func (s *CommitStore) buildAccountCodehashLane(
 			return nil, nil, false, err
 		}
 		codeHash := ad.GetCodeHash()
-		var zeroCodeHash vtype.CodeHash
-		if *codeHash == zeroCodeHash {
+		if codeHash == (vtype.CodeHash{}) {
 			return nil, nil, true, nil
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCodeHash, addrBytes), codeHash[:], false, nil
@@ -433,7 +451,7 @@ func (s *CommitStore) buildAccountBalanceLane(
 			return nil, nil, false, err
 		}
 		balance := ad.GetBalance()
-		if *balance == (vtype.Balance{}) {
+		if balance == (vtype.Balance{}) {
 			return nil, nil, true, nil
 		}
 		return keys.BuildEVMKey(keys.EVMKeyBalance, addrBytes), balance[:], false, nil

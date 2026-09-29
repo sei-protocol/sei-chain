@@ -453,8 +453,9 @@ func TestKVImporter_BackpressureBlocksProducerUntilWorkersDrain(t *testing.T) {
 // storageNode returns an import node carrying a serialized storage row at version 1.
 func storageNode(t *testing.T, addr ktype.Address, slot ktype.Slot, value []byte) *types.SnapshotNode {
 	t.Helper()
-	row, err := vtype.SerializeStorage(1, value)
+	stored, err := vtype.ParseStorageValue(value)
 	require.NoError(t, err)
+	row := vtype.NewStorageData().SetBlockHeight(1).SetValue(stored).Serialize()
 	return &types.SnapshotNode{Key: storagePhysKey(addr, slot), Value: row, Version: 1}
 }
 

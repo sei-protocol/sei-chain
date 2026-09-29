@@ -30,8 +30,9 @@ Compact form (49 bytes) — used when code hash is all zeros:
 | 1 byte  | 8 bytes      | 32 bytes | 8 bytes  |
 
 Data is stored in big-endian order. At deserialization time, the two forms
-are distinguished by length. The compact form is preferred for serialization
-since ~97% of accounts have no code hash.
+are distinguished by length. The compact form is always used when the code
+hash is all zeros, and the full form only when it is not, so every account
+has exactly one encoding.
 */
 
 const (
@@ -45,203 +46,130 @@ const (
 	accountDataLength    = VersionLength + BlockHeightLength + BalanceLength + NonceLength + CodeHashLength
 )
 
-var _ VType = (*AccountData)(nil)
-
-// Used for encapsulating and serializating account data in the FlatKV accounts database.
-//
-// This data structure is not threadsafe. Values passed into and values received from this data structure
-// are not safe to modify without first copying them.
+// AccountData is an account row in the FlatKV accounts database. The zero value is an account with every
+// field zero.
 type AccountData struct {
-	data []byte
+	// The block height at which this account was last modified.
+	blockHeight uint64
 
-	// balanceZero reports whether the balance is all 0s.
-	//
-	// One flag per field rather than a single "row is empty": each setter writes its own field and
-	// cannot see the others, so only a per-field answer has an owner. IsDelete is their conjunction.
-	//
-	// Held here rather than derived on demand because the callers that ask are far from the ones that
-	// write: by then the bytes have left the cache, and reading them back costs around forty times
-	// what checking them at the point of the write does.
-	balanceZero bool
+	// The account's balance.
+	balance Balance
 
-	// nonceZero reports whether the nonce is 0.
-	nonceZero bool
+	// The account's nonce.
+	nonce uint64
 
-	// codeHashZero reports whether the code hash is all 0s. Serialize reads it to choose the compact
-	// form.
-	codeHashZero bool
+	// The hash of the account's contract code, or all zeros when it has none.
+	codeHash CodeHash
 }
 
-// Create a new AccountData initialized to all 0s.
+// NewAccountData returns a new AccountData with every field zero.
 func NewAccountData() *AccountData {
-	return &AccountData{
-		data:         make([]byte, accountDataLength),
-		balanceZero:  true,
-		nonceZero:    true,
-		codeHashZero: true,
-	}
+	return &AccountData{}
 }
 
-// Serialize the account data to a byte slice. If the code hash is all zeros,
-// the compact form (49 bytes) is returned; otherwise the full form (81 bytes).
-//
-// The returned byte slice is not safe to modify without first copying it.
-func (a *AccountData) Serialize() []byte {
-	if a == nil {
-		return make([]byte, accountCompactLength)
+// AppendAccountData appends the serialized form of account to dst and returns the extended slice. The
+// compact form (49 bytes) is used when the code hash is all zeros, and the full form (81 bytes) otherwise.
+func AppendAccountData(dst []byte, account AccountData) []byte {
+	dst = append(dst, byte(AccountDataVersion0))
+	dst = binary.BigEndian.AppendUint64(dst, account.blockHeight)
+	dst = append(dst, account.balance[:]...)
+	dst = binary.BigEndian.AppendUint64(dst, account.nonce)
+	if account.codeHash != (CodeHash{}) {
+		dst = append(dst, account.codeHash[:]...)
 	}
-	if !a.codeHashZero {
-		return a.data
-	}
-	return a.data[:accountCompactLength]
+	return dst
 }
 
-// Deserialize the account data from the given byte slice. Accepts both the
-// compact (49 byte) and full (81 byte) forms.
-func DeserializeAccountData(data []byte) (*AccountData, error) {
+// Serialize returns the serialized form of the account in a new slice (see AppendAccountData).
+func (a AccountData) Serialize() []byte {
+	return AppendAccountData(make([]byte, 0, accountDataLength), a)
+}
+
+// DeserializeAccountData parses an account from its serialized form. Accepts both the compact (49 byte)
+// and full (81 byte) forms, and rejects a full form whose code hash is all zeros, which has no encoding
+// that AppendAccountData would reproduce.
+func DeserializeAccountData(data []byte) (AccountData, error) {
 	if len(data) == 0 {
-		return nil, errors.New("data is empty")
+		return AccountData{}, errors.New("data is empty")
 	}
 
 	version := AccountDataVersion(data[accountVersionStart])
 	if version != AccountDataVersion0 {
-		return nil, fmt.Errorf("unsupported serialization version: %d", version)
+		return AccountData{}, fmt.Errorf("unsupported serialization version: %d", version)
 	}
-
-	switch len(data) {
-	case accountDataLength:
-		return &AccountData{
-			data:         data,
-			balanceZero:  isZero(data[accountBalanceStart:accountNonceStart]),
-			nonceZero:    isZero(data[accountNonceStart:accountCodeHashStart]),
-			codeHashZero: isZero(data[accountCodeHashStart:accountDataLength]),
-		}, nil
-	case accountCompactLength:
-		full := make([]byte, accountDataLength)
-		copy(full, data)
-		// The compact form is exactly the full form with the code hash omitted, so it is zero without
-		// looking.
-		return &AccountData{
-			data:         full,
-			balanceZero:  isZero(full[accountBalanceStart:accountNonceStart]),
-			nonceZero:    isZero(full[accountNonceStart:accountCodeHashStart]),
-			codeHashZero: true,
-		}, nil
-	default:
-		return nil, fmt.Errorf("data length at version %d should be %d or %d, got %d",
+	if len(data) != accountDataLength && len(data) != accountCompactLength {
+		return AccountData{}, fmt.Errorf("data length at version %d should be %d or %d, got %d",
 			version, accountCompactLength, accountDataLength, len(data))
 	}
+
+	account := AccountData{
+		blockHeight: binary.BigEndian.Uint64(data[accountBlockHeightStart:accountBalanceStart]),
+		balance:     Balance(data[accountBalanceStart:accountNonceStart]),
+		nonce:       binary.BigEndian.Uint64(data[accountNonceStart:accountCodeHashStart]),
+	}
+	if len(data) == accountDataLength {
+		account.codeHash = CodeHash(data[accountCodeHashStart:accountDataLength])
+		if account.codeHash == (CodeHash{}) {
+			return AccountData{}, errors.New("full-form account row has an all-zero code hash")
+		}
+	}
+	return account, nil
 }
 
-// Get the serialization version for this AccountData instance.
-func (a *AccountData) GetSerializationVersion() AccountDataVersion {
-	if a == nil {
-		return AccountDataVersion0
-	}
-	return (AccountDataVersion)(a.data[accountVersionStart])
+// GetBlockHeight returns the block height at which the account was last modified.
+func (a AccountData) GetBlockHeight() uint64 {
+	return a.blockHeight
 }
 
-// Get the account's block height.
-func (a *AccountData) GetBlockHeight() int64 {
-	if a == nil {
-		return 0
-	}
-	return int64(binary.BigEndian.Uint64(a.data[accountBlockHeightStart:accountBalanceStart])) //nolint:gosec
+// GetBalance returns the account's balance.
+func (a AccountData) GetBalance() Balance {
+	return a.balance
 }
 
-// Get the account's balance.
-func (a *AccountData) GetBalance() *Balance {
-	if a == nil {
-		var zero Balance
-		return &zero
-	}
-	return (*Balance)(a.data[accountBalanceStart:accountNonceStart])
+// GetNonce returns the account's nonce.
+func (a AccountData) GetNonce() uint64 {
+	return a.nonce
 }
 
-// Get the account's nonce.
-func (a *AccountData) GetNonce() uint64 {
-	if a == nil {
-		return 0
-	}
-	return binary.BigEndian.Uint64(a.data[accountNonceStart:accountCodeHashStart])
+// GetCodeHash returns the account's code hash, or all zeros when it has no code.
+func (a AccountData) GetCodeHash() CodeHash {
+	return a.codeHash
 }
 
-// Get the account's code hash.
-func (a *AccountData) GetCodeHash() *CodeHash {
-	if a == nil {
-		var zero CodeHash
-		return &zero
-	}
-	return (*CodeHash)(a.data[accountCodeHashStart:accountDataLength])
+// IsDelete reports whether this account is empty: every field other than the block height is zero. The
+// store deletes an account that becomes empty.
+func (a AccountData) IsDelete() bool {
+	return a.nonce == 0 && a.balance == (Balance{}) && a.codeHash == (CodeHash{})
 }
 
-// Check if this account data signifies a deletion operation. A deletion operation is automatically
-// performed when all account data fields are 0 (with the exception of the serialization version and block height).
-func (a *AccountData) IsDelete() bool {
-	if a == nil {
-		return true
-	}
-	return a.balanceZero && a.nonceZero && a.codeHashZero
-}
-
-// Copy returns a deep copy of this AccountData. The copy has its own backing byte slice.
-func (a *AccountData) Copy() *AccountData {
-	if a == nil {
-		return NewAccountData()
-	}
-	cp := make([]byte, len(a.data))
-	copy(cp, a.data)
-	return &AccountData{
-		data:         cp,
-		balanceZero:  a.balanceZero,
-		nonceZero:    a.nonceZero,
-		codeHashZero: a.codeHashZero,
-	}
-}
-
-// Set the account's block height when this account was last modified/touched. Returns self.
-func (a *AccountData) SetBlockHeight(blockHeight int64) *AccountData {
-	if a == nil {
-		a = NewAccountData()
-	}
-	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], uint64(blockHeight)) //nolint:gosec
+// SetBlockHeight sets the block height at which the account was last modified. Returns the receiver.
+func (a *AccountData) SetBlockHeight(blockHeight uint64) *AccountData {
+	a.blockHeight = blockHeight
 	return a
 }
 
-// Set the account's balance. Returns self (or a new AccountData if nil).
+// SetBalance sets the account's balance. A nil balance is all zeros. Returns the receiver.
 func (a *AccountData) SetBalance(balance *Balance) *AccountData {
-	if a == nil {
-		a = NewAccountData()
-	}
 	if balance == nil {
-		var zero Balance
-		balance = &zero
+		a.balance = Balance{}
+	} else {
+		a.balance = *balance
 	}
-	copy(a.data[accountBalanceStart:accountNonceStart], balance[:])
-	a.balanceZero = *balance == Balance{}
 	return a
 }
 
-// Set the account's nonce. Returns self (or a new AccountData if nil).
+// SetNonce sets the account's nonce. Returns the receiver.
 func (a *AccountData) SetNonce(nonce uint64) *AccountData {
-	if a == nil {
-		a = NewAccountData()
-	}
-	binary.BigEndian.PutUint64(a.data[accountNonceStart:accountCodeHashStart], nonce)
-	a.nonceZero = nonce == 0
+	a.nonce = nonce
 	return a
 }
 
-// Set the account's code hash. Returns self (or a new AccountData if nil).
+// SetCodeHash sets the account's code hash. A nil code hash is all zeros. Returns the receiver.
 func (a *AccountData) SetCodeHash(codeHash *CodeHash) *AccountData {
-	if a == nil {
-		a = NewAccountData()
-	}
 	if codeHash == nil {
-		var zero CodeHash
-		codeHash = &zero
+		a.codeHash = CodeHash{}
+	} else {
+		a.codeHash = *codeHash
 	}
-	copy(a.data[accountCodeHashStart:accountDataLength], codeHash[:])
-	a.codeHashZero = *codeHash == CodeHash{}
 	return a
 }

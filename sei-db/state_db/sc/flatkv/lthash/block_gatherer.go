@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // blockGatherer reads what each sealed block changed and submits its leaf hashing to the pool.
@@ -157,10 +158,20 @@ func gatherChangesFromAllStores(current *sview.StoreView, previous *sview.StoreV
 	errs := make([]error, 4)
 
 	var wg sync.WaitGroup
-	wg.Go(func() { out[0], errs[0] = gatherChangesFromStore(current.AccountView(), previous.AccountView()) })
-	wg.Go(func() { out[1], errs[1] = gatherChangesFromStore(current.CodeView(), previous.CodeView()) })
-	wg.Go(func() { out[2], errs[2] = gatherChangesFromStore(current.StorageView(), previous.StorageView()) })
-	wg.Go(func() { out[3], errs[3] = gatherChangesFromStore(current.MiscView(), previous.MiscView()) })
+	wg.Go(func() {
+		out[0], errs[0] = gatherChangesFromStore(
+			current.AccountView(), previous.AccountView(), vtype.AppendAccountData)
+	})
+	wg.Go(func() {
+		out[1], errs[1] = gatherChangesFromStore(current.CodeView(), previous.CodeView(), vtype.AppendCodeData)
+	})
+	wg.Go(func() {
+		out[2], errs[2] = gatherChangesFromStore(
+			current.StorageView(), previous.StorageView(), vtype.AppendStorageData)
+	})
+	wg.Go(func() {
+		out[3], errs[3] = gatherChangesFromStore(current.MiscView(), previous.MiscView(), vtype.AppendMiscData)
+	})
 	wg.Wait()
 
 	if err := errors.Join(errs...); err != nil {
@@ -169,20 +180,25 @@ func gatherChangesFromAllStores(current *sview.StoreView, previous *sview.StoreV
 	return out, nil
 }
 
-// Gather the changes from a specific store.
-func gatherChangesFromStore(current view.View, previous view.View) (DatabaseMutations, error) {
-	// One pass over the view's writes. The key is copied because a mutation outlives the walk, while
-	// the value is the view's own and stays valid until the view retires, which is after hashing.
+// Gather the changes from a specific store, with each value in its stored encoding.
+func gatherChangesFromStore[V any](
+	current view.View[V],
+	previous view.View[V],
+	// Appends a value's stored encoding.
+	appendValue func(dst []byte, value V) []byte,
+) (DatabaseMutations, error) {
+	// One pass over the view's writes. The key is copied because a mutation outlives the walk.
+	values := valueArena[V]{appendValue: appendValue}
 	var mutations []KeyMutation
-	err := current.ForEachDiff(func(key string, value []byte) error {
+	err := current.ForEachDiff(func(key string, value V, deleted bool) error {
 		if strings.HasPrefix(key, ktype.MetaKeyPrefix) {
 			return nil
 		}
-		mutations = append(mutations, KeyMutation{
-			Key:    []byte(key),
-			Value:  value,
-			Delete: value == nil,
-		})
+		mutation := KeyMutation{Key: []byte(key), Delete: deleted}
+		if !deleted {
+			mutation.Value = values.encode(value)
+		}
+		mutations = append(mutations, mutation)
 		return nil
 	})
 	if err != nil {
@@ -205,7 +221,28 @@ func gatherChangesFromStore(current view.View, previous view.View) (DatabaseMuta
 		return DatabaseMutations{}, fmt.Errorf("%s read previous values: %w", current.Name(), err)
 	}
 	for i := range mutations {
-		mutations[i].LastValue = old[string(mutations[i].Key)]
+		if value, found := old[string(mutations[i].Key)]; found {
+			mutations[i].LastValue = values.encode(value)
+		}
 	}
 	return DatabaseMutations{DBName: current.Name(), Mutations: mutations}, nil
+}
+
+// valueArena encodes values into a shared buffer, so that encoding a block's values costs a handful of
+// allocations rather than one per value.
+type valueArena[V any] struct {
+	// The encodings handed out so far. Growing it moves later encodings to a new buffer and leaves the
+	// earlier ones where they were, still valid.
+	buf []byte
+
+	// Appends a value's stored encoding.
+	appendValue func(dst []byte, value V) []byte
+}
+
+// encode returns the stored encoding of value. The result is capped at its own length, so appending to it
+// cannot overwrite the encoding that follows.
+func (a *valueArena[V]) encode(value V) []byte {
+	start := len(a.buf)
+	a.buf = a.appendValue(a.buf, value)
+	return a.buf[start:len(a.buf):len(a.buf)]
 }

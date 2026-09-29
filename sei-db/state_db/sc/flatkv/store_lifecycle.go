@@ -11,9 +11,9 @@ import (
 )
 
 // isClosed reports whether the store's databases have been released. The stores own them, so an open
-// store is one that still has stores.
+// store is one that has all four stores.
 func (s *CommitStore) isClosed() bool {
-	return s.stores == nil
+	return s.accountStore == nil || s.codeStore == nil || s.storageStore == nil || s.miscStore == nil
 }
 
 // closeDBsOnly closes the stores, and with them the databases they own, while retaining the file lock —

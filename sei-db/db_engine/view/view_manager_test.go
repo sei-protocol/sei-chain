@@ -53,7 +53,7 @@ func TestNewViewManagerRejectsInvalidConfig(t *testing.T) {
 	c.ShardCount = 3 // invalid: not a power of two
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
-	_, err := NewViewManager(c, newTestDB(nil), pool, pool, pool)
+	_, err := NewViewManager(c, newTestDB(nil), bytesCodec, pool, pool, pool)
 	require.Error(t, err)
 }
 
@@ -68,14 +68,6 @@ func TestManagerSetGetDelete(t *testing.T) {
 
 	require.NoError(t, manager.Delete([]byte("k")))
 	_, found, err = manager.Get([]byte("k"), true)
-	require.NoError(t, err)
-	require.False(t, found)
-}
-
-func TestManagerSetNilIsDelete(t *testing.T) {
-	manager, _ := newTestManager(t, map[string][]byte{"k": []byte("v")}, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), nil))
-	_, found, err := manager.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.False(t, found)
 }
@@ -106,10 +98,10 @@ func TestManagerGetPropagatesDBError(t *testing.T) {
 
 func TestManagerBatchSetThenBatchGet(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 4, 1<<20)
-	require.NoError(t, manager.BatchSet([]Write{
+	require.NoError(t, manager.BatchSet([]Write[[]byte]{
 		{Key: "a", Value: []byte("1")},
 		{Key: "b", Value: []byte("2")},
-		{Key: "c"}, // delete of a non-existent key
+		{Key: "c", Delete: true}, // delete of a non-existent key
 	}))
 
 	got, err := manager.BatchGet([][]byte{[]byte("a"), []byte("b"), []byte("c"), []byte("missing")})

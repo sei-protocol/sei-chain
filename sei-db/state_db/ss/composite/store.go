@@ -532,7 +532,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 				Value:    nonceBuf,
 			})
 		}
-		if codeHash := acct.GetCodeHash(); *codeHash != (vtype.CodeHash{}) {
+		if codeHash := acct.GetCodeHash(); codeHash != (vtype.CodeHash{}) {
 			nodes = append(nodes, types.SnapshotNode{
 				StoreKey: evm.EVMStoreKey,
 				Key:      keys.BuildEVMKey(keys.EVMKeyCodeHash, strippedKey),
@@ -546,8 +546,9 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to DeserializeStorageData: %w", err)
 		}
+		slot := sd.GetValue()
 		return []types.SnapshotNode{
-			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: sd.GetValue()[:]},
+			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: slot[:]},
 		}, nil
 
 	case keys.EVMKeyCode:

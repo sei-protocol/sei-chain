@@ -31,139 +31,81 @@ const (
 	storageDataLength = VersionLength + BlockHeightLength + StorageValueLength
 )
 
-var _ VType = (*StorageData)(nil)
-
-// Used for encapsulating and serializing storage slot data in the FlatKV storage database.
-//
-// This data structure is not threadsafe. Values passed into and values received from this data structure
-// are not safe to modify without first copying them.
+// StorageData is a storage slot row in the FlatKV storage database. The zero value is a slot holding
+// zero.
 type StorageData struct {
-	data []byte
+	// The block height at which this slot was last modified.
+	blockHeight uint64
 
-	// valueZero reports whether the value is all 0s, which is what IsDelete answers. Maintained by
-	// SetValue, the only method that writes the value region, and computed once at deserialization.
-	//
-	// Held here rather than derived on demand because the callers that ask are far from the ones that
-	// write: by then the bytes have left the cache, and reading them back costs around forty times
-	// what checking them at the point of the write does.
-	valueZero bool
+	// The slot's value.
+	value [StorageValueLength]byte
 }
 
-// Create a new StorageData initialized to all 0s.
+// NewStorageData returns a new StorageData with every field zero.
 func NewStorageData() *StorageData {
-	return &StorageData{
-		data:      make([]byte, storageDataLength),
-		valueZero: true,
-	}
+	return &StorageData{}
 }
 
-// SerializeStorage returns the serialized storage value for a raw 32-byte slot value written at
-// blockHeight, or nil when rawValue is all zeros, which the store records as a deletion.
-//
-// rawValue is copied, so the caller may reuse it.
-func SerializeStorage(blockHeight int64, rawValue []byte) ([]byte, error) {
-	if len(rawValue) != StorageValueLength {
-		return nil, fmt.Errorf("invalid storage value length: got %d, expected %d",
-			len(rawValue), StorageValueLength)
-	}
-	if isZero(rawValue) {
-		return nil, nil
-	}
-	data := make([]byte, storageDataLength)
-	data[storageVersionStart] = byte(StorageDataVersion0)
-	heightBytes := data[storageBlockHeightStart:storageValueStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
-	copy(data[storageValueStart:], rawValue)
-	return data, nil
+// AppendStorageData appends the serialized form of storage to dst and returns the extended slice.
+func AppendStorageData(dst []byte, storage StorageData) []byte {
+	dst = append(dst, byte(StorageDataVersion0))
+	dst = binary.BigEndian.AppendUint64(dst, storage.blockHeight)
+	return append(dst, storage.value[:]...)
 }
 
-// Serialize the storage data to a byte slice.
-//
-// The returned byte slice is not safe to modify without first copying it.
-func (s *StorageData) Serialize() []byte {
-	if s == nil {
-		return make([]byte, storageDataLength)
-	}
-	return s.data
+// Serialize returns the serialized form of the slot in a new slice.
+func (s StorageData) Serialize() []byte {
+	return AppendStorageData(make([]byte, 0, storageDataLength), s)
 }
 
-// Deserialize the storage data from the given byte slice.
-func DeserializeStorageData(data []byte) (*StorageData, error) {
+// DeserializeStorageData parses a storage slot from its serialized form.
+func DeserializeStorageData(data []byte) (StorageData, error) {
 	if len(data) == 0 {
-		return nil, errors.New("data is empty")
+		return StorageData{}, errors.New("data is empty")
 	}
 
-	storageData := &StorageData{
-		data: data,
+	version := StorageDataVersion(data[storageVersionStart])
+	if version != StorageDataVersion0 {
+		return StorageData{}, fmt.Errorf("unsupported serialization version: %d", version)
 	}
-
-	serializationVersion := storageData.GetSerializationVersion()
-	if serializationVersion != StorageDataVersion0 {
-		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
-	}
-
 	if len(data) != storageDataLength {
-		return nil, fmt.Errorf("data length at version %d should be %d, got %d",
-			serializationVersion, storageDataLength, len(data))
+		return StorageData{}, fmt.Errorf("data length at version %d should be %d, got %d",
+			version, storageDataLength, len(data))
 	}
 
-	storageData.valueZero = isZero(data[storageValueStart:storageDataLength])
-	return storageData, nil
+	return StorageData{
+		blockHeight: binary.BigEndian.Uint64(data[storageBlockHeightStart:storageValueStart]),
+		value:       [StorageValueLength]byte(data[storageValueStart:storageDataLength]),
+	}, nil
 }
 
-// Get the serialization version for this StorageData instance.
-func (s *StorageData) GetSerializationVersion() StorageDataVersion {
-	if s == nil {
-		return StorageDataVersion0
-	}
-	return (StorageDataVersion)(s.data[storageVersionStart])
+// GetBlockHeight returns the block height at which the slot was last modified.
+func (s StorageData) GetBlockHeight() uint64 {
+	return s.blockHeight
 }
 
-// Get the block height when this storage slot was last modified.
-func (s *StorageData) GetBlockHeight() int64 {
-	if s == nil {
-		return 0
-	}
-	return int64(binary.BigEndian.Uint64(s.data[storageBlockHeightStart:storageValueStart])) //nolint:gosec // block height is always within int64 range
+// GetValue returns the slot's value.
+func (s StorageData) GetValue() [StorageValueLength]byte {
+	return s.value
 }
 
-// Get the storage slot value.
-func (s *StorageData) GetValue() *[32]byte {
-	if s == nil {
-		var zero [32]byte
-		return &zero
-	}
-	return (*[32]byte)(s.data[storageValueStart:storageDataLength])
+// IsDelete reports whether the slot holds zero. The store deletes a slot that is set to zero.
+func (s StorageData) IsDelete() bool {
+	return s.value == [StorageValueLength]byte{}
 }
 
-// Check if this storage data signifies a deletion operation. A deletion operation is automatically
-// performed when the value is all 0s (with the exception of the serialization version and block height).
-func (s *StorageData) IsDelete() bool {
-	if s == nil {
-		return true
-	}
-	return s.valueZero
-}
-
-// Set the block height when this storage slot was last modified/touched. Returns self (or a new StorageData if nil).
-func (s *StorageData) SetBlockHeight(blockHeight int64) *StorageData {
-	if s == nil {
-		s = NewStorageData()
-	}
-	binary.BigEndian.PutUint64(s.data[storageBlockHeightStart:storageValueStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
+// SetBlockHeight sets the block height at which the slot was last modified. Returns the receiver.
+func (s *StorageData) SetBlockHeight(blockHeight uint64) *StorageData {
+	s.blockHeight = blockHeight
 	return s
 }
 
-// Set the storage slot value. Returns self (or a new StorageData if nil).
-func (s *StorageData) SetValue(value *[32]byte) *StorageData {
-	if s == nil {
-		s = NewStorageData()
-	}
+// SetValue sets the slot's value. A nil value is all zeros. Returns the receiver.
+func (s *StorageData) SetValue(value *[StorageValueLength]byte) *StorageData {
 	if value == nil {
-		var zero [32]byte
-		value = &zero
+		s.value = [StorageValueLength]byte{}
+	} else {
+		s.value = *value
 	}
-	copy(s.data[storageValueStart:storageDataLength], value[:])
-	s.valueZero = *value == [StorageValueLength]byte{}
 	return s
 }

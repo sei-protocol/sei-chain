@@ -100,19 +100,19 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	if err != nil {
 		return nil, fmt.Errorf("failed to process storage changes: %w", err)
 	}
-	out = appendWrites(out, storageChanges)
+	out = appendWrites(out, storageChanges, vtype.AppendStorageData)
 
 	codeChanges, err := toCodeValues(changesByType[keys.EVMKeyCode], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process code changes: %w", err)
 	}
-	out = appendWrites(out, codeChanges)
+	out = appendWrites(out, codeChanges, vtype.AppendCodeData)
 
 	miscChanges, err := toMiscValues(changesByType[keys.EVMKeyMisc], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process misc changes: %w", err)
 	}
-	out = appendWrites(out, miscChanges)
+	out = appendWrites(out, miscChanges, vtype.AppendMiscData)
 
 	// Accumulate nonce + codeHash + balance entries from this batch into the
 	// translator-level pending account map, so that several Translate calls
@@ -156,34 +156,31 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 // Call once after all Translate calls. Translate must not be called after
 // Finalize.
 func (t *ImportTranslator) Finalize() []PhysicalKVPair {
-	merged := make(map[string]*vtype.AccountData, len(t.pendingAccts))
+	out := make([]PhysicalKVPair, 0, len(t.pendingAccts))
 	for addr, pending := range t.pendingAccts {
-		merged[addr] = pending.Merge(nil, t.blockHeight)
-	}
-	t.pendingAccts = nil
-	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
-}
-
-// appendWrites appends every write that is not a deletion to out. A nil Value is the store's
-// tombstone, and an import target starts empty, so there is nothing for one to delete.
-func appendWrites(out []PhysicalKVPair, writes []view.Write) []PhysicalKVPair {
-	for _, w := range writes {
-		if w.Value == nil {
+		merged := pending.Merge(vtype.AccountData{}, uint64(t.blockHeight)) //nolint:gosec // non-negative
+		if merged.IsDelete() {
 			continue
 		}
-		out = append(out, PhysicalKVPair{Key: []byte(w.Key), Value: w.Value})
+		out = append(out, PhysicalKVPair{Key: []byte(addr), Value: merged.Serialize()})
 	}
+	t.pendingAccts = nil
 	return out
 }
 
-// appendNonDeletes serializes every non-delete entry in m and appends the resulting
-// (physical_key, serialized_value) pair to out.
-func appendNonDeletes[T vtype.VType](out []PhysicalKVPair, m map[string]T) []PhysicalKVPair {
-	for k, v := range m {
-		if v.IsDelete() {
+// appendWrites appends the serialized form of every write that is not a deletion to out. An import target
+// starts empty, so there is nothing for a deletion to delete.
+func appendWrites[V any](
+	out []PhysicalKVPair,
+	writes []view.Write[V],
+	// Appends a value's serialized form.
+	appendValue func(dst []byte, value V) []byte,
+) []PhysicalKVPair {
+	for _, w := range writes {
+		if w.Delete {
 			continue
 		}
-		out = append(out, PhysicalKVPair{Key: []byte(k), Value: v.Serialize()})
+		out = append(out, PhysicalKVPair{Key: []byte(w.Key), Value: appendValue(nil, w.Value)})
 	}
 	return out
 }

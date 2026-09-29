@@ -93,8 +93,9 @@ type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
 
-	// SetString sets the value for the given key, which the implementation must not retain: a
-	// string key lets the caller pass a map key straight through without converting it to bytes.
+	// SetString sets the value for the given key. The implementation must retain neither: a string key
+	// lets the caller pass a map key straight through without converting it to bytes, and a value it
+	// copies lets the caller reuse one buffer across writes.
 	SetString(key string, value []byte) error
 
 	// DeleteString deletes the value for the given key, which the implementation must not retain.

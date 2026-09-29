@@ -10,17 +10,17 @@ import (
 )
 
 // markUpdater folds a value by appending mark to whatever the key already held, so a result says
-// which value it was folded onto rather than merely that a fold happened. A nil prior folds from
+// which value it was folded onto rather than merely that a fold happened. A missing prior folds from
 // "<none>", which distinguishes a key the store held nothing for from one holding an empty value.
 type markUpdater struct {
 	mark byte
 }
 
-func (u markUpdater) NewValueFor(_ string, priorValue []byte) ([]byte, error) {
-	if priorValue == nil {
-		return append([]byte("<none>"), u.mark), nil
+func (u markUpdater) NewValueFor(_ string, priorValue []byte, priorFound bool) ([]byte, bool, error) {
+	if !priorFound {
+		return append([]byte("<none>"), u.mark), false, nil
 	}
-	return append(append([]byte{}, priorValue...), u.mark), nil
+	return append(append([]byte{}, priorValue...), u.mark), false, nil
 }
 
 // parkedUpdater holds every fold until it is released, which is what lets a test tell staging apart
@@ -35,17 +35,17 @@ func newParkedUpdater() *parkedUpdater {
 	return &parkedUpdater{started: make(chan struct{}), release: make(chan struct{})}
 }
 
-func (u *parkedUpdater) NewValueFor(_ string, priorValue []byte) ([]byte, error) {
+func (u *parkedUpdater) NewValueFor(_ string, priorValue []byte, _ bool) ([]byte, bool, error) {
 	u.once.Do(func() { close(u.started) })
 	<-u.release
-	return append(append([]byte{}, priorValue...), '+'), nil
+	return append(append([]byte{}, priorValue...), '+'), false, nil
 }
 
 // failingUpdater fails every fold, standing in for a corrupted stored value.
 type failingUpdater struct{}
 
-func (failingUpdater) NewValueFor(_ string, _ []byte) ([]byte, error) {
-	return nil, fmt.Errorf("fold refused this value")
+func (failingUpdater) NewValueFor(_ string, _ []byte, _ bool) ([]byte, bool, error) {
+	return nil, false, fmt.Errorf("fold refused this value")
 }
 
 // BatchUpdate must return without folding anything. The fold here parks until released, so a
@@ -133,7 +133,7 @@ func TestBatchUpdateChainsFoldsWithinAVersion(t *testing.T) {
 func TestBatchUpdateChainsFoldsAcrossVersions(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"k": []byte("a")}, 4, 1<<20)
 
-	var held []View
+	var held []View[[]byte]
 	defer func() {
 		for _, v := range held {
 			require.NoError(t, v.Release())
@@ -185,7 +185,9 @@ func TestBatchUpdateFoldCanDelete(t *testing.T) {
 
 type deletingUpdater struct{}
 
-func (deletingUpdater) NewValueFor(_ string, _ []byte) ([]byte, error) { return nil, nil }
+func (deletingUpdater) NewValueFor(_ string, _ []byte, _ bool) ([]byte, bool, error) {
+	return nil, true, nil
+}
 
 // A fold that fails has to be reported to everything that would otherwise read its value as good: a
 // reader, and the diff that hashing and flushing consume. It must also brick the manager, because a

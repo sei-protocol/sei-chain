@@ -27,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/seilog"
@@ -118,19 +119,16 @@ type CommitStore struct {
 	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
 
 	// Mediates the account database.
-	accountStore view.ViewManager
+	accountStore view.ViewManager[vtype.AccountData]
 
 	// Mediates the code database.
-	codeStore view.ViewManager
+	codeStore view.ViewManager[vtype.CodeData]
 
 	// Mediates the storage database.
-	storageStore view.ViewManager
+	storageStore view.ViewManager[vtype.StorageData]
 
 	// Mediates the misc database.
-	miscStore view.ViewManager
-
-	// All four stores, for the paths that treat them uniformly.
-	stores []view.ViewManager
+	miscStore view.ViewManager[vtype.MiscData]
 
 	// The views of the most recently committed block, one reservation held for as long as they stay
 	// installed, which is what keeps any later block out of pebble. Nil outside the window in which the
@@ -944,36 +942,21 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 
 	var err error
 
-	// readPool and miscPool must stay distinct pools: misc tasks block on read results, so sharing one
-	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
-	// own reads onto either pool, for the same reason.
-	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
-		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool, s.sortPool)
-		if storeErr != nil {
-			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
-		}
-		return store, nil
-	}
-
-	s.accountStore, err = open(&s.config.AccountStoreConfig, dbs.account)
+	s.accountStore, err = openStore(s, &s.config.AccountStoreConfig, dbs.account, accountCodec)
 	if err != nil {
 		return err
 	}
-	s.codeStore, err = open(&s.config.CodeStoreConfig, dbs.code)
+	s.codeStore, err = openStore(s, &s.config.CodeStoreConfig, dbs.code, codeCodec)
 	if err != nil {
 		return err
 	}
-	s.storageStore, err = open(&s.config.StorageStoreConfig, dbs.storage)
+	s.storageStore, err = openStore(s, &s.config.StorageStoreConfig, dbs.storage, storageCodec)
 	if err != nil {
 		return err
 	}
-	s.miscStore, err = open(&s.config.MiscStoreConfig, dbs.misc)
+	s.miscStore, err = openStore(s, &s.config.MiscStoreConfig, dbs.misc, miscCodec)
 	if err != nil {
 		return err
-	}
-
-	s.stores = []view.ViewManager{
-		s.accountStore, s.codeStore, s.storageStore, s.miscStore,
 	}
 
 	// Every store gets a baseline seal, read-only views included. A view replays blocks to reach its target
@@ -1006,6 +989,24 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	return nil
 }
 
+// openStore creates the view manager mediating one database, whose values codec converts.
+//
+// readPool and miscPool must stay distinct pools: misc tasks block on read results, so sharing one bounded
+// pool can deadlock. Nothing may sit between a store and its database that schedules its own reads onto
+// either pool, for the same reason.
+func openStore[V any](
+	s *CommitStore,
+	cfg *view.ViewManagerConfig,
+	db seidbtypes.KeyValueDB,
+	codec view.Codec[V],
+) (view.ViewManager[V], error) {
+	store, err := view.NewViewManager(cfg, db, codec, s.readPool, s.miscPool, s.sortPool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, err)
+	}
+	return store, nil
+}
+
 // checkpointables returns the handle each database is checkpointed through, keyed by database
 // directory name. Captured once while the view managers exist, so a snapshot being written off-thread
 // never has to reach back into the store for a handle that teardown may have cleared.
@@ -1023,26 +1024,6 @@ func (s *CommitStore) checkpointables() map[string]seidbtypes.Checkpointable {
 	return dbs
 }
 
-// viewManagerFor returns the view manager mediating the named database, or nil before the managers exist.
-//
-// It answers with the manager, not the database beneath it, so that every access through it is an access the
-// manager has sanctioned. The one operation that genuinely needs the database — taking a Pebble checkpoint,
-// which addresses it as a file rather than as a key-value store — reaches past the manager at its own call
-// site, where the reason is written down.
-func (s *CommitStore) viewManagerFor(name string) view.ViewManager {
-	switch name {
-	case accountDBDir:
-		return s.accountStore
-	case codeDBDir:
-		return s.codeStore
-	case storageDBDir:
-		return s.storageStore
-	case miscDBDir:
-		return s.miscStore
-	}
-	return nil
-}
-
 // rawDBFor returns the raw database behind the named view manager, bypassing every guarantee that manager
 // provides. Apply intense scrutiny at every call site.
 //
@@ -1051,11 +1032,25 @@ func (s *CommitStore) viewManagerFor(name string) view.ViewManager {
 //
 // Returns nil before the managers exist; callers in that window hold the handles directly.
 func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
-	manager := s.viewManagerFor(name)
-	if manager == nil {
+	switch name {
+	case accountDBDir:
+		return underlyingDB(s.accountStore)
+	case codeDBDir:
+		return underlyingDB(s.codeStore)
+	case storageDBDir:
+		return underlyingDB(s.storageStore)
+	case miscDBDir:
+		return underlyingDB(s.miscStore)
+	}
+	return nil
+}
+
+// underlyingDB returns the raw database behind store, or nil when store does not exist. See rawDBFor().
+func underlyingDB[V any](store view.ViewManager[V]) seidbtypes.KeyValueDB {
+	if store == nil {
 		return nil
 	}
-	return manager.EscapeHatchUnderlyingDB()
+	return store.EscapeHatchUnderlyingDB()
 }
 
 // closeStores tears down whichever stores exist and clears them, so a store that is being reopened
@@ -1091,21 +1086,28 @@ func (s *CommitStore) closeStores() error {
 		s.lastSealed = nil
 	}
 
-	for _, store := range s.stores {
-		if store == nil {
-			continue
-		}
-		if err := store.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("%s store close: %w", store.Name(), err))
-		}
-	}
+	errs = append(errs,
+		closeStore(s.accountStore),
+		closeStore(s.codeStore),
+		closeStore(s.storageStore),
+		closeStore(s.miscStore))
 
 	s.accountStore = nil
 	s.codeStore = nil
 	s.storageStore = nil
 	s.miscStore = nil
-	s.stores = nil
 	return errors.Join(errs...)
+}
+
+// closeStore closes store, and is a no-op for a store that does not exist.
+func closeStore[V any](store view.ViewManager[V]) error {
+	if store == nil {
+		return nil
+	}
+	if err := store.Close(); err != nil {
+		return fmt.Errorf("%s store close: %w", store.Name(), err)
+	}
+	return nil
 }
 
 // computeStoreHeights reports the height each database actually reached on disk, keyed by database

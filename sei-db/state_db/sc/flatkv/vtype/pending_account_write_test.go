@@ -11,13 +11,12 @@ func TestPAW_SetNonce_MergeOntoZeroBase(t *testing.T) {
 	paw := NewPendingAccountWrite().SetNonce(42)
 	base := NewAccountData()
 
-	result := paw.Merge(base, 100)
+	result := paw.Merge(*base, 100)
 
 	require.Equal(t, uint64(42), result.GetNonce())
-	require.Equal(t, int64(100), result.GetBlockHeight())
-	var zero [32]byte
-	require.Equal(t, (*Balance)(&zero), result.GetBalance())
-	require.Equal(t, (*CodeHash)(&zero), result.GetCodeHash())
+	require.Equal(t, uint64(100), result.GetBlockHeight())
+	require.Equal(t, Balance{}, result.GetBalance())
+	require.Equal(t, CodeHash{}, result.GetCodeHash())
 }
 
 func TestPAW_SetCodeHash_MergeOntoExistingAccount(t *testing.T) {
@@ -30,15 +29,15 @@ func TestPAW_SetCodeHash_MergeOntoExistingAccount(t *testing.T) {
 	newCodeHash := toCodeHash(bytes.Repeat([]byte{0xbb}, 32))
 	paw := NewPendingAccountWrite().SetCodeHash(newCodeHash)
 
-	result := paw.Merge(base, 100)
+	result := paw.Merge(*base, 100)
 
 	// Changed field
-	require.Equal(t, newCodeHash, result.GetCodeHash())
+	require.Equal(t, *newCodeHash, result.GetCodeHash())
 	// Unchanged fields carried over from base
-	require.Equal(t, toBalance(leftPad32([]byte{0xff})), result.GetBalance())
+	require.Equal(t, *toBalance(leftPad32([]byte{0xff})), result.GetBalance())
 	require.Equal(t, uint64(10), result.GetNonce())
 	// Block height updated
-	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.Equal(t, uint64(100), result.GetBlockHeight())
 }
 
 func TestPAW_SetBalance_MergeOntoExistingAccount(t *testing.T) {
@@ -50,11 +49,11 @@ func TestPAW_SetBalance_MergeOntoExistingAccount(t *testing.T) {
 	newBalance := toBalance(leftPad32([]byte{0x02}))
 	paw := NewPendingAccountWrite().SetBalance(newBalance)
 
-	result := paw.Merge(base, 60)
+	result := paw.Merge(*base, 60)
 
-	require.Equal(t, newBalance, result.GetBalance())
+	require.Equal(t, *newBalance, result.GetBalance())
 	require.Equal(t, uint64(5), result.GetNonce())
-	require.Equal(t, int64(60), result.GetBlockHeight())
+	require.Equal(t, uint64(60), result.GetBlockHeight())
 }
 
 func TestPAW_MultipleFields(t *testing.T) {
@@ -71,22 +70,22 @@ func TestPAW_MultipleFields(t *testing.T) {
 		SetNonce(99).
 		SetCodeHash(newCodeHash)
 
-	result := paw.Merge(base, 200)
+	result := paw.Merge(*base, 200)
 
-	require.Equal(t, newBalance, result.GetBalance())
+	require.Equal(t, *newBalance, result.GetBalance())
 	require.Equal(t, uint64(99), result.GetNonce())
-	require.Equal(t, newCodeHash, result.GetCodeHash())
-	require.Equal(t, int64(200), result.GetBlockHeight())
+	require.Equal(t, *newCodeHash, result.GetCodeHash())
+	require.Equal(t, uint64(200), result.GetBlockHeight())
 }
 
 func TestPAW_ZeroNonce(t *testing.T) {
 	base := NewAccountData().SetNonce(42)
 	paw := NewPendingAccountWrite().SetNonce(0)
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 
 	require.Equal(t, uint64(0), result.GetNonce())
-	require.Equal(t, int64(10), result.GetBlockHeight())
+	require.Equal(t, uint64(10), result.GetBlockHeight())
 }
 
 func TestPAW_ZeroBalance(t *testing.T) {
@@ -94,9 +93,9 @@ func TestPAW_ZeroBalance(t *testing.T) {
 	var zeroBal Balance
 	paw := NewPendingAccountWrite().SetBalance(&zeroBal)
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 
-	require.Equal(t, &zeroBal, result.GetBalance())
+	require.Equal(t, zeroBal, result.GetBalance())
 }
 
 func TestPAW_ZeroCodeHash(t *testing.T) {
@@ -104,9 +103,9 @@ func TestPAW_ZeroCodeHash(t *testing.T) {
 	var zeroHash CodeHash
 	paw := NewPendingAccountWrite().SetCodeHash(&zeroHash)
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 
-	require.Equal(t, &zeroHash, result.GetCodeHash())
+	require.Equal(t, zeroHash, result.GetCodeHash())
 }
 
 func TestPAW_ZeroAllFields_ResultIsDelete(t *testing.T) {
@@ -122,7 +121,7 @@ func TestPAW_ZeroAllFields_ResultIsDelete(t *testing.T) {
 		SetNonce(0).
 		SetCodeHash(&zHash)
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 
 	require.True(t, result.IsDelete())
 }
@@ -133,10 +132,10 @@ func TestPAW_MergeDoesNotModifyBase(t *testing.T) {
 		SetNonce(10)
 
 	paw := NewPendingAccountWrite().SetNonce(99)
-	_ = paw.Merge(base, 100)
+	_ = paw.Merge(*base, 100)
 
 	// Base must be unchanged
-	require.Equal(t, int64(50), base.GetBlockHeight())
+	require.Equal(t, uint64(50), base.GetBlockHeight())
 	require.Equal(t, uint64(10), base.GetNonce())
 }
 
@@ -181,7 +180,7 @@ func TestPAW_OverwriteField(t *testing.T) {
 	paw := NewPendingAccountWrite().SetNonce(1).SetNonce(2)
 	base := NewAccountData()
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 	require.Equal(t, uint64(2), result.GetNonce())
 }
 
@@ -189,7 +188,7 @@ func TestPAW_ZeroThenSet(t *testing.T) {
 	paw := NewPendingAccountWrite().SetNonce(0).SetNonce(42)
 	base := NewAccountData().SetNonce(10)
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 	require.Equal(t, uint64(42), result.GetNonce())
 }
 
@@ -197,7 +196,7 @@ func TestPAW_SetThenZero(t *testing.T) {
 	paw := NewPendingAccountWrite().SetNonce(42).SetNonce(0)
 	base := NewAccountData().SetNonce(10)
 
-	result := paw.Merge(base, 10)
+	result := paw.Merge(*base, 10)
 	require.Equal(t, uint64(0), result.GetNonce())
 }
 
@@ -247,30 +246,29 @@ func TestNilPAW_MergeOntoBase(t *testing.T) {
 		SetBalance(toBalance(leftPad32([]byte{0xff})))
 
 	var paw *PendingAccountWrite
-	result := paw.Merge(base, 100)
+	result := paw.Merge(*base, 100)
 
-	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.Equal(t, uint64(100), result.GetBlockHeight())
 	require.Equal(t, uint64(10), result.GetNonce())
-	require.Equal(t, toBalance(leftPad32([]byte{0xff})), result.GetBalance())
+	require.Equal(t, *toBalance(leftPad32([]byte{0xff})), result.GetBalance())
 }
 
-func TestNilPAW_MergeOntoNilBase(t *testing.T) {
+// Merging onto the zero AccountData (an absent account) with no pending fields yields an empty account.
+func TestNilPAW_MergeOntoAbsentBase(t *testing.T) {
 	var paw *PendingAccountWrite
-	result := paw.Merge(nil, 100)
+	result := paw.Merge(AccountData{}, 100)
 
-	require.NotNil(t, result)
-	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.Equal(t, uint64(100), result.GetBlockHeight())
 	require.True(t, result.IsDelete())
 }
 
-func TestPAW_MergeOntoNilBase(t *testing.T) {
+// Merging onto the zero AccountData (an absent account) applies only the pending fields.
+func TestPAW_MergeOntoAbsentBase(t *testing.T) {
 	paw := NewPendingAccountWrite().SetNonce(42)
-	result := paw.Merge(nil, 100)
+	result := paw.Merge(AccountData{}, 100)
 
-	require.NotNil(t, result)
-	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.Equal(t, uint64(100), result.GetBlockHeight())
 	require.Equal(t, uint64(42), result.GetNonce())
-	var zero [32]byte
-	require.Equal(t, (*Balance)(&zero), result.GetBalance())
-	require.Equal(t, (*CodeHash)(&zero), result.GetCodeHash())
+	require.Equal(t, Balance{}, result.GetBalance())
+	require.Equal(t, CodeHash{}, result.GetCodeHash())
 }

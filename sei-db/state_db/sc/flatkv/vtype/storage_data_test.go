@@ -35,16 +35,15 @@ func TestStorageSerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeStorageData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
-	require.Equal(t, val, rt.GetValue())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
+	require.Equal(t, *val, rt.GetValue())
 }
 
 func TestStorageNewZeroInitialized(t *testing.T) {
 	sd := NewStorageData()
-	var zero [32]byte
-	require.Equal(t, StorageDataVersion0, sd.GetSerializationVersion())
-	require.Equal(t, int64(0), sd.GetBlockHeight())
-	require.Equal(t, &zero, sd.GetValue())
+	require.Equal(t, StorageData{}, *sd)
+	require.Equal(t, uint64(0), sd.GetBlockHeight())
+	require.Equal(t, [32]byte{}, sd.GetValue())
 }
 
 func TestStorageSerializeLength(t *testing.T) {
@@ -60,22 +59,21 @@ func TestStorageRoundTrip_AllFieldsSet(t *testing.T) {
 
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
-	require.Equal(t, val, rt.GetValue())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
+	require.Equal(t, *val, rt.GetValue())
 }
 
 func TestStorageRoundTrip_ZeroValues(t *testing.T) {
 	sd := NewStorageData()
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
-	var zero [32]byte
-	require.Equal(t, int64(0), rt.GetBlockHeight())
-	require.Equal(t, &zero, rt.GetValue())
+	require.Equal(t, uint64(0), rt.GetBlockHeight())
+	require.Equal(t, [32]byte{}, rt.GetValue())
 }
 
 func TestStorageRoundTrip_MaxValues(t *testing.T) {
 	maxVal := toArray32(bytes.Repeat([]byte{0xff}, 32))
-	maxBlockHeight := int64(math.MaxInt64)
+	maxBlockHeight := uint64(math.MaxUint64)
 
 	sd := NewStorageData().
 		SetBlockHeight(maxBlockHeight).
@@ -84,7 +82,7 @@ func TestStorageRoundTrip_MaxValues(t *testing.T) {
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
 	require.Equal(t, maxBlockHeight, rt.GetBlockHeight())
-	require.Equal(t, maxVal, rt.GetValue())
+	require.Equal(t, *maxVal, rt.GetValue())
 }
 
 func TestStorageIsDelete_ZeroValue(t *testing.T) {
@@ -129,60 +127,17 @@ func TestStorageSetterChaining(t *testing.T) {
 		SetBlockHeight(1).
 		SetValue(toArray32(leftPad32([]byte{2})))
 
-	require.Equal(t, int64(1), sd.GetBlockHeight())
+	require.Equal(t, uint64(1), sd.GetBlockHeight())
+	require.Equal(t, *toArray32(leftPad32([]byte{2})), sd.GetValue())
 }
 
 func TestStorageConstantLayout_V0(t *testing.T) {
 	require.Equal(t, 41, storageDataLength)
 }
 
-func TestNilStorageData_Getters(t *testing.T) {
-	var sd *StorageData
-	var zero [32]byte
-
-	require.Equal(t, StorageDataVersion0, sd.GetSerializationVersion())
-	require.Equal(t, int64(0), sd.GetBlockHeight())
-	require.Equal(t, &zero, sd.GetValue())
-}
-
-func TestNilStorageData_IsDelete(t *testing.T) {
-	var sd *StorageData
-	require.True(t, sd.IsDelete())
-}
-
-func TestNilStorageData_Serialize(t *testing.T) {
-	var sd *StorageData
-	s := sd.Serialize()
-	require.Len(t, s, storageDataLength)
-	for _, b := range s {
-		require.Equal(t, byte(0), b)
-	}
-}
-
-func TestNilStorageData_SerializeRoundTrips(t *testing.T) {
-	var sd *StorageData
-	rt, err := DeserializeStorageData(sd.Serialize())
-	require.NoError(t, err)
-	require.True(t, rt.IsDelete())
-}
-
-func TestNilStorageData_SettersAutoCreate(t *testing.T) {
-	var s1 *StorageData
-	s1 = s1.SetBlockHeight(42)
-	require.NotNil(t, s1)
-	require.Equal(t, int64(42), s1.GetBlockHeight())
-
-	var s2 *StorageData
-	val := [32]byte{0x01}
-	s2 = s2.SetValue(&val)
-	require.NotNil(t, s2)
-	require.Equal(t, &val, s2.GetValue())
-}
-
 func TestStorageData_SetValueNilZeros(t *testing.T) {
 	sd := NewStorageData().
 		SetValue(toArray32(leftPad32([]byte{0xff}))).
 		SetValue(nil)
-	var zero [32]byte
-	require.Equal(t, &zero, sd.GetValue())
+	require.Equal(t, [32]byte{}, sd.GetValue())
 }

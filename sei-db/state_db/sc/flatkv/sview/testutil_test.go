@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // A StoreView is four named views and nothing more, so these tests supply their own names rather than
@@ -23,11 +24,11 @@ const (
 
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
 
-var _ view.View = (*fakeView)(nil)
+var _ view.View[vtype.AccountData] = typedFakeView[vtype.AccountData]{}
 
-// fakeView is a view whose reserve and flush outcomes the test chooses, and which counts reservations
-// both ways. The methods a StoreView never reaches panic, so a use this stub was not written for is loud
-// rather than silently wrong.
+// fakeView is a view whose reserve, release and flush outcomes the test chooses, and which counts
+// reservations both ways. typedFakeView serves it as one store's view. The methods a StoreView never
+// reaches panic, so a use this stub was not written for is loud rather than silently wrong.
 type fakeView struct {
 	// Reported by Name.
 	name string
@@ -37,6 +38,10 @@ type fakeView struct {
 
 	// Returned by Reserve. A non-nil value also suppresses the reserve count.
 	reserveErr error
+
+	// Returned by every Release call. The count still advances, so a test can tell a release that was
+	// attempted and failed from one that never happened.
+	releaseErr error
 
 	// Counts successful Reserve calls.
 	reserves atomic.Int64
@@ -59,25 +64,46 @@ func (v *fakeView) Reserve() error {
 
 func (v *fakeView) Release() error {
 	v.releases.Add(1)
-	return nil
+	return v.releaseErr
 }
 
 func (v *fakeView) Abandon() {}
 
-func (v *fakeView) Get([]byte, bool) ([]byte, bool, error) {
+func (v *fakeView) Finalize([]*proto.KVPair) error {
+	panic("fakeView: unexpected Finalize")
+}
+
+// typedFakeView is a fakeView serving as the view of a store whose values are V. A StoreView never reads
+// values, so the reads panic.
+type typedFakeView[V any] struct {
+	*fakeView
+}
+
+func (typedFakeView[V]) Get([]byte, bool) (V, bool, error) {
 	panic("fakeView: unexpected Get")
 }
 
-func (v *fakeView) BatchGet([][]byte) (map[string][]byte, error) {
+func (typedFakeView[V]) BatchGet([][]byte) (map[string]V, error) {
 	panic("fakeView: unexpected BatchGet")
 }
 
-func (v *fakeView) ForEachDiff(func(key string, value []byte) error) error {
+func (typedFakeView[V]) ForEachDiff(func(key string, value V, deleted bool) error) error {
 	panic("fakeView: unexpected ForEachDiff")
 }
 
-func (v *fakeView) Finalize([]*proto.KVPair) error {
-	panic("fakeView: unexpected Finalize")
+// storeViewOver builds a store view at version over one fake per database.
+func storeViewOver(
+	version int64,
+	account *fakeView,
+	code *fakeView,
+	storage *fakeView,
+	misc *fakeView,
+) (*StoreView, error) {
+	return NewStoreView(version,
+		typedFakeView[vtype.AccountData]{account},
+		typedFakeView[vtype.CodeData]{code},
+		typedFakeView[vtype.StorageData]{storage},
+		typedFakeView[vtype.MiscData]{misc})
 }
 
 // fakeViews returns a store view at version backed by one stub per database, alongside the stubs so a
@@ -88,7 +114,7 @@ func fakeViews(t *testing.T, version int64) (*StoreView, map[string]*fakeView) {
 	for _, name := range dataDBDirs {
 		stubs[name] = &fakeView{name: name}
 	}
-	blockView, err := NewStoreView(version,
+	blockView, err := storeViewOver(version,
 		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
 	require.NoError(t, err)
 	return blockView, stubs

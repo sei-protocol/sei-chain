@@ -57,7 +57,7 @@ func TestShardCountMustBeAPowerOfTwo(t *testing.T) {
 func TestBucketIndicesByShardPreservesOrderAndMembership(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 7, 8, 9, 100, 4096} {
 		manager := newTestManagerWithDB(t, newTestDB(nil), 8, 1<<20)
-		impl := manager.(*viewManager)
+		impl := manager.(*viewManager[[]byte])
 
 		keys := make([]string, count)
 		for i := range keys {

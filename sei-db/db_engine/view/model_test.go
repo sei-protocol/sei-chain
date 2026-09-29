@@ -58,9 +58,9 @@ func (m *modelManager) Delete(key []byte) {
 	m.pending[k] = nil
 }
 
-func (m *modelManager) BatchSet(muts []Write) {
+func (m *modelManager) BatchSet(muts []Write[[]byte]) {
 	for i := range muts {
-		if muts[i].Value == nil {
+		if muts[i].Delete {
 			m.Delete([]byte(muts[i].Key))
 		} else {
 			m.Set([]byte(muts[i].Key), muts[i].Value)

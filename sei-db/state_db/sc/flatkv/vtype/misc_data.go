@@ -30,133 +30,76 @@ const (
 	miscHeaderLength     = VersionLength + BlockHeightLength
 )
 
-var _ VType = (*MiscData)(nil)
-
-// Used for encapsulating and serializing misc data in the FlatKV misc database.
+// MiscData is a row in the FlatKV misc database. An empty value is a value rather than a deletion, since
+// []byte{} is a valid Cosmos module value.
 //
-// This data structure is not threadsafe. Values passed into and values received from this data structure
-// are not safe to modify without first copying them.
+// The value is shared rather than copied when a MiscData is copied, and must not be mutated.
 type MiscData struct {
-	version     MiscDataVersion
-	blockHeight int64
-	value       []byte
-	isDelete    bool
+	// The block height at which this entry was last modified.
+	blockHeight uint64
+
+	// The entry's value.
+	value []byte
 }
 
-// Create a new MiscData with the given value.
+// NewMiscData returns a new MiscData with every field zero.
 func NewMiscData() *MiscData {
-	return &MiscData{version: MiscDataVersion0}
+	return &MiscData{}
 }
 
-// SerializeMisc returns the serialized misc value for value written at blockHeight. An empty value
-// is a write rather than a deletion; a deletion is a nil value at the store. value is copied, so
-// the caller may reuse it.
-func SerializeMisc(blockHeight int64, value []byte) []byte {
-	data := make([]byte, miscHeaderLength+len(value))
-	data[miscVersionStart] = byte(MiscDataVersion0)
-	heightBytes := data[miscBlockHeightStart:miscValueStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
-	copy(data[miscValueStart:], value)
-	return data
+// AppendMiscData appends the serialized form of misc to dst and returns the extended slice.
+func AppendMiscData(dst []byte, misc MiscData) []byte {
+	dst = append(dst, byte(MiscDataVersion0))
+	dst = binary.BigEndian.AppendUint64(dst, misc.blockHeight)
+	return append(dst, misc.value...)
 }
 
-// Serialize the misc data to a byte slice.
-func (l *MiscData) Serialize() []byte {
-	if l == nil {
-		return make([]byte, miscHeaderLength)
-	}
-	return SerializeMisc(l.blockHeight, l.value)
+// Serialize returns the serialized form of the entry in a new slice.
+func (l MiscData) Serialize() []byte {
+	return AppendMiscData(make([]byte, 0, miscHeaderLength+len(l.value)), l)
 }
 
-// Deserialize the misc data from the given byte slice.
-func DeserializeMiscData(data []byte) (*MiscData, error) {
+// DeserializeMiscData parses a misc entry from its serialized form. The returned value aliases data, and
+// is non-nil even when empty.
+func DeserializeMiscData(data []byte) (MiscData, error) {
 	if len(data) == 0 {
-		return nil, errors.New("data is empty")
+		return MiscData{}, errors.New("data is empty")
 	}
 
 	version := MiscDataVersion(data[miscVersionStart])
 	if version != MiscDataVersion0 {
-		return nil, fmt.Errorf("unsupported serialization version: %d", version)
+		return MiscData{}, fmt.Errorf("unsupported serialization version: %d", version)
 	}
-
 	if len(data) < miscHeaderLength {
-		return nil, fmt.Errorf("data length at version %d should be at least %d, got %d",
+		return MiscData{}, fmt.Errorf("data length at version %d should be at least %d, got %d",
 			version, miscHeaderLength, len(data))
 	}
 
-	value := make([]byte, len(data)-miscHeaderLength)
-	copy(value, data[miscValueStart:])
-
-	return &MiscData{
-		version:     version,
-		blockHeight: int64(binary.BigEndian.Uint64(data[miscBlockHeightStart:miscValueStart])), //nolint:gosec
-		value:       value,
+	return MiscData{
+		blockHeight: binary.BigEndian.Uint64(data[miscBlockHeightStart:miscValueStart]),
+		value:       data[miscValueStart:],
 	}, nil
 }
 
-// Get the serialization version for this MiscData instance.
-func (l *MiscData) GetSerializationVersion() MiscDataVersion {
-	if l == nil {
-		return MiscDataVersion0
-	}
-	return l.version
-}
-
-// Get the block height when this misc entry was last modified.
-func (l *MiscData) GetBlockHeight() int64 {
-	if l == nil {
-		return 0
-	}
+// GetBlockHeight returns the block height at which the entry was last modified.
+func (l MiscData) GetBlockHeight() uint64 {
 	return l.blockHeight
 }
 
-// Get the misc value.
-func (l *MiscData) GetValue() []byte {
-	if l == nil {
-		return []byte{}
-	}
+// GetValue returns the entry's value, which must not be mutated.
+func (l MiscData) GetValue() []byte {
 	return l.value
 }
 
-// Set the block height when this misc entry was last modified/touched. Returns self (or a new MiscData if nil).
-func (l *MiscData) SetBlockHeight(blockHeight int64) *MiscData {
-	if l == nil {
-		l = NewMiscData()
-	}
+// SetBlockHeight sets the block height at which the entry was last modified. Returns the receiver.
+func (l *MiscData) SetBlockHeight(blockHeight uint64) *MiscData {
 	l.blockHeight = blockHeight
 	return l
 }
 
-// Set the misc value. Returns self (or a new MiscData if nil).
-// Clears the delete flag — an explicit SetValue is a write, not a deletion,
-// even when value is empty ([]byte{} is a valid Cosmos module value).
+// SetValue sets the entry's value to a copy of value, which is non-nil even when empty. Returns the
+// receiver.
 func (l *MiscData) SetValue(value []byte) *MiscData {
-	if l == nil {
-		l = NewMiscData()
-	}
-	l.value = make([]byte, len(value))
-	copy(l.value, value)
-	l.isDelete = false
+	l.value = append(make([]byte, 0, len(value)), value...)
 	return l
-}
-
-// MarkDeleted flags this entry for physical key removal at commit time.
-// The stored value is irrelevant once marked; IsDelete() will return true.
-func (l *MiscData) MarkDeleted() *MiscData {
-	if l == nil {
-		l = NewMiscData()
-	}
-	l.isDelete = true
-	return l
-}
-
-// IsDelete reports whether this entry represents a deletion.
-// Uses an explicit flag rather than value-length inference so that empty
-// values ([]byte{}) written by Cosmos modules are not misinterpreted as
-// deletions.
-func (l *MiscData) IsDelete() bool {
-	if l == nil {
-		return true
-	}
-	return l.isDelete
 }

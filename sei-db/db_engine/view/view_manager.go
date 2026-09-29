@@ -16,11 +16,11 @@ var ErrViewManagerClosed = errors.New("view manager closed")
 
 // BatchUpdater produces the value to write for each of a batch's keys, from the value that key
 // currently holds. One BatchUpdater serves every key in a BatchUpdate call.
-type BatchUpdater interface {
-	// NewValueFor returns the value to write for key, or nil to delete it. priorValue is the value
-	// key currently holds, or nil if it holds none. Called concurrently, after BatchUpdate has
-	// returned, and must neither retain nor mutate priorValue.
-	NewValueFor(key string, priorValue []byte) ([]byte, error)
+type BatchUpdater[V any] interface {
+	// NewValueFor returns the value to write for key, or reports that key is to be deleted instead.
+	// priorValue is the value key currently holds, and is meaningful only when priorFound is true.
+	// Called concurrently, after BatchUpdate has returned, and must not mutate priorValue.
+	NewValueFor(key string, priorValue V, priorFound bool) (newValue V, deleted bool, err error)
 }
 
 // ViewManager provides a read-through cache and efficient point-in-time views on top of a basic
@@ -30,8 +30,8 @@ type BatchUpdater interface {
 // Data is asynchronously flushed to disk once it has been finalized and all its reservations
 // released. See View for the full lifecycle.
 //
-// Warning: it is not safe to mutate byte slices (keys or values) passed to or received from the manager.
-// The manager is not required to make defensive copies, and so these slices must be treated as immutable.
+// Warning: it is not safe to mutate keys or values passed to or received from the manager. The manager is
+// not required to make defensive copies, and so they must be treated as immutable.
 //
 // There are no recoverable ViewManager errors. Any error returned by the manager is fatal, and
 // halting is the caller's responsibility: on the first error the caller is expected to stop, because
@@ -46,39 +46,37 @@ type BatchUpdater interface {
 //
 // The configured metadata key prefix is reserved for the manager; keys under it must not be written
 // or read through the manager's key-value methods (see ViewManagerConfig.ReservedPrefix).
-type ViewManager interface {
-
+type ViewManager[V any] interface {
 	// Name identifies this manager instance (see ViewManagerConfig.Name). Constant for the
 	// manager's lifetime.
 	Name() string
 
-	// Get returns the value for the given key at the manager's current (mutable) version, or
-	// (nil, false, nil) if not found. On a miss the value is read through from the backing store.
+	// Get returns the value for the given key at the manager's current (mutable) version, and whether
+	// it was found. On a miss the value is read through from the backing store.
 	//
 	// The key is read only for the duration of the call; the caller may reuse the slice once Get
-	// returns. The returned value slice must not be mutated.
-	Get(key []byte, updateLru bool) ([]byte, bool, error)
+	// returns. The returned value must not be mutated.
+	Get(key []byte, updateLru bool) (V, bool, error)
 
 	// BatchGet reads the given keys against the current (mutable) version and returns a map, keyed by
 	// string(key), of the keys that were found to their values. Not-found keys are absent from the
-	// map; a present entry is always a found value (an empty value is a non-nil zero-length slice).
+	// map.
 	//
 	// If any read fails, BatchGet returns a nil map and that error — reads are not partially
-	// recoverable. It is not safe to mutate the returned key or value slices.
-	BatchGet(keys [][]byte) (map[string][]byte, error)
+	// recoverable. It is not safe to mutate the returned values.
+	BatchGet(keys [][]byte) (map[string]V, error)
 
 	// Set writes the value for the given key into the current (mutable) version. Not visible to
 	// iterators created earlier (see Iterator).
-	Set(key []byte, value []byte) error
+	Set(key []byte, value V) error
 
 	// Delete removes the given key from the current (mutable) version. Not visible to iterators
 	// created earlier (see Iterator).
 	Delete(key []byte) error
 
-	// BatchSet applies the given writes to the current (mutable) version. A nil Value deletes the
-	// key; an empty, non-nil Value is a zero-length value, distinct from a delete. Not visible to
-	// iterators created earlier (see Iterator).
-	BatchSet(writes []Write) error
+	// BatchSet applies the given writes to the current (mutable) version. Not visible to iterators
+	// created earlier (see Iterator).
+	BatchSet(writes []Write[V]) error
 
 	// BatchUpdate stages a value for every key in keys, to be produced later by handing that key's
 	// prior value to updater. Where BatchSet takes the values, this takes a function of the values
@@ -90,7 +88,7 @@ type ViewManager interface {
 	// reads, hashes or flushes that key, and bricks the manager.
 	//
 	// keys must not repeat. Not visible to iterators created earlier (see Iterator).
-	BatchUpdate(keys []string, updater BatchUpdater) error
+	BatchUpdate(keys []string, updater BatchUpdater[V]) error
 
 	// Commit seals the current version as an immutable, point-in-time View and advances the
 	// manager to a fresh mutable version. The returned View is safe to read for as long as the
@@ -98,21 +96,21 @@ type ViewManager interface {
 	//
 	// Commit must not be called concurrently with operations on the current (mutable)
 	// version — Get, BatchGet, Set, Delete, BatchSet, BatchUpdate, or the construction of an
-	// Iterator. Reads of
-	// sealed views may proceed concurrently with it, and so may reads through an already-constructed
-	// Iterator: an iterator is fixed at its creation instant, so a seal cannot disturb it.
+	// Iterator. Reads of sealed views may proceed concurrently with it, and so may reads through an
+	// already-constructed Iterator: an iterator is fixed at its creation instant, so a seal cannot
+	// disturb it.
 	//
 	// Commit may block for backpressure when the underlying DB cannot keep up with flushing
 	// (see ViewManagerConfig.MaxUnflushedVersions). The manager imposes no bound on unfinalized
 	// or unreleased views, each of which is retained in memory; the caller is responsible
 	// for pausing execution when finalization or release falls behind.
-	Commit() (View, error)
+	Commit() (View[V], error)
 
 	// Iterator returns an iterator over the manager's current (mutable) version, restricted to
 	// opts.LowerBound (inclusive) and opts.UpperBound (exclusive) and walking keys in descending
 	// lexicographical order when opts.Reverse is set, ascending otherwise. A nil opts means the whole
 	// keyspace, ascending. Keys under the manager's reserved metadata prefix are excluded (see
-	// ViewManagerConfig.ReservedPrefix).
+	// ViewManagerConfig.ReservedPrefix). Values are yielded in their stored encoding (see Codec).
 	//
 	// The returned iterator is fixed at the instant it was constructed, and stays usable for as long
 	// as it is held: its in-memory overrides are a private copy and its read of the backing database
@@ -120,8 +118,8 @@ type ViewManager interface {
 	// Equally, it will never show them — a caller that wants later writes needs a new iterator.
 	// Holding one is therefore safe from another thread, and does not block writes.
 	//
-	// Constructing an iterator must NOT race a BatchSet or a BatchUpdate. Each shard's overrides are copied under that
-	// shard's own lock, so a batch spanning two shards during construction can leave the iterator
+	// Constructing an iterator must NOT race a BatchSet or a BatchUpdate. Each shard's overrides are copied
+	// under that shard's own lock, so a batch spanning two shards during construction can leave the iterator
 	// holding part of it — a state belonging to no single instant, reported without an error. Serialize
 	// construction against BatchSet. Set and Delete each touch a single shard and so are seen either
 	// wholly or not at all; Commit stages no values and cannot be seen at all.
@@ -185,19 +183,19 @@ type ViewManager interface {
 // views. Release is the exception: it drops a reservation, so a read racing the final Release races the
 // reclamation of the data being read.
 //
-// Warning: it is not safe to mutate byte slices (keys or values) passed to or received from a view.
-// The view is not required to make defensive copies, and so these slices must be treated as immutable.
+// Warning: it is not safe to mutate keys or values passed to or received from a view. The view is not
+// required to make defensive copies, and so they must be treated as immutable.
 //
 // There are no recoverable View errors. Any error returned by a view is fatal, and halting is the
 // caller's responsibility: on the first error the caller is expected to stop, because continuing on top
 // of state the view could not vouch for risks forking the chain.
-type View interface {
+type View[V any] interface {
 	// Name returns the name of the manager this view was taken from.
 	Name() string
 
-	// Get returns the value for the given key, or (nil, false, nil) if not found. The key is read only
-	// for the duration of the call; the caller may reuse the slice once Get returns. The returned value
-	// slice must not be mutated.
+	// Get returns the value for the given key, and whether it was found. The key is read only for the
+	// duration of the call; the caller may reuse the slice once Get returns. The returned value must not
+	// be mutated.
 	Get(
 		// The entry to fetch.
 		key []byte,
@@ -205,18 +203,18 @@ type View interface {
 		// Useful to set false when an operation is performed multiple times in close succession on the
 		// same key, since it requires non-zero overhead to do so with little benefit.
 		updateLru bool,
-	) ([]byte, bool, error)
+	) (V, bool, error)
 
 	// BatchGet reads the given keys from the view and returns a map, keyed by string(key), of the
-	// keys that were found to their values. Not-found keys are absent from the map; a present entry
-	// is always a found value (an empty value is a non-nil zero-length slice).
+	// keys that were found to their values. Not-found keys are absent from the map.
 	//
 	// If any read fails, BatchGet returns a nil map and that error — reads are not partially
 	// recoverable.
-	BatchGet(keys [][]byte) (map[string][]byte, error)
+	BatchGet(keys [][]byte) (map[string]V, error)
 
-	// ForEachDiff visits every key-value mutation contained in this view.
-	ForEachDiff(visit func(key string, value []byte) error) error
+	// ForEachDiff visits every key this view wrote, with the value it wrote or, when deleted is true,
+	// the knowledge that it deleted the key. value is the zero V when deleted is true.
+	ForEachDiff(visit func(key string, value V, deleted bool) error) error
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,
 	// the view is safe to read and its internal data is protected from cleanup. Each Reserve

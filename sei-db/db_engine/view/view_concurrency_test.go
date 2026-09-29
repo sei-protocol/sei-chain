@@ -100,7 +100,7 @@ func TestConcurrentDifferential(t *testing.T) {
 	// Exactly one of view and iter is set on any given job.
 	type job struct {
 		// view is a sealed view to validate against ver.
-		view View
+		view View[[]byte]
 		// ver is the immutable oracle for view.
 		ver *modelVersion
 		// iter is a live-version iterator to validate against oracle.
@@ -226,7 +226,7 @@ func checkConcurrentIterator(t *testing.T, it dbm.Iterator, oracle []kvPair) {
 //
 // Iteration is validated separately by checkConcurrentIterator, since an iterator covers the mutable
 // version rather than a sealed one and so needs a different oracle.
-func checkConcurrentView(t *testing.T, view View, ver *modelVersion, keys [][]byte) {
+func checkConcurrentView(t *testing.T, view View[[]byte], ver *modelVersion, keys [][]byte) {
 	for _, k := range keys {
 		v, found, err := view.Get(k, false)
 		if err != nil {

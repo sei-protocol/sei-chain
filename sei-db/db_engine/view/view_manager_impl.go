@@ -16,10 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-var _ ViewManager = (*viewManager)(nil)
+var _ ViewManager[[]byte] = (*viewManager[[]byte])(nil)
 
 // The standard implementation of ViewManager.
-type viewManager struct {
+type viewManager[V any] struct {
 	// Manager-private context. Blocked waits throughout the manager select on it; it is cancelled
 	// (always under versionLock — see closeInternal) when the manager shuts down, via Close or a
 	// fatal lifecycle error.
@@ -28,11 +28,14 @@ type viewManager struct {
 
 	config ViewManagerConfig
 
+	// Converts between the database's bytes and values.
+	codec Codec[V]
+
 	// A utility for assigning keys to shard indices.
 	shardManager *shardManager
 
 	// The shards in the manager.
-	shards []*shard
+	shards []*shard[V]
 
 	// A pool for asynchronous reads.
 	readPool threading.Pool
@@ -154,10 +157,12 @@ type viewReferenceCounter struct {
 // afterwards: doing so bypasses the manager's staging and cache and sees or corrupts a version nobody
 // asked for. The pools, by contrast, are shared and remain the caller's to close — after the manager,
 // since the manager's goroutines submit to them.
-func NewViewManager(
+func NewViewManager[V any](
 	config *ViewManagerConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
+	// Converts between the database's bytes and the manager's values.
+	codec Codec[V],
 	// A work pool for reading from the DB.
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
@@ -174,9 +179,12 @@ func NewViewManager(
 	// being counted as unflushed (see scanForFlushEligibilityLocked) while its successors keep being
 	// sealed.
 	sortPool threading.Pool,
-) (ViewManager, error) {
+) (ViewManager[V], error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid view manager config: %w", err)
+	}
+	if err := codec.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid codec: %w", err)
 	}
 
 	shardManager, err := newShardManager(config.ShardCount)
@@ -192,10 +200,11 @@ func NewViewManager(
 	versionLock := &sync.Mutex{}
 	lifecycleBackpressureCond := sync.NewCond(versionLock)
 
-	c := &viewManager{
+	c := &viewManager[V]{
 		ctx:          childCtx,
 		cancel:       cancel,
 		config:       *config,
+		codec:        codec,
 		shardManager: shardManager,
 		readPool:     readPool,
 		miscPool:     miscPool,
@@ -215,9 +224,9 @@ func NewViewManager(
 	// Shards are created after the manager struct so they can report the manager's shutdown error
 	// (the latched fatal error, or ErrViewManagerClosed) when a blocked read is released by context
 	// cancellation — see the Close contract on ViewManager.
-	shards := make([]*shard, config.ShardCount)
+	shards := make([]*shard[V], config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard,
+		shards[i], err = NewShard(childCtx, config, db, &c.codec, readPool, sizePerShard,
 			c.shutdownError, c.reportReadFailure, c.reportFoldFailure)
 		if err != nil {
 			cancel()
@@ -241,7 +250,7 @@ func NewViewManager(
 	return c, nil
 }
 
-func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
+func (c *viewManager[V]) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	for _, s := range c.shards {
 		b, e := s.GetSizeInfo()
 		bytes += b
@@ -250,7 +259,7 @@ func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
-func (c *viewManager) BatchSet(writes []Write) error {
+func (c *viewManager[V]) BatchSet(writes []Write[V]) error {
 	buckets := c.bucketIndicesByShard(len(writes), func(i int) string { return writes[i].Key })
 
 	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed or
@@ -279,12 +288,12 @@ func (c *viewManager) BatchSet(writes []Write) error {
 	return nil
 }
 
-func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
+func (c *viewManager[V]) BatchUpdate(keys []string, updater BatchUpdater[V]) error {
 	work := c.bucketIndicesByShard(len(keys), func(i int) string { return keys[i] })
 	version := c.currentVersion
 
 	// Shards partition the keys, so they stage disjoint sets and run concurrently.
-	staged := make([][]stagedFold, len(c.shards))
+	staged := make([][]stagedFold[V], len(c.shards))
 	errs := make([]error, len(c.shards))
 	var wg sync.WaitGroup
 	for shardIndex := range work {
@@ -325,7 +334,7 @@ func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
 }
 
 // abandonStaged fails every fold staged so far, for a BatchUpdate that could not finish staging.
-func (c *viewManager) abandonStaged(staged [][]stagedFold, version uint64, err error) {
+func (c *viewManager[V]) abandonStaged(staged [][]stagedFold[V], version uint64, err error) {
 	for shardIndex, folds := range staged {
 		if len(folds) == 0 {
 			continue
@@ -339,7 +348,7 @@ func (c *viewManager) abandonStaged(staged [][]stagedFold, version uint64, err e
 // byShard is indexed by shard, and each entry lists the batch indices of that shard's keys:
 // byShard[X][Y] == Z means key Y of shard X is key Z of the batch, and len(byShard[X]) is the number
 // of keys belonging to shard X. Z increases with Y, so a shard's keys stay in batch order.
-func (c *viewManager) bucketIndicesByShard(
+func (c *viewManager[V]) bucketIndicesByShard(
 	// The number of keys in the batch.
 	count int,
 	// Supplies the key at an index into the batch.
@@ -394,12 +403,12 @@ func (c *viewManager) bucketIndicesByShard(
 	return byShard
 }
 
-func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
+func (c *viewManager[V]) BatchGet(keys [][]byte) (map[string]V, error) {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }
 
 // Similar semantics to BatchGet, but reads from the given version of the manager.
-func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
+func (c *viewManager[V]) BatchGetAtVersion(keys [][]byte, version uint64) (map[string]V, error) {
 	// Partition the keys by shard so each shard is queried once.
 	work := make(map[uint64][][]byte)
 	for _, key := range keys {
@@ -412,7 +421,7 @@ func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[stri
 	for shardIndex := range work {
 		shardIndices = append(shardIndices, shardIndex)
 	}
-	results := make([]map[string][]byte, len(shardIndices))
+	results := make([]map[string]V, len(shardIndices))
 	errs := make([]error, len(shardIndices))
 
 	var wg sync.WaitGroup
@@ -426,7 +435,7 @@ func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[stri
 	wg.Wait()
 
 	// Merge into a single result map. Any shard error fails the whole call.
-	merged := make(map[string][]byte, len(keys))
+	merged := make(map[string]V, len(keys))
 	for i := range results {
 		if errs[i] != nil {
 			return nil, fmt.Errorf("failed to batch get from shard: %w", errs[i])
@@ -438,7 +447,7 @@ func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[stri
 	return merged, nil
 }
 
-func (c *viewManager) Delete(key []byte) error {
+func (c *viewManager[V]) Delete(key []byte) error {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 	if err := shard.Delete(key); err != nil {
@@ -447,25 +456,22 @@ func (c *viewManager) Delete(key []byte) error {
 	return nil
 }
 
-func (c *viewManager) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+func (c *viewManager[V]) Get(key []byte, updateLru bool) (V, bool, error) {
 	return c.GetAtVersion(key, c.currentVersion, updateLru)
 }
 
-func (c *viewManager) GetAtVersion(key []byte, version uint64, updateLru bool) ([]byte, bool, error) {
+func (c *viewManager[V]) GetAtVersion(key []byte, version uint64, updateLru bool) (V, bool, error) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 
 	value, ok, err := shard.Get(key, version, updateLru)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to get value from shard: %w", err)
-	}
-	if !ok {
-		return nil, false, nil
+		return value, false, fmt.Errorf("failed to get value from shard: %w", err)
 	}
 	return value, ok, nil
 }
 
-func (c *viewManager) Set(key []byte, value []byte) error {
+func (c *viewManager[V]) Set(key []byte, value V) error {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 	if err := shard.Set(key, value); err != nil {
@@ -474,7 +480,7 @@ func (c *viewManager) Set(key []byte, value []byte) error {
 	return nil
 }
 
-func (c *viewManager) Commit() (View, error) {
+func (c *viewManager[V]) Commit() (View[V], error) {
 	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
 	defer c.metrics.setViewPhase("")
 
@@ -504,7 +510,7 @@ func (c *viewManager) Commit() (View, error) {
 		flushCompleted: make(chan struct{}),
 	}
 
-	view := &viewImpl{
+	view := &viewImpl[V]{
 		version:       sealedVersion,
 		parentManager: c,
 	}
@@ -538,7 +544,7 @@ func (c *viewManager) Commit() (View, error) {
 // went wrong on any of them.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *viewManager) sealShardsLocked() error {
+func (c *viewManager[V]) sealShardsLocked() error {
 	// Read once here rather than from the tasks, which do not hold the versionLock that guards it.
 	expectedVersion := c.currentVersion
 
@@ -577,7 +583,7 @@ func (c *viewManager) sealShardsLocked() error {
 // This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
 // versionLock. When this method returns, it will still hold the versionLock, but it may release and then
 // re-acquire versionLock internally as it awaits for the lifecycle runner to catch up.
-func (c *viewManager) lifecycleBackpressureLocked() error {
+func (c *viewManager[V]) lifecycleBackpressureLocked() error {
 	for c.unflushedCount > c.config.MaxUnflushedVersions {
 		if c.ctx.Err() != nil {
 			return c.shutdownErrorLocked()
@@ -597,7 +603,7 @@ func (c *viewManager) lifecycleBackpressureLocked() error {
 // latched fatal error when the lifecycle runner failed, otherwise ErrViewManagerClosed.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *viewManager) shutdownErrorLocked() error {
+func (c *viewManager[V]) shutdownErrorLocked() error {
 	if c.fatalErr != nil {
 		return fmt.Errorf("view manager failed: %w", c.fatalErr)
 	}
@@ -605,14 +611,14 @@ func (c *viewManager) shutdownErrorLocked() error {
 }
 
 // shutdownError is the unlocked variant of shutdownErrorLocked. The caller must NOT hold versionLock.
-func (c *viewManager) shutdownError() error {
+func (c *viewManager[V]) shutdownError() error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 	return c.shutdownErrorLocked()
 }
 
 // Increment the reference count for the given version.
-func (c *viewManager) IncrementReferenceCount(version uint64) error {
+func (c *viewManager[V]) IncrementReferenceCount(version uint64) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -638,7 +644,7 @@ func (c *viewManager) IncrementReferenceCount(version uint64) error {
 }
 
 // DecrementReferenceCount releases one reservation on version, reporting whether it was the last one.
-func (c *viewManager) DecrementReferenceCount(version uint64) (lastReleased bool, err error) {
+func (c *viewManager[V]) DecrementReferenceCount(version uint64) (lastReleased bool, err error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -685,7 +691,7 @@ func (c *viewManager) DecrementReferenceCount(version uint64) (lastReleased bool
 // Scans for new flush eligible versions. Returns true if there is a new flush eligible version discovered.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *viewManager) scanForFlushEligibilityLocked() bool {
+func (c *viewManager[V]) scanForFlushEligibilityLocked() bool {
 	oldHighestFlushEligibleVersion := c.highestFlushEligibleVersion
 
 	if counter, ok := c.versionMap[oldHighestFlushEligibleVersion]; ok && counter.referenceCount > 0 {
@@ -729,7 +735,7 @@ func (c *viewManager) scanForFlushEligibilityLocked() bool {
 // Scans for new retirement eligible versions. Returns true if there is a new retirement eligible version discovered.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *viewManager) scanForRetirementEligibilityLocked() bool {
+func (c *viewManager[V]) scanForRetirementEligibilityLocked() bool {
 	oldHighestRetirementEligibleVersion := c.highestRetirementEligibleVersion
 
 	// Clip the start to oldestVersion: prior retirements may have advanced oldestVersion past the
@@ -754,7 +760,7 @@ func (c *viewManager) scanForRetirementEligibilityLocked() bool {
 // Determine if we need to wake up the lifecycle runner to do work (either flushing or retiring views).
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *viewManager) maybeWakeLifecycleLocked() {
+func (c *viewManager[V]) maybeWakeLifecycleLocked() {
 	newFlushEligible := c.scanForFlushEligibilityLocked()
 	newRetirementEligible := c.scanForRetirementEligibilityLocked()
 	if newFlushEligible || newRetirementEligible {
@@ -768,7 +774,7 @@ func (c *viewManager) maybeWakeLifecycleLocked() {
 
 // FinalizeView attaches metadata writes to the view at the given version and makes it
 // eligible to be flushed. An empty write set is legal.
-func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error {
+func (c *viewManager[V]) FinalizeView(version uint64, writes []*proto.KVPair) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -793,14 +799,17 @@ func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error
 // has not happened yet. Shard by shard, so the keys arrive ordered within a shard but not across them: no
 // consumer of a whole version's diff depends on a global order, and merging the shards to provide one
 // would cost the caller a comparison per key for nothing.
-func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string, value []byte) error) error {
+func (c *viewManager[V]) ForEachDiffAtVersion(
+	version uint64,
+	visit func(key string, value V, deleted bool) error,
+) error {
 	for i, shard := range c.shards {
 		diff, err := shard.SortedDiff(version)
 		if err != nil {
 			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
 		}
 		for _, entry := range diff {
-			if err := visit(entry.Key, entry.Value); err != nil {
+			if err := visit(entry.Key, entry.Value, entry.Delete); err != nil {
 				return err
 			}
 		}
@@ -808,7 +817,7 @@ func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string
 	return nil
 }
 
-func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
+func (c *viewManager[V]) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// Overrides first, DB iterator second, and the order is load-bearing: a concurrent flush+retire
 	// that moved data out of versionedData and into the DB between the two steps would drop those
 	// keys entirely if the DB view were taken first. In this order the same race can only yield a
@@ -839,23 +848,23 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	for _, s := range c.shards {
 		s.IteratorOpened()
 	}
-	tracked := &trackedIterator{Iterator: iter, manager: c}
+	tracked := &trackedIterator[V]{Iterator: iter, manager: c}
 	tracked.closed = utils.MustClose(tracked, "view manager iterator")
 	return tracked, nil
 }
 
 // trackedIterator deregisters itself from every shard when closed, so Close can report the iterators
 // still outstanding. Close is idempotent, and deregisters exactly once however often it is called.
-type trackedIterator struct {
+type trackedIterator[V any] struct {
 	dbm.Iterator
-	manager   *viewManager
+	manager   *viewManager[V]
 	closeOnce sync.Once
 
 	// closed records whether Close has been called.
-	closed utils.CloseMarker[trackedIterator]
+	closed utils.CloseMarker[trackedIterator[V]]
 }
 
-func (w *trackedIterator) Close() error {
+func (w *trackedIterator[V]) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
 		w.closed.Close(w)
@@ -874,7 +883,7 @@ func (w *trackedIterator) Close() error {
 // here we just stitch the results together, and the sort runs without any shard lock held.
 // The overrides are sorted into iteration order — ascending, or descending when reverse is set — so
 // the merge in viewIterator can walk them and the DB iterator in lockstep.
-func (c *viewManager) MaterializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
+func (c *viewManager[V]) MaterializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
 	var lowerBound, upperBound []byte
 	reverse := false
 	if opts != nil {
@@ -903,7 +912,7 @@ func (c *viewManager) MaterializeCurrentOverrides(opts *types.IterOptions) ([]kv
 // The runner sleeps until signaled via lifecycleWake (see wakeLifecycle / scanRetirementEligibility),
 // then processes all available work before sleeping again. It exits only via its lifecycleExit
 // inbox (sent by Close) or by bricking on a fatal error.
-func (c *viewManager) lifecycleRunner() {
+func (c *viewManager[V]) lifecycleRunner() {
 	defer close(c.lifecycleExited)
 
 	for {
@@ -930,7 +939,7 @@ func (c *viewManager) lifecycleRunner() {
 
 // brick latches the fatal error and releases everyone blocked on the manager, so callers observe
 // the failure immediately rather than waiting for Close.
-func (c *viewManager) brick(err error) {
+func (c *viewManager[V]) brick(err error) {
 	c.versionLock.Lock()
 	c.brickLocked(err)
 	c.versionLock.Unlock()
@@ -944,7 +953,7 @@ func (c *viewManager) brick(err error) {
 //
 // Must be called without the shard lock held: it acquires versionLock, and the established order is
 // versionLock before any shard lock.
-func (c *viewManager) reportReadFailure(err error) {
+func (c *viewManager[V]) reportReadFailure(err error) {
 	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
 }
 
@@ -953,7 +962,7 @@ func (c *viewManager) reportReadFailure(err error) {
 //
 // Must be called without the shard lock held: it acquires versionLock, and the established order is
 // versionLock before any shard lock.
-func (c *viewManager) reportFoldFailure(err error) {
+func (c *viewManager[V]) reportFoldFailure(err error) {
 	c.brick(fmt.Errorf("failed to fold a staged value: %w", err))
 }
 
@@ -962,7 +971,7 @@ func (c *viewManager) reportFoldFailure(err error) {
 // for Close.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *viewManager) brickLocked(err error) {
+func (c *viewManager[V]) brickLocked(err error) {
 	if c.fatalErr == nil {
 		c.fatalErr = err
 	}
@@ -982,7 +991,7 @@ func (c *viewManager) brickLocked(err error) {
 }
 
 // Flushes and retires views. Continues running until there is no more work, then returns.
-func (c *viewManager) doLifecycleWork() error {
+func (c *viewManager[V]) doLifecycleWork() error {
 	hasWork := true
 
 	for hasWork {
@@ -1018,7 +1027,7 @@ func (c *viewManager) doLifecycleWork() error {
 }
 
 // Determine which versions need to be flushed to disk.
-func (c *viewManager) determineVersionsToFlushLocked() (
+func (c *viewManager[V]) determineVersionsToFlushLocked() (
 	// The first version to be flushed, inclusive.
 	firstVersion uint64,
 	// The last version to be flushed, exclusive.
@@ -1066,7 +1075,7 @@ func (c *viewManager) determineVersionsToFlushLocked() (
 }
 
 // Determine which versions need to be retired.
-func (c *viewManager) determineVersionsToRetireLocked() (
+func (c *viewManager[V]) determineVersionsToRetireLocked() (
 	// The first version to be retired, inclusive.
 	firstVersion uint64,
 	// The last version to be retired, exclusive.
@@ -1093,7 +1102,7 @@ func (c *viewManager) determineVersionsToRetireLocked() (
 
 // flushViews writes the versions in [firstVersion, lastVersion) to the underlying DB in batches, each
 // version's own writes ordered by key and followed by its finalization writes, and marks them flushed.
-func (c *viewManager) flushViews(
+func (c *viewManager[V]) flushViews(
 	// The first version to flush (inclusive).
 	firstVersion uint64,
 	// The last version to flush (exclusive).
@@ -1110,6 +1119,8 @@ func (c *viewManager) flushViews(
 		}
 	}()
 	versionsInBatch := uint64(0)
+	// Non-nil so that an empty value reaches the batch as a value rather than as nothing.
+	encoded := []byte{}
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
@@ -1126,11 +1137,13 @@ func (c *viewManager) flushViews(
 		if err != nil {
 			return err
 		}
-		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
-			if entry.Value == nil {
+		err = forEachMergedEntry(shardDiffs, func(entry Write[V]) error {
+			if entry.Delete {
 				return batch.DeleteString(entry.Key)
 			}
-			return batch.SetString(entry.Key, entry.Value)
+			// The batch copies the value, so one buffer serves every write of the flush.
+			encoded = c.codec.Append(encoded[:0], entry.Value)
+			return batch.SetString(entry.Key, encoded)
 		})
 		if err != nil {
 			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
@@ -1206,7 +1219,7 @@ func (c *viewManager) flushViews(
 // currently believed to be unflushed, which means the flush and eligibility scans have disagreed
 // about the flush set: an unsigned underflow here would wedge every future Commit in backpressure
 // with no error, so the disagreement is reported instead.
-func (c *viewManager) recordFlushedVersions(versionCount uint64) error {
+func (c *viewManager[V]) recordFlushedVersions(versionCount uint64) error {
 	c.versionLock.Lock()
 	if versionCount > c.unflushedCount {
 		c.versionLock.Unlock()
@@ -1221,7 +1234,7 @@ func (c *viewManager) recordFlushedVersions(versionCount uint64) error {
 }
 
 // Retire all eligible views.
-func (c *viewManager) retireViews(
+func (c *viewManager[V]) retireViews(
 	// The first version to retire (inclusive).
 	firstVersion uint64,
 	// The last version to retire (exclusive).
@@ -1270,16 +1283,16 @@ func (c *viewManager) retireViews(
 // key-value store, which in practice means taking a checkpoint. Every other use is a bug. If a caller
 // wants to read data, it wants Get, BatchGet or Iterator; if it wants to write data, it wants Set,
 // BatchSet or Finalize.
-func (c *viewManager) EscapeHatchUnderlyingDB() types.KeyValueDB {
+func (c *viewManager[V]) EscapeHatchUnderlyingDB() types.KeyValueDB {
 	return c.db
 }
 
-func (c *viewManager) Name() string {
+func (c *viewManager[V]) Name() string {
 	return c.config.Name
 }
 
 // Close is idempotent: teardown runs exactly once and subsequent calls return the same result.
-func (c *viewManager) Close() error {
+func (c *viewManager[V]) Close() error {
 	c.closeOnce.Do(func() {
 		c.closeErr = c.closeInternal()
 	})
@@ -1293,13 +1306,13 @@ func (c *viewManager) Close() error {
 // closes once Close returns. Close calls this before cancelling, so that a fold in flight resolves
 // against an open database instead of abandoning a read that would then race db.Close, and outside
 // versionLock, which a failing fold takes to brick the manager.
-func (c *viewManager) awaitOutstandingFolds() {
+func (c *viewManager[V]) awaitOutstandingFolds() {
 	for _, s := range c.shards {
 		s.AwaitOutstandingFolds()
 	}
 }
 
-func (c *viewManager) closeInternal() error {
+func (c *viewManager[V]) closeInternal() error {
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
 	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
@@ -1353,7 +1366,7 @@ func (c *viewManager) closeInternal() error {
 //
 // Every iterator registers with every shard, so any one shard's count is the manager's count; shard 0
 // is read under its own lock. The manager always has at least one shard (the config requires it).
-func (c *viewManager) assertNoLeakedIterators() error {
+func (c *viewManager[V]) assertNoLeakedIterators() error {
 	s := c.shards[0]
 	s.lock.RLock()
 	open := s.openIterators

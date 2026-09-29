@@ -53,8 +53,9 @@ func TestImportTranslator_StorageEntry(t *testing.T) {
 
 	got, err := vtype.DeserializeStorageData(pairs[0].Value)
 	require.NoError(t, err)
-	require.Equal(t, importBlockHeight, got.GetBlockHeight())
-	require.Equal(t, val, got.GetValue()[:])
+	require.Equal(t, uint64(importBlockHeight), got.GetBlockHeight())
+	value := got.GetValue()
+	require.Equal(t, val, value[:])
 	require.False(t, got.IsDelete())
 
 	require.Empty(t, tr.Finalize())
@@ -74,7 +75,7 @@ func TestImportTranslator_CodeEntry(t *testing.T) {
 
 	got, err := vtype.DeserializeCodeData(pairs[0].Value)
 	require.NoError(t, err)
-	require.Equal(t, importBlockHeight, got.GetBlockHeight())
+	require.Equal(t, uint64(importBlockHeight), got.GetBlockHeight())
 	require.Equal(t, bytecode, got.GetBytecode())
 
 	require.Empty(t, tr.Finalize())
@@ -101,9 +102,8 @@ func TestImportTranslator_MiscEntryWithinEVMModule(t *testing.T) {
 
 	got, err := vtype.DeserializeMiscData(pairs[0].Value)
 	require.NoError(t, err)
-	require.Equal(t, importBlockHeight, got.GetBlockHeight())
+	require.Equal(t, uint64(importBlockHeight), got.GetBlockHeight())
 	require.Equal(t, rawValue, got.GetValue())
-	require.False(t, got.IsDelete())
 
 	require.Empty(t, tr.Finalize())
 }
@@ -150,10 +150,10 @@ func TestImportTranslator_NonceOnlyAccountEmittedByFinalize(t *testing.T) {
 	got, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), got.GetNonce())
-	require.Equal(t, importBlockHeight, got.GetBlockHeight())
+	require.Equal(t, uint64(importBlockHeight), got.GetBlockHeight())
 
 	var zero vtype.CodeHash
-	require.Equal(t, zero, *got.GetCodeHash(), "code hash must default to zero for EOA")
+	require.Equal(t, zero, got.GetCodeHash(), "code hash must default to zero for EOA")
 }
 
 func TestImportTranslator_CodeHashOnlyAccountEmittedByFinalize(t *testing.T) {
@@ -170,7 +170,7 @@ func TestImportTranslator_CodeHashOnlyAccountEmittedByFinalize(t *testing.T) {
 
 	got, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
-	require.Equal(t, ch, *got.GetCodeHash())
+	require.Equal(t, ch, got.GetCodeHash())
 	require.Equal(t, uint64(0), got.GetNonce(), "nonce must default to zero")
 }
 
@@ -192,7 +192,7 @@ func TestImportTranslator_NonceAndCodeHashSameCallMerge(t *testing.T) {
 	got, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, uint64(9), got.GetNonce())
-	require.Equal(t, ch, *got.GetCodeHash())
+	require.Equal(t, ch, got.GetCodeHash())
 }
 
 func TestImportTranslator_NonceAndCodeHashCrossCallMerge(t *testing.T) {
@@ -212,7 +212,7 @@ func TestImportTranslator_NonceAndCodeHashCrossCallMerge(t *testing.T) {
 	got, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, uint64(9), got.GetNonce())
-	require.Equal(t, ch, *got.GetCodeHash())
+	require.Equal(t, ch, got.GetCodeHash())
 }
 
 func TestImportTranslator_BalanceOnlyAccountEmittedByFinalize(t *testing.T) {
@@ -230,8 +230,8 @@ func TestImportTranslator_BalanceOnlyAccountEmittedByFinalize(t *testing.T) {
 
 	got, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
-	require.Equal(t, importBlockHeight, got.GetBlockHeight())
-	require.Equal(t, bal, *got.GetBalance())
+	require.Equal(t, uint64(importBlockHeight), got.GetBlockHeight())
+	require.Equal(t, bal, got.GetBalance())
 	require.Zero(t, got.GetNonce())
 }
 
@@ -256,8 +256,8 @@ func TestImportTranslator_AllAccountFieldsCrossCallMerge(t *testing.T) {
 	got, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, uint64(9), got.GetNonce())
-	require.Equal(t, ch, *got.GetCodeHash())
-	require.Equal(t, bal, *got.GetBalance())
+	require.Equal(t, ch, got.GetCodeHash())
+	require.Equal(t, bal, got.GetBalance())
 }
 
 func TestImportTranslator_DropsDeletes(t *testing.T) {
@@ -319,14 +319,15 @@ func TestImportTranslator_StorageAndAccountInOneCall(t *testing.T) {
 	storagePair := findPair(t, pairs, storagePhysKey(addr, slot))
 	storageGot, err := vtype.DeserializeStorageData(storagePair.Value)
 	require.NoError(t, err)
-	require.Equal(t, padLeft32(0x2A), storageGot.GetValue()[:])
+	storageValue := storageGot.GetValue()
+	require.Equal(t, padLeft32(0x2A), storageValue[:])
 
 	finalized := tr.Finalize()
 	require.Len(t, finalized, 1)
 	acctGot, err := vtype.DeserializeAccountData(finalized[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), acctGot.GetNonce())
-	require.Equal(t, ch, *acctGot.GetCodeHash())
+	require.Equal(t, ch, acctGot.GetCodeHash())
 }
 
 func TestImportTranslator_FinalizeClearsBuffer(t *testing.T) {

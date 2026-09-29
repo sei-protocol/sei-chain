@@ -254,10 +254,8 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 			pending.blockNumber, hash.BlockNumber)
 	}
 
-	for _, dbView := range pending.blockView.Views() {
-		if err := finalizeStore(dbView, pending.blockNumber, pending.alreadyHave, hash); err != nil {
-			return false, fmt.Errorf("finalize %s at block %d: %w", dbView.Name(), pending.blockNumber, err)
-		}
+	if err := finalizeStores(pending.blockView, pending.blockNumber, pending.alreadyHave, hash); err != nil {
+		return false, fmt.Errorf("finalize block %d: %w", pending.blockNumber, err)
 	}
 
 	// The reservation is only needed while the writes above happen. Released before the hash goes out

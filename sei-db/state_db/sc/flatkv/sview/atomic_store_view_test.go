@@ -26,7 +26,7 @@ func TestAtomicStoreViewSetKeepsInstalledViewWhenReserveFails(t *testing.T) {
 	asv, err := NewAtomicStoreView(installed)
 	require.NoError(t, err)
 
-	bad, err := NewStoreView(2,
+	bad, err := storeViewOver(2,
 		&fakeView{name: accountDBDir},
 		&fakeView{name: codeDBDir, reserveErr: errors.New("manager is bricked")},
 		&fakeView{name: storageDBDir},

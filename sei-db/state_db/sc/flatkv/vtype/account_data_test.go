@@ -44,10 +44,10 @@ func TestSerializationGoldenFile_V0_Full(t *testing.T) {
 
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, uint64(42), rt.GetNonce())
-	require.Equal(t, toBalance(leftPad32([]byte{1})), rt.GetBalance())
-	require.Equal(t, toCodeHash(bytes.Repeat([]byte{0xaa}, 32)), rt.GetCodeHash())
+	require.Equal(t, *toBalance(leftPad32([]byte{1})), rt.GetBalance())
+	require.Equal(t, *toCodeHash(bytes.Repeat([]byte{0xaa}, 32)), rt.GetCodeHash())
 }
 
 // Compact form: zero codehash omitted (49 bytes).
@@ -63,21 +63,19 @@ func TestSerializationGoldenFile_V0_Compact(t *testing.T) {
 
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(100), rt.GetBlockHeight())
 	require.Equal(t, uint64(42), rt.GetNonce())
-	require.Equal(t, toBalance(leftPad32([]byte{1})), rt.GetBalance())
-	var zeroHash CodeHash
-	require.Equal(t, &zeroHash, rt.GetCodeHash())
+	require.Equal(t, *toBalance(leftPad32([]byte{1})), rt.GetBalance())
+	require.Equal(t, CodeHash{}, rt.GetCodeHash())
 }
 
 func TestNewAccountData_ZeroInitialized(t *testing.T) {
 	ad := NewAccountData()
-	var zero [32]byte
-	require.Equal(t, AccountDataVersion0, ad.GetSerializationVersion())
-	require.Equal(t, int64(0), ad.GetBlockHeight())
+	require.Equal(t, AccountData{}, *ad)
+	require.Equal(t, uint64(0), ad.GetBlockHeight())
 	require.Equal(t, uint64(0), ad.GetNonce())
-	require.Equal(t, (*Balance)(&zero), ad.GetBalance())
-	require.Equal(t, (*CodeHash)(&zero), ad.GetCodeHash())
+	require.Equal(t, Balance{}, ad.GetBalance())
+	require.Equal(t, CodeHash{}, ad.GetCodeHash())
 }
 
 func TestSerializeLength_Compact(t *testing.T) {
@@ -102,10 +100,10 @@ func TestRoundTrip_AllFieldsSet(t *testing.T) {
 
 	rt, err := DeserializeAccountData(ad.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, int64(999), rt.GetBlockHeight())
+	require.Equal(t, uint64(999), rt.GetBlockHeight())
 	require.Equal(t, uint64(12345), rt.GetNonce())
-	require.Equal(t, balance, rt.GetBalance())
-	require.Equal(t, codeHash, rt.GetCodeHash())
+	require.Equal(t, *balance, rt.GetBalance())
+	require.Equal(t, *codeHash, rt.GetCodeHash())
 }
 
 func TestRoundTrip_ZeroValues(t *testing.T) {
@@ -114,11 +112,10 @@ func TestRoundTrip_ZeroValues(t *testing.T) {
 	require.Len(t, serialized, accountCompactLength, "zero codehash should produce compact form")
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	var zero [32]byte
-	require.Equal(t, int64(0), rt.GetBlockHeight())
+	require.Equal(t, uint64(0), rt.GetBlockHeight())
 	require.Equal(t, uint64(0), rt.GetNonce())
-	require.Equal(t, (*Balance)(&zero), rt.GetBalance())
-	require.Equal(t, (*CodeHash)(&zero), rt.GetCodeHash())
+	require.Equal(t, Balance{}, rt.GetBalance())
+	require.Equal(t, CodeHash{}, rt.GetCodeHash())
 }
 
 func TestRoundTrip_CompactWithNonZeroFields(t *testing.T) {
@@ -132,18 +129,17 @@ func TestRoundTrip_CompactWithNonZeroFields(t *testing.T) {
 
 	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
-	require.Equal(t, int64(500), rt.GetBlockHeight())
+	require.Equal(t, uint64(500), rt.GetBlockHeight())
 	require.Equal(t, uint64(77), rt.GetNonce())
-	require.Equal(t, toBalance(leftPad32([]byte{0x42})), rt.GetBalance())
-	var zeroHash CodeHash
-	require.Equal(t, &zeroHash, rt.GetCodeHash())
+	require.Equal(t, *toBalance(leftPad32([]byte{0x42})), rt.GetBalance())
+	require.Equal(t, CodeHash{}, rt.GetCodeHash())
 }
 
 func TestRoundTrip_MaxValues(t *testing.T) {
 	maxBalance := toBalance(bytes.Repeat([]byte{0xff}, 32))
 	maxCodeHash := toCodeHash(bytes.Repeat([]byte{0xff}, 32))
-	maxNonce := uint64(0xffffffffffffffff)
-	maxBlockHeight := int64(math.MaxInt64)
+	maxNonce := uint64(math.MaxUint64)
+	maxBlockHeight := uint64(math.MaxUint64)
 
 	ad := NewAccountData().
 		SetBlockHeight(maxBlockHeight).
@@ -155,8 +151,8 @@ func TestRoundTrip_MaxValues(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, maxBlockHeight, rt.GetBlockHeight())
 	require.Equal(t, maxNonce, rt.GetNonce())
-	require.Equal(t, maxBalance, rt.GetBalance())
-	require.Equal(t, maxCodeHash, rt.GetCodeHash())
+	require.Equal(t, *maxBalance, rt.GetBalance())
+	require.Equal(t, *maxCodeHash, rt.GetCodeHash())
 }
 
 func TestIsDelete_AllZeroPayload(t *testing.T) {
@@ -216,6 +212,24 @@ func TestDeserialize_UnsupportedVersion(t *testing.T) {
 	require.Error(t, err)
 }
 
+// A full-form row with an all-zero code hash is non-canonical: the compact form is its only encoding.
+func TestDeserialize_FullFormZeroCodeHashRejected(t *testing.T) {
+	data := concat(
+		[]byte{byte(AccountDataVersion0)},
+		be64(100),
+		leftPad32([]byte{1}),
+		be64(42),
+		make([]byte, CodeHashLength),
+	)
+	require.Len(t, data, accountDataLength)
+
+	_, err := DeserializeAccountData(data)
+	require.Error(t, err)
+
+	_, err = DeserializeAccountData(make([]byte, accountDataLength))
+	require.Error(t, err)
+}
+
 func TestSetterChaining(t *testing.T) {
 	ad := NewAccountData().
 		SetBlockHeight(1).
@@ -223,81 +237,21 @@ func TestSetterChaining(t *testing.T) {
 		SetNonce(3).
 		SetCodeHash(toCodeHash(leftPad32([]byte{4})))
 
-	require.Equal(t, int64(1), ad.GetBlockHeight())
+	require.Equal(t, uint64(1), ad.GetBlockHeight())
 	require.Equal(t, uint64(3), ad.GetNonce())
+	require.Equal(t, *toBalance(leftPad32([]byte{2})), ad.GetBalance())
+	require.Equal(t, *toCodeHash(leftPad32([]byte{4})), ad.GetCodeHash())
 }
 
 func TestConstantLayout_V0(t *testing.T) {
 	require.Equal(t, 81, accountDataLength)
+	require.Equal(t, 49, accountCompactLength)
 }
 
-func TestNilAccountData_Getters(t *testing.T) {
-	var ad *AccountData
-	var zero [32]byte
-
-	require.Equal(t, AccountDataVersion0, ad.GetSerializationVersion())
-	require.Equal(t, int64(0), ad.GetBlockHeight())
-	require.Equal(t, uint64(0), ad.GetNonce())
-	require.Equal(t, (*Balance)(&zero), ad.GetBalance())
-	require.Equal(t, (*CodeHash)(&zero), ad.GetCodeHash())
-}
-
-func TestNilAccountData_IsDelete(t *testing.T) {
-	var ad *AccountData
-	require.True(t, ad.IsDelete())
-}
-
-func TestNilAccountData_Serialize(t *testing.T) {
-	var ad *AccountData
-	s := ad.Serialize()
-	require.Len(t, s, accountCompactLength)
-	for _, b := range s {
-		require.Equal(t, byte(0), b)
-	}
-}
-
-func TestNilAccountData_SerializeRoundTrips(t *testing.T) {
-	var ad *AccountData
-	rt, err := DeserializeAccountData(ad.Serialize())
-	require.NoError(t, err)
-	require.True(t, rt.IsDelete())
-}
-
-func TestNilAccountData_Copy(t *testing.T) {
-	var ad *AccountData
-	cp := ad.Copy()
-	require.NotNil(t, cp)
-	require.True(t, cp.IsDelete())
-	require.Len(t, cp.Serialize(), accountCompactLength)
-}
-
-func TestNilAccountData_SettersAutoCreate(t *testing.T) {
-	var a1 *AccountData
-	a1 = a1.SetBlockHeight(42)
-	require.NotNil(t, a1)
-	require.Equal(t, int64(42), a1.GetBlockHeight())
-
-	var a2 *AccountData
-	a2 = a2.SetNonce(7)
-	require.NotNil(t, a2)
-	require.Equal(t, uint64(7), a2.GetNonce())
-
-	var a3 *AccountData
-	bal := Balance{0x01}
-	a3 = a3.SetBalance(&bal)
-	require.NotNil(t, a3)
-	require.Equal(t, &bal, a3.GetBalance())
-
-	var a4 *AccountData
-	ch := CodeHash{0x02}
-	a4 = a4.SetCodeHash(&ch)
-	require.NotNil(t, a4)
-	require.Equal(t, &ch, a4.GetCodeHash())
-}
-
+// Mutating a copy made by assignment does not affect the original.
 func TestAccountData_CopyIndependence(t *testing.T) {
-	ad := NewAccountData().SetNonce(10).SetBlockHeight(5)
-	cp := ad.Copy()
+	ad := *NewAccountData().SetNonce(10).SetBlockHeight(5)
+	cp := ad
 
 	cp.SetNonce(99)
 	require.Equal(t, uint64(10), ad.GetNonce(), "original must not change")
@@ -308,16 +262,14 @@ func TestAccountData_SetBalanceNilZeros(t *testing.T) {
 	ad := NewAccountData().
 		SetBalance(toBalance(leftPad32([]byte{0xff}))).
 		SetBalance(nil)
-	var zero Balance
-	require.Equal(t, &zero, ad.GetBalance())
+	require.Equal(t, Balance{}, ad.GetBalance())
 }
 
 func TestAccountData_SetCodeHashNilZeros(t *testing.T) {
 	ad := NewAccountData().
 		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0xaa}, 32))).
 		SetCodeHash(nil)
-	var zero CodeHash
-	require.Equal(t, &zero, ad.GetCodeHash())
+	require.Equal(t, CodeHash{}, ad.GetCodeHash())
 }
 
 // leftPad32 returns a 32-byte slice with b right-aligned (big-endian style).

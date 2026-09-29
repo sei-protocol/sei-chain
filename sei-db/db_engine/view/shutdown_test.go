@@ -207,7 +207,7 @@ func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 	// flush, and reads must not keep serving from a closed manager.
 	require.ErrorIs(t, manager.Set([]byte("k"), []byte("v")), ErrViewManagerClosed)
 	require.ErrorIs(t, manager.Delete([]byte("k")), ErrViewManagerClosed)
-	require.ErrorIs(t, manager.BatchSet([]Write{{Key: "k", Value: []byte("v")}}), ErrViewManagerClosed)
+	require.ErrorIs(t, manager.BatchSet([]Write[[]byte]{{Key: "k", Value: []byte("v")}}), ErrViewManagerClosed)
 
 	_, _, err = manager.Get([]byte("k"), true)
 	require.ErrorIs(t, err, ErrViewManagerClosed)
@@ -227,7 +227,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		manager, err := NewViewManager(cfg, db, pool, pool, pool)
+		manager, err := NewViewManager(cfg, db, bytesCodec, pool, pool, pool)
 		require.NoError(t, err)
 
 		require.NoError(t, manager.Set([]byte("k"), []byte("v")))
@@ -303,7 +303,7 @@ func TestCloseAwaitsFoldBeforeItSchedulesItsRead(t *testing.T) {
 	readPool := threading.NewAdHocPool()
 	miscPool := threading.NewAdHocPool()
 	sortPool := threading.NewAdHocPool()
-	manager, err := NewViewManager(newTestConfig(1, 4096), db, readPool, miscPool, sortPool)
+	manager, err := NewViewManager(newTestConfig(1, 4096), db, bytesCodec, readPool, miscPool, sortPool)
 	require.NoError(t, err)
 
 	// The first batch parks mid-fold, holding the value the second batch folds onto.

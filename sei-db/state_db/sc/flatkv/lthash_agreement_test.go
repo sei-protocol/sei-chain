@@ -57,7 +57,7 @@ type modelAccount struct {
 	balance     vtype.Balance
 	nonce       uint64
 	codeHash    vtype.CodeHash
-	blockHeight int64
+	blockHeight uint64
 }
 
 // isEmpty reports whether every hashed field is zero, which is what makes the row a deletion.
@@ -81,13 +81,13 @@ func (a modelAccount) isEmpty() bool {
 // modelStorage is one storage slot's logical value.
 type modelStorage struct {
 	value       [32]byte
-	blockHeight int64
+	blockHeight uint64
 }
 
 // modelBytes is one code or misc row's logical value.
 type modelBytes struct {
 	value       []byte
-	blockHeight int64
+	blockHeight uint64
 }
 
 // stateModel tracks the rows flatKV should hold, keyed by physical key, one map per database.
@@ -288,7 +288,7 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 		if edit.codeHashSet {
 			row.codeHash = edit.codeHash
 		}
-		row.blockHeight = blockHeight
+		row.blockHeight = uint64(blockHeight)
 		if row.isEmpty() {
 			// Every hashed field is zero, so the row is garbage-collected rather than stored.
 			delete(m.accounts, physKey)
@@ -320,7 +320,7 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 			m.coverage.recordRemoval(storageDBDir, existed)
 			continue
 		}
-		m.storage[physKey] = modelStorage{value: *value, blockHeight: blockHeight}
+		m.storage[physKey] = modelStorage{value: *value, blockHeight: uint64(blockHeight)}
 		m.coverage.recordWrite(storageDBDir, existed)
 	}
 
@@ -332,7 +332,7 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 			m.coverage.recordRemoval(codeDBDir, existed)
 			continue
 		}
-		m.code[physKey] = modelBytes{value: append([]byte(nil), raw...), blockHeight: blockHeight}
+		m.code[physKey] = modelBytes{value: append([]byte(nil), raw...), blockHeight: uint64(blockHeight)}
 		m.coverage.recordWrite(codeDBDir, existed)
 	}
 
@@ -344,7 +344,7 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 			continue
 		}
 		// A zero-length misc value is a live row, not a deletion — Cosmos modules store them.
-		m.misc[physKey] = modelBytes{value: append([]byte(nil), raw...), blockHeight: blockHeight}
+		m.misc[physKey] = modelBytes{value: append([]byte(nil), raw...), blockHeight: uint64(blockHeight)}
 		m.coverage.recordWrite(miscDBDir, existed)
 		if module, _, err := ktype.StripModulePrefix([]byte(physKey)); err == nil {
 			m.coverage.miscModules[module] = true

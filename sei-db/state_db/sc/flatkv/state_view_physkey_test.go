@@ -12,56 +12,58 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-type recordingView struct {
+type recordingView[V any] struct {
 	keys []string
 }
 
-func (v *recordingView) Name() string {
+func (v *recordingView[V]) Name() string {
 	return "recording"
 }
 
-func (v *recordingView) Get(key []byte, _ bool) ([]byte, bool, error) {
+func (v *recordingView[V]) Get(key []byte, _ bool) (V, bool, error) {
 	v.keys = append(v.keys, string(key))
-	return nil, false, nil
+	var zero V
+	return zero, false, nil
 }
 
-func (v *recordingView) BatchGet([][]byte) (map[string][]byte, error) {
+func (v *recordingView[V]) BatchGet([][]byte) (map[string]V, error) {
 	panic("unexpected call")
 }
 
-func (v *recordingView) ForEachDiff(func(key string, value []byte) error) error {
+func (v *recordingView[V]) ForEachDiff(func(key string, value V, deleted bool) error) error {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Reserve() error {
+func (v *recordingView[V]) Reserve() error {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Release() error {
+func (v *recordingView[V]) Release() error {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Abandon() {
+func (v *recordingView[V]) Abandon() {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Finalize([]*proto.KVPair) error {
+func (v *recordingView[V]) Finalize([]*proto.KVPair) error {
 	panic("unexpected call")
 }
 
-func (v *recordingView) AwaitFlush(context.Context) error {
+func (v *recordingView[V]) AwaitFlush(context.Context) error {
 	panic("unexpected call")
 }
 
-var _ view.View = (*recordingView)(nil)
+var _ view.View[vtype.AccountData] = (*recordingView[vtype.AccountData])(nil)
 
 func TestStateViewReadsBuildExactPhysicalKeys(t *testing.T) {
-	acct := &recordingView{}
-	code := &recordingView{}
-	storage := &recordingView{}
-	misc := &recordingView{}
+	acct := &recordingView[vtype.AccountData]{}
+	code := &recordingView[vtype.CodeData]{}
+	storage := &recordingView[vtype.StorageData]{}
+	misc := &recordingView[vtype.MiscData]{}
 	sv, err := sview.NewStoreView(1, acct, code, storage, misc)
 	require.NoError(t, err)
 	v := &flatKVStateView{blockView: sv}

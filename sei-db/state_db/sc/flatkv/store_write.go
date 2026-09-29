@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -201,57 +202,65 @@ func (s *CommitStore) sealBlock(
 // commitStores() seals the current block on every store as one view at version. The returned view
 // carries the reservation each store's Commit() handed out, and the caller owns it.
 func (s *CommitStore) commitStores(version int64) (*sview.StoreView, error) {
-	commit := func(store view.ViewManager) (view.View, error) {
-		start := time.Now()
-		dbView, err := store.Commit()
-		otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
-		if err != nil {
-			return nil, fmt.Errorf("%s seal: %w", store.Name(), err)
-		}
-		return dbView, nil
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(4)
 
-	var account view.View
+	var account view.View[vtype.AccountData]
 	var accountErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
-		account, accountErr = commit(s.accountStore)
+		account, accountErr = commitStore(s, s.accountStore)
 	})
-	var code view.View
+	var code view.View[vtype.CodeData]
 	var codeErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
-		code, codeErr = commit(s.codeStore)
+		code, codeErr = commitStore(s, s.codeStore)
 	})
-	var storage view.View
+	var storage view.View[vtype.StorageData]
 	var storageErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
-		storage, storageErr = commit(s.storageStore)
+		storage, storageErr = commitStore(s, s.storageStore)
 	})
-	var misc view.View
+	var misc view.View[vtype.MiscData]
 	var miscErr error
 	s.miscPool.Submit(func() {
 		defer wg.Done()
-		misc, miscErr = commit(s.miscStore)
+		misc, miscErr = commitStore(s, s.miscStore)
 	})
 
 	wg.Wait()
 	if err := errors.Join(accountErr, codeErr, storageErr, miscErr); err != nil {
 		// Error is fatal; the reservations the stores that did seal handed out are given up rather than
 		// released.
-		for _, dbView := range []view.View{account, code, storage, misc} {
-			if dbView != nil {
-				dbView.Abandon()
-			}
+		if account != nil {
+			account.Abandon()
+		}
+		if code != nil {
+			code.Abandon()
+		}
+		if storage != nil {
+			storage.Abandon()
+		}
+		if misc != nil {
+			misc.Abandon()
 		}
 		return nil, err
 	}
 	return sview.NewStoreView(version, account, code, storage, misc)
+}
+
+// commitStore() seals the current block on one store, recording how long the seal took.
+func commitStore[V any](s *CommitStore, store view.ViewManager[V]) (view.View[V], error) {
+	start := time.Now()
+	dbView, err := store.Commit()
+	otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
+		metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
+	if err != nil {
+		return nil, fmt.Errorf("%s seal: %w", store.Name(), err)
+	}
+	return dbView, nil
 }
 
 // offerToSnapshotWriter() hands the most recently committed block to the writer, which decides whether
@@ -316,12 +325,52 @@ func (s *CommitStore) flushLatestVersion() error {
 	return nil
 }
 
+// finalizeStores finalizes every store's sealed block, recording the LocalMeta that describes it. See
+// finalizeStore() for the arguments.
+func finalizeStores(
+	blockView *sview.StoreView,
+	version int64,
+	alreadyHave map[string]int64,
+	hashes *lthash.BlockHash,
+) error {
+	if err := finalizeStore(blockView.AccountView(), version, alreadyHave, hashes); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.AccountView().Name(), err)
+	}
+	if err := finalizeStore(blockView.CodeView(), version, alreadyHave, hashes); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.CodeView().Name(), err)
+	}
+	if err := finalizeStore(blockView.StorageView(), version, alreadyHave, hashes); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.StorageView().Name(), err)
+	}
+	if err := finalizeStore(blockView.MiscView(), version, alreadyHave, hashes); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.MiscView().Name(), err)
+	}
+	return nil
+}
+
+// finalizeBaseline finalizes every store's sealed baseline with nothing to record.
+func finalizeBaseline(blockView *sview.StoreView) error {
+	if err := blockView.AccountView().Finalize(nil); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.AccountView().Name(), err)
+	}
+	if err := blockView.CodeView().Finalize(nil); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.CodeView().Name(), err)
+	}
+	if err := blockView.StorageView().Finalize(nil); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.StorageView().Name(), err)
+	}
+	if err := blockView.MiscView().Finalize(nil); err != nil {
+		return fmt.Errorf("finalize %s: %w", blockView.MiscView().Name(), err)
+	}
+	return nil
+}
+
 // finalizeStore finalizes one store's sealed block, recording the LocalMeta that describes it.
 //
 // Finalizing with an empty write set still makes the sealed version flushable, which is the only thing
 // finalization is required to do.
-func finalizeStore(
-	dbView view.View,
+func finalizeStore[V any](
+	dbView view.View[V],
 	version int64,
 	// The replay skip list. A store listed at or above version records nothing: its writes were skipped,
 	// so its hash still describes the later height it holds, and writing this block's height alongside
@@ -419,12 +468,10 @@ func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
 		return fmt.Errorf("seal seeded version: %w", err)
 	}
 
-	for _, dbView := range blockView.Views() {
-		if err := finalizeStore(dbView, seededVersion, nil, s.loadedHashes); err != nil {
-			// Error is fatal; the reservations are given up rather than released.
-			blockView.Abandon()
-			return fmt.Errorf("%s finalize seeded version: %w", dbView.Name(), err)
-		}
+	if err := finalizeStores(blockView, seededVersion, nil, s.loadedHashes); err != nil {
+		// Error is fatal; the reservations are given up rather than released.
+		blockView.Abandon()
+		return fmt.Errorf("finalize seeded version: %w", err)
 	}
 
 	if err := s.replaceSealedView(blockView); err != nil {
@@ -446,12 +493,10 @@ func (s *CommitStore) sealBaseline() error {
 		return fmt.Errorf("seal baseline: %w", err)
 	}
 
-	for _, dbView := range blockView.Views() {
-		if err := dbView.Finalize(nil); err != nil {
-			// Error is fatal; the reservations are given up rather than released.
-			blockView.Abandon()
-			return fmt.Errorf("%s finalize baseline: %w", dbView.Name(), err)
-		}
+	if err := finalizeBaseline(blockView); err != nil {
+		// Error is fatal; the reservations are given up rather than released.
+		blockView.Abandon()
+		return fmt.Errorf("finalize baseline: %w", err)
 	}
 
 	if err := s.replaceSealedView(blockView); err != nil {

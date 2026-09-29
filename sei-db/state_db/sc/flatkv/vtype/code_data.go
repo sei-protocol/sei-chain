@@ -30,114 +30,78 @@ const (
 	codeBytecodeStart = codeBlockHeightStart + BlockHeightLength
 )
 
-var _ VType = (*CodeData)(nil)
-
-// Used for encapsulating and serializing contract bytecode in the FlatKV code database.
+// CodeData is a contract bytecode row in the FlatKV code database. The zero value holds no bytecode.
 //
-// This data structure is not threadsafe. Values passed into and values received from this data structure
-// are not safe to modify without first copying them.
+// The bytecode is shared rather than copied when a CodeData is copied, and must not be mutated.
 type CodeData struct {
-	version     CodeDataVersion
-	blockHeight int64
-	bytecode    []byte
+	// The block height at which this code was last modified.
+	blockHeight uint64
+
+	// The contract bytecode.
+	bytecode []byte
 }
 
-// Create a new CodeData with the given bytecode.
+// NewCodeData returns a new CodeData with every field zero.
 func NewCodeData() *CodeData {
-	return &CodeData{version: CodeDataVersion0}
+	return &CodeData{}
 }
 
-// SerializeCode returns the serialized code value for bytecode written at blockHeight. bytecode is
-// copied, so the caller may reuse it.
-func SerializeCode(blockHeight int64, bytecode []byte) []byte {
-	data := make([]byte, codeBytecodeStart+len(bytecode))
-	data[codeVersionStart] = byte(CodeDataVersion0)
-	heightBytes := data[codeBlockHeightStart:codeBytecodeStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
-	copy(data[codeBytecodeStart:], bytecode)
-	return data
+// AppendCodeData appends the serialized form of code to dst and returns the extended slice.
+func AppendCodeData(dst []byte, code CodeData) []byte {
+	dst = append(dst, byte(CodeDataVersion0))
+	dst = binary.BigEndian.AppendUint64(dst, code.blockHeight)
+	return append(dst, code.bytecode...)
 }
 
-// Serialize the code data to a byte slice.
-func (c *CodeData) Serialize() []byte {
-	if c == nil {
-		return make([]byte, codeBytecodeStart)
-	}
-	return SerializeCode(c.blockHeight, c.bytecode)
+// Serialize returns the serialized form of the code in a new slice.
+func (c CodeData) Serialize() []byte {
+	return AppendCodeData(make([]byte, 0, codeBytecodeStart+len(c.bytecode)), c)
 }
 
-// Deserialize the code data from the given byte slice.
-func DeserializeCodeData(data []byte) (*CodeData, error) {
+// DeserializeCodeData parses contract code from its serialized form. The returned bytecode aliases data.
+func DeserializeCodeData(data []byte) (CodeData, error) {
 	if len(data) == 0 {
-		return nil, errors.New("data is empty")
+		return CodeData{}, errors.New("data is empty")
 	}
 
 	version := CodeDataVersion(data[codeVersionStart])
 	if version != CodeDataVersion0 {
-		return nil, fmt.Errorf("unsupported serialization version: %d", version)
+		return CodeData{}, fmt.Errorf("unsupported serialization version: %d", version)
 	}
-
 	if len(data) < codeBytecodeStart {
-		return nil, fmt.Errorf("data length at version %d should be at least %d, got %d",
+		return CodeData{}, fmt.Errorf("data length at version %d should be at least %d, got %d",
 			version, codeBytecodeStart, len(data))
 	}
 
-	bytecode := data[codeBytecodeStart:]
-
-	return &CodeData{
-		version:     version,
-		blockHeight: int64(binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart])), //nolint:gosec
-		bytecode:    bytecode,
+	return CodeData{
+		blockHeight: binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart]),
+		bytecode:    data[codeBytecodeStart:],
 	}, nil
 }
 
-// Get the serialization version for this CodeData instance.
-func (c *CodeData) GetSerializationVersion() CodeDataVersion {
-	if c == nil {
-		return CodeDataVersion0
-	}
-	return c.version
-}
-
-// Get the block height when this code was last modified.
-func (c *CodeData) GetBlockHeight() int64 {
-	if c == nil {
-		return 0
-	}
+// GetBlockHeight returns the block height at which the code was last modified.
+func (c CodeData) GetBlockHeight() uint64 {
 	return c.blockHeight
 }
 
-// Get the contract bytecode.
-func (c *CodeData) GetBytecode() []byte {
-	if c == nil {
-		return []byte{}
-	}
+// GetBytecode returns the contract bytecode, which must not be mutated.
+func (c CodeData) GetBytecode() []byte {
 	return c.bytecode
 }
 
-// Set the contract bytecode. Returns self (or a new CodeData if nil).
-func (c *CodeData) SetBytecode(bytecode []byte) *CodeData {
-	if c == nil {
-		c = NewCodeData()
-	}
-	c.bytecode = append([]byte(nil), bytecode...)
-	return c
-}
-
-// Check if this code data signifies a deletion operation. A deletion operation is automatically
-// performed when the bytecode is empty (with the exception of the serialization version and block height).
-func (c *CodeData) IsDelete() bool {
-	if c == nil {
-		return true
-	}
+// IsDelete reports whether the bytecode is empty. The store deletes code that is set to empty.
+func (c CodeData) IsDelete() bool {
 	return len(c.bytecode) == 0
 }
 
-// Set the block height when this code was last modified/touched. Returns self (or a new CodeData if nil).
-func (c *CodeData) SetBlockHeight(blockHeight int64) *CodeData {
-	if c == nil {
-		c = NewCodeData()
-	}
+// SetBlockHeight sets the block height at which the code was last modified. Returns the receiver.
+func (c *CodeData) SetBlockHeight(blockHeight uint64) *CodeData {
 	c.blockHeight = blockHeight
+	return c
+}
+
+// SetBytecode sets the contract bytecode to a copy of bytecode. Returns the receiver.
+func (c *CodeData) SetBytecode(bytecode []byte) *CodeData {
+	c.bytecode = append([]byte(nil), bytecode...)
 	return c
 }

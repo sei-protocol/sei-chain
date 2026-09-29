@@ -293,6 +293,13 @@ func (b *testBatch) Close() error {
 
 // --- manager construction helpers ---
 
+// bytesCodec stores a []byte value as itself, so a test can reason about values and stored bytes as one.
+var bytesCodec = Codec[[]byte]{
+	Append: func(dst []byte, value []byte) []byte { return append(dst, value...) },
+	Decode: func(data []byte) ([]byte, error) { return data, nil },
+	Size:   func(value []byte) uint64 { return uint64(len(value)) },
+}
+
 // newTestConfig returns a config suitable for unit tests. Metrics are disabled; overhead is set to 1
 // so dbCache size accounting is easy to reason about.
 func newTestConfig(shardCount, maxSize uint64) *ViewManagerConfig {
@@ -303,13 +310,13 @@ func newTestConfig(shardCount, maxSize uint64) *ViewManagerConfig {
 	return c
 }
 
-func newTestManager(t *testing.T, seed map[string][]byte, shardCount, maxSize uint64) (ViewManager, *testDB) {
+func newTestManager(t *testing.T, seed map[string][]byte, shardCount, maxSize uint64) (ViewManager[[]byte], *testDB) {
 	t.Helper()
 	db := newTestDB(seed)
 	return newTestManagerWithDB(t, db, shardCount, maxSize), db
 }
 
-func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) ViewManager {
+func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) ViewManager[[]byte] {
 	t.Helper()
 	return newTestManagerWithConfig(t, newTestConfig(shardCount, maxSize), db)
 }
@@ -318,10 +325,10 @@ func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) 
 // the work pool, mirroring the production teardown order (manager, then pools, then DB). Close is
 // idempotent, so tests that exercise it explicitly are unaffected; its error is ignored because
 // brick tests intentionally leave the manager failed.
-func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager {
+func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager[[]byte] {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	manager, err := NewViewManager(config, db, pool, pool, pool)
+	manager, err := NewViewManager(config, db, bytesCodec, pool, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = manager.Close()
@@ -333,13 +340,13 @@ func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testD
 
 // --- shard construction helpers ---
 
-func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
+func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard[[]byte] {
 	t.Helper()
 	config := DefaultTestViewManagerConfig()
 	config.EstimatedOverheadPerEntry = 0
 	// A standalone shard has no manager to brick, and it takes itself out of service on a failed read
 	// or fold without help, so both reports are no-ops here.
-	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
+	s, err := NewShard(context.Background(), config, db, &bytesCodec, threading.NewAdHocPool(), maxSize,
 		func() error { return ErrViewManagerClosed },
 		func(error) {},
 		func(error) {})
@@ -362,18 +369,22 @@ func hashWrites(hash []byte) []*proto.KVPair {
 }
 
 // collectDiff gathers a view's writes into a map, for tests that assert on the whole set rather than on
-// the order it arrives in.
-func collectDiff(t *testing.T, view View) map[string][]byte {
+// the order it arrives in. A delete is recorded as a nil value.
+func collectDiff(t *testing.T, view View[[]byte]) map[string][]byte {
 	t.Helper()
 	diff := make(map[string][]byte)
-	require.NoError(t, view.ForEachDiff(func(key string, value []byte) error {
+	require.NoError(t, view.ForEachDiff(func(key string, value []byte, deleted bool) error {
+		if deleted {
+			diff[key] = nil
+			return nil
+		}
 		diff[key] = value
 		return nil
 	}))
 	return diff
 }
 
-func finalizeAndRelease(t *testing.T, view View) {
+func finalizeAndRelease(t *testing.T, view View[[]byte]) {
 	t.Helper()
 	require.NoError(t, view.Finalize(hashWrites(testHash)))
 	require.NoError(t, view.Release())
@@ -383,21 +394,21 @@ func finalizeAndRelease(t *testing.T, view View) {
 // of the version map as soon as it flushes, and a wait that arrives after that retirement fails, which
 // TestAwaitFlushAfterRetirementFails pins. Releasing first therefore makes the wait a race against the
 // lifecycle goroutine.
-func finalizeAwaitFlushAndRelease(t *testing.T, view View) {
+func finalizeAwaitFlushAndRelease(t *testing.T, view View[[]byte]) {
 	t.Helper()
 	require.NoError(t, view.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, view, time.Second)
 	require.NoError(t, view.Release())
 }
 
-func commitFinalizeRelease(t *testing.T, manager ViewManager) {
+func commitFinalizeRelease(t *testing.T, manager ViewManager[[]byte]) {
 	t.Helper()
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	finalizeAndRelease(t, view)
 }
 
-func awaitFlushed(t *testing.T, view View, timeout time.Duration) {
+func awaitFlushed(t *testing.T, view View[[]byte], timeout time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -406,9 +417,9 @@ func awaitFlushed(t *testing.T, view View, timeout time.Duration) {
 
 // awaitRetired blocks until the given version has been retired (dropped from the manager's version
 // map), failing the test if it does not happen within a short window.
-func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
+func awaitRetired(t *testing.T, manager ViewManager[[]byte], version uint64) {
 	t.Helper()
-	e := manager.(*viewManager)
+	e := manager.(*viewManager[[]byte])
 	require.Eventually(t, func() bool {
 		e.versionLock.Lock()
 		defer e.versionLock.Unlock()
@@ -419,7 +430,7 @@ func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
 
 // commitShard seals the shard's current version, failing the test if its once-per-block cache
 // maintenance reported a failure. Returns the new version number.
-func commitShard(t *testing.T, s *shard) uint64 {
+func commitShard(t *testing.T, s *shard[[]byte]) uint64 {
 	t.Helper()
 	version, err := s.Commit()
 	require.NoError(t, err)
@@ -428,16 +439,16 @@ func commitShard(t *testing.T, s *shard) uint64 {
 
 // openIteratorCount reports how many iterators are currently open on the manager. Every iterator
 // registers with every shard, so any one shard's count is the manager's count.
-func openIteratorCount(manager ViewManager) uint64 {
-	s := manager.(*viewManager).shards[0]
+func openIteratorCount(manager ViewManager[[]byte]) uint64 {
+	s := manager.(*viewManager[[]byte]).shards[0]
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.openIterators
 }
 
 // isTracked reports whether the manager still tracks the given view version.
-func isTracked(manager ViewManager, version uint64) bool {
-	e := manager.(*viewManager)
+func isTracked(manager ViewManager[[]byte], version uint64) bool {
+	e := manager.(*viewManager[[]byte])
 	e.versionLock.Lock()
 	defer e.versionLock.Unlock()
 	_, ok := e.versionMap[version]

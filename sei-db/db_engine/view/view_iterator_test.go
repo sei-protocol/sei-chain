@@ -17,7 +17,7 @@ import (
 // iterateUserData collects the full iteration of the manager's mutable version, which the manager
 // guarantees is exactly the user data — the metadata hash key is filtered internally. Returns the
 // pairs in iteration order.
-func iterateUserData(t *testing.T, manager ViewManager) []kvPair {
+func iterateUserData(t *testing.T, manager ViewManager[[]byte]) []kvPair {
 	t.Helper()
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestIteratorMergesAcrossShards(t *testing.T) {
 func TestIteratorExcludesReservedPrefix(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 1, 1<<20)
-	reservedPrefix := manager.(*viewManager).config.ReservedPrefix
+	reservedPrefix := manager.(*viewManager[[]byte]).config.ReservedPrefix
 
 	// Flush view1 so several reserved-prefix keys land in the DB.
 	metaKeys := []string{"_meta/hash", "_meta/version", "_meta/x:evm/hash"}
@@ -171,7 +171,7 @@ func TestOpenIteratorCountIsTracked(t *testing.T) {
 // The count's only consumer is the leak report at Close, which a wrapped value renders meaningless.
 func TestIteratorClosedRefusesUnderflow(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 1<<20)
-	shard := manager.(*viewManager).shards[0]
+	shard := manager.(*viewManager[[]byte]).shards[0]
 
 	require.Equal(t, uint64(0), openIteratorCount(manager))
 	require.Error(t, shard.IteratorClosed(), "closing past zero must be refused")
@@ -234,7 +234,7 @@ func TestIteratorAfterBrickFails(t *testing.T) {
 // --- bounds and direction ---
 
 // iterateWith collects a full iteration under the given options.
-func iterateWith(t *testing.T, manager ViewManager, opts *types.IterOptions) []kvPair {
+func iterateWith(t *testing.T, manager ViewManager[[]byte], opts *types.IterOptions) []kvPair {
 	t.Helper()
 	it, err := manager.Iterator(opts)
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func keysOf(pairs []kvPair) []string {
 
 // boundedManager seeds "a".."f" with the odd letters on disk and the even ones in memory, so every
 // bounds and direction case exercises the merge rather than one side alone.
-func boundedManager(t *testing.T) ViewManager {
+func boundedManager(t *testing.T) ViewManager[[]byte] {
 	t.Helper()
 	manager, _ := newTestManager(t, map[string][]byte{
 		"a": []byte("1"), "c": []byte("3"), "e": []byte("5"),

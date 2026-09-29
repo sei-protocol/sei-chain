@@ -517,7 +517,7 @@ func addFlatKVNodeToMap(t *testing.T, out map[string][]byte, node *sctypes.Snaps
 			binary.BigEndian.PutUint64(nonceBuf, acct.GetNonce())
 			out[string(keys.BuildEVMKey(keys.EVMKeyNonce, strippedKey))] = nonceBuf
 		}
-		if codeHash := acct.GetCodeHash(); *codeHash != (vtype.CodeHash{}) {
+		if codeHash := acct.GetCodeHash(); codeHash != (vtype.CodeHash{}) {
 			out[string(keys.BuildEVMKey(keys.EVMKeyCodeHash, strippedKey))] = bytes.Clone(codeHash[:])
 		}
 
