@@ -136,6 +136,9 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
+				// Proposals must be readable before any module migration walks
+				// the gov store, so the retired IBC records are rewritten first.
+				app.rewriteRetiredIBCProposals(ctx)
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return nil, err
@@ -144,7 +147,6 @@ func (app *App) RegisterUpgradeHandlers() {
 					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 				}
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
-				app.rewriteRetiredIBCProposals(ctx)
 				app.pruneUpgradedIBCState(ctx)
 				return newVM, nil
 			}
