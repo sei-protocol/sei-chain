@@ -857,3 +857,28 @@ func TestCustomPrecompileCallAndEstimateDoNotPersist(t *testing.T) {
 	require.Equal(t, ethtypes.ReceiptStatusSuccessful, block.Txs[0].Status)
 	require.Equal(t, word(5), state.GetState(probeAddr, probeSlot))
 }
+
+func TestCustomPrecompileAdapterDelegatesToTheContract(t *testing.T) {
+	recorder := &contextRecorder{}
+	adapter := customPrecompile{address: probeAddr, contract: scriptedContract{
+		gas: func(input []byte) uint64 { return 7 * uint64(len(input)) },
+		run: recorder.contract(0).run,
+	}}
+	require.Equal(t, uint64(21), adapter.RequiredGas([]byte{1, 2, 3}))
+
+	executor := NewExecutor(Config{})
+	stateDB := newNativeStateDB(NewMemoryState())
+	blockCtx := blockContext(big.NewInt(testChainID))
+	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, executor.chainConfig(blockCtx), vm.Config{}, nil)
+	stateDB.SetEVM(evm)
+	caller := testAddress(0xc5)
+
+	_, err := adapter.Run(evm, caller, caller, []byte{0x01}, big.NewInt(2), true, false, nil)
+	require.NoError(t, err)
+	got := recorder.only(t)
+	require.Equal(t, caller, got.Caller)
+	require.Equal(t, probeAddr, got.Address)
+	require.Equal(t, big.NewInt(2), got.ApparentValue)
+	require.True(t, got.ReadOnly)
+	require.Zero(t, got.GasRemaining)
+}
