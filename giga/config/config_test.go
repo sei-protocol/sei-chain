@@ -46,6 +46,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.parse_workers":           "2",
 		"giga.execution.block_result_pool_size":  "4",
 		"giga.execution.evm_rpc_port":            "8600",
+		"giga.execution.evm_ws_port":             "8601",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -64,6 +65,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			ParseWorkers:        2,
 			BlockResultPoolSize: 4,
 			EvmRpcPort:          8600,
+			EvmWsPort:           8601,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -81,6 +83,9 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative block interval": {"giga.storage.checkpoint_block_interval": "-1"},
 		"evm rpc port zero":       {"giga.execution.evm_rpc_port": "0"},
 		"evm rpc port too high":   {"giga.execution.evm_rpc_port": "65536"},
+		"evm ws port zero":        {"giga.execution.evm_ws_port": "0"},
+		"evm ws port too high":    {"giga.execution.evm_ws_port": "65536"},
+		"evm ws port is rpc port": {"giga.execution.evm_ws_port": "8545"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

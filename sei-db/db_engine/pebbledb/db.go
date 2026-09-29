@@ -14,6 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -23,6 +24,9 @@ type pebbleDB struct {
 	metricsCancel    context.CancelFunc
 	operationMetrics *OperationMetrics
 	commitMetrics    *CommitMetrics
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleDB]
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -99,12 +103,14 @@ func Open(
 		metricsCancel = NewPebbleMetrics(db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
-	return &pebbleDB{
+	p := &pebbleDB{
 		db:               db,
 		metricsCancel:    metricsCancel,
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
 		commitMetrics:    NewCommitMetrics(config.EnableMetrics, filepath.Base(config.DataDir)),
-	}, nil
+	}
+	p.closed = utils.MustClose(p, "pebbledb")
+	return p, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
@@ -207,6 +213,7 @@ func (p *pebbleDB) Close() error {
 	if p.db == nil {
 		return nil
 	}
+	p.closed.Close(p)
 
 	if p.metricsCancel != nil {
 		p.metricsCancel()

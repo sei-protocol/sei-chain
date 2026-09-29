@@ -571,7 +571,9 @@ func rollbackFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -634,7 +636,9 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -701,7 +705,9 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -1188,7 +1194,9 @@ func interruptedRewindFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 	t.Cleanup(func() { _ = s.Close() })
@@ -1790,6 +1798,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when storageDB is corrupted in both working and snapshot")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================
@@ -1878,6 +1887,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when meta version is corrupted")
 	require.Contains(t, err.Error(), "invalid _meta/version length")
+	require.NoError(t, s2.Close())
 }
 
 // TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
@@ -1936,6 +1946,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, s2.LoadLatest(),
 		"opening must fail loudly rather than silently skipping the corrupted WAL segment")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================
