@@ -26,6 +26,7 @@ var legacyConfigManagerDefaults = map[string]string{
 	"api.rpc-max-body-bytes":   "0",
 	"api.rpc-read-timeout":     "0",
 	"api.swagger":              "false",
+	"grpc-web.enable":          "true",
 	"grpc.enable":              "true",
 	"minimum-gas-prices":       "",
 	"occ-enabled":              "false",
@@ -39,8 +40,9 @@ var reasoning = map[string]string{
 	"pruning": "a command flag of this name carries the standard schedule below the file, so a node with " +
 		"nothing written prunes on that schedule where a generated file would have said keep everything",
 	"grpc.enable": "a command flag of this name defaults the interface on, so a validator with nothing " +
-		"written serves gRPC where a generated file would have written it off. This is the one interface " +
-		"toggle of the two that diverges; the REST one agrees",
+		"written serves gRPC where a generated file would have written it off. The REST toggle agrees",
+	"grpc-web.enable": "a command flag of this name defaults the interface on, as with grpc.enable, so a " +
+		"validator with nothing written serves gRPC-web where a generated file would have written it off",
 	"api.max-open-connections": "zero is unlimited, so the ceiling a generated file states is simply " +
 		"absent from a node that never wrote it, and the same holds for the body-size ceiling beside it",
 	"minimum-gas-prices": "an empty price refuses to start, so this key is one no running node can " +
@@ -56,7 +58,7 @@ var reasoning = map[string]string{
 // do not, and two are rescued by a clamp that does nothing for an absent value.
 //
 // The start command's flags are bound first, the way a booting node binds them, and that is what makes
-// this the answer a node gets rather than the answer the reader gives in isolation. Seventeen of these keys
+// this the answer a node gets rather than the answer the reader gives in isolation. Several of these keys
 // are also command flags, so a flag's registration default is what an absent key reaches before the lookup
 // comes back empty. Without the binding, a key like the gRPC toggle reads as its type's zero and the
 // comparison would report agreement where a node disagrees.
@@ -115,6 +117,11 @@ func readerValues(t *testing.T) map[string]string {
 		"grpc.max-in-flight-per-ip":            fmt.Sprint(cfg.GRPC.MaxInFlightPerIP),
 		"grpc.rate-limiting-enabled":           fmt.Sprint(cfg.GRPC.RateLimitingEnabled),
 		"grpc.trusted-proxy-cidrs":             fmt.Sprint(cfg.GRPC.TrustedProxyCIDRs),
+		"grpc-web.enable":                      fmt.Sprint(cfg.GRPCWeb.Enable),
+		"grpc-web.address":                     fmt.Sprint(cfg.GRPCWeb.Address),
+		"grpc-web.enable-unsafe-cors":          fmt.Sprint(cfg.GRPCWeb.EnableUnsafeCORS),
+		"grpc-web.max-open-connections":        fmt.Sprint(cfg.GRPCWeb.MaxOpenConnections),
+		"grpc-web.max-connections-per-ip":      fmt.Sprint(cfg.GRPCWeb.MaxConnectionsPerIP),
 		"telemetry.service-name":               fmt.Sprint(cfg.Telemetry.ServiceName),
 		"telemetry.enabled":                    fmt.Sprint(cfg.Telemetry.Enabled),
 		"telemetry.enable-hostname":            fmt.Sprint(cfg.Telemetry.EnableHostname),
@@ -190,7 +197,8 @@ func TestTheDivergencesFromTheReaderAreTheRecordedOnes(t *testing.T) {
 func TestEveryKeyTheseSectionsDeclareIsOneTheReaderResolves(t *testing.T) {
 	reader := readerValues(t)
 	for _, section := range []string{
-		BaseSectionName, APISectionName, GRPCSectionName, TelemetrySectionName, StateSyncSectionName,
+		BaseSectionName, APISectionName, GRPCSectionName, GRPCWebSectionName, TelemetrySectionName,
+		StateSyncSectionName,
 	} {
 		registered, ok := registry.Lookup(section)
 		if !ok {

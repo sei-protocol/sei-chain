@@ -83,6 +83,15 @@ func TestTheGRPCKeysAreTheOnesItsReaderResolves(t *testing.T) {
 	})
 }
 
+// TestTheGRPCWebKeysAreTheOnesItsReaderResolves holds the gRPC-web section against the keys its reader
+// looks up.
+func TestTheGRPCWebKeysAreTheOnesItsReaderResolves(t *testing.T) {
+	requireDeclares(t, GRPCWebSectionName, []string{
+		"grpc-web.enable", "grpc-web.address", "grpc-web.enable-unsafe-cors", "grpc-web.max-open-connections",
+		"grpc-web.max-connections-per-ip",
+	})
+}
+
 // TestTheMetricKeysAreTheOnesItsReaderResolves holds the metric section against the keys its reader looks
 // up, the label set among them.
 func TestTheMetricKeysAreTheOnesItsReaderResolves(t *testing.T) {
@@ -216,6 +225,7 @@ func TestEachKindOfNodeResolvesTheInterfacesItIsFor(t *testing.T) {
 		for key, expected := range map[string]any{
 			"api.enable":        want.api,
 			"grpc.enable":       want.grpc,
+			"grpc-web.enable":   want.grpc,
 			"min-retain-blocks": want.retain,
 		} {
 			if got := resolved.Values[key]; !reflect.DeepEqual(got, expected) {
@@ -242,6 +252,7 @@ func TestDefaultsAreTheUpstreamOnesApartFromTheModeRules(t *testing.T) {
 			{BaseSectionName, baseDefaults(mode), live.BaseConfig},
 			{APISectionName, apiDefaults(mode), live.API},
 			{GRPCSectionName, grpcDefaults(mode), live.GRPC},
+			{GRPCWebSectionName, grpcWebDefaults(mode), live.GRPCWeb},
 			{StateSyncSectionName, stateSyncDefaults(mode), live.StateSync},
 		} {
 			if !reflect.DeepEqual(c.got, c.want) {
@@ -285,11 +296,11 @@ func requireResolvesTelemetry(t *testing.T, mode registry.Mode, live telemetry.C
 
 // TestTheSectionsThisPackageRegistersAreUsable covers what the registry refuses.
 //
-// Scoped to the five names this file registers. A refusal that depends on what else has registered is
+// Scoped to the six names this file registers. A refusal that depends on what else has registered is
 // not this package's to answer for, and the sweep that covers it belongs where every section is linked.
 func TestTheSectionsThisPackageRegistersAreUsable(t *testing.T) {
 	mine := map[string]bool{
-		BaseSectionName: true, APISectionName: true, GRPCSectionName: true,
+		BaseSectionName: true, APISectionName: true, GRPCSectionName: true, GRPCWebSectionName: true,
 		TelemetrySectionName: true, StateSyncSectionName: true,
 	}
 	for _, defect := range registry.Defects() {
