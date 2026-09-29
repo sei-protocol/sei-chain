@@ -106,7 +106,7 @@ type DiskTable struct {
 	flushCoordinator *flushCoordinator
 }
 
-// NewDiskTable creates a new DiskTable.
+// NewDiskTable creates a new DiskTable, which takes ownership of keymap. If it fails, keymap is stopped.
 func NewDiskTable(
 	config *litt.Config,
 	runtimeConfig *litt.RuntimeConfig,
@@ -117,7 +117,15 @@ func NewDiskTable(
 	keymapTypeFile *keymap.KeymapTypeFile,
 	roots []string,
 	reloadKeymap bool,
-	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
+	metrics *metrics.LittDBMetrics) (_ litt.ManagedTable, err error) {
+
+	defer func() {
+		if err != nil {
+			if stopErr := keymap.Stop(); stopErr != nil {
+				err = errors.Join(err, fmt.Errorf("failed to stop keymap: %w", stopErr))
+			}
+		}
+	}()
 
 	if config.GCPeriod <= 0 {
 		return nil, errors.New("garbage collection period must be greater than 0")

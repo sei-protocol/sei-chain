@@ -13,6 +13,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -45,6 +46,9 @@ type ascendingIterator struct {
 	err                error
 
 	closeSync sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[ascendingIterator]
 }
 
 func newAscendingIterator(
@@ -60,7 +64,7 @@ func newAscendingIterator(
 ) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &ascendingIterator{
+		itr := &ascendingIterator{
 			source:           src,
 			prefix:           prefix,
 			start:            mvccStart,
@@ -73,6 +77,8 @@ func newAscendingIterator(
 			dbName:           dbName,
 			ctx:              ctx,
 		}
+		itr.closed = utils.MustClose(itr, "mvcc ascending iterator")
+		return itr
 	}
 
 	// move the underlying PebbleDB iterator to the first key
@@ -96,6 +102,7 @@ func newAscendingIterator(
 		dbName:           dbName,
 		ctx:              ctx,
 	}
+	itr.closed = utils.MustClose(itr, "mvcc ascending iterator")
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -381,6 +388,7 @@ func (itr *ascendingIterator) Error() error {
 
 func (itr *ascendingIterator) Close() error {
 	itr.closeSync.Do(func() {
+		itr.closed.Close(itr)
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false

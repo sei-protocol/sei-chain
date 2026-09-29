@@ -2,6 +2,7 @@ package migration
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -626,7 +627,9 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	if err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: OpenStateWAL: %v", err)
 	}
-	s, err := flatkv.NewCommitStore(t.Context(), cfg, stateWAL)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
 	if err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: NewCommitStore: %v", err)
 	}
