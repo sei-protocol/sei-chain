@@ -42,10 +42,16 @@ jobs:
       approve-on-success: false
 
   seidroid-review-close:
+    # The same events and the same match as the review job's suppression above,
+    # so every body that suppresses a review routes here. uci parses the
+    # line-anchored command itself and ignores a body that is not one.
     if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request != null &&
-      startsWith(github.event.comment.body, '@seidroid review close')
+      ((github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request != null) ||
+        github.event_name == 'pull_request_review_comment' ||
+        github.event_name == 'pull_request_review') &&
+      contains(github.event.comment.body || github.event.review.body,
+        '@seidroid review close')
     uses: sei-protocol/uci/.github/workflows/seidroid-review.yml@ad9635aeeaec226785dd1756f666cffc538981f8 # v0.0.24
     permissions:
       contents: read
