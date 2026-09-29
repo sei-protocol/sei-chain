@@ -2,6 +2,7 @@
   "Comment": "An archive node's stack: a full node that never prunes history. A lookback window of -1 keeps every block in the block store, state WAL, historical state store and receipt store; only state commit snapshots below the rollback window are reclaimed.",
   "Seed": 1337,
   "DataDir": "~/gigasim/archive-node/data",
+  "TransactionType": "erc20",
   "EnableSS": true,
   "EnableReceiptStore": true,
   "LookbackWindow": -1

@@ -2,6 +2,7 @@
   "Comment": "A validator's stack: no historical state store and no receipt store, so only the block store and the live state DB are written. History is kept only as far back as the rollback window.",
   "Seed": 1337,
   "DataDir": "~/gigasim/validator/data",
+  "TransactionType": "erc20",
   "EnableSS": false,
   "EnableReceiptStore": false,
   "LookbackWindow": 0

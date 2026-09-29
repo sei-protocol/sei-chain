@@ -2,6 +2,7 @@
   "Comment": "A full node's stack, with the historical state store and the receipt store both enabled, keeping 1M blocks of queryable history below the rollback window.",
   "Seed": 1337,
   "DataDir": "~/gigasim/full-node/data",
+  "TransactionType": "erc20",
   "EnableSS": true,
   "EnableReceiptStore": true,
   "LookbackWindow": 1000000
