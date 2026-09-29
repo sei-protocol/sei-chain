@@ -1262,6 +1262,8 @@ func (ti *trackingImporter) AddNode(node *types.SnapshotNode) {
 
 func (ti *trackingImporter) Close() error { return nil }
 
+func (ti *trackingImporter) Abort(error) error { return nil }
+
 func TestReconcileVersionsAfterCrash(t *testing.T) {
 	addr := [20]byte{0xAA}
 	slot := [32]byte{0xBB}

@@ -73,13 +73,31 @@ func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) {
 	}
 }
 
+// Close publishes both backends' imports. When the cosmos import fails, the flatkv import is discarded
+// rather than published, so a failed import does not leave flatkv ahead of memiavl.
 func (si *SnapshotImporter) Close() error {
-	var errCosmos, errFlatKV error
 	if si.cosmosImporter != nil {
-		errCosmos = si.cosmosImporter.Close()
+		if err := si.cosmosImporter.Close(); err != nil {
+			if si.flatkvImporter != nil {
+				_ = si.flatkvImporter.Abort(err)
+			}
+			return err
+		}
 	}
 	if si.flatkvImporter != nil {
-		errFlatKV = si.flatkvImporter.Close()
+		return si.flatkvImporter.Close()
+	}
+	return nil
+}
+
+// Abort discards both backends' imports, publishing neither.
+func (si *SnapshotImporter) Abort(reason error) error {
+	var errCosmos, errFlatKV error
+	if si.cosmosImporter != nil {
+		errCosmos = si.cosmosImporter.Abort(reason)
+	}
+	if si.flatkvImporter != nil {
+		errFlatKV = si.flatkvImporter.Abort(reason)
 	}
 	return errors.Join(errCosmos, errFlatKV)
 }

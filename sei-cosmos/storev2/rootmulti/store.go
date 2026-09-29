@@ -1187,7 +1187,7 @@ func (rs *Store) Restore(
 
 func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	var (
-		ssImporter   chan seidbtypes.SnapshotNode
+		ssImport     *stateStoreImport
 		snapshotItem snapshottypes.SnapshotItem
 		storeKey     string
 		restoreErr   error
@@ -1197,13 +1197,7 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 		return snapshottypes.SnapshotItem{}, err
 	}
 	if rs.ssStore != nil {
-		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
-		go func() {
-			err := rs.ssStore.Import(height, ssImporter)
-			if err != nil {
-				panic(err)
-			}
-		}()
+		ssImport = startStateStoreImport(rs.ssStore, height)
 	}
 loop:
 	for {
@@ -1225,6 +1219,12 @@ loop:
 			}
 			logger.Info("Start restoring store", "key", storeKey)
 		case *snapshottypes.SnapshotItem_IAVL:
+			// Importers route each node to the store opened by the last store item, so a node with no
+			// named store before it has nowhere to go.
+			if storeKey == "" {
+				restoreErr = errors.Wrap(sdkerrors.ErrLogic, "snapshot node appears outside a named store section")
+				break loop
+			}
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
 					item.IAVL.Height, math.MaxInt8)
@@ -1247,11 +1247,14 @@ loop:
 			scImporter.AddNode(node)
 
 			// Check if we should also import to SS store
-			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- seidbtypes.SnapshotNode{
+			if ssImport != nil && node.Height == 0 {
+				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,
+				}); err != nil {
+					restoreErr = err
+					break loop
 				}
 			}
 		default:
@@ -1260,18 +1263,17 @@ loop:
 		}
 	}
 
-	if err = scImporter.Close(); err != nil {
-		if restoreErr == nil {
+	if ssImport != nil {
+		if err = ssImport.finish(); err != nil && restoreErr == nil {
 			restoreErr = err
 		}
 	}
-	if ssImporter != nil {
-		close(ssImporter)
-	}
+	restoreErr = finishSCImport(scImporter, restoreErr)
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any
-	// caller that reads it in that window.
-	if rs.ssStore != nil {
+	// caller that reads it in that window. A failed restore may have imported only
+	// part of the snapshot, so it must not claim the height.
+	if rs.ssStore != nil && restoreErr == nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
 			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
@@ -1281,6 +1283,65 @@ loop:
 	}
 
 	return snapshotItem, restoreErr
+}
+
+// finishSCImport publishes the SC import when the restore has succeeded, and discards it otherwise, so a
+// failed restore leaves no snapshot behind. It returns the restore's final error.
+func finishSCImport(imp sctypes.Importer, restoreErr error) error {
+	if restoreErr != nil {
+		if err := imp.Abort(restoreErr); err != nil && !errors.IsOf(err, restoreErr) {
+			logger.Error("Failed to discard the SC import of a failed restore", "err", err)
+		}
+		return restoreErr
+	}
+	return imp.Close()
+}
+
+// stateStoreImport feeds restored leaves to a state store's Import running on its own goroutine.
+type stateStoreImport struct {
+	nodes chan seidbtypes.SnapshotNode
+	// done is closed once Import has returned; err holds its result.
+	done chan struct{}
+	err  error
+}
+
+func startStateStoreImport(ss seidbtypes.StateStore, height int64) *stateStoreImport {
+	imp := &stateStoreImport{
+		nodes: make(chan seidbtypes.SnapshotNode, 10000),
+		done:  make(chan struct{}),
+	}
+	go func() {
+		defer close(imp.done)
+		imp.err = ss.Import(height, imp.nodes)
+	}()
+	return imp
+}
+
+// send queues node for import. It returns an error when Import has already returned.
+func (imp *stateStoreImport) send(node seidbtypes.SnapshotNode) error {
+	select {
+	case imp.nodes <- node:
+		return nil
+	case <-imp.done:
+		return imp.stoppedErr()
+	}
+}
+
+// finish closes the input and waits for Import to return, returning its error.
+func (imp *stateStoreImport) finish() error {
+	close(imp.nodes)
+	<-imp.done
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return nil
+}
+
+func (imp *stateStoreImport) stoppedErr() error {
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return fmt.Errorf("state store import returned before the snapshot stream ended")
 }
 
 // Snapshot Implements the interface from Snapshotter
