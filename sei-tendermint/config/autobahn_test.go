@@ -7,8 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func TestURLJSONReencode(t *testing.T) {
@@ -86,4 +89,64 @@ func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 	require.Equal(t, wantRetention, cfg.RetentionTime)
 	require.Equal(t, wantGCPeriod, cfg.Litt.GCPeriod)
 	require.True(t, cfg.Litt.Fsync)
+}
+
+func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
+	voterA := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	voterB := common.HexToAddress("0x00000000000000000000000000000000000000b2")
+	badParams := gov.DefaultParams()
+	badParams.VotingPeriod = 0
+	for _, tc := range []struct {
+		name       string
+		governance utils.Option[gov.Params]
+		voters     []utils.Option[common.Address]
+		ok         bool
+	}{
+		{"disabled", utils.None[gov.Params](), []utils.Option[common.Address]{utils.None[common.Address](), utils.None[common.Address]()}, true},
+		{"disabled_with_voter", utils.None[gov.Params](), []utils.Option[common.Address]{utils.Some(voterA), utils.None[common.Address]()}, false},
+		{"enabled", utils.Some(gov.DefaultParams()), []utils.Option[common.Address]{utils.Some(voterA), utils.Some(voterB)}, true},
+		{"enabled_missing_voter", utils.Some(gov.DefaultParams()), []utils.Option[common.Address]{utils.Some(voterA), utils.None[common.Address]()}, false},
+		{"enabled_zero_voter", utils.Some(gov.DefaultParams()), []utils.Option[common.Address]{utils.Some(voterA), utils.Some(common.Address{})}, false},
+		{"enabled_shared_voter", utils.Some(gov.DefaultParams()), []utils.Option[common.Address]{utils.Some(voterA), utils.Some(voterA)}, false},
+		{"enabled_invalid_params", utils.Some(badParams), []utils.Option[common.Address]{utils.Some(voterA), utils.Some(voterB)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := validAutobahnFileConfig()
+			validator := fc.Validators[0]
+			fc.Validators = nil
+			for _, voter := range tc.voters {
+				validator.EVMVoter = voter
+				fc.Validators = append(fc.Validators, validator)
+			}
+			fc.EVMGovernance = tc.governance
+			if tc.ok {
+				require.NoError(t, fc.Validate())
+			} else {
+				require.Error(t, fc.Validate())
+			}
+		})
+	}
+}
+
+func TestAutobahnFileConfig_EVMGovernanceJSONRoundTrip(t *testing.T) {
+	fc := validAutobahnFileConfig()
+	fc.Validators[0].EVMVoter = utils.Some(common.HexToAddress("0x00000000000000000000000000000000000000a1"))
+	params := gov.DefaultParams()
+	params.VotingPeriod = 42
+	fc.EVMGovernance = utils.Some(params)
+	encoded, err := json.Marshal(fc)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"evm_voter":"0x00000000000000000000000000000000000000a1"`)
+	require.Contains(t, string(encoded), `"quorum":"0.334000000000000000"`)
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal(encoded, &got))
+	require.NoError(t, got.Validate())
+	require.Equal(t, fc.Validators[0].EVMVoter, got.Validators[0].EVMVoter)
+	require.Equal(t, fc.EVMGovernance, got.EVMGovernance)
+
+	fc = validAutobahnFileConfig()
+	encoded, err = json.Marshal(fc)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "evm_voter")
+	require.NotContains(t, string(encoded), "evm_governance")
 }

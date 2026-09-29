@@ -23,6 +23,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -101,7 +102,10 @@ type evmOnlyApplication struct {
 	storage          *bootstrap.GigaStorageManager
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
-	executor         utils.Mutex[*utils.Option[*evmonly.Executor]]
+	// customPrecompiles are the native contracts every executor runs, fixed at
+	// genesis.
+	customPrecompiles utils.Option[precompiles.Registry]
+	executor          utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
 	// the block's cursor encoder takes cursor.
 	cursor utils.Mutex[*evmOnlyCursorState]
@@ -151,8 +155,9 @@ type evmOnlyCursorState struct {
 var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, and blocks are owned by storage; execution sizes the executor
-// and prices admission. A storage that already holds committed blocks resumes from its
+// load tests. State, receipts, and blocks are owned by storage; execution sizes
+// the executor and prices admission; customPrecompiles are the native contracts
+// the chain runs. A storage that already holds committed blocks resumes from its
 // durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
@@ -160,22 +165,24 @@ func NewEVMOnlyApplication(
 	storage *bootstrap.GigaStorageManager,
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
 	execution gigaconfig.ExecutionConfig,
+	customPrecompiles utils.Option[precompiles.Registry],
 ) (abci.Application, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
-		chainID:          new(big.Int).SetUint64(chainID),
-		chainConfig:      &chainConfig,
-		execution:        execution,
-		minGasPrice:      evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
-		storage:          storage,
-		changeSetEncoder: changeSetEncoder,
-		validators:       slices.Clone(validators),
-		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
-		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
-		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
-		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
+		chainID:           new(big.Int).SetUint64(chainID),
+		chainConfig:       &chainConfig,
+		execution:         execution,
+		minGasPrice:       evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
+		storage:           storage,
+		changeSetEncoder:  changeSetEncoder,
+		validators:        slices.Clone(validators),
+		customPrecompiles: customPrecompiles,
+		executor:          utils.NewMutex(new(utils.Option[*evmonly.Executor])),
+		cursor:            utils.NewMutex(&evmOnlyCursorState{}),
+		settler:           utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
+		checkedSenders:    utils.NewMutex(utils.Alloc(newSenderCache())),
+		finalizePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
@@ -202,10 +209,11 @@ func (a *evmOnlyApplication) installExecutor(slot *utils.Option[*evmonly.Executo
 
 func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	return evmonly.NewExecutor(evmonly.Config{
-		ChainConfig:  a.chainConfig,
-		MinGasPrice:  big.NewInt(evmOnlyBlockMinGasPrice),
-		OCCWorkers:   workersOrGOMAXPROCS(a.execution.OCCWorkers),
-		ParseWorkers: workersOrGOMAXPROCS(a.execution.ParseWorkers),
+		ChainConfig:       a.chainConfig,
+		CustomPrecompiles: a.customPrecompiles.Or(nil),
+		MinGasPrice:       big.NewInt(evmOnlyBlockMinGasPrice),
+		OCCWorkers:        workersOrGOMAXPROCS(a.execution.OCCWorkers),
+		ParseWorkers:      workersOrGOMAXPROCS(a.execution.ParseWorkers),
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,

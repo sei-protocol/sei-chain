@@ -20,6 +20,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -158,6 +159,7 @@ func newEVMOnlyTestAppWithStorage(
 		storage,
 		evmonly.NewFlatKVChangeSetEncoder(storage.SC()),
 		execution,
+		utils.None[precompiles.Registry](),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
@@ -201,7 +203,7 @@ func reopenEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap
 	t.Helper()
 	closeEVMOnlyTestApp(t, app, storage)
 	reopened := openEVMOnlyTestStorageAt(t, home)
-	resumed, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()), gigaconfig.DefaultConfig.Execution)
+	resumed, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	return resumed, reopened
 }
@@ -443,7 +445,7 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 	const blocks = 3
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -487,7 +489,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -520,7 +522,7 @@ func TestEVMOnlyApplicationResumedAppSettlesItsCommits(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -545,7 +547,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -568,7 +570,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorageAt(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	init := evmOnlyTestInitChain()
 	init.InitialHeight = 5
@@ -907,7 +909,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	require.NoError(t, err)
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder, gigaconfig.DefaultConfig.Execution)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder, gigaconfig.DefaultConfig.Execution, utils.None[precompiles.Registry]())
 	require.NoError(t, err)
 	_, err = app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,

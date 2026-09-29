@@ -6,6 +6,9 @@ import (
 	"math"
 	"net/url"
 
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -37,6 +40,10 @@ type AutobahnValidator struct {
 	// Upon receiving an EVM transaction, a node needs to proxy it
 	// to validator owning the shard.
 	EVMRPC URL `json:"evmrpc"`
+	// EVMVoter is the EVM address that submits and votes on governance
+	// proposals for this validator. Required for every validator when
+	// evm_governance is set, and forbidden otherwise.
+	EVMVoter utils.Option[common.Address] `json:"evm_voter,omitzero"`
 }
 
 // AutobahnBlockDBConfig holds optional overrides for the LittDB-backed BlockDB
@@ -95,6 +102,10 @@ type AutobahnFileConfig struct {
 	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
 	// for field semantics). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
+	// EVMGovernance enables the EVM-only governance precompile with these
+	// parameters, voted on by the validators' evm_voter addresses. It must be
+	// identical on every node of a chain.
+	EVMGovernance utils.Option[gov.Params] `json:"evm_governance,omitzero"`
 }
 
 // AutobahnEVMOnlyChainID is the chain ID of the Autobahn EVM-only executor.
@@ -144,6 +155,39 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
+	}
+	if err := fc.validateEVMGovernance(); err != nil {
+		return fmt.Errorf("evm_governance: %w", err)
+	}
+	return nil
+}
+
+func (fc *AutobahnFileConfig) validateEVMGovernance() error {
+	params, enabled := fc.EVMGovernance.Get()
+	if !enabled {
+		for _, v := range fc.Validators {
+			if v.EVMVoter.IsPresent() {
+				return fmt.Errorf("validator %s sets evm_voter without evm_governance", v.ValidatorKey)
+			}
+		}
+		return nil
+	}
+	if err := params.Validate(); err != nil {
+		return err
+	}
+	voters := make(map[common.Address]bool, len(fc.Validators))
+	for _, v := range fc.Validators {
+		voter, ok := v.EVMVoter.Get()
+		if !ok {
+			return fmt.Errorf("validator %s is missing evm_voter", v.ValidatorKey)
+		}
+		if voter == (common.Address{}) {
+			return fmt.Errorf("validator %s evm_voter is the zero address", v.ValidatorKey)
+		}
+		if voters[voter] {
+			return fmt.Errorf("validator %s evm_voter %s is shared with another validator", v.ValidatorKey, voter)
+		}
+		voters[voter] = true
 	}
 	return nil
 }

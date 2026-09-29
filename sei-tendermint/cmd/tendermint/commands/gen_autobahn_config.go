@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -19,13 +21,16 @@ import (
 
 // MakeGenAutobahnConfigCommand creates a cobra command that generates an autobahn JSON config file.
 // Each node directory must contain validator_pubkey.txt, node_pubkey.txt,
-// autobahn_address.txt, and evmrpc_url.txt.
+// autobahn_address.txt, and evmrpc_url.txt, and evm_voter.txt when EVM
+// governance is enabled.
 func MakeGenAutobahnConfigCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen-autobahn-config [node-dirs...]",
 		Short: "Generate autobahn JSON config from node pubkey files",
 		Long: `Generate an autobahn JSON config file by reading validator_pubkey.txt,
-node_pubkey.txt, and autobahn_address.txt from each node directory.
+node_pubkey.txt, autobahn_address.txt, and evmrpc_url.txt from each node
+directory. With --evm-governance-voting-period, each directory must also contain
+evm_voter.txt, the validator's EVM governance voter address.
 Output is written to the file specified by --output.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,6 +44,11 @@ Output is written to the file specified by --output.`,
 			}
 			blockDBRetention, _ := cmd.Flags().GetString("blockdb-retention")
 			blockDBGCPeriod, _ := cmd.Flags().GetString("blockdb-gc-period")
+			governancePeriod, _ := cmd.Flags().GetDuration("evm-governance-voting-period")
+			governance, err := buildGenEVMGovernance(governancePeriod)
+			if err != nil {
+				return err
+			}
 
 			var validators []config.AutobahnValidator
 			for _, dir := range args {
@@ -78,12 +88,24 @@ Output is written to the file specified by --output.`,
 					return fmt.Errorf("parsing evmrpc URL from %s: %w", dir, err)
 				}
 
-				validators = append(validators, config.AutobahnValidator{
+				validator := config.AutobahnValidator{
 					ValidatorKey: valKey,
 					NodeKey:      nodeKey,
 					Address:      addr,
 					EVMRPC:       evmRPC,
-				})
+				}
+				if governance.IsPresent() {
+					voterRaw, err := os.ReadFile(filepath.Join(dir, "evm_voter.txt")) //nolint:gosec // G304: dir comes from command args; filepath.Join already calls Clean
+					if err != nil {
+						return fmt.Errorf("reading evm_voter.txt from %s: %w", dir, err)
+					}
+					voter := strings.TrimSpace(string(voterRaw))
+					if !common.IsHexAddress(voter) {
+						return fmt.Errorf("parsing evm voter from %s: %q is not an address", dir, voter)
+					}
+					validator.EVMVoter = utils.Some(common.HexToAddress(voter))
+				}
+				validators = append(validators, validator)
 			}
 
 			cfg := config.AutobahnFileConfig{
@@ -100,6 +122,10 @@ Output is written to the file specified by --output.`,
 				return err
 			}
 			cfg.BlockDB = blockDB
+			cfg.EVMGovernance = governance
+			if err := cfg.Validate(); err != nil {
+				return fmt.Errorf("generated config: %w", err)
+			}
 
 			data, err := json.MarshalIndent(cfg, "", "  ")
 			if err != nil {
@@ -119,6 +145,7 @@ Output is written to the file specified by --output.`,
 	// littblock's production default (24h).
 	cmd.Flags().String("blockdb-retention", "30s", "BlockDB retention TTL written into block_db (default 30s for local/docker); pass empty to omit and keep littblock's 24h default")
 	cmd.Flags().String("blockdb-gc-period", "", "optional BlockDB GC period (e.g. 10s); omit to keep littblock default")
+	cmd.Flags().Duration("evm-governance-voting-period", 0, "enable EVM governance with this voting period (whole seconds), reading each validator's evm_voter.txt; 0 disables it")
 	return cmd
 }
 
@@ -144,4 +171,18 @@ func buildGenBlockDBConfig(retention, gcPeriod string) (config.AutobahnBlockDBCo
 		return config.AutobahnBlockDBConfig{}, fmt.Errorf("block_db: %w", err)
 	}
 	return bdb, nil
+}
+
+// buildGenEVMGovernance returns default governance parameters with the given
+// voting period, or None when votingPeriod is 0.
+func buildGenEVMGovernance(votingPeriod time.Duration) (utils.Option[gov.Params], error) {
+	if votingPeriod == 0 {
+		return utils.None[gov.Params](), nil
+	}
+	if votingPeriod < time.Second || votingPeriod%time.Second != 0 {
+		return utils.None[gov.Params](), fmt.Errorf("--evm-governance-voting-period %s must be a positive whole number of seconds", votingPeriod)
+	}
+	params := gov.DefaultParams()
+	params.VotingPeriod = uint64(votingPeriod / time.Second)
+	return utils.Some(params), nil
 }
