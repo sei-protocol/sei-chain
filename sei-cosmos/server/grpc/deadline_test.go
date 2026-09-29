@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
+	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
@@ -24,7 +25,7 @@ func newEnforcer(d time.Duration) *ratelimiter.DeadlineEnforcer {
 
 func TestUnaryDeadlineInterceptor_AppliesDefaultDeadline(t *testing.T) {
 	enforcer := newEnforcer(10 * time.Millisecond)
-	ic := UnaryDeadlineInterceptor(enforcer)
+	ic := unaryDeadlineInterceptor(enforcer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/Simulate"}
 
 	handler := func(ctx context.Context, req any) (any, error) {
@@ -40,7 +41,7 @@ func TestUnaryDeadlineInterceptor_AppliesDefaultDeadline(t *testing.T) {
 func TestUnaryDeadlineInterceptor_ClientDeadlineShorterThanDefaultWins(t *testing.T) {
 	// A large default; the client's own shorter deadline must be what fires.
 	enforcer := newEnforcer(time.Hour)
-	ic := UnaryDeadlineInterceptor(enforcer)
+	ic := unaryDeadlineInterceptor(enforcer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/Simulate"}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
@@ -59,7 +60,7 @@ func TestUnaryDeadlineInterceptor_ClientDeadlineShorterThanDefaultWins(t *testin
 
 func TestUnaryDeadlineInterceptor_HandlerSucceedsWithinDeadline(t *testing.T) {
 	enforcer := newEnforcer(time.Minute)
-	ic := UnaryDeadlineInterceptor(enforcer)
+	ic := unaryDeadlineInterceptor(enforcer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/Simulate"}
 
 	handler := func(ctx context.Context, req any) (any, error) {
@@ -73,7 +74,7 @@ func TestUnaryDeadlineInterceptor_HandlerSucceedsWithinDeadline(t *testing.T) {
 
 func TestUnaryDeadlineInterceptor_NonDeadlineErrorPassesThroughUnchanged(t *testing.T) {
 	enforcer := newEnforcer(time.Minute)
-	ic := UnaryDeadlineInterceptor(enforcer)
+	ic := unaryDeadlineInterceptor(enforcer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/Simulate"}
 
 	wantErr := status.Error(codes.InvalidArgument, "bad request")
@@ -91,7 +92,7 @@ func TestUnaryDeadlineInterceptor_StatusDeadlineErrorRecordsMetric(t *testing.T)
 	before := rejectionCounts(t, reader, metricName)["other"]
 
 	enforcer := newEnforcer(time.Minute)
-	ic := UnaryDeadlineInterceptor(enforcer)
+	ic := unaryDeadlineInterceptor(enforcer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/Simulate"}
 
 	handler := func(ctx context.Context, req any) (any, error) {
@@ -112,7 +113,7 @@ func (s fakeServerStream) Context() context.Context { return s.ctx }
 
 func TestStreamDeadlineInterceptor_HandlerObservesBoundedContext(t *testing.T) {
 	enforcer := newEnforcer(10 * time.Millisecond)
-	ic := StreamDeadlineInterceptor(enforcer)
+	ic := streamDeadlineInterceptor(enforcer)
 	info := &grpc.StreamServerInfo{FullMethod: "/cosmos.tx.v1beta1.Service/GetTxsEvent"}
 
 	handler := func(srv any, stream grpc.ServerStream) error {
@@ -124,32 +125,35 @@ func TestStreamDeadlineInterceptor_HandlerObservesBoundedContext(t *testing.T) {
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 }
 
-// blockingRecvStream simulates a handler parked in RecvMsg while the client sends nothing
 type blockingRecvStream struct {
 	grpc.ServerStream
-	ctx  context.Context
-	recv func() error
+	ctx      context.Context
+	entered  chan struct{}
+	finished chan struct{}
 }
 
 func (s blockingRecvStream) Context() context.Context { return s.ctx }
 
-func (s blockingRecvStream) RecvMsg(any) error { return s.recv() }
+func (s blockingRecvStream) RecvMsg(any) error {
+	close(s.entered)
+	defer close(s.finished)
+	<-s.ctx.Done()
+	return s.ctx.Err()
+}
 
-func TestStreamDeadlineInterceptor_RecvMsgUnblocksOnDeadline(t *testing.T) {
+func TestStreamDeadlineInterceptor_RecvMsgFinishesBeforeHandlerReturns(t *testing.T) {
 	enforcer := newEnforcer(10 * time.Millisecond)
-	ic := StreamDeadlineInterceptor(enforcer)
+	statsHandler := deadlineStatsHandler{enforcer: enforcer}
+	ic := streamDeadlineInterceptor(enforcer)
 	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
 
 	recvEntered := make(chan struct{})
-	blockRecv := make(chan struct{})
-
+	recvFinished := make(chan struct{})
+	ctx := statsHandler.TagRPC(t.Context(), &stats.RPCTagInfo{FullMethodName: info.FullMethod})
 	underlying := blockingRecvStream{
-		ctx: t.Context(),
-		recv: func() error {
-			close(recvEntered)
-			<-blockRecv
-			return nil
-		},
+		ctx:      ctx,
+		entered:  recvEntered,
+		finished: recvFinished,
 	}
 
 	handler := func(_ any, stream grpc.ServerStream) error {
@@ -166,25 +170,83 @@ func TestStreamDeadlineInterceptor_RecvMsgUnblocksOnDeadline(t *testing.T) {
 	err := <-errCh
 	require.Less(t, time.Since(start), time.Second)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	select {
+	case <-recvFinished:
+	default:
+		t.Fatal("RecvMsg was still running after the handler returned")
+	}
+	statsHandler.HandleRPC(ctx, &stats.End{})
+}
+
+type blockingSendStream struct {
+	grpc.ServerStream
+	ctx      context.Context
+	entered  chan struct{}
+	finished chan struct{}
+}
+
+func (s blockingSendStream) Context() context.Context { return s.ctx }
+
+func (s blockingSendStream) SendMsg(any) error {
+	close(s.entered)
+	defer close(s.finished)
+	<-s.ctx.Done()
+	return s.ctx.Err()
+}
+
+func TestStreamDeadlineInterceptor_SendMsgFinishesBeforeHandlerReturns(t *testing.T) {
+	enforcer := newEnforcer(10 * time.Millisecond)
+	statsHandler := deadlineStatsHandler{enforcer: enforcer}
+	ic := streamDeadlineInterceptor(enforcer)
+	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
+
+	sendEntered := make(chan struct{})
+	sendFinished := make(chan struct{})
+	ctx := statsHandler.TagRPC(t.Context(), &stats.RPCTagInfo{FullMethodName: info.FullMethod})
+	underlying := blockingSendStream{
+		ctx:      ctx,
+		entered:  sendEntered,
+		finished: sendFinished,
+	}
+
+	handler := func(_ any, stream grpc.ServerStream) error {
+		return stream.SendMsg(nil)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ic(nil, underlying, info, handler)
+	}()
+
+	<-sendEntered
+	err := <-errCh
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	select {
+	case <-sendFinished:
+	default:
+		t.Fatal("SendMsg was still running after the handler returned")
+	}
+	statsHandler.HandleRPC(ctx, &stats.End{})
 }
 
 func TestStreamDeadlineAfterRateLimit_RecvMsgUnblocksOnDeadline(t *testing.T) {
 	reg := mustNewRegistry(t, cfg(1000, 1000))
 	enforcer := newEnforcer(10 * time.Millisecond)
+	statsHandler := deadlineStatsHandler{enforcer: enforcer}
 	rateIC := StreamRateLimitInterceptor(reg)
-	deadlineIC := StreamDeadlineInterceptor(enforcer)
+	deadlineIC := streamDeadlineInterceptor(enforcer)
 	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
 
 	recvEntered := make(chan struct{})
-	blockRecv := make(chan struct{})
-
+	recvFinished := make(chan struct{})
+	ctx := statsHandler.TagRPC(
+		grpcCtx(t.Context(), "10.0.0.1:9000"),
+		&stats.RPCTagInfo{FullMethodName: info.FullMethod},
+	)
 	underlying := blockingRecvStream{
-		ctx: grpcCtx(t.Context(), "10.0.0.1:9000"),
-		recv: func() error {
-			close(recvEntered)
-			<-blockRecv
-			return nil
-		},
+		ctx:      ctx,
+		entered:  recvEntered,
+		finished: recvFinished,
 	}
 
 	handler := func(_ any, stream grpc.ServerStream) error {
@@ -202,11 +264,32 @@ func TestStreamDeadlineAfterRateLimit_RecvMsgUnblocksOnDeadline(t *testing.T) {
 	<-recvEntered
 	err := <-errCh
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	select {
+	case <-recvFinished:
+	default:
+		t.Fatal("RecvMsg was still running after the handler returned")
+	}
+	statsHandler.HandleRPC(ctx, &stats.End{})
+}
+
+func TestDeadlineStatsHandler_CancelsDeadlineOnEnd(t *testing.T) {
+	statsHandler := deadlineStatsHandler{enforcer: newEnforcer(time.Hour)}
+	ctx := statsHandler.TagRPC(
+		t.Context(),
+		&stats.RPCTagInfo{FullMethodName: "/cosmos.tx.v1beta1.Service/Simulate"},
+	)
+	require.NoError(t, ctx.Err())
+
+	statsHandler.HandleRPC(ctx, &stats.End{})
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
 }
 
 func TestStreamDeadlineInterceptor_IdleStreamOnWire(t *testing.T) {
 	enforcer := newEnforcer(50 * time.Millisecond)
-	srv := grpc.NewServer(grpc.ChainStreamInterceptor(StreamDeadlineInterceptor(enforcer)))
+	srv := grpc.NewServer(
+		grpc.StatsHandler(deadlineStatsHandler{enforcer: enforcer}),
+		grpc.ChainStreamInterceptor(streamDeadlineInterceptor(enforcer)),
+	)
 	gogoreflection.Register(srv)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

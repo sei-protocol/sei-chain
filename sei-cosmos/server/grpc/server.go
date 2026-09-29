@@ -102,11 +102,13 @@ func deadlineServerOptions(cfg config.GRPCConfig) []grpc.ServerOption {
 	}
 	enforcer := ratelimiter.NewDeadlineEnforcer(ratelimiter.DeadlineConfig{Default: cfg.RequestTimeout})
 	return []grpc.ServerOption{
-		// Placed after the rate-limit interceptors: admission runs on the
-		// undecorated request first, and the deadline then bounds the handler
-		// itself, so an ordinary rejection never eats into the request's budget.
-		grpc.ChainUnaryInterceptor(UnaryDeadlineInterceptor(enforcer)),
-		grpc.ChainStreamInterceptor(StreamDeadlineInterceptor(enforcer)),
+		// The stats handler puts the deadline on grpc-go's transport context so
+		// blocked stream operations observe it directly. Native gRPC admission
+		// runs earlier in the tap handler, while gRPC-Web admission wraps
+		// ServeHTTP, so rejected requests do not consume the deadline budget.
+		grpc.StatsHandler(deadlineStatsHandler{enforcer: enforcer}),
+		grpc.ChainUnaryInterceptor(unaryDeadlineInterceptor(enforcer)),
+		grpc.ChainStreamInterceptor(streamDeadlineInterceptor(enforcer)),
 	}
 }
 
