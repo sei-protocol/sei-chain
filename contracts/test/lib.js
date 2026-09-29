@@ -773,7 +773,7 @@ async function isEvmOnlyChain() {
 
 // setupSigners funds each signer and returns it with its EVM address and, on a
 // chain with Cosmos accounts, its Sei address. On the EVM-only chain seiAddress
-// is undefined.
+// is null.
 async function setupSigners(signers) {
     const evmOnly = await isEvmOnlyChain()
     const result = []
@@ -786,7 +786,7 @@ async function setupSigners(signers) {
             value: 0
         });
         await resp.wait()
-        const seiAddress = evmOnly ? undefined : await getSeiAddress(evmAddress);
+        const seiAddress = evmOnly ? null : await getSeiAddress(evmAddress);
         result.push({
             seiAddress,
             evmAddress,
