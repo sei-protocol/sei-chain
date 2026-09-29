@@ -4,7 +4,6 @@ package gigasim
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -99,7 +98,7 @@ func NewGigaSim(
 	}
 
 	fmt.Printf("Running gigasim benchmark from data directory: %s\n", config.DataDir)
-	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
+	fmt.Printf("Logs are being routed to: %s\n", config.LogDir())
 	fmt.Printf("The historical state store is %s and the receipt store is %s.\n",
 		enabledLabel(config.EnableSS), enabledLabel(config.EnableReceiptStore))
 
@@ -594,7 +593,7 @@ func (g *GigaSim) teardown() {
 
 	if g.config.CleanDataOnExit {
 		fmt.Printf("CleanDataOnExit is enabled.\n")
-		if err := cleanDirectories(g.config); err != nil {
+		if err := cleanDataDir(g.config); err != nil {
 			g.recordFailure(err)
 		}
 	}
@@ -686,74 +685,95 @@ func (g *GigaSim) Resume() {
 	}
 }
 
-// resolveDirectories expands the configured paths and applies CleanDataOnStart, leaving the config
-// holding absolute paths that every store's location is derived from.
+// resolveDirectories expands DataDir, applies CleanDataOnStart and creates the log directory under it,
+// leaving the config holding the absolute path every store's location is derived from.
 func resolveDirectories(config *GigasimConfig) error {
 	var err error
 	if config.DataDir, err = utils.ResolveAndCreateDir(config.DataDir); err != nil {
 		return fmt.Errorf("failed to resolve the data directory: %w", err)
 	}
-	if config.LogDir, err = utils.ResolveAndCreateDir(config.LogDir); err != nil {
-		return fmt.Errorf("failed to resolve the log directory: %w", err)
-	}
-	if err := claimDirectories(config); err != nil {
+	if err := claimDataDir(config); err != nil {
 		return err
 	}
 
 	if config.CleanDataOnStart {
 		fmt.Printf("CleanDataOnStart is enabled.\n")
-		if err := cleanDirectories(config); err != nil {
+		if err := cleanDataDir(config); err != nil {
 			return err
 		}
+	}
+	// Created after the clean, which removes it along with everything else under DataDir.
+	if _, err := utils.ResolveAndCreateDir(config.LogDir()); err != nil {
+		return fmt.Errorf("failed to create the log directory: %w", err)
 	}
 	return nil
 }
 
-// cleanDirectories empties the data and log directories, naming each on the console as it goes. It
-// attempts both even when the first fails, and reports every failure.
-func cleanDirectories(config *GigasimConfig) error {
-	var errs []error
-	for _, dir := range []string{config.DataDir, config.LogDir} {
-		fmt.Printf("Removing contents of: %s\n", dir)
-		if err := removeContents(dir); err != nil {
-			errs = append(errs, fmt.Errorf("failed to clean %s: %w", dir, err))
-		}
+// cleanDataDir empties the data directory, logs included, naming it on the console.
+func cleanDataDir(config *GigasimConfig) error {
+	fmt.Printf("Removing contents of: %s\n", config.DataDir)
+	if err := removeContents(config.DataDir); err != nil {
+		return fmt.Errorf("failed to clean %s: %w", config.DataDir, err)
 	}
-	return errors.Join(errs...)
+	return nil
 }
 
 // dirMarkerName is the file marking a directory as one the benchmark created and may therefore
 // empty. Its presence is the only thing that permits a delete.
 const dirMarkerName = ".gigasim"
 
-// claimDirectories marks an empty data or log directory as the benchmark's own, which is what later
-// permits CleanDataOnStart and CleanDataOnExit to empty it.
+// claimDataDir marks the data directory as the benchmark's own, which is what later permits
+// CleanDataOnStart and CleanDataOnExit to empty it.
 //
-// Only an empty directory is claimed. One that already holds files was not created by this benchmark,
-// so it is left unmarked and a clean will refuse it rather than destroy whatever is there.
-func claimDirectories(config *GigasimConfig) error {
-	for _, dir := range []string{config.DataDir, config.LogDir} {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", dir, err)
-		}
-		if len(entries) > 0 {
-			continue
-		}
-		marker := filepath.Join(dir, dirMarkerName)
-		if err := os.WriteFile(marker, nil, 0o600); err != nil {
-			return fmt.Errorf("failed to mark %s as the benchmark's own: %w", dir, err)
-		}
+// Only a directory holding nothing but the benchmark's own log is claimed. One that holds anything else
+// was not created by this benchmark, so it is left unmarked and a clean will refuse it rather than
+// destroy whatever is there.
+func claimDataDir(config *GigasimConfig) error {
+	unused, err := holdsOnlyItsOwnLog(config)
+	if err != nil || !unused {
+		return err
+	}
+	marker := filepath.Join(config.DataDir, dirMarkerName)
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		return fmt.Errorf("failed to mark %s as the benchmark's own: %w", config.DataDir, err)
 	}
 	return nil
 }
 
+// holdsOnlyItsOwnLog reports whether the data directory is empty but for the log directory and the log
+// file in it. The launch script configures logging before the benchmark starts, so a fresh data
+// directory already holds those by the time it is claimed.
+func holdsOnlyItsOwnLog(config *GigasimConfig) (bool, error) {
+	entries, err := os.ReadDir(config.DataDir)
+	if err != nil {
+		return false, fmt.Errorf("failed to read %s: %w", config.DataDir, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != logDirName || !entry.IsDir() {
+			return false, nil
+		}
+	}
+	logs, err := os.ReadDir(config.LogDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to read %s: %w", config.LogDir(), err)
+	}
+	for _, entry := range logs {
+		if entry.Name() != logFileName || !entry.Type().IsRegular() {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // removeContents deletes all entries inside dir without removing dir itself, leaving the marker that
-// keeps the directory claimed.
+// keeps the directory claimed and the log file seilog is writing to, which is emptied instead.
 //
-// A directory holding files but no marker is refused. DataDir and LogDir come from an operator-written
-// config, and a path naming a home, source or root directory would otherwise be emptied on the word of
-// a typo. This is the single place a delete happens, so the refusal cannot be bypassed by a new caller.
+// A directory holding files but no marker is refused. DataDir comes from an operator-written config,
+// and a path naming a home, source or root directory would otherwise be emptied on the word of a typo.
+// This is the single place a delete happens, so the refusal cannot be bypassed by a new caller.
 func removeContents(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -768,14 +788,44 @@ func removeContents(dir string) error {
 	if _, err := os.Stat(filepath.Join(dir, dirMarkerName)); err != nil {
 		return fmt.Errorf(
 			"refusing to clean %s: it holds files but no %s marker, so the benchmark did not create it"+
-				" (empty it by hand, or point DataDir and LogDir somewhere the benchmark owns)",
+				" (empty it by hand, or point DataDir somewhere the benchmark owns)",
 			dir, dirMarkerName)
 	}
 	for _, entry := range entries {
-		if entry.Name() == dirMarkerName {
+		path := filepath.Join(dir, entry.Name())
+		switch {
+		case entry.Name() == dirMarkerName:
+			continue
+		case entry.Name() == logDirName && entry.IsDir():
+			if err := emptyLogDir(path); err != nil {
+				return err
+			}
+		default:
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// emptyLogDir deletes every earlier log in dir and truncates the current one. seilog opens the log file
+// in append mode when the process starts and keeps writing to it, so deleting it would send the rest of
+// this run's output to an unlinked file.
+func emptyLogDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if entry.Name() == logFileName && entry.Type().IsRegular() {
+			if err := os.Truncate(path, 0); err != nil {
+				return err
+			}
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+		if err := os.RemoveAll(path); err != nil {
 			return err
 		}
 	}

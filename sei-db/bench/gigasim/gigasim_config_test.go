@@ -23,6 +23,14 @@ func TestGenerationIsUnthrottledByDefault(t *testing.T) {
 	require.Zero(t, DefaultGigasimConfig().MaxBlocksPerSecond)
 }
 
+func TestProfilingIsOffByDefault(t *testing.T) {
+	t.Parallel()
+	config := DefaultGigasimConfig()
+	require.Empty(t, config.PprofAddr)
+	require.Zero(t, config.MutexProfileFraction)
+	require.Zero(t, config.BlockProfileRate)
+}
+
 func TestShippedConfigsAreValid(t *testing.T) {
 	t.Parallel()
 
@@ -41,7 +49,7 @@ func TestShippedConfigsAreValid(t *testing.T) {
 }
 
 // TestShippedConfigsUseSeparateDirectories pins that no shipped config can destroy another's run. The
-// debug config cleans its directories at both ends, so sharing a path with the standard config would
+// debug config cleans its directories at both ends, so sharing a path with the full-node config would
 // make a smoke test delete a long benchmark's data.
 func TestShippedConfigsUseSeparateDirectories(t *testing.T) {
 	t.Parallel()
@@ -54,11 +62,9 @@ func TestShippedConfigsUseSeparateDirectories(t *testing.T) {
 	for _, path := range paths {
 		config := DefaultGigasimConfig()
 		require.NoError(t, utils.LoadConfigFromFile(path, config))
-		for _, dir := range []string{config.DataDir, config.LogDir} {
-			require.NotContains(t, owners, dir,
-				"%s and %s both use %s", filepath.Base(path), owners[dir], dir)
-			owners[dir] = filepath.Base(path)
-		}
+		require.NotContains(t, owners, config.DataDir,
+			"%s and %s both use %s", filepath.Base(path), owners[config.DataDir], config.DataDir)
+		owners[config.DataDir] = filepath.Base(path)
 	}
 }
 
@@ -113,6 +119,15 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		{"a random buffer too small for one block", func(c *GigasimConfig) { c.CannedRandomSize = 8 }},
 		{"no data directory", func(c *GigasimConfig) { c.DataDir = "" }},
 		{"an unknown log level", func(c *GigasimConfig) { c.LogLevel = "chatty" }},
+		{"an account cache of zero bytes", func(c *GigasimConfig) { c.AccountCacheSizeBytes = 0 }},
+		{"a code cache of zero bytes", func(c *GigasimConfig) { c.CodeCacheSizeBytes = 0 }},
+		{"a storage cache of zero bytes", func(c *GigasimConfig) { c.StorageCacheSizeBytes = 0 }},
+		{"a negative mutex profile fraction", func(c *GigasimConfig) { c.MutexProfileFraction = -1 }},
+		{"a negative block profile rate", func(c *GigasimConfig) { c.BlockProfileRate = -1 }},
+		{"a profile with no pprof server to read it from", func(c *GigasimConfig) {
+			c.PprofAddr = ""
+			c.MutexProfileFraction = 1
+		}},
 	}
 
 	for _, test := range tests {
@@ -144,6 +159,23 @@ func TestStorageConfigCarriesTheConfiguredWindows(t *testing.T) {
 	require.Equal(t, 11*time.Second, storage.PruningConfig.PruneInterval)
 	require.Equal(t, 22*time.Second, storage.CheckpointConfig.TimeInterval)
 	require.Equal(t, int64(33), storage.CheckpointConfig.BlockInterval)
+}
+
+func TestStorageConfigCarriesTheConfiguredCacheSizes(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.DataDir = t.TempDir()
+	config.AccountCacheSizeBytes = 11 << 20
+	config.CodeCacheSizeBytes = 22 << 20
+	config.StorageCacheSizeBytes = 33 << 20
+
+	storage, err := config.storageConfig()
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(11<<20), storage.FlatKVConfig.AccountStoreConfig.MaxSize)
+	require.Equal(t, uint64(22<<20), storage.FlatKVConfig.CodeStoreConfig.MaxSize)
+	require.Equal(t, uint64(33<<20), storage.FlatKVConfig.StorageStoreConfig.MaxSize)
 }
 
 func TestDisablingAStoreKeepsItOutOfTheStorageConfig(t *testing.T) {

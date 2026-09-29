@@ -24,7 +24,6 @@ func testConfig(t *testing.T) *GigasimConfig {
 
 	config := DefaultGigasimConfig()
 	config.DataDir = filepath.Join(t.TempDir(), "data")
-	config.LogDir = filepath.Join(t.TempDir(), "logs")
 
 	config.TransactionsPerBlock = 10
 	config.BytesPerTransaction = 64
@@ -450,19 +449,85 @@ func TestCleaningRefusesADirectoryTheBenchmarkDoesNotOwn(t *testing.T) {
 func TestCleaningEmptiesADirectoryTheBenchmarkClaimed(t *testing.T) {
 	t.Parallel()
 
-	config := &GigasimConfig{
-		DataDir: filepath.Join(t.TempDir(), "data"),
-		LogDir:  filepath.Join(t.TempDir(), "logs"),
-	}
+	config := &GigasimConfig{DataDir: filepath.Join(t.TempDir(), "data")}
 	require.NoError(t, resolveDirectories(config))
+	require.DirExists(t, config.LogDir(), "the log directory lives under the data directory")
 
 	written := filepath.Join(config.DataDir, "block.db")
 	require.NoError(t, os.WriteFile(written, []byte("run output"), 0o600))
+	earlierLog := filepath.Join(config.LogDir(), "gigasim.log.1")
+	require.NoError(t, os.WriteFile(earlierLog, []byte("an earlier run"), 0o600))
+	require.NoError(t, os.WriteFile(config.LogFile(), []byte("log output"), 0o600))
 
 	require.NoError(t, removeContents(config.DataDir))
 	require.NoFileExists(t, written)
+	require.NoFileExists(t, earlierLog, "the logs are cleaned with the rest of the data directory")
 	require.FileExists(t, filepath.Join(config.DataDir, dirMarkerName),
 		"the marker must survive a clean, or the next one is refused")
+}
+
+// TestCleaningKeepsTheOpenLogFile pins that a clean empties the log seilog is writing to rather than
+// deleting it. seilog opens it when the process starts, before CleanDataOnStart runs, and a deleted file
+// would take the rest of the run's output with it.
+func TestCleaningKeepsTheOpenLogFile(t *testing.T) {
+	t.Parallel()
+
+	config := &GigasimConfig{DataDir: filepath.Join(t.TempDir(), "data")}
+	require.NoError(t, resolveDirectories(config))
+
+	logFile, err := os.OpenFile(config.LogFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, logFile.Close()) }()
+	_, err = logFile.WriteString("before the clean\n")
+	require.NoError(t, err)
+
+	require.NoError(t, removeContents(config.DataDir))
+	_, err = logFile.WriteString("after the clean\n")
+	require.NoError(t, err)
+
+	contents, err := os.ReadFile(config.LogFile())
+	require.NoError(t, err)
+	require.Equal(t, "after the clean\n", string(contents))
+}
+
+// TestADataDirHoldingOnlyItsLogIsClaimed pins that configuring the logger first does not cost the
+// benchmark its claim: the launch script creates the log file under DataDir before the benchmark runs,
+// and a data directory left unclaimed is one CleanDataOnStart refuses to empty.
+func TestADataDirHoldingOnlyItsLogIsClaimed(t *testing.T) {
+	t.Parallel()
+
+	config := &GigasimConfig{DataDir: t.TempDir(), CleanDataOnStart: true}
+	require.NoError(t, os.MkdirAll(config.LogDir(), 0o750))
+	require.NoError(t, os.WriteFile(config.LogFile(), []byte("launch output"), 0o600))
+
+	require.NoError(t, resolveDirectories(config))
+	require.FileExists(t, filepath.Join(config.DataDir, dirMarkerName))
+	require.DirExists(t, config.LogDir(), "the clean must leave a log directory for seilog to write to")
+}
+
+// TestADataDirHoldingMoreThanItsLogIsNotClaimed pins the limit of that allowance: anything beside the
+// benchmark's own log means the directory was not created by the benchmark.
+func TestADataDirHoldingMoreThanItsLogIsNotClaimed(t *testing.T) {
+	t.Parallel()
+
+	for name, foreign := range map[string]func(config *GigasimConfig) string{
+		"a file beside the logs": func(c *GigasimConfig) string { return filepath.Join(c.DataDir, "notes.txt") },
+		"a file among the logs":  func(c *GigasimConfig) string { return filepath.Join(c.LogDir(), "other.log") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			config := &GigasimConfig{DataDir: t.TempDir()}
+			require.NoError(t, os.MkdirAll(config.LogDir(), 0o750))
+			precious := foreign(config)
+			require.NoError(t, os.WriteFile(precious, []byte("not the benchmark's"), 0o600))
+
+			require.NoError(t, resolveDirectories(config))
+			require.NoFileExists(t, filepath.Join(config.DataDir, dirMarkerName))
+			require.ErrorContains(t, removeContents(config.DataDir), "refusing to clean")
+			require.FileExists(t, precious)
+		})
+	}
 }
 
 // dirHasContents reports whether a directory exists and holds at least one entry.

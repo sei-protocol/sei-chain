@@ -15,14 +15,15 @@ or `--topology colocated` (all four Docker validators on a single EC2).
 Run from anywhere in the repository; the script builds what it needs first:
 
 ```
-./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/standard.json
+./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/full-node.json
 ```
 
-Three configurations ship with the benchmark:
+Four configurations ship with the benchmark:
 
 | Config | Shape it simulates |
 | --- | --- |
-| `config/standard.json` | A full node: block store, live state DB, historical state store, receipts |
+| `config/full-node.json` | A full node: block store, live state DB, historical state store, receipts |
+| `config/archive-node.json` | An archive node: a full node that keeps all history, never pruning it |
 | `config/validator.json` | A validator: block store and live state DB only |
 | `config/debug.json` | A small, short local run for smoke testing |
 
@@ -30,6 +31,9 @@ A run continues until interrupted. Stop it with Ctrl-C, which shuts down gracefu
 directory resumable; set `MaxRuntimeSeconds` to have it stop on its own instead. Press Enter while a
 run is in progress to suspend it, and again to resume — set `EnableSuspension` to false when running
 somewhere without a terminal attached.
+
+Everything a run writes lives under `DataDir`, including its log: `logs/gigasim.log` beneath the data
+directory. `CleanDataOnStart` and `CleanDataOnExit` clean the logs along with the data.
 
 # Hashing Kernel
 
@@ -45,7 +49,7 @@ To measure against the portable kernel, pin it at run time — both are in the b
 needed:
 
 ```
-SEI_LTHASH_BACKEND=default ./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/standard.json
+SEI_LTHASH_BACKEND=default ./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/full-node.json
 ```
 
 Building through the Makefile directly rather than through `gigasim.sh` sets no experiment, and
@@ -154,7 +158,9 @@ Metrics are served for Prometheus at `MetricsAddr` (`:9090` by default; empty di
 benchmark's own instruments are prefixed `gigasim_` and cover per-store write volume, the pending
 execution queue, the account population, on-disk size per store, block hash wait time, and a phase
 breakdown for the generator thread, the consumer thread and the executors. The stores served on the
-same endpoint publish their own: `flatkv_`, `seiwal_`, `litt_`, `pebble_` and `giga_state_commit_`.
+same endpoint publish their own: `flatkv_`, `seiwal_`, `litt_`, `pebble_` and `giga_state_commit_`, and
+the garbage collector pruning them publishes `storage_gc_`: its cut lines, each store's rollback floor,
+and how long each store took to prune.
 
 `LittMetricsEnabled` controls the last of those for the two LittDB-backed stores, the block ledger and
 the receipt store. It is on by default and is the only source of their size and queue depth.
@@ -188,6 +194,18 @@ For local Prometheus and Grafana containers, see the corresponding section of th
 [cryptosim README](../cryptosim/README.md#setting-up-prometheus--grafana); the setup is the same.
 Grafana provisions every dashboard in `docker/monitornode/dashboards`, so the run appears under
 **GigaSim** without any import step.
+
+# Profiling
+
+Profiling is off by default. Set `PprofAddr` (for example `":6060"`) to serve the pprof endpoints. They
+come up before the storage opens, so opening storage and setup can be profiled as well as the run:
+
+```
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+The mutex and block profiles are off unless `MutexProfileFraction` or `BlockProfileRate` turns them on.
+Both slow what they sample, so a run with either on is for diagnosis rather than measurement.
 
 # Tests
 

@@ -2,10 +2,12 @@ package gigasim
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -132,7 +134,7 @@ type GigasimConfig struct {
 	// The size in bytes of the pre-generated random buffer that all simulated data is sliced from.
 	CannedRandomSize int
 
-	// The directory holding every database the benchmark opens.
+	// The directory holding every database the benchmark opens, and the logs directory seilog writes to.
 	DataDir string
 
 	// If this many seconds pass without a console update, the benchmark prints a report.
@@ -146,6 +148,18 @@ type GigasimConfig struct {
 
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). Empty disables metrics serving.
 	MetricsAddr string
+
+	// Address for the pprof HTTP server (e.g. ":6060"). Empty disables profiling.
+	PprofAddr string
+
+	// The mutex profile's sampling rate: 1 records every contention event, N one in N on average, and 0
+	// leaves the profile off. Requires PprofAddr. Sampling slows the locks it measures, so a run with it
+	// on is a diagnostic run rather than a measurement.
+	MutexProfileFraction int
+
+	// The block profile's sampling rate, in nanoseconds of blocked time per sample; 0 leaves the profile
+	// off. Requires PprofAddr, and carries the same cost as MutexProfileFraction.
+	BlockProfileRate int
 
 	// How often to scrape background metrics such as data directory size, in seconds. 0 disables them.
 	BackgroundMetricsScrapeInterval int
@@ -165,19 +179,26 @@ type GigasimConfig struct {
 	// question is about cache behaviour rather than throughput.
 	ReadCacheMetricsEnabled bool
 
+	// The live state DB's read cache budget for the account store, in bytes.
+	AccountCacheSizeBytes uint64
+
+	// The live state DB's read cache budget for the contract code store, in bytes.
+	CodeCacheSizeBytes uint64
+
+	// The live state DB's read cache budget for the contract storage store, in bytes.
+	StorageCacheSizeBytes uint64
+
 	// If true, pressing Enter in the terminal toggles suspend/resume.
 	EnableSuspension bool
 
-	// Directory for seilog output files. Supports ~ expansion and relative paths.
-	LogDir string
-
-	// Log level for seilog output. One of debug, info, warn, error.
+	// Log level for seilog output, which is written under DataDir (see LogDir). One of debug, info,
+	// warn, error.
 	LogLevel string
 
-	// If true, delete the contents of DataDir and LogDir before opening the databases.
+	// If true, delete the contents of DataDir, logs included, before opening the databases.
 	CleanDataOnStart bool
 
-	// If true, delete the contents of DataDir and LogDir after the benchmark finishes.
+	// If true, delete the contents of DataDir, logs included, after the benchmark finishes.
 	CleanDataOnExit bool
 
 	// This field is ignored, but allows for a comment to be added to the config file.
@@ -193,7 +214,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		MaxBlocksPerSecond:              0,
 		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    100,
-		FlushIntervalBlocks:             10,
+		FlushIntervalBlocks:             1,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
@@ -204,13 +225,13 @@ func DefaultGigasimConfig() *GigasimConfig {
 		MinimumNumberOfErc20Contracts:   1_000,
 		HotErc20ContractSetSize:         10,
 		HotErc20ContractProbability:     0.5,
-		Erc20ContractSize:               4096,
+		Erc20ContractSize:               2048,
 		Erc20InteractionsPerAccount:     8,
 		RollbackWindow:                  1_000,
-		LookbackWindow:                  1_000_000,
+		LookbackWindow:                  100_000,
 		PruneIntervalSeconds:            300,
-		CheckpointIntervalSeconds:       60,
-		CheckpointBlockInterval:         0,
+		CheckpointIntervalSeconds:       300,
+		CheckpointBlockInterval:         5000,
 		EnableSS:                        true,
 		EnableReceiptStore:              true,
 		ThreadsPerCore:                  2,
@@ -224,13 +245,34 @@ func DefaultGigasimConfig() *GigasimConfig {
 		ConsoleUpdateIntervalBlocks:     1_000,
 		MaxRuntimeSeconds:               0,
 		MetricsAddr:                     ":9090",
+		PprofAddr:                       "",
+		MutexProfileFraction:            0,
+		BlockProfileRate:                0,
 		BackgroundMetricsScrapeInterval: 60,
 		LittMetricsEnabled:              true,
 		ReadCacheMetricsEnabled:         false,
+		AccountCacheSizeBytes:           unit.GB,
+		CodeCacheSizeBytes:              unit.GB,
+		StorageCacheSizeBytes:           4 * unit.GB,
 		EnableSuspension:                true,
-		LogDir:                          "logs",
 		LogLevel:                        "info",
 	}
+}
+
+// The directory under DataDir seilog output goes to, and the file in it.
+const (
+	logDirName  = "logs"
+	logFileName = "gigasim.log"
+)
+
+// LogDir returns the directory seilog output goes to, which lives under DataDir.
+func (c *GigasimConfig) LogDir() string {
+	return filepath.Join(c.DataDir, logDirName)
+}
+
+// LogFile returns the file seilog output goes to.
+func (c *GigasimConfig) LogFile() string {
+	return filepath.Join(c.LogDir(), logFileName)
 }
 
 // blockPayloadBytes is the size of one generated block's payload: the transaction bytes a real block
@@ -261,6 +303,9 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 	} {
 		store.MetricsEnabled = c.ReadCacheMetricsEnabled
 	}
+	storage.WithAccountDBCacheSize(c.AccountCacheSizeBytes).
+		WithCodeDBCacheSize(c.CodeCacheSizeBytes).
+		WithStorageDBCacheSize(c.StorageCacheSizeBytes)
 
 	storage.PruningConfig.RollbackWindow = c.RollbackWindow
 	storage.PruningConfig.LookbackWindow = c.LookbackWindow
@@ -285,7 +330,7 @@ func (c *GigasimConfig) MonitoredDirs() ([]metrics.MonitoredDir, error) {
 	}
 	return []metrics.MonitoredDir{
 		{Name: "data_dir", Path: c.DataDir, TrackAvailableSpace: true},
-		{Name: "log_dir", Path: c.LogDir},
+		{Name: "log_dir", Path: c.LogDir()},
 		{Name: storeBlockDB, Path: utils.GetBlockStorePath(c.DataDir)},
 		{Name: storeReceiptDB, Path: storage.ReceiptDBConfig.DBDirectory},
 		{Name: storeStateCommit, Path: storage.FlatKVConfig.DataDir},
@@ -442,8 +487,17 @@ func (c *GigasimConfig) validateRuntime() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")
 	}
-	if c.LogDir == "" {
-		return fmt.Errorf("LogDir is required")
+	for _, cache := range []struct {
+		name string
+		size uint64
+	}{
+		{"AccountCacheSizeBytes", c.AccountCacheSizeBytes},
+		{"CodeCacheSizeBytes", c.CodeCacheSizeBytes},
+		{"StorageCacheSizeBytes", c.StorageCacheSizeBytes},
+	} {
+		if cache.size == 0 {
+			return fmt.Errorf("%s must be positive", cache.name)
+		}
 	}
 	if c.ConsoleUpdateIntervalSeconds < 0 {
 		return fmt.Errorf("ConsoleUpdateIntervalSeconds must be non-negative (got %f)",
@@ -459,10 +513,29 @@ func (c *GigasimConfig) validateRuntime() error {
 		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)",
 			c.BackgroundMetricsScrapeInterval)
 	}
+	if err := c.validateProfiling(); err != nil {
+		return err
+	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
+	return nil
+}
+
+// validateProfiling checks the pprof sample rates, and that a profile turned on has a server to be read
+// from: both profiles accumulate in memory and are readable only over the pprof endpoint.
+func (c *GigasimConfig) validateProfiling() error {
+	if c.MutexProfileFraction < 0 {
+		return fmt.Errorf("MutexProfileFraction must be non-negative (got %d)", c.MutexProfileFraction)
+	}
+	if c.BlockProfileRate < 0 {
+		return fmt.Errorf("BlockProfileRate must be non-negative (got %d)", c.BlockProfileRate)
+	}
+	if c.PprofAddr == "" && (c.MutexProfileFraction > 0 || c.BlockProfileRate > 0) {
+		return fmt.Errorf("MutexProfileFraction (%d) and BlockProfileRate (%d) require PprofAddr to be set",
+			c.MutexProfileFraction, c.BlockProfileRate)
 	}
 	return nil
 }
