@@ -3,7 +3,7 @@
   "Seed": 1337,
   "DataDir": "~/gigasim/debug/data",
   "TransactionsPerBlock": 100,
-  "MaxBlocksPerSecond": 10,
+  "MaxTps": 1000,
   "MinimumNumberOfColdAccounts": 2000,
   "MinimumNumberOfDormantAccounts": 2000,
   "MinimumNumberOfErc20Contracts": 100,

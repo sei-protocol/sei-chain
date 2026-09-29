@@ -83,7 +83,7 @@ type blockGenerator struct {
 	// The number of blocks written to the ledger, which drives the flush cadence.
 	written int64
 
-	// Enforces a maximum block rate, or nil when generation runs unthrottled.
+	// Enforces a maximum transaction rate, or nil when generation runs unthrottled.
 	rateLimiter *rate.Limiter
 
 	blocksChan chan *simulatedBlock
@@ -118,8 +118,9 @@ func newBlockGenerator(
 	blockStoreWrite *metrics.PhaseTimer,
 ) *blockGenerator {
 	var rateLimiter *rate.Limiter
-	if config.MaxBlocksPerSecond > 0 {
-		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxBlocksPerSecond), 1)
+	if config.MaxTps > 0 {
+		// The burst is one block, since throttle waits for a whole block's transactions at once.
+		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTps), config.TransactionsPerBlock)
 	}
 
 	return &blockGenerator{
@@ -303,10 +304,11 @@ func (g *blockGenerator) flush() error {
 	return nil
 }
 
-// throttle holds generation to the configured block rate. A run without one waits for nothing here.
+// throttle holds generation to the configured transaction rate, waiting for the next block's
+// transactions. A run without one waits for nothing here.
 func (g *blockGenerator) throttle() {
 	if g.rateLimiter == nil {
 		return
 	}
-	_ = g.rateLimiter.Wait(g.ctx)
+	_ = g.rateLimiter.WaitN(g.ctx, g.config.TransactionsPerBlock)
 }

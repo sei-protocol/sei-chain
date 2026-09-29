@@ -28,8 +28,13 @@ type GigasimConfig struct {
 	// store's write volume and is independent of the state each transaction touches.
 	BytesPerTransaction int
 
-	// Throttle block production to this many blocks per second. 0 means unthrottled.
-	MaxBlocksPerSecond float64
+	// The average gas one simulated ERC20 transfer uses. It fills each block's gas totals and is what
+	// the reported gas throughput counts.
+	GasPerTransaction int
+
+	// Throttle block production to this many transactions per second, a whole block's worth at a time.
+	// 0 means unthrottled.
+	MaxTps float64
 
 	// The number of blocks finalized by each generated QC. One QC is written per batch of this many
 	// blocks, matching how consensus commits a range at a time.
@@ -211,7 +216,8 @@ func DefaultGigasimConfig() *GigasimConfig {
 	return &GigasimConfig{
 		TransactionsPerBlock:            2000,
 		BytesPerTransaction:             256,
-		MaxBlocksPerSecond:              0,
+		GasPerTransaction:               60_000,
+		MaxTps:                          0,
 		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    100,
 		FlushIntervalBlocks:             1,
@@ -279,6 +285,11 @@ func (c *GigasimConfig) LogFile() string {
 // of this shape would carry.
 func (c *GigasimConfig) blockPayloadBytes() int {
 	return c.TransactionsPerBlock * c.BytesPerTransaction
+}
+
+// gasUsedBy is the gas the given number of transactions use.
+func (c *GigasimConfig) gasUsedBy(transactions int) int64 {
+	return int64(transactions) * int64(c.GasPerTransaction)
 }
 
 // storageConfig builds the config the storage manager opens every database from. DataDir must already
@@ -370,6 +381,9 @@ func (c *GigasimConfig) validateBlockShape() error {
 		return fmt.Errorf("TransactionsPerBlock*BytesPerTransaction must be at most %d (got %d)",
 			autobahn.MaxTxsBytesPerBlock, c.blockPayloadBytes())
 	}
+	if c.GasPerTransaction < 1 {
+		return fmt.Errorf("GasPerTransaction must be at least 1 (got %d)", c.GasPerTransaction)
+	}
 	if c.BlocksPerQc < 1 {
 		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)
 	}
@@ -380,8 +394,8 @@ func (c *GigasimConfig) validateBlockShape() error {
 	if c.FlushIntervalBlocks < 0 {
 		return fmt.Errorf("FlushIntervalBlocks must be non-negative (got %d)", c.FlushIntervalBlocks)
 	}
-	if c.MaxBlocksPerSecond < 0 {
-		return fmt.Errorf("MaxBlocksPerSecond must be non-negative (got %f)", c.MaxBlocksPerSecond)
+	if c.MaxTps < 0 {
+		return fmt.Errorf("MaxTps must be non-negative (got %f)", c.MaxTps)
 	}
 	return nil
 }

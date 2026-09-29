@@ -20,7 +20,7 @@ func TestDefaultConfigIsValid(t *testing.T) {
 // a rate chosen in advance. Only the debug config throttles, and it says so explicitly.
 func TestGenerationIsUnthrottledByDefault(t *testing.T) {
 	t.Parallel()
-	require.Zero(t, DefaultGigasimConfig().MaxBlocksPerSecond)
+	require.Zero(t, DefaultGigasimConfig().MaxTps)
 }
 
 func TestProfilingIsOffByDefault(t *testing.T) {
@@ -110,7 +110,8 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 			c.BytesPerTransaction = int(autobahn.MaxTxsBytesPerBlock)/c.TransactionsPerBlock + 1
 		}},
 		{"a probability above one", func(c *GigasimConfig) { c.HotAccountProbability = 1.5 }},
-		{"a negative block rate", func(c *GigasimConfig) { c.MaxBlocksPerSecond = -1 }},
+		{"a negative transaction rate", func(c *GigasimConfig) { c.MaxTps = -1 }},
+		{"a transaction that uses no gas", func(c *GigasimConfig) { c.GasPerTransaction = 0 }},
 		{"a lookback window below the infinite sentinel", func(c *GigasimConfig) { c.LookbackWindow = -2 }},
 		{"a prune interval of zero", func(c *GigasimConfig) { c.PruneIntervalSeconds = 0 }},
 		{"a hot ERC20 set as large as the whole population", func(c *GigasimConfig) {

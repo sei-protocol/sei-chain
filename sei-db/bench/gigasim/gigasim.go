@@ -482,7 +482,8 @@ func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 	g.totalTransactions += int64(len(block.transactions))
 	g.totalPayloadBytes += block.payloadBytes()
 	g.highestBlock.Store(block.number)
-	g.metrics.ReportBlockProcessed(block.number, int64(len(block.transactions)))
+	g.metrics.ReportBlockProcessed(
+		block.number, int64(len(block.transactions)), g.config.gasUsedBy(len(block.transactions)))
 	return nil
 }
 

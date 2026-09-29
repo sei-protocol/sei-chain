@@ -123,10 +123,11 @@ reaches that budget, which configuration validation rejects rather than generati
 would refuse.
 
 Generation is unthrottled by default, so a measured run reports what the stack sustains rather than a
-rate chosen in advance. `MaxBlocksPerSecond` exists for the runs that are not measurements — the debug
-config throttles itself well below what a machine can do, because a smoke test should confirm the
-pipeline works rather than saturate the laptop it runs on — and for holding two builds at the same
-offered load, which is what makes their latencies comparable.
+rate chosen in advance. `MaxTps` exists for the runs that are not measurements — the debug config
+throttles itself well below what a machine can do, because a smoke test should confirm the pipeline
+works rather than saturate the laptop it runs on — and for holding two builds at the same offered load,
+which is what makes their latencies comparable. Blocks are released a whole block at a time, so the
+block rate it produces is `MaxTps / TransactionsPerBlock`.
 
 ## Optional Stores
 

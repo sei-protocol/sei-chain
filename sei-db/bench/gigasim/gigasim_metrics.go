@@ -29,7 +29,9 @@ const (
 type GigasimMetrics struct {
 	blocksProcessedTotal      metric.Int64Counter
 	transactionsExecutedTotal metric.Int64Counter
+	gasUsedTotal              metric.Int64Counter
 	storeBytesWrittenTotal    metric.Int64Counter
+	storeKeysWrittenTotal     metric.Int64Counter
 	qcsWrittenTotal           metric.Int64Counter
 	stateCommitsTotal         metric.Int64Counter
 	stateChangesTotal         metric.Int64Counter
@@ -71,10 +73,20 @@ func NewGigasimMetrics() *GigasimMetrics {
 		metric.WithDescription("Total number of simulated transactions executed against the state DB"),
 		metric.WithUnit("{count}"),
 	)
+	gasUsedTotal, _ := meter.Int64Counter(
+		"gigasim_gas_used_total",
+		metric.WithDescription("Total gas used by the executed transactions, at GasPerTransaction each"),
+		metric.WithUnit("{gas}"),
+	)
 	storeBytesWrittenTotal, _ := meter.Int64Counter(
 		"gigasim_store_bytes_written_total",
 		metric.WithDescription("Total bytes handed to each store, labelled by store"),
 		metric.WithUnit("By"),
+	)
+	storeKeysWrittenTotal, _ := meter.Int64Counter(
+		"gigasim_store_keys_written_total",
+		metric.WithDescription("Total keys handed to each state store, labelled by store"),
+		metric.WithUnit("{count}"),
 	)
 	qcsWrittenTotal, _ := meter.Int64Counter(
 		"gigasim_qcs_written_total",
@@ -142,7 +154,9 @@ func NewGigasimMetrics() *GigasimMetrics {
 	return &GigasimMetrics{
 		blocksProcessedTotal:      blocksProcessedTotal,
 		transactionsExecutedTotal: transactionsExecutedTotal,
+		gasUsedTotal:              gasUsedTotal,
 		storeBytesWrittenTotal:    storeBytesWrittenTotal,
+		storeKeysWrittenTotal:     storeKeysWrittenTotal,
 		qcsWrittenTotal:           qcsWrittenTotal,
 		stateCommitsTotal:         stateCommitsTotal,
 		stateChangesTotal:         stateChangesTotal,
@@ -204,8 +218,9 @@ func (m *GigasimMetrics) NewTransactionPhaseTimer() *metrics.PhaseTimer {
 	return m.transactionPhases.Build()
 }
 
-// ReportBlockProcessed records one block completing every stage of the pipeline.
-func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64) {
+// ReportBlockProcessed records one block completing every stage of the pipeline, and the transactions
+// and gas it carried.
+func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64, gas int64) {
 	if m == nil {
 		return
 	}
@@ -215,6 +230,9 @@ func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64) 
 	}
 	if m.transactionsExecutedTotal != nil {
 		m.transactionsExecutedTotal.Add(ctx, transactions)
+	}
+	if m.gasUsedTotal != nil {
+		m.gasUsedTotal.Add(ctx, gas)
 	}
 	if m.highestBlockHeight != nil {
 		m.highestBlockHeight.Record(ctx, number)
@@ -229,6 +247,15 @@ func (m *GigasimMetrics) ReportStoreBytesWritten(store string, bytes int64) {
 		return
 	}
 	m.storeBytesWrittenTotal.Add(context.Background(), bytes,
+		metric.WithAttributes(attribute.String("store", store)))
+}
+
+// ReportStoreKeysWritten records keys handed to one state store, named by a store constant.
+func (m *GigasimMetrics) ReportStoreKeysWritten(store string, keys int64) {
+	if m == nil || m.storeKeysWrittenTotal == nil {
+		return
+	}
+	m.storeKeysWrittenTotal.Add(context.Background(), keys,
 		metric.WithAttributes(attribute.String("store", store)))
 }
 

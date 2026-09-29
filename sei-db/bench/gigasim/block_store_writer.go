@@ -10,9 +10,6 @@ import (
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// gasPerTransaction is the gas a plain transfer is charged, used to fill a block's gas totals.
-const gasPerTransaction = 21_000
-
 // blockStoreWriter persists blocks to the block ledger in the order the store's contract requires: the
 // QC covering a range of blocks is written before any block in it, so a crash can only ever leave a QC
 // without its blocks and never a block without its QC.
@@ -165,7 +162,7 @@ func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) err
 
 // buildBlock wraps a payload as the block the store persists, chained onto the previous one.
 func (w *blockStoreWriter) buildBlock(payload [][]byte) (*autobahn.Block, error) {
-	gas := uint64(len(payload)) * gasPerTransaction
+	gas := uint64(w.config.gasUsedBy(len(payload))) //nolint:gosec // validation keeps the gas positive
 	built, err := autobahn.PayloadBuilder{
 		CreatedAt:         time.Now(),
 		TotalGasWanted:    gas,
