@@ -38,6 +38,9 @@ type Executor struct {
 	blockEncoderReadsStore bool
 	missingState           StateReader
 	closed                 atomic.Bool
+	// customPrecompiles is built once from cfg.CustomPrecompiles. NewEVM copies it, so
+	// concurrent OCC workers may share it.
+	customPrecompiles map[common.Address]vm.PrecompiledContract
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -92,9 +95,10 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:         cfg.WithDefaults(),
-		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: newBlockPhases(),
+		cfg:               cfg.WithDefaults(),
+		resultPool:        newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases:       newBlockPhases(),
+		customPrecompiles: customPrecompileMap(cfg.CustomPrecompiles),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -238,13 +242,7 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 }
 
 func (e *Executor) useOCC(txCount int) bool {
-	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
-		return false
-	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.closed.Load() && e.cfg.OCCWorkers > 1 && txCount > 1
 }
 
 func (e *Executor) acquireStateDB(source StateReader) *nativeStateDB {
@@ -273,7 +271,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := buildBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customPrecompiles)
 	stateDB.SetEVM(evm)
 
 	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
@@ -496,6 +494,8 @@ func buildBlockContext(ctx BlockContext) vm.BlockContext {
 	}
 }
 
+// unresolvedCustomPrecompile fails every call to an address the registry lists
+// but does not resolve to a contract.
 type unresolvedCustomPrecompile struct{}
 
 func (unresolvedCustomPrecompile) RequiredGas([]byte) uint64 {
@@ -516,7 +516,12 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Pr
 	}
 	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
 	for _, addr := range addresses {
-		contracts[addr] = unresolvedCustomPrecompile{}
+		contract, ok := registry.Get(addr)
+		if !ok || contract == nil {
+			contracts[addr] = unresolvedCustomPrecompile{}
+			continue
+		}
+		contracts[addr] = customPrecompile{address: addr, contract: contract}
 	}
 	return contracts
 }

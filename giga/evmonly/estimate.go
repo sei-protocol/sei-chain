@@ -51,7 +51,7 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		Header:            buildEstimateHeader(blockCtx),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
-		CustomPrecompiles: customPrecompileMap(e.cfg.CustomPrecompiles),
+		CustomPrecompiles: e.customPrecompiles,
 	}
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
 	if ctxErr := ctx.Err(); ctxErr != nil {

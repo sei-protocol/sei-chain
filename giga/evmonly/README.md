@@ -15,9 +15,9 @@ The target execution model is based on the `sei-v3` executor:
 
 The current implementation executes raw RLP transactions with go-ethereum
 against an EVM-native state backend, then returns a changeset plus Ethereum
-receipts. Custom precompiles are still placeholders. The open work is to port
-them behind an EVM-native context that is visible to the executor's conflict
-tracking without reintroducing Cosmos keeper dependencies.
+receipts. Custom precompiles run behind an EVM-native context whose state
+access goes through the executor's conflict tracking, without Cosmos keeper
+dependencies.
 
 ## Current implementation
 
@@ -37,7 +37,7 @@ The `evmonly` package currently provides:
   runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
-- fail-closed custom precompile placeholders
+- native custom precompiles that keep their state in contract storage
 - a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
   generated transfer blocks through the in-memory giga store
 
@@ -188,26 +188,26 @@ When result pooling is enabled, exhaustion allocates an unpooled result instead
 of blocking execution on a missing `Release` call. `ResultPoolStats` exposes the
 pool capacity, current availability, and overflow allocation count.
 
-## Open precompile work
+## Custom precompiles
 
-Native custom precompiles still need a separate design. If they introduce state
-outside balance, nonce, code, and storage, that state must either become part of
-the EVM-native changeset or be represented through an explicit extension that is
-visible to the OCC conflict tracker.
+A registered custom precompile implements `precompiles.Contract` and receives a
+`precompiles.Context` instead of an `sdk.Context`. Its `State` is the calling
+EVM's StateDB, so a precompile holds no side state: everything it persists is
+balance, nonce, code, or `(address, slot)` storage, which lands in the block's
+changeset, is reverted with a failed call, and is tracked by OCC like any other
+access. Blocks that call custom precompiles run optimistically like any other.
 
-The intended direction is to treat each custom precompile's migrated module
-state as contract storage owned by that precompile address. With no range reads
-and no side state, precompile reads and writes can then flow through ordinary
-`(address, slot)` storage tracking.
+Writes attempted under a static call fail the call with `ErrWriteProtection`.
+The first state-changing call to a precompile account with neither nonce nor
+code sets its nonce to 1, because the EVM otherwise treats a storage-only
+account as absent and recreates it, dropping its storage, on every call.
 
-Until that design is implemented, the `evmonly` executor accepts a custom
-precompile registry only as a fail-closed placeholder. Calls to registered
-custom precompile addresses return `ErrCustomPrecompilesOpen`.
+An address the registry lists but does not resolve to a contract fails every
+call with `ErrCustomPrecompilesOpen`.
 
 ## Block-STM execution
 
-When `OCCWorkers > 1`, there is more than one transaction, and custom precompiles
-are not enabled, the executor attempts optimistic parallel execution. Initial
+When `OCCWorkers > 1` and there is more than one transaction, the executor attempts optimistic parallel execution. Initial
 incarnations are split into execution ranges and run through the shared OCC
 worker pool against the base state. Worker fan-out is clamped to the amount of
 available work, so small blocks do not spawn idle workers and can still split
@@ -269,7 +269,7 @@ scraped with that prefix:
 - `giga_occ_blocks_total{outcome}` — one sample per block. `parallel` and
   `fallback` are the blocks that tried optimistic execution, `sequential` those
   that had transactions but were ineligible (a single transaction,
-  `OCCWorkers <= 1`, or registered custom precompiles), and `empty` those with
+  or `OCCWorkers <= 1`), and `empty` those with
   no transactions. Splitting the last two keeps
   `parallel / (parallel + fallback + sequential)` a statement about OCC rather
   than about block rate.

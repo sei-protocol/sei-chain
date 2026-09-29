@@ -8,7 +8,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-var ErrCustomPrecompilesOpen = errors.New("evm-only custom precompiles are not implemented")
+var ErrCustomPrecompilesOpen = errors.New("evm-only custom precompile address has no registered contract")
 
 // Registry resolves native custom precompiles for the EVM-only path.
 type Registry interface {
@@ -58,8 +58,6 @@ type State interface {
 	GetCode(common.Address) []byte
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)
-	GetCustom([]byte) ([]byte, bool)
-	SetCustom([]byte, []byte)
 }
 
 // LogSink lets custom precompiles emit Ethereum logs without Cosmos events.

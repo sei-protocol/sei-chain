@@ -40,7 +40,7 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 	defer e.releaseStateDB(stateDB)
 
 	// NoBaseFee matches go-ethereum's eth_call: zero fee fields skip the fee-cap check.
-	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, chainConfig, vm.Config{NoBaseFee: true}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, chainConfig, vm.Config{NoBaseFee: true}, e.customPrecompiles)
 	stateDB.SetEVM(evm)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 
