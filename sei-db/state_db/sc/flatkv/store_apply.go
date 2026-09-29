@@ -8,12 +8,20 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// classifyBucketHeadroom is the factor applied to a kind's bucket length in the previous ApplyChangeSets call to
+// size that bucket in the next.
+const classifyBucketHeadroom = 2
+
+// classifyUnitSize is the most changeset pairs one worker classifies.
+const classifyUnitSize = 1024
 
 // ApplyChangeSets writes one block's changes into the four data stores. Non-EVM modules go to miscDB
 // under "<module>/". Each value records version as the height it was last modified at; the same version
@@ -71,10 +79,11 @@ func (s *CommitStore) applyChangeSets(
 	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := classifyAndPrefix(changeSets)
+	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes, s.miscPool)
 	if err != nil {
 		return fmt.Errorf("classify changesets: %w", err)
 	}
+	s.classifyBucketSizes = changesByType.bucketSizes()
 	// Parse, gather, and sort. Nothing is written until all of it has validated, so a parse failure
 	// part way through cannot leave some of the block's values in a store.
 	prepared, err := s.prepareWrites(changesByType, version)
@@ -107,7 +116,7 @@ type preparedWrites struct {
 
 // prepareWrites applies EVM value semantics and returns the values to write, per database.
 func (s *CommitStore) prepareWrites(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	changesByType classifiedChanges,
 	blockHeight int64,
 ) (preparedWrites, error) {
 	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
@@ -211,9 +220,9 @@ type accountUpdater struct {
 // Parsing here rather than during the fold is what keeps a malformed changeset from being discovered
 // halfway through writing the block: by the time the folds run, the block has already been accepted.
 func newAccountUpdater(
-	nonceChanges map[string][]byte,
-	codeHashChanges map[string][]byte,
-	balanceChanges map[string][]byte,
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
 	blockHeight int64,
 ) (*accountUpdater, error) {
 	pending, err := mergeAccountUpdates(nonceChanges, codeHashChanges, balanceChanges)
@@ -369,77 +378,221 @@ func moduleOfKey(physicalKey []byte) (string, error) {
 	return module, nil
 }
 
-// classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
-// already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
-// merged into the EVMKeyMisc bucket with a "<module>/" prefix.
-//
-// In the result the inner string is a physical key and its value is that key's new raw bytes, with nil
-// meaning the key was deleted.
-func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[keys.EVMKeyKind]map[string][]byte, 5)
+// classifiedChange is one changeset pair with its physical key already built.
+type classifiedChange struct {
+	// key is the physical key: "module/" + the module's encoded key. It is carved from a keyArena, so anything that
+	// keeps it past the version that writes it must copy it.
+	key string
 
-	getOrCreate := func(kind keys.EVMKeyKind, sizeHint int) map[string][]byte {
-		m, ok := result[kind]
-		if !ok {
-			m = make(map[string][]byte, sizeHint)
-			result[kind] = m
-		}
-		return m
+	// value is the key's new raw bytes. A nil value means the key was deleted.
+	value []byte
+}
+
+// classifiedChanges holds one ApplyChangeSets call's pairs bucketed by EVM key kind, each bucket in the order the
+// pairs arrived. A key written more than once appears once per write, and the last of them is its new value.
+type classifiedChanges [keys.EVMKeyKindCount][]classifiedChange
+
+// bucketSizes returns the number of pairs in each kind's bucket.
+func (c *classifiedChanges) bucketSizes() [keys.EVMKeyKindCount]int {
+	var sizes [keys.EVMKeyKindCount]int
+	for kind, bucket := range c {
+		sizes[kind] = len(bucket)
 	}
+	return sizes
+}
 
-	keyBuf := make([]byte, 0, physKeyBufLen)
+// classifyAndPrefix splits changeSets into per-EVMKeyKind buckets whose keys are already in physical format
+// ("module/" + prefix_encoded_key). Non-EVM modules go to the EVMKeyMisc bucket with a "<module>/" prefix.
+//
+// sizeHints gives each kind's bucket length in an earlier call, and a kind with no hint grows on demand. The pairs
+// are classified on pool when there is more than one unit of them, and on the calling goroutine when pool is nil.
+func classifyAndPrefix(
+	changeSets []*proto.NamedChangeSet,
+	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
+) (classifiedChanges, error) {
+	// Repeated keys are kept rather than resolved here. Every consumer already resolves them in arrival order:
+	// the view manager keeps a key's last write in a version, and mergeAccountUpdates folds each account into
+	// one entry. Import input has unique keys.
+	units := planClassifyUnits(changeSets)
+	if pool == nil || len(units) < 2 {
+		return classifyUnitsSerially(units, sizeHints)
+	}
+	return classifyUnitsInParallel(units, sizeHints, pool)
+}
+
+// classifyUnit is a contiguous run of one changeset's pairs.
+type classifyUnit struct {
+	// moduleName is the name of the changeset the pairs belong to.
+	moduleName string
+
+	// pairs is the run itself, at most classifyUnitSize long.
+	pairs []*proto.KVPair
+}
+
+// planClassifyUnits divides changeSets into units of at most classifyUnitSize pairs, in block order. A unit never
+// spans two changesets.
+func planClassifyUnits(changeSets []*proto.NamedChangeSet) []classifyUnit {
+	var units []classifyUnit
 	for _, cs := range changeSets {
-		if cs == nil || len(cs.Changeset.Pairs) == 0 {
+		if cs == nil {
 			continue
 		}
+		pairs := cs.Changeset.Pairs
+		for len(pairs) > 0 {
+			count := min(len(pairs), classifyUnitSize)
+			units = append(units, classifyUnit{moduleName: cs.Name, pairs: pairs[:count]})
+			pairs = pairs[count:]
+		}
+	}
+	return units
+}
 
-		if cs.Name == keys.EVMStoreKey {
-			for _, pair := range cs.Changeset.Pairs {
-				kind, keyBytes := keys.ParseEVMKey(pair.Key)
-				if kind == keys.EVMKeyEmpty {
-					return nil, fmt.Errorf("flatkv: empty key in changeset")
-				}
+// classifyUnitsSerially classifies every unit on the calling goroutine, into one set of buckets.
+func classifyUnitsSerially(
+	units []classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+) (classifiedChanges, error) {
+	result := newClassifiedChanges(sizeHints)
+	for _, unit := range units {
+		if err := classifyUnitPairs(unit, &result); err != nil {
+			return classifiedChanges{}, err
+		}
+	}
+	return result, nil
+}
 
-				var physKey string
-				if kind == keys.EVMKeyMisc {
-					keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
-				} else {
-					keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
-				}
-				physKey = string(keyBuf)
+// classifyUnitsInParallel classifies each unit on pool into its own set of buckets, then concatenates them in unit
+// order.
+func classifyUnitsInParallel(
+	units []classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
+) (classifiedChanges, error) {
+	// Each unit is sized for its share of the call rather than all of it. A unit that receives an uneven share of
+	// some kind grows that bucket on demand.
+	var unitHints [keys.EVMKeyKindCount]int
+	for kind, hint := range sizeHints {
+		unitHints[kind] = hint / len(units)
+	}
 
-				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
-				if pair.Delete {
-					kindMap[physKey] = nil
-				} else {
-					kindMap[physKey] = nonNilValue(pair.Value)
-				}
+	parts := make([]classifiedChanges, len(units))
+	errs := make([]error, len(units))
+
+	var wg sync.WaitGroup
+	wg.Add(len(units))
+	for i := range units {
+		pool.Submit(func() {
+			defer wg.Done()
+			parts[i] = newClassifiedChanges(unitHints)
+			errs[i] = classifyUnitPairs(units[i], &parts[i])
+		})
+	}
+	// The calling goroutine blocks rather than classifying a unit of its own. The runtime queues the last worker
+	// woken to run next on this goroutine's own CPU, so a unit classified here would delay that worker until it
+	// finished, running the two units back to back.
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return classifiedChanges{}, err
+		}
+	}
+	return mergeClassified(parts), nil
+}
+
+// newClassifiedChanges returns empty buckets, each with room for classifyBucketHeadroom times its hint.
+func newClassifiedChanges(sizeHints [keys.EVMKeyKindCount]int) classifiedChanges {
+	var result classifiedChanges
+	for kind, hint := range sizeHints {
+		if hint > 0 {
+			result[kind] = make([]classifiedChange, 0, classifyBucketHeadroom*hint)
+		}
+	}
+	return result
+}
+
+// classifyUnitPairs appends each of unit's pairs, with its physical key built, to the bucket for its kind.
+func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
+	keyBuf := make([]byte, 0, physKeyBufLen)
+	arena := newKeyArena(unitKeyFootprint(unit))
+
+	if unit.moduleName == keys.EVMStoreKey {
+		for _, pair := range unit.pairs {
+			kind, keyBytes := keys.ParseEVMKey(pair.Key)
+			if kind == keys.EVMKeyEmpty {
+				return fmt.Errorf("flatkv: empty key in changeset")
 			}
-		} else {
-			// An empty module name would fold into "/"+key here and later
-			// persist as the per-module meta key "_meta/x:/hash", which
-			// ParseModuleLtHashKey rejects on reload — a store that ever
-			// commits one becomes permanently unopenable (sum-to-root check
-			// fails forever). Reject it up front instead; module names are
-			// never empty in normal operation (Cosmos SDK's NewKVStoreKey
-			// panics on an empty name), so this only guards malformed input.
-			if cs.Name == "" {
-				return nil, fmt.Errorf("flatkv: empty module name in changeset")
+
+			if kind == keys.EVMKeyMisc {
+				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
+			} else {
+				keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
 			}
-			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
-			for _, pair := range cs.Changeset.Pairs {
-				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], cs.Name, pair.Key)
-				physKey := string(keyBuf)
-				if pair.Delete {
-					miscMap[physKey] = nil
-				} else {
-					miscMap[physKey] = nonNilValue(pair.Value)
-				}
-			}
+			into[kind] = append(into[kind], newClassifiedChange(arena.intern(keyBuf), pair))
+		}
+		return nil
+	}
+
+	// An empty module name would fold into "/"+key here and later
+	// persist as the per-module meta key "_meta/x:/hash", which
+	// ParseModuleLtHashKey rejects on reload — a store that ever
+	// commits one becomes permanently unopenable (sum-to-root check
+	// fails forever). Reject it up front instead; module names are
+	// never empty in normal operation (Cosmos SDK's NewKVStoreKey
+	// panics on an empty name), so this only guards malformed input.
+	if unit.moduleName == "" {
+		return fmt.Errorf("flatkv: empty module name in changeset")
+	}
+	miscBucket := &into[keys.EVMKeyMisc]
+	for _, pair := range unit.pairs {
+		keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], unit.moduleName, pair.Key)
+		*miscBucket = append(*miscBucket, newClassifiedChange(arena.intern(keyBuf), pair))
+	}
+	return nil
+}
+
+// unitKeyFootprint returns an upper bound on the total length of unit's physical keys. Each is at most
+// len(moduleName)+1+len(pair.Key) bytes: a misc key is exactly "<module>/" + key, and an EVM key replaces a key
+// prefix of at least one byte with "evm/" and a single prefix byte.
+func unitKeyFootprint(unit classifyUnit) int {
+	footprint := len(unit.pairs) * (len(unit.moduleName) + 1)
+	for _, pair := range unit.pairs {
+		footprint += len(pair.Key)
+	}
+	return footprint
+}
+
+// mergeClassified concatenates each part's buckets in part order.
+func mergeClassified(parts []classifiedChanges) classifiedChanges {
+	var totals [keys.EVMKeyKindCount]int
+	for i := range parts {
+		for kind, bucket := range parts[i] {
+			totals[kind] += len(bucket)
 		}
 	}
 
-	return result, nil
+	var result classifiedChanges
+	for kind, total := range totals {
+		if total > 0 {
+			result[kind] = make([]classifiedChange, 0, total)
+		}
+	}
+	for i := range parts {
+		for kind, bucket := range parts[i] {
+			result[kind] = append(result[kind], bucket...)
+		}
+	}
+	return result
+}
+
+// newClassifiedChange pairs a physical key with a changeset pair's new value, recording a deleted pair as a nil
+// value.
+func newClassifiedChange(physicalKey string, pair *proto.KVPair) classifiedChange {
+	if pair.Delete {
+		return classifiedChange{key: physicalKey}
+	}
+	return classifiedChange{key: physicalKey, value: nonNilValue(pair.Value)}
 }
 
 // nonNilValue normalizes a non-delete changeset value so the downstream
@@ -463,116 +616,119 @@ func nonNilValue(v []byte) []byte {
 }
 
 // toStorageValues turns raw storage changes into the writes the storage store takes, stamped with
-// blockHeight. rawChanges is keyed by physical key, and a nil change is a deletion — as is a value
+// blockHeight, one write per change and in the same order. A nil change is a deletion — as is a value
 // of all zeros, which is the same thing for storage.
 func toStorageValues(
-	rawChanges map[string][]byte,
+	rawChanges []classifiedChange,
 	blockHeight int64,
 ) ([]view.Write, error) {
 	writes := make([]view.Write, 0, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
-			writes = append(writes, view.Write{Key: keyStr})
+	for _, change := range rawChanges {
+		if change.value == nil {
+			writes = append(writes, view.Write{Key: change.key})
 			continue
 		}
-		value, err := vtype.SerializeStorage(blockHeight, rawChange)
+		value, err := vtype.SerializeStorage(blockHeight, change.value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse storage value: %w", err)
 		}
-		writes = append(writes, view.Write{Key: keyStr, Value: value})
+		writes = append(writes, view.Write{Key: change.key, Value: value})
 	}
 
 	return writes, nil
 }
 
 // toCodeValues turns raw code changes into the writes the code store takes, stamped with
-// blockHeight. rawChanges is keyed by physical key, and a nil change is a deletion — as is empty
+// blockHeight, one write per change and in the same order. A nil change is a deletion — as is empty
 // bytecode, which is the same thing for code.
 func toCodeValues(
-	rawChanges map[string][]byte,
+	rawChanges []classifiedChange,
 	blockHeight int64,
 ) ([]view.Write, error) {
 	writes := make([]view.Write, 0, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if len(rawChange) == 0 {
-			writes = append(writes, view.Write{Key: keyStr})
+	for _, change := range rawChanges {
+		if len(change.value) == 0 {
+			writes = append(writes, view.Write{Key: change.key})
 			continue
 		}
-		writes = append(writes, view.Write{Key: keyStr, Value: vtype.SerializeCode(blockHeight, rawChange)})
+		value := vtype.SerializeCode(blockHeight, change.value)
+		writes = append(writes, view.Write{Key: change.key, Value: value})
 	}
 	return writes, nil
 }
 
 // toMiscValues turns raw misc changes into the writes the misc store takes, stamped with
-// blockHeight. rawChanges is keyed by physical key, and only a nil change is a deletion: an empty
+// blockHeight, one write per change and in the same order. Only a nil change is a deletion: an empty
 // value is a write a Cosmos module may legitimately make. See nonNilValue.
 func toMiscValues(
-	rawChanges map[string][]byte,
+	rawChanges []classifiedChange,
 	blockHeight int64,
 ) ([]view.Write, error) {
 	writes := make([]view.Write, 0, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
-			writes = append(writes, view.Write{Key: keyStr})
+	for _, change := range rawChanges {
+		if change.value == nil {
+			writes = append(writes, view.Write{Key: change.key})
 			continue
 		}
-		writes = append(writes, view.Write{Key: keyStr, Value: vtype.SerializeMisc(blockHeight, rawChange)})
+		value := vtype.SerializeMisc(blockHeight, change.value)
+		writes = append(writes, view.Write{Key: change.key, Value: value})
 	}
 	return writes, nil
 }
 
-// Merge account updates down into a single update per account.
+// mergeAccountUpdates folds per-field account changes into a single update per account. Where a field of one
+// account changes more than once, the last change wins.
 func mergeAccountUpdates(
-	nonceChanges map[string][]byte,
-	codeHashChanges map[string][]byte,
-	balanceChanges map[string][]byte,
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
 ) (map[string]vtype.PendingAccountWrite, error) {
 
 	updates := make(map[string]vtype.PendingAccountWrite,
 		len(nonceChanges)+len(codeHashChanges)+len(balanceChanges))
 
-	for key, nonceChange := range nonceChanges {
+	for _, change := range nonceChanges {
 		// Deletion is equivalent to setting the nonce to 0
 		var nonce uint64
-		if nonceChange != nil {
-			parsed, err := vtype.ParseNonce(nonceChange)
+		if change.value != nil {
+			parsed, err := vtype.ParseNonce(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid nonce value: %w", err)
 			}
 			nonce = parsed
 		}
-		pending := updates[key]
+		pending := updates[change.key]
 		pending.SetNonce(nonce)
-		updates[key] = pending
+		updates[change.key] = pending
 	}
 
-	for key, codeHashChange := range codeHashChanges {
-		pending := updates[key]
-		if codeHashChange == nil {
+	for _, change := range codeHashChanges {
+		pending := updates[change.key]
+		if change.value == nil {
 			// Deletion is equivalent to setting the code hash to a zero hash
 			pending.SetCodeHash(nil)
-		} else if err := pending.SetCodeHashBytes(codeHashChange); err != nil {
+		} else if err := pending.SetCodeHashBytes(change.value); err != nil {
 			return nil, fmt.Errorf("invalid codehash value: %w", err)
 		}
-		updates[key] = pending
+		updates[change.key] = pending
 	}
 
-	for key, balanceChange := range balanceChanges {
+	for _, change := range balanceChanges {
 		// Deletion is equivalent to setting the balance to a zero balance
 		var balance *vtype.Balance
-		if balanceChange != nil {
-			parsed, err := vtype.ParseBalance(balanceChange)
+		if change.value != nil {
+			parsed, err := vtype.ParseBalance(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid balance value: %w", err)
 			}
 			balance = parsed
 		}
-		pending := updates[key]
+		pending := updates[change.key]
 		pending.SetBalance(balance)
-		updates[key] = pending
+		updates[change.key] = pending
 	}
 	return updates, nil
 }

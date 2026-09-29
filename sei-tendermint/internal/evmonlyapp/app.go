@@ -29,6 +29,7 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"go.opentelemetry.io/otel"
 )
@@ -86,6 +87,9 @@ func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 	}
 	return utils.None[common.Address]()
 }
+
+// minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
+const minTxsPerHashWorker = 64
 
 type evmOnlyApplication struct {
 	abci.BaseApplication
@@ -381,12 +385,46 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // decoding is needed.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
 	out := make([]utils.Option[common.Address], len(txs))
+	// Hashed outside the lock; CheckTx writes this map constantly.
+	hashes := hashRawTxs(txs)
 	for senders := range a.checkedSenders.Lock() {
-		for i, raw := range txs {
-			out[i] = senders.take(crypto.Keccak256Hash(raw))
+		for i, hash := range hashes {
+			out[i] = senders.take(hash)
 		}
 	}
 	return out
+}
+
+// hashRawTxs returns the keccak of every raw transaction, aligned with txs.
+func hashRawTxs(txs [][]byte) []common.Hash {
+	hashes := make([]common.Hash, len(txs))
+	workers := min(runtime.GOMAXPROCS(0), len(txs))
+	if workers <= 1 || len(txs) <= minTxsPerHashWorker {
+		hashRawTxRange(txs, hashes, 0, len(txs))
+		return hashes
+	}
+	chunk := max((len(txs)+workers-1)/workers, minTxsPerHashWorker)
+	_ = scope.Parallel(func(s scope.ParallelScope) error {
+		for start := 0; start < len(txs); start += chunk {
+			end := min(start+chunk, len(txs))
+			s.Spawn(func() error {
+				hashRawTxRange(txs, hashes, start, end)
+				return nil
+			})
+		}
+		return nil
+	})
+	return hashes
+}
+
+// hashRawTxRange hashes txs[start:end] into hashes.
+func hashRawTxRange(txs [][]byte, hashes []common.Hash, start, end int) {
+	state := crypto.NewKeccakState()
+	for i := start; i < end; i++ {
+		state.Reset()
+		_, _ = state.Write(txs[i])
+		_, _ = state.Read(hashes[i][:])
+	}
 }
 
 func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
