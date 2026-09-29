@@ -216,13 +216,17 @@ func wrapApplication(
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
-		return evmonlyapp.NewEVMOnlyApplication(
+		prepared, err := evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,
 			manager,
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
 			execution,
-		), nil
+		)
+		if err != nil {
+			return nil, fmt.Errorf("restore EVM-only application: %w", err)
+		}
+		return prepared, nil
 	}
 	if conf.FastCheckTx {
 		return fastCheckTxApplication{Application: app}, nil
