@@ -760,7 +760,22 @@ function _wrapSignerWithNonceRetry(signer) {
     return signer
 }
 
+// EVM chain ID of the Autobahn EVM-only executor (AutobahnEVMOnlyChainID in
+// sei-tendermint/config/autobahn.go). That chain has no Cosmos accounts, so an
+// EVM address has no Sei address to look up.
+const EVM_ONLY_CHAIN_ID = 713715
+
+// isEvmOnlyChain reports whether the network under test is the Autobahn
+// EVM-only chain.
+async function isEvmOnlyChain() {
+    return Number(await ethers.provider.send("eth_chainId", [])) === EVM_ONLY_CHAIN_ID
+}
+
+// setupSigners funds each signer and returns it with its EVM address and, on a
+// chain with Cosmos accounts, its Sei address. On the EVM-only chain seiAddress
+// is null.
 async function setupSigners(signers) {
+    const evmOnly = await isEvmOnlyChain()
     const result = []
     for(let signer of signers) {
         _wrapSignerWithNonceRetry(signer)
@@ -771,7 +786,7 @@ async function setupSigners(signers) {
             value: 0
         });
         await resp.wait()
-        const seiAddress = await getSeiAddress(evmAddress);
+        const seiAddress = evmOnly ? null : await getSeiAddress(evmAddress);
         result.push({
             seiAddress,
             evmAddress,
@@ -1003,6 +1018,7 @@ function hex2uint8(hex) {
 }
 
 module.exports = {
+    isEvmOnlyChain,
     fundAddress,
     fundSeiAddress,
     getSeiBalance,

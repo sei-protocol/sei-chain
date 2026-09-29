@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 
 const { setupSigners, getAdmin, getSeiBalance, printClaimMsg, addKey, getKeySeiAddress, fundSeiAddress,hex2uint8,
-    deployWasm, printClaimSpecificMsg, WASM, queryWasm, printClaimMsgBySender
+    deployWasm, printClaimSpecificMsg, WASM, queryWasm, printClaimMsgBySender, isEvmOnlyChain
 } = require("./lib");
 
 
@@ -11,6 +11,12 @@ describe("Sei Solo Tester", function () {
     let admin;
 
     before(async function () {
+        // Solo claims move a Sei account's bank and CW20 balances to an EVM
+        // address. The EVM-only Autobahn chain has no Sei accounts or CosmWasm.
+        if (await isEvmOnlyChain()) {
+            this.skip()
+            return
+        }
         accounts = await setupSigners(await hre.ethers.getSigners());
         admin = await getAdmin();
     })
