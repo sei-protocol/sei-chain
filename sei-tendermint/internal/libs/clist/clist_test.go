@@ -5,11 +5,11 @@ import (
 	"fmt"
 	mrand "math/rand"
 	"runtime"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestSmall(t *testing.T) {
@@ -193,12 +193,10 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	}
 
 	// Launch scanner routines that will rapidly iterate over elements.
-	var wg sync.WaitGroup
-	errs := make(chan error, numScanners)
+	g, ctx := errgroup.WithContext(t.Context())
 	for i := 0; i < numScanners; i++ {
-		wg.Add(1)
-		go func(scannerID int) {
-			defer wg.Done()
+		scannerID := i
+		g.Go(func() error {
 			var el *CElement[int]
 			restartCounter := 0
 			counter := 0
@@ -212,10 +210,9 @@ func TestScanRightDeleteRandom(t *testing.T) {
 				}
 				if el == nil {
 					var err error
-					el, err = l.WaitFront(t.Context())
+					el, err = l.WaitFront(ctx)
 					if err != nil {
-						errs <- err
-						return
+						return err
 					}
 					restartCounter++
 				}
@@ -223,7 +220,8 @@ func TestScanRightDeleteRandom(t *testing.T) {
 				counter++
 			}
 			fmt.Printf("Scanner %v restartCounter: %v counter: %v\n", scannerID, restartCounter, counter)
-		}(i)
+			return nil
+		})
 	}
 
 	// Remove an element, push back an element.
@@ -248,11 +246,7 @@ func TestScanRightDeleteRandom(t *testing.T) {
 
 	// Stop scanners and wait for them before the list is emptied.
 	close(stop)
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
+	require.NoError(t, g.Wait())
 
 	// And remove all the elements.
 	l.Clear()
