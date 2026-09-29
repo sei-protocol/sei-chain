@@ -451,7 +451,9 @@ func TestRecoverReplaysForwardFromTheStoreOwnHeight(t *testing.T) {
 	require.Equal(t, int64(9), manager.SC().Version())
 	requireWALTail(t, manager, 9)
 	require.DirExists(t, scSnapshotDir(cfg.FlatKVConfig.DataDir, 1))
-	marker, ok := manager.SC().OpenView().Get(evm.EVMStoreKey, evmNonceKey(108))
+	view := manager.SC().OpenView()
+	defer view.Close()
+	marker, ok := view.Get(evm.EVMStoreKey, evmNonceKey(108))
 	require.True(t, ok, "SC replayed forward from 8, so the working copy it held there is still open")
 	require.Equal(t, evmNonce(108), marker)
 }

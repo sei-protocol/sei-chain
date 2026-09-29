@@ -16,7 +16,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 	section, ok := registry.Lookup(SectionName)
 	require.True(t, ok, "%s is not registered, so nothing resolves its keys", SectionName)
 
-	want := []string{flagEnabled, flagRefreshInterval, flagDenomExponent, flagWalletAddresses, flagBankTransferThreshold}
+	want := []string{flagEnabled, flagRefreshInterval, flagDenomExponent, flagWalletAddresses, flagBankTransferThreshold, flagERC20Tokens}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)
 }
