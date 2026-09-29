@@ -33,7 +33,7 @@ func TestANodeStartedFromTheGeneratedFileRunsWhatItRanBefore(t *testing.T) {
 
 	before := whatTheNodeAnswers(t, home)
 
-	out, err := runGenerateThroughRoot(t, home, "--mode", "validator")
+	out, err := runGenerateThroughRoot(t, home, "--from-legacy", "--mode", "validator")
 	if err != nil {
 		t.Fatalf("generate was refused: %v\n%s", err, out)
 	}
@@ -95,7 +95,7 @@ func TestTheGeneratedFileStatesTheKeysThatDivergeAndNoOthers(t *testing.T) {
 			home := aNodeRunningAs(t, mode)
 			whatTheNodeAnswers(t, home)
 
-			out, err := runGenerateThroughRoot(t, home, "--mode", string(mode))
+			out, err := runGenerateThroughRoot(t, home, "--from-legacy", "--mode", string(mode))
 			if err != nil {
 				t.Fatalf("generate was refused: %v\n%s", err, out)
 			}
@@ -262,7 +262,7 @@ func TestGenerateWritesWhereABootReadsIt(t *testing.T) {
 	home := aNodeRunningAs(t, registry.ModeValidator)
 	before := whatTheNodeAnswers(t, home)
 
-	out, err := runGenerateThroughRoot(t, home, "--mode", "validator", "--write")
+	out, err := runGenerateThroughRoot(t, home, "--from-legacy", "--mode", "validator", "--write")
 	if err != nil {
 		t.Fatalf("generate was refused: %v\n%s", err, out)
 	}
@@ -345,7 +345,7 @@ func TestANodeWhoseFilesWereTunedByHandRunsWhatItRanBefore(t *testing.T) {
 		}
 	}
 
-	out, err := runGenerateThroughRoot(t, home, "--mode", "validator")
+	out, err := runGenerateThroughRoot(t, home, "--from-legacy", "--mode", "validator")
 	if err != nil {
 		t.Fatalf("generate was refused: %v\n%s", err, out)
 	}

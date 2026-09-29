@@ -339,7 +339,13 @@ func (f *File) Bytes() ([]byte, error) {
 // Save atomically writes the document to path after checking that Parse accepts it. A destination that
 // is a symlink or not a regular file is refused. An existing file keeps its permission; a new one gets
 // newFileMode. A non-nil error means nothing was written.
-func (f *File) Save(path string) error {
+func (f *File) Save(path string) error { return f.save(path, false) }
+
+// SaveNew is Save for a path that must not exist. If anything is at path when the file is installed, it
+// returns an error wrapping fs.ErrExist and leaves that entry untouched.
+func (f *File) SaveNew(path string) error { return f.save(path, true) }
+
+func (f *File) save(path string, mustBeNew bool) error {
 	raw, err := f.Bytes()
 	if err != nil {
 		return err
@@ -348,9 +354,11 @@ func (f *File) Save(path string) error {
 		return err
 	}
 
-	mode, err := modeToWrite(path)
-	if err != nil {
-		return err
+	mode := newFileMode
+	if !mustBeNew {
+		if mode, err = modeToWrite(path); err != nil {
+			return err
+		}
 	}
 
 	dir := filepath.Dir(path)
@@ -360,18 +368,27 @@ func (f *File) Save(path string) error {
 	}
 	tmpName := tmp.Name()
 	defer func() {
-		// Fails harmlessly once the file has been renamed.
+		// Fails harmlessly once the file has been renamed; after a link it removes the extra name.
 		_ = os.Remove(tmpName)
 	}()
 
 	if err := writeAndSync(tmp, raw, mode); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := install(tmpName, path, mustBeNew); err != nil {
 		return fmt.Errorf("install %s: %w", path, err)
 	}
 	syncDir(dir)
 	return nil
+}
+
+// install moves the written temporary file to path. A link, unlike a rename, fails on an existing entry,
+// so a file that must be new cannot replace one created after any earlier check.
+func install(tmpName, path string, mustBeNew bool) error {
+	if mustBeNew {
+		return os.Link(tmpName, path)
+	}
+	return os.Rename(tmpName, path)
 }
 
 // modeToWrite returns the permission a save should use: the existing file's, or newFileMode. It refuses

@@ -121,11 +121,7 @@ func describe(cfg *tmcfg.Config, keys []string) (values map[string]string, unrea
 	return values, unread, err
 }
 
-// whatEachKeyHolds reads the value a node's configuration holds for each key, and names the keys that are
-// not in it.
-//
-// The value as the struct holds it. A caller writing one into a file needs the type the key carries, and a
-// number rendered as text reaches its setting as a zero.
+// whatEachKeyHolds returns the value cfg holds for each key, with its Go type, and names the keys cfg lacks.
 func whatEachKeyHolds(cfg *tmcfg.Config, keys []string) (values map[string]any, unread []string, err error) {
 	values = map[string]any{}
 	if cfg == nil {

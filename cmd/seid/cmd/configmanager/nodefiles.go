@@ -1,8 +1,5 @@
-// Reading the files a node already has, without the boot's handler.
-//
-// The handler that builds the boot's source generates config.toml and app.toml when they are absent, and
-// copies configuration values into flags. A command that answers a question about those files must do
-// neither, so it reads them here instead.
+// Reading a node's legacy files without the boot's handler, which would create missing ones and copy
+// their values into flags.
 
 package configmanager
 
@@ -21,12 +18,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-// theHomeThisCommandRuns resolves the home directory this command was given, and refuses an empty one.
-//
-// Every path a command reads joins the home. An empty one leaves those paths relative, so a read lands in
-// ./config under whatever directory the command was run from, which is some other node's files. Answering
-// for the wrong node is worse than not answering, so the two are resolved together and no caller can hold
-// a home without having checked it.
+// theHomeThisCommandRuns resolves this command's home directory, refusing an empty one, which would read
+// ./config under the working directory.
 func theHomeThisCommandRuns(cmd *cobra.Command) (string, error) {
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
@@ -39,10 +32,8 @@ func theHomeThisCommandRuns(cmd *cobra.Command) (string, error) {
 	return home, nil
 }
 
-// theVariableThatSetsTheHome names the environment variable the home resolves from.
-//
-// Derived from the running binary the same way the resolver derives it, so a message naming it cannot
-// drift from the name that actually works.
+// theVariableThatSetsTheHome names the environment variable the home resolves from, derived as
+// resolveHomeDir derives it.
 func theVariableThatSetsTheHome() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -51,14 +42,8 @@ func theVariableThatSetsTheHome() string {
 	return strings.ToUpper(path.Base(exe)) + "_HOME"
 }
 
-// theNodesOwnConfiguration reads the node's own configuration file into the struct a boot decodes it into.
-//
-// Decoded rather than read key by key, so every caller sees the same shape a boot sees. A boot unmarshals
-// this file over the same defaults, so a key stated with nothing after it arrives empty and an absent key
-// keeps the default, which is what a boot runs with.
-//
-// A file that is not there is the only absence. Every other failure is a file somebody wrote that a boot
-// does not start on, so answering with defaults would describe a node that cannot boot.
+// theNodesOwnConfiguration decodes config.toml over the defaults, as a boot does. A missing file yields
+// the defaults; any other failure is an error.
 func theNodesOwnConfiguration(home string) (*tmcfg.Config, error) {
 	cfg := tmcfg.DefaultConfig()
 	v := viper.New()
@@ -78,14 +63,8 @@ func theNodesOwnConfiguration(home string) (*tmcfg.Config, error) {
 // startCommandName is the subcommand whose flags answer a key a file leaves out.
 const startCommandName = "start"
 
-// theSourceThisNodeWouldBuild returns what this node answers for a key looked up by name, without booting.
-//
-// A boot binds its start command's flags into the source it builds and then reads app.toml over them, so a
-// key with a flag of its own is answered by that flag's default whether the file mentions it or not. The
-// same two, in the same order, so a written value outranks a flag's default here as it does there.
-//
-// A file that is not there leaves the flag defaults answering, which is what a node in that state runs
-// until a boot generates one. Every other failure is a file a boot does not start on.
+// theSourceThisNodeWouldBuild returns the lookup source a boot builds: app.toml read over the start
+// command's flag defaults. A missing app.toml leaves the flag defaults answering.
 func theSourceThisNodeWouldBuild(cmd *cobra.Command, home string) (*viper.Viper, error) {
 	set, err := theStartCommandsFlags(cmd)
 	if err != nil {
@@ -105,15 +84,8 @@ func theSourceThisNodeWouldBuild(cmd *cobra.Command, home string) (*viper.Viper,
 	return v, nil
 }
 
-// theStartCommandsFlags returns the flags this binary's start command carries.
-//
-// Found on the root by name rather than built here, so they are the flags this binary ships and a flag
-// added to the start command is carried without anything else changing.
-//
-// Not found is refused. Without these a key whose only answer is a flag's default reads as unanswered, and
-// a caller writing a file from that would leave the key out and move it to its declared value. Pruning is
-// the one to picture: the flag prunes and the declaration keeps everything, so the file would silently
-// stop a node pruning.
+// theStartCommandsFlags returns the flags of the root's start command. Missing is refused: a key answered
+// only by a flag's default, such as pruning, would otherwise read as unanswered.
 func theStartCommandsFlags(cmd *cobra.Command) (*pflag.FlagSet, error) {
 	for _, sub := range cmd.Root().Commands() {
 		if sub.Name() != startCommandName {

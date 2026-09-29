@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/config/seitoml"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
@@ -66,7 +67,7 @@ func TestGenerateRefusesWhatItCannotAnswerFrom(t *testing.T) {
 	})
 
 	t.Run("this home holds no node", func(t *testing.T) {
-		_, err := runGenerate(t, t.TempDir(), "--mode", "validator")
+		_, err := runGenerate(t, t.TempDir(), "--from-legacy", "--mode", "validator")
 		if err == nil {
 			t.Fatal("the command described a home no node was created in, so every value in the file " +
 				"came from this binary rather than from a node")
@@ -78,7 +79,7 @@ func TestGenerateRefusesWhatItCannotAnswerFrom(t *testing.T) {
 
 	t.Run("no start command to read flag defaults off", func(t *testing.T) {
 		home := aHomeHoldingANode(t)
-		_, err := runGenerate(t, home, "--mode", "full")
+		_, err := runGenerate(t, home, "--from-legacy", "--mode", "full")
 		if err == nil {
 			t.Fatal("the command answered without the start command's flags, so a key answered only by " +
 				"a flag's default read as answered by nothing and the file would leave it out")
@@ -123,5 +124,80 @@ func TestGenerateNamesTheHomeVariableThatWorks(t *testing.T) {
 	if !strings.Contains(err.Error(), theVariableThatSetsTheHome()) {
 		t.Errorf("the refusal says %q and the resolver reads %s, so an operator following it sets a "+
 			"variable nothing looks at", err, theVariableThatSetsTheHome())
+	}
+}
+
+// TestGenerateWithNoSourceStatesOnlyTheDescribingKeys holds CFG-46: with no source named, every declared
+// key is left to the binary's defaults, and no legacy file is needed.
+func TestGenerateWithNoSourceStatesOnlyTheDescribingKeys(t *testing.T) {
+	out, err := runGenerate(t, t.TempDir(), "--mode", "validator")
+	if err != nil {
+		t.Fatalf("generate was refused: %v\n%s", err, out)
+	}
+	file, err := seitoml.Parse(strings.NewReader(out))
+	if err != nil {
+		t.Fatalf("the printed file does not parse: %v\n%s", err, out)
+	}
+	if mode, err := file.Mode(); err != nil || mode != "validator" {
+		t.Errorf("node_mode is %q (%v), want validator", mode, err)
+	}
+	values, err := file.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	if len(values) != 0 {
+		t.Errorf("with no source the file states %v, and it should state only schema_version and node_mode",
+			values)
+	}
+}
+
+// TestGenerateWithNoSourceStillRefusesAContradictedKind holds that a node's own config.toml, when present,
+// still decides whether a boot would read the file at all.
+func TestGenerateWithNoSourceStillRefusesAContradictedKind(t *testing.T) {
+	_, err := runGenerate(t, aHomeHoldingANode(t), "--mode", "validator")
+	if err == nil {
+		t.Fatal("the command wrote a validator file for a node whose config.toml records a full node, " +
+			"which a boot would ignore entirely")
+	}
+}
+
+// TestGenerateFromLegacyRefusesAHomeWithASeiToml holds that the legacy files are not read as a description
+// of a node that already runs a sei.toml.
+func TestGenerateFromLegacyRefusesAHomeWithASeiToml(t *testing.T) {
+	home := aHomeHoldingANode(t)
+	path := filepath.Join(home, "config", seiTomlName)
+	if err := os.WriteFile(path, []byte("schema_version = 1\nnode_mode = \"full\"\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	_, err := runGenerate(t, home, "--from-legacy", "--mode", "full")
+	if err == nil {
+		t.Fatal("the command described a node from legacy files it no longer runs from")
+	}
+	if !strings.Contains(err.Error(), seiTomlName) {
+		t.Errorf("the refusal says %q, and it has to name the file in use", err)
+	}
+}
+
+// TestGenerateWriteNeverReplacesAFile holds that --write leaves an existing sei.toml byte-for-byte alone.
+func TestGenerateWriteNeverReplacesAFile(t *testing.T) {
+	home := t.TempDir()
+	if out, err := runGenerate(t, home, "--mode", "validator", "--write"); err != nil {
+		t.Fatalf("the first write was refused: %v\n%s", err, out)
+	}
+	path := filepath.Join(home, "config", seiTomlName)
+	edited := []byte("schema_version = 1\nnode_mode = \"validator\"\n# an operator's note\n")
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	_, err := runGenerate(t, home, "--mode", "validator", "--write")
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("the second write returned %v, and it should refuse because the file exists", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if !bytes.Equal(raw, edited) {
+		t.Errorf("the refused write changed the file to:\n%s", raw)
 	}
 }

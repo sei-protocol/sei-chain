@@ -1840,3 +1840,82 @@ func permutations(keys []string) [][]string {
 	}
 	return out
 }
+
+// TestSaveNewRefusesAnExistingEntry holds that SaveNew never replaces what is at the path, a regular file
+// or a symlink, and leaves no temporary file behind.
+func TestSaveNewRefusesAnExistingEntry(t *testing.T) {
+	for _, name := range []string{"file", "symlink"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sei.toml")
+			before := []byte("# somebody's file\n")
+			target := path
+			if name == "symlink" {
+				target = filepath.Join(dir, "elsewhere.toml")
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatalf("symlink: %v", err)
+				}
+			}
+			if err := os.WriteFile(target, before, 0o600); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			err := parse(t, commented).SaveNew(path)
+			if !errors.Is(err, fs.ErrExist) {
+				t.Fatalf("SaveNew returned %v, want an error wrapping fs.ErrExist", err)
+			}
+			raw, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if string(raw) != string(before) {
+				t.Errorf("SaveNew changed the existing file to:\n%s", raw)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("ReadDir: %v", err)
+			}
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), ".sei.toml.") {
+					t.Errorf("a refused SaveNew left %q behind", e.Name())
+				}
+			}
+		})
+	}
+}
+
+// TestSaveNewWritesANewFile holds that SaveNew writes what Parse reads back, with newFileMode and only one
+// name in the directory.
+func TestSaveNewWritesANewFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sei.toml")
+	f := parse(t, commented)
+	want, err := f.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	if err := f.SaveNew(path); err != nil {
+		t.Fatalf("SaveNew: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(raw) != string(want) {
+		t.Errorf("SaveNew wrote:\n%s\nwant:\n%s", raw, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("a new file has mode %#o, want 0600", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("the directory holds %d entries after SaveNew, want only sei.toml", len(entries))
+	}
+}
