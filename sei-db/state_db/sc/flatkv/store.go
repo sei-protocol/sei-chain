@@ -816,7 +816,21 @@ func (s *CommitStore) Flush() error {
 	return nil
 }
 
+// Importer returns an importer for data from an untrusted source, such as a state sync peer. The import
+// fails unless physical keys arrive in strictly ascending order, which is the order KVExporter emits.
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	return s.newImporter(version, true)
+}
+
+// TrustedImporter returns an importer for data from a trusted source, such as an offline migration of this
+// node's own state. It accepts physical keys in any order, but each key must appear at most once: a repeat
+// is not detected and leaves the imported hash wrong.
+func (s *CommitStore) TrustedImporter(version int64) (types.Importer, error) {
+	return s.newImporter(version, false)
+}
+
+// newImporter prepares the store for an import at version and returns the importer.
+func (s *CommitStore) newImporter(version int64, requireAscendingKeys bool) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
@@ -839,7 +853,7 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-	return NewKVImporter(s, version), nil
+	return NewKVImporter(s, version, requireAscendingKeys), nil
 }
 
 // resetForImport purges all existing data so that a subsequent import

@@ -1,12 +1,17 @@
 package flatkv
 
 import (
+	"bytes"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
@@ -445,4 +450,99 @@ func TestKVImporter_BackpressureBlocksProducerUntilWorkersDrain(t *testing.T) {
 	require.Equal(t, int64(totalPairs), pairs, "every pair must be persisted")
 	require.GreaterOrEqual(t, flushes, int64(2),
 		"expected multiple flushes for %d storage pairs (got %d)", totalPairs, flushes)
+}
+
+// storageNode returns an import node carrying a serialized storage row at version 1.
+func storageNode(t *testing.T, addr ktype.Address, slot ktype.Slot, value []byte) *types.SnapshotNode {
+	t.Helper()
+	row := vtype.NewStorageData().SetBlockHeight(1).SetValue((*[32]byte)(value)).Serialize()
+	return &types.SnapshotNode{Key: storagePhysKey(addr, slot), Value: row, Version: 1}
+}
+
+// addNodesInKeyOrder feeds nodes to imp in ascending physical-key order, the order Importer requires.
+func addNodesInKeyOrder(imp types.Importer, nodes []*types.SnapshotNode) {
+	sorted := slices.Clone(nodes)
+	slices.SortFunc(sorted, func(a *types.SnapshotNode, b *types.SnapshotNode) int {
+		return bytes.Compare(a.Key, b.Key)
+	})
+	for _, n := range sorted {
+		imp.AddNode(n)
+	}
+}
+
+// TestKVImporter_RepeatedPairRejected feeds an honest export followed by one forged pair 2^16 times. Accepted,
+// the forged row would be live while its uint16 LtHash limbs wrapped to zero, leaving the root hash equal to
+// the honest source's.
+func TestKVImporter_RepeatedPairRejected(t *testing.T) {
+	src := setupTestStore(t)
+	defer func() { require.NoError(t, src.Close()) }()
+
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: evmStorageKey(addrN(0x01), slotN(0x01)), Value: padLeft32(0x11)},
+			{Key: evmStorageKey(addrN(0x02), slotN(0x02)), Value: padLeft32(0x22)},
+		}}},
+	}))
+	commitAndCheck(t, src)
+
+	exp, err := src.Exporter(1)
+	require.NoError(t, err)
+	nodes := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.NotEmpty(t, nodes)
+
+	dst, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, dst.Close()) }()
+
+	require.NoError(t, imp.AddModule(keys.FlatKVStoreKey))
+	for _, n := range nodes {
+		imp.AddNode(n)
+	}
+	forged := storageNode(t, addrN(0xBA), slotN(0xD0), padLeft32(0x66))
+	for i := 0; i < 1<<16; i++ {
+		imp.AddNode(forged)
+	}
+
+	require.ErrorContains(t, imp.Close(), "duplicate physical key")
+	require.Equal(t, int64(0), dst.Version(), "a rejected import must not finalize")
+}
+
+// TestKVImporter_OutOfOrderKeyRejected verifies that Importer fails an import whose physical keys descend.
+func TestKVImporter_OutOfOrderKeyRejected(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	imp.AddNode(storageNode(t, addrN(0x02), slotN(0x02), padLeft32(0x22)))
+	imp.AddNode(storageNode(t, addrN(0x01), slotN(0x01), padLeft32(0x11)))
+
+	require.ErrorContains(t, imp.Close(), "keys must be in ascending order")
+	require.Equal(t, int64(0), s.Version(), "a rejected import must not finalize")
+}
+
+// TestTrustedImporter_AcceptsAnyOrder verifies that TrustedImporter imports physical keys given in
+// descending order.
+func TestTrustedImporter_AcceptsAnyOrder(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	imp, err := s.TrustedImporter(1)
+	require.NoError(t, err)
+	imp.AddNode(storageNode(t, addrN(0x02), slotN(0x02), padLeft32(0x22)))
+	imp.AddNode(storageNode(t, addrN(0x01), slotN(0x01), padLeft32(0x11)))
+	require.NoError(t, imp.Close())
+
+	require.Equal(t, int64(1), s.Version())
+	for _, want := range []struct {
+		addr  ktype.Address
+		slot  ktype.Slot
+		value []byte
+	}{
+		{addrN(0x01), slotN(0x01), padLeft32(0x11)},
+		{addrN(0x02), slotN(0x02), padLeft32(0x22)},
+	} {
+		got, found := s.Get(keys.EVMStoreKey, evmStorageKey(want.addr, want.slot))
+		require.True(t, found)
+		require.Equal(t, want.value, got)
+	}
+	require.NoError(t, VerifyLtHash(s))
 }
