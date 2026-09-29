@@ -88,7 +88,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		Changeset: proto.ChangeSet{Pairs: filteredPairs},
 	}
 
-	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, [keys.EVMKeyKindCount]int{})
+	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, [keys.EVMKeyKindCount]int{}, nil)
 	if err != nil {
 		return nil, err
 	}

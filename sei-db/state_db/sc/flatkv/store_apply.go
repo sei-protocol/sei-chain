@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -18,6 +19,9 @@ import (
 // classifyBucketHeadroom is the factor applied to a kind's bucket length in the previous ApplyChangeSets call to
 // size that bucket in the next, so a batch slightly larger than the last one still fits without regrowing.
 const classifyBucketHeadroom = 2
+
+// classifyUnitSize is the most changeset pairs one worker classifies.
+const classifyUnitSize = 1024
 
 // ApplyChangeSets writes one block's changes into the four data stores. Non-EVM modules go to miscDB
 // under "<module>/". Each value records version as the height it was last modified at; the same version
@@ -75,7 +79,7 @@ func (s *CommitStore) applyChangeSets(
 	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes)
+	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes, s.miscPool)
 	if err != nil {
 		return fmt.Errorf("classify changesets: %w", err)
 	}
@@ -399,62 +403,180 @@ func (c *classifiedChanges) bucketSizes() [keys.EVMKeyKindCount]int {
 // classifyAndPrefix splits changeSets into per-EVMKeyKind buckets whose keys are already in physical format
 // ("module/" + prefix_encoded_key). Non-EVM modules go to the EVMKeyMisc bucket with a "<module>/" prefix.
 //
-// sizeHints gives each kind's bucket length in an earlier call. A bucket is allocated at classifyBucketHeadroom
-// times its hint, and one with no hint grows on demand.
+// sizeHints gives each kind's bucket length in an earlier call, and a kind with no hint grows on demand. The pairs
+// are classified on pool when there is more than one unit of them, and on the calling goroutine when pool is nil.
 func classifyAndPrefix(
 	changeSets []*proto.NamedChangeSet,
 	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
 ) (classifiedChanges, error) {
+	// Repeated keys are kept rather than resolved here. Every consumer already resolves them in arrival order:
+	// the view manager keeps a key's last write in a version, and mergeAccountUpdates folds each account into
+	// one entry. Import input has unique keys.
+	units := planClassifyUnits(changeSets)
+	if pool == nil || len(units) < 2 {
+		return classifyUnitsSerially(units, sizeHints)
+	}
+	return classifyUnitsInParallel(units, sizeHints, pool)
+}
+
+// classifyUnit is a contiguous run of one changeset's pairs.
+type classifyUnit struct {
+	// moduleName is the name of the changeset the pairs belong to.
+	moduleName string
+
+	// pairs is the run itself, at most classifyUnitSize long.
+	pairs []*proto.KVPair
+}
+
+// planClassifyUnits divides changeSets into units of at most classifyUnitSize pairs, in block order. A unit never
+// spans two changesets.
+func planClassifyUnits(changeSets []*proto.NamedChangeSet) []classifyUnit {
+	var units []classifyUnit
+	for _, cs := range changeSets {
+		if cs == nil {
+			continue
+		}
+		pairs := cs.Changeset.Pairs
+		for len(pairs) > 0 {
+			count := min(len(pairs), classifyUnitSize)
+			units = append(units, classifyUnit{moduleName: cs.Name, pairs: pairs[:count]})
+			pairs = pairs[count:]
+		}
+	}
+	return units
+}
+
+// classifyUnitsSerially classifies every unit on the calling goroutine, into one set of buckets.
+func classifyUnitsSerially(
+	units []classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+) (classifiedChanges, error) {
+	result := newClassifiedChanges(sizeHints)
+	for _, unit := range units {
+		if err := classifyUnitPairs(unit, &result); err != nil {
+			return classifiedChanges{}, err
+		}
+	}
+	return result, nil
+}
+
+// classifyUnitsInParallel classifies each unit into its own set of buckets, the last on the calling goroutine and
+// the rest on pool, then concatenates them in unit order. Of several failing units, the first one's error is
+// reported.
+//
+// The work is bound by memory latency rather than computation: each pair and each pair's key is its own heap
+// object, and reaching one stalls on a load the prefetcher cannot predict. Several workers keep several of those
+// loads outstanding at once.
+func classifyUnitsInParallel(
+	units []classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
+) (classifiedChanges, error) {
+	// Each unit is sized for its share of the call rather than all of it. A unit that receives an uneven share of
+	// some kind grows that bucket on demand.
+	var unitHints [keys.EVMKeyKindCount]int
+	for kind, hint := range sizeHints {
+		unitHints[kind] = hint / len(units)
+	}
+
+	parts := make([]classifiedChanges, len(units))
+	errs := make([]error, len(units))
+	last := len(units) - 1
+
+	var wg sync.WaitGroup
+	wg.Add(last)
+	for i := 0; i < last; i++ {
+		pool.Submit(func() {
+			defer wg.Done()
+			parts[i] = newClassifiedChanges(unitHints)
+			errs[i] = classifyUnitPairs(units[i], &parts[i])
+		})
+	}
+	parts[last] = newClassifiedChanges(unitHints)
+	errs[last] = classifyUnitPairs(units[last], &parts[last])
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return classifiedChanges{}, err
+		}
+	}
+	return mergeClassified(parts), nil
+}
+
+// newClassifiedChanges returns empty buckets, each with room for classifyBucketHeadroom times its hint.
+func newClassifiedChanges(sizeHints [keys.EVMKeyKindCount]int) classifiedChanges {
 	var result classifiedChanges
 	for kind, hint := range sizeHints {
 		if hint > 0 {
 			result[kind] = make([]classifiedChange, 0, classifyBucketHeadroom*hint)
 		}
 	}
+	return result
+}
 
-	// Repeated keys are kept rather than resolved here. Every consumer already resolves them in arrival order:
-	// the view manager keeps a key's last write in a version, and mergeAccountUpdates folds each account into
-	// one entry. Import input has unique keys.
+// classifyUnitPairs appends each of unit's pairs, with its physical key built, to the bucket for its kind.
+func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 	keyBuf := make([]byte, 0, physKeyBufLen)
-	for _, cs := range changeSets {
-		if cs == nil || len(cs.Changeset.Pairs) == 0 {
-			continue
+
+	if unit.moduleName == keys.EVMStoreKey {
+		for _, pair := range unit.pairs {
+			kind, keyBytes := keys.ParseEVMKey(pair.Key)
+			if kind == keys.EVMKeyEmpty {
+				return fmt.Errorf("flatkv: empty key in changeset")
+			}
+
+			if kind == keys.EVMKeyMisc {
+				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
+			} else {
+				keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
+			}
+			into[kind] = append(into[kind], newClassifiedChange(string(keyBuf), pair))
 		}
+		return nil
+	}
 
-		if cs.Name == keys.EVMStoreKey {
-			for _, pair := range cs.Changeset.Pairs {
-				kind, keyBytes := keys.ParseEVMKey(pair.Key)
-				if kind == keys.EVMKeyEmpty {
-					return classifiedChanges{}, fmt.Errorf("flatkv: empty key in changeset")
-				}
+	// An empty module name would fold into "/"+key here and later
+	// persist as the per-module meta key "_meta/x:/hash", which
+	// ParseModuleLtHashKey rejects on reload — a store that ever
+	// commits one becomes permanently unopenable (sum-to-root check
+	// fails forever). Reject it up front instead; module names are
+	// never empty in normal operation (Cosmos SDK's NewKVStoreKey
+	// panics on an empty name), so this only guards malformed input.
+	if unit.moduleName == "" {
+		return fmt.Errorf("flatkv: empty module name in changeset")
+	}
+	miscBucket := &into[keys.EVMKeyMisc]
+	for _, pair := range unit.pairs {
+		keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], unit.moduleName, pair.Key)
+		*miscBucket = append(*miscBucket, newClassifiedChange(string(keyBuf), pair))
+	}
+	return nil
+}
 
-				if kind == keys.EVMKeyMisc {
-					keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
-				} else {
-					keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
-				}
-				result[kind] = append(result[kind], newClassifiedChange(string(keyBuf), pair))
-			}
-		} else {
-			// An empty module name would fold into "/"+key here and later
-			// persist as the per-module meta key "_meta/x:/hash", which
-			// ParseModuleLtHashKey rejects on reload — a store that ever
-			// commits one becomes permanently unopenable (sum-to-root check
-			// fails forever). Reject it up front instead; module names are
-			// never empty in normal operation (Cosmos SDK's NewKVStoreKey
-			// panics on an empty name), so this only guards malformed input.
-			if cs.Name == "" {
-				return classifiedChanges{}, fmt.Errorf("flatkv: empty module name in changeset")
-			}
-			miscBucket := &result[keys.EVMKeyMisc]
-			for _, pair := range cs.Changeset.Pairs {
-				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], cs.Name, pair.Key)
-				*miscBucket = append(*miscBucket, newClassifiedChange(string(keyBuf), pair))
-			}
+// mergeClassified concatenates each part's buckets in part order, into buckets allocated at their exact final
+// length.
+func mergeClassified(parts []classifiedChanges) classifiedChanges {
+	var totals [keys.EVMKeyKindCount]int
+	for i := range parts {
+		for kind, bucket := range parts[i] {
+			totals[kind] += len(bucket)
 		}
 	}
 
-	return result, nil
+	var result classifiedChanges
+	for kind, total := range totals {
+		if total > 0 {
+			result[kind] = make([]classifiedChange, 0, total)
+		}
+	}
+	for i := range parts {
+		for kind, bucket := range parts[i] {
+			result[kind] = append(result[kind], bucket...)
+		}
+	}
+	return result
 }
 
 // newClassifiedChange pairs a physical key with a changeset pair's new value, recording a deleted pair as a nil
