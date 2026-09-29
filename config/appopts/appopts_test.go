@@ -496,3 +496,70 @@ func TestADeclaredKeyThatIsNotLowerCaseIsRefused(t *testing.T) {
 			"it as installed and as untouched at the same time")
 	}
 }
+
+// TestAVariableNestingUnderADeclaredKeyIsRefused holds PLT-1139: the source does not list a key its
+// environment answers, so the refusal asks the environment itself, and names the variable to rename.
+func TestAVariableNestingUnderADeclaredKeyIsRefused(t *testing.T) {
+	registry.Reset()
+	t.Setenv("TESTBOOT_PRUNING_STRATEGY", "custom")
+	target := bootLike(t, "TESTBOOT", nil)
+
+	_, err := appopts.Install(target, registry.Resolved{Values: map[string]any{"pruning": "default"}})
+	if err == nil {
+		t.Fatalf("pruning was installed over TESTBOOT_PRUNING_STRATEGY, and pruning.strategy now reads %#v",
+			target.Get("pruning.strategy"))
+	}
+	if !strings.Contains(err.Error(), "TESTBOOT_PRUNING_STRATEGY") {
+		t.Errorf("the refusal reads %q and does not name the variable an operator has to rename", err)
+	}
+	if got := target.Get("pruning.strategy"); got != "custom" {
+		t.Errorf("pruning.strategy reads %#v after a refused install, want custom", got)
+	}
+}
+
+// TestAVariableUnderADottedHyphenatedKeyIsRefused covers the mapping a reverse lookup would guess at: a
+// variable name can come from several keys, so it is matched forward from the declared one.
+func TestAVariableUnderADottedHyphenatedKeyIsRefused(t *testing.T) {
+	registry.Reset()
+	declared := registry.Resolved{Values: map[string]any{"state-commit.sc-enable": true}}
+
+	t.Setenv("TESTBOOT_STATE_COMMIT_SC_ENABLE", "false")
+	if _, err := appopts.Install(bootLike(t, "TESTBOOT", nil), declared); err != nil {
+		t.Fatalf("the declared key's own variable was refused as a collision: %v", err)
+	}
+
+	t.Setenv("TESTBOOT_STATE_COMMIT_SC_ENABLE_EXTRA", "1")
+	_, err := appopts.Install(bootLike(t, "TESTBOOT", nil), declared)
+	if err == nil {
+		t.Fatal("a variable nesting under state-commit.sc-enable was not refused")
+	}
+	if !strings.Contains(err.Error(), "TESTBOOT_STATE_COMMIT_SC_ENABLE_EXTRA") {
+		t.Errorf("the refusal reads %q and does not name the variable", err)
+	}
+}
+
+// TestAnEmptyVariableIsNotACollision holds that a variable the source ignores cannot be lost.
+func TestAnEmptyVariableIsNotACollision(t *testing.T) {
+	registry.Reset()
+	t.Setenv("TESTBOOT_PRUNING_STRATEGY", "")
+	_, err := appopts.Install(bootLike(t, "TESTBOOT", nil),
+		registry.Resolved{Values: map[string]any{"pruning": "default"}})
+	if err != nil {
+		t.Fatalf("an empty variable, which the source does not read, was refused: %v", err)
+	}
+}
+
+// TestAKeyTheEnvironmentAnswersIsNotAdded holds that Added counts only declared keys nothing answered.
+func TestAKeyTheEnvironmentAnswersIsNotAdded(t *testing.T) {
+	registerProbe(t)
+	t.Setenv("TESTBOOT_PROBE_ENABLED", "false")
+
+	report, err := appopts.Install(bootLike(t, "TESTBOOT", nil), resolve(t, registry.ModeValidator))
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if len(report.Added) != 1 || report.Added[0] != "probe.workers" {
+		t.Errorf("the report says %v was added, want only probe.workers: the environment already "+
+			"answered probe.enabled", report.Added)
+	}
+}

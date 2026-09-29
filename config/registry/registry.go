@@ -486,6 +486,14 @@ const envPrefix = "SEID"
 
 // EnvName returns the environment variable that delivers a key: SEID_ plus the key upper-cased, with
 // dots and hyphens as underscores, matching the boot's replacer.
-func EnvName(key string) string {
-	return envPrefix + "_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(key))
+func EnvName(key string) string { return EnvNameUnder(envPrefix, key) }
+
+// EnvNameUnder is EnvName for a source whose environment prefix is prefix, upper-cased as viper does.
+// An empty prefix names the bare key.
+func EnvNameUnder(prefix, key string) string {
+	name := strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(key))
+	if prefix == "" {
+		return name
+	}
+	return strings.ToUpper(prefix) + "_" + name
 }

@@ -4,6 +4,7 @@ package appopts
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -29,15 +30,16 @@ func Install(target *viper.Viper, resolved registry.Resolved) (Report, error) {
 	}
 	// Enumerated once so the refusal and the report agree on what the source carries.
 	enumerated := enumerate(target)
+	env := theEnvironment()
 	if err := refuseNotLowerCase(resolved); err != nil {
 		return Report{}, err
 	}
-	if err := refuseUnwritable(target, resolved, enumerated); err != nil {
+	if err := refuseUnwritable(target, resolved, enumerated, env); err != nil {
 		return Report{}, err
 	}
 
 	// Described before writing, since writing makes every declared key enumerable.
-	report := describe(resolved, enumerated)
+	report := describe(target, resolved, enumerated, env)
 	for key, value := range resolved.Values {
 		target.Set(key, value)
 	}
@@ -52,6 +54,23 @@ func enumerate(target *viper.Viper) map[string]bool {
 		out[key] = true
 	}
 	return out
+}
+
+// theEnvironment returns the names of the non-empty environment variables, the ones AutomaticEnv reads.
+// The source cannot list them, so a key they answer is missing from enumerate.
+func theEnvironment() map[string]bool {
+	out := map[string]bool{}
+	for _, entry := range os.Environ() {
+		if name, value, ok := strings.Cut(entry, "="); ok && value != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// envName returns the variable target's AutomaticEnv reads for key.
+func envName(target *viper.Viper, key string) string {
+	return registry.EnvNameUnder(target.GetEnvPrefix(), key)
 }
 
 // refuseNotLowerCase rejects a declared key that is not lower case. The source lower-cases keys on
@@ -86,7 +105,7 @@ func dottedPrefixes(key string) []string {
 
 // refuseUnwritable rejects a declared key that is a dotted prefix of another key, or nests under one.
 // The source holds one value per path, so writing both would silently lose one of them.
-func refuseUnwritable(target *viper.Viper, resolved registry.Resolved, enumerated map[string]bool) error {
+func refuseUnwritable(target *viper.Viper, resolved registry.Resolved, enumerated, env map[string]bool) error {
 	var lost []string
 	// Each pair says which key is undeclared, because that decides who can fix it.
 	note := func(outer, inner string, bothDeclared bool) {
@@ -118,6 +137,7 @@ func refuseUnwritable(target *viper.Viper, resolved registry.Resolved, enumerate
 			}
 		}
 	}
+	lost = append(lost, variablesUnderADeclaredKey(target, resolved, enumerated, env)...)
 	if len(lost) == 0 {
 		return nil
 	}
@@ -125,6 +145,31 @@ func refuseUnwritable(target *viper.Viper, resolved registry.Resolved, enumerate
 	return fmt.Errorf("these key pairs cannot both be installed, because one names a path the other "+
 		"nests under and the source holds one value per path: %s. An undeclared key is an operator's to "+
 		"rename; a declared one changes only in a release", strings.Join(lost, ", "))
+}
+
+// variablesUnderADeclaredKey describes each environment variable that nests under a declared key, which
+// the declared value would shadow. Variable names are matched forward from the declared key, since a
+// name cannot be mapped back: the replacer turns both dots and hyphens into underscores. A variable that
+// is the name of a declared or enumerated key is that key's own, and is not a collision.
+func variablesUnderADeclaredKey(target *viper.Viper, resolved registry.Resolved,
+	enumerated, env map[string]bool) []string {
+	owned := make(map[string]bool, len(resolved.Values)+len(enumerated))
+	for key := range resolved.Values {
+		owned[envName(target, key)] = true
+	}
+	for key := range enumerated {
+		owned[envName(target, key)] = true
+	}
+	var lost []string
+	for key := range resolved.Values {
+		under := envName(target, key) + "_"
+		for name := range env {
+			if strings.HasPrefix(name, under) && !owned[name] {
+				lost = append(lost, fmt.Sprintf("%q declared and the variable %s nests under it", key, name))
+			}
+		}
+	}
+	return lost
 }
 
 // holdsAValue reports whether target has key set to something other than a table. It asks the source
@@ -142,12 +187,13 @@ func holdsAValue(target *viper.Viper, key string) bool {
 	}
 }
 
-// describe sorts the resolved and enumerated keys into a Report.
-func describe(resolved registry.Resolved, enumerated map[string]bool) Report {
+// describe sorts the resolved and enumerated keys into a Report. A declared key its environment variable
+// answers is not Added.
+func describe(target *viper.Viper, resolved registry.Resolved, enumerated, env map[string]bool) Report {
 	var report Report
 	for key := range resolved.Values {
 		report.Installed = append(report.Installed, key)
-		if !enumerated[key] {
+		if !enumerated[key] && !env[envName(target, key)] {
 			report.Added = append(report.Added, key)
 		}
 	}

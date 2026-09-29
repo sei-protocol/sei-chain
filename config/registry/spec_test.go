@@ -1623,3 +1623,16 @@ func TestAFlagNamingNoKeyIsNotReportedAsTheFilesMistake(t *testing.T) {
 			"from the file's keys has to either report both or neither", got.UnknownFromFlags)
 	}
 }
+
+// TestEnvNameUnderFollowsTheSourcesPrefix holds that a source's own prefix is applied as viper applies it.
+func TestEnvNameUnderFollowsTheSourcesPrefix(t *testing.T) {
+	for _, tc := range []struct{ prefix, key, want string }{
+		{"seid", "state-store.ss-keep-recent", registry.EnvName("state-store.ss-keep-recent")},
+		{"testboot", "a.b-c", "TESTBOOT_A_B_C"},
+		{"", "a.b-c", "A_B_C"},
+	} {
+		if got := registry.EnvNameUnder(tc.prefix, tc.key); got != tc.want {
+			t.Errorf("EnvNameUnder(%q, %q) = %q, want %q", tc.prefix, tc.key, got, tc.want)
+		}
+	}
+}
