@@ -1061,6 +1061,12 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 			err          error
 		)
 
+		if ctx.IsSimulation() {
+			if err := ctx.Context().Err(); err != nil {
+				return nil, err
+			}
+		}
+
 		msgCtx, msgMsCache := app.CacheTxContext(ctx, [32]byte{})
 		msgCtx = msgCtx.WithMessageIndex(i)
 

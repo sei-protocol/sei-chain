@@ -84,6 +84,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			panic(pe)
 		}
 		if err != nil {
+			if isContextCancellation(err) {
+				return
+			}
 			logger.Error("Got EVM state transition error (not VM error)", "err", err)
 
 			evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "state_transition")))
@@ -149,6 +152,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	}()
 
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp, true)
+	if isContextCancellation(applyErr) {
+		return nil, applyErr
+	}
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
@@ -178,6 +184,10 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	return
+}
+
+func isContextCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (k *Keeper) GetGasPool() core.GasPool {
@@ -223,7 +233,28 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
-	return st.Execute()
+	return executeEVMStateTransition(ctx, evmInstance, st)
+}
+
+func executeEVMStateTransition(ctx sdk.Context, evmInstance *vm.EVM, st *core.StateTransition) (*core.ExecutionResult, error) {
+	// DeliverTx execution must not depend on process-local context cancellation.
+	if !ctx.IsSimulation() {
+		return st.Execute()
+	}
+
+	stdCtx := ctx.Context()
+	if stdCtx == nil || stdCtx.Done() == nil {
+		return st.Execute()
+	}
+
+	stopCancellation := context.AfterFunc(stdCtx, evmInstance.Cancel)
+	defer stopCancellation()
+
+	res, err := st.Execute()
+	if ctxErr := stdCtx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return res, err
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
