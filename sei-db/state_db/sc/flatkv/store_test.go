@@ -759,6 +759,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 
 	fresh, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, fresh.Close()) }()
 	ro, err := fresh.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()

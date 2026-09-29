@@ -73,7 +73,8 @@ func newAggregationTestEnv(rng utils.Rng) aggregationTestEnv {
 
 func (e aggregationTestEnv) push(key types.SecretKey, view types.View, bucket int) utils.Option[[]*testAggregatedVote] {
 	vote := &testAggregatedVote{key: key.Public(), view: view, bucket: bucket}
-	return e.votes.pushVote(e.ep.Committee(), vote.key, vote.view, vote.bucket, vote, e.ep.Committee().CommitQuorum())
+	_, qcVotes := e.votes.pushVote(e.ep.Committee(), vote.key, vote.view, vote.bucket, vote, e.ep.Committee().CommitQuorum())
+	return qcVotes
 }
 
 func TestVoteAggregator_BelowQuorumDoesNotEmit(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
@@ -44,30 +44,13 @@ func waitForRPC(ctx context.Context, conf *config.Config) {
 	}
 }
 
-func randPort() int {
-	port, err := tmnet.GetFreePort()
-	if err != nil {
-		panic(err)
-	}
-	return port
-}
-
-// makeAddrs constructs local listener addresses for node services.  This
-// implementation uses random ports so test instances can run concurrently.
-func makeAddrs() (p2pAddr, rpcAddr string) {
-	const addrTemplate = "tcp://127.0.0.1:%d"
-	return fmt.Sprintf(addrTemplate, randPort()), fmt.Sprintf(addrTemplate, randPort())
-}
-
 func CreateConfig(t *testing.T, testName string) (*config.Config, error) {
 	c, err := config.ResetTestRoot(t.TempDir(), testName)
 	if err != nil {
 		return nil, err
 	}
 
-	p2pAddr, rpcAddr := makeAddrs()
-	c.P2P.ListenAddress = p2pAddr
-	c.RPC.ListenAddress = rpcAddr
+	c.RPC.ListenAddress = "tcp://" + tcp.TestReserveAddr().String()
 	c.RPC.EventLogWindowSize = 5 * time.Minute
 	// Loaded CI runners can take longer than the 10s default to produce the
 	// first block; timeout-write must stay above this value.

@@ -173,6 +173,12 @@ func (w *dbWorker) flush() (err error) {
 	addImportKVPairs(w.ctx, w.dir, pairCount)
 	w.flushes++
 	w.pairs += int64(pairCount)
+	closeErr := w.batch.Close()
+	// Cleared before the error check, so run() does not close the batch a second time.
+	w.batch = nil
+	if closeErr != nil {
+		return fmt.Errorf("%s close batch: %w", w.dir, closeErr)
+	}
 	w.batch = w.db.NewBatch()
 	w.ltMutations = w.ltMutations[:0]
 	return nil

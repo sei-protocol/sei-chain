@@ -870,6 +870,8 @@ func TestIteratorAccessorsRejectMisuse(t *testing.T) {
 			_, err = it.GetValue()
 			require.ErrorContains(t, err, "not positioned")
 
+			require.NoError(t, it.Close())
+
 			// Closed. Re-position first, so the guard being tested is `closed` and not exhaustion.
 			it, err = table.Iterator(reverse)
 			require.NoError(t, err)

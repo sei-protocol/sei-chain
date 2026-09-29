@@ -170,10 +170,15 @@ func (he *HashEngine) enqueue(message any) error {
 	}
 	select {
 	case he.gatherer.scheduledBlockChan <- message:
-		return nil
 	case <-he.ctx.Done():
 		return fmt.Errorf("hash engine is stopping: %w", he.ctx.Err())
 	}
+	if he.ctx.Err() != nil {
+		// The engine stopped around this send, so the gatherer's exit drain may already have run and
+		// nothing else will take the message off the queue.
+		he.gatherer.discardQueued()
+	}
+	return nil
 }
 
 // brick latches err as the engine's fatal error and stops it.

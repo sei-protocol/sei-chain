@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
@@ -20,13 +21,13 @@ type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
 
-	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
-	// is only ever touched by the single caller, which must not invoke methods concurrently.
-	closed bool
+	// Closed by Close() so subsequent calls fail fast.
+	closed utils.CloseMarker[stateWALImpl]
 
 	// The first fatal error from the underlying WAL that bricked this one, surfaced to the caller by every
 	// subsequent operation. Once set, no operation touches the underlying WAL, so a corrupt WAL never
-	// limps onward. Caller-serialized like closed.
+	// limps onward. A plain field: like hasBlock, it is only ever touched by the single caller, which must
+	// not invoke methods concurrently.
 	fatalErr error
 
 	// The highest block number written. Atomic because the garbage collector reads it off-goroutine
@@ -37,7 +38,7 @@ type stateWALImpl struct {
 	lastBlock atomic.Uint64
 
 	// Whether any block has been written (this session or recovered from disk), which is what tells an
-	// empty WAL apart from one holding only block 0. Caller-serialized like closed.
+	// empty WAL apart from one holding only block 0. Caller-serialized like fatalErr.
 	hasBlock bool
 }
 
@@ -113,12 +114,13 @@ func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 		w.lastBlock.Store(last)
 		w.hasBlock = true
 	}
+	w.closed = utils.MustClose(w, "state WAL")
 	return w, nil
 }
 
 // Write appends a block's changesets to the WAL as a single record.
 func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -160,7 +162,7 @@ func (w *stateWALImpl) checkBlockOrder(blockNumber uint64) error {
 
 // Flush blocks until all previously scheduled writes are durable.
 func (w *stateWALImpl) Flush() error {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -174,7 +176,7 @@ func (w *stateWALImpl) Flush() error {
 
 // GetStoredRange reports the range of complete blocks stored in the WAL.
 func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return false, 0, 0, fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -190,7 +192,7 @@ func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
 // Prune schedules removal of whole underlying files below lowestBlockNumberToKeep. It does not block on
 // completion.
 func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -208,7 +210,7 @@ func (w *stateWALImpl) Iterator(
 	startingBlockNumber uint64,
 	endingBlockNumber uint64,
 ) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return nil, fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -227,7 +229,7 @@ func (w *stateWALImpl) Iterator(
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources.
 func (w *stateWALImpl) Close() error {
-	w.closed = true
+	w.closed.Close(w)
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
+	consmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -22,6 +24,11 @@ import (
 var ErrLaneClosed = errors.New("lane closed")
 
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
+
+var (
+	meters     = metrics.Get()
+	consMeters = consmetrics.Get()
+)
 
 // State represents the Data Availability Plane and Ordered Event Log.
 // Although it resides in a sub-package, it serves as the "source of truth" for:
@@ -177,6 +184,10 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		return nil, err
 	}
 	i.refreshConsensusSpec()
+	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
+		meters.CommitRoadIndex.Set(int64(qc.Index()))                    // nolint: gosec
+		meters.CommitGlobalBlockNumber.Set(int64(qc.GlobalRange().Next)) // nolint: gosec
+	}
 	return i, nil
 }
 
@@ -345,6 +356,8 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
+		leader := epoch.Committee().Leader(qc.Proposal().View())
+		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 		// The persist goroutine publishes persistedCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
@@ -596,15 +609,29 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epo
 // WaitForCapacity waits until lane has room for toProduce.
 // Returns ErrLaneClosed if the lane map is missing. Does not wait for future lanes.
 func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
+	var blocked bool
+	var start time.Time
+	defer func() {
+		if blocked {
+			meters.LaneCapacityWait.Observe(time.Since(start).Seconds())
+		}
+	}()
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool {
+		ready := func() bool {
 			q, ok := inner.blocks[lane]
 			if !ok {
 				return true
 			}
 			return toProduce < q.first+BlocksPerLane
-		}); err != nil {
-			return err
+		}
+		if !ready() {
+			meters.LaneCapacityInFlight.Add(1)
+			defer meters.LaneCapacityInFlight.Add(-1)
+			start = time.Now()
+			blocked = true
+			if err := ctrl.WaitUntil(ctx, ready); err != nil {
+				return err
+			}
 		}
 		if _, ok := inner.blocks[lane]; !ok {
 			return ErrLaneClosed
@@ -618,6 +645,13 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 func (s *State) WaitForLaneQCs(
 	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
 ) (map[types.LaneID]*types.LaneQC, error) {
+	var blocked bool
+	var start time.Time
+	defer func() {
+		if blocked {
+			meters.LaneQCWait.Observe(time.Since(start).Seconds())
+		}
+	}()
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
@@ -633,6 +667,12 @@ func (s *State) WaitForLaneQCs(
 			}
 			if len(laneQCs) > 0 {
 				return laneQCs, nil
+			}
+			if !blocked {
+				meters.LaneQCInFlight.Add(1)
+				defer meters.LaneQCInFlight.Add(-1)
+				start = time.Now()
+				blocked = true
 			}
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
