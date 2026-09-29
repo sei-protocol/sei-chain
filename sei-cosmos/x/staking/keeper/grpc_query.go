@@ -168,7 +168,7 @@ func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.Query
 	valPrefix := types.GetDelegationsByValIndexKey(valAddr)
 	indexStore := prefix.NewStore(store, valPrefix)
 
-	pageRes, err := query.Paginate(indexStore, req.Pagination, func(key []byte, _ []byte) error {
+	pageRes, err := query.Paginate(ctx, indexStore, req.Pagination, func(key []byte, _ []byte) error {
 		storeKey := types.GetDelegationKeyFromValIndexKey(append(valPrefix, key...))
 		delegation, err := types.UnmarshalDelegation(k.cdc, store.Get(storeKey))
 		if err != nil {
