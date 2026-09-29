@@ -44,6 +44,8 @@ type Executor struct {
 	// endBlockers are the registered custom precompiles that run at the end of
 	// every block, in address order.
 	endBlockers []endBlocker
+	// beginBlockers are the registered custom precompiles that check every block before it runs.
+	beginBlockers []beginBlocker
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -103,6 +105,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		blockPhases:       newBlockPhases(),
 		customPrecompiles: customPrecompileMap(cfg.CustomPrecompiles),
 		endBlockers:       customEndBlockers(cfg.CustomPrecompiles),
+		beginBlockers:     customBeginBlockers(cfg.CustomPrecompiles),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -215,6 +218,9 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	if err := e.runBeginBlockers(req.Context, source); err != nil {
+		return nil, err
+	}
 	result, err := e.executeBlockTxs(ctx, req, source)
 	if err != nil {
 		return nil, err

@@ -29,6 +29,18 @@ type EndBlocker interface {
 	EndBlock(BlockContext, State) error
 }
 
+// BeginBlocker is a Contract that also checks every block before its
+// transactions run, reading the state the previous block left. A returned error
+// fails the block.
+type BeginBlocker interface {
+	BeginBlock(BlockContext, StateReader) error
+}
+
+// StateReader reads account storage.
+type StateReader interface {
+	GetState(common.Address, common.Hash) common.Hash
+}
+
 // Context is the only execution context custom precompiles should receive in
 // the EVM-only path. It deliberately excludes sdk.Context and Cosmos keepers.
 type Context struct {

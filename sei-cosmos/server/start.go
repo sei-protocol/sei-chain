@@ -15,6 +15,7 @@ import (
 	"time"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
@@ -29,7 +30,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -368,6 +371,10 @@ func startInProcess(
 				return fmt.Errorf("read [giga] config: %w", err)
 			}
 		}
+		upgrades, err := evmOnlyUpgrades(ctx.Viper.GetIntSlice(FlagUnsafeSkipUpgrades))
+		if err != nil {
+			return err
+		}
 		tmNode, err := node.New(
 			goCtx,
 			ctx.Config,
@@ -378,6 +385,7 @@ func startInProcess(
 			tmtypes.DefaultConsensusPolicy(),
 			node.WithFreezeHeight(config.FreezeHeight),
 			node.WithGigaConfig(gigaCfg),
+			node.WithUpgrades(upgrades),
 		)
 		if err != nil {
 			return fmt.Errorf("error creating node: %w", err)
@@ -493,4 +501,19 @@ func startInProcess(
 
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
+}
+
+// evmOnlyUpgrades returns the part this binary plays in an Autobahn node's
+// EVM-only software upgrades: it applies the upgrade named by its source commit
+// and skips a due plan at each of skipHeights.
+func evmOnlyUpgrades(skipHeights []int) (gov.Upgrades, error) {
+	upgrades := gov.Upgrades{Name: version.Commit}
+	for _, h := range skipHeights {
+		height, ok := utils.SafeCast[uint64](h)
+		if !ok || height == 0 {
+			return gov.Upgrades{}, fmt.Errorf("--%s height %d must be positive", FlagUnsafeSkipUpgrades, h)
+		}
+		upgrades.SkipHeights = append(upgrades.SkipHeights, height)
+	}
+	return upgrades, nil
 }

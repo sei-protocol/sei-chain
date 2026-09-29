@@ -29,7 +29,7 @@ func TestEVMOnlyCustomPrecompilesDisabledWithoutGovernance(t *testing.T) {
 	fc := defaultFileConfig(t, []config.AutobahnValidator{makeValidator([]byte("v"), []byte("n"), "localhost:26660")})
 	validators, err := evmOnlyValidatorUpdates(fc)
 	require.NoError(t, err)
-	registry, err := evmOnlyCustomPrecompiles(fc, validators)
+	registry, err := evmOnlyCustomPrecompiles(fc, validators, gov.Upgrades{})
 	require.NoError(t, err)
 	require.False(t, registry.IsPresent())
 }
@@ -39,7 +39,7 @@ func TestEVMOnlyCustomPrecompilesRegistersGovernance(t *testing.T) {
 	require.NoError(t, fc.Validate())
 	validators, err := evmOnlyValidatorUpdates(fc)
 	require.NoError(t, err)
-	opt, err := evmOnlyCustomPrecompiles(fc, validators)
+	opt, err := evmOnlyCustomPrecompiles(fc, validators, gov.Upgrades{})
 	require.NoError(t, err)
 	registry, ok := opt.Get()
 	require.True(t, ok)
@@ -71,7 +71,7 @@ func TestEVMOnlyCustomPrecompilesRejectsBadVoters(t *testing.T) {
 			validators, err := evmOnlyValidatorUpdates(fc)
 			require.NoError(t, err)
 			tc.mutate(fc, validators)
-			_, err = evmOnlyCustomPrecompiles(fc, validators)
+			_, err = evmOnlyCustomPrecompiles(fc, validators, gov.Upgrades{})
 			require.Error(t, err)
 		})
 	}
@@ -83,7 +83,7 @@ func TestPrepareApplicationAutobahnRejectsInvalidGovernance(t *testing.T) {
 	_, _, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: writeAutobahnConfig(t, fc),
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.Error(t, err)
 }
 
@@ -92,7 +92,7 @@ func TestPrepareApplicationAutobahnWithGovernance(t *testing.T) {
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: writeAutobahnConfig(t, fc),
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)

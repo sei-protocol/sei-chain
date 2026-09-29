@@ -111,7 +111,7 @@ func TestGenesisValidate(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, g.Validate())
-			_, err := New(g)
+			_, err := New(g, Upgrades{})
 			require.Error(t, err)
 		})
 	}

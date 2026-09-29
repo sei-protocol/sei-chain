@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -97,20 +98,23 @@ var (
 
 // Contract is the governance precompile.
 type Contract struct {
-	addr    common.Address
-	params  Params
-	voters  []Voter
-	weights map[common.Address]uint64
-	total   uint64
+	addr     common.Address
+	params   Params
+	voters   []Voter
+	weights  map[common.Address]uint64
+	total    uint64
+	upgrades Upgrades
 }
 
 var (
-	_ precompiles.Contract   = (*Contract)(nil)
-	_ precompiles.EndBlocker = (*Contract)(nil)
+	_ precompiles.Contract     = (*Contract)(nil)
+	_ precompiles.EndBlocker   = (*Contract)(nil)
+	_ precompiles.BeginBlocker = (*Contract)(nil)
 )
 
-// New returns the governance precompile for genesis, installed at Address.
-func New(genesis Genesis) (*Contract, error) {
+// New returns the governance precompile for genesis, installed at Address, in
+// a binary that plays upgrades' part in scheduled software upgrades.
+func New(genesis Genesis, upgrades Upgrades) (*Contract, error) {
 	if err := genesis.Validate(); err != nil {
 		return nil, err
 	}
@@ -119,6 +123,10 @@ func New(genesis Genesis) (*Contract, error) {
 		params:  genesis.Params,
 		voters:  sortedVoters(genesis.Voters),
 		weights: make(map[common.Address]uint64, len(genesis.Voters)),
+		upgrades: Upgrades{
+			Name:        upgrades.Name,
+			SkipHeights: slices.Clone(upgrades.SkipHeights),
+		},
 	}
 	for _, voter := range c.voters {
 		c.weights[voter.Address] = voter.Weight

@@ -675,7 +675,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		gigaSpawned = true
 		n.SpawnCritical("giga", func(ctx context.Context) error {
 			defer func() { _ = n.closeGigaStorage() }()
-			return giga.Run(ctx)
+			return reportUpgradeNeeded(n.config.RootDir, giga.Run(ctx))
 		})
 	}
 

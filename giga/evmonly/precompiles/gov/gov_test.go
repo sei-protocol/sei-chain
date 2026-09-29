@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"math/rand/v2"
 	"os"
@@ -49,6 +50,7 @@ type fixture struct {
 	voters   []account
 	outsider account
 	genesis  gov.Genesis
+	upgrades gov.Upgrades
 	proxies  map[byte]common.Address
 }
 
@@ -76,6 +78,7 @@ type chain struct {
 	t        testing.TB
 	executor *evmonly.Executor
 	store    *evmonly.MemoryStore
+	workers  int
 	nonces   map[common.Address]uint64
 	number   uint64
 	time     uint64
@@ -84,7 +87,7 @@ type chain struct {
 
 func (f fixture) newChain(t testing.TB, workers int) *chain {
 	t.Helper()
-	contract, err := gov.New(f.genesis)
+	contract, err := gov.New(f.genesis, f.upgrades)
 	require.NoError(t, err)
 	state := evmonly.NewMemoryState()
 	for _, voter := range f.voters {
@@ -95,19 +98,33 @@ func (f fixture) newChain(t testing.TB, workers int) *chain {
 		state.SetCode(addr, forwarder(op, gov.Address))
 	}
 	store := evmonly.NewMemoryStore(state)
-	executor := evmonly.NewExecutor(
-		evmonly.Config{CustomPrecompiles: contract.Registry(), OCCWorkers: workers},
-		evmonly.WithStore(store, store.EncodeChangeSet),
-		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore()),
-	)
-	c := &chain{t: t, executor: executor, store: store, nonces: map[common.Address]uint64{}, time: startTime}
+	c := &chain{t: t, store: store, workers: workers, nonces: map[common.Address]uint64{}, time: startTime}
+	c.executor = c.newExecutor(contract)
 	t.Cleanup(func() {
 		for _, result := range c.results {
 			result.Release()
 		}
-		executor.Close()
+		c.executor.Close()
 	})
 	return c
+}
+
+func (c *chain) newExecutor(contract *gov.Contract) *evmonly.Executor {
+	return evmonly.NewExecutor(
+		evmonly.Config{CustomPrecompiles: contract.Registry(), OCCWorkers: c.workers},
+		evmonly.WithStore(c.store, c.store.EncodeChangeSet),
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore()),
+	)
+}
+
+// swapBinary restarts c's executor over the same state with a governance
+// precompile that plays upgrades' part, as a node restarted on another binary.
+func (c *chain) swapBinary(f fixture, upgrades gov.Upgrades) {
+	c.t.Helper()
+	contract, err := gov.New(f.genesis, upgrades)
+	require.NoError(c.t, err)
+	c.executor.Close()
+	c.executor = c.newExecutor(contract)
 }
 
 func (c *chain) blockContext() evmonly.BlockContext {
@@ -160,6 +177,16 @@ func (c *chain) sign(t tx) []byte {
 // block executes txs in the next block, dt seconds after the last one.
 func (c *chain) block(dt uint64, txs ...tx) *evmonly.BlockResult {
 	c.t.Helper()
+	result, err := c.tryBlock(dt, txs...)
+	require.NoError(c.t, err)
+	return result
+}
+
+// tryBlock executes txs in the next block, dt seconds after the last one, and
+// returns the block's error. A failed block leaves the chain at its parent.
+func (c *chain) tryBlock(dt uint64, txs ...tx) (*evmonly.BlockResult, error) {
+	c.t.Helper()
+	nonces := maps.Clone(c.nonces)
 	c.number++
 	c.time += dt
 	raw := make([][]byte, len(txs))
@@ -167,9 +194,14 @@ func (c *chain) block(dt uint64, txs ...tx) *evmonly.BlockResult {
 		raw[i] = c.sign(t)
 	}
 	result, err := c.executor.ExecuteBlock(c.t.Context(), evmonly.BlockRequest{Context: c.blockContext(), Txs: raw})
-	require.NoError(c.t, err)
+	if err != nil {
+		c.nonces = nonces
+		c.number--
+		c.time -= dt
+		return nil, err
+	}
 	c.results = append(c.results, result)
-	return result
+	return result, nil
 }
 
 // call runs data against the committed state as an eth_call from from.
@@ -830,7 +862,7 @@ func TestABIMatchesPrecompilesGov(t *testing.T) {
 
 func TestRequiredGas(t *testing.T) {
 	f := newFixture(t, 1, 1, 1)
-	contract, err := gov.New(f.genesis)
+	contract, err := gov.New(f.genesis, gov.Upgrades{})
 	require.NoError(t, err)
 	small := contract.RequiredGas(pack(t, "submitProposal", upgradeJSON("x", 1)))
 	large := contract.RequiredGas(pack(t, "submitProposal", upgradeJSON(strings.Repeat("x", 140), 1)))
@@ -839,7 +871,7 @@ func TestRequiredGas(t *testing.T) {
 	require.Positive(t, contract.RequiredGas([]byte{1, 2, 3, 4}))
 
 	more := newFixture(t, 1, 1, 1, 1, 1, 1)
-	bigger, err := gov.New(more.genesis)
+	bigger, err := gov.New(more.genesis, gov.Upgrades{})
 	require.NoError(t, err)
 	tally := pack(t, "tallyResult", uint64(1))
 	require.Greater(t, bigger.RequiredGas(tally), contract.RequiredGas(tally), "a live tally reads every voter's slot")

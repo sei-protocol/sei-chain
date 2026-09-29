@@ -84,13 +84,15 @@ func (p Params) Passes(t Tally, total uint64) bool {
 	return new(big.Int).Mul(new(big.Int).SetUint64(t.Yes), one).Cmp(new(big.Int).Mul(p.Threshold.big(), nonAbstain)) > 0
 }
 
-// EndBlock ends every proposal whose voting period is over at this block's
-// time, up to maxProposalsEndedPerBlock of them, in submission order. A
-// passing proposal is then executed: a software upgrade replaces the upgrade
-// plan and a cancellation clears it. An upgrade whose height is not above this
-// block fails instead.
+// EndBlock completes the upgrade plan due at this block, then ends every
+// proposal whose voting period is over at this block's time, up to
+// maxProposalsEndedPerBlock of them, in submission order. A passing proposal is
+// then executed: a software upgrade replaces the upgrade plan and a
+// cancellation clears it. An upgrade whose height is not above this block, or
+// whose name was already completed, fails instead.
 func (c *Contract) EndBlock(block precompiles.BlockContext, state precompiles.State) error {
 	w := newWriter(c.addr, state)
+	w.completeDuePlan(block.Number)
 	start, tail := w.u64(slotQueueHead), w.u64(slotQueueTail)
 	head := start
 	for ended := 0; head < tail && ended < maxProposalsEndedPerBlock; ended++ {
@@ -125,7 +127,7 @@ func (c *Contract) execute(w writer, id uint64, height uint64) int32 {
 		return StatusPassed
 	}
 	plan := w.proposalPlan(id)
-	if plan.Height <= height {
+	if plan.Height <= height || w.u64(doneSlot(plan.Name)) != 0 {
 		return StatusFailed
 	}
 	w.setPlan(plan, id)

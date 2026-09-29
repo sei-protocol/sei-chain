@@ -30,6 +30,7 @@ var logger = seilog.NewLogger("tendermint", "node")
 type options struct {
 	freezeHeight uint64
 	giga         gigaconfig.Config
+	upgrades     gov.Upgrades
 }
 
 var errAutobahnSeed = errors.New("autobahn is not supported in seed mode")
@@ -49,6 +50,14 @@ func WithFreezeHeight(height uint64) Option {
 func WithGigaConfig(cfg gigaconfig.Config) Option {
 	return func(opts *options) {
 		opts.giga = cfg
+	}
+}
+
+// WithUpgrades sets the part an Autobahn node's EVM-only governance plays in
+// scheduled software upgrades. Without it the node applies none and skips none.
+func WithUpgrades(upgrades gov.Upgrades) Option {
+	return func(opts *options) {
+		opts.upgrades = upgrades
 	}
 }
 
@@ -82,7 +91,7 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
+	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga, opts.upgrades)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +178,7 @@ func prepareApplication(
 	conf *config.Config,
 	app abci.Application,
 	giga gigaconfig.Config,
+	upgrades gov.Upgrades,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	storage := noStorage
@@ -185,7 +195,7 @@ func prepareApplication(
 		storage = utils.Some(manager)
 		committee = fc
 	}
-	app, err := wrapApplication(conf, app, storage, committee, giga.Execution)
+	app, err := wrapApplication(conf, app, storage, committee, giga.Execution, upgrades)
 	if err != nil {
 		if manager, ok := storage.Get(); ok {
 			err = errors.Join(err, manager.Close())
@@ -204,6 +214,7 @@ func wrapApplication(
 	storage utils.Option[*bootstrap.GigaStorageManager],
 	committee *config.AutobahnFileConfig,
 	execution gigaconfig.ExecutionConfig,
+	upgrades gov.Upgrades,
 ) (abci.Application, error) {
 	if conf.MockApp {
 		return NewMockApp(app), nil
@@ -217,9 +228,14 @@ func wrapApplication(
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
-		customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators)
+		customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators, upgrades)
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only governance: %w", err)
+		}
+		if customPrecompiles.IsPresent() {
+			if err := checkEVMOnlyUpgradeStart(manager, upgrades); err != nil {
+				return nil, err
+			}
 		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 		prepared, err := evmonlyapp.NewEVMOnlyApplication(
@@ -256,8 +272,8 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 
 // evmOnlyCustomPrecompiles returns the governance precompile registry when the
 // committee enables evm_governance, with each validator's evm_voter voting at
-// that validator's power.
-func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.ValidatorUpdate) (utils.Option[precompiles.Registry], error) {
+// that validator's power, in a binary that plays upgrades' part in upgrades.
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.ValidatorUpdate, upgrades gov.Upgrades) (utils.Option[precompiles.Registry], error) {
 	params, ok := fc.EVMGovernance.Get()
 	if !ok {
 		return utils.None[precompiles.Registry](), nil
@@ -274,7 +290,7 @@ func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.V
 		}
 		genesis.Voters[i] = gov.Voter{Address: voter, Weight: weight}
 	}
-	contract, err := gov.New(genesis)
+	contract, err := gov.New(genesis, upgrades)
 	if err != nil {
 		return utils.None[precompiles.Registry](), err
 	}

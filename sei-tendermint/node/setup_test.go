@@ -14,6 +14,7 @@ import (
 	"golang.org/x/time/rate"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -371,7 +372,7 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -398,13 +399,14 @@ func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
 		utils.None[*bootstrap.GigaStorageManager](),
 		nil,
 		gigaconfig.DefaultConfig.Execution,
+		gov.Upgrades{},
 	)
 	require.Error(t, err)
 }
 
 func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
 	app := abci.BaseApplication{}
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig)
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	_, ok := storage.Get()
 	require.False(t, ok)

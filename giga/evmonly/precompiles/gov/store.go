@@ -72,6 +72,11 @@ func planSlot(field byte) common.Hash {
 	return storageKey("plan", []byte{field})
 }
 
+// doneSlot holds the height at which the upgrade named name was completed.
+func doneSlot(name string) common.Hash {
+	return storageKey("done", []byte(name))
+}
+
 // Reader reads the precompile's storage.
 type Reader interface {
 	GetState(common.Address, common.Hash) common.Hash

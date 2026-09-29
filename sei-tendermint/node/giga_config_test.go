@@ -6,6 +6,7 @@ import (
 	"time"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -78,7 +79,7 @@ func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
 	_, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -95,7 +96,7 @@ func TestPrepareApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	_, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, giga)
+	}, abci.BaseApplication{}, giga, gov.Upgrades{})
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -112,7 +113,7 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, abci.BaseApplication{}, giga)
+	}, abci.BaseApplication{}, giga, gov.Upgrades{})
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)

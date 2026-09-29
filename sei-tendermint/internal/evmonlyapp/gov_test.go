@@ -82,7 +82,7 @@ func TestEVMOnlyApplicationRunsGovernance(t *testing.T) {
 	contract, err := gov.New(gov.Genesis{
 		Voters: []gov.Voter{{Address: crypto.PubkeyToAddress(key.PublicKey), Weight: 1}},
 		Params: params,
-	})
+	}, gov.Upgrades{})
 	require.NoError(t, err)
 	registry := utils.Some[precompiles.Registry](contract.Registry())
 

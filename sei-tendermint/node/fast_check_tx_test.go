@@ -11,6 +11,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -66,7 +67,7 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 			MockApp:     true,
 			FastCheckTx: true,
 		},
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -81,7 +82,7 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -100,7 +101,7 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 			FastCheckTx: true,
 		},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app, gigaconfig.DefaultConfig)
+	}, app, gigaconfig.DefaultConfig, gov.Upgrades{})
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -113,7 +114,7 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
 	_, _, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
-	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig, gov.Upgrades{})
 
 	require.Error(t, err)
 }
