@@ -17,7 +17,7 @@ import (
 )
 
 // classifyBucketHeadroom is the factor applied to a kind's bucket length in the previous ApplyChangeSets call to
-// size that bucket in the next, so a batch slightly larger than the last one still fits without regrowing.
+// size that bucket in the next.
 const classifyBucketHeadroom = 2
 
 // classifyUnitSize is the most changeset pairs one worker classifies.
@@ -461,13 +461,8 @@ func classifyUnitsSerially(
 	return result, nil
 }
 
-// classifyUnitsInParallel classifies each unit into its own set of buckets, the last on the calling goroutine and
-// the rest on pool, then concatenates them in unit order. Of several failing units, the first one's error is
-// reported.
-//
-// The work is bound by memory latency rather than computation: each pair and each pair's key is its own heap
-// object, and reaching one stalls on a load the prefetcher cannot predict. Several workers keep several of those
-// loads outstanding at once.
+// classifyUnitsInParallel classifies each unit on pool into its own set of buckets, then concatenates them in unit
+// order.
 func classifyUnitsInParallel(
 	units []classifyUnit,
 	sizeHints [keys.EVMKeyKindCount]int,
@@ -482,19 +477,19 @@ func classifyUnitsInParallel(
 
 	parts := make([]classifiedChanges, len(units))
 	errs := make([]error, len(units))
-	last := len(units) - 1
 
 	var wg sync.WaitGroup
-	wg.Add(last)
-	for i := 0; i < last; i++ {
+	wg.Add(len(units))
+	for i := range units {
 		pool.Submit(func() {
 			defer wg.Done()
 			parts[i] = newClassifiedChanges(unitHints)
 			errs[i] = classifyUnitPairs(units[i], &parts[i])
 		})
 	}
-	parts[last] = newClassifiedChanges(unitHints)
-	errs[last] = classifyUnitPairs(units[last], &parts[last])
+	// The calling goroutine blocks rather than classifying a unit of its own. The runtime queues the last worker
+	// woken to run next on this goroutine's own CPU, so a unit classified here would delay that worker until it
+	// finished, running the two units back to back.
 	wg.Wait()
 
 	for _, err := range errs {
@@ -555,8 +550,7 @@ func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 	return nil
 }
 
-// mergeClassified concatenates each part's buckets in part order, into buckets allocated at their exact final
-// length.
+// mergeClassified concatenates each part's buckets in part order.
 func mergeClassified(parts []classifiedChanges) classifiedChanges {
 	var totals [keys.EVMKeyKindCount]int
 	for i := range parts {
