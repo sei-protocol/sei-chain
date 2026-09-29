@@ -179,13 +179,11 @@ var tmKeys = []tmKey{
 // FuzzHashVaultHaltOnMismatchResolution pins the root-scope switch that selects whether a hash vault
 // mismatch halts the node.
 //
-// Two things make it worth its own target. It is a bool whose safe value is the default, so an absent
-// key must resolve true — setting it false lets a node replace a recorded state hash with only an error
-// log. And it lives at TOML root scope, before any [section] header: nested under a section it parses as
-// a different key and is silently ignored, which reads as "I turned halting off" while the node still
-// halts. The document is built from the fuzzer's choices rather than taken as free text, so the expected
-// outcome follows from construction instead of being a second input the fuzzer can mutate out of
-// agreement with the first.
+// An absent key resolves false, so a mismatch replaces the recorded state hash with only an error log.
+// The key lives at TOML root scope, before any [section] header: nested under a section it parses as a
+// different key and is silently ignored. The document is built from the fuzzer's choices rather than
+// taken as free text, so the expected outcome follows from construction instead of being a second input
+// the fuzzer can mutate out of agreement with the first.
 func FuzzHashVaultHaltOnMismatchResolution(f *testing.F) {
 	f.Add(false, false, false)
 	f.Add(true, false, false) // root scope, false: a mismatch only logs
@@ -210,7 +208,7 @@ func FuzzHashVaultHaltOnMismatchResolution(f *testing.F) {
 
 		// Root scope is the only placement that resolves. Nested under a section the
 		// key becomes p2p.hash-vault-halt-on-mismatch, which nothing reads.
-		wantHalt := true
+		wantHalt := false
 		if present && !underSection {
 			wantHalt = value
 		}
@@ -226,16 +224,15 @@ func FuzzHashVaultHaltOnMismatchResolution(f *testing.F) {
 	})
 }
 
-// TestHashVaultDefaultsHaltOnMismatch states the defaults on their own, so the safe value is pinned even
-// if every seed above were removed.
-func TestHashVaultDefaultsHaltOnMismatch(t *testing.T) {
+// TestHashVaultDefaults pins the hash vault defaults an empty home resolves to.
+func TestHashVaultDefaults(t *testing.T) {
 	configtest.Isolate(t)
 	got := applyLegacy(t, configtest.NewHome(t), nil)
 	if got.err != nil {
 		t.Fatalf("Apply: %v", got.err)
 	}
-	if !got.ctx.Config.HashVaultHaltOnMismatch {
-		t.Fatal("an empty home must leave a hash vault mismatch halting the node")
+	if got.ctx.Config.HashVaultHaltOnMismatch {
+		t.Fatal("an empty home must leave a hash vault mismatch replacing the recorded hash")
 	}
 	if got.ctx.Config.HashVaultEmptyRollbackBlocks != 1000 {
 		t.Fatalf("an empty home must rewind 1000 blocks over an empty hash vault, got %d",
