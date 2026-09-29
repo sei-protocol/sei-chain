@@ -23,6 +23,18 @@ func TestPrepareVotes_QuorumFormsQC(t *testing.T) {
 	require.NoError(t, got.Verify(e.ep))
 }
 
+func TestPrepareVotes_CountsAcceptedNotDuplicates(t *testing.T) {
+	rng := utils.TestRng()
+	e := newVoteTestEnv(rng)
+	pv := newPrepareVotes()
+	proposal := types.GenProposalForEpoch(rng, e.ep, e.view)
+	vote := types.Sign(e.quorum[0], types.NewPrepareVote(proposal))
+	before := gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"})
+	pv.pushVerifiedVote(e.ep.Committee(), vote)
+	pv.pushVerifiedVote(e.ep.Committee(), vote)
+	require.Equal(t, before+1, gathered(t, "tendermint_internal_autobahn_consensus_votes_ingested", map[string]string{"type": "prepare"}))
+}
+
 func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {
 	rng := utils.TestRng()
 	e := newVoteTestEnv(rng)
