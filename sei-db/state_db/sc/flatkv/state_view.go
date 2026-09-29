@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -21,6 +22,9 @@ type flatKVStateView struct {
 
 	// Guards the release, so a second Close does not release a reservation this view no longer owns.
 	closeOnce sync.Once
+
+	// Closed by Close.
+	closed utils.CloseMarker[flatKVStateView]
 }
 
 // GetBlockHeight returns the block height of this view.
@@ -32,6 +36,7 @@ func (v *flatKVStateView) GetBlockHeight() int64 {
 // Idempotent.
 func (v *flatKVStateView) Close() {
 	v.closeOnce.Do(func() {
+		v.closed.Close(v)
 		if err := v.blockView.Release(); err != nil {
 			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.BlockHeight(), err))
 		}

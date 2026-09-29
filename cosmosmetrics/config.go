@@ -16,6 +16,7 @@ const (
 	flagDenomExponent         = "cosmos_metrics.denom_exponent"
 	flagWalletAddresses       = "cosmos_metrics.wallet_addresses"
 	flagBankTransferThreshold = "cosmos_metrics.bank_transfer_threshold"
+	flagERC20Tokens           = "cosmos_metrics.erc20_tokens" //nolint:gosec // config key, not a credential
 )
 
 // ConfigTemplate is the TOML template for the [cosmos_metrics] section of app.toml.
@@ -44,6 +45,10 @@ wallet_addresses = [{{ range $i, $a := .CosmosMetrics.WalletAddresses }}{{ if $i
 # Bank transfers of at least this many base units are counted in
 # cosmos_bank_transfers_total and cosmos_bank_transfer_amount_total.
 bank_transfer_threshold = {{ .CosmosMetrics.BankTransferThreshold }}
+
+# ERC-20 contract addresses whose balance of each wallet in wallet_addresses is
+# reported under cosmos_wallet_erc20_balance, read from the wallet's EVM address.
+erc20_tokens = [{{ range $i, $a := .CosmosMetrics.ERC20Tokens }}{{ if $i }}, {{ end }}"{{ $a }}"{{ end }}]
 `
 
 var DefaultConfig = Config{
@@ -52,6 +57,7 @@ var DefaultConfig = Config{
 	DenomExponent:         6,
 	WalletAddresses:       nil,
 	BankTransferThreshold: 1_000_000_000_000,
+	ERC20Tokens:           nil,
 }
 
 // Config defines configuration for the in-process cosmos_* metrics.
@@ -67,6 +73,8 @@ type Config struct {
 	// BankTransferThreshold is the base-unit amount a transfer must reach to be counted in
 	// the bank transfer counters.
 	BankTransferThreshold uint64 `mapstructure:"bank_transfer_threshold"`
+	// ERC20Tokens are the 0x contract addresses whose balance of each wallet is reported.
+	ERC20Tokens []string `mapstructure:"erc20_tokens"`
 }
 
 // ReadConfig reads the cosmos_metrics section from app options.
@@ -98,6 +106,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", flagBankTransferThreshold, err)
 		}
 	}
+	if v := opts.Get(flagERC20Tokens); v != nil {
+		if cfg.ERC20Tokens, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", flagERC20Tokens, err)
+		}
+	}
 	if cfg.Enabled {
 		if err := cfg.validate(); err != nil {
 			return cfg, err
@@ -115,5 +128,6 @@ func (c Config) validate() error {
 			return fmt.Errorf("%s: %q: %w", flagWalletAddresses, addr, err)
 		}
 	}
-	return nil
+	_, err := parseERC20Tokens(c.ERC20Tokens)
+	return err
 }

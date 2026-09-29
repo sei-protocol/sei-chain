@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -18,6 +19,7 @@ const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 var (
 	errMissingStateStore            = errors.New("executor requires a state store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
+	errBlockEncoderUsedEVMStoreKey  = errors.New("block changeset encoder may not write the EVM state changeset")
 )
 
 var _ StateReader = gigaSnapshotStateReader{}
@@ -27,6 +29,16 @@ var _ StateReader = gigaSnapshotStateReader{}
 // the input, since the commit outlives the pooled block result. It may read the store only to
 // expand storage clears: other encoding overlaps the previous block's in-flight commit.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
+
+// BlockChangeSetEncoder contributes named changesets that are committed in the
+// same CommitStateChanges call as the block's EVM state changes, so they are
+// durable, rolled back and replayed together with that state. It is called
+// after execution with the block's context and result, which it must treat as
+// immutable. Changesets under keys.EVMStoreKey are reserved for the state encoder.
+//
+// As with NamedChangeSetEncoder, what it returns must not alias the result: the commit outlives
+// the block.
+type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
@@ -105,6 +117,21 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err != nil {
 		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
 	}
+	if e.blockChangeSetEncoder != nil {
+		extra, err := e.blockChangeSetEncoder(req.Context, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
+		}
+		// An EVM-keyed changeset here would be written into account, storage and code
+		// state as part of the block, diverging the app hash from the committed state.
+		for _, cs := range extra {
+			if cs != nil && cs.Name == keys.EVMStoreKey {
+				return nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
+					cs.Name, req.Context.Number, errBlockEncoderUsedEVMStoreKey)
+			}
+		}
+		changesets = append(changesets, extra...)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -135,10 +162,15 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	return result, nil
 }
 
-// encodingReadsTheStore reports whether encoding changes reads the live store, which a storage
-// clear does to find the slots to delete. Such encoding must not overlap the previous block's commit.
+// encodingReadsTheStore reports whether encoding this block's changesets reads the store as well as
+// the block's own changes, which decides whether encoding may overlap the previous block's commit.
+//
+// Expanding a storage clear iterates the live store to find the slots to delete, so a block that
+// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
+// free to read whatever it likes, so one is assumed to read the store unless it was registered as
+// store-independent: assuming otherwise would surrender the receipt-stage slack on every block.
 func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
-	return len(changes.StorageClears) > 0
+	return len(changes.StorageClears) > 0 || (e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore)
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
