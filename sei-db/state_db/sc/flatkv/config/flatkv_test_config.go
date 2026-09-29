@@ -11,9 +11,12 @@ import (
 )
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
-	return pebbledb.PebbleDBConfig{
-		EnableMetrics: false,
-	}
+	// Built from the default rather than as a literal, so a field added there does not silently arrive
+	// here as a zero value.
+	cfg := pebbledb.DefaultConfig()
+	cfg.EnableMetrics = false
+	cfg.BlockCacheSize = int64(8 * unit.MB)
+	return cfg
 }
 
 func smallTestViewManagerConfig(name string) view.ViewManagerConfig {
@@ -43,6 +46,7 @@ func DefaultTestConfig(t *testing.T) *Config {
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,
 		LtHashThreadsPerCore:   1.0,
+		SortThreadsPerCore:     0.25,
 		HashEngineConfig:       *lthash.DefaultConfig(),
 		FinalizationQueueSize:  64,
 	}

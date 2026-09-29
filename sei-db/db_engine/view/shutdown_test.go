@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // Shutdown contract under test: when Close returns, no manager-owned goroutine will touch the
@@ -52,6 +51,8 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not return after the stalled commit was released")
 	}
+	// The view outlives its manager, so it is given up rather than released.
+	view.Abandon()
 }
 
 // Close must release AwaitFlush waiters with errors wrapping ErrViewManagerClosed, both for a view
@@ -95,6 +96,9 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 			t.Fatalf("%s AwaitFlush waiter did not unblock after Close", name)
 		}
 	}
+	// The views outlive their manager, so they are given up rather than released.
+	unfinalized.Abandon()
+	finalized.Abandon()
 }
 
 // A Commit() call blocked on lifecycle backpressure must not outlive Close. Depending on how
@@ -115,7 +119,11 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 
 	blockedDone := make(chan error, 1)
 	go func() {
-		_, err := manager.Commit()
+		view, err := manager.Commit()
+		if view != nil {
+			// A view the drain let through outlives its manager, so it is given up rather than released.
+			view.Abandon()
+		}
 		blockedDone <- err
 	}()
 	select {
@@ -199,13 +207,15 @@ func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 	// flush, and reads must not keep serving from a closed manager.
 	require.ErrorIs(t, manager.Set([]byte("k"), []byte("v")), ErrViewManagerClosed)
 	require.ErrorIs(t, manager.Delete([]byte("k")), ErrViewManagerClosed)
-	require.ErrorIs(t, manager.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}), ErrViewManagerClosed)
+	require.ErrorIs(t, manager.BatchSet([]Write{{Key: "k", Value: []byte("v")}}), ErrViewManagerClosed)
 
 	_, _, err = manager.Get([]byte("k"), true)
 	require.ErrorIs(t, err, ErrViewManagerClosed)
 
 	_, err = manager.BatchGet([][]byte{[]byte("k")})
 	require.ErrorIs(t, err, ErrViewManagerClosed)
+	// The view outlives its manager, so it is given up rather than released.
+	view.Abandon()
 }
 
 // Every goroutine the manager owns (lifecycle runner, metrics scrape loop) must be gone once
@@ -217,7 +227,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		manager, err := NewViewManager(cfg, db, pool, pool)
+		manager, err := NewViewManager(cfg, db, pool, pool, pool)
 		require.NoError(t, err)
 
 		require.NoError(t, manager.Set([]byte("k"), []byte("v")))
@@ -292,7 +302,8 @@ func TestCloseAwaitsFoldBeforeItSchedulesItsRead(t *testing.T) {
 	db := newTestDB(map[string][]byte{"a": []byte("old"), "b": []byte("old")})
 	readPool := threading.NewAdHocPool()
 	miscPool := threading.NewAdHocPool()
-	manager, err := NewViewManager(newTestConfig(1, 4096), db, readPool, miscPool)
+	sortPool := threading.NewAdHocPool()
+	manager, err := NewViewManager(newTestConfig(1, 4096), db, readPool, miscPool, sortPool)
 	require.NoError(t, err)
 
 	// The first batch parks mid-fold, holding the value the second batch folds onto.
@@ -325,6 +336,7 @@ func TestCloseAwaitsFoldBeforeItSchedulesItsRead(t *testing.T) {
 	// Closing the pools is what would panic on a fold that outlived Close.
 	readPool.Close()
 	miscPool.Close()
+	sortPool.Close()
 	require.NoError(t, db.Close())
 	require.Zero(t, db.getsAfterClose.Load(), "a fold read the database after it was closed")
 }

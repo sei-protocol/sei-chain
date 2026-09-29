@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
@@ -119,6 +120,15 @@ func (app *App) RegisterUpgradeHandlers() {
 				if err := migrateDelegationByValIndex(ctx, app); err != nil {
 					return nil, err
 				}
+				return newVM, nil
+			}
+
+			if upgradeName == "v6.8" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return nil, err
+				}
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, retiredoracle.ModuleName)
 				return newVM, nil
 			}
 

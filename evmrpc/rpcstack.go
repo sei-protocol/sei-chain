@@ -454,11 +454,11 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSe
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
 func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
-	handler := srv
+	handler := NewWSConnectionHandler(srv)
 	if len(JwtSecret) != 0 {
 		handler = newJWTHandler(JwtSecret, handler)
 	}
-	return NewWSConnectionHandler(handler)
+	return handler
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {

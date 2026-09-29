@@ -80,6 +80,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			selfAddr:           utils.Some(selfAddr),
 			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
+			executed:           utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: utils.Clamp[atypes.GlobalBlockNumber](cfg.App.LastBlockHeight())})),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
@@ -125,12 +126,17 @@ func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey
 	}
 }
 
+// EvmProxyEnabled reports whether this validator proxies txs of remote shards.
+func (r *gigaValidatorRouter) EvmProxyEnabled() bool {
+	return r.cfg.EnableEvmProxy
+}
+
 // EvmProxy on the validator returns None when the sender's shard owner is
 // us (handle locally via mempool). For remote
 // shards, we proxy only while the target validator is currently connected;
 // otherwise we keep the tx local as a best-effort availability heuristic.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	if !r.cfg.EnableEvmProxy {
+	if !r.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
 	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)

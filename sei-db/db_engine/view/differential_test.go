@@ -9,12 +9,11 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // TestDifferentialAgainstModel drives randomized operation sequences through both the real
 // ViewManager and a naive deep-copy oracle (modelManager), deep-comparing every observable read
-// (live + all held views: Get, BatchGet, GetDiff, Iterator) after each step. Any data-integrity
+// (live + all held views: Get, BatchGet, ForEachDiff, Iterator) after each step. Any data-integrity
 // divergence fails the test. Seeds are fixed for reproducibility.
 func TestDifferentialAgainstModel(t *testing.T) {
 	configs := []struct {
@@ -144,9 +143,7 @@ func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys []
 	compareReads(t, label, func(k []byte) ([]byte, bool, error) { return view.Get(k, false) }, lookup, keys)
 	compareBatchGet(t, label, view.BatchGet, lookup, keys)
 
-	gotDiff, err := view.GetDiff()
-	require.NoError(t, err, "%s GetDiff", label)
-	require.Equal(t, model.DiffAt(ver), gotDiff, "%s diff mismatch", label)
+	require.Equal(t, model.DiffAt(ver), collectDiff(t, view), "%s diff mismatch", label)
 }
 
 // checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator
@@ -272,15 +269,15 @@ func pick(rng *testutil.TestRandom, keys [][]byte) []byte {
 	return keys[rng.IntRange(0, len(keys))]
 }
 
-func randMuts(rng *testutil.TestRandom, keys [][]byte) []*proto.KVPair {
+func randMuts(rng *testutil.TestRandom, keys [][]byte) []Write {
 	n := rng.IntRange(1, 9)
-	muts := make([]*proto.KVPair, n)
+	muts := make([]Write, n)
 	for i := range muts {
-		k := pick(rng, keys)
+		k := string(pick(rng, keys))
 		if rng.BoolWithProbability(0.25) {
-			muts[i] = &proto.KVPair{Key: k, Delete: true} // delete
+			muts[i] = Write{Key: k} // a nil value is a delete
 		} else {
-			muts[i] = &proto.KVPair{Key: k, Value: randVal(rng)}
+			muts[i] = Write{Key: k, Value: randVal(rng)}
 		}
 	}
 	return muts

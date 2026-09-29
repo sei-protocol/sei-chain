@@ -75,11 +75,10 @@ type ViewManager interface {
 	// created earlier (see Iterator).
 	Delete(key []byte) error
 
-	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
-	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
-	// zero-length value, distinct from a delete). Not visible to iterators created earlier (see
-	// Iterator).
-	BatchSet(updates []*proto.KVPair) error
+	// BatchSet applies the given writes to the current (mutable) version. A nil Value deletes the
+	// key; an empty, non-nil Value is a zero-length value, distinct from a delete. Not visible to
+	// iterators created earlier (see Iterator).
+	BatchSet(writes []Write) error
 
 	// BatchUpdate stages a value for every key in keys, to be produced later by handing that key's
 	// prior value to updater. Where BatchSet takes the values, this takes a function of the values
@@ -216,10 +215,8 @@ type View interface {
 	// recoverable.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// GetDiff returns the set of key-value mutations contained in this view, relative to the
-	// previous view. The result reflects only this view's writes (including deletes,
-	// represented as nil values); to reconstruct earlier state, read from earlier views.
-	GetDiff() (map[string][]byte, error)
+	// ForEachDiff visits every key-value mutation contained in this view.
+	ForEachDiff(visit func(key string, value []byte) error) error
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,
 	// the view is safe to read and its internal data is protected from cleanup. Each Reserve
@@ -240,6 +237,11 @@ type View interface {
 	// View N must be fully released before view N+1 is eligible to be flushed to disk;
 	// failing to release a view will stall flushes of all later views indefinitely.
 	Release() error
+
+	// Abandon gives up on this view without releasing its reservations, so the view is not reported as
+	// leaked. The reservations stay held and the version stays pinned. It is for failure paths on which
+	// the node is going down. Idempotent.
+	Abandon()
 
 	// Finalize attaches this view's metadata — whatever the consumer wants recorded alongside
 	// the block, such as its content hash. It must be called exactly once, by a consumer that

@@ -21,7 +21,6 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 type Keepers interface {
@@ -33,7 +32,6 @@ type Keepers interface {
 	AuthQ() AuthQuerier
 	AuthzMS() AuthzMsgServer
 	AuthzQ() AuthzQuerier
-	OracleK() OracleKeeper
 	WasmdK() WasmdKeeper
 	WasmdVK() WasmdViewKeeper
 	StakingK() StakingKeeper
@@ -63,7 +61,6 @@ func (ek *EmptyKeepers) AccountK() AccountKeeper           { return nil }
 func (ek *EmptyKeepers) AuthQ() AuthQuerier                { return nil }
 func (ek *EmptyKeepers) AuthzMS() AuthzMsgServer           { return nil }
 func (ek *EmptyKeepers) AuthzQ() AuthzQuerier              { return nil }
-func (ek *EmptyKeepers) OracleK() OracleKeeper             { return nil }
 func (ek *EmptyKeepers) WasmdK() WasmdKeeper               { return nil }
 func (ek *EmptyKeepers) WasmdVK() WasmdViewKeeper          { return nil }
 func (ek *EmptyKeepers) StakingK() StakingKeeper           { return nil }
@@ -153,11 +150,6 @@ type AccountKeeper interface {
 	RemoveAccount(ctx sdk.Context, acc authtypes.AccountI)
 	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
 	GetParams(ctx sdk.Context) (params authtypes.Params)
-}
-
-type OracleKeeper interface {
-	IterateBaseExchangeRates(ctx sdk.Context, handler func(denom string, exchangeRate oracletypes.OracleExchangeRate) (stop bool))
-	CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (oracletypes.OracleTwaps, error)
 }
 
 type WasmdKeeper interface {

@@ -251,8 +251,8 @@ build-linux:
 	fi
 .PHONY: build-linux
 
-# Auto-detect platform: use arm64 on ARM Macs, amd64 elsewhere
-DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
+# Auto-detect platform: arm64 on ARM Macs and Graviton (aarch64), amd64 elsewhere
+DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ] || [ "$$(uname -m)" = "aarch64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
 export DOCKER_PLATFORM
 
 # Build docker image for detected platform
@@ -427,7 +427,6 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
-	AUTOBAHN_EVMONLY=$(AUTOBAHN_EVMONLY) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
@@ -542,6 +541,41 @@ docker-cluster-stop-monitoring:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down
 .PHONY: docker-cluster-stop-monitoring
 
+# One Autobahn validator per AWS host. VALIDATOR_HOME is the persisted seid
+# directory and must live outside build/ so step0's `make clean` cannot delete it.
+AWS_VALIDATOR_COMPOSE = docker compose -f docker-compose.aws-validator.yml
+VALIDATOR_HOME ?= $(HOME)/.sei-autobahn-e2e-home
+
+docker-aws-validator-init:
+	@mkdir -p $(VALIDATOR_HOME)
+	@cd docker && $(CLUSTER_ENV_VARS) VALIDATOR_HOME=$(VALIDATOR_HOME) ID=$(ID) ADVERTISE_IP=$(ADVERTISE_IP) AUTOBAHN_E2E_PHASE=init SKIP_BUILD=$(SKIP_BUILD) \
+		$(AWS_VALIDATOR_COMPOSE) run --rm --no-deps node
+.PHONY: docker-aws-validator-init
+
+docker-aws-validator-genesis:
+	@mkdir -p $(VALIDATOR_HOME)
+	@cd docker && $(CLUSTER_ENV_VARS) VALIDATOR_HOME=$(VALIDATOR_HOME) ID=0 AUTOBAHN_E2E_PHASE=genesis SKIP_BUILD=true \
+		$(AWS_VALIDATOR_COMPOSE) run --rm --no-deps node
+.PHONY: docker-aws-validator-genesis
+
+docker-aws-validator-start:
+	@mkdir -p $(VALIDATOR_HOME)
+	@cd docker && $(CLUSTER_ENV_VARS) VALIDATOR_HOME=$(VALIDATOR_HOME) ID=$(ID) ADVERTISE_IP=$(ADVERTISE_IP) AUTOBAHN_E2E_PHASE=start SKIP_BUILD=true \
+		$(AWS_VALIDATOR_COMPOSE) up -d
+.PHONY: docker-aws-validator-start
+
+docker-aws-validator-stop:
+	@cd docker && $(CLUSTER_ENV_VARS) VALIDATOR_HOME=$(VALIDATOR_HOME) $(AWS_VALIDATOR_COMPOSE) down
+.PHONY: docker-aws-validator-stop
+
+docker-aws-load-start:
+	@cd docker && $(CLUSTER_ENV_VARS) docker compose -f docker-compose.aws-load.yml up -d
+.PHONY: docker-aws-load-start
+
+docker-aws-load-stop:
+	@cd docker && $(CLUSTER_ENV_VARS) docker compose -f docker-compose.aws-load.yml down
+.PHONY: docker-aws-load-stop
+
 # Run GIGA EVM integration tests with a GIGA-enabled cluster
 # This starts a fresh cluster with GIGA_EXECUTOR and GIGA_OCC enabled,
 # runs the EVM GIGA tests, then stops the cluster.
@@ -576,6 +610,8 @@ giga-integration-test:
 .PHONY: giga-integration-test
 
 # Run Autobahn integration tests with an Autobahn-enabled cluster.
+# The cluster serves the EVM JSON-RPC only and uses the disk-backed EVM-only
+# executor (mock-app is not set).
 autobahn-integration-test:
 	@# The test drives cluster start/stop itself via TestMain — see
 	@# integration_test/autobahn/autobahn_test.go. GOWORK=off ignores an
@@ -583,9 +619,8 @@ autobahn-integration-test:
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 40m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
-# Run the disk-backed EVM-only executor behind a four-validator Autobahn cluster.
-autobahn-evmonly-integration-test:
-	@AUTOBAHN_EVMONLY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 40m ./integration_test/autobahn/...
+# Deprecated alias for autobahn-integration-test.
+autobahn-evmonly-integration-test: autobahn-integration-test
 .PHONY: autobahn-evmonly-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.

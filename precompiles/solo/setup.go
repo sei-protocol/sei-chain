@@ -5,6 +5,7 @@ package solo
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	solov66 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v66"
+	solov67 "github.com/sei-protocol/sei-chain/precompiles/solo/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(solov66.NewPrecompile(keepers)),
+		"v6.7":        check(solov67.NewPrecompile(keepers)),
 	}
 }
 

@@ -13,11 +13,11 @@ import (
 func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 	cw20 := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	testerSeiAddress := sdk.AccAddress(mixedLogTesterAddr.Bytes())
-	tx0 := signAndEncodeCosmosTx(transferCW20MsgTo(mnemonic1, cw20, testerSeiAddress), mnemonic1, 9, 0)
+	tx0 := signAndEncodeCosmosTx(transferCW20MsgTo(mnemonic1, cw20, testerSeiAddress), mnemonic1, 8, 0)
 	txData := mixedLogTesterTransfer(0, getAddrWithMnemonic(mnemonic1))
 	signedTx := signTxWithMnemonic(txData, mnemonic1)
 	txBz := encodeEvmTx(txData, signedTx)
-	SetupTestServer(t, [][][]byte{{tx0}, {txBz}}, mixedLogTesterInitializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, false)).Run(
+	SetupTestServer(t, [][][]byte{{tx0}, {txBz}}, mixedLogTesterInitializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
 			cwTxHash := common.Hash(sha256.Sum256(tx0))
 

@@ -5,6 +5,7 @@ package pointer
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pointerv66 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v66"
+	pointerv67 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(pointerv66.NewPrecompile(keepers)),
+		"v6.7":        check(pointerv67.NewPrecompile(keepers)),
 	}
 }
 

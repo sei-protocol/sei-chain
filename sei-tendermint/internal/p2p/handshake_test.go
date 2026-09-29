@@ -217,8 +217,11 @@ func handshakeAgainst(
 	t.Helper()
 	return scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		a, b := tcp.TestPipe()
-		s.SpawnBg(func() error { return utils.IgnoreCancel(a.Run(ctx)) })
-		s.SpawnBg(func() error { return utils.IgnoreCancel(b.Run(ctx)) })
+		// The pipe's own errors are dropped, as in handshakePair: a rejecting
+		// local side closes its write half while the pipe may still be inside
+		// a socket write, and the resulting broken pipe is not a verdict.
+		s.SpawnBg(func() error { _ = a.Run(ctx); return nil })
+		s.SpawnBg(func() error { _ = b.Run(ctx); return nil })
 		s.Spawn(func() error {
 			sc, err := conn.MakeSecretConnection(ctx, b)
 			if err != nil {

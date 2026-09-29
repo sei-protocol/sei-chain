@@ -16,7 +16,7 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 	tx3Data := send(0)
 	signedTx3 := signTxWithMnemonic(send(0), mnemonic1)
 	tx3 := encodeEvmTx(tx3Data, signedTx3)
-	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
 			// if eth_, the first tx should be tx3 since both tx1 and tx2 are non-EVM.
 			res := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x0")
@@ -34,7 +34,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	tx3Data := send(0)
 	signedTx3 := signTxWithMnemonic(send(0), mnemonic1)
 	tx3 := encodeEvmTx(tx3Data, signedTx3)
-	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
 			// if eth_, the first tx should be tx3 since both tx1 and tx2 are non-EVM.
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx3.Hash().Hex())

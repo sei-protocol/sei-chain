@@ -17,9 +17,11 @@ services:
     container_name: sei-grafana
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"
     volumes:
       - ./docker_compose_monitoring/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/grafana-datasource.yaml:ro
+      - ./monitornode/config/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/grafana-dashboards.yaml:ro
+      - ./monitornode/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
+
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -15,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -107,6 +110,10 @@ func TestDataClientServer(t *testing.T) {
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
 	firstBlock := server.data.Registry().FirstBlock()
+	blockOK := fetchCount(resBlock, "ok")
+	qcOK := fetchCount(resFullCommitQC, "ok")
+	notFound := serveCount(resBlock, "not_found")
+	unavailable := fetchCount(resBlock, "unavailable")
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 
@@ -146,8 +153,36 @@ func TestDataClientServer(t *testing.T) {
 				return fmt.Errorf("QC mismatch at block %d: %w", n, err)
 			}
 		}
+		if fetchCount(resBlock, "ok") <= blockOK {
+			return fmt.Errorf("fetch{block,ok} did not increase")
+		}
+		if fetchCount(resFullCommitQC, "ok") <= qcOK {
+			return fmt.Errorf("fetch{full_commit_qc,ok} did not increase")
+		}
+		if fetchCount(resBlock, "unavailable") <= unavailable {
+			return fmt.Errorf("fetch{block,unavailable} did not increase")
+		}
+		if serveCount(resBlock, "not_found") <= notFound {
+			return fmt.Errorf("serve{block,not_found} did not increase")
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func fetchCount(resource, reason string) int64 {
+	return readCounter(Global.fetchAt(resource, reason))
+}
+
+func serveCount(resource, reason string) int64 {
+	return readCounter(Global.serveAt(resource, reason))
+}
+
+func readCounter(c *tmprometheus.CounterInt) int64 {
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		panic(err)
+	}
+	return int64(m.GetCounter().GetValue())
 }

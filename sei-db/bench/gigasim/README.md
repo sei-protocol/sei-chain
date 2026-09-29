@@ -5,6 +5,11 @@ state DB alone, gigasim runs both together with the receipt store, through the s
 engines behave *together* — whether pruning, checkpointing and hashing on one store show up as latency
 on another.
 
+Gigasim does not start validators or accept RPC traffic. For a four-validator Autobahn EVM-only
+cluster, local or on AWS, use [`autobahn-e2e`](../../../integration_test/autobahn/README.md). AWS
+deploy takes `--topology distributed` (default: one validator per EC2, plus a load/monitoring host)
+or `--topology colocated` (all four Docker validators on a single EC2).
+
 # Running Gigasim
 
 Run from anywhere in the repository; the script builds what it needs first:
@@ -25,6 +30,27 @@ A run continues until interrupted. Stop it with Ctrl-C, which shuts down gracefu
 directory resumable; set `MaxRuntimeSeconds` to have it stop on its own instead. Press Enter while a
 run is in progress to suspend it, and again to resume — set `EnableSuspension` to false when running
 somewhere without a terminal attached.
+
+# Hashing Kernel
+
+`gigasim.sh` builds with `GOEXPERIMENT=simd`, which compiles in the AVX-512 LtHash kernel. The
+kernel is selected automatically on a host with AVX-512F and VBMI2, and the portable Go kernel is used
+everywhere else. The run prints which one it got:
+
+```
+lthash backend: simd
+```
+
+To measure against the portable kernel, pin it at run time — both are in the binary, so no rebuild is
+needed:
+
+```
+SEI_LTHASH_BACKEND=default ./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/standard.json
+```
+
+Building through the Makefile directly rather than through `gigasim.sh` sets no experiment, and
+produces a binary that only has the portable kernel. `seid` is built that way too: production does not
+run the AVX-512 kernel.
 
 # How It Works
 

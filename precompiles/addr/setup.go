@@ -5,6 +5,7 @@ package addr
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	addrv66 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v66"
+	addrv67 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(addrv66.NewPrecompile(keepers)),
+		"v6.7":        check(addrv67.NewPrecompile(keepers)),
 	}
 }
 

@@ -6,12 +6,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	wasmdv66 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v66"
+	wasmdv67 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v67"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(wasmdv66.NewPrecompile(keepers)),
+		"v6.7":        check(wasmdv67.NewPrecompile(keepers)),
 	}
 }
 

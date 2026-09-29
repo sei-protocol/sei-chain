@@ -1,0 +1,10 @@
+- name: Test EVM RPC should answer balance queries
+  inputs:
+    # Autobahn serves the EVM JSON-RPC only, so readiness is read there rather
+    # than from seid status.
+    - cmd: curl -fsS -X POST -H 'content-type:application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000001","latest"]}' http://127.0.0.1:8545 | jq -M -r .result
+      env: RESULT
+  verifiers:
+  - type: regex
+    result: RESULT
+    expr: ^0x[0-9a-f]+$

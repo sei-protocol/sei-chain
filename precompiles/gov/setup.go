@@ -5,6 +5,7 @@ package gov
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	govv66 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v66"
+	govv67 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(govv66.NewPrecompile(keepers)),
+		"v6.7":        check(govv67.NewPrecompile(keepers)),
 	}
 }
 

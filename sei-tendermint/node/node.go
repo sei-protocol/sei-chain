@@ -146,6 +146,8 @@ type nodeImpl struct {
 	services          []service.Service
 	rpcListeners      []net.Listener // rpc servers
 	evmOnlyRPC        *evmonlyrpc.Server
+	evmOnlyRPCPort    int
+	evmOnlyWSPort     int
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -260,6 +262,8 @@ func makeNode(
 		consensusPolicy:    consensusPolicy,
 		freezeHeight:       opts.freezeHeight,
 		gigaStorageManager: gigaStorageManager,
+		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
+		evmOnlyWSPort:      opts.giga.Execution.EvmWsPort,
 
 		nodeKey: nodeKey,
 
@@ -693,16 +697,20 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.EVMOnly {
+	if n.config.AutobahnConfigFile != "" {
 		storage, ok := n.gigaStorageManager.Get()
 		if !ok {
-			return errors.New("EVM-only RPC requires Giga storage")
+			return errors.New("autobahn rpc requires giga storage")
 		}
-		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
-		if err != nil {
-			return err
+		if receipts := storage.ReceiptDB(); receipts != nil {
+			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort)
+			if err != nil {
+				return err
+			}
+			n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
+		} else {
+			logger.Info("Autobahn: receipt store disabled, not starting EVM-only RPC")
 		}
-		n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
 	} else if n.config.RPC.ListenAddress != "" {
 		n.rpcListeners, err = n.rpcEnv.StartService(ctx, n.config)
 		if err != nil {
@@ -766,11 +774,15 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaStorage closes the manager-owned storage at most once.
+// closeGigaStorage closes the manager-owned storage at most once, after the
+// application's in-flight block commits have landed.
 func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
 		if manager, ok := n.gigaStorageManager.Get(); ok {
+			if settleErr := n.rpcEnv.App.AwaitCommits(); settleErr != nil {
+				logger.Error("failed to settle block commits before closing Giga storage", "err", settleErr)
+			}
 			if err = manager.Close(); err != nil {
 				logger.Error("failed to close Giga storage manager", "err", err)
 			}

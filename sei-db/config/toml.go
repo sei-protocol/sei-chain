@@ -217,6 +217,12 @@ prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 # Set <= 0 to use the default.
 # defaults to 16
 log-filter-parallelism = {{ .ReceiptStore.LogFilterParallelism }}
+
+# RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles computed and
+# stored per block. Applies only when rs-backend = "littidx".
+# Each entry must be in [0, 100], with no duplicates.
+# An empty list ([]) defaults to [0, 10, 20, 25, 30, 50, 75, 90, 100].
+rs-reward-percentiles = {{ .ReceiptStore.RewardPercentilesTOML }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

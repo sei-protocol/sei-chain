@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bench/gigasim"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 func main() {
@@ -53,6 +54,10 @@ func run() (err error) {
 		return fmt.Errorf("failed to stringify config: %w", err)
 	}
 	fmt.Printf("%s\n", configString)
+
+	// Which kernel produced a run's numbers, since the selector falls back to the portable
+	// one on a CPU without AVX-512 and says nothing about it.
+	fmt.Printf("lthash backend: %s\n", lthash.ActiveBackend())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

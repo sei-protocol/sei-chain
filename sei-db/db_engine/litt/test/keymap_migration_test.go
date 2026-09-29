@@ -291,4 +291,6 @@ func TestFailedKeymapMigration(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, expectedValue, value)
 	}
+
+	require.NoError(t, db.Close())
 }

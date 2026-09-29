@@ -69,6 +69,10 @@ type ViewManagerConfig struct {
 	// The number of entries a shard's read cache considers when choosing an eviction victim: it evicts
 	// the least recently used of a sample this size.
 	EvictionSampleSize uint64
+
+	// The number of versions a key's in-memory value list is sized for when the key is first written.
+	// A key written at more versions than this grows its list, at the cost of a copy.
+	InitialVersionsPerKey uint64
 }
 
 // Default configuration for a production view manager. name and reservedPrefix are arguments
@@ -88,6 +92,7 @@ func DefaultViewManagerConfig(name string, reservedPrefix string) *ViewManagerCo
 		FlushSync:                    false,
 		EvictionSlackDivisor:         16,
 		EvictionSampleSize:           8,
+		InitialVersionsPerKey:        1,
 	}
 }
 
@@ -136,6 +141,9 @@ func (c *ViewManagerConfig) Validate() error {
 	// map under the write lock rather than a bounded sample.
 	if c.EvictionSampleSize == 0 {
 		return fmt.Errorf("EvictionSampleSize must be greater than 0")
+	}
+	if c.InitialVersionsPerKey == 0 {
+		return fmt.Errorf("InitialVersionsPerKey must be greater than 0")
 	}
 	if c.ReservedPrefix == "" {
 		return fmt.Errorf("ReservedPrefix must be non-empty")

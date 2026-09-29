@@ -208,15 +208,53 @@ func MVCCKeyCompare(a, b []byte) int {
 	return bytes.Compare(aTS, bTS)
 }
 
-// MVCCEncode dispatches between the descending and ascending encoders based on
-// the mode flag. Descending-mode is used for fresh DBs created by this build;
-// ascending-mode preserves compatibility with legacy DBs written by the
-// previous ascending-version build.
-func MVCCEncode(key []byte, version int64, descending bool) []byte {
-	if descending {
-		return MVCCEncodeDescending(key, version)
+// mvccEncodedLen returns the number of bytes encodeMVCCInto writes.
+func mvccEncodedLen(storeKey string, body []byte, version int64) int {
+	n := len(body) + 1 // body, then the sentinel
+	if storeKey != "" {
+		n += len(PrefixStore) + len(storeKey) + 1 // s/k:<storeKey>/
 	}
-	return MVCCEncodeAscending(key, version)
+	if version > 0 {
+		n += VersionSize + 1 // version, then the byte counting it
+	}
+	return n
+}
+
+// encodeMVCCInto writes [s/k:<storeKey>/]<body>\x00[<version>]<#version-bytes>
+// into dst, which must be exactly mvccEncodedLen bytes. An empty storeKey writes
+// no prefix: that is the form MVCC values take, with the tombstone height in the
+// version slot.
+func encodeMVCCInto(dst []byte, storeKey string, body []byte, version int64, descending bool) {
+	n := 0
+	if storeKey != "" {
+		n += copy(dst[n:], PrefixStore)
+		n += copy(dst[n:], storeKey)
+		dst[n] = '/'
+		n++
+	}
+	n += copy(dst[n:], body)
+	dst[n] = 0
+	if version > 0 {
+		v := uint64(version) //nolint:gosec // versions are non-negative
+		if descending {
+			// Complemented so newer versions sort before older ones.
+			v = ^v
+		}
+		binary.BigEndian.PutUint64(dst[n+1:], v)
+		dst[n+1+VersionSize] = 1 + VersionSize
+	}
+}
+
+// MVCCEncode returns key with an MVCC version suffix, in the byte order the DB
+// was created with. Descending mode is used for fresh DBs created by this build;
+// ascending mode preserves compatibility with legacy DBs written by the previous
+// ascending-version build. key carries its own store prefix, if it has one.
+//
+// <key>\x00[<version>]<#version-bytes>
+func MVCCEncode(key []byte, version int64, descending bool) []byte {
+	dst := make([]byte, mvccEncodedLen("", key, version))
+	encodeMVCCInto(dst, "", key, version, descending)
+	return dst
 }
 
 // MVCCEncodeDescending encodes an MVCC key with the version encoded in
@@ -224,41 +262,16 @@ func MVCCEncode(key []byte, version int64, descending bool) []byte {
 // logical key.
 //
 // <key>\x00[<version>]<#version-bytes>
-func MVCCEncodeDescending(key []byte, version int64) (dst []byte) {
-	dst = append(dst, key...)
-	dst = append(dst, 0)
-
-	if version > 0 {
-		extra := byte(1 + 8)
-		dst = encodeUint64Descending(dst, uint64(version))
-		dst = append(dst, extra)
-	}
-
-	return dst
+func MVCCEncodeDescending(key []byte, version int64) []byte {
+	return MVCCEncode(key, version, true)
 }
 
 // MVCCEncodeAscending encodes an MVCC key with the version encoded in
 // ascending byte order. This matches the legacy on-disk format used by main.
 //
 // <key>\x00[<version>]<#version-bytes>
-func MVCCEncodeAscending(key []byte, version int64) (dst []byte) {
-	dst = append(dst, key...)
-	dst = append(dst, 0)
-
-	if version > 0 {
-		extra := byte(1 + 8)
-		dst = encodeUint64Ascending(dst, uint64(version))
-		dst = append(dst, extra)
-	}
-
-	return dst
-}
-
-// encodeUint64Descending encodes the uint64 value in descending order so newer
-// versions sort before older versions for the same logical key.
-func encodeUint64Descending(dst []byte, v uint64) []byte {
-	v = ^v
-	return binary.BigEndian.AppendUint64(dst, v)
+func MVCCEncodeAscending(key []byte, version int64) []byte {
+	return MVCCEncode(key, version, false)
 }
 
 // decodeUint64Descending decodes a descending-encoded int64 from the input
@@ -275,13 +288,6 @@ func decodeUint64Descending(b []byte) (int64, error) {
 	}
 	v := int64(uv)
 	return v, nil
-}
-
-// encodeUint64Ascending encodes the uint64 value using a big-endian 8 byte
-// representation. The bytes are appended to the supplied buffer and
-// the final buffer is returned.
-func encodeUint64Ascending(dst []byte, v uint64) []byte {
-	return binary.BigEndian.AppendUint64(dst, v)
 }
 
 // decodeUint64Ascending decodes a int64 from the input buffer, treating

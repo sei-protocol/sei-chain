@@ -34,6 +34,15 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
+// sortPoolQueueSize is the depth of the diff-sorting pool's queue.
+//
+// Deliberately far above any store's MaxUnflushedVersions. Commit submits to this pool, and throttling
+// commits belongs to MaxUnflushedVersions alone, so insertion here must never be what blocks. Nor is the
+// number of outstanding jobs bounded by that setting: a version held by an outside reservation stops
+// counting as unflushed while its successors keep being sealed. A queued job is one closure, so the depth
+// is nearly free.
+const sortPoolQueueSize = 65536
+
 var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 
 // CommitStore implements gigatypes.LiveStateStore for EVM state.
@@ -177,6 +186,11 @@ type CommitStore struct {
 	// Uses a fixed-size pool, same lifecycle as readPool / miscPool.
 	ltHashPool threading.Pool
 
+	// A work pool that orders each sealed block's writes by key, ahead of the flush that consumes them.
+	//
+	// Uses a fixed-size pool, same lifecycle as readPool / miscPool.
+	sortPool threading.Pool
+
 	// moduleOf names the module a physical key belongs to, for bucketing a block's pairs into per-module
 	// hashes. A field rather than a direct call to moduleOfKey, and read on every call rather than
 	// captured, so that a test can inject a failing one into an open store.
@@ -250,6 +264,8 @@ func NewCommitStore(
 	ltHashPoolSize := lthashWorkerCount(cfg, coreCount)
 	ltHashPool := threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
 
+	sortPool := threading.NewFixedPool("flatkv-sort", sortWorkerCount(cfg, coreCount), sortPoolQueueSize)
+
 	return &CommitStore{
 		ctx:               ctx,
 		cancel:            cancel,
@@ -262,6 +278,7 @@ func NewCommitStore(
 		readPool:          readPool,
 		miscPool:          miscPool,
 		ltHashPool:        ltHashPool,
+		sortPool:          sortPool,
 		moduleOf:          moduleOfKey,
 		wal:               stateWAL,
 	}, nil
@@ -324,6 +341,15 @@ func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 	return n
 }
 
+// sortWorkerCount computes the fixed diff-sorting pool worker count from config, clamped to at least 1.
+func sortWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.SortThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
 // resetPools recreates the context and thread pools after a full Close().
 func (s *CommitStore) resetPools() {
 	coreCount := runtime.NumCPU()
@@ -338,6 +364,8 @@ func (s *CommitStore) resetPools() {
 
 	ltHashPoolSize := lthashWorkerCount(&s.config, coreCount)
 	s.ltHashPool = threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
+
+	s.sortPool = threading.NewFixedPool("flatkv-sort", sortWorkerCount(&s.config, coreCount), sortPoolQueueSize)
 }
 
 func (s *CommitStore) flatkvDir() string {
@@ -916,7 +944,7 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
 	// own reads onto either pool, for the same reason.
 	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
-		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool)
+		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool, s.sortPool)
 		if storeErr != nil {
 			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
 		}
@@ -1385,7 +1413,21 @@ func (s *CommitStore) CommitPendingBlock() error {
 	return nil
 }
 
+// Importer returns an importer for data from an untrusted source, such as a state sync peer. The import
+// fails unless physical keys arrive in strictly ascending order, which is the order KVExporter emits.
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	return s.newImporter(version, true)
+}
+
+// TrustedImporter returns an importer for data from a trusted source, such as an offline migration of this
+// node's own state. It accepts physical keys in any order, but each key must appear at most once: a repeat
+// is not detected and leaves the imported hash wrong.
+func (s *CommitStore) TrustedImporter(version int64) (types.Importer, error) {
+	return s.newImporter(version, false)
+}
+
+// newImporter prepares the store for an import at version and returns the importer.
+func (s *CommitStore) newImporter(version int64, requireAscendingKeys bool) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
@@ -1408,7 +1450,7 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-	return NewKVImporter(s, version, s.importDBs()), nil
+	return NewKVImporter(s, version, s.importDBs(), requireAscendingKeys), nil
 }
 
 // importDBs collects the raw databases an import writes into, taken from the view managers that

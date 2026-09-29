@@ -10,6 +10,7 @@ type wsConnectionHandler struct {
 
 func (h *wsConnectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	recordWebsocketConnect(r.Context())
+	defer recordWebsocketDisconnect(r.Context())
 	h.underlying.ServeHTTP(w, r)
 }
 

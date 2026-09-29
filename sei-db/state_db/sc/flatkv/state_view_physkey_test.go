@@ -31,7 +31,7 @@ func (v *recordingView) BatchGet([][]byte) (map[string][]byte, error) {
 	panic("unexpected call")
 }
 
-func (v *recordingView) GetDiff() (map[string][]byte, error) {
+func (v *recordingView) ForEachDiff(func(key string, value []byte) error) error {
 	panic("unexpected call")
 }
 
@@ -40,6 +40,10 @@ func (v *recordingView) Reserve() error {
 }
 
 func (v *recordingView) Release() error {
+	panic("unexpected call")
+}
+
+func (v *recordingView) Abandon() {
 	panic("unexpected call")
 }
 
