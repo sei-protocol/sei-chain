@@ -100,32 +100,8 @@ var divergences = map[registry.Mode]map[string]string{
 	},
 }
 
-// keysAGeneratedFileLeavesToTheirReader is every declared key a lookup delivers that a boot-generated file
-// does not answer.
-//
-// Each of their readers starts from a default of its own and takes the source's answer only when there is
-// one, so what a node runs for one of these keys is that default and the source states nothing. They are
-// named rather than compared because the comparison above has nothing to read.
-//
-// Every one of these declarations is taken from the same default the reader falls back to, so the value a
-// node runs is the declared one. That is not measured here. What reaches it is a file stating every
-// declared key and a node started from it.
-//
-// The same in every kind of node. The writer does not vary on the kind, and which keys are declared does
-// not either.
-var keysAGeneratedFileLeavesToTheirReader = []string{
-	"eth_replay.contract_state_checks",
-	"evm.enable_test_api",
-	"evm.max_concurrent_simulation_calls",
-	"evm.max_tx_pool_txs",
-	"evm.rpc_stats_interval",
-	"genesis.import-file",
-	"state-commit.flatkv.enable-read-write-metrics",
-	"state-commit.sc-snapshot-writer-limit",
-	"state-commit.sc-write-mode-enable-auto",
-	"wasm.memory_cache_size",
-	"wasm.simulation_gas_limit",
-}
+// keysAGeneratedFileLeavesToTheirReader is the set generate leaves to each key's reader.
+var keysAGeneratedFileLeavesToTheirReader = configmanager.KeysABootLeavesToTheirReader
 
 // TestTheDivergencesFromGeneratedFilesAreTheRecordedOnes measures what a comment would only claim.
 //

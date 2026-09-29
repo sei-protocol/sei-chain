@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -484,4 +485,32 @@ func TestGenerateRefusesAKindTheNodeContradicts(t *testing.T) {
 				"kind because that is the only name it has, and the delivery accepts the pair", err)
 		}
 	})
+}
+
+// TestGenerateRefusesAKeyAnOlderAppTomlLeavesOut covers an app.toml missing a key its reader defaults
+// differently from the declaration: a file leaving it out would move the setting, so nothing is written.
+func TestGenerateRefusesAKeyAnOlderAppTomlLeavesOut(t *testing.T) {
+	configtest.Isolate(t)
+	home := aNodeRunningAs(t, registry.ModeValidator)
+
+	path := filepath.Join(home, "config", "app.toml")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read app.toml: %v", err)
+	}
+	trimmed := regexp.MustCompile(`(?m)^occ-enabled\s*=.*\n`).ReplaceAll(body, nil)
+	if bytes.Equal(trimmed, body) {
+		t.Fatal("the node's app.toml states no occ-enabled, so this measures nothing")
+	}
+	if err := os.WriteFile(path, trimmed, 0o600); err != nil {
+		t.Fatalf("write app.toml: %v", err)
+	}
+
+	out, err := runGenerateThroughRoot(t, home, "--from-legacy", "--mode", "validator")
+	if err == nil {
+		t.Fatalf("generate described a node whose app.toml leaves occ-enabled to its reader:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "occ-enabled") {
+		t.Errorf("the refusal reads %q and does not name the key", err)
+	}
 }

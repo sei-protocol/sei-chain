@@ -137,9 +137,27 @@ func modesInOrder() string {
 	return strings.Join(names, ", ")
 }
 
+// KeysABootLeavesToTheirReader is every declared key a lookup delivers that a boot-generated app.toml does
+// not state. Each is declared from the default its reader falls back to, so a file leaving it out moves
+// nothing.
+var KeysABootLeavesToTheirReader = []string{
+	"eth_replay.contract_state_checks",
+	"evm.enable_test_api",
+	"evm.max_concurrent_simulation_calls",
+	"evm.max_tx_pool_txs",
+	"evm.rpc_stats_interval",
+	"genesis.import-file",
+	"state-commit.flatkv.enable-read-write-metrics",
+	"state-commit.sc-snapshot-writer-limit",
+	"state-commit.sc-write-mode-enable-auto",
+	"wasm.memory_cache_size",
+	"wasm.simulation_gas_limit",
+}
+
 // whatThisNodeAlreadyRuns returns the value this node answers for each declared key: decoded keys off the
-// struct config.toml decodes into, the rest off app.toml over the start command's flag defaults. A key
-// nothing answers is left out, since its reader holds a default of its own.
+// struct config.toml decodes into, the rest off app.toml over the start command's flag defaults. A lookup
+// key nothing answers is refused unless it is in KeysABootLeavesToTheirReader, since its reader's own
+// default, which the node runs today, need not be the declared value a file leaving it out would give it.
 func whatThisNodeAlreadyRuns(cmd *cobra.Command, home string, own *tmcfg.Config) (map[string]any, error) {
 	source, err := theSourceThisNodeWouldBuild(cmd, home)
 	if err != nil {
@@ -161,13 +179,27 @@ func whatThisNodeAlreadyRuns(cmd *cobra.Command, home string, own *tmcfg.Config)
 	for key, value := range decoded {
 		running[key] = value
 	}
+	leftToTheirReader := make(map[string]bool, len(KeysABootLeavesToTheirReader))
+	for _, key := range KeysABootLeavesToTheirReader {
+		leftToTheirReader[key] = true
+	}
+	var unanswered []string
 	for _, key := range registry.Keys() {
 		if _, byADecode := decoded[key]; byADecode {
 			continue
 		}
-		if answer := source.Get(key); answer != nil {
+		switch answer := source.Get(key); {
+		case answer != nil:
 			running[key] = answer
+		case !leftToTheirReader[key]:
+			unanswered = append(unanswered, key)
 		}
+	}
+	if len(unanswered) > 0 {
+		sort.Strings(unanswered)
+		return nil, fmt.Errorf("app.toml and the start command's flags do not answer %v, so each runs its "+
+			"reader's own default, which a file leaving it out would replace with the declared value. "+
+			"State them in app.toml and run this again", unanswered)
 	}
 	return running, nil
 }
