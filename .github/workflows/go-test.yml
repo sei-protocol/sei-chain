@@ -15,7 +15,6 @@ concurrency:
 env:
   GO_VERSION: '1.27.1'
   GO_TEST_TIMEOUT: 30m
-  GOTESTSUM_VERSION: v1.13.0
   # state_db tests run in their own workflow (sei-db-tests.yml); exclude
   # that subtree everywhere in this workflow to avoid double-running them.
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
@@ -67,7 +66,7 @@ jobs:
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
           echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
-          xargs -r go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
+          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
 
   upgrade-test:
     name: Upgrade tests
@@ -136,9 +135,6 @@ jobs:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         if: github.event_name != 'merge_group'
-        with:
-          # Depth 0 for PRs so merge-base diff against the base branch works.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: actions/setup-go@v7
         if: github.event_name != 'merge_group'
@@ -156,118 +152,26 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Download modules
+      - name: Go test with coverage
         if: github.event_name != 'merge_group'
-        run: go mod download
-
-      - name: Determine coverage packages (PR)
-        id: cov-pkgs
-        if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-
-          # Use explicit SHAs — works regardless of checkout depth.
-          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
-
-          # Keep only existing .go files (filters out deletions).
-          CHANGED_GO=$(printf "%s\n" "$CHANGED" \
-            | grep -E '\.go$' \
-            | while read -r f; do [ -f "$f" ] && echo "$f"; done \
-            || true)
-
-          if [[ -z "$CHANGED_GO" ]]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Resolve changed directories to Go packages, then drop the
-          # state_db subtree (covered by sei-db-tests.yml) so it neither
-          # gets tested nor measured for coverage here.
-          DIRECT_PKGS=$(printf "%s\n" "$CHANGED_GO" \
-            | xargs -r -n1 dirname \
-            | sort -u \
-            | while read -r d; do go list "./$d" 2>/dev/null || true; done \
-            | sort -u \
-            | grep -v "^${STATE_DB_PKG_PREFIX}" || true)
-
-          if [[ -z "$DIRECT_PKGS" ]]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Find one level of reverse dependencies (packages that import
-          # the changed packages) so their tests exercise our changes too.
-          # Also strip state_db reverse deps; sei-db-tests.yml owns them.
-          ALL_IMPORTS=$(go list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}}' ./...)
-
-          REV_DEPS=$(awk '
-            NR == FNR { if (NF) targets[$1] = 1; next }
-            {
-              pkg = $1
-              for (i = 2; i <= NF; i++) {
-                if ($i in targets) { print pkg; break }
-              }
-            }
-          ' <(printf "%s\n" "$DIRECT_PKGS") <(printf "%s\n" "$ALL_IMPORTS") \
-            | sort -u \
-            | grep -v "^${STATE_DB_PKG_PREFIX}" || true)
-
-          # Merge direct + reverse-dep packages, deduplicate.
-          TEST_PKGS=$(printf "%s\n%s\n" "$DIRECT_PKGS" "$REV_DEPS" \
-            | awk 'NF && !seen[$0]++ { printf "%s ", $0 }')
-          TEST_PKGS="${TEST_PKGS% }"
-
-          # coverpkg stays as the direct changed packages — we want coverage
-          # measured on the code that actually changed, but tested via a wider
-          # set of packages (including reverse deps).
-          COV_PKGS=$(printf "%s\n" "$DIRECT_PKGS" \
-            | awk 'NF { printf "%s%s", sep, $0; sep = "," }')
-
-          echo "test_packages=$TEST_PKGS" >> "$GITHUB_OUTPUT"
-          echo "coverpkg=$COV_PKGS" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-
-      - name: Go test with coverage (PR fast path)
-        if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
-        run: |
-          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
-            -timeout=${{ env.GO_TEST_TIMEOUT }} \
-            -covermode=atomic \
-            -coverprofile=coverage.out \
-            -coverpkg=${{ steps.cov-pkgs.outputs.coverpkg }} \
-            ${{ steps.cov-pkgs.outputs.test_packages }}
-
-      - name: Go test with coverage (full path)
-        if: github.event_name != 'merge_group' && github.event_name != 'pull_request'
-        run: |
-          set -euo pipefail
-          PKGS=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}" | tr '\n' ' ')
-          # Pass $PKGS unquoted so go test gets one invocation with N args,
-          # not N invocations via xargs (which would each clobber coverage.out).
-          # go test prints the -coverpkg value on every package's coverage line,
-          # so keep it a single pattern and drop state_db from the profile after.
-          go run gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }} --format pkgname-and-test-fails -- \
+          go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
             -coverpkg=./... \
-            $PKGS
-          grep -v "^${STATE_DB_PKG_PREFIX}/" coverage.out > coverage.filtered.out
-          mv coverage.filtered.out coverage.out
+            $(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
+          # sei-db-tests.yml reports state_db coverage.
+          sed -i "\#^${STATE_DB_PKG_PREFIX}/#d" coverage.out
 
       - name: Upload coverage to Codecov
-        if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true')
+        if: github.event_name != 'merge_group'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          # Hard-fail on main (full path); soft on PRs (partial data).
           fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
           disable_search: 'true'
-          # PR fast-path coverage is intentionally partial.
-          # Upload under a separate flag to avoid apples-to-oranges project comparisons.
-          name: ${{ github.event_name == 'pull_request' && 'sei-chain-pr-coverage' || 'sei-chain-coverage' }}
+          name: sei-chain-coverage
           files: ./coverage.out
-          flags: ${{ github.event_name == 'pull_request' && 'sei-chain-pr' || 'sei-chain' }}
+          flags: sei-chain

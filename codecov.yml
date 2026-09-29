@@ -11,10 +11,6 @@ coverage:
         target: 40%
         flags:
           - sei-chain
-      sei-chain-pr:
-        informational: true
-        flags:
-          - sei-chain-pr
     patch:
       default:
         informational: true   # Show patch coverage, but do not fail CI for it.
@@ -58,5 +54,3 @@ ignore:
 flags:
   sei-chain:
     carryforward: true
-  sei-chain-pr:
-    carryforward: false
