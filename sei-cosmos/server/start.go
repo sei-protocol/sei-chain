@@ -371,10 +371,7 @@ func startInProcess(
 				return fmt.Errorf("read [giga] config: %w", err)
 			}
 		}
-		upgrades, err := evmOnlyUpgrades(ctx.Viper.GetIntSlice(FlagUnsafeSkipUpgrades))
-		if err != nil {
-			return err
-		}
+		upgrades := evmOnlyUpgrades(ctx.Viper.GetIntSlice(FlagUnsafeSkipUpgrades))
 		tmNode, err := node.New(
 			goCtx,
 			ctx.Config,
@@ -505,15 +502,14 @@ func startInProcess(
 
 // evmOnlyUpgrades returns the part this binary plays in an Autobahn node's
 // EVM-only software upgrades: it applies the upgrade named by its source commit
-// and skips a due plan at each of skipHeights.
-func evmOnlyUpgrades(skipHeights []int) (gov.Upgrades, error) {
+// and skips a due plan at each positive height in skipHeights. Like x/upgrade,
+// it accepts heights no plan can have and ignores them.
+func evmOnlyUpgrades(skipHeights []int) gov.Upgrades {
 	upgrades := gov.Upgrades{Name: version.Commit}
 	for _, h := range skipHeights {
-		height, ok := utils.SafeCast[uint64](h)
-		if !ok || height == 0 {
-			return gov.Upgrades{}, fmt.Errorf("--%s height %d must be positive", FlagUnsafeSkipUpgrades, h)
+		if height, ok := utils.SafeCast[uint64](h); ok && height > 0 {
+			upgrades.SkipHeights = append(upgrades.SkipHeights, height)
 		}
-		upgrades.SkipHeights = append(upgrades.SkipHeights, height)
 	}
-	return upgrades, nil
+	return upgrades
 }

@@ -65,7 +65,7 @@ const (
 const (
 	MaxTitleLength        = 140
 	MaxDescriptionLength  = 10_000
-	MaxPlanNameLength     = 140
+	PlanNameLength        = 40
 	MaxPlanInfoLength     = 10_000
 	maxProposalJSONLength = 32 * 1024
 )
@@ -164,7 +164,7 @@ func (c *Contract) RequiredGas(input []byte) uint64 {
 
 // maxProposalSlots is the number of slots the largest proposal occupies.
 var maxProposalSlots = 16 + stringSlots(MaxTitleLength) + stringSlots(MaxDescriptionLength) +
-	stringSlots(MaxPlanNameLength) + stringSlots(MaxPlanInfoLength)
+	stringSlots(PlanNameLength) + stringSlots(MaxPlanInfoLength)
 
 func methodOf(input []byte) (*abi.Method, error) {
 	if len(input) < 4 {
@@ -317,8 +317,8 @@ func parseProposal(raw string) (parsedProposal, error) {
 		if p.Plan.Height <= 0 {
 			return parsedProposal{}, fmt.Errorf("%w: upgrade height must be positive", ErrInvalidProposal)
 		}
-		if p.Plan.Name == "" || len(p.Plan.Name) > MaxPlanNameLength {
-			return parsedProposal{}, fmt.Errorf("%w: upgrade name must be 1 to %d bytes", ErrInvalidProposal, MaxPlanNameLength)
+		if !isCommitHash(p.Plan.Name) {
+			return parsedProposal{}, fmt.Errorf("%w: upgrade name must be a %d-character lowercase hex commit hash", ErrInvalidProposal, PlanNameLength)
 		}
 		if len(p.Plan.Info) > MaxPlanInfoLength {
 			return parsedProposal{}, fmt.Errorf("%w: upgrade info longer than %d bytes", ErrInvalidProposal, MaxPlanInfoLength)
@@ -513,4 +513,18 @@ func (s store) proposalPlan(id uint64) Plan {
 		Height: s.u64(proposalSlot(id, fieldPlanHeight)),
 		Info:   s.str(proposalSlot(id, fieldPlanInfo)),
 	}
+}
+
+// isCommitHash reports whether name is a full lowercase hex git commit hash,
+// the form of a binary's version.Commit.
+func isCommitHash(name string) bool {
+	if len(name) != PlanNameLength {
+		return false
+	}
+	for _, c := range []byte(name) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

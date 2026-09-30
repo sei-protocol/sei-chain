@@ -213,6 +213,29 @@ An address the registry lists but does not resolve to a contract fails every
 call with `ErrCustomPrecompilesOpen`. A registry address that is also a
 go-ethereum builtin precompile is shadowed by the builtin.
 
+## Software upgrades
+
+The governance precompile (`precompiles/gov`) schedules software upgrades the
+way Cosmos x/upgrade does, with proposals and votes carried in EVM
+transactions. A plan's name is the full 40-character lowercase commit hash of
+the target binary, the value its build injects into `version.Commit`, and each
+binary applies only the plan named by its own commit.
+
+- At the plan height H, a binary that does not apply the plan fails
+  `FinalizeBlock(H)` before executing it, logs
+  `UPGRADE "<name>" NEEDED at height: H: <info>`, writes
+  `data/upgrade-info.json`, and stops. H-1 stays its last committed block, and
+  restarting it stops it again at H.
+- The target binary executes H, clears the plan, and records it as done. A
+  done name cannot be scheduled again.
+- `--unsafe-skip-upgrades H` lets a binary execute H without applying the plan,
+  which also clears it. Non-positive heights are ignored.
+- The target binary refuses to start while its own plan is scheduled above the
+  next block. This check runs only at startup: x/upgrade also halts a binary
+  that is already running when its own plan is due later, and this chain does
+  not, so a target binary started before the plan was scheduled keeps running
+  until H. Swap binaries only once the old one has stopped at H.
+
 ## Block-STM execution
 
 When `OCCWorkers > 1` and there is more than one transaction, the executor attempts optimistic parallel execution. Initial

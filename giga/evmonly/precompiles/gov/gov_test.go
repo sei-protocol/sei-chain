@@ -2,6 +2,8 @@ package gov_test
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha1" //nolint:gosec // test names, not security
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -281,8 +283,19 @@ func revertReason(data []byte) string {
 	return reason
 }
 
-func upgradeJSON(name string, height int64) string {
-	return fmt.Sprintf(`{"title":"upgrade","description":"move to %[1]s","type":"SoftwareUpgrade","plan":{"name":%[1]q,"height":%[2]d,"info":"info for %[1]s"}}`, name, height)
+// upgradeJSON is a software-upgrade proposal to commitHash(label) at height.
+func upgradeJSON(label string, height int64) string {
+	return fmt.Sprintf(`{"title":"upgrade","description":"move to %[1]s","type":"SoftwareUpgrade","plan":{"name":%[2]q,"height":%[3]d,"info":"info for %[1]s"}}`, label, commitHash(label), height)
+}
+
+// commitHash returns label if it is already a well-formed upgrade name, and
+// otherwise a commit hash derived from it.
+func commitHash(label string) string {
+	if len(label) == gov.PlanNameLength && strings.Trim(label, "0123456789abcdef") == "" {
+		return label
+	}
+	sum := sha1.Sum([]byte(label)) //nolint:gosec // test names, not security
+	return hex.EncodeToString(sum[:])
 }
 
 func cancelJSON() string {
@@ -527,7 +540,7 @@ func TestPassingUpgradeAtOrBelowTheEndingBlockFails(t *testing.T) {
 	require.Equal(t, gov.StatusPassed, p.Status)
 	plan, ok := c.plan()
 	require.True(t, ok)
-	require.Equal(t, "next", plan.Name)
+	require.Equal(t, commitHash("next"), plan.Name)
 	require.Equal(t, uint64(4), plan.Height)
 }
 
@@ -548,7 +561,7 @@ func TestLaterUpgradeReplacesThePlanAndCancelClearsIt(t *testing.T) {
 	_, ok := c.plan()
 	require.False(t, ok)
 
-	pass(upgradeJSON(strings.Repeat("a", gov.MaxPlanNameLength), 1_000), 2)
+	pass(upgradeJSON("a", 1_000), 2)
 	plan, ok := c.plan()
 	require.True(t, ok)
 	require.Equal(t, uint64(2), plan.Proposal)
@@ -556,7 +569,7 @@ func TestLaterUpgradeReplacesThePlanAndCancelClearsIt(t *testing.T) {
 	pass(upgradeJSON("b", 2_000), 3)
 	plan, ok = c.plan()
 	require.True(t, ok)
-	require.Equal(t, gov.Plan{Name: "b", Height: 2_000, Info: "info for b", Proposal: 3}, plan)
+	require.Equal(t, gov.Plan{Name: commitHash("b"), Height: 2_000, Info: "info for b", Proposal: 3}, plan)
 
 	var p proposalData
 	c.query(&p, "proposal", uint64(1))
@@ -625,8 +638,20 @@ func TestRejectedCallsRevertWithoutChangingState(t *testing.T) {
 		}, reason: "invalid proposal: upgrade plan must be specified"},
 		{name: "zero height", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", upgradeJSON("n", 0)) }, reason: "invalid proposal: upgrade height must be positive"},
 		{name: "negative height", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", upgradeJSON("n", -1)) }, reason: "invalid proposal: upgrade height must be positive"},
-		{name: "empty name", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", upgradeJSON("", 10)) }, reason: "invalid proposal: upgrade name must be 1 to 140 bytes"},
-		{name: "long name", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", upgradeJSON(longString(141), 10)) }, reason: "invalid proposal: upgrade name must be 1 to 140 bytes"},
+		{name: "empty name", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", withField("name", "")) }, reason: "invalid proposal: upgrade name must be a 40-character lowercase hex commit hash"},
+		{name: "short hash", voter: true, data: func(t testing.TB) []byte {
+			return pack(t, "submitProposal", withField("name", strings.Repeat("a", 39)))
+		}, reason: "invalid proposal: upgrade name must be a 40-character lowercase hex commit hash"},
+		{name: "long hash", voter: true, data: func(t testing.TB) []byte {
+			return pack(t, "submitProposal", withField("name", strings.Repeat("a", 41)))
+		}, reason: "invalid proposal: upgrade name must be a 40-character lowercase hex commit hash"},
+		{name: "uppercase hash", voter: true, data: func(t testing.TB) []byte {
+			return pack(t, "submitProposal", withField("name", strings.Repeat("A", 40)))
+		}, reason: "invalid proposal: upgrade name must be a 40-character lowercase hex commit hash"},
+		{name: "non-hex name", voter: true, data: func(t testing.TB) []byte {
+			return pack(t, "submitProposal", withField("name", strings.Repeat("g", 40)))
+		}, reason: "invalid proposal: upgrade name must be a 40-character lowercase hex commit hash"},
+		{name: "tag name", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", withField("name", "v6.7.0")) }, reason: "invalid proposal: upgrade name must be a 40-character lowercase hex commit hash"},
 		{name: "long info", voter: true, data: func(t testing.TB) []byte { return pack(t, "submitProposal", withField("info", longString(10_001))) }, reason: "invalid proposal: upgrade info longer than 10000 bytes"},
 		{name: "oversized json", voter: true, data: func(t testing.TB) []byte {
 			return pack(t, "submitProposal", upgradeJSON("n", 10)+strings.Repeat(" ", 32*1024))
@@ -779,7 +804,7 @@ func TestEndBlockEndsABoundedNumberOfProposalsPerBlock(t *testing.T) {
 	require.Equal(t, open, final)
 	plan, ok = c.plan()
 	require.True(t, ok)
-	require.Equal(t, gov.Plan{Name: "19", Height: 10_019, Info: "info for 19", Proposal: 20}, plan)
+	require.Equal(t, gov.Plan{Name: commitHash("19"), Height: 10_019, Info: "info for 19", Proposal: 20}, plan)
 }
 
 func TestProposalsEndInSubmissionOrder(t *testing.T) {
@@ -790,13 +815,13 @@ func TestProposalsEndInSubmissionOrder(t *testing.T) {
 	c.block(votingPeriod - 10)
 	plan, ok := c.plan()
 	require.True(t, ok)
-	require.Equal(t, "first", plan.Name)
+	require.Equal(t, commitHash("first"), plan.Name)
 	c.block(9)
 	plan, _ = c.plan()
-	require.Equal(t, "first", plan.Name, "the second proposal is still open")
+	require.Equal(t, commitHash("first"), plan.Name, "the second proposal is still open")
 	c.block(1)
 	plan, _ = c.plan()
-	require.Equal(t, "second", plan.Name)
+	require.Equal(t, commitHash("second"), plan.Name)
 }
 
 // TestSequentialAndOCCAgree runs random governance traffic through a
@@ -888,7 +913,7 @@ func TestLargestProposalRoundTrips(t *testing.T) {
 	c := f.newChain(t, 1)
 	title := strings.Repeat("t", gov.MaxTitleLength)
 	description := strings.Repeat("d", gov.MaxDescriptionLength)
-	name := strings.Repeat("n", gov.MaxPlanNameLength)
+	name := strings.Repeat("f", gov.PlanNameLength)
 	info := strings.Repeat("i", gov.MaxPlanInfoLength)
 	proposal := string(must(json.Marshal(map[string]any{
 		"title": title, "description": description, "type": gov.ProposalTypeSoftwareUpgrade,
