@@ -15,6 +15,10 @@ the production state store, so it can differ from what the production commit
 store holds; give the expectation on the line when the investigation read it
 from the commit store.
 
+A key can change between --height and the block before --repair-height. So
+unless --height is --repair-height - 1, every entry needs an expectation, and
+the script refuses one without it.
+
 Example:
 
     scripts/kvrepair-export.py --chain-id arctic-1 --name arctic-1-evm-187000000 \\
@@ -109,6 +113,9 @@ def build_repair(name, chain_id, repair_height, height, source, reserve, prod, k
                      "entry has no expectation")
             else:
                 expect = ABSENT if current is None else current
+        if expect is None and repair_height != height + 1:
+            raise ValueError(f"store {store} key {key.hex()}: no expectation, and --height {height} is not "
+                             f"--repair-height - 1; give an expectation on the line, or read at {repair_height - 1}")
         if expect is not None and expect == (ABSENT if value is None else value):
             warn(f"store {store} key {key.hex()}: expected value equals the reserve value; entry is a no-op")
         entry = {"store": store, "key": key.hex(), "value": None if value is None else value.hex()}
@@ -121,6 +128,7 @@ def build_repair(name, chain_id, repair_height, height, source, reserve, prod, k
         "name": name,
         "chain_id": chain_id,
         "height": repair_height,
+        "read_height": height,
         "source": source,
         "entries": entries,
     }
@@ -139,6 +147,8 @@ def main(argv=None):
     parser.add_argument("-o", "--output", default="-", help="output file, or - for stdout")
     args = parser.parse_args(argv)
 
+    if args.height <= 0:
+        parser.error("--height must be positive")
     if args.repair_height <= args.height:
         parser.error("--repair-height must be above --height")
 

@@ -6,6 +6,7 @@ import pathlib
 import sys
 import threading
 import unittest
+import unittest.mock
 
 _path = pathlib.Path(__file__).with_name("kvrepair-export.py")
 _spec = importlib.util.spec_from_file_location("kvrepair_export", _path)
@@ -52,16 +53,16 @@ class ParseKeysTest(unittest.TestCase):
 
 
 class BuildRepairTest(unittest.TestCase):
-    def build(self, keys, reserve, prod=None):
+    def build(self, keys, reserve, prod=None, repair_height=100):
         warnings = []
-        repair = kx.build_repair("r", "c", 100, 90, "src", reserve, prod, keys, warnings.append)
+        repair = kx.build_repair("r", "c", repair_height, 90, "src", reserve, prod, keys, warnings.append)
         return repair, warnings
 
     def test_values_come_from_reserve_at_height(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
         repair, warnings = self.build([("evm", b"\x01", b"\xde"), ("evm", b"\x02", b"\xde")], reserve)
         self.assertEqual(repair, {
-            "name": "r", "chain_id": "c", "height": 100, "source": "src",
+            "name": "r", "chain_id": "c", "height": 100, "read_height": 90, "source": "src",
             "entries": [
                 {"store": "evm", "key": "01", "value": "aa", "expect": "de"},
                 {"store": "evm", "key": "02", "value": None, "expect": "de"},
@@ -75,7 +76,7 @@ class BuildRepairTest(unittest.TestCase):
         prod = FakeNode({("evm", b"\x01"): b"\xde", ("evm", b"\x02"): b"\xde", ("evm", b"\x03"): b"\xcc"})
         repair, warnings = self.build(
             [("evm", b"\x01", None), ("evm", b"\x02", None), ("evm", b"\x03", None), ("evm", b"\x04", b"\x01")],
-            reserve, prod,
+            reserve, prod, repair_height=91,
         )
         self.assertEqual(repair["entries"], [
             {"store": "evm", "key": "01", "value": "aa", "expect": "de"},
@@ -92,11 +93,30 @@ class BuildRepairTest(unittest.TestCase):
         repair, _ = self.build([("evm", b"\x01", None)], reserve, FakeNode({}))
         self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "value": "aa", "expect_absent": True}])
 
+    def test_refuses_entry_without_expectation_across_a_gap(self):
+        reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
+        prod = FakeNode({("evm", b"\x01"): b"\xaa"})
+        with self.assertRaisesRegex(ValueError, "key 01: no expectation"):
+            self.build([("evm", b"\x01", None)], reserve, prod)
+        with self.assertRaisesRegex(ValueError, "key 01: no expectation"):
+            self.build([("evm", b"\x01", None)], reserve)
+        repair, _ = self.build([("evm", b"\x01", None)], reserve, repair_height=91)
+        self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "value": "aa"}])
+
     def test_warns_when_expectation_equals_target(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
         _, warnings = self.build([("evm", b"\x01", b"\xaa"), ("evm", b"\x02", kx.ABSENT)], reserve)
         self.assertEqual(len(warnings), 2)
         self.assertTrue(all("no-op" in w for w in warnings))
+
+
+class MainTest(unittest.TestCase):
+    def test_rejects_heights(self):
+        base = ["--chain-id", "c", "--name", "r", "--reserve", "http://127.0.0.1:1", "--keys", "-"]
+        for heights in (["--height", "0", "--repair-height", "1"], ["--height", "5", "--repair-height", "5"]):
+            with self.subTest(heights=heights), self.assertRaises(SystemExit), \
+                    unittest.mock.patch("sys.stderr"):
+                kx.main(base + heights)
 
 
 class RPCTest(unittest.TestCase):

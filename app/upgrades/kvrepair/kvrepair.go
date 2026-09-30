@@ -28,14 +28,16 @@ const repairsDir = "repairs"
 //go:embed all:repairs
 var embeddedRepairs embed.FS
 
-// Repair is one reviewed set of entries that runs at Height on ChainID. Source
-// records where the values came from and has no effect on execution.
+// Repair is one reviewed set of entries that runs at Height on ChainID, with
+// target values read at ReadHeight. Source records where the values came from
+// and has no effect on execution.
 type Repair struct {
-	Name    string  `json:"name"`
-	ChainID string  `json:"chain_id"`
-	Height  int64   `json:"height"`
-	Source  string  `json:"source,omitempty"`
-	Entries []Entry `json:"entries"`
+	Name       string  `json:"name"`
+	ChainID    string  `json:"chain_id"`
+	Height     int64   `json:"height"`
+	ReadHeight int64   `json:"read_height"`
+	Source     string  `json:"source,omitempty"`
+	Entries    []Entry `json:"entries"`
 }
 
 // Entry sets Key in Store to Value, or deletes Key when Value is nil. Expect
@@ -47,6 +49,54 @@ type Entry struct {
 	Value        *HexBytes `json:"value"`
 	Expect       *HexBytes `json:"expect,omitempty"`
 	ExpectAbsent bool      `json:"expect_absent,omitempty"`
+}
+
+// UnmarshalJSON decodes an entry and refuses unknown fields. It requires the
+// value field, where null deletes the key, and it refuses a null expect.
+func (e *Entry) UnmarshalJSON(data []byte) error {
+	var fields struct {
+		Store        string          `json:"store"`
+		Key          HexBytes        `json:"key"`
+		Value        json.RawMessage `json:"value"`
+		Expect       json.RawMessage `json:"expect"`
+		ExpectAbsent bool            `json:"expect_absent"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&fields); err != nil {
+		return err
+	}
+	switch {
+	case fields.Value == nil:
+		return fmt.Errorf("entry for key %x: value is missing; use null to delete the key", []byte(fields.Key))
+	case isJSONNull(fields.Expect):
+		return fmt.Errorf(`entry for key %x: expect is null; omit it, or use "expect_absent": true`, []byte(fields.Key))
+	}
+	entry := Entry{Store: fields.Store, Key: fields.Key, ExpectAbsent: fields.ExpectAbsent}
+	if !isJSONNull(fields.Value) {
+		value := HexBytes{}
+		if err := json.Unmarshal(fields.Value, &value); err != nil {
+			return err
+		}
+		entry.Value = &value
+	}
+	if fields.Expect != nil {
+		expect := HexBytes{}
+		if err := json.Unmarshal(fields.Expect, &expect); err != nil {
+			return err
+		}
+		entry.Expect = &expect
+	}
+	*e = entry
+	return nil
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func (e Entry) hasExpectation() bool {
+	return e.Expect != nil || e.ExpectAbsent
 }
 
 // HexBytes is a byte string that encodes as hex in JSON, with or without a 0x
@@ -142,9 +192,17 @@ func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
 		return errors.New("chain_id is empty")
 	case r.Height <= 0:
 		return fmt.Errorf("height %d is not positive", r.Height)
+	case r.ReadHeight <= 0:
+		return fmt.Errorf("read_height %d is not positive", r.ReadHeight)
+	case r.ReadHeight >= r.Height:
+		return fmt.Errorf("read_height %d is not below height %d", r.ReadHeight, r.Height)
 	case len(r.Entries) == 0:
 		return errors.New("no entries")
 	}
+	// Between ReadHeight and Height-1 a key can change, so a target read at
+	// ReadHeight can be stale. An expectation turns a stale target into a halt;
+	// without one the entry would overwrite the newer value.
+	valuesAreCurrent := r.ReadHeight == r.Height-1
 	seen := map[string]bool{}
 	for i, e := range r.Entries {
 		if _, ok := keys[e.Store]; !ok {
@@ -158,6 +216,10 @@ func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
 		}
 		if e.Expect != nil && e.ExpectAbsent {
 			return fmt.Errorf("entry %d: expect and expect_absent are both set", i)
+		}
+		if !valuesAreCurrent && !e.hasExpectation() {
+			return fmt.Errorf("entry %d: no expectation, and the values were read at %d, not %d",
+				i, r.ReadHeight, r.Height-1)
 		}
 		id := e.Store + "/" + hex.EncodeToString(e.Key)
 		if seen[id] {
