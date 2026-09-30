@@ -153,6 +153,7 @@ var (
 	occOutcomeEmpty      = outcomeAttr("empty")
 
 	occReasonConflict         = reasonAttr(occFallbackReasonConflict)
+	occReasonDependent        = reasonAttr(occFallbackReasonDependent)
 	occReasonGasLimit         = reasonAttr(occFallbackReasonGasLimit)
 	occReasonGasOverflow      = reasonAttr(occFallbackReasonGasOverflow)
 	occReasonMaxIncarnation   = reasonAttr(occFallbackReasonMaxIncarnation)
@@ -214,6 +215,8 @@ func occReason(reason string) metric.MeasurementOption {
 	switch reason {
 	case occFallbackReasonConflict:
 		return occReasonConflict
+	case occFallbackReasonDependent:
+		return occReasonDependent
 	case occFallbackReasonGasLimit:
 		return occReasonGasLimit
 	case occFallbackReasonGasOverflow:

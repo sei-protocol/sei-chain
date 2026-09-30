@@ -776,7 +776,9 @@ func TestExecutorOCCLargeMixedBlockMatchesSequential(t *testing.T) {
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
 	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(occState)).ExecuteBlock(t.Context(), req)
+	occExecutor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(occState))
+	occExecutor.occPath = occPathFrontier
+	occResult, err := occExecutor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)

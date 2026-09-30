@@ -26,7 +26,9 @@ const executorMeterName = "evmonly_executor"
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
-	cfg              Config
+	cfg Config
+	// occPath pins the way parallel blocks run; tests set it to compare the ways.
+	occPath          occPath
 	resultSink       ResultSink
 	occPool          *occWorkerPool
 	resultPool       *blockResultPool

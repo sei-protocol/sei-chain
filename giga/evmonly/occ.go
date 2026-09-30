@@ -59,18 +59,35 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 }
 
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	if e.occPath == occPathSequential {
+		return e.executeBlockSequential(ctx, req, source)
+	}
 	runner := newOCCSpeculativeRunner(e, req)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
+	if e.occPath == occPathBlockSTM {
+		return e.executeBlockBlockSTM(ctx, req, source, runner, executionPool)
+	}
 	results := make([]occTxExecution, len(req.Txs))
-	chunkSize := occChunkSize(len(req.Txs), workers)
 	e.blockPhases.SetPhase("occ_speculate")
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
-		if errors.Is(err, errOCCWorkerPoolClosed) {
-			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
+	sample := []occTxRange{{start: 0, end: len(req.Txs)}}
+	if e.occPath == occPathAuto {
+		sample = occDependencySpans(len(req.Txs))
+	}
+	if err := runner.speculate(ctx, executionPool, source, results, sample, workers); err != nil {
+		return e.speculationFailed(ctx, req, source, err)
+	}
+	if e.occPath == occPathAuto {
+		switch routeAfterSpeculation(occSampledResults(results, sample)) {
+		case occPathSequential:
+			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonDependent)
+		case occPathBlockSTM:
+			return e.executeBlockBlockSTM(ctx, req, source, runner, executionPool)
 		}
-		return nil, err
+	}
+	if err := runner.speculate(ctx, executionPool, source, results, occSpansOutside(sample, len(req.Txs)), workers); err != nil {
+		return e.speculationFailed(ctx, req, source, err)
 	}
 
 	e.blockPhases.SetPhase("occ_validate")
@@ -98,6 +115,15 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	}
 	result.OCCStats = validation.stats(false)
 	return result, nil
+}
+
+// speculationFailed finishes a block whose speculative pass returned err: on the sequential path when the
+// worker pool closed under it, otherwise with the error.
+func (e *Executor) speculationFailed(ctx context.Context, req PreparedBlock, source StateReader, err error) (*BlockResult, error) {
+	if errors.Is(err, errOCCWorkerPoolClosed) {
+		return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
+	}
+	return nil, err
 }
 
 func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
@@ -130,6 +156,29 @@ func (r occSpeculativeRunner) executeTx(
 		r.baseFee,
 		gasLimit,
 	)
+}
+
+// speculate executes the transactions in spans against source on the pool, in ranges sized for workers,
+// into results.
+func (r occSpeculativeRunner) speculate(ctx context.Context, pool *occWorkerPool, source StateReader, results []occTxExecution, spans []occTxRange, workers int) error {
+	total := 0
+	for _, span := range spans {
+		total += span.end - span.start
+	}
+	if total == 0 {
+		return nil
+	}
+	chunkSize := occChunkSize(total, workers)
+	var ranges []occTxRange
+	for _, span := range spans {
+		for _, txRange := range occRanges(span.end-span.start, chunkSize) {
+			txRange.start += span.start
+			txRange.end += span.start
+			txRange.startUint += uint(span.start) //nolint:gosec // span.start is non-negative.
+			ranges = append(ranges, txRange)
+		}
+	}
+	return r.runRanges(ctx, pool, ranges, source, r.blockGasLimit, results)
 }
 
 func (r occSpeculativeRunner) runRanges(
@@ -302,16 +351,29 @@ func (e *Executor) validateBlockSTM(
 	results []occTxExecution,
 ) ([]occTxExecution, *blockSTMState, occValidationResult, error) {
 	state := newBlockSTMValidationState(source)
+	results, validation, err := e.validateInto(ctx, runner, pool, results, state)
+	return results, state.prefix, validation, err
+}
+
+// validateInto validates results in block order into state, rerunning each one that does not hold, and
+// leaves in state's write index every result's writes, the reruns' beside the writes they replaced.
+func (e *Executor) validateInto(
+	ctx context.Context,
+	runner occSpeculativeRunner,
+	pool *occWorkerPool,
+	results []occTxExecution,
+	state *blockSTMValidationState,
+) ([]occTxExecution, occValidationResult, error) {
 	validation := occValidationResult{}
 	if err := state.writes.indexResults(ctx, pool, results); err != nil {
-		return nil, nil, validation, err
+		return nil, validation, err
 	}
 	var backoff serialBackoff
 	for state.nextToValidate < len(results) {
 		if backoff.parallelPassDue(state.nextToValidate) {
 			accepted, err := e.acceptValidatedPrefix(ctx, runner, pool, results, state, &validation)
 			if err != nil {
-				return nil, nil, validation, err
+				return nil, validation, err
 			}
 			if state.nextToValidate == len(results) {
 				break
@@ -321,20 +383,20 @@ func (e *Executor) validateBlockSTM(
 		end := backoff.serialEnd(state.nextToValidate, len(results))
 		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation, end)
 		if err != nil {
-			return nil, nil, validation, err
+			return nil, validation, err
 		}
 		if rerun == nil {
 			continue
 		}
 		if err := runner.runTasks(ctx, pool, []occExecutionTask{*rerun}, results); err != nil {
-			return nil, nil, validation, err
+			return nil, validation, err
 		}
 		// The rerun's writes join the index; the previous incarnation's stay, which can only cost a
 		// later transaction a rerun it did not need, never miss a conflict.
 		state.writes.addAllAt(rerun.txIndex, results[rerun.txIndex].writeSet)
 		state.writes.addCommutativeBalanceDeltasAt(rerun.txIndex, results[rerun.txIndex].commutativeBalanceDeltas)
 	}
-	return results, state.prefix, validation, nil
+	return results, validation, nil
 }
 
 // serialBackoff decides how far the serial frontier runs before the next parallel pass.
@@ -514,6 +576,7 @@ type occConflictAggregationKey struct {
 
 const (
 	occFallbackReasonConflict         = "conflict"
+	occFallbackReasonDependent        = "dependent"
 	occFallbackReasonGasLimit         = "gas_limit"
 	occFallbackReasonGasOverflow      = "gas_overflow"
 	occFallbackReasonMaxIncarnation   = "max_incarnation"
@@ -748,11 +811,9 @@ func (s *blockSTMState) apply(result occTxExecution) {
 func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 	for change := range ownedChanges(owns, result.changeSet.Balances, BalanceChange.addr) {
 		shard := s.shard(change.Address)
-		delta := result.commutativeBalanceDeltas[change.Address]
-		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
-		if delta != nil && !normalWrite {
+		if result.isFeeCredit(change.Address) {
 			balance := cloneBig(s.GetBalance(change.Address))
-			balance.Add(balance, delta)
+			balance.Add(balance, result.commutativeBalanceDeltas[change.Address])
 			shard.balances[change.Address] = balance
 			continue
 		}
@@ -780,6 +841,16 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 	for change := range ownedChanges(owns, result.changeSet.Storage, StorageChange.addr) {
 		s.shard(change.Address).storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
 	}
+}
+
+// isFeeCredit reports whether the result's balance change for addr is a fee credit: a commutative
+// delta added to whatever balance the prefix holds, rather than a balance the transaction set.
+func (r occTxExecution) isFeeCredit(addr common.Address) bool {
+	if r.commutativeBalanceDeltas[addr] == nil {
+		return false
+	}
+	_, normalWrite := r.writeSet[stateAccessKey{kind: stateAccessBalance, address: addr}]
+	return !normalWrite
 }
 
 func (c BalanceChange) addr() common.Address      { return c.Address }
