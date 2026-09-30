@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/time/rate"
@@ -22,10 +22,10 @@ const (
 	DefaultRPS   = 200.0
 	DefaultBurst = 400
 
-	// lruSize bounds memory to ~8 MB at 50k entries (~160 bytes each).
+	// lruSize bounds memory to ~8 MB at 50k entries (~160 bytes each). The least
+	// recently seen IP is evicted first; an evicted IP starts again with a full
+	// bucket, which is what an idle bucket would have refilled to anyway.
 	lruSize = 50_000
-	// lruTTL evicts IP entries that have been idle for 1 hour.
-	lruTTL = time.Hour
 )
 
 // DefaultTrustedProxyCIDRs is the full set of RFC-1918 private ranges and loopback.
@@ -70,12 +70,12 @@ var DefaultConfig = Config{
 	Burst: DefaultBurst,
 }
 
-// Registry is a per-IP token-bucket rate limiter backed by an expirable LRU.
+// Registry is a per-IP token-bucket rate limiter backed by a size-bounded LRU.
 // It is safe for concurrent use.
 type Registry struct {
 	cfg            Config
 	trustedProxies []*net.IPNet
-	lru            *expirable.LRU[string, *rate.Limiter]
+	lru            *simplelru.LRU[string, *rate.Limiter]
 	mu             sync.Mutex
 	grpcMethods    atomic.Pointer[map[string]struct{}]
 	inflight       *inflightCounter
@@ -105,6 +105,10 @@ func New(cfg Config) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+	cache, err := simplelru.NewLRU[string, *rate.Limiter](lruSize, nil)
+	if err != nil {
+		return nil, err
+	}
 	var inflight *inflightCounter
 	if cfg.MaxInFlightPerIP > 0 {
 		inflight = newInflightCounter(cfg.MaxInFlightPerIP)
@@ -112,7 +116,7 @@ func New(cfg Config) (*Registry, error) {
 	return &Registry{
 		cfg:            cfg,
 		trustedProxies: proxies,
-		lru:            expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
+		lru:            cache,
 		inflight:       inflight,
 	}, nil
 }
@@ -209,7 +213,6 @@ func (r *Registry) rightmostUntrustedIP(xff string) string {
 }
 
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
-// Add is called on every hit to refresh the TTL, ensuring only truly idle IPs expire.
 // mu serializes the get-then-add so concurrent first requests for the same IP
 // cannot each install a separate limiter.
 func (r *Registry) getOrCreate(ip string) *rate.Limiter {
@@ -217,7 +220,6 @@ func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if l, ok := r.lru.Get(key); ok {
-		r.lru.Add(key, l)
 		return l
 	}
 	l := rate.NewLimiter(rate.Limit(r.cfg.RPS), r.cfg.Burst)
