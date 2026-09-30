@@ -12,7 +12,13 @@ a precompile at `0x0000000000000000000000000000000000001006`, the address of
    chain's upgrade plan, replacing any earlier plan. A passing cancellation
    clears the plan.
 4. At the plan's height, a binary that does not apply the named upgrade stops
-   before executing the block.
+   before executing the block. The binary that applies it executes the block,
+   and at the end of that block the plan is cleared and its name recorded as
+   done.
+
+An upgrade's name is the full 40-character lowercase hex commit of the binary
+that applies it, the `version.Commit` the binary is built with. A done name
+cannot be scheduled again.
 
 The interface is [`IGov.sol`](IGov.sol). `abi.json` is compiled from it with
 `make giga-gov-abi`, and CI runs `make giga-gov-abi-check` to fail if the two
@@ -100,6 +106,7 @@ so no two layouts share a key.
 | Proposal field | `key("proposal", u64(id), u8(field))` | One field of proposal `id`; see below. |
 | Vote | `key("vote", u64(id), voter)` | `voter`'s option on proposal `id`: 1 Yes, 2 Abstain, 3 No, 4 NoWithVeto. 0 is no vote. |
 | Plan field | `key("plan", u8(field))` | One field of the scheduled upgrade plan; see below. |
+| Done | `key("done", name)` | Height at which the upgrade `name` was completed. 0 means it was not. |
 
 Proposal fields:
 
@@ -127,7 +134,7 @@ Plan fields:
 | 4 | proposal | ID of the proposal that scheduled the plan |
 
 A failed proposal is a passing software upgrade whose height is not above the
-block that ends it; it never becomes the plan.
+block that ends it, or whose name is done; it never becomes the plan.
 
 ### Value encoding
 
@@ -148,12 +155,13 @@ options, and plan heights start at 1.
 | `submitProposal` | proposal count, queue tail | proposal count, queue tail, one queue entry, the new proposal's fields |
 | `vote` | proposal count, the proposal's status and voting end time | the caller's vote slot on that proposal |
 | queries | the slots they return | nothing |
-| End of block | queue head and tail, queue entries, voting end times, each voter's vote on an ending proposal | its final tally and status, its queue entry, queue head, and plan fields when it passes |
+| Start of block | plan fields | nothing |
+| End of block | plan fields, queue head and tail, queue entries, voting end times, each voter's vote on an ending proposal, done slots of passing upgrades | plan fields and the done slot when the plan is due; an ending proposal's final tally and status, its queue entry, queue head, and plan fields when it passes |
 
 Votes on the same proposal write different slots, so parallel execution runs
 them without conflict. Two submissions in one block both write the proposal
 count and queue tail, so they run one after the other. Tallying and ending
 proposals happen outside any transaction, at the end of the block.
 
-Nothing is deleted except queue entries and plan fields, so proposals and
-votes stay readable after they end.
+Nothing is deleted except queue entries and plan fields, so proposals,
+votes, and done upgrades stay readable after they end.
