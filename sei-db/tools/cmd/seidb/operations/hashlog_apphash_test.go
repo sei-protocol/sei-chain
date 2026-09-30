@@ -150,13 +150,16 @@ func TestBuildDiscardedBlocks(t *testing.T) {
 	prod, _ := appHashTestChains()
 	archive := writeAppHashTestArchive(t, prod)
 
-	discarded, err := buildDiscardedBlocks(archive, 2, 4)
+	discarded, err := buildDiscardedBlocks(archive, 2, 5)
 	require.NoError(t, err)
 	require.Equal(t, []discardedBlockJSON{
 		{Height: 3, Hash: "B003"},
 		{Height: 4, Hash: "B004"},
+		{Height: 5, Hash: "B005"},
 	}, discarded)
 
+	_, err = buildDiscardedBlocks(archive, 2, 4)
+	require.ErrorContains(t, err, "holds block 5 above --high 4")
 	_, err = buildDiscardedBlocks(archive, 2, 6)
 	require.ErrorContains(t, err, "block 6: no record")
 	_, err = buildDiscardedBlocks(archive, 4, 4)

@@ -339,6 +339,16 @@ func WalkHashesInRange(
 	}
 }
 
+// ArchiveBlockRange returns the inclusive range of blocks that the archive at path holds. ok is false when the
+// archive holds no blocks.
+func ArchiveBlockRange(path string) (low uint64, high uint64, ok bool, err error) {
+	reader, err := newArchiveReader(path)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("failed to open archive: %w", err)
+	}
+	return reader.minBlock, reader.maxBlock, reader.hasBlocks, nil
+}
+
 // WalkArchiveRange calls visit once for every block in the inclusive range [lowBlock, highBlock], in increasing
 // order, with the records the archive holds for that block. The records are empty when the archive has no record
 // for the block. The walk stops at the first error visit returns.

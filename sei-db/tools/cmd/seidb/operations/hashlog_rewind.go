@@ -19,7 +19,7 @@ func hashLogRewindCmd() *cobra.Command {
 		Short: "Write the rewind file that makes nodes refuse the blocks a restart abandons",
 		Long: "Reads the block hashes in (--safe-height, --high] from a hash log archive of the abandoned chain " +
 			"and writes a Tendermint rewind file. --high must be the highest block the network committed; the " +
-			"command fails when the archive lacks any block in the range.",
+			"command fails when the archive holds a block above --high or lacks any block in the range.",
 		Args: cobra.ExactArgs(1),
 		Run:  executeHashLogRewind,
 	}
@@ -82,13 +82,25 @@ type discardedBlockJSON struct {
 }
 
 // buildDiscardedBlocks returns the block hash the archive recorded for each block in (safeHeight, high]. It fails
-// when the archive lacks a block in the range, or records one block with different hashes.
+// when the archive holds a block above high, lacks a block in the range, or records one block with different
+// hashes.
 func buildDiscardedBlocks(archive string, safeHeight, high uint64) ([]discardedBlockJSON, error) {
 	if safeHeight == 0 || high <= safeHeight {
 		return nil, fmt.Errorf("need 0 < safe height (%d) < high (%d)", safeHeight, high)
 	}
+	// A block above high that the list leaves out stays unguarded: validators
+	// sign that height again on the new chain, and the two votes become valid
+	// double-sign evidence.
+	_, archiveHigh, ok, err := hashlog.ArchiveBlockRange(archive)
+	if err != nil {
+		return nil, err
+	}
+	if ok && archiveHigh > high {
+		return nil, fmt.Errorf("the archive holds block %d above --high %d; the list must reach the abandoned chain's tip",
+			archiveHigh, high)
+	}
 	discarded := make([]discardedBlockJSON, 0, high-safeHeight)
-	err := hashlog.WalkArchiveRange(archive, safeHeight+1, high, func(block uint64, logs []*hashlog.HashLog) error {
+	err = hashlog.WalkArchiveRange(archive, safeHeight+1, high, func(block uint64, logs []*hashlog.HashLog) error {
 		hashes, err := recordedHashes(logs, []string{blockHashColumn})
 		if err != nil {
 			return fmt.Errorf("block %d: %w", block, err)
