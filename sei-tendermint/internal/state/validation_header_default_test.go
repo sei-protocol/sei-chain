@@ -116,3 +116,42 @@ func TestValidateBlockHeader(t *testing.T) {
 	require.Error(t, err, "expected an error when state is ahead of block")
 	assert.Contains(t, err.Error(), "lower than initial height")
 }
+
+func TestValidateBlockAppHashOverride(t *testing.T) {
+	ctx := t.Context()
+
+	eventBus := eventbus.NewDefault()
+	require.NoError(t, eventBus.Start(ctx))
+
+	state, stateDB, privVals := makeState(t, 1, 1)
+	proxyApp := proxy.New(&testApp{})
+	blockExec := sm.NewBlockExecutor(
+		sm.NewStore(stateDB),
+		proxyApp,
+		makeTxMempool(t, proxyApp),
+		sm.EmptyEvidencePool{},
+		store.NewBlockStore(dbm.NewMemDB()),
+		eventBus,
+		types.DefaultConsensusPolicy(),
+	)
+	lastCommit := &types.Commit{}
+	for height := int64(1); height < 3; height++ {
+		state, _, lastCommit = makeAndCommitGoodBlock(ctx, t,
+			state, height, lastCommit, state.Validators.GetProposer().Address, blockExec, privVals, nil)
+	}
+
+	recorded := crypto.Checksum([]byte("recorded app hash")).Bytes()
+	state.AppHash = crypto.Checksum([]byte("computed app hash")).Bytes()
+	block := statefactory.MakeBlock(state, 3, lastCommit)
+	block.AppHash = recorded
+	require.Error(t, blockExec.ValidateBlock(ctx, state, block), "no override")
+
+	override := types.AppHashOverride{ChainID: state.ChainID, Height: state.LastBlockHeight + 1, Recorded: recorded, Replacement: state.AppHash}
+	restore := types.ReplaceAppHashOverrides([]types.AppHashOverride{override})
+	require.Error(t, blockExec.ValidateBlock(ctx, state, block), "override at another height")
+	restore()
+
+	override.Height = state.LastBlockHeight
+	t.Cleanup(types.ReplaceAppHashOverrides([]types.AppHashOverride{override}))
+	require.NoError(t, blockExec.ValidateBlock(ctx, state, block))
+}

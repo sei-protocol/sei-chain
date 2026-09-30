@@ -1,7 +1,6 @@
 package statesync
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -323,7 +322,7 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 	}
 
 	// Verify app and app version
-	if err := s.verifyApp(ctx, snapshot, state.Version.Consensus.App); err != nil {
+	if err := s.verifyApp(ctx, snapshot, state.ChainID, state.Version.Consensus.App); err != nil {
 		return sm.State{}, nil, err
 	}
 
@@ -557,7 +556,7 @@ func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 }
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version
-func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion uint64) error {
+func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, chainID string, appVersion uint64) error {
 	resp := s.conn.Info()
 	// sanity check that the app version in the block matches the application's own record
 	// of its version
@@ -568,7 +567,7 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 			appVersion, resp.AppVersion)
 	}
 
-	if !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
+	if !types.AppHashMatches(chainID, int64(snapshot.Height), snapshot.trustedAppHash, resp.LastBlockAppHash) { //nolint:gosec // snapshot heights are block heights
 		wrapped := fmt.Errorf(
 			"state-sync appHash mismatch: expected %X, got %X: %w",
 			snapshot.trustedAppHash, resp.LastBlockAppHash, types.ErrAppHash)

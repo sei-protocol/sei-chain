@@ -50,7 +50,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	}
 
 	// Validate app info.
-	if !bytes.Equal(block.AppHash, state.AppHash) {
+	if !types.AppHashMatches(state.ChainID, state.LastBlockHeight, block.AppHash, state.AppHash) {
 		if err := policy.HandleError(fmt.Errorf(
 			"wrong Block.Header.AppHash: expected %X, got %X: %w",
 			state.AppHash, block.AppHash, types.ErrAppHash)); err != nil {
