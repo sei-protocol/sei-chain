@@ -1,6 +1,7 @@
 package gov_test
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha1" //nolint:gosec // test names, not security
 	"encoding/hex"
@@ -663,7 +664,38 @@ func TestRejectedCallsRevertWithoutChangingState(t *testing.T) {
 		{name: "negative option", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), int32(-1)) }, reason: gov.ErrInvalidVoteOption.Error()},
 		{name: "unknown selector", voter: true, data: func(testing.TB) []byte { return []byte{1, 2, 3, 4} }, reason: gov.ErrUnknownMethod.Error()},
 		{name: "short input", voter: true, data: func(testing.TB) []byte { return []byte{1} }, reason: gov.ErrUnknownMethod.Error()},
-		{name: "truncated arguments", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), gov.OptionYes)[:20] }, reason: "invalid proposal: abi: cannot marshal in to go type: length insufficient 16 require 32"},
+		{name: "truncated arguments", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), gov.OptionYes)[:20] }, reason: "invalid arguments: abi: cannot marshal in to go type: length insufficient 16 require 32"},
+		{name: "missing argument", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), gov.OptionYes)[:4+32] }, reason: "invalid arguments: abi: cannot marshal in to go type: length insufficient 32 require 64"},
+		{name: "no arguments", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), gov.OptionYes)[:4] }, reason: "invalid arguments: abi: attempting to unmarshal an empty string while arguments are expected"},
+		{name: "trailing bytes", voter: true, data: func(t testing.TB) []byte {
+			return append(pack(t, "vote", uint64(1), gov.OptionYes), make([]byte, 32)...)
+		}, reason: "invalid arguments: not the canonical encoding"},
+		{name: "uint64 above range", voter: true, data: func(t testing.TB) []byte {
+			data := pack(t, "vote", uint64(1), gov.OptionYes)
+			data[4+23] = 1
+			return data
+		}, reason: "invalid arguments: abi: improperly encoded uint64 value"},
+		{name: "int32 above range", voter: true, data: func(t testing.TB) []byte {
+			data := pack(t, "vote", uint64(1), gov.OptionYes)
+			data[4+32+27] = 1
+			return data
+		}, reason: "invalid arguments: abi: improperly encoded int32 value"},
+		{name: "dirty address padding", voter: true, data: func(t testing.TB) []byte {
+			data := pack(t, "getVote", uint64(1), f.voters[1].addr)
+			data[4+32] = 1
+			return data
+		}, reason: "invalid arguments: not the canonical encoding"},
+		{name: "dirty string padding", voter: true, data: func(t testing.TB) []byte {
+			data := pack(t, "submitProposal", upgradeJSON("n", 10))
+			data[len(data)-1] = 1
+			return data
+		}, reason: "invalid arguments: not the canonical encoding"},
+		{name: "non-canonical string offset", voter: true, data: func(t testing.TB) []byte {
+			data := pack(t, "submitProposal", upgradeJSON("n", 10))
+			moved := append(bytes.Clone(data[:4]), common.LeftPadBytes([]byte{64}, 32)...)
+			moved = append(moved, make([]byte, 32)...)
+			return append(moved, data[4+32:]...)
+		}, reason: "invalid arguments: not the canonical encoding"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := f.newChain(t, 1)

@@ -188,6 +188,23 @@ lint:
 fmtcheck:
 	$(GOLANGCI_LINT) fmt --diff
 
+GIGA_GOV_DIR := giga/evmonly/precompiles/gov
+GIGA_GOV_SOLC := npx --yes solc@0.8.28
+
+# Compile the EVM-only governance precompile's abi.json from IGov.sol.
+giga-gov-abi:
+	@set -e; out=$$(mktemp -d); trap 'rm -rf "$$out"' EXIT; \
+	$(GIGA_GOV_SOLC) --abi -o "$$out" $(GIGA_GOV_DIR)/IGov.sol; \
+	jq . "$$out"/*_IGov.abi > $(GIGA_GOV_DIR)/abi.json
+
+# Fail if the governance precompile's abi.json is not what IGov.sol compiles to.
+giga-gov-abi-check:
+	@set -e; out=$$(mktemp -d); trap 'rm -rf "$$out"' EXIT; \
+	$(GIGA_GOV_SOLC) --abi -o "$$out" $(GIGA_GOV_DIR)/IGov.sol; \
+	jq . "$$out"/*_IGov.abi | diff -u $(GIGA_GOV_DIR)/abi.json - || \
+	{ echo "$(GIGA_GOV_DIR)/abi.json is out of date with IGov.sol; run make giga-gov-abi"; exit 1; }
+.PHONY: giga-gov-abi giga-gov-abi-check
+
 # Run lint on the sei-db package. Much faster than running lint on the entire project.
 # Makes life easier for storage team when iterating on changes inside the sei-db package.
 dblint:

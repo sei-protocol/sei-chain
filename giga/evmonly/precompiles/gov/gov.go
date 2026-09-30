@@ -88,6 +88,7 @@ var (
 	ErrReadOnly                = errors.New("cannot write in a static call")
 	ErrValueNotAccepted        = errors.New("governance precompile does not accept value")
 	ErrNotVoter                = errors.New("caller is not a voter")
+	ErrInvalidArguments        = errors.New("invalid arguments")
 	ErrInvalidProposal         = errors.New("invalid proposal")
 	ErrUnsupportedProposalType = errors.New("unsupported proposal type")
 	ErrProposalNotFound        = errors.New("proposal not found")
@@ -180,52 +181,108 @@ func methodOf(input []byte) (*abi.Method, error) {
 // Run executes one call. Every failure reverts with an Error(string) reason and
 // leaves the unused gas with the caller.
 func (c *Contract) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
-	output, err := c.run(ctx, input)
-	if err != nil {
-		return revertReason(err), vm.ErrExecutionReverted
-	}
-	return output, nil
-}
-
-func (c *Contract) run(ctx *precompiles.Context, input []byte) ([]byte, error) {
 	method, err := methodOf(input)
 	if err != nil {
-		return nil, err
+		return revert(err)
 	}
 	if ctx.DelegateCall {
-		return nil, ErrDelegateCall
+		return revert(ErrDelegateCall)
 	}
 	if ctx.ApparentValue != nil && ctx.ApparentValue.Sign() != 0 {
-		return nil, ErrValueNotAccepted
+		return revert(ErrValueNotAccepted)
 	}
 	if !method.IsConstant() && ctx.ReadOnly {
-		return nil, ErrReadOnly
+		return revert(ErrReadOnly)
 	}
-	args, err := method.Inputs.Unpack(input[4:])
+	args, err := unpackArgs(method, input[4:])
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidProposal, err)
+		return revert(err)
 	}
 	var result any
 	switch method.Name {
 	case "submitProposal":
-		result, err = c.submitProposal(ctx, args[0].(string))
+		raw, argErr := arg[string](args, 0)
+		if argErr != nil {
+			return revert(argErr)
+		}
+		result, err = c.submitProposal(ctx, raw)
 	case "vote":
-		result, err = c.vote(ctx, args[0].(uint64), args[1].(int32))
+		id, idErr := arg[uint64](args, 0)
+		option, optionErr := arg[int32](args, 1)
+		if argErr := errors.Join(idErr, optionErr); argErr != nil {
+			return revert(argErr)
+		}
+		result, err = c.vote(ctx, id, option)
 	case "getVote":
-		result, err = c.getVote(ctx, args[0].(uint64), args[1].(common.Address))
+		id, idErr := arg[uint64](args, 0)
+		voter, voterErr := arg[common.Address](args, 1)
+		if argErr := errors.Join(idErr, voterErr); argErr != nil {
+			return revert(argErr)
+		}
+		result, err = c.getVote(ctx, id, voter)
 	case "proposal":
-		result, err = c.proposal(ctx, args[0].(uint64))
+		id, argErr := arg[uint64](args, 0)
+		if argErr != nil {
+			return revert(argErr)
+		}
+		result, err = c.proposal(ctx, id)
 	case "tallyResult":
-		result, err = c.tallyResult(ctx, args[0].(uint64))
+		id, argErr := arg[uint64](args, 0)
+		if argErr != nil {
+			return revert(argErr)
+		}
+		result, err = c.tallyResult(ctx, id)
 	case "params":
 		result = c.paramsData()
 	default:
-		return nil, ErrUnknownMethod
+		return revert(ErrUnknownMethod)
 	}
 	if err != nil {
-		return nil, err
+		return revert(err)
 	}
-	return method.Outputs.Pack(result)
+	output, err := method.Outputs.Pack(result)
+	if err != nil {
+		return revert(err)
+	}
+	return output, nil
+}
+
+// unpackArgs returns method's arguments from input. It refuses input that is
+// not exactly the ABI encoding of method's arguments, such as input with
+// trailing bytes, dirty padding or out-of-range integers.
+func unpackArgs(method *abi.Method, input []byte) ([]any, error) {
+	args, err := method.Inputs.Unpack(input)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidArguments, err)
+	}
+	if len(args) != len(method.Inputs) {
+		return nil, fmt.Errorf("%w: %s takes %d arguments, got %d", ErrInvalidArguments, method.Name, len(method.Inputs), len(args))
+	}
+	canonical, err := method.Inputs.Pack(args...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidArguments, err)
+	}
+	if !bytes.Equal(canonical, input) {
+		return nil, fmt.Errorf("%w: not the canonical encoding", ErrInvalidArguments)
+	}
+	return args, nil
+}
+
+// arg returns args[i] as a T.
+func arg[T any](args []any, i int) (T, error) {
+	var zero T
+	if i >= len(args) {
+		return zero, fmt.Errorf("%w: missing argument %d", ErrInvalidArguments, i)
+	}
+	v, ok := args[i].(T)
+	if !ok {
+		return zero, fmt.Errorf("%w: argument %d is %T, not %T", ErrInvalidArguments, i, args[i], zero)
+	}
+	return v, nil
+}
+
+func revert(err error) ([]byte, error) {
+	return revertReason(err), vm.ErrExecutionReverted
 }
 
 var revertSelector = crypto.Keccak256([]byte("Error(string)"))[:4]
