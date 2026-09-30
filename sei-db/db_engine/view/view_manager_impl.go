@@ -228,10 +228,10 @@ func NewViewManager(
 
 	if config.MetricsEnabled {
 		metrics := newViewManagerMetrics(
-			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
-		for _, s := range c.shards {
-			s.metrics = metrics
-			s.cache.metrics = metrics
+			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo, config.ShardCount)
+		for i, s := range c.shards {
+			s.metrics = metrics.shard(i)
+			s.cache.metrics = s.metrics
 		}
 		c.metrics = metrics
 	}

@@ -1,9 +1,7 @@
-The `gigasim` benchmark drives a Giga node's whole storage stack end to end. Where
-[`blocksim`](../blocksim) exercises the block ledger alone and [`cryptosim`](../cryptosim) exercises the
-state DB alone, gigasim runs both together with the receipt store, through the same
-`GigaStorageManager` a node opens. It is the benchmark to reach for when the question is how the
-engines behave *together* — whether pruning, checkpointing and hashing on one store show up as latency
-on another.
+The `gigasim` benchmark drives a Giga node's whole storage stack end to end: the block ledger, the state
+DB and the receipt store, through the same `GigaStorageManager` a node opens. It measures each engine
+under the traffic a node gives it, and how the engines behave *together* — whether pruning,
+checkpointing and hashing on one store show up as latency on another.
 
 Gigasim does not start validators or accept RPC traffic. For a four-validator Autobahn EVM-only
 cluster, local or on AWS, use [`autobahn-e2e`](../../../integration_test/autobahn/README.md). AWS
@@ -15,14 +13,15 @@ or `--topology colocated` (all four Docker validators on a single EC2).
 Run from anywhere in the repository; the script builds what it needs first:
 
 ```
-./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/standard.json
+./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/full-node.json
 ```
 
-Three configurations ship with the benchmark:
+Four configurations ship with the benchmark:
 
 | Config | Shape it simulates |
 | --- | --- |
-| `config/standard.json` | A full node: block store, live state DB, historical state store, receipts |
+| `config/full-node.json` | A full node: block store, live state DB, historical state store, receipts |
+| `config/archive-node.json` | An archive node: a full node that keeps all history, never pruning it |
 | `config/validator.json` | A validator: block store and live state DB only |
 | `config/debug.json` | A small, short local run for smoke testing |
 
@@ -30,6 +29,9 @@ A run continues until interrupted. Stop it with Ctrl-C, which shuts down gracefu
 directory resumable; set `MaxRuntimeSeconds` to have it stop on its own instead. Press Enter while a
 run is in progress to suspend it, and again to resume — set `EnableSuspension` to false when running
 somewhere without a terminal attached.
+
+Everything a run writes lives under `DataDir`, including its log: `logs/gigasim.log` beneath the data
+directory. `CleanDataOnStart` and `CleanDataOnExit` clean the logs along with the data.
 
 # Hashing Kernel
 
@@ -45,7 +47,7 @@ To measure against the portable kernel, pin it at run time — both are in the b
 needed:
 
 ```
-SEI_LTHASH_BACKEND=default ./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/standard.json
+SEI_LTHASH_BACKEND=default ./sei-db/bench/gigasim/gigasim.sh ./sei-db/bench/gigasim/config/full-node.json
 ```
 
 Building through the Makefile directly rather than through `gigasim.sh` sets no experiment, and
@@ -72,11 +74,31 @@ pool is drained before the block is committed — a block's writes reach state a
 
 ## Transaction Model
 
-Execution is simulated, not real: the benchmark replays the reads and writes an ERC20 transfer makes
-without doing the arithmetic, because what is under measurement is storage traffic rather than the EVM.
-Each transaction reads the contract code, both accounts, both storage slots and the fee account, then
-writes both accounts, both slots and the fee account. This is the same model `cryptosim` uses, so the
-two are comparable on the state DB.
+Execution is simulated, not real: the benchmark replays the reads and writes a transfer makes without
+doing the arithmetic, because what is under measurement is storage traffic rather than the EVM.
+`TransactionType` picks the kind of transfer every block carries:
+
+| `TransactionType` | Reads | Writes | Gas |
+| --- | --- | --- | --- |
+| `erc20` (default) | token code, sender's account, sender's and recipient's balance slots, fee account | sender's account, both balance slots | `Erc20GasPerTransaction` (50,000) |
+| `transfer` | sender's and recipient's accounts, fee account | both accounts | 21,000 |
+
+The fee account is written once per block, not once per transaction. Accounts are read and written
+through their native balance, which every transaction changes for the sender paying gas. An ERC20
+transfer never touches the recipient's account, as on chain: it names the recipient only as an argument
+to the token contract. A native transfer touches no contract code or storage.
+
+Balance slots live in the token's storage, keyed by the token contract's address and then a slot that
+follows the holder, so a token's balances share its address as a key prefix and a hot token is a hot
+key range. Each account holds `Erc20InteractionsPerAccount` tokens, drawn from the hot set on
+`HotErc20ContractProbability` of holdings, and a transfer moves one of the sender's holdings. The
+recipient may not hold that token yet, in which case the transfer creates its balance slot, as a
+payment to a first-time holder does.
+
+A native transfer's 21,000 gas is the EVM's fixed transaction cost. An ERC20 transfer between existing
+holders uses roughly 35,000 to 50,000 gas and one to a first-time holder around 55,000 to 65,000, which
+is what `Erc20GasPerTransaction` averages over. Every transaction's receipt records the same gas, so the
+receipts, each block's gas totals and `gigasim_gas_used_total` all agree.
 
 Accounts are drawn from a hot set chosen most of the time, a cold set chosen occasionally, and a
 dormant set that is never chosen and exists only to give the state DB a realistic resident size. All
@@ -111,18 +133,21 @@ read as worked examples.
 Two relationships between the options are worth knowing before changing any of them, because neither is
 visible from a single field.
 
-The default block carries as many transactions as consensus accepts, at roughly the size a real one
-is: `TransactionsPerBlock` sits at autobahn's `MaxTxsPerBlock`, while `BytesPerTransaction` is sized
-for an ERC20 transfer, which is about 180 bytes of RLP before Sei's envelope. The two multiply to a
-quarter of `MaxTxsBytesPerBlock`, so there is room to raise either — but only until the product
-reaches that budget, which configuration validation rejects rather than generating a block the ledger
-would refuse.
+The default block carries 10,000 transactions of 200 bytes, which is about the size of an ERC20
+transfer: some 180 bytes of RLP before Sei's envelope. A ledger block holds at most autobahn's
+`MaxTxsPerBlock` (2,000) payload entries, so a block with more transactions than that packs several into
+each entry. Every transaction is still executed and committed, one state commit per block. Packing
+leaves the bytes stored unchanged, and those are held to the ledger's byte budget, `MaxTxsBytesPerBlock`
+(2 MiB). The default block is 2 MB, just inside it, so `TransactionsPerBlock` and `BytesPerTransaction`
+trade off against each other: configuration validation rejects a product over the budget rather than
+generating a block the ledger would refuse.
 
 Generation is unthrottled by default, so a measured run reports what the stack sustains rather than a
-rate chosen in advance. `MaxBlocksPerSecond` exists for the runs that are not measurements — the debug
-config throttles itself well below what a machine can do, because a smoke test should confirm the
-pipeline works rather than saturate the laptop it runs on — and for holding two builds at the same
-offered load, which is what makes their latencies comparable.
+rate chosen in advance. `MaxTps` exists for the runs that are not measurements — the debug config
+throttles itself well below what a machine can do, because a smoke test should confirm the pipeline
+works rather than saturate the laptop it runs on — and for holding two builds at the same offered load,
+which is what makes their latencies comparable. Blocks are released a whole block at a time, so the
+block rate it produces is `MaxTps / TransactionsPerBlock`.
 
 ## Optional Stores
 
@@ -154,7 +179,9 @@ Metrics are served for Prometheus at `MetricsAddr` (`:9090` by default; empty di
 benchmark's own instruments are prefixed `gigasim_` and cover per-store write volume, the pending
 execution queue, the account population, on-disk size per store, block hash wait time, and a phase
 breakdown for the generator thread, the consumer thread and the executors. The stores served on the
-same endpoint publish their own: `flatkv_`, `seiwal_`, `litt_`, `pebble_` and `giga_state_commit_`.
+same endpoint publish their own: `flatkv_`, `seiwal_`, `litt_`, `pebble_` and `giga_state_commit_`, and
+the garbage collector pruning them publishes `storage_gc_`: its cut lines, each store's rollback floor,
+and how long each store took to prune.
 
 `LittMetricsEnabled` controls the last of those for the two LittDB-backed stores, the block ledger and
 the receipt store. It is on by default and is the only source of their size and queue depth.
@@ -184,10 +211,59 @@ the time producers spent waiting for room, so a queue nobody waits on reports no
 gauges beside it are sampled on a timer and show how full a queue sits in the ordinary case, which a
 queue that fills only in bursts will understate.
 
-For local Prometheus and Grafana containers, see the corresponding section of the
-[cryptosim README](../cryptosim/README.md#setting-up-prometheus--grafana); the setup is the same.
-Grafana provisions every dashboard in `docker/monitornode/dashboards`, so the run appears under
-**GigaSim** without any import step.
+## Prometheus and Grafana
+
+To run local Prometheus and Grafana containers, run the following from the repository root, with Docker
+installed:
+
+```
+docker/monitornode/scripts/start-prometheus.sh
+docker/monitornode/scripts/start-grafana.sh
+docker/monitornode/scripts/start-node-exporter.sh
+```
+
+Grafana is at http://localhost:3000/, with username and password `admin`. It provisions every dashboard
+in `docker/monitornode/dashboards`, so the run appears under **GigaSim** without any import step.
+Prometheus scrapes gigasim at the default `MetricsAddr`. Stop the containers with the matching
+`stop-*.sh` scripts.
+
+# Running on AWS
+
+1. Clone the repository and install the dependencies (Go, build tools, tmux and Docker) on an Ubuntu
+   host:
+
+   ```
+   git clone https://github.com/sei-protocol/sei-chain.git
+   sudo ./sei-chain/sei-db/bench/gigasim/tools/setup-ubuntu.sh
+   ```
+
+2. Optionally, start Prometheus on the host: `./sei-chain/docker/monitornode/scripts/start-prometheus.sh`.
+
+3. Start the benchmark, inside tmux so that it survives a dropped connection:
+
+   ```
+   ./sei-chain/sei-db/bench/gigasim/gigasim.sh ./sei-chain/sei-db/bench/gigasim/config/full-node.json
+   ```
+
+4. Optionally, view the remote run in a local Grafana. With Prometheus running on the remote host and
+   Grafana (but not Prometheus) running locally, open an SSH tunnel to the remote Prometheus and keep it
+   open:
+
+   ```
+   ssh -L 9091:localhost:9091 user@remote-host
+   ```
+
+# Profiling
+
+Profiling is off by default. Set `PprofAddr` (for example `":6060"`) to serve the pprof endpoints. They
+come up before the storage opens, so opening storage and setup can be profiled as well as the run:
+
+```
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+The mutex and block profiles are off unless `MutexProfileFraction` or `BlockProfileRate` turns them on.
+Both slow what they sample, so a run with either on is for diagnosis rather than measurement.
 
 # Tests
 
