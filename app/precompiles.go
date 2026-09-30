@@ -9,8 +9,16 @@ import (
 	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 )
+
+// wasmdViewKeeper combines the wasm keeper's raw view queries with its gRPC
+// query server, since the precompile's read-only methods span both.
+type wasmdViewKeeper struct {
+	wasmkeeper.Keeper
+	wasmtypes.QueryServer
+}
 
 type PrecompileKeepers struct {
 	putils.BankKeeper
@@ -51,7 +59,7 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		AuthzMsgServer:      a.AuthzKeeper,
 		AuthzQuerier:        a.AuthzKeeper,
 		WasmdKeeper:         wasmkeeper.NewDefaultPermissionKeeper(a.WasmKeeper),
-		WasmdViewKeeper:     a.WasmKeeper,
+		WasmdViewKeeper:     wasmdViewKeeper{Keeper: a.WasmKeeper, QueryServer: wasmkeeper.Querier(&a.WasmKeeper)},
 		StakingKeeper:       stakingkeeper.NewMsgServerImpl(a.StakingKeeper),
 		StakingQuerier:      stakingkeeper.Querier{Keeper: a.StakingKeeper},
 		GovKeeper:           a.GovKeeper,

@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -21,10 +22,18 @@ import (
 )
 
 const (
-	InstantiateMethod  = "instantiate"
-	ExecuteMethod      = "execute"
-	ExecuteBatchMethod = "execute_batch"
-	QueryMethod        = "query"
+	InstantiateMethod      = "instantiate"
+	ExecuteMethod          = "execute"
+	ExecuteBatchMethod     = "execute_batch"
+	QueryMethod            = "query"
+	ContractInfoMethod     = "contractInfo"
+	ContractHistoryMethod  = "contractHistory"
+	ContractsByCodeMethod  = "contractsByCode"
+	AllContractStateMethod = "allContractState"
+	RawContractStateMethod = "rawContractState"
+	CodeMethod             = "code"
+	CodesMethod            = "codes"
+	PinnedCodesMethod      = "pinnedCodes"
 )
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
@@ -47,10 +56,18 @@ type PrecompileExecutor struct {
 	wasmdViewKeeper utils.WasmdViewKeeper
 	address         common.Address
 
-	InstantiateID  []byte
-	ExecuteID      []byte
-	ExecuteBatchID []byte
-	QueryID        []byte
+	InstantiateID      []byte
+	ExecuteID          []byte
+	ExecuteBatchID     []byte
+	QueryID            []byte
+	ContractInfoID     []byte
+	ContractHistoryID  []byte
+	ContractsByCodeID  []byte
+	AllContractStateID []byte
+	RawContractStateID []byte
+	CodeID             []byte
+	CodesID            []byte
+	PinnedCodesID      []byte
 }
 
 type ExecuteMsg struct {
@@ -84,13 +101,29 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			executor.ExecuteBatchID = m.ID
 		case QueryMethod:
 			executor.QueryID = m.ID
+		case ContractInfoMethod:
+			executor.ContractInfoID = m.ID
+		case ContractHistoryMethod:
+			executor.ContractHistoryID = m.ID
+		case ContractsByCodeMethod:
+			executor.ContractsByCodeID = m.ID
+		case AllContractStateMethod:
+			executor.AllContractStateID = m.ID
+		case RawContractStateMethod:
+			executor.RawContractStateID = m.ID
+		case CodeMethod:
+			executor.CodeID = m.ID
+		case CodesMethod:
+			executor.CodesID = m.ID
+		case PinnedCodesMethod:
+			executor.PinnedCodesID = m.ID
 		}
 	}
 	return pcommon.NewDynamicGasPrecompile(newAbi, executor, Address, PrecompileName), nil
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
-	if method.Name != QueryMethod && !ctx.IsEVM() {
+	if !isQueryMethod(method.Name) && !ctx.IsEVM() {
 		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
 	}
 	switch method.Name {
@@ -102,8 +135,36 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return nil, pcommon.GetRemainingGas(ctx, p.evmKeeper), ErrExecuteBatchDisabled
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
+	case ContractInfoMethod:
+		return p.contractInfo(ctx, method, args, value)
+	case ContractHistoryMethod:
+		return p.contractHistory(ctx, method, args, value)
+	case ContractsByCodeMethod:
+		return p.contractsByCode(ctx, method, args, value)
+	case AllContractStateMethod:
+		return p.allContractState(ctx, method, args, value)
+	case RawContractStateMethod:
+		return p.rawContractState(ctx, method, args, value)
+	case CodeMethod:
+		return p.code(ctx, method, args, value)
+	case CodesMethod:
+		return p.codes(ctx, method, args, value)
+	case PinnedCodesMethod:
+		return p.pinnedCodes(ctx, method, args, value)
 	}
 	return
+}
+
+// isQueryMethod reports whether method is a read-only wasmd query, which may
+// run outside an EVM call context unlike the transaction methods.
+func isQueryMethod(method string) bool {
+	switch method {
+	case QueryMethod, ContractInfoMethod, ContractHistoryMethod, ContractsByCodeMethod,
+		AllContractStateMethod, RawContractStateMethod, CodeMethod, CodesMethod, PinnedCodesMethod:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
@@ -331,6 +392,361 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 		return
 	}
 	ret, rerr = method.Outputs.Pack(res)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+type ContractInfo struct {
+	CodeID    uint64
+	Creator   string
+	Admin     string
+	Label     string
+	IbcPortID string
+}
+
+type ContractCodeHistoryEntry struct {
+	Operation uint8
+	CodeID    uint64
+	Msg       []byte
+}
+
+type Model struct {
+	Key   []byte
+	Value []byte
+}
+
+type AccessConfig struct {
+	Permission uint8
+	Address    string
+}
+
+type CodeInfo struct {
+	CodeID                uint64
+	Creator               string
+	DataHash              []byte
+	InstantiatePermission AccessConfig
+}
+
+func (p PrecompileExecutor) contractInfo(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryContractInfoRequest{Address: args[0].(string)}
+	response, err := p.wasmdViewKeeper.ContractInfo(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(ContractInfo{
+		CodeID:    response.CodeID,
+		Creator:   response.Creator,
+		Admin:     response.Admin,
+		Label:     response.Label,
+		IbcPortID: response.IBCPortID,
+	})
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) contractHistory(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryContractHistoryRequest{
+		Address:    args[0].(string),
+		Pagination: &query.PageRequest{Key: args[1].([]byte)},
+	}
+	response, err := p.wasmdViewKeeper.ContractHistory(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	entries := make([]ContractCodeHistoryEntry, 0, len(response.Entries))
+	for _, entry := range response.Entries {
+		entries = append(entries, ContractCodeHistoryEntry{
+			Operation: uint8(entry.Operation), //nolint:gosec // operation is one of a handful of enum values; no overflow risk
+			CodeID:    entry.CodeID,
+			Msg:       entry.Msg,
+		})
+	}
+	var nextKey []byte
+	if response.Pagination != nil {
+		nextKey = response.Pagination.NextKey
+	}
+
+	ret, rerr = method.Outputs.Pack(entries, nextKey)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) contractsByCode(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryContractsByCodeRequest{
+		CodeId:     args[0].(uint64),
+		Pagination: &query.PageRequest{Key: args[1].([]byte)},
+	}
+	response, err := p.wasmdViewKeeper.ContractsByCode(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	contracts := response.Contracts
+	if contracts == nil {
+		contracts = []string{}
+	}
+	var nextKey []byte
+	if response.Pagination != nil {
+		nextKey = response.Pagination.NextKey
+	}
+
+	ret, rerr = method.Outputs.Pack(contracts, nextKey)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) allContractState(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryAllContractStateRequest{
+		Address:    args[0].(string),
+		Pagination: &query.PageRequest{Key: args[1].([]byte)},
+	}
+	response, err := p.wasmdViewKeeper.AllContractState(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	models := make([]Model, 0, len(response.Models))
+	for _, model := range response.Models {
+		models = append(models, Model{Key: model.Key, Value: model.Value})
+	}
+	var nextKey []byte
+	if response.Pagination != nil {
+		nextKey = response.Pagination.NextKey
+	}
+
+	ret, rerr = method.Outputs.Pack(models, nextKey)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) rawContractState(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryRawContractStateRequest{
+		Address:   args[0].(string),
+		QueryData: args[1].([]byte),
+	}
+	response, err := p.wasmdViewKeeper.RawContractState(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(response.Data)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) code(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryCodeRequest{CodeId: args[0].(uint64)}
+	response, err := p.wasmdViewKeeper.Code(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	info := CodeInfo{
+		CodeID:   response.CodeID,
+		Creator:  response.Creator,
+		DataHash: response.DataHash,
+		InstantiatePermission: AccessConfig{
+			Permission: uint8(response.InstantiatePermission.Permission), //nolint:gosec // permission is one of a handful of enum values; no overflow risk
+			Address:    response.InstantiatePermission.Address,
+		},
+	}
+	ret, rerr = method.Outputs.Pack(info, response.Data)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) codes(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryCodesRequest{Pagination: &query.PageRequest{Key: args[0].([]byte)}}
+	response, err := p.wasmdViewKeeper.Codes(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	codeInfos := make([]CodeInfo, 0, len(response.CodeInfos))
+	for _, info := range response.CodeInfos {
+		codeInfos = append(codeInfos, CodeInfo{
+			CodeID:   info.CodeID,
+			Creator:  info.Creator,
+			DataHash: info.DataHash,
+			InstantiatePermission: AccessConfig{
+				Permission: uint8(info.InstantiatePermission.Permission), //nolint:gosec // permission is one of a handful of enum values; no overflow risk
+				Address:    info.InstantiatePermission.Address,
+			},
+		})
+	}
+	var nextKey []byte
+	if response.Pagination != nil {
+		nextKey = response.Pagination.NextKey
+	}
+
+	ret, rerr = method.Outputs.Pack(codeInfos, nextKey)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) pinnedCodes(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &wasmtypes.QueryPinnedCodesRequest{Pagination: &query.PageRequest{Key: args[0].([]byte)}}
+	response, err := p.wasmdViewKeeper.PinnedCodes(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	codeIDs := response.CodeIDs
+	if codeIDs == nil {
+		codeIDs = []uint64{}
+	}
+	var nextKey []byte
+	if response.Pagination != nil {
+		nextKey = response.Pagination.NextKey
+	}
+
+	ret, rerr = method.Outputs.Pack(codeIDs, nextKey)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }

@@ -19,6 +19,7 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
@@ -160,6 +161,14 @@ type WasmdKeeper interface {
 type WasmdViewKeeper interface {
 	QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
 	QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
+	ContractInfo(c context.Context, req *wasmtypes.QueryContractInfoRequest) (*wasmtypes.QueryContractInfoResponse, error)
+	ContractHistory(c context.Context, req *wasmtypes.QueryContractHistoryRequest) (*wasmtypes.QueryContractHistoryResponse, error)
+	ContractsByCode(c context.Context, req *wasmtypes.QueryContractsByCodeRequest) (*wasmtypes.QueryContractsByCodeResponse, error)
+	AllContractState(c context.Context, req *wasmtypes.QueryAllContractStateRequest) (*wasmtypes.QueryAllContractStateResponse, error)
+	RawContractState(c context.Context, req *wasmtypes.QueryRawContractStateRequest) (*wasmtypes.QueryRawContractStateResponse, error)
+	Code(c context.Context, req *wasmtypes.QueryCodeRequest) (*wasmtypes.QueryCodeResponse, error)
+	Codes(c context.Context, req *wasmtypes.QueryCodesRequest) (*wasmtypes.QueryCodesResponse, error)
+	PinnedCodes(c context.Context, req *wasmtypes.QueryPinnedCodesRequest) (*wasmtypes.QueryPinnedCodesResponse, error)
 }
 
 type StakingKeeper interface {

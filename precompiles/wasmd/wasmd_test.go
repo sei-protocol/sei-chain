@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	abitypes "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -271,4 +273,144 @@ func TestQuery(t *testing.T) {
 	_, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, nil, nil, false, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+}
+
+// setupWasmdQueryTest instantiates the echo contract and returns the fixtures
+// shared by the read-only query tests.
+func setupWasmdQueryTest(t *testing.T) (testApp *app.App, ctx sdk.Context, mockAddr sdk.AccAddress, wasmKeeper *wasmkeeper.PermissionedKeeper, p *pcommon.DynamicGasPrecompile, codeID uint64, contractAddr sdk.AccAddress, code []byte) {
+	testApp = app.Setup(t, false, false, false)
+	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
+	ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
+	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
+	wasmKeeper = wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	code, err = os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
+	require.Nil(t, err)
+	codeID, err = wasmKeeper.Create(ctx, mockAddr, code, nil)
+	require.Nil(t, err)
+	contractAddr, _, err = wasmKeeper.Instantiate(ctx, codeID, mockAddr, mockAddr, []byte("{}"), "test", sdk.NewCoins())
+	require.Nil(t, err)
+	return
+}
+
+// runWasmdQuery packs args, invokes the precompile method identified by
+// methodID as a view call, and returns the raw ABI-encoded response.
+func runWasmdQuery(t *testing.T, ctx sdk.Context, testApp *app.App, p *pcommon.DynamicGasPrecompile, methodID []byte, args ...interface{}) ([]byte, *abitypes.Method) {
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	evm := vm.EVM{StateDB: statedb}
+	method, err := p.ABI.MethodById(methodID)
+	require.Nil(t, err)
+	inputs, err := method.Inputs.Pack(args...)
+	require.Nil(t, err)
+	ret, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), uint64(1000000), nil, nil, false, false)
+	require.Nil(t, err)
+	return ret, method
+}
+
+func TestQueryContractInfo(t *testing.T) {
+	testApp, ctx, mockAddr, _, p, codeID, contractAddr, _ := setupWasmdQueryTest(t)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).ContractInfoID, contractAddr.String())
+	expected, err := method.Outputs.Pack(wasmd.ContractInfo{
+		CodeID:  codeID,
+		Creator: mockAddr.String(),
+		Admin:   mockAddr.String(),
+		Label:   "test",
+	})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryContractHistory(t *testing.T) {
+	testApp, ctx, _, _, p, codeID, contractAddr, _ := setupWasmdQueryTest(t)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).ContractHistoryID, contractAddr.String(), []byte{})
+	expected, err := method.Outputs.Pack([]wasmd.ContractCodeHistoryEntry{
+		{
+			Operation: 1, // init
+			CodeID:    codeID,
+			Msg:       []byte("{}"),
+		},
+	}, []byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryContractsByCode(t *testing.T) {
+	testApp, ctx, _, _, p, codeID, contractAddr, _ := setupWasmdQueryTest(t)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).ContractsByCodeID, codeID, []byte{})
+	expected, err := method.Outputs.Pack([]string{contractAddr.String()}, []byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryAllContractState(t *testing.T) {
+	testApp, ctx, _, _, p, _, contractAddr, _ := setupWasmdQueryTest(t)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).AllContractStateID, contractAddr.String(), []byte{})
+	expected, err := method.Outputs.Pack([]wasmd.Model{}, []byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryRawContractState(t *testing.T) {
+	testApp, ctx, _, _, p, _, contractAddr, _ := setupWasmdQueryTest(t)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).RawContractStateID, contractAddr.String(), []byte("unused-key"))
+	expected, err := method.Outputs.Pack([]byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryCode(t *testing.T) {
+	testApp, ctx, mockAddr, _, p, codeID, _, code := setupWasmdQueryTest(t)
+	codeInfo := testApp.WasmKeeper.GetCodeInfo(ctx, codeID)
+	require.NotNil(t, codeInfo)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).CodeID, codeID)
+	expected, err := method.Outputs.Pack(wasmd.CodeInfo{
+		CodeID:   codeID,
+		Creator:  mockAddr.String(),
+		DataHash: codeInfo.CodeHash,
+		InstantiatePermission: wasmd.AccessConfig{
+			Permission: uint8(codeInfo.InstantiateConfig.Permission),
+			Address:    codeInfo.InstantiateConfig.Address,
+		},
+	}, code)
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryCodes(t *testing.T) {
+	testApp, ctx, mockAddr, _, p, codeID, _, _ := setupWasmdQueryTest(t)
+	codeInfo := testApp.WasmKeeper.GetCodeInfo(ctx, codeID)
+	require.NotNil(t, codeInfo)
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).CodesID, []byte{})
+	expected, err := method.Outputs.Pack([]wasmd.CodeInfo{
+		{
+			CodeID:   codeID,
+			Creator:  mockAddr.String(),
+			DataHash: codeInfo.CodeHash,
+			InstantiatePermission: wasmd.AccessConfig{
+				Permission: uint8(codeInfo.InstantiateConfig.Permission),
+				Address:    codeInfo.InstantiateConfig.Address,
+			},
+		},
+	}, []byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryPinnedCodes(t *testing.T) {
+	testApp, ctx, _, wasmKeeper, p, codeID, _, _ := setupWasmdQueryTest(t)
+	require.Nil(t, wasmKeeper.PinCode(ctx, codeID))
+
+	ret, method := runWasmdQuery(t, ctx, testApp, p, p.GetExecutor().(*wasmd.PrecompileExecutor).PinnedCodesID, []byte{})
+	expected, err := method.Outputs.Pack([]uint64{codeID}, []byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
 }
