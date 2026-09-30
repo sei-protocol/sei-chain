@@ -869,17 +869,21 @@ func TestCustomPrecompileAdapterDelegatesToTheContract(t *testing.T) {
 	stateDB.SetEVM(evm)
 	caller := testAddress(0xc5)
 
-	_, remaining, err := adapter.RunAndCalculateGas(evm, caller, caller, []byte{0x01}, 10, big.NewInt(2), nil, true, false)
+	_, err := adapter.Run(evm, caller, caller, []byte{0x01}, big.NewInt(2), true, false, nil)
 	require.NoError(t, err)
-	require.Equal(t, uint64(3), remaining)
 	got := recorder.only(t)
 	require.Equal(t, caller, got.Caller)
 	require.Equal(t, probeAddr, got.Address)
 	require.Equal(t, big.NewInt(2), got.ApparentValue)
 	require.True(t, got.ReadOnly)
 
-	output, err := adapter.Run(evm, caller, caller, []byte{0x01}, big.NewInt(2), true, false, nil)
-	require.ErrorIs(t, err, errCustomPrecompileRunUnsupported)
-	require.Nil(t, output)
-	recorder.only(t)
+	_, remaining, err := vm.RunPrecompiledContract(adapter, evm, caller, caller, []byte{0x01}, 10, big.NewInt(2), nil, true, false)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), remaining)
+	require.Equal(t, 2, recorder.count())
+
+	_, remaining, err = vm.RunPrecompiledContract(adapter, evm, caller, caller, []byte{0x01}, 6, big.NewInt(2), nil, true, false)
+	require.ErrorIs(t, err, vm.ErrOutOfGas)
+	require.Zero(t, remaining)
+	require.Equal(t, 2, recorder.count())
 }
