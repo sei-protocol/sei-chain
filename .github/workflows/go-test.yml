@@ -129,12 +129,3 @@ jobs:
             exit 1
           fi
           echo "All race shards and upgrade tests passed."
-
-  # The race shards upload coverage themselves. This job only keeps the
-  # `Coverage` check that branch protection requires.
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    needs: race-shard
-    steps:
-      - run: echo "Coverage was uploaded by the race shards."
