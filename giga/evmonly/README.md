@@ -217,14 +217,15 @@ go-ethereum builtin precompile is shadowed by the builtin.
 
 ## Block-STM execution
 
-When `OCCWorkers > 1` and there is more than one transaction, the executor attempts optimistic parallel execution. Initial
-incarnations are split into execution ranges and run through the shared OCC
-worker pool against the base state. Worker fan-out is clamped to the amount of
-available work, so small blocks do not spawn idle workers and can still split
-down to one transaction per range. Validation then walks transaction order,
-comparing each incarnation's recorded balance, nonce, code, account, and
-`(address, slot)` storage reads/writes against writes accepted after that
-incarnation's source prefix.
+When `OCCWorkers > 1` and there is more than one transaction, the executor
+attempts optimistic parallel execution. Initial incarnations are split into
+execution ranges and run through the shared OCC worker pool against the base
+state. Worker fan-out is clamped to the amount of available work, so small
+blocks do not spawn idle workers and can still split down to one transaction
+per range. Validation then walks transaction order, comparing each
+incarnation's recorded balance, nonce, code, account, and `(address, slot)`
+storage reads/writes against writes accepted after that incarnation's source
+prefix.
 
 - transactions with no dependency on newly accepted prior writes are retained
   and accepted in block order without rerunning

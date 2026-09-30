@@ -81,7 +81,6 @@ type contextRecord struct {
 	ApparentValue *big.Int
 	ReadOnly      bool
 	DelegateCall  bool
-	GasRemaining  uint64
 	Block         precompiles.BlockContext
 }
 
@@ -101,7 +100,6 @@ func (r *contextRecorder) contract(gas uint64) scriptedContract {
 			ApparentValue: ctx.ApparentValue,
 			ReadOnly:      ctx.ReadOnly,
 			DelegateCall:  ctx.DelegateCall,
-			GasRemaining:  ctx.GasRemaining,
 			Block:         ctx.Block,
 		})
 		return nil, nil
@@ -207,7 +205,6 @@ func TestCustomPrecompileContextForDirectCall(t *testing.T) {
 		Caller:        sender.addr,
 		Address:       probeAddr,
 		ApparentValue: big.NewInt(5),
-		GasRemaining:  txGas - oneByteTxIntrinsicGas - requiredGas,
 		Block: precompiles.BlockContext{
 			Number:      7,
 			Time:        99,
@@ -251,7 +248,6 @@ func TestCustomPrecompileContextThroughCallOpcodes(t *testing.T) {
 			require.Equal(t, word(1), state.GetState(proxy, proxySuccessSlot))
 
 			got := recorder.only(t)
-			require.NotZero(t, got.GasRemaining)
 			wantCaller := proxy
 			if tc.callerIsEOA {
 				wantCaller = sender.addr
@@ -873,12 +869,17 @@ func TestCustomPrecompileAdapterDelegatesToTheContract(t *testing.T) {
 	stateDB.SetEVM(evm)
 	caller := testAddress(0xc5)
 
-	_, err := adapter.Run(evm, caller, caller, []byte{0x01}, big.NewInt(2), true, false, nil)
+	_, remaining, err := adapter.RunAndCalculateGas(evm, caller, caller, []byte{0x01}, 10, big.NewInt(2), nil, true, false)
 	require.NoError(t, err)
+	require.Equal(t, uint64(3), remaining)
 	got := recorder.only(t)
 	require.Equal(t, caller, got.Caller)
 	require.Equal(t, probeAddr, got.Address)
 	require.Equal(t, big.NewInt(2), got.ApparentValue)
 	require.True(t, got.ReadOnly)
-	require.Zero(t, got.GasRemaining)
+
+	output, err := adapter.Run(evm, caller, caller, []byte{0x01}, big.NewInt(2), true, false, nil)
+	require.ErrorIs(t, err, errCustomPrecompileRunUnsupported)
+	require.Nil(t, output)
+	recorder.only(t)
 }
