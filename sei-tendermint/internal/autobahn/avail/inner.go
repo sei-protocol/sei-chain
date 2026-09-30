@@ -15,6 +15,9 @@ type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	// last is None, or this node's last pushed proposal at height >= first-1.
 	last utils.Option[*types.Signed[*types.LaneProposal]]
+	// parentOfFirst is the parent hash of block first, set by the prune that set first.
+	// Zero before any prune, which is the parent of block 0.
+	parentOfFirst types.BlockHeaderHash
 }
 
 func newBlockQueue() *blockQueue {
@@ -26,18 +29,31 @@ func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	q.last = utils.Some(p)
 }
 
-// prune drops [first, newFirst). last is kept when newFirst <= next and
-// cleared when newFirst > next.
-func (q *blockQueue) prune(newFirst types.BlockNumber) {
+// parentHash is the parent the block at q.next must name: the hash of the
+// predecessor while it is in the queue, else parentOfFirst (first == next).
+func (q *blockQueue) parentHash() types.BlockHeaderHash {
+	if q.first < q.next {
+		return q.q[q.next-1].Msg().Block().Header().Hash()
+	}
+	return q.parentOfFirst
+}
+
+// prune drops [first, newFirst) and records parent as the parent hash of block
+// newFirst. A stale newFirst changes nothing. last is kept when newFirst <= next
+// and cleared when newFirst > next. A block already in the queue at or after
+// newFirst stays; it is this lane's local block.
+func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderHash) {
 	if newFirst <= q.first {
 		return
 	}
 	if newFirst > q.next {
-		// TODO: seed last from a non-empty LaneRange LastHash at Next()-1.
-		// Empty ranges carry a zero LastHash, so they cannot replace a local last.
 		q.last = utils.None[*types.Signed[*types.LaneProposal]]()
 	}
 	q.queue.prune(newFirst)
+	// TODO: the block at newFirst may not name parent when the cluster certified
+	// a different block at newFirst-1. Switching to the certified branch would
+	// rewrite the lane WAL, so the local block is kept for now.
+	q.parentOfFirst = parent
 }
 
 // unpersistedLast returns the last block once it has left the active range and
@@ -143,8 +159,9 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			if b.Number != q.next {
 				return fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
 			}
-			// Parent is checked only inside [first, next). last restored from
-			// first-1 is for local production, not this check.
+			// Parent is checked only inside [first, next). The persisted block at
+			// first is this lane's local block. last restored from first-1 is
+			// for local production, not this check.
 			if q.first < q.next {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
 				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
@@ -298,7 +315,9 @@ func (i *inner) prune(anchor data.Anchor) int {
 		lr := anchor.CommitQC.LaneRange(lane)
 		bq := i.blocks[lane]
 		vq.prune(lr.Next())
-		bq.prune(lr.Next())
+		// LastHash is the parent of block Next(). An empty range carries the
+		// previous commit's LastHash, so it names the same parent for the same height.
+		bq.prune(lr.Next(), lr.LastHash())
 		// A lagging cursor stops at retentionFloor so an unflushed last can still
 		// be written. The cursor is never rewound: already past last means it is on disk.
 		if floor := bq.retentionFloor(); i.nextBlockToPersist[lane] < floor {
