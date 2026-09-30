@@ -39,7 +39,7 @@ jobs:
       mode: review
       allowed-team: 'sei-protocol/sei-core'
       allowed-bots: '["seidroid[bot]"]'
-      approve-on-success: false
+      approve-on-success: true
 
   # Anchored, unlike the review job's `contains`. A comment that quotes the
   # teardown command beside a real `@seidroid review` line would otherwise route
