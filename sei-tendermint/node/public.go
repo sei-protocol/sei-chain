@@ -176,7 +176,7 @@ func prepareApplication(
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
 		}
-		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage)
+		manager, err := openAutobahnStorageManager(ctx, conf, fc, giga.Storage)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
 		}

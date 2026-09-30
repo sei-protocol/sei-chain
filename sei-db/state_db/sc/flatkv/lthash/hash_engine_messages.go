@@ -12,7 +12,7 @@ import (
 // hashRequest is one sealed block for the engine to hash.
 type hashRequest struct {
 	// blockNumber is the height being hashed.
-	blockNumber int64
+	blockNumber uint64
 
 	// current is the block's own sealed view. The gatherer reads this block's diff from it.
 	current *sview.StoreView
@@ -54,7 +54,7 @@ func (r *hashRequest) release() error {
 // running hash.
 type gatheredBlock struct {
 	// blockNumber is the height this job hashes.
-	blockNumber int64
+	blockNumber uint64
 
 	// hashes is this block's leaf hashing in flight, which the combiner drains to completion.
 	hashes leafHashes

@@ -114,7 +114,7 @@ func commitBlocksWithSSSnapshots(t *testing.T, manager *GigaStorageManager, thro
 
 // reconverge re-runs what a restart does: it closes every store recovery touches, recovers them onto
 // target — which is what opens the state DB again — and reopens the receipt store on the far side.
-func reconverge(t *testing.T, manager *GigaStorageManager, target int64) {
+func reconverge(t *testing.T, manager *GigaStorageManager, target uint64) {
 	t.Helper()
 	require.NoError(t, reconvergeErr(t, manager, target))
 	require.NoError(t, manager.openReceiptStore())
@@ -122,7 +122,7 @@ func reconverge(t *testing.T, manager *GigaStorageManager, target int64) {
 
 // reconvergeErr is reconverge up to the point recovery can fail, for a test that expects it to. The
 // receipt store is left closed, since a failed recovery leaves the manager with no state DB.
-func reconvergeErr(t *testing.T, manager *GigaStorageManager, target int64) error {
+func reconvergeErr(t *testing.T, manager *GigaStorageManager, target uint64) error {
 	t.Helper()
 	// Closing first is what a restart does, and it is also required: recovery takes file locks the
 	// open stores hold — the state WAL's directory lock for the reads and the tail cut that precede
@@ -252,7 +252,7 @@ func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 
 	got, err := manager.findTargetRecoveryHeight()
 	require.NoError(t, err)
-	require.Equal(t, int64(0), got)
+	require.Equal(t, uint64(0), got)
 }
 
 // Recovering to a target below the WAL head drops every block above it, so the write head resumes at

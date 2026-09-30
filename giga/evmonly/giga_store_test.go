@@ -42,6 +42,12 @@ func (s *recordingGigaStore) OpenViewAt(int64) (gigatypes.StateView, bool) {
 	return nil, false
 }
 
+func (s *recordingGigaStore) GetBlockHeight() uint64 { return 0 }
+
+func (s *recordingGigaStore) GetBlockHash(uint64) ([32]byte, gigatypes.BlockHashStatus, error) {
+	return [32]byte{}, gigatypes.BlockHashStatusNotReady, nil
+}
+
 func (s *recordingGigaStore) Close() error { return nil }
 
 type memoryGigaSnapshot struct {

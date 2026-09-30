@@ -1927,8 +1927,8 @@ func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	// Registered before the first block, since a listener only ever sees the blocks after it.
-	dispatched := make(chan int64, 8)
-	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+	dispatched := make(chan uint64, 8)
+	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber uint64, _ *lthash.BlockHash) error {
 		dispatched <- blockNumber
 		return nil
 	})
@@ -1942,7 +1942,7 @@ func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	commitAndCheck(t, s)
 
 	require.NoError(t, s.FlushHashes())
-	require.Equal(t, int64(1), <-dispatched, "the good block hashes normally")
+	require.Equal(t, uint64(1), <-dispatched, "the good block hashes normally")
 
 	s.moduleOf = func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
@@ -1985,14 +1985,14 @@ func TestAReadOnlyStoreReportsItsHeight(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = ro.Close() }()
 
-	delivered := make(chan int64, 4)
+	delivered := make(chan uint64, 4)
 	mostRecent, err := ro.RegisterHashListener(
-		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		func(_ context.Context, blockNumber uint64, _ *lthash.BlockHash) error {
 			delivered <- blockNumber
 			return nil
 		})
 	require.NoError(t, err)
-	require.Equal(t, ro.Version(), mostRecent.BlockNumber,
+	require.Equal(t, uint64(ro.Version()), mostRecent.BlockNumber,
 		"registration must report the height the read-only store was opened at")
 
 	require.NoError(t, ro.FlushHashes())

@@ -406,7 +406,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	s.committedVersion = seededVersion
-	s.loadedHashes.BlockNumber = seededVersion
+	s.loadedHashes.BlockNumber = uint64(seededVersion) //nolint:gosec // a seeded version is positive
 
 	// The engine must carry back what this established, or the first real block would be measured
 	// against different state than was persisted.

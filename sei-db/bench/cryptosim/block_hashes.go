@@ -38,7 +38,7 @@ type blockHashWaiter struct {
 	committed int
 
 	// The block the next hash taken must describe, or 0 until the first one has been taken.
-	nextExpected int64
+	nextExpected uint64
 
 	// How long to wait for one hash before reporting a database that has stopped hashing.
 	waitTimeout time.Duration
@@ -62,7 +62,7 @@ func newBlockHashWaiter(lagBlocks int, metrics *CryptosimMetrics) *blockHashWait
 // Blocking here is the backpressure: it stops a database finalizing blocks faster than the benchmark
 // accepts their hashes. The context is the release, cancelled when the database shuts down, since a
 // send with no taker left would otherwise never return.
-func (w *blockHashWaiter) listen(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
+func (w *blockHashWaiter) listen(ctx context.Context, _ uint64, hash *lthash.BlockHash) error {
 	select {
 	case w.hashes <- hash:
 		return nil

@@ -23,8 +23,6 @@ const (
 	// PhaseStorage is time spent persisting receipts, state, and the app commit.
 	PhaseStorage = "storage"
 
-	// StoragePhaseVaultCommit is the app hash's durable write to the hash vault.
-	StoragePhaseVaultCommit = "vault_commit"
 	// StoragePhaseAppCommit is the app's Commit call.
 	StoragePhaseAppCommit = "app_commit"
 	// StoragePhasePushAppHash is publishing the app hash to the data layer.
@@ -34,8 +32,6 @@ const (
 	StoragePhaseBookkeeping = "bookkeeping"
 	// StoragePhasePruneData is pruning the data layer below the app's retain height.
 	StoragePhasePruneData = "prune_data"
-	// StoragePhasePruneVault is pruning the hash vault to the same boundary.
-	StoragePhasePruneVault = "prune_vault"
 )
 
 var (

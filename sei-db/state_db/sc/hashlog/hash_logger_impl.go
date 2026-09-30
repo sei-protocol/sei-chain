@@ -448,9 +448,7 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 // HashListener records one block's flatKV hashes: the store-wide root and each data database's root.
 // Its signature is gigatypes.HashListener, so it registers as one directly:
 // stateDB.RegisterHashListener(hashLogger.HashListener).
-func (h *hashLoggerImpl) HashListener(_ context.Context, blockNumber int64, hash *lthash.BlockHash) error {
-	block := uint64(blockNumber) //nolint:gosec // commit versions are non-negative
-
+func (h *hashLoggerImpl) HashListener(_ context.Context, block uint64, hash *lthash.BlockHash) error {
 	root := hash.Global.Checksum()
 	if err := h.ReportHash(block, FlatKVRootHashType, root[:]); err != nil {
 		return fmt.Errorf("record the flatkv root hash of block %d: %w", block, err)

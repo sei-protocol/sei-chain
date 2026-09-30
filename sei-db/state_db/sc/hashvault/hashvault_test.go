@@ -165,21 +165,12 @@ func TestConcurrentCommits(t *testing.T) {
 	ctx := context.Background()
 	v := newTestPebbleVault(t)
 
-	// 100 goroutines, each commits a distinct height. All should succeed.
+	// Commit heights 1..N in order, since the vault refuses gaps.
 	var wg sync.WaitGroup
 	const N = 100
-	errs := make(chan error, N)
 	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func(h uint64) {
-			defer wg.Done()
-			errs <- v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32))
-		}(uint64(i + 1))
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
+		h := uint64(i + 1)
+		require.NoError(t, v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32)))
 	}
 
 	// Re-committing the same (height, hash) from many goroutines should also all succeed.

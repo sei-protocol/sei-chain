@@ -324,9 +324,6 @@ func buildGigaRouter(
 			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
-		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-		// enable/disable decision through as plain config.
-		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
@@ -347,9 +344,6 @@ func buildGigaRouter(
 		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
-	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-	// enable/disable decision through as plain config.
-	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
@@ -379,19 +373,18 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 }
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
-// persistent-state directory, laid out for nodeMode unless storage pins a mode.
+// persistent-state directory, laid out for conf.Mode unless storage pins a mode.
 func openAutobahnStorageManager(
 	ctx context.Context,
-	rootDir string,
-	nodeMode string,
+	conf *config.Config,
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
 ) (*bootstrap.GigaStorageManager, error) {
-	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	directory, err := resolvePersistentStateDir(conf.RootDir, fc.PersistentStateDir)
 	if err != nil {
 		return nil, err
 	}
-	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage)
+	storageConfig, err := buildGigaStorageConfig(directory, conf.Mode, storage)
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
 	}
@@ -400,6 +393,8 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
+	storageConfig.HashVaultConfig.HaltOnMismatch = conf.HashVaultHaltOnMismatch
+	storageConfig.HashVaultConfig.EmptyVaultRollbackBlocks = conf.HashVaultEmptyRollbackBlocks
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
