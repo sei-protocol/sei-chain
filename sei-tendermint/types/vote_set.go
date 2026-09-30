@@ -165,6 +165,10 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 			vote.Height, vote.Round, vote.Type, ErrVoteUnexpectedStep)
 	}
 
+	if IsDiscardedBlock(voteSet.chainID, vote.Height, vote.BlockID.Hash) {
+		return false, fmt.Errorf("vote for block %X: %w", vote.BlockID.Hash, ErrDiscardedBlock)
+	}
+
 	// Ensure that signer is a validator.
 	lookupAddr, val, ok := voteSet.valSet.GetByIndex(valIndex)
 	if !ok {

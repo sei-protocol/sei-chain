@@ -582,3 +582,39 @@ func withBlockPartSetHeader(vote *Vote, blockPartsHeader PartSetHeader) *Vote {
 	vote.BlockID.PartSetHeader = blockPartsHeader
 	return vote
 }
+
+func TestVoteSetRefusesVotesForDiscardedBlock(t *testing.T) {
+	ctx := t.Context()
+	height, round := int64(11), int32(0)
+	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrecommitType, 4, 1)
+	discarded := BlockID{Hash: testBlockHash(1), PartSetHeader: PartSetHeader{Total: 1, Hash: testBlockHash(9)}}
+	replacement := BlockID{Hash: testBlockHash(2), PartSetHeader: PartSetHeader{Total: 1, Hash: testBlockHash(8)}}
+	t.Cleanup(ReplaceRewinds([]Rewind{{
+		ChainID:    voteSet.ChainID(),
+		SafeHeight: height - 1,
+		Discarded:  []DiscardedBlock{{Height: height, Hash: discarded.Hash}},
+	}}))
+
+	voteFor := func(i int32, blockID BlockID) *Vote {
+		pubKey, err := privValidators[i].GetPubKey(ctx)
+		require.NoError(t, err)
+		return &Vote{
+			ValidatorAddress: pubKey.Address(),
+			ValidatorIndex:   i,
+			Height:           height,
+			Round:            round,
+			Type:             tmproto.PrecommitType,
+			Timestamp:        tmtime.Now(),
+			BlockID:          blockID,
+		}
+	}
+
+	_, err := signAddVote(ctx, privValidators[0], voteFor(0, discarded), voteSet)
+	require.ErrorIs(t, err, ErrDiscardedBlock)
+	added, err := signAddVote(ctx, privValidators[1], voteFor(1, replacement), voteSet)
+	require.NoError(t, err)
+	require.True(t, added)
+	added, err = signAddVote(ctx, privValidators[2], voteFor(2, BlockID{}), voteSet)
+	require.NoError(t, err)
+	require.True(t, added, "a nil vote carries no block hash")
+}
