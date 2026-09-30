@@ -25,7 +25,7 @@ var logger = seilog.NewLogger("app", "upgrades", "kvrepair")
 // repairsDir holds the repair files compiled into the binary.
 const repairsDir = "repairs"
 
-//go:embed repairs
+//go:embed all:repairs
 var embeddedRepairs embed.FS
 
 // Repair is one reviewed set of entries that runs at Height on ChainID. Source
