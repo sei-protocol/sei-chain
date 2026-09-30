@@ -54,17 +54,24 @@ func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderH
 	// TODO: the block at newFirst may not name parent when the cluster certified
 	// a different block at newFirst-1. Switching to the certified branch would
 	// rewrite the lane WAL, so the local block is kept for now.
-	if q.first < q.next {
-		h := q.q[q.first].Msg().Block().Header()
-		if h.ParentHash() != parent {
-			logger.Error("local block does not extend certified tip",
-				"lane", h.Lane(),
-				slog.Uint64("block", uint64(h.BlockNumber())),
-				"got", h.ParentHash(),
-				"want", parent)
-		}
-	}
+	q.logLocalBlock(parent)
 	q.parentOfFirst = parent
+}
+
+// logLocalBlock logs when the block at first does not name parent.
+func (q *blockQueue) logLocalBlock(parent types.BlockHeaderHash) {
+	if q.first >= q.next {
+		return
+	}
+	h := q.q[q.first].Msg().Block().Header()
+	if h.ParentHash() == parent {
+		return
+	}
+	logger.Error("local block does not extend certified tip",
+		"lane", h.Lane(),
+		slog.Uint64("block", uint64(h.BlockNumber())),
+		"got", h.ParentHash(),
+		"want", parent)
 }
 
 // unpersistedLast returns the last block once it has left the active range and
@@ -173,6 +180,7 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			// Parent is checked only inside [first, next). The persisted block at
 			// first is this lane's local block. last restored from first-1 is
 			// for local production, not this check.
+			frontier := q.first == q.next
 			if q.first < q.next {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
 				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
@@ -180,6 +188,9 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 				}
 			}
 			q.pushBack(b.Proposal)
+			if frontier {
+				q.logLocalBlock(q.parentOfFirst)
+			}
 		}
 		i.nextBlockToPersist[lane] = q.next
 	}
