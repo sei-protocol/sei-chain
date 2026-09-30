@@ -114,3 +114,50 @@ func TestCheckEvidenceRefusesPendingRewoundEvidence(t *testing.T) {
 	requireInvalidEvidence(t, pool.CheckEvidence(ctx, types.EvidenceList{ev}))
 	requireInvalidEvidence(t, pool.AddEvidence(ctx, ev))
 }
+
+// flakyIteratorDB is a database whose first iterator ends at once and reports
+// errIterate. Later iterators work.
+type flakyIteratorDB struct {
+	dbm.DB
+	failed *bool
+}
+
+var errIterate = errors.New("iterator failed")
+
+func (db flakyIteratorDB) Iterator(start, end []byte) (dbm.Iterator, error) {
+	iter, err := db.DB.Iterator(start, end)
+	if err != nil || *db.failed {
+		return iter, err
+	}
+	*db.failed = true
+	return failedIterator{iter}, nil
+}
+
+type failedIterator struct{ dbm.Iterator }
+
+func (failedIterator) Valid() bool { return false }
+
+func (failedIterator) Error() error { return errIterate }
+
+func TestPoolStartFailsWhenRewoundEvidenceCannotBeRead(t *testing.T) {
+	const height int64 = 10
+	ctx := t.Context()
+	val := types.NewMockPV()
+	evidenceDB := dbm.NewMemDB()
+	stateStore := initializeValidatorState(ctx, t, val, height)
+	state, err := stateStore.Load()
+	require.NoError(t, err)
+	blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, val.PrivKey.Public().Address())
+	require.NoError(t, err)
+
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, nil)
+	startPool(t, pool, stateStore)
+	rewound, err := types.NewMockDuplicateVoteEvidenceWithValidator(
+		ctx, height, defaultEvidenceTime.Add(time.Duration(height)*time.Minute), val, evidenceChainID)
+	require.NoError(t, err)
+	require.NoError(t, pool.AddEvidence(ctx, rewound))
+
+	t.Cleanup(types.ReplaceRewinds(rewindOver(height)))
+	restarted := evidence.NewPool(flakyIteratorDB{evidenceDB, new(bool)}, stateStore, blockStore, nil)
+	require.ErrorIs(t, restarted.Start(state), errIterate)
+}

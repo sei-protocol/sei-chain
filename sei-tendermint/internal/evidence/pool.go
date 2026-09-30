@@ -533,6 +533,9 @@ func (evpool *Pool) removeRewoundPendingEvidence(chainID string) error {
 		}
 		removed++
 	}
+	if err := iter.Error(); err != nil {
+		return fmt.Errorf("failed to iterate over pending evidence: %w", err)
+	}
 	if removed == 0 {
 		return nil
 	}
