@@ -155,16 +155,24 @@ func (fm *FinalizationManager) enqueue(message any) error {
 	}
 	select {
 	case fm.messageChan <- message:
-		return nil
 	case <-fm.ctx.Done():
 		return fmt.Errorf("finalization manager is stopping: %w", fm.ctx.Err())
 	}
+	if fm.ctx.Err() != nil {
+		// The manager stopped around this send, so its exit drain may already have run and nothing else
+		// will take the message off the queue.
+		fm.discardQueued()
+	}
+	return nil
 }
 
 // run finalizes blocks until the manager is stopped or a block fails. It cancels the manager's context
 // on the way out, whatever the reason: everything waiting on this manager waits under that context, and
 // this goroutine is the only thing that can release it.
 func (fm *FinalizationManager) run() {
+	// Deferred first so it runs after the cancel: a message enqueued once this drain has run finds the
+	// manager stopped, and enqueue() drains it instead.
+	defer fm.discardQueued()
 	defer fm.cancel()
 
 	for {
@@ -182,11 +190,30 @@ func (fm *FinalizationManager) run() {
 	}
 }
 
+// discardQueued empties the queue, abandoning the view of each block still on it. The blocks are
+// unfinalized, so their reservations stay held rather than released.
+func (fm *FinalizationManager) discardQueued() {
+	for {
+		select {
+		case message := <-fm.messageChan:
+			if pending, ok := message.(*pendingFinalization); ok {
+				pending.blockView.Abandon()
+			}
+		default:
+			return
+		}
+	}
+}
+
 // handle deals with one message, reporting whether the manager may continue.
 func (fm *FinalizationManager) handle(message any) bool {
 	switch request := message.(type) {
 	case *pendingFinalization:
 		stopped, err := fm.finalize(request)
+		if err != nil || stopped {
+			// The block is dropped: a stopping manager never records it, and a failure bricks this one.
+			request.blockView.Abandon()
+		}
 		if err != nil {
 			fm.brick(err)
 			return false

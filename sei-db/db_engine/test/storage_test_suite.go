@@ -711,6 +711,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	itr, err := db.Iterator(storeKey1, 25, []byte("key000"), nil)
 	s.Require().NoError(err)
 	s.Require().False(itr.Valid())
+	s.Require().NoError(itr.Close())
 
 	// prune the latest version which should prune the entire dataset
 	s.Require().NoError(db.Prune(50))

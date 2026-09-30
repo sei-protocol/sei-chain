@@ -11,6 +11,7 @@ import (
 	gmath "github.com/ethereum/go-ethereum/common/math"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -48,6 +49,11 @@ func (api *infoAPI) ChainId(_ context.Context) *hexutil.Big {
 	return (*hexutil.Big)(new(big.Int).SetUint64(api.backend.EvmChainID()))
 }
 
+// Syncing implements eth_syncing, matching v2: sync semantics are not exposed on this API.
+func (api *infoAPI) Syncing(_ context.Context) (any, error) {
+	return nil, &evmrpc.ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
+}
+
 // gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
 // congested-chain reward, matching v2's eth_gasPrice.
 const gasPriceCongestionThresholdPercent = 80
@@ -55,6 +61,8 @@ const gasPriceCongestionThresholdPercent = 80
 // gasPriceCongestionPercentile is the reward percentile GasPrice escalates to once the chain is
 // congested, matching v2's eth_gasPrice (evmrpc.InfoAPI.gasPriceHelper).
 const gasPriceCongestionPercentile = 50
+
+const defaultPriorityFeePerGas = 1_000_000_000
 
 // GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
 // admission floor, or the latest congested block's median reward when that's higher and available.
@@ -93,6 +101,30 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 		return nil, false
 	}
 	return new(big.Int).SetUint64(reward), true
+}
+
+// MaxPriorityFeePerGas returns the suggested priority fee for the latest block.
+func (api *infoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+	current := api.store.LatestVersion()
+	if current <= 0 {
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	gasLimit, err := api.backend.EvmGasLimit()
+	if err != nil {
+		return nil, err
+	}
+	if gasLimit == 0 {
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	stats, err := api.blockStatsForHeight(ctx, current, []float64{gasPriceCongestionPercentile})
+	if err != nil {
+		return nil, fmt.Errorf("read block stats for priority fee: %w", err)
+	}
+	if stats.TotalGasUsed <= gasLimit*gasPriceCongestionThresholdPercent/100 {
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	reward, _ := stats.RewardAt(gasPriceCongestionPercentile)
+	return (*hexutil.Big)(new(big.Int).SetUint64(reward)), nil
 }
 
 // suggestedGasPrice scales floor up by the gas-price suggestion margin,

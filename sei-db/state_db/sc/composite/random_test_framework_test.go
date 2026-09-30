@@ -15,6 +15,7 @@ package composite
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"sort"
@@ -1532,7 +1533,9 @@ func applyTestMigrationBatchSize(t *testing.T, cs *CompositeCommitStore) {
 
 func openComposite(t *testing.T, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	cs, err := NewCompositeCommitStore(context.Background(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize(keys.MemIAVLStoreKeys))
 	err = cs.LoadLatest()
@@ -1579,7 +1582,9 @@ func stateSyncClone(
 	require.NoError(t, exporter.Close())
 
 	dstDir := t.TempDir()
-	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	dst, err := NewCompositeCommitStore(context.Background(), dstDir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, dst.Initialize(keys.MemIAVLStoreKeys))
 	// Open then close the writable handle so the importer takes over a

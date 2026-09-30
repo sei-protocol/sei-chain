@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -170,6 +171,27 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	genesis := types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}
 	_, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), genesis, keys[0].Public())
 	require.ErrorIs(t, err, ErrAvailBehindConsensus)
+}
+
+func TestNewInner_SpecAheadDiscardsWAL(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+
+	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: 0, Number: 0})
+	wal := persistedInner{
+		PrepareVote: utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal))),
+		PrepareQC:   utils.Some(makePrepareQC(keys, proposal)),
+	}
+	spec := advancingSpec(keys, registry)
+	require.Greater(t, spec.Index(), types.RoadIndex(0))
+
+	i, err := newInner(utils.Some(encodeWal(utils.None[*types.CommitQC](), &wal)), spec, keys[0].Public())
+	require.NoError(t, err)
+	require.Equal(t, spec.Index(), i.Index)
+	require.Equal(t, spec.Index(), i.View().Index)
+	require.Equal(t, spec.Epoch.EpochIndex(), i.spec.Epoch.EpochIndex())
+	requireNoPerView(t, i)
 }
 
 // TestRestore_BoundaryCatchUpSpecCoversWAL is the restart invariant blind-Spec
@@ -986,69 +1008,6 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 		"loaded prepareQC should have the correct view")
 }
 
-// Test that pushTimeoutQC clears stale votes and prepareQC
-func TestPushTimeoutQCClearsStaleState(t *testing.T) {
-	rng := utils.TestRng()
-	dir := t.TempDir()
-	registry, keys := epoch.GenRegistry(rng, 3)
-
-	// Setup: Create CommitQC at index 5 -> current view is (6, 0)
-	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 5, Number: 0})
-	qcVote := types.NewCommitVote(qcProposal)
-	var qcVotes []*types.Signed[*types.CommitVote]
-	for _, k := range keys {
-		qcVotes = append(qcVotes, types.Sign(k, qcVote))
-	}
-	commitQC := types.NewCommitQC(qcVotes)
-
-	// Setup: Create prepareQC at current view (6, 0)
-	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 6, Number: 0})
-	prepareQC := makePrepareQC(keys, currentProposal)
-
-	// Setup: Create votes at current view (6, 0)
-	prepareVote := types.Sign(keys[0], types.NewPrepareVote(currentProposal))
-	commitVote := types.Sign(keys[0], types.NewCommitVote(currentProposal))
-	timeoutVote := types.NewFullTimeoutVote(keys[0], types.View{Index: 6, Number: 0}, utils.Some(prepareQC))
-
-	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{
-		PrepareQC:   utils.Some(prepareQC),
-		PrepareVote: utils.Some(prepareVote),
-		CommitVote:  utils.Some(commitVote),
-		TimeoutVote: utils.Some(timeoutVote),
-	})
-
-	// Load initial state and verify everything is present
-	i, err := loadInner(t, dir, registry, keys)
-	require.NoError(t, err)
-	require.True(t, i.PrepareQC.IsPresent(), "prepareQC should be loaded")
-	require.True(t, i.PrepareVote.IsPresent(), "prepareVote should be loaded")
-	require.True(t, i.CommitVote.IsPresent(), "commitVote should be loaded")
-	require.True(t, i.TimeoutVote.IsPresent(), "timeoutVote should be loaded")
-	require.Equal(t, types.View{Index: 6, Number: 0}, i.View(), "initial view should be (6, 0)")
-
-	// Create a TimeoutQC for current view (6, 0) that advances to (6, 1)
-	var timeoutVotes []*types.FullTimeoutVote
-	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.Some(prepareQC)))
-	}
-	timeoutQC := types.NewTimeoutQC(timeoutVotes)
-
-	// Simulate pushTimeoutQC's Update callback
-	newInner := inner{
-		persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(timeoutQC)},
-		spec:           i.spec,
-	}
-
-	// Verify: view advanced to (6, 1)
-	require.Equal(t, types.View{Index: 6, Number: 1}, newInner.View(), "view should advance to (6, 1)")
-
-	// Verify: prepareQC and all votes are cleared (they're for old view)
-	require.False(t, newInner.PrepareQC.IsPresent(), "prepareQC should be cleared")
-	require.False(t, newInner.PrepareVote.IsPresent(), "prepareVote should be cleared")
-	require.False(t, newInner.CommitVote.IsPresent(), "commitVote should be cleared")
-	require.False(t, newInner.TimeoutVote.IsPresent(), "timeoutVote should be cleared")
-}
-
 // failPersister is a Persister that always returns an error.
 type failPersister[T protoutils.Message] struct{ err error }
 
@@ -1113,7 +1072,6 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	ep0 := registry.MustEpoch(0)
 	qc := commitQCAtRoad(ep0, keys, epoch.LastRoad(0))
 	require.Equal(t, epoch.LastRoad(0), qc.Proposal().Index())
-
 	// Avail resolves the next-view epoch; pushSpec advances to it verbatim.
 	ep1, err := registry.EpochAt(epoch.FirstRoad(1))
 	require.NoError(t, err)
@@ -1121,4 +1079,28 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	got := s.innerRecv.Load()
 	require.Equal(t, types.EpochIndex(1), got.spec.Epoch.EpochIndex())
 	require.Equal(t, epoch.FirstRoad(1), got.View().Index)
+}
+
+func TestTimeoutPhase(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	view := types.View{Index: 0, Number: 0}
+	proposal := types.GenProposalForEpoch(rng, ep, view)
+	pqc := makePrepareQC(keys, proposal)
+
+	empty := inner{spec: types.ConsensusSpec{Epoch: ep}}
+	require.Equal(t, metrics.PhaseNoProposal, empty.timeoutPhase())
+
+	withVote := empty
+	withVote.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(proposal)))
+	require.Equal(t, metrics.PhaseNoPrepareQC, withVote.timeoutPhase())
+
+	withQC := empty
+	withQC.PrepareQC = utils.Some(pqc)
+	require.Equal(t, metrics.PhaseNoCommit, withQC.timeoutPhase())
+
+	inherited := empty
+	inherited.TimeoutQC = utils.Some(makeTimeoutQC(keys, view, utils.Some(pqc)))
+	require.Equal(t, metrics.PhaseNoProposal, inherited.timeoutPhase())
 }

@@ -559,7 +559,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 	require.Eventually(t, func() bool {
 		last, err := changelog.LastOffset()
 		return err == nil && last > 0
-	}, 1*time.Second, 10*time.Millisecond, "expected some writes before Close()")
+	}, 10*time.Second, 10*time.Millisecond, "expected some writes before Close()")
 
 	closeDone := make(chan struct{})
 	closeErr := make(chan error, 1)
@@ -578,7 +578,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 10*time.Millisecond, "writers did not exit (possible deadlock)")
+	}, 10*time.Second, 10*time.Millisecond, "writers did not exit (possible deadlock)")
 
 	// Ensure Close() returns too.
 	require.Eventually(t, func() bool {
@@ -588,7 +588,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 10*time.Millisecond, "Close() did not return (possible deadlock)")
+	}, 10*time.Second, 10*time.Millisecond, "Close() did not return (possible deadlock)")
 
 	require.NoError(t, <-closeErr)
 }

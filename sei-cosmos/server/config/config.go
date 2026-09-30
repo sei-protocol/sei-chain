@@ -106,6 +106,8 @@ const (
 
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
+
+	DefaultGRPCRequestTimeout = 30 * time.Second
 )
 
 var (
@@ -321,6 +323,12 @@ type GRPCConfig struct {
 	// when resolving the client IP for rate limiting. Empty means trust no proxy.
 	// It applies to gRPC-Web (:9091) as well as native gRPC (:9090).
 	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
+
+	// RequestTimeout is the deadline applied to a gRPC request with no shorter
+	// client-supplied grpc-timeout. It applies to gRPC-Web (:9091) as well as
+	// native gRPC (:9090), since both are served by the same grpc.Server. 0
+	// disables the default deadline.
+	RequestTimeout time.Duration `mapstructure:"request-timeout"`
 }
 
 // RateLimiterConfig builds the ratelimiter.Config used by gRPC admission.
@@ -469,6 +477,7 @@ func DefaultConfig() *Config {
 			MaxInFlightPerIP:             DefaultGRPCMaxInFlightPerIP,
 			RateLimitingEnabled:          false,
 			TrustedProxyCIDRs:            nil,
+			RequestTimeout:               DefaultGRPCRequestTimeout,
 		},
 		Rosetta: RosettaConfig{
 			Enable:     false,
@@ -683,6 +692,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("grpc.trusted-proxy-cidrs") {
 		grpcTrustedProxyCIDRs = v.GetStringSlice("grpc.trusted-proxy-cidrs")
 	}
+	grpcRequestTimeout := DefaultGRPCRequestTimeout
+	if v.IsSet("grpc.request-timeout") {
+		grpcRequestTimeout = clampNonNegativeDuration(v.GetDuration("grpc.request-timeout"), DefaultGRPCRequestTimeout)
+	}
 
 	cfg := Config{
 		BaseConfig: BaseConfig{
@@ -745,6 +758,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			MaxInFlightPerIP:             grpcMaxInFlightPerIP,
 			RateLimitingEnabled:          v.GetBool("grpc.rate-limiting-enabled"),
 			TrustedProxyCIDRs:            grpcTrustedProxyCIDRs,
+			RequestTimeout:               grpcRequestTimeout,
 		},
 		GRPCWeb: GRPCWebConfig{
 			Enable:              v.GetBool("grpc-web.enable"),

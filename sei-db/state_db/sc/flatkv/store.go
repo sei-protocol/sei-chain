@@ -166,6 +166,10 @@ type CommitStore struct {
 
 	phaseTimer *metrics.PhaseTimer
 
+	// classifyBucketSizes is the length of each kind's bucket in the previous ApplyChangeSets call, used to size
+	// the next call's buckets. Zero for a kind that call did not touch.
+	classifyBucketSizes [keys.EVMKeyKindCount]int
+
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
 
@@ -1413,7 +1417,21 @@ func (s *CommitStore) CommitPendingBlock() error {
 	return nil
 }
 
+// Importer returns an importer for data from an untrusted source, such as a state sync peer. The import
+// fails unless physical keys arrive in strictly ascending order, which is the order KVExporter emits.
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	return s.newImporter(version, true)
+}
+
+// TrustedImporter returns an importer for data from a trusted source, such as an offline migration of this
+// node's own state. It accepts physical keys in any order, but each key must appear at most once: a repeat
+// is not detected and leaves the imported hash wrong.
+func (s *CommitStore) TrustedImporter(version int64) (types.Importer, error) {
+	return s.newImporter(version, false)
+}
+
+// newImporter prepares the store for an import at version and returns the importer.
+func (s *CommitStore) newImporter(version int64, requireAscendingKeys bool) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
@@ -1436,7 +1454,7 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-	return NewKVImporter(s, version, s.importDBs()), nil
+	return NewKVImporter(s, version, s.importDBs(), requireAscendingKeys), nil
 }
 
 // importDBs collects the raw databases an import writes into, taken from the view managers that

@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 	"github.com/sei-protocol/sei-chain/integration_test/runner"
@@ -38,12 +39,6 @@ type evmRPCResponse struct {
 	} `json:"error,omitempty"`
 }
 
-type startupState struct{}
-
-func (startupState) SetBalance(common.Address, *big.Int)               {}
-func (startupState) SetCode(common.Address, []byte)                    {}
-func (startupState) SetState(common.Address, common.Hash, common.Hash) {}
-
 // TestAutobahnStartup is the startup gate for AUTOBAHN=true clusters. Autobahn
 // serves the EVM JSON-RPC only, so the Tendermint RPC queries TestStartup makes
 // have nothing to answer them. With empty blocks off, a committed transfer is
@@ -54,29 +49,7 @@ func TestAutobahnStartup(t *testing.T) {
 }
 
 func assertAutobahnCommittedTx(t *testing.T) {
-	cfg := scenarios.Config{
-		TxsPerBlock:   1,
-		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID),
-		GasPrice:      big.NewInt(1_000_000_000),
-		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
-		TransferValue: big.NewInt(1),
-		TxGasLimit:    21_000,
-		SameSender:    true,
-	}
-	workload, err := scenarios.NewTransferWorkload(cfg, startupState{})
-	if err != nil {
-		t.Fatalf("create startup transfer: %v", err)
-	}
-	block, err := workload.BuildBlock(t.Context(), autobahnStartupSender)
-	if err != nil {
-		t.Fatalf("build startup transfer: %v", err)
-	}
-	raw := block.Txs[0]
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(raw); err != nil {
-		t.Fatalf("decode startup transfer: %v", err)
-	}
-
+	tx, raw := buildStartupTransfer(t)
 	sent, err := evmRPCInContainer(autobahnStartupContainer, "eth_sendRawTransaction", []any{hexutil.Encode(raw)})
 	if err != nil {
 		t.Fatalf("send startup transfer: %v", err)
@@ -95,6 +68,50 @@ func assertAutobahnCommittedTx(t *testing.T) {
 		time.Sleep(autobahnStartupPoll)
 	}
 	t.Fatalf("startup transfer %s was not confirmed within %s", tx.Hash(), autobahnStartupTimeout)
+}
+
+// buildStartupTransfer returns a signed 1 wei self-transfer from the startup
+// sender at its next nonce, together with its raw encoding.
+func buildStartupTransfer(t *testing.T) (*ethtypes.Transaction, []byte) {
+	t.Helper()
+	key, err := scenarios.DeterministicPrivateKey(autobahnStartupSender)
+	if err != nil {
+		t.Fatalf("derive startup sender key: %v", err)
+	}
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID))
+	tx, err := ethtypes.SignNewTx(key, signer, &ethtypes.LegacyTx{
+		Nonce:    committedNonce(t, sender),
+		GasPrice: big.NewInt(1_000_000_000),
+		Gas:      21_000,
+		To:       &sender,
+		Value:    big.NewInt(1),
+	})
+	if err != nil {
+		t.Fatalf("sign startup transfer: %v", err)
+	}
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		t.Fatalf("encode startup transfer: %v", err)
+	}
+	return tx, raw
+}
+
+// committedNonce returns the nonce the chain expects next from sender.
+func committedNonce(t *testing.T, sender common.Address) uint64 {
+	t.Helper()
+	resp, err := evmRPCInContainer(autobahnStartupContainer, "eth_getTransactionCount", []any{sender, "latest"})
+	if err != nil {
+		t.Fatalf("read startup sender nonce: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("read startup sender nonce: rpc %d %s", resp.Error.Code, resp.Error.Message)
+	}
+	var nonce hexutil.Uint64
+	if err := json.Unmarshal(resp.Result, &nonce); err != nil {
+		t.Fatalf("decode startup sender nonce %s: %v", resp.Result, err)
+	}
+	return uint64(nonce)
 }
 
 func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, error) {

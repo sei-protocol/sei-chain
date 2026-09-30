@@ -54,6 +54,9 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("AwaitFlush waiter did not unblock after the brick")
 	}
+
+	// view2 is never finalized, so it cannot be released.
+	view2.Abandon()
 }
 
 func TestCloseAfterBrickReportsFatalError(t *testing.T) {
@@ -166,7 +169,8 @@ func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 	e := manager.(*viewManager)
 
 	require.Error(t, e.IncrementReferenceCount(9999))
-	require.Error(t, e.DecrementReferenceCount(9999))
+	_, err := e.DecrementReferenceCount(9999)
+	require.Error(t, err)
 	require.NoError(t, e.ctx.Err(), "a bogus version must not brick the manager")
 
 	// Still fully usable: reads serve, and a view completes its whole lifecycle.
