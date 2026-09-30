@@ -141,6 +141,10 @@ func (evpool *Pool) Update(ctx context.Context, state sm.State, ev types.Evidenc
 func (evpool *Pool) AddEvidence(ctx context.Context, ev types.Evidence) error {
 	logger.Debug("attempting to add evidence", "evidence", ev)
 
+	if err := evpool.refuseRewoundEvidence(ev); err != nil {
+		return err
+	}
+
 	// We have already verified this piece of evidence - no need to do it again
 	if evpool.isPending(ev) {
 		logger.Debug("evidence already pending; ignoring", "evidence", ev)
@@ -197,6 +201,9 @@ func (evpool *Pool) ReportConflictingVotes(voteA, voteB *types.Vote) {
 func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList) error {
 	hashes := make([][]byte, len(evList))
 	for idx, ev := range evList {
+		if err := evpool.refuseRewoundEvidence(ev); err != nil {
+			return err
+		}
 
 		_, isLightEv := ev.(*types.LightClientAttackEvidence)
 
@@ -262,6 +269,10 @@ func (evpool *Pool) Start(state sm.State) error {
 	}
 
 	evpool.state = state
+
+	if err := evpool.removeRewoundPendingEvidence(state.ChainID); err != nil {
+		return err
+	}
 
 	// If pending evidence already in db, in event of prior failure, then check
 	// for expiration, update the size and load it back to the evidenceList.
@@ -483,6 +494,53 @@ func (evpool *Pool) removeExpiredPendingEvidence() (int64, time.Time) {
 	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1)) //nolint:gosec // len(blockEvidenceMap) is guaranteed > 0 by early return above; atomic subtract idiom
 
 	return height, time
+}
+
+// refuseRewoundEvidence returns an invalid evidence error for evidence from a
+// height that a compiled rewind abandoned.
+func (evpool *Pool) refuseRewoundEvidence(ev types.Evidence) error {
+	if fromRewoundWindow(evpool.State().ChainID, ev) {
+		return types.NewErrInvalidEvidence(ev, fmt.Errorf(
+			"evidence at height %d is from a height a rewind abandoned", ev.Height()))
+	}
+	return nil
+}
+
+// removeRewoundPendingEvidence deletes pending evidence from a height that a
+// compiled rewind abandoned, so that the pool neither proposes it nor treats it
+// as already verified.
+func (evpool *Pool) removeRewoundPendingEvidence(chainID string) error {
+	batch := evpool.evidenceStore.NewBatch()
+	defer func() { _ = batch.Close() }()
+
+	iter, err := dbm.IteratePrefix(evpool.evidenceStore, prefixToBytes(prefixPending))
+	if err != nil {
+		return fmt.Errorf("failed to iterate over pending evidence: %w", err)
+	}
+	defer func() { _ = iter.Close() }()
+
+	removed := 0
+	for ; iter.Valid(); iter.Next() {
+		ev, err := bytesToEv(iter.Value())
+		if err != nil {
+			return fmt.Errorf("failed to decode pending evidence: %w", err)
+		}
+		if !fromRewoundWindow(chainID, ev) {
+			continue
+		}
+		if err := batch.Delete(iter.Key()); err != nil {
+			return fmt.Errorf("failed to delete pending evidence: %w", err)
+		}
+		removed++
+	}
+	if removed == 0 {
+		return nil
+	}
+	if err := batch.WriteSync(); err != nil {
+		return fmt.Errorf("failed to delete pending evidence: %w", err)
+	}
+	logger.Info("removed pending evidence from heights a rewind abandoned", "count", removed)
+	return nil
 }
 
 func (evpool *Pool) batchExpiredPendingEvidence(batch dbm.Batch) (int64, time.Time, map[string]struct{}) {

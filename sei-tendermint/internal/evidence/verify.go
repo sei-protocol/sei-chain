@@ -30,11 +30,6 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 		ageNumBlocks   = height - evidence.Height()
 	)
 
-	if fromRewoundWindow(state.ChainID, evidence) {
-		return types.NewErrInvalidEvidence(evidence, fmt.Errorf(
-			"evidence at height %d is from a height a rewind abandoned", evidence.Height()))
-	}
-
 	// ensure we have the block for the evidence height
 	//
 	// NOTE: It is currently possible for a peer to send us evidence we're not
