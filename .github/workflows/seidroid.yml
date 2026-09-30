@@ -43,7 +43,7 @@ jobs:
 
   # Anchored, unlike the review job's `contains`. A comment that quotes the
   # teardown command beside a real `@seidroid review` line would otherwise route
-  # here, and uci v0.0.24 admits it on the review line without checking it
+  # here, and uci v0.0.25 admits it on the review line without checking it
   # against `mode`, so the session would be destroyed. Anchoring only this,
   # destructive, job keeps such a comment from destroying anything. PLT-1182
   # fixes the grammar once in uci, which can compare the parsed line to `mode`.
