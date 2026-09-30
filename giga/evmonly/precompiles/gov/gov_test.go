@@ -768,9 +768,15 @@ func TestEndBlockEndsABoundedNumberOfProposalsPerBlock(t *testing.T) {
 	plan, ok := c.plan()
 	require.True(t, ok)
 	require.Equal(t, uint64(16), plan.Proposal)
+	var open tallyData
+	c.query(&open, "tallyResult", uint64(17))
 
-	c.block(1)
+	// A block after the backlog's end time takes no more votes on it.
+	requireStatuses(t, c.block(1, f.vote(f.voters[0], 17, gov.OptionNo)), 0)
 	require.Equal(t, slices.Repeat([]int32{gov.StatusPassed}, proposals), statuses())
+	var final tallyData
+	c.query(&final, "tallyResult", uint64(17))
+	require.Equal(t, open, final)
 	plan, ok = c.plan()
 	require.True(t, ok)
 	require.Equal(t, gov.Plan{Name: "19", Height: 10_019, Info: "info for 19", Proposal: 20}, plan)

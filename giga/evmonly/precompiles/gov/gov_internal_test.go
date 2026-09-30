@@ -72,13 +72,14 @@ func TestDecTextRoundTrip(t *testing.T) {
 func TestParamsValidate(t *testing.T) {
 	require.NoError(t, DefaultParams().Validate())
 	for name, mutate := range map[string]func(*Params){
-		"zero voting period":  func(p *Params) { p.VotingPeriod = 0 },
-		"zero quorum":         func(p *Params) { p.Quorum = 0 },
-		"quorum above one":    func(p *Params) { p.Quorum = DecOne + 1 },
-		"zero threshold":      func(p *Params) { p.Threshold = 0 },
-		"threshold above one": func(p *Params) { p.Threshold = DecOne + 1 },
-		"zero veto threshold": func(p *Params) { p.VetoThreshold = 0 },
-		"veto above one":      func(p *Params) { p.VetoThreshold = DecOne + 1 },
+		"zero voting period":      func(p *Params) { p.VotingPeriod = 0 },
+		"voting period above max": func(p *Params) { p.VotingPeriod = MaxVotingPeriod + 1 },
+		"zero quorum":             func(p *Params) { p.Quorum = 0 },
+		"quorum above one":        func(p *Params) { p.Quorum = DecOne + 1 },
+		"zero threshold":          func(p *Params) { p.Threshold = 0 },
+		"threshold above one":     func(p *Params) { p.Threshold = DecOne + 1 },
+		"zero veto threshold":     func(p *Params) { p.VetoThreshold = 0 },
+		"veto above one":          func(p *Params) { p.VetoThreshold = DecOne + 1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := DefaultParams()
@@ -88,6 +89,7 @@ func TestParamsValidate(t *testing.T) {
 	}
 	p := DefaultParams()
 	p.Quorum, p.Threshold, p.VetoThreshold = DecOne, DecOne, DecOne
+	p.VotingPeriod = MaxVotingPeriod
 	require.NoError(t, p.Validate())
 }
 
