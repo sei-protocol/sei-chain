@@ -39,8 +39,8 @@ func TestEmbeddedRepairsLoad(t *testing.T) {
 func TestLoadParsesRepair(t *testing.T) {
 	fsys := repairFS(map[string]string{
 		"a.json": `{"name":"a","chain_id":"c","height":10,"read_height":9,"source":"reserve at 9","entries":[
-			{"store":"evm","key":"0x0102","value":"aa","expect":"bb"},
-			{"store":"evm","key":"0304","value":null,"expect_absent":false}]}`,
+			{"store":"evm","key":"0x0102","new":"aa","old":"bb"},
+			{"store":"evm","key":"0304","new":null,"old_absent":false}]}`,
 		"README.md": "ignored",
 	})
 	repairs, err := Load(fsys, testKeys())
@@ -51,9 +51,9 @@ func TestLoadParsesRepair(t *testing.T) {
 	require.Equal(t, int64(10), r.Height)
 	require.Equal(t, "reserve at 9", r.Source)
 	require.Equal(t, HexBytes{1, 2}, r.Entries[0].Key)
-	require.Equal(t, hexPtr([]byte{0xaa}), r.Entries[0].Value)
-	require.Equal(t, hexPtr([]byte{0xbb}), r.Entries[0].Expect)
-	require.Nil(t, r.Entries[1].Value)
+	require.Equal(t, hexPtr([]byte{0xaa}), r.Entries[0].New)
+	require.Equal(t, hexPtr([]byte{0xbb}), r.Entries[0].Old)
+	require.Nil(t, r.Entries[1].New)
 }
 
 func TestLoadRejectsInvalidRepairs(t *testing.T) {
@@ -62,15 +62,15 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 		err   string
 	}{
 		"unknown field": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","valu":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","ne":"02"}]}`},
 			err:   "unknown field",
 		},
 		"bad hex": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"zz","value":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"zz","new":"02"}]}`},
 			err:   "invalid hex",
 		},
 		"unknown store": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"nope","key":"01","value":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"nope","key":"01","new":"02"}]}`},
 			err:   `unknown store "nope"`,
 		},
 		"no entries": {
@@ -78,61 +78,61 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 			err:   "no entries",
 		},
 		"zero height": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":0,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":0,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
 			err:   "not positive",
 		},
-		"empty value": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":""}]}`},
-			err:   "value is empty",
+		"empty new": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":""}]}`},
+			err:   "new is empty",
 		},
-		"both expectations": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02","expect":"03","expect_absent":true}]}`},
+		"both old values": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","old":"03","old_absent":true}]}`},
 			err:   "both set",
 		},
 		"second object": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]}
-{"name":"b","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"02","value":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}
+{"name":"b","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"02","new":"02"}]}`},
 			err: "unexpected data after the JSON value",
 		},
 		"trailing garbage": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]} xyz`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]} xyz`},
 			err:   "unexpected data after the JSON value",
 		},
-		"missing value": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","expect":"03"}]}`},
-			err:   "value is missing",
+		"missing new": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","old":"03"}]}`},
+			err:   "new is missing",
 		},
-		"null expect": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02","expect":null}]}`},
-			err:   "expect is null",
+		"null old": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","old":null}]}`},
+			err:   "old is null",
 		},
 		"no read height": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"entries":[{"store":"evm","key":"01","value":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
 			err:   "read_height 0 is not positive",
 		},
 		"read height at height": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":2,"entries":[{"store":"evm","key":"01","value":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
 			err:   "not below height",
 		},
-		"no expectation with a gap": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":5,"read_height":3,"entries":[{"store":"evm","key":"01","value":"02","expect":"03"},{"store":"evm","key":"02","value":"02"}]}`},
-			err:   "entry 1: no expectation",
+		"no old value with a gap": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":5,"read_height":3,"entries":[{"store":"evm","key":"01","new":"02","old":"03"},{"store":"evm","key":"02","new":"02"}]}`},
+			err:   "entry 1: no old value",
 		},
 		"duplicate key in one file": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"},{"store":"evm","key":"01","value":"03"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"},{"store":"evm","key":"01","new":"03"}]}`},
 			err:   "appears twice",
 		},
 		"duplicate name": {
 			files: map[string]string{
-				"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]}`,
-				"b.json": `{"name":"a","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"01","value":"02"}]}`,
+				"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
+				"b.json": `{"name":"a","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
 			},
 			err: "already used",
 		},
 		"same key at same height in two files": {
 			files: map[string]string{
-				"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]}`,
-				"b.json": `{"name":"b","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"03"}]}`,
+				"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
+				"b.json": `{"name":"b","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"03"}]}`,
 			},
 			err: "also repaired by",
 		},
@@ -144,11 +144,11 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 	}
 }
 
-func TestLoadAcceptsGapWhenEveryEntryHasAnExpectation(t *testing.T) {
+func TestLoadAcceptsGapWhenEveryEntryHasAnOldValue(t *testing.T) {
 	repairs, err := Load(repairFS(map[string]string{
 		"a.json": `{"name":"a","chain_id":"c","height":100,"read_height":10,"entries":[
-			{"store":"evm","key":"01","value":"02","expect":"03"},
-			{"store":"evm","key":"02","value":null,"expect_absent":true}]}` + "\n\n",
+			{"store":"evm","key":"01","new":"02","old":"03"},
+			{"store":"evm","key":"02","new":null,"old_absent":true}]}` + "\n\n",
 	}), testKeys())
 	require.NoError(t, err)
 	require.Len(t, repairs, 1)
@@ -167,9 +167,9 @@ func TestExecuteWritesAndDeletes(t *testing.T) {
 	store.Set([]byte{2}, []byte{0xde, 0xad})
 
 	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, Value: hexPtr([]byte{0x01}), Expect: hexPtr([]byte{0xde, 0xad})},
-		{Store: "evm", Key: HexBytes{2}, Expect: hexPtr([]byte{0xde, 0xad})},
-		{Store: "evm", Key: HexBytes{3}, Value: hexPtr([]byte{0x03}), ExpectAbsent: true},
+		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde, 0xad})},
+		{Store: "evm", Key: HexBytes{2}, Old: hexPtr([]byte{0xde, 0xad})},
+		{Store: "evm", Key: HexBytes{3}, New: hexPtr([]byte{0x03}), OldAbsent: true},
 	}}, keys)
 	require.NoError(t, h.ExecuteHandler(ctx))
 
@@ -178,7 +178,7 @@ func TestExecuteWritesAndDeletes(t *testing.T) {
 	require.Equal(t, []byte{0x03}, store.Get([]byte{3}))
 }
 
-func TestExecuteWritesEntriesThatHoldTheTarget(t *testing.T) {
+func TestExecuteWritesEntriesThatHoldTheNewValue(t *testing.T) {
 	keys := testKeys()
 	ctx := newTestContext(keys)
 	store := ctx.KVStore(keys["evm"])
@@ -187,8 +187,8 @@ func TestExecuteWritesEntriesThatHoldTheTarget(t *testing.T) {
 	var trace bytes.Buffer
 	ctx.MultiStore().SetTracer(&trace)
 	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, Value: hexPtr([]byte{0x01}), Expect: hexPtr([]byte{0xde, 0xad})},
-		{Store: "evm", Key: HexBytes{2}, Expect: hexPtr([]byte{0xde, 0xad})},
+		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde, 0xad})},
+		{Store: "evm", Key: HexBytes{2}, Old: hexPtr([]byte{0xde, 0xad})},
 	}}, keys)
 	require.NoError(t, h.ExecuteHandler(ctx))
 
@@ -198,7 +198,7 @@ func TestExecuteWritesEntriesThatHoldTheTarget(t *testing.T) {
 	require.Equal(t, 1, strings.Count(trace.String(), `"operation":"delete"`))
 }
 
-func TestExecuteFailsOnUnexpectedValue(t *testing.T) {
+func TestExecuteFailsWhenOldValueDiffers(t *testing.T) {
 	keys := testKeys()
 	ctx := newTestContext(keys)
 	store := ctx.KVStore(keys["evm"])
@@ -206,9 +206,9 @@ func TestExecuteFailsOnUnexpectedValue(t *testing.T) {
 	store.Set([]byte{2}, []byte{0x99})
 
 	for name, e := range map[string]Entry{
-		"other value": {Store: "evm", Key: HexBytes{1}, Value: hexPtr([]byte{0x01}), Expect: hexPtr([]byte{0xde})},
-		"present":     {Store: "evm", Key: HexBytes{2}, Value: hexPtr([]byte{0x01}), ExpectAbsent: true},
-		"absent":      {Store: "evm", Key: HexBytes{3}, Value: hexPtr([]byte{0x01}), Expect: hexPtr([]byte{0xde})},
+		"other value": {Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde})},
+		"present":     {Store: "evm", Key: HexBytes{2}, New: hexPtr([]byte{0x01}), OldAbsent: true},
+		"absent":      {Store: "evm", Key: HexBytes{3}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde})},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{e}}, keys)
@@ -220,14 +220,14 @@ func TestExecuteFailsOnUnexpectedValue(t *testing.T) {
 	require.Nil(t, store.Get([]byte{3}))
 }
 
-func TestExecuteWithoutExpectationOverwrites(t *testing.T) {
+func TestExecuteWithoutOldValueOverwrites(t *testing.T) {
 	keys := testKeys()
 	ctx := newTestContext(keys)
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0x99})
 
 	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, Value: hexPtr([]byte{0x01})},
+		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01})},
 	}}, keys)
 	require.NoError(t, h.ExecuteHandler(ctx))
 	require.Equal(t, []byte{0x01}, store.Get([]byte{1}))

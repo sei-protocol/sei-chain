@@ -41,50 +41,50 @@ type Repair struct {
 	Entries    []Entry `json:"entries"`
 }
 
-// Entry sets Key in Store to Value, or deletes Key when Value is nil. Expect
-// and ExpectAbsent state the value the entry must find before it writes, unless
-// the key already holds its target.
+// Entry sets Key in Store to New, or deletes Key when New is nil. Old and
+// OldAbsent state the value the key must hold before the write, unless the key
+// already holds New.
 type Entry struct {
-	Store        string    `json:"store"`
-	Key          HexBytes  `json:"key"`
-	Value        *HexBytes `json:"value"`
-	Expect       *HexBytes `json:"expect,omitempty"`
-	ExpectAbsent bool      `json:"expect_absent,omitempty"`
+	Store     string    `json:"store"`
+	Key       HexBytes  `json:"key"`
+	New       *HexBytes `json:"new"`
+	Old       *HexBytes `json:"old,omitempty"`
+	OldAbsent bool      `json:"old_absent,omitempty"`
 }
 
 // UnmarshalJSON decodes an entry and refuses unknown fields. It requires the
-// value field, where null deletes the key, and it refuses a null expect.
+// new field, where null deletes the key, and it refuses a null old.
 func (e *Entry) UnmarshalJSON(data []byte) error {
 	var fields struct {
-		Store        string          `json:"store"`
-		Key          HexBytes        `json:"key"`
-		Value        json.RawMessage `json:"value"`
-		Expect       json.RawMessage `json:"expect"`
-		ExpectAbsent bool            `json:"expect_absent"`
+		Store     string          `json:"store"`
+		Key       HexBytes        `json:"key"`
+		New       json.RawMessage `json:"new"`
+		Old       json.RawMessage `json:"old"`
+		OldAbsent bool            `json:"old_absent"`
 	}
 	if err := decodeStrict(data, &fields); err != nil {
 		return err
 	}
 	switch {
-	case fields.Value == nil:
-		return fmt.Errorf("entry for key %x: value is missing; use null to delete the key", []byte(fields.Key))
-	case isJSONNull(fields.Expect):
-		return fmt.Errorf(`entry for key %x: expect is null; omit it, or use "expect_absent": true`, []byte(fields.Key))
+	case fields.New == nil:
+		return fmt.Errorf("entry for key %x: new is missing; use null to delete the key", []byte(fields.Key))
+	case isJSONNull(fields.Old):
+		return fmt.Errorf(`entry for key %x: old is null; omit it, or use "old_absent": true`, []byte(fields.Key))
 	}
-	entry := Entry{Store: fields.Store, Key: fields.Key, ExpectAbsent: fields.ExpectAbsent}
-	if !isJSONNull(fields.Value) {
-		value := HexBytes{}
-		if err := json.Unmarshal(fields.Value, &value); err != nil {
+	entry := Entry{Store: fields.Store, Key: fields.Key, OldAbsent: fields.OldAbsent}
+	if !isJSONNull(fields.New) {
+		newValue := HexBytes{}
+		if err := json.Unmarshal(fields.New, &newValue); err != nil {
 			return err
 		}
-		entry.Value = &value
+		entry.New = &newValue
 	}
-	if fields.Expect != nil {
-		expect := HexBytes{}
-		if err := json.Unmarshal(fields.Expect, &expect); err != nil {
+	if fields.Old != nil {
+		oldValue := HexBytes{}
+		if err := json.Unmarshal(fields.Old, &oldValue); err != nil {
 			return err
 		}
-		entry.Expect = &expect
+		entry.Old = &oldValue
 	}
 	*e = entry
 	return nil
@@ -94,8 +94,8 @@ func isJSONNull(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
-func (e Entry) hasExpectation() bool {
-	return e.Expect != nil || e.ExpectAbsent
+func (e Entry) hasOld() bool {
+	return e.Old != nil || e.OldAbsent
 }
 
 // HexBytes is a byte string that encodes as hex in JSON, with or without a 0x
@@ -211,8 +211,8 @@ func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
 	case len(r.Entries) == 0:
 		return errors.New("no entries")
 	}
-	// Between ReadHeight and Height-1 a key can change, so a target read at
-	// ReadHeight can be stale. An expectation turns a stale target into a halt;
+	// Between ReadHeight and Height-1 a key can change, so a new value read at
+	// ReadHeight can be stale. An old value turns a stale entry into a halt;
 	// without one the entry would overwrite the newer value.
 	valuesAreCurrent := r.ReadHeight == r.Height-1
 	seen := map[string]bool{}
@@ -223,14 +223,14 @@ func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
 		if len(e.Key) == 0 {
 			return fmt.Errorf("entry %d: key is empty", i)
 		}
-		if e.Value != nil && len(*e.Value) == 0 {
-			return fmt.Errorf("entry %d: value is empty; use null to delete the key", i)
+		if e.New != nil && len(*e.New) == 0 {
+			return fmt.Errorf("entry %d: new is empty; use null to delete the key", i)
 		}
-		if e.Expect != nil && e.ExpectAbsent {
-			return fmt.Errorf("entry %d: expect and expect_absent are both set", i)
+		if e.Old != nil && e.OldAbsent {
+			return fmt.Errorf("entry %d: old and old_absent are both set", i)
 		}
-		if !valuesAreCurrent && !e.hasExpectation() {
-			return fmt.Errorf("entry %d: no expectation, and the values were read at %d, not %d",
+		if !valuesAreCurrent && !e.hasOld() {
+			return fmt.Errorf("entry %d: no old value, and the new values were read at %d, not %d",
 				i, r.ReadHeight, r.Height-1)
 		}
 		id := e.Store + "/" + hex.EncodeToString(e.Key)
@@ -260,16 +260,16 @@ func (h Handler) GetTargetChainID() string { return h.repair.ChainID }
 func (h Handler) GetTargetHeight() int64 { return h.repair.Height }
 
 // ExecuteHandler writes every entry and reads each one back. It returns an
-// error when an entry that does not hold its target finds a value other than
-// the one it expects, or when a read-back does not match the write.
+// error when a key that does not hold its new value holds something other than
+// its old value, or when a read-back does not match the write.
 func (h Handler) ExecuteHandler(ctx sdk.Context) error {
 	var repaired, alreadyCorrect int
 	for i, e := range h.repair.Entries {
 		store := ctx.KVStore(h.keys[e.Store])
 		current := store.Get(e.Key)
-		if holdsTarget(current, e.Value) {
+		if holdsTarget(current, e.New) {
 			alreadyCorrect++
-		} else if err := checkExpected(current, e); err != nil {
+		} else if err := checkOld(current, e); err != nil {
 			return fmt.Errorf("kvrepair %s: entry %d (store %s key %x): %w",
 				h.repair.Name, i, e.Store, []byte(e.Key), err)
 		} else {
@@ -277,12 +277,12 @@ func (h Handler) ExecuteHandler(ctx sdk.Context) error {
 		}
 		// Entries that already hold their target are written too, so that a
 		// correct node and a repaired node commit the same changeset.
-		if e.Value == nil {
+		if e.New == nil {
 			store.Delete(e.Key)
 		} else {
-			store.Set(e.Key, *e.Value)
+			store.Set(e.Key, *e.New)
 		}
-		if got := store.Get(e.Key); !holdsTarget(got, e.Value) {
+		if got := store.Get(e.Key); !holdsTarget(got, e.New) {
 			return fmt.Errorf("kvrepair %s: entry %d (store %s key %x): read back %x after the write",
 				h.repair.Name, i, e.Store, []byte(e.Key), got)
 		}
@@ -303,12 +303,12 @@ func holdsTarget(current []byte, target *HexBytes) bool {
 	return current != nil && bytes.Equal(current, *target)
 }
 
-func checkExpected(current []byte, e Entry) error {
+func checkOld(current []byte, e Entry) error {
 	switch {
-	case e.ExpectAbsent && current != nil:
-		return fmt.Errorf("expected no value, found %x", current)
-	case e.Expect != nil && (current == nil || !bytes.Equal(current, *e.Expect)):
-		return fmt.Errorf("expected %x, found %x", []byte(*e.Expect), current)
+	case e.OldAbsent && current != nil:
+		return fmt.Errorf("expected the key to be absent, found %x", current)
+	case e.Old != nil && (current == nil || !bytes.Equal(current, *e.Old)):
+		return fmt.Errorf("expected old value %x, found %x", []byte(*e.Old), current)
 	}
 	return nil
 }

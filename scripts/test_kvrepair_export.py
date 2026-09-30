@@ -26,7 +26,7 @@ class FakeNode:
 
 
 class ParseKeysTest(unittest.TestCase):
-    def test_parses_expectations_and_comments(self):
+    def test_parses_old_values_and_comments(self):
         keys = kx.parse_keys([
             "# header\n",
             "evm 0x0102\n",
@@ -44,7 +44,7 @@ class ParseKeysTest(unittest.TestCase):
         for line, message in (
             ("evm", "want 'store key"),
             ("evm zz", "key is not hex"),
-            ("evm 01 zz", "expect is not hex"),
+            ("evm 01 zz", "old value is not hex"),
             ("evm 0x", "key is empty"),
             ("evm 01 02 03", "want 'store key"),
         ):
@@ -64,14 +64,14 @@ class BuildRepairTest(unittest.TestCase):
         self.assertEqual(repair, {
             "name": "r", "chain_id": "c", "height": 100, "read_height": 90, "source": "src",
             "entries": [
-                {"store": "evm", "key": "01", "value": "aa", "expect": "de"},
-                {"store": "evm", "key": "02", "value": None, "expect": "de"},
+                {"store": "evm", "key": "01", "new": "aa", "old": "de"},
+                {"store": "evm", "key": "02", "new": None, "old": "de"},
             ],
         })
         self.assertEqual({h for _, _, h in reserve.reads}, {90})
         self.assertEqual(warnings, [])
 
-    def test_prod_supplies_missing_expectations(self):
+    def test_prod_supplies_missing_old_values(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa", ("evm", b"\x03"): b"\xcc"})
         prod = FakeNode({("evm", b"\x01"): b"\xde", ("evm", b"\x02"): b"\xde", ("evm", b"\x03"): b"\xcc"})
         repair, warnings = self.build(
@@ -79,31 +79,31 @@ class BuildRepairTest(unittest.TestCase):
             reserve, prod, repair_height=91,
         )
         self.assertEqual(repair["entries"], [
-            {"store": "evm", "key": "01", "value": "aa", "expect": "de"},
-            {"store": "evm", "key": "02", "value": None, "expect": "de"},
-            {"store": "evm", "key": "03", "value": "cc"},
-            {"store": "evm", "key": "04", "value": None, "expect": "01"},
+            {"store": "evm", "key": "01", "new": "aa", "old": "de"},
+            {"store": "evm", "key": "02", "new": None, "old": "de"},
+            {"store": "evm", "key": "03", "new": "cc"},
+            {"store": "evm", "key": "04", "new": None, "old": "01"},
         ])
         self.assertEqual(len(warnings), 1)
         self.assertIn("key 03: production state store agrees", warnings[0])
         self.assertNotIn(("evm", b"\x04", 90), prod.reads)
 
-    def test_prod_absent_becomes_expect_absent(self):
+    def test_prod_absent_becomes_old_absent(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
         repair, _ = self.build([("evm", b"\x01", None)], reserve, FakeNode({}))
-        self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "value": "aa", "expect_absent": True}])
+        self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "new": "aa", "old_absent": True}])
 
-    def test_refuses_entry_without_expectation_across_a_gap(self):
+    def test_refuses_entry_without_old_value_across_a_gap(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
         prod = FakeNode({("evm", b"\x01"): b"\xaa"})
-        with self.assertRaisesRegex(ValueError, "key 01: no expectation"):
+        with self.assertRaisesRegex(ValueError, "key 01: no old value"):
             self.build([("evm", b"\x01", None)], reserve, prod)
-        with self.assertRaisesRegex(ValueError, "key 01: no expectation"):
+        with self.assertRaisesRegex(ValueError, "key 01: no old value"):
             self.build([("evm", b"\x01", None)], reserve)
         repair, _ = self.build([("evm", b"\x01", None)], reserve, repair_height=91)
-        self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "value": "aa"}])
+        self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "new": "aa"}])
 
-    def test_warns_when_expectation_equals_target(self):
+    def test_warns_when_old_value_equals_new_value(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
         _, warnings = self.build([("evm", b"\x01", b"\xaa"), ("evm", b"\x02", kx.ABSENT)], reserve)
         self.assertEqual(len(warnings), 2)

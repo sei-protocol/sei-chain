@@ -2,21 +2,22 @@
 """Write a kvrepair file from the values a reserve node holds at one height.
 
 The key list is one entry per line: a store name, a hex key, and an optional
-expected current value (hex, or "absent"). Lines starting with # are ignored.
+old value, which is the incorrect value production holds now (hex, or
+"absent"). Lines starting with # are ignored.
 
     evm 03<address><slot>
     evm 03<address><slot> de...ad
     evm 03<address><slot> absent
 
 For each key the script reads the reserve value at --height and writes it as
-the entry's target. When a line has no expected value and --prod is given, the
-production node's value at --height becomes the expectation. That read goes to
+the entry's new value. When a line has no old value and --prod is given, the
+production node's value at --height becomes the old value. That read goes to
 the production state store, so it can differ from what the production commit
-store holds; give the expectation on the line when the investigation read it
+store holds; give the old value on the line when the investigation read it
 from the commit store.
 
 A key can change between --height and the block before --repair-height. So
-unless --height is --repair-height - 1, every entry needs an expectation, and
+unless --height is --repair-height - 1, every entry needs an old value, and
 the script refuses one without it.
 
 Example:
@@ -83,7 +84,7 @@ def parse_hex(text, what, lineno):
 
 
 def parse_keys(lines):
-    """Returns (store, key, expect) tuples; expect is None, ABSENT, or bytes."""
+    """Returns (store, key, old) tuples; old is None, ABSENT, or bytes."""
     keys = []
     for lineno, raw in enumerate(lines, 1):
         line = raw.split("#", 1)[0].strip()
@@ -91,38 +92,38 @@ def parse_keys(lines):
             continue
         fields = line.split()
         if len(fields) not in (2, 3):
-            raise ValueError(f"line {lineno}: want 'store key [expect]', got {raw.strip()!r}")
+            raise ValueError(f"line {lineno}: want 'store key [old]', got {raw.strip()!r}")
         key = parse_hex(fields[1], "key", lineno)
         if not key:
             raise ValueError(f"line {lineno}: key is empty")
-        expect = None
+        old = None
         if len(fields) == 3:
-            expect = ABSENT if fields[2] == ABSENT else parse_hex(fields[2], "expect", lineno)
-        keys.append((fields[0], key, expect))
+            old = ABSENT if fields[2] == ABSENT else parse_hex(fields[2], "old value", lineno)
+        keys.append((fields[0], key, old))
     return keys
 
 
 def build_repair(name, chain_id, repair_height, height, source, reserve, prod, keys, warn):
     entries = []
-    for store, key, expect in keys:
-        value = reserve.get(store, key, height)
-        if expect is None and prod is not None:
+    for store, key, old in keys:
+        new = reserve.get(store, key, height)
+        if old is None and prod is not None:
             current = prod.get(store, key, height)
-            if current == value:
+            if current == new:
                 warn(f"store {store} key {key.hex()}: production state store agrees with the reserve; "
-                     "entry has no expectation")
+                     "entry has no old value")
             else:
-                expect = ABSENT if current is None else current
-        if expect is None and repair_height != height + 1:
-            raise ValueError(f"store {store} key {key.hex()}: no expectation, and --height {height} is not "
-                             f"--repair-height - 1; give an expectation on the line, or read at {repair_height - 1}")
-        if expect is not None and expect == (ABSENT if value is None else value):
-            warn(f"store {store} key {key.hex()}: expected value equals the reserve value; entry is a no-op")
-        entry = {"store": store, "key": key.hex(), "value": None if value is None else value.hex()}
-        if expect == ABSENT:
-            entry["expect_absent"] = True
-        elif expect is not None:
-            entry["expect"] = expect.hex()
+                old = ABSENT if current is None else current
+        if old is None and repair_height != height + 1:
+            raise ValueError(f"store {store} key {key.hex()}: no old value, and --height {height} is not "
+                             f"--repair-height - 1; give an old value on the line, or read at {repair_height - 1}")
+        if old is not None and old == (ABSENT if new is None else new):
+            warn(f"store {store} key {key.hex()}: old value equals the reserve value; entry is a no-op")
+        entry = {"store": store, "key": key.hex(), "new": None if new is None else new.hex()}
+        if old == ABSENT:
+            entry["old_absent"] = True
+        elif old is not None:
+            entry["old"] = old.hex()
         entries.append(entry)
     return {
         "name": name,
@@ -139,7 +140,7 @@ def main(argv=None):
     parser.add_argument("--chain-id", required=True)
     parser.add_argument("--name", required=True, help="repair name; the handler is kvrepair-<name>")
     parser.add_argument("--reserve", required=True, help="reserve node Tendermint RPC URL")
-    parser.add_argument("--prod", help="production node Tendermint RPC URL, for expected values")
+    parser.add_argument("--prod", help="production node Tendermint RPC URL, for old values")
     parser.add_argument("--height", type=int, required=True, help="height to read the values at")
     parser.add_argument("--repair-height", type=int, required=True, help="height the repair runs at")
     parser.add_argument("--keys", required=True, help="key list file, or - for stdin")

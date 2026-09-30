@@ -12,26 +12,26 @@ and the entries to apply at the start of that block:
   "read_height": 186999000,
   "source": "memiavl-rpc-0-0 at 186999000",
   "entries": [
-    {"store": "evm", "key": "03...", "value": "00...01", "expect": "de...ad"},
-    {"store": "evm", "key": "03...", "value": null, "expect": "de...ad"}
+    {"store": "evm", "key": "03...", "new": "00...01", "old": "de...ad"},
+    {"store": "evm", "key": "03...", "new": null, "old": "de...ad"}
   ]
 }
 ```
 
-- `key`, `value`, and `expect` are hex, with or without `0x`.
+- `key`, `new`, and `old` are hex, with or without `0x`.
 - `read_height` must be below `height`.
 - `source` is free text for reviewers. It has no effect.
-- Every entry must have `value`. A `null` value deletes the key.
-- `expect` is the value the entry must find before it writes. Use
-  `"expect_absent": true` when the key must not exist. A `null` expect is
-  refused.
-- An entry with neither writes over any value. It is allowed only when
-  `read_height` is `height - 1`, because a key can change between the two
-  heights.
+- `new` is the correct value, read at `read_height`. Every entry must have
+  `new`. A `null` new deletes the key.
+- `old` is the incorrect value the key holds before the repair. Use
+  `"old_absent": true` when the key must not exist before the repair. A `null`
+  old is refused.
+- An entry with neither `old` nor `old_absent` writes over any value. It is
+  allowed only when `read_height` is `height - 1`, because a key can change
+  between the two heights.
 - Every entry is written, and each write is read back. An entry that already
-  holds its target skips the `expect` check, so a reserve whose state is correct
-  runs the same binary and commits the same changeset as a repaired node.
-- An entry that finds neither its target nor `expect` stops the node at that
-  height.
+  holds `new` skips the `old` check, so a reserve whose state is correct runs
+  the same binary and commits the same changeset as a repaired node.
+- An entry that finds neither `new` nor `old` stops the node at that height.
 
 Generate a file with `scripts/kvrepair-export.py`. Do not edit the values by hand.
