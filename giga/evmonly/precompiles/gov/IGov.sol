@@ -2,8 +2,8 @@
 pragma solidity ^0.8.0;
 
 // The EVM-only chain's governance precompile. abi.json is compiled from this
-// file with `make giga-gov-abi`. Every function keeps the selector, mutability
-// and return types it has in precompiles/gov/Gov.sol.
+// file with `make giga-gov-abi`. Every function except coolingVent keeps the
+// selector, mutability and return types it has in precompiles/gov/Gov.sol.
 
 address constant GOV_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001006;
 
@@ -125,4 +125,10 @@ interface IGov {
     function tallyResult(
         uint64 proposalID
     ) external view returns (TallyResultData memory tallyResult);
+
+    /**
+     * @dev Vent the station's cooling system. Always reverts with
+     *      "the station is not yet operational" and costs a fixed 0x4001 gas.
+     */
+    function coolingVent() external;
 }

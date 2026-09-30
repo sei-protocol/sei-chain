@@ -1,5 +1,12 @@
 [
   {
+    "inputs": [],
+    "name": "coolingVent",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint64",
