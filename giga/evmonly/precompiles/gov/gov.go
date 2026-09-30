@@ -344,7 +344,7 @@ func (c *Contract) vote(ctx *precompiles.Context, id uint64, option int32) (bool
 	if !w.exists(id) {
 		return false, ErrProposalNotFound
 	}
-	if w.status(id) != StatusVotingPeriod || ctx.Block.Time > w.u64(proposalSlot(id, fieldVotingEndTime)) {
+	if w.status(id) != StatusVotingPeriod || ctx.Block.Time >= w.u64(proposalSlot(id, fieldVotingEndTime)) {
 		return false, ErrProposalNotInVoting
 	}
 	w.setU64(voteSlot(id, ctx.Caller), uint64(option)) //nolint:gosec // option is in [1, 4].
