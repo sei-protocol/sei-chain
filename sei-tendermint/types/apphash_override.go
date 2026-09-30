@@ -120,7 +120,8 @@ func LoadAppHashOverrides(fsys fs.FS) ([]AppHashOverride, error) {
 }
 
 // decodeStrictJSON decodes data as exactly one JSON value into v, and refuses
-// unknown fields and any data after the value.
+// unknown fields, field names that checkJSONFieldNames refuses, and any data
+// after the value.
 func decodeStrictJSON(data []byte, v any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -131,7 +132,59 @@ func decodeStrictJSON(data []byte, v any) error {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return errors.New("unexpected data after the JSON value")
 	}
-	return nil
+	return checkJSONFieldNames(json.NewDecoder(bytes.NewReader(data)))
+}
+
+// checkJSONFieldNames reads one JSON value from d and returns an error when an
+// object in it names a field twice, or names a field with anything other than
+// lowercase ASCII letters, digits, and underscores.
+func checkJSONFieldNames(d *json.Decoder) error {
+	token, err := d.Token()
+	if err != nil {
+		return err
+	}
+	switch token {
+	case json.Delim('{'):
+		seen := map[string]bool{}
+		for d.More() {
+			token, err := d.Token()
+			if err != nil {
+				return err
+			}
+			name, _ := token.(string)
+			// encoding/json matches field names without regard to case, so a
+			// second spelling of a name would set the same field.
+			if !isLowercaseJSONName(name) {
+				return fmt.Errorf("field name %q must use lowercase ASCII letters, digits, and underscores", name)
+			}
+			if seen[name] {
+				return fmt.Errorf("field %q appears twice in one object", name)
+			}
+			seen[name] = true
+			if err := checkJSONFieldNames(d); err != nil {
+				return err
+			}
+		}
+	case json.Delim('['):
+		for d.More() {
+			if err := checkJSONFieldNames(d); err != nil {
+				return err
+			}
+		}
+	default:
+		return nil
+	}
+	_, err = d.Token()
+	return err
+}
+
+func isLowercaseJSONName(name string) bool {
+	for _, c := range []byte(name) {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return name != ""
 }
 
 func readAppHashOverrideFile(fsys fs.FS, filePath string) ([]AppHashOverride, error) {

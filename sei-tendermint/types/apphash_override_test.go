@@ -78,6 +78,10 @@ func TestLoadAppHashOverridesRejects(t *testing.T) {
 		"duplicate across files":  {`{"chain_id":"c","overrides":[` + row + `]}`, `{"chain_id":"c","overrides":[` + row + `]}`},
 		"second object":           {`{"chain_id":"c","overrides":[` + row + `]}` + "\n" + `{"chain_id":"d","overrides":[` + row + `]}`},
 		"trailing garbage":        {`{"chain_id":"c","overrides":[` + row + `]} xyz`},
+		"field twice in a row":    {`{"chain_id":"c","overrides":[{"height":10,"recorded":"C1","replacement":"A1","replacement":"A2"}]}`},
+		"field twice at the top":  {`{"chain_id":"c","chain_id":"d","overrides":[` + row + `]}`},
+		"field in another case":   {`{"chain_id":"c","overrides":[{"height":10,"recorded":"C1","Replacement":"A1"}]}`},
+		"field with folding rune": {`{"chain_id":"c","\u017fource":"x","overrides":[` + row + `]}`},
 	}
 	for name, files := range testcases {
 		t.Run(name, func(t *testing.T) {
