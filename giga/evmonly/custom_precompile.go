@@ -16,6 +16,8 @@ import (
 var (
 	errPrecompileNegativeAmount = errors.New("custom precompile balance amount is negative")
 	errPrecompileAmountOverflow = errors.New("custom precompile balance amount exceeds uint256")
+
+	errCustomPrecompileRunUnsupported = errors.New("custom precompile runs only through RunAndCalculateGas")
 )
 
 // customPrecompile runs a native custom precompile against the calling EVM's StateDB.
@@ -30,24 +32,24 @@ func (c customPrecompile) RequiredGas(input []byte) uint64 {
 	return c.contract.RequiredGas(input)
 }
 
-// Run is unreachable: the EVM dispatches DynamicGasPrecompiledContract through
-// RunAndCalculateGas. It is kept to satisfy vm.PrecompiledContract.
-func (c customPrecompile) Run(
-	evm *vm.EVM,
-	sender common.Address,
-	_ common.Address,
-	input []byte,
-	value *big.Int,
-	readOnly bool,
-	isFromDelegateCall bool,
-	_ *tracing.Hooks,
+// Run refuses to execute the contract. The EVM runs a DynamicGasPrecompiledContract
+// through RunAndCalculateGas, which alone charges its gas.
+func (customPrecompile) Run(
+	*vm.EVM,
+	common.Address,
+	common.Address,
+	[]byte,
+	*big.Int,
+	bool,
+	bool,
+	*tracing.Hooks,
 ) ([]byte, error) {
-	return c.run(evm, sender, input, value, readOnly, isFromDelegateCall, 0)
+	return nil, errCustomPrecompileRunUnsupported
 }
 
-// RunAndCalculateGas charges RequiredGas up front and runs the contract with
-// what remains, which the contract sees as Context.GasRemaining. A failed state
-// write takes precedence over the contract's own result.
+// RunAndCalculateGas charges RequiredGas up front, runs the contract, and returns
+// the gas left over. A failed state write takes precedence over the contract's
+// own result.
 func (c customPrecompile) RunAndCalculateGas(
 	evm *vm.EVM,
 	sender common.Address,
@@ -67,7 +69,7 @@ func (c customPrecompile) RunAndCalculateGas(
 	if logger != nil && logger.OnGasChange != nil {
 		logger.OnGasChange(suppliedGas, remaining, tracing.GasChangeCallPrecompiledContract)
 	}
-	output, err := c.run(evm, sender, input, value, readOnly, isFromDelegateCall, remaining)
+	output, err := c.run(evm, sender, input, value, readOnly, isFromDelegateCall)
 	return output, remaining, err
 }
 
@@ -78,7 +80,6 @@ func (c customPrecompile) run(
 	value *big.Int,
 	readOnly bool,
 	isFromDelegateCall bool,
-	gasRemaining uint64,
 ) ([]byte, error) {
 	if !readOnly {
 		materializeAccount(evm.StateDB, c.address)
@@ -90,7 +91,6 @@ func (c customPrecompile) run(
 		ApparentValue: cloneOptionalBig(value),
 		ReadOnly:      readOnly,
 		DelegateCall:  isFromDelegateCall,
-		GasRemaining:  gasRemaining,
 		Block:         precompileBlockContext(evm),
 		State:         state,
 		Logs:          state,
