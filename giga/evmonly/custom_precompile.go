@@ -16,8 +16,6 @@ import (
 var (
 	errPrecompileNegativeAmount = errors.New("custom precompile balance amount is negative")
 	errPrecompileAmountOverflow = errors.New("custom precompile balance amount exceeds uint256")
-
-	errCustomPrecompileRunUnsupported = errors.New("custom precompile runs only through RunAndCalculateGas")
 )
 
 // customPrecompile runs a native custom precompile against the calling EVM's StateDB.
@@ -26,60 +24,23 @@ type customPrecompile struct {
 	contract precompiles.Contract
 }
 
-var _ vm.DynamicGasPrecompiledContract = customPrecompile{}
+var _ vm.PrecompiledContract = customPrecompile{}
 
 func (c customPrecompile) RequiredGas(input []byte) uint64 {
 	return c.contract.RequiredGas(input)
 }
 
-// Run refuses to execute the contract. The EVM runs a DynamicGasPrecompiledContract
-// through RunAndCalculateGas, which alone charges its gas.
-func (customPrecompile) Run(
-	*vm.EVM,
-	common.Address,
-	common.Address,
-	[]byte,
-	*big.Int,
-	bool,
-	bool,
-	*tracing.Hooks,
-) ([]byte, error) {
-	return nil, errCustomPrecompileRunUnsupported
-}
-
-// RunAndCalculateGas charges RequiredGas up front, runs the contract, and returns
-// the gas left over. A failed state write takes precedence over the contract's
-// own result.
-func (c customPrecompile) RunAndCalculateGas(
+// Run runs the contract against the calling EVM's StateDB. A failed state write
+// takes precedence over the contract's own result.
+func (c customPrecompile) Run(
 	evm *vm.EVM,
 	sender common.Address,
 	_ common.Address,
 	input []byte,
-	suppliedGas uint64,
-	value *big.Int,
-	logger *tracing.Hooks,
-	readOnly bool,
-	isFromDelegateCall bool,
-) ([]byte, uint64, error) {
-	gasCost := c.contract.RequiredGas(input)
-	if suppliedGas < gasCost {
-		return nil, 0, vm.ErrOutOfGas
-	}
-	remaining := suppliedGas - gasCost
-	if logger != nil && logger.OnGasChange != nil {
-		logger.OnGasChange(suppliedGas, remaining, tracing.GasChangeCallPrecompiledContract)
-	}
-	output, err := c.run(evm, sender, input, value, readOnly, isFromDelegateCall)
-	return output, remaining, err
-}
-
-func (c customPrecompile) run(
-	evm *vm.EVM,
-	sender common.Address,
-	input []byte,
 	value *big.Int,
 	readOnly bool,
 	isFromDelegateCall bool,
+	_ *tracing.Hooks,
 ) ([]byte, error) {
 	if !readOnly {
 		materializeAccount(evm.StateDB, c.address)
