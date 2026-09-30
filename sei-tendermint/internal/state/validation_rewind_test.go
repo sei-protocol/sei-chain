@@ -4,7 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -12,6 +11,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 

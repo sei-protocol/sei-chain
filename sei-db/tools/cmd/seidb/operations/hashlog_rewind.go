@@ -42,6 +42,9 @@ func executeHashLogRewind(cmd *cobra.Command, args []string) {
 	high, _ := cmd.Flags().GetUint64("high")
 	source, _ := cmd.Flags().GetString("source")
 	output, _ := cmd.Flags().GetString("output")
+	if chainID == "" {
+		panic("--chain-id must not be empty")
+	}
 
 	discarded, err := buildDiscardedBlocks(args[0], safeHeight, high)
 	if err != nil {

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // rewindsDir holds the rewind files compiled into the binary.
@@ -42,10 +42,12 @@ func (r Rewind) lastDiscardedHeight() int64 {
 	return r.SafeHeight + int64(len(r.Discarded))
 }
 
-var (
-	rewindsMu sync.RWMutex
-	rewinds   = mustLoadRewinds()
-)
+// rewindTable holds the rewinds that the lookups read, by chain ID.
+type rewindTable struct {
+	byChain map[string][]Rewind
+}
+
+var rewinds = utils.NewRWMutex(&rewindTable{byChain: mustLoadRewinds()})
 
 // IsDiscardedBlock reports whether a compiled rewind abandoned the block with
 // hash at height on chainID.
@@ -62,11 +64,11 @@ func InRewoundWindow(chainID string, height int64) bool {
 }
 
 func rewindCovering(chainID string, height int64) (Rewind, bool) {
-	rewindsMu.RLock()
-	defer rewindsMu.RUnlock()
-	for _, r := range rewinds[chainID] {
-		if height > r.SafeHeight && height <= r.lastDiscardedHeight() {
-			return r, true
+	for table := range rewinds.RLock() {
+		for _, r := range table.byChain[chainID] {
+			if height > r.SafeHeight && height <= r.lastDiscardedHeight() {
+				return r, true
+			}
 		}
 	}
 	return Rewind{}, false
@@ -79,14 +81,14 @@ func ReplaceRewinds(rs []Rewind) (restore func()) {
 	if err != nil {
 		panic(err)
 	}
-	rewindsMu.Lock()
-	previous := rewinds
-	rewinds = table
-	rewindsMu.Unlock()
+	var previous map[string][]Rewind
+	for t := range rewinds.Lock() {
+		previous, t.byChain = t.byChain, table
+	}
 	return func() {
-		rewindsMu.Lock()
-		rewinds = previous
-		rewindsMu.Unlock()
+		for t := range rewinds.Lock() {
+			t.byChain = previous
+		}
 	}
 }
 

@@ -140,6 +140,12 @@ func TestHashLogAppHashOverridesCmdWritesFile(t *testing.T) {
 	}, file)
 }
 
+func TestHashLogRewindCmdRejectsEmptyChainID(t *testing.T) {
+	cmd := HashLogCmd()
+	cmd.SetArgs([]string{"rewind", "missing", "--chain-id", "", "--safe-height", "1", "--high", "2"})
+	require.PanicsWithValue(t, "--chain-id must not be empty", func() { _ = cmd.Execute() })
+}
+
 func TestBuildDiscardedBlocks(t *testing.T) {
 	prod, _ := appHashTestChains()
 	archive := writeAppHashTestArchive(t, prod)
