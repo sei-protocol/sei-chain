@@ -22,6 +22,9 @@ const DecOne Dec = 1_000_000_000_000_000_000
 // MaxVoters bounds the voter set, and with it the work a tally does.
 const MaxVoters = 1024
 
+// MaxVotingPeriod bounds Params.VotingPeriod, in seconds.
+const MaxVotingPeriod = math.MaxUint32
+
 // Dec is a non-negative fixed-point fraction with 18 decimal places.
 type Dec uint64
 
@@ -86,11 +89,11 @@ func DefaultParams() Params {
 	}
 }
 
-// Validate reports whether p is usable: a positive voting period and every
-// fraction in (0, 1].
+// Validate reports whether p is usable: a voting period in [1, MaxVotingPeriod]
+// and every fraction in (0, 1].
 func (p Params) Validate() error {
-	if p.VotingPeriod == 0 {
-		return errors.New("voting period must be positive")
+	if p.VotingPeriod == 0 || p.VotingPeriod > MaxVotingPeriod {
+		return fmt.Errorf("voting period %d must be in [1, %d]", p.VotingPeriod, MaxVotingPeriod)
 	}
 	for name, v := range map[string]Dec{"quorum": p.Quorum, "threshold": p.Threshold, "veto threshold": p.VetoThreshold} {
 		if v == 0 || v > DecOne {
