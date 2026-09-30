@@ -595,6 +595,24 @@ func TestCustomPrecompileBalanceOperations(t *testing.T) {
 			wantProbe: 100,
 		},
 		{
+			name: "a nil credit fails the call",
+			run: func(ctx *precompiles.Context) error {
+				ctx.State.AddBalance(recipient, nil)
+				return nil
+			},
+			wantErr:   errPrecompileNilAmount,
+			wantProbe: 100,
+		},
+		{
+			name: "a nil debit fails the call",
+			run: func(ctx *precompiles.Context) error {
+				_ = ctx.State.SubBalance(ctx.Address, nil)
+				return nil
+			},
+			wantErr:   errPrecompileNilAmount,
+			wantProbe: 100,
+		},
+		{
 			name: "a failed write takes precedence over the contract's error",
 			run: func(ctx *precompiles.Context) error {
 				ctx.State.AddBalance(recipient, big.NewInt(-1))
@@ -623,6 +641,33 @@ func TestCustomPrecompileBalanceOperations(t *testing.T) {
 			require.Equal(t, big.NewInt(tc.wantRecipient), state.GetBalance(recipient))
 			require.Equal(t, tc.wantSlot, state.GetState(probeAddr, probeSlot))
 		})
+	}
+}
+
+func TestCustomPrecompileLogsAreCopiesUnderItsOwnAddress(t *testing.T) {
+	state := NewMemoryState()
+	sender := newTestAccount(t, state)
+	foreign := testAddress(0xd7)
+	emitter := scriptedContract{run: func(ctx *precompiles.Context, _ []byte) ([]byte, error) {
+		entry := &ethtypes.Log{Address: foreign, Topics: []common.Hash{word(1)}, Data: []byte{0x01}}
+		ctx.Logs.AddLog(entry)
+		entry.Topics[0] = word(2)
+		entry.Data[0] = 0x02
+		ctx.Logs.AddLog(entry)
+		entry.Topics[0] = word(3)
+		entry.Data[0] = 0x03
+		return nil, nil
+	}}
+
+	result := runPrecompileBlock(t, state, registryOf{probeAddr: emitter}, callTx(t, sender, 0, probeAddr, 0, []byte{0x01}, 100_000))
+	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
+	logs := result.Receipts[0].Logs
+	require.Len(t, logs, 2)
+	for i, log := range logs {
+		require.Equal(t, probeAddr, log.Address)
+		require.Equal(t, []common.Hash{word(int64(i + 1))}, log.Topics)
+		require.Equal(t, []byte{byte(i + 1)}, log.Data)
+		require.Equal(t, uint(i), log.Index)
 	}
 }
 
