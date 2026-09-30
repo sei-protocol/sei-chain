@@ -662,11 +662,6 @@ func TestRejectedCallsRevertWithoutChangingState(t *testing.T) {
 		{name: "empty option", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), int32(0)) }, reason: gov.ErrInvalidVoteOption.Error()},
 		{name: "unknown option", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), int32(5)) }, reason: gov.ErrInvalidVoteOption.Error()},
 		{name: "negative option", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), int32(-1)) }, reason: gov.ErrInvalidVoteOption.Error()},
-		{name: "cooling vent", voter: true, data: func(t testing.TB) []byte { return pack(t, "coolingVent") }, reason: gov.ErrStationNotOperational.Error()},
-		{name: "outsider vents", data: func(t testing.TB) []byte { return pack(t, "coolingVent") }, reason: gov.ErrStationNotOperational.Error()},
-		{name: "cooling vent with arguments", voter: true, data: func(t testing.TB) []byte {
-			return append(pack(t, "coolingVent"), make([]byte, 32)...)
-		}, reason: "invalid arguments: not the canonical encoding"},
 		{name: "unknown selector", voter: true, data: func(testing.TB) []byte { return []byte{1, 2, 3, 4} }, reason: gov.ErrUnknownMethod.Error()},
 		{name: "short input", voter: true, data: func(testing.TB) []byte { return []byte{1} }, reason: gov.ErrUnknownMethod.Error()},
 		{name: "truncated arguments", voter: true, data: func(t testing.TB) []byte { return pack(t, "vote", uint64(1), gov.OptionYes)[:20] }, reason: "invalid arguments: abi: cannot marshal in to go type: length insufficient 16 require 32"},
@@ -910,18 +905,15 @@ func TestSequentialAndOCCAgree(t *testing.T) {
 	}
 }
 
-// TestABIMatchesPrecompilesGov requires every method but coolingVent to keep
-// the selector, mutability and types it has in precompiles/gov.
+// TestABIMatchesPrecompilesGov requires every method to keep the selector,
+// mutability and types it has in precompiles/gov.
 func TestABIMatchesPrecompilesGov(t *testing.T) {
 	cosmosJSON, err := os.ReadFile("../../../../precompiles/gov/abi.json")
 	require.NoError(t, err)
 	cosmos, err := abi.JSON(strings.NewReader(string(cosmosJSON)))
 	require.NoError(t, err)
-	require.Len(t, gov.ABI.Methods, 7)
+	require.Len(t, gov.ABI.Methods, 6)
 	for name, method := range gov.ABI.Methods {
-		if name == "coolingVent" {
-			continue
-		}
 		want, ok := cosmos.Methods[name]
 		require.True(t, ok, name)
 		require.Equal(t, want.ID, method.ID, name)
@@ -940,7 +932,6 @@ func TestRequiredGas(t *testing.T) {
 	require.Greater(t, large, small, "submission gas grows with the stored content")
 	require.Positive(t, contract.RequiredGas(nil))
 	require.Positive(t, contract.RequiredGas([]byte{1, 2, 3, 4}))
-	require.Equal(t, uint64(0x4001), contract.RequiredGas(pack(t, "coolingVent")))
 
 	more := newFixture(t, 1, 1, 1, 1, 1, 1)
 	bigger, err := gov.New(more.genesis, gov.Upgrades{})

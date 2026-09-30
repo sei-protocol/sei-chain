@@ -22,9 +22,9 @@ cannot be scheduled again.
 
 The interface is [`IGov.sol`](IGov.sol). `abi.json` is compiled from it with
 `make giga-gov-abi`, and CI runs `make giga-gov-abi-check` to fail if the two
-drift. Every function except `coolingVent` keeps the selector, mutability, and
-return types it has in `precompiles/gov/Gov.sol`, so tooling written against
-the Cosmos precompile reads this one unchanged.
+drift. Every function keeps the selector, mutability, and return types it has
+in `precompiles/gov/Gov.sol`, so tooling written against the Cosmos precompile
+reads this one unchanged.
 
 ## Voters and parameters
 
@@ -51,7 +51,6 @@ There are no deposits, expedited proposals, weighted votes, or text proposals.
 | `proposal(proposalID)` | anyone | Returns a proposal. |
 | `tallyResult(proposalID)` | anyone | Returns the live tally during voting, and the final tally afterwards. |
 | `params()` | anyone | Returns the tally parameters. |
-| `coolingVent()` | anyone | Always reverts with "the station is not yet operational". |
 
 Every call reverts with an `Error(string)` reason, writes nothing, and returns
 unused gas to the caller when it is refused. A call is refused when:
@@ -60,7 +59,7 @@ unused gas to the caller when it is refused. A call is refused when:
 - the input is not exactly the ABI encoding of the function's arguments,
   including trailing bytes or non-zero padding;
 - it carries value, is a `DELEGATECALL` or `CALLCODE`, or writes from a static
-  call (`coolingVent` counts as a write);
+  call;
 - a proposal is malformed, or a vote arrives at or after the proposal's voting
   end time.
 
@@ -77,7 +76,6 @@ The gas of every call is fixed by its input before the call runs:
 | `getVote`, `params` | `10,000 + 2 * 2,100` |
 | `tallyResult` | `10,000 + (voters + 8) * 2,100` |
 | `proposal` | `10,000 + (largest proposal's slot count) * 2,100` |
-| `coolingVent` | `16,385` (`0x4001`) |
 | unknown selector | `3,000` |
 
 ## Storage
