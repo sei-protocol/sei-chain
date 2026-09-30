@@ -5,6 +5,9 @@ import "crypto/sha256"
 // appHashVersion is the version of the app hash schema produced by this package.
 const appHashVersion uint8 = 1
 
+// appHashDomain is the domain separation tag that prefixes the canonical byte format in the app hash preimage.
+const appHashDomain = "sei-apphash"
+
 // Contains the data used to produce an app hash.
 type AppHashData struct {
 
@@ -34,7 +37,7 @@ type AppHashData struct {
 	// All 0s if this is the first block.
 	previousAppHash [32]byte
 
-	// The app hash: the SHA-256 of the fields above in the canonical byte format. It is not itself serialized.
+	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format. It is not itself serialized.
 	hash [32]byte
 }
 
@@ -62,7 +65,7 @@ func NewAppHashData(
 		receiptHash:     receiptHash,
 		previousAppHash: previousAppHash,
 	}
-	ahd.hash = sha256.Sum256(ahd.Serialize())
+	ahd.hash = sha256.Sum256(append([]byte(appHashDomain), ahd.Serialize()...))
 	return ahd
 }
 
@@ -101,7 +104,7 @@ func (ahd *AppHashData) PreviousAppHash() [32]byte {
 	return ahd.previousAppHash
 }
 
-// Hash returns the app hash: the SHA-256 of the app hash data in its canonical byte format.
+// Hash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format.
 func (ahd *AppHashData) Hash() [32]byte {
 	return ahd.hash
 }

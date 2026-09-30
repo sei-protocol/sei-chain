@@ -39,8 +39,8 @@ var goldenSerialization = "01" +
 	strings.Repeat("d4", 32) +
 	strings.Repeat("e5", 32)
 
-// goldenHash is SHA-256 of goldenSerialization, computed independently of this package.
-const goldenHash = "3d98ccb596c957bb8715d4ad732332eb0abaa321c74a2b41dc722b9a43200f7a"
+// goldenHash is SHA-256 of "sei-apphash" followed by goldenSerialization, computed independently of this package.
+const goldenHash = "8016253cd17f4d1db6e1fbce6cf2159f08878acb37fc458a3c80c6de3549c0c0"
 
 func TestConstructorAndGetters(t *testing.T) {
 	ahd := goldenData()

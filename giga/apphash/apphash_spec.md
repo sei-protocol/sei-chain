@@ -20,8 +20,11 @@ currently placeholders that need further design; each one is marked **PLACEHOLDE
 The app hash of block `N` is
 
 ```
-appHash(N) = SHA-256(serialize(appHashData(N)))
+appHash(N) = SHA-256("sei-apphash" ‖ serialize(appHashData(N)))
 ```
+
+`"sei-apphash"` is a domain separation tag: its 11 ASCII bytes, with no terminator or length prefix. It is part of
+the hash input only, not of the serialization.
 
 `appHashData(N)` holds seven fields. Its serialization is the fields in the order below, with no padding,
 separators, or length prefixes, for a fixed total of 169 bytes.
@@ -162,8 +165,8 @@ d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4
 e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5
 ```
 
-App hash:
+App hash, i.e. SHA-256 of `"sei-apphash"` followed by the serialization:
 
 ```
-3d98ccb596c957bb8715d4ad732332eb0abaa321c74a2b41dc722b9a43200f7a
+8016253cd17f4d1db6e1fbce6cf2159f08878acb37fc458a3c80c6de3549c0c0
 ```
