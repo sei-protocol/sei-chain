@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sort"
@@ -471,7 +470,7 @@ func (h *Handshaker) replayEvents(height int64) error {
 }
 
 func checkAppHashEqualsOneFromBlock(appHash []byte, block *types.Block) error {
-	if !bytes.Equal(appHash, block.AppHash) {
+	if !types.AppHashMatches(block.ChainID, block.Height-1, block.AppHash, appHash) {
 		return fmt.Errorf(`block.AppHash does not match AppHash after replay. Got '%X', expected '%X'.
 
 Block: %v`,
@@ -481,7 +480,7 @@ Block: %v`,
 }
 
 func checkAppHashEqualsOneFromState(appHash []byte, state sm.State) error {
-	if !bytes.Equal(appHash, state.AppHash) {
+	if !types.AppHashMatches(state.ChainID, state.LastBlockHeight, state.AppHash, appHash) {
 		return fmt.Errorf(`state.AppHash does not match AppHash after replay. Got '%X', expected '%X'.
 
 State: %v
