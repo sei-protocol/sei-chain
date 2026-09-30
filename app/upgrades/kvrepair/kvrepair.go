@@ -41,9 +41,10 @@ type Repair struct {
 	Entries    []Entry `json:"entries"`
 }
 
-// Entry sets Key in Store to New, or deletes Key when New is nil. Old and
-// OldAbsent state the value the key must hold before the write, unless the key
-// already holds New.
+// Entry sets Key in Store to New, or deletes Key when New is nil. An empty New
+// or Old is an empty value, which differs from an absent key. Old and OldAbsent
+// state the value the key must hold before the write, unless the key already
+// holds New.
 type Entry struct {
 	Store     string    `json:"store"`
 	Key       HexBytes  `json:"key"`
@@ -99,7 +100,7 @@ func (e Entry) hasOld() bool {
 }
 
 // HexBytes is a byte string that encodes as hex in JSON, with or without a 0x
-// prefix.
+// prefix. An empty string decodes to an empty, non-nil value.
 type HexBytes []byte
 
 func (b HexBytes) MarshalJSON() ([]byte, error) {
@@ -115,7 +116,8 @@ func (b *HexBytes) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("invalid hex %q: %w", s, err)
 	}
-	*b = decoded
+	// KVStore.Set panics on a nil value, and an empty value is valid state.
+	*b = append(HexBytes{}, decoded...)
 	return nil
 }
 
@@ -182,7 +184,8 @@ func readRepair(fsys fs.FS, filePath string) (Repair, error) {
 }
 
 // decodeStrict decodes data as exactly one JSON value into v, and refuses
-// unknown fields and any data after the value.
+// unknown fields, field names that checkFieldNames refuses, and any data after
+// the value.
 func decodeStrict(data []byte, v any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -193,7 +196,59 @@ func decodeStrict(data []byte, v any) error {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return errors.New("unexpected data after the JSON value")
 	}
-	return nil
+	return checkFieldNames(json.NewDecoder(bytes.NewReader(data)))
+}
+
+// checkFieldNames reads one JSON value from d and returns an error when an
+// object in it names a field twice, or names a field with anything other than
+// lowercase ASCII letters, digits, and underscores.
+func checkFieldNames(d *json.Decoder) error {
+	token, err := d.Token()
+	if err != nil {
+		return err
+	}
+	switch token {
+	case json.Delim('{'):
+		seen := map[string]bool{}
+		for d.More() {
+			token, err := d.Token()
+			if err != nil {
+				return err
+			}
+			name, _ := token.(string)
+			// encoding/json matches field names without regard to case, so a
+			// second spelling of a name would set the same field.
+			if !isLowercaseName(name) {
+				return fmt.Errorf("field name %q must use lowercase ASCII letters, digits, and underscores", name)
+			}
+			if seen[name] {
+				return fmt.Errorf("field %q appears twice in one object", name)
+			}
+			seen[name] = true
+			if err := checkFieldNames(d); err != nil {
+				return err
+			}
+		}
+	case json.Delim('['):
+		for d.More() {
+			if err := checkFieldNames(d); err != nil {
+				return err
+			}
+		}
+	default:
+		return nil
+	}
+	_, err = d.Token()
+	return err
+}
+
+func isLowercaseName(name string) bool {
+	for _, c := range []byte(name) {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return name != ""
 }
 
 func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
@@ -222,9 +277,6 @@ func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
 		}
 		if len(e.Key) == 0 {
 			return fmt.Errorf("entry %d: key is empty", i)
-		}
-		if e.New != nil && len(*e.New) == 0 {
-			return fmt.Errorf("entry %d: new is empty; use null to delete the key", i)
 		}
 		if e.Old != nil && e.OldAbsent {
 			return fmt.Errorf("entry %d: old and old_absent are both set", i)

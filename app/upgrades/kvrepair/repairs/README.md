@@ -18,7 +18,10 @@ and the entries to apply at the start of that block:
 }
 ```
 
-- `key`, `new`, and `old` are hex, with or without `0x`.
+- `key`, `new`, and `old` are hex, with or without `0x`. `""` is an empty
+  value, which differs from an absent key.
+- Field names are lowercase. A field name that appears twice in one object is
+  refused.
 - `read_height` must be below `height`.
 - `source` is free text for reviewers. It has no effect.
 - `new` is the correct value, read at `read_height`. Every entry must have

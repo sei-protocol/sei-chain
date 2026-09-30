@@ -33,11 +33,13 @@ class ParseKeysTest(unittest.TestCase):
             "evm 0304 dead  # damaged\n",
             "\n",
             "bank 05 absent\n",
+            "staking 06 empty\n",
         ])
         self.assertEqual(keys, [
             ("evm", b"\x01\x02", None),
             ("evm", b"\x03\x04", b"\xde\xad"),
             ("bank", b"\x05", kx.ABSENT),
+            ("staking", b"\x06", b""),
         ])
 
     def test_rejects_bad_lines(self):
@@ -93,6 +95,16 @@ class BuildRepairTest(unittest.TestCase):
         repair, _ = self.build([("evm", b"\x01", None)], reserve, FakeNode({}))
         self.assertEqual(repair["entries"], [{"store": "evm", "key": "01", "new": "aa", "old_absent": True}])
 
+    def test_empty_values_differ_from_absent_keys(self):
+        reserve = FakeNode({("staking", b"\x01"): b""})
+        prod = FakeNode({("staking", b"\x02"): b""})
+        repair, _ = self.build([("staking", b"\x01", None), ("staking", b"\x02", None)], reserve, prod,
+                               repair_height=91)
+        self.assertEqual(repair["entries"], [
+            {"store": "staking", "key": "01", "new": "", "old_absent": True},
+            {"store": "staking", "key": "02", "new": None, "old": ""},
+        ])
+
     def test_refuses_entry_without_old_value_across_a_gap(self):
         reserve = FakeNode({("evm", b"\x01"): b"\xaa"})
         prod = FakeNode({("evm", b"\x01"): b"\xaa"})
@@ -129,7 +141,8 @@ class RPCTest(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 requests.append(body)
-                payload = json.dumps({"jsonrpc": "2.0", "id": body["id"], **responses[body["method"]]}).encode()
+                response = responses.get((body["method"], body["params"].get("path")), responses.get(body["method"]))
+                payload = json.dumps({"jsonrpc": "2.0", "id": body["id"], **response}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -146,16 +159,54 @@ class RPCTest(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
 
+    def answer(self, path, value, height="90"):
+        self.responses[("abci_query", path)] = {"result": {"response": {"code": 0, "height": height, "value": value}}}
+
     def test_get_sends_hex_key_without_prefix(self):
-        self.responses["abci_query"] = {"result": {"response": {"code": 0, "value": "qg=="}}}
+        self.answer("/store/evm/key", "qg==")
         self.assertEqual(self.rpc.get("evm", b"\x03\xa8", 90), b"\xaa")
         self.assertEqual(self.requests[0]["params"], {
             "path": "/store/evm/key", "data": "03a8", "height": "90", "prove": False,
         })
+        self.assertEqual(len(self.requests), 1)
+
+    def test_get_reads_empty_value_through_subspace(self):
+        # kv.Pairs{{Key: 03, Value: empty}, {Key: 0301, Value: aa}}, as sei-cosmos marshals it.
+        self.answer("/store/evm/key", None)
+        self.answer("/store/evm/subspace", "CgMKAQMKBwoCAwESAao=")
+        self.assertEqual(self.rpc.get("evm", b"\x03", 90), b"")
+        self.assertEqual(self.requests[1]["params"], {
+            "path": "/store/evm/subspace", "data": "03", "height": "90", "prove": False,
+        })
 
     def test_get_returns_none_when_absent(self):
-        self.responses["abci_query"] = {"result": {"response": {"code": 0, "value": None}}}
+        # kv.Pairs{{Key: 0301, Value: aa}}: a longer key under the prefix, not the key itself.
+        self.answer("/store/evm/key", None)
+        self.answer("/store/evm/subspace", "CgcKAgMBEgGq")
         self.assertIsNone(self.rpc.get("evm", b"\x03", 90))
+        self.answer("/store/evm/subspace", None)
+        self.assertIsNone(self.rpc.get("evm", b"\x03", 90))
+
+    def test_get_raises_when_the_node_answers_another_height(self):
+        self.answer("/store/evm/key", "qg==", height="85")
+        with self.assertRaisesRegex(kx.RPCError, "answered from height 85"):
+            self.rpc.get("evm", b"\x03", 90)
+        self.answer("/store/evm/key", None)
+        self.answer("/store/evm/subspace", "CgMKAQMKBwoCAwESAao=", height="85")
+        with self.assertRaisesRegex(kx.RPCError, "subspace 03 at 90: the node answered from height 85"):
+            self.rpc.get("evm", b"\x03", 90)
+
+    def test_get_raises_when_subspace_query_fails(self):
+        self.answer("/store/evm/key", None)
+        self.responses[("abci_query", "/store/evm/subspace")] = {
+            "result": {"response": {"code": 5, "log": "subspace cap exceeded"}}}
+        with self.assertRaisesRegex(kx.RPCError, "subspace cap exceeded"):
+            self.rpc.get("evm", b"\x03", 90)
+
+    def test_subspace_keys_rejects_malformed_data(self):
+        for data in (b"\x0a\x05\x0a", b"\x08\x01", b"\x0a"):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                kx.subspace_keys(data)
 
     def test_get_raises_on_query_error(self):
         self.responses["abci_query"] = {"result": {"response": {"code": 26, "log": "height too low"}}}

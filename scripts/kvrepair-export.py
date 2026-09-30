@@ -2,11 +2,12 @@
 """Write a kvrepair file from the values a reserve node holds at one height.
 
 The key list is one entry per line: a store name, a hex key, and an optional
-old value, which is the incorrect value production holds now (hex, or
+old value, which is the incorrect value production holds now (hex, "empty", or
 "absent"). Lines starting with # are ignored.
 
     evm 03<address><slot>
     evm 03<address><slot> de...ad
+    evm 03<address><slot> empty
     evm 03<address><slot> absent
 
 For each key the script reads the reserve value at --height and writes it as
@@ -36,6 +37,7 @@ import urllib.request
 
 REQUEST_TIMEOUT_SECONDS = 30
 ABSENT = "absent"
+EMPTY = "empty"
 
 
 class RPCError(Exception):
@@ -63,17 +65,67 @@ class RPC:
 
     def get(self, store, key, height):
         """Returns the value of key in store at height, or None when absent."""
+        value = self._query(store, "key", key, height)
+        if value:
+            return value
+        # The key query returns no value both for an absent key and for an
+        # empty value. A subspace query lists an empty value as a pair.
+        pairs = self._query(store, "subspace", key, height)
+        return b"" if key in subspace_keys(pairs) else None
+
+    def _query(self, store, path, key, height):
         result = self._call("abci_query", {
-            "path": f"/store/{store}/key",
+            "path": f"/store/{store}/{path}",
             "data": key.hex(),
             "height": str(height),
             "prove": False,
         })
         response = result["response"]
+        where = f"{self.url} store {store} {path} {key.hex()} at {height}"
         if int(response.get("code", 0)) != 0:
-            raise RPCError(f"{self.url} store {store} key {key.hex()} at {height}: {response.get('log')}")
+            raise RPCError(f"{where}: {response.get('log')}")
+        # A node answers a height above its latest commit from its latest state.
+        answered = int(response.get("height", 0))
+        if answered != height:
+            raise RPCError(f"{where}: the node answered from height {answered}")
         value = response.get("value")
-        return base64.b64decode(value) if value else None
+        return base64.b64decode(value) if value else b""
+
+
+def read_varint(data, i):
+    result = shift = 0
+    while True:
+        if i >= len(data):
+            raise ValueError("truncated protobuf varint")
+        byte = data[i]
+        i += 1
+        result |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            return result, i
+        shift += 7
+
+
+def read_bytes_fields(data):
+    """Yields (field number, bytes) for each field of a protobuf message whose fields are all bytes."""
+    i = 0
+    while i < len(data):
+        tag, i = read_varint(data, i)
+        if tag & 7 != 2:
+            raise ValueError(f"unexpected protobuf wire type {tag & 7}")
+        length, i = read_varint(data, i)
+        if i + length > len(data):
+            raise ValueError("truncated protobuf field")
+        yield tag >> 3, data[i:i + length]
+        i += length
+
+
+def subspace_keys(data):
+    """Returns the keys in a protobuf kv.Pairs message."""
+    keys = set()
+    for field, pair in read_bytes_fields(data):
+        if field == 1:
+            keys.update(value for number, value in read_bytes_fields(pair) if number == 1)
+    return keys
 
 
 def parse_hex(text, what, lineno):
@@ -98,7 +150,12 @@ def parse_keys(lines):
             raise ValueError(f"line {lineno}: key is empty")
         old = None
         if len(fields) == 3:
-            old = ABSENT if fields[2] == ABSENT else parse_hex(fields[2], "old value", lineno)
+            if fields[2] == ABSENT:
+                old = ABSENT
+            elif fields[2] == EMPTY:
+                old = b""
+            else:
+                old = parse_hex(fields[2], "old value", lineno)
         keys.append((fields[0], key, old))
     return keys
 

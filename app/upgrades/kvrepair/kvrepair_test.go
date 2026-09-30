@@ -81,9 +81,21 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":0,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
 			err:   "not positive",
 		},
-		"empty new": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":""}]}`},
-			err:   "new is empty",
+		"field twice in an entry": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","new":"03"}]}`},
+			err:   `field "new" appears twice`,
+		},
+		"field twice at the top": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"height":3,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
+			err:   `field "height" appears twice`,
+		},
+		"field name in another case": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","NEW":"03"}]}`},
+			err:   `field name "NEW" must use lowercase`,
+		},
+		"field name with a folding rune": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","\u212aey":"01","new":"02"}]}`},
+			err:   "must use lowercase",
 		},
 		"both old values": {
 			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","old":"03","old_absent":true}]}`},
@@ -155,6 +167,21 @@ func TestLoadAcceptsGapWhenEveryEntryHasAnOldValue(t *testing.T) {
 	require.Equal(t, int64(10), repairs[0].ReadHeight)
 }
 
+func TestLoadParsesEmptyValues(t *testing.T) {
+	repairs, err := Load(repairFS(map[string]string{
+		"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[
+			{"store":"evm","key":"01","new":"","old":"0x"},
+			{"store":"evm","key":"02","new":null,"old":""}]}`,
+	}), testKeys())
+	require.NoError(t, err)
+	entries := repairs[0].Entries
+	require.Equal(t, hexPtr([]byte{}), entries[0].New)
+	require.NotNil(t, *entries[0].New)
+	require.Equal(t, hexPtr([]byte{}), entries[0].Old)
+	require.Nil(t, entries[1].New)
+	require.Equal(t, hexPtr([]byte{}), entries[1].Old)
+}
+
 func newTestContext(keys map[string]*sdk.KVStoreKey) sdk.Context {
 	return testutil.DefaultContext(keys["evm"], sdk.NewTransientStoreKey("transient_test"))
 }
@@ -217,6 +244,28 @@ func TestExecuteFailsWhenOldValueDiffers(t *testing.T) {
 	}
 	require.Equal(t, []byte{0x99}, store.Get([]byte{1}))
 	require.Equal(t, []byte{0x99}, store.Get([]byte{2}))
+	require.Nil(t, store.Get([]byte{3}))
+}
+
+func TestExecuteSetsAndChecksEmptyValues(t *testing.T) {
+	keys := testKeys()
+	ctx := newTestContext(keys)
+	store := ctx.KVStore(keys["evm"])
+	store.Set([]byte{1}, []byte{0x99})
+	store.Set([]byte{2}, []byte{})
+
+	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
+		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{}), Old: hexPtr([]byte{0x99})},
+		{Store: "evm", Key: HexBytes{2}, New: hexPtr([]byte{0x02}), Old: hexPtr([]byte{})},
+	}}, keys)
+	require.NoError(t, h.ExecuteHandler(ctx))
+	require.Equal(t, []byte{}, store.Get([]byte{1}))
+	require.Equal(t, []byte{0x02}, store.Get([]byte{2}))
+
+	absent := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
+		{Store: "evm", Key: HexBytes{3}, New: hexPtr([]byte{0x03}), Old: hexPtr([]byte{})},
+	}}, keys)
+	require.ErrorContains(t, absent.ExecuteHandler(ctx), "expected old value")
 	require.Nil(t, store.Get([]byte{3}))
 }
 
