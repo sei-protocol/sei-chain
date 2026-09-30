@@ -46,6 +46,11 @@ type StateReader interface {
 
 // Context is the only execution context custom precompiles should receive in
 // the EVM-only path. It deliberately excludes sdk.Context and Cosmos keepers.
+//
+// DelegateCall is set for DELEGATECALL and CALLCODE. Caller and ApparentValue
+// then come from the delegating frame: Caller may be that contract's own
+// caller, and no value reached the precompile. A contract that authorizes by
+// Caller or credits ApparentValue must reject these calls.
 type Context struct {
 	Caller        common.Address
 	Address       common.Address
