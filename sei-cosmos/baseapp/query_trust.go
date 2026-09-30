@@ -93,7 +93,7 @@ func warnQueryConfig(cfg srvconfig.QueryConfig) {
 }
 
 func (app *BaseApp) enrichABCIQueryContext(ctx context.Context, sdkCtx sdk.Context) sdk.Context {
-	sdkCtx = sdkCtx.WithIsABCIQuery(true)
+	sdkCtx = sdkCtx.WithContext(ctx).WithIsABCIQuery(true)
 
 	if app.queryConfig.DisableLimits {
 		return sdkCtx.WithPaginationLimits(sdk.NoPaginationLimits())

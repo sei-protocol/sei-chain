@@ -2,9 +2,11 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"runtime"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -34,11 +36,19 @@ func BenchmarkClassifyAndPrefix(b *testing.B) {
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: miscPairs}},
 	}
 
+	pool := threading.NewElasticPool("bench-classify", runtime.NumCPU())
+	b.Cleanup(pool.Close)
+
+	// Sized from the previous iteration, as ApplyChangeSets sizes each call from the one before it.
+	var sizeHints [keys.EVMKeyKindCount]int
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := classifyAndPrefix(changeSets); err != nil {
+		classified, err := classifyAndPrefix(changeSets, sizeHints, pool)
+		if err != nil {
 			b.Fatal(err)
 		}
+		sizeHints = classified.bucketSizes()
 	}
 }
