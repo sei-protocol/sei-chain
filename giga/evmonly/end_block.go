@@ -57,7 +57,7 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	defer e.releaseStateDB(stateDB)
 	blockCtx := endBlockContext(block, e.chainConfig(block).ChainID)
 	for _, blocker := range e.endBlockers {
-		// A storage-only account would be recreated, dropping its storage, by the next call to it.
+		// A storage-only account would be recreated, an account write, by every call to it.
 		materializeAccount(stateDB, blocker.address)
 		state := &precompileState{db: stateDB}
 		if err := blocker.contract.EndBlock(blockCtx, state); err != nil {

@@ -405,15 +405,15 @@ func TestUpgradeProposalLifecycle(t *testing.T) {
 		require.Equal(t, "1.000000000000000000", v.Options[0].Weight)
 		require.Equal(t, gov.ErrVoteNotFound.Error(), c.queryErr(common.Address{}, "getVote", uint64(1), f.outsider.addr))
 
-		// One second before the voting period ends, the proposal is still open.
-		c.block(votingPeriod - 2)
+		// One second before the voting period ends, the proposal is still open and takes votes.
+		requireStatuses(t, c.block(votingPeriod-2, f.vote(f.voters[1], 1, gov.OptionYes)), 1)
 		c.query(&p, "proposal", uint64(1))
 		require.Equal(t, gov.StatusVotingPeriod, p.Status)
 		_, ok := c.plan()
 		require.False(t, ok)
 
-		// The first block at the end time tallies it, counting that block's votes.
-		requireStatuses(t, c.block(1, f.vote(f.voters[1], 1, gov.OptionYes)), 1)
+		// The first block at the end time refuses its votes and tallies the proposal.
+		requireStatuses(t, c.block(1, f.vote(f.voters[0], 1, gov.OptionNo)), 0)
 		c.query(&p, "proposal", uint64(1))
 		require.Equal(t, gov.StatusPassed, p.Status)
 		require.Equal(t, tallyData{Yes: "60", Abstain: "40", No: "0", NoWithVeto: "0"}, p.FinalTallyResult)
@@ -739,8 +739,8 @@ func TestEndBlockEndsABoundedNumberOfProposalsPerBlock(t *testing.T) {
 	var open tallyData
 	c.query(&open, "tallyResult", uint64(17))
 
-	// A block after the backlog's end time takes no more votes on it.
-	requireStatuses(t, c.block(1, f.vote(f.voters[0], 17, gov.OptionNo)), 0)
+	// Another block at the backlog's end time takes no more votes on it, and ends it.
+	requireStatuses(t, c.block(0, f.vote(f.voters[0], 17, gov.OptionNo)), 0)
 	require.Equal(t, slices.Repeat([]int32{gov.StatusPassed}, proposals), statuses())
 	var final tallyData
 	c.query(&final, "tallyResult", uint64(17))
