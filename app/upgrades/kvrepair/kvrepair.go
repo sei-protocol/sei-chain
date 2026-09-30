@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"strings"
@@ -61,9 +62,7 @@ func (e *Entry) UnmarshalJSON(data []byte) error {
 		Expect       json.RawMessage `json:"expect"`
 		ExpectAbsent bool            `json:"expect_absent"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&fields); err != nil {
+	if err := decodeStrict(data, &fields); err != nil {
 		return err
 	}
 	switch {
@@ -175,13 +174,26 @@ func readRepair(fsys fs.FS, filePath string) (Repair, error) {
 	if err != nil {
 		return Repair{}, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var r Repair
-	if err := decoder.Decode(&r); err != nil {
+	if err := decodeStrict(data, &r); err != nil {
 		return Repair{}, err
 	}
 	return r, nil
+}
+
+// decodeStrict decodes data as exactly one JSON value into v, and refuses
+// unknown fields and any data after the value.
+func decodeStrict(data []byte, v any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(v); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("unexpected data after the JSON value")
+	}
+	return nil
 }
 
 func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
@@ -212,7 +224,7 @@ func (r Repair) validate(keys map[string]*sdk.KVStoreKey) error {
 			return fmt.Errorf("entry %d: key is empty", i)
 		}
 		if e.Value != nil && len(*e.Value) == 0 {
-			return fmt.Errorf("entry %d: value is empty; omit it to delete the key", i)
+			return fmt.Errorf("entry %d: value is empty; use null to delete the key", i)
 		}
 		if e.Expect != nil && e.ExpectAbsent {
 			return fmt.Errorf("entry %d: expect and expect_absent are both set", i)

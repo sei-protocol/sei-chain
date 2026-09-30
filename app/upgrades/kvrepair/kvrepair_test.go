@@ -89,6 +89,15 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02","expect":"03","expect_absent":true}]}`},
 			err:   "both set",
 		},
+		"second object": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]}
+{"name":"b","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"02","value":"02"}]}`},
+			err: "unexpected data after the JSON value",
+		},
+		"trailing garbage": {
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","value":"02"}]} xyz`},
+			err:   "unexpected data after the JSON value",
+		},
 		"missing value": {
 			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","expect":"03"}]}`},
 			err:   "value is missing",
@@ -139,7 +148,7 @@ func TestLoadAcceptsGapWhenEveryEntryHasAnExpectation(t *testing.T) {
 	repairs, err := Load(repairFS(map[string]string{
 		"a.json": `{"name":"a","chain_id":"c","height":100,"read_height":10,"entries":[
 			{"store":"evm","key":"01","value":"02","expect":"03"},
-			{"store":"evm","key":"02","value":null,"expect_absent":true}]}`,
+			{"store":"evm","key":"02","value":null,"expect_absent":true}]}` + "\n\n",
 	}), testKeys())
 	require.NoError(t, err)
 	require.Len(t, repairs, 1)
