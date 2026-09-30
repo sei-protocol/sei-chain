@@ -122,6 +122,7 @@ func TestRecordOCCStatsParallelBlockReportsRerunsAndConflicts(t *testing.T) {
 	req, state := conflictingTransferBlock(t, testAddress(0xdd), 8)
 
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(state))
+	executor.occPath = occPathFrontier
 	result, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.True(t, result.OCCStats.Attempted)
@@ -156,6 +157,7 @@ func TestRecordOCCStatsConflictLabelsOmitAddressAndSlot(t *testing.T) {
 	req, state := conflictingTransferBlock(t, recipient, 8)
 
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(state))
+	executor.occPath = occPathFrontier
 	result, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
@@ -190,6 +192,7 @@ func TestRecordOCCStatsSequentialBlockReportsNoOCCActivity(t *testing.T) {
 	req, state := conflictingTransferBlock(t, testAddress(0xde), 1)
 
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(state))
+	executor.occPath = occPathFrontier
 	result, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.False(t, result.OCCStats.Attempted)
@@ -230,6 +233,7 @@ func TestRecordOCCStatsFallbackReasonVocabularyIsClosed(t *testing.T) {
 		want   string
 	}{
 		{name: "conflict", reason: occFallbackReasonConflict, want: "conflict"},
+		{name: "dependent", reason: occFallbackReasonDependent, want: "dependent"},
 		{name: "gas limit", reason: occFallbackReasonGasLimit, want: "gas_limit"},
 		{name: "gas overflow", reason: occFallbackReasonGasOverflow, want: "gas_overflow"},
 		{name: "max incarnation", reason: occFallbackReasonMaxIncarnation, want: "max_incarnation"},

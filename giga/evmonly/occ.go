@@ -59,18 +59,27 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 }
 
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	if e.occPath == occPathSequential {
+		return e.executeBlockSequential(ctx, req, source)
+	}
 	runner := newOCCSpeculativeRunner(e, req)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
-	chunkSize := occChunkSize(len(req.Txs), workers)
 	e.blockPhases.SetPhase("occ_speculate")
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
-		if errors.Is(err, errOCCWorkerPoolClosed) {
-			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
-		}
-		return nil, err
+	sample := []occTxRange{{start: 0, end: len(req.Txs)}}
+	if e.occPath == occPathAuto {
+		sample = occDependencySpans(len(req.Txs))
+	}
+	if err := runner.speculate(ctx, executionPool, source, results, sample, workers); err != nil {
+		return e.speculationFailed(ctx, req, source, err)
+	}
+	if e.occPath == occPathAuto && routeAfterSpeculation(occSampledResults(results, sample)) == occPathSequential {
+		return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonDependent)
+	}
+	if err := runner.speculate(ctx, executionPool, source, results, occSpansOutside(sample, len(req.Txs)), workers); err != nil {
+		return e.speculationFailed(ctx, req, source, err)
 	}
 
 	e.blockPhases.SetPhase("occ_validate")
@@ -98,6 +107,15 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	}
 	result.OCCStats = validation.stats(false)
 	return result, nil
+}
+
+// speculationFailed finishes a block whose speculative pass returned err: on the sequential path when the
+// worker pool closed under it, otherwise with the error.
+func (e *Executor) speculationFailed(ctx context.Context, req PreparedBlock, source StateReader, err error) (*BlockResult, error) {
+	if errors.Is(err, errOCCWorkerPoolClosed) {
+		return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
+	}
+	return nil, err
 }
 
 func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
@@ -130,6 +148,29 @@ func (r occSpeculativeRunner) executeTx(
 		r.baseFee,
 		gasLimit,
 	)
+}
+
+// speculate executes the transactions in spans against source on the pool, in ranges sized for workers,
+// into results.
+func (r occSpeculativeRunner) speculate(ctx context.Context, pool *occWorkerPool, source StateReader, results []occTxExecution, spans []occTxRange, workers int) error {
+	total := 0
+	for _, span := range spans {
+		total += span.end - span.start
+	}
+	if total == 0 {
+		return nil
+	}
+	chunkSize := occChunkSize(total, workers)
+	var ranges []occTxRange
+	for _, span := range spans {
+		for _, txRange := range occRanges(span.end-span.start, chunkSize) {
+			txRange.start += span.start
+			txRange.end += span.start
+			txRange.startUint += uint(span.start) //nolint:gosec // span.start is non-negative.
+			ranges = append(ranges, txRange)
+		}
+	}
+	return r.runRanges(ctx, pool, ranges, source, r.blockGasLimit, results)
 }
 
 func (r occSpeculativeRunner) runRanges(
@@ -514,6 +555,7 @@ type occConflictAggregationKey struct {
 
 const (
 	occFallbackReasonConflict         = "conflict"
+	occFallbackReasonDependent        = "dependent"
 	occFallbackReasonGasLimit         = "gas_limit"
 	occFallbackReasonGasOverflow      = "gas_overflow"
 	occFallbackReasonMaxIncarnation   = "max_incarnation"

@@ -247,6 +247,15 @@ address order; a prefix with few keys is merged on the calling goroutine instead
 - the final changeset is generated from the accepted prefix state, not by
   blindly merging mixed-base speculative writes
 
+Before speculating the whole block, the executor speculates 256 of its
+transactions, in 16 runs of 16 consecutive transactions spaced evenly from the
+first transaction to the last (the whole block when it holds at most 256), and
+measures from their read and write sets, in block order, how many read a key a
+lower one wrote. When at least one in six does, the frontier would rerun too many
+of them one at a time, and the block runs on the sequential path instead
+(`OCCStats.Fallback` with reason `dependent`). Otherwise the rest of the block is
+speculated, keeping the sampled results, and validated as above.
+
 This is intentionally conservative. A conflict can cause extra reruns, but it
 should not cause a whole-block sequential fallback. The current incarnation cap
 is 10; if a transaction still cannot validate by then, the executor falls back to
@@ -273,10 +282,11 @@ loaded account.
 and validation attempts were needed, the deepest incarnation any single
 transaction reached (`MaxIncarnation`, where `RerunCount` counts reruns across
 the whole block), and aggregated conflict samples. `Fallback` is reserved for
-cases where the executor gives up on the optimistic path, such as
-max-incarnation exhaustion or a concurrent `Close()` closing the shared OCC
-worker pool after OCC was selected; ordinary conflicts should be resolved by
-per-transaction reruns instead.
+cases where the executor gives up on the optimistic path, such as a block whose
+measured dependencies send it to the sequential path, max-incarnation exhaustion
+or a concurrent `Close()` closing the shared OCC worker pool after OCC was
+selected; ordinary conflicts should be resolved by per-transaction reruns
+instead.
 
 `ExecutePreparedBlock` also emits those stats on the global OpenTelemetry meter,
 so OCC behavior is visible without reading `BlockResult`. The node binds the
