@@ -23,8 +23,10 @@ start of that block:
 - `expect` is the value the entry must find before it writes. Use
   `"expect_absent": true` when the key must not exist. With neither, the entry
   writes over any value.
-- An entry that already holds its target value is skipped, so a node whose state
-  is already correct can run the same binary.
-- An entry that finds a value other than `expect` stops the node at that height.
+- Every entry is written, and each write is read back. An entry that already
+  holds its target skips the `expect` check, so a reserve whose state is correct
+  runs the same binary and commits the same changeset as a repaired node.
+- An entry that finds neither its target nor `expect` stops the node at that
+  height.
 
 Generate a file with `scripts/kvrepair-export.py`. Do not edit the values by hand.

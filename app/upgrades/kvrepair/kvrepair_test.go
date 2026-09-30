@@ -1,6 +1,8 @@
 package kvrepair
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -136,19 +138,24 @@ func TestExecuteWritesAndDeletes(t *testing.T) {
 	require.Equal(t, []byte{0x03}, store.Get([]byte{3}))
 }
 
-func TestExecuteSkipsEntriesThatHoldTheTarget(t *testing.T) {
+func TestExecuteWritesEntriesThatHoldTheTarget(t *testing.T) {
 	keys := testKeys()
 	ctx := newTestContext(keys)
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0x01})
 
+	var trace bytes.Buffer
+	ctx.MultiStore().SetTracer(&trace)
 	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
 		{Store: "evm", Key: HexBytes{1}, Value: hexPtr([]byte{0x01}), Expect: hexPtr([]byte{0xde, 0xad})},
 		{Store: "evm", Key: HexBytes{2}, Expect: hexPtr([]byte{0xde, 0xad})},
 	}}, keys)
 	require.NoError(t, h.ExecuteHandler(ctx))
+
 	require.Equal(t, []byte{0x01}, store.Get([]byte{1}))
 	require.Nil(t, store.Get([]byte{2}))
+	require.Equal(t, 1, strings.Count(trace.String(), `"operation":"write"`))
+	require.Equal(t, 1, strings.Count(trace.String(), `"operation":"delete"`))
 }
 
 func TestExecuteFailsOnUnexpectedValue(t *testing.T) {

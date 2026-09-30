@@ -39,8 +39,8 @@ type Repair struct {
 }
 
 // Entry sets Key in Store to Value, or deletes Key when Value is nil. Expect
-// and ExpectAbsent state the value the entry must find before it writes; an
-// entry that already holds its target is left as it is.
+// and ExpectAbsent state the value the entry must find before it writes, unless
+// the key already holds its target.
 type Entry struct {
 	Store        string    `json:"store"`
 	Key          HexBytes  `json:"key"`
@@ -185,22 +185,24 @@ func (h Handler) GetTargetChainID() string { return h.repair.ChainID }
 
 func (h Handler) GetTargetHeight() int64 { return h.repair.Height }
 
-// ExecuteHandler applies every entry and reads each one back. It returns an
-// error when an entry finds a value other than the one it expects, or when a
-// read-back does not match the write.
+// ExecuteHandler writes every entry and reads each one back. It returns an
+// error when an entry that does not hold its target finds a value other than
+// the one it expects, or when a read-back does not match the write.
 func (h Handler) ExecuteHandler(ctx sdk.Context) error {
-	var written, skipped int
+	var repaired, alreadyCorrect int
 	for i, e := range h.repair.Entries {
 		store := ctx.KVStore(h.keys[e.Store])
 		current := store.Get(e.Key)
 		if holdsTarget(current, e.Value) {
-			skipped++
-			continue
-		}
-		if err := checkExpected(current, e); err != nil {
+			alreadyCorrect++
+		} else if err := checkExpected(current, e); err != nil {
 			return fmt.Errorf("kvrepair %s: entry %d (store %s key %x): %w",
 				h.repair.Name, i, e.Store, []byte(e.Key), err)
+		} else {
+			repaired++
 		}
+		// Entries that already hold their target are written too, so that a
+		// correct node and a repaired node commit the same changeset.
 		if e.Value == nil {
 			store.Delete(e.Key)
 		} else {
@@ -210,13 +212,12 @@ func (h Handler) ExecuteHandler(ctx sdk.Context) error {
 			return fmt.Errorf("kvrepair %s: entry %d (store %s key %x): read back %x after the write",
 				h.repair.Name, i, e.Store, []byte(e.Key), got)
 		}
-		written++
 	}
 	logger.Info("applied kv repair",
 		"repair", h.repair.Name,
 		"height", ctx.BlockHeight(),
-		"written", written,
-		"already_correct", skipped,
+		"repaired", repaired,
+		"already_correct", alreadyCorrect,
 	)
 	return nil
 }
