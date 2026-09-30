@@ -209,7 +209,12 @@ its output is returned to the caller as revert data; any other error consumes
 the call's gas. `Context.Caller` follows go-ethereum: under `DELEGATECALL` it
 is the delegating contract's caller, and `DelegateCall` is set for both
 `DELEGATECALL` and `CALLCODE`. `Context.Address` is always the precompile's own
-address.
+address. A log a precompile emits is recorded as a copy under that address,
+whatever its `Address` field holds.
+
+The registry's contracts serve every call, including concurrent calls from OCC
+workers, `eth_call` and gas estimation. A contract must be safe for concurrent
+use and keep all of its state in `Context.State`.
 
 An address the registry lists but does not resolve to a contract fails every
 call with `ErrCustomPrecompilesOpen`. A registry address that is also a

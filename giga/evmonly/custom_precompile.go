@@ -3,6 +3,7 @@ package evmonly
 import (
 	"errors"
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -16,6 +17,7 @@ import (
 var (
 	errPrecompileNegativeAmount = errors.New("custom precompile balance amount is negative")
 	errPrecompileAmountOverflow = errors.New("custom precompile balance amount exceeds uint256")
+	errPrecompileNilAmount      = errors.New("custom precompile balance amount is nil")
 )
 
 // customPrecompile runs a native custom precompile against the calling EVM's StateDB.
@@ -45,7 +47,7 @@ func (c customPrecompile) Run(
 	if !readOnly {
 		materializeAccount(evm.StateDB, c.address)
 	}
-	state := &precompileState{db: evm.StateDB, readOnly: readOnly}
+	state := &precompileState{db: evm.StateDB, address: c.address, readOnly: readOnly}
 	ctx := &precompiles.Context{
 		Caller:        sender,
 		Address:       c.address,
@@ -65,11 +67,13 @@ func (c customPrecompile) Run(
 }
 
 // materializeAccount gives a precompile account with no nonce and no code a nonce
-// of 1. The EVM treats an account with neither and no balance as absent and
-// recreates it on every call. Recreation keeps the account's committed storage,
-// but it writes the account, which would make each call conflict with every
-// other under OCC.
+// of 1, so the EVM never treats it as absent. The EVM recreates an absent account
+// on every call to it; recreation keeps the account's committed storage, but it
+// writes the account, which would make each call conflict with every other under
+// OCC.
 func materializeAccount(db vm.StateDB, addr common.Address) {
+	// A balance alone does not keep the account present: once it is spent the
+	// account is absent again, so the nonce is set regardless of the balance.
 	if db.GetNonce(addr) == 0 && len(db.GetCode(addr)) == 0 {
 		db.SetNonce(addr, 1, tracing.NonceChangeUnspecified)
 	}
@@ -95,6 +99,7 @@ func precompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 // A write attempted under a static call is dropped and fails the call.
 type precompileState struct {
 	db       vm.StateDB
+	address  common.Address
 	readOnly bool
 	err      error
 }
@@ -154,11 +159,16 @@ func (s *precompileState) SetState(addr common.Address, key common.Hash, value c
 	s.db.SetState(addr, key, value)
 }
 
+// AddLog records a copy of log under the precompile's own address.
 func (s *precompileState) AddLog(log *ethtypes.Log) {
 	if !s.writable() {
 		return
 	}
-	s.db.AddLog(log)
+	entry := *log
+	entry.Address = s.address
+	entry.Topics = slices.Clone(log.Topics)
+	entry.Data = slices.Clone(log.Data)
+	s.db.AddLog(&entry)
 }
 
 // writable reports whether a write may proceed, recording the failure when it may not.
@@ -172,6 +182,10 @@ func (s *precompileState) writable() bool {
 
 func (s *precompileState) writableAmount(amount *big.Int) (*uint256.Int, bool) {
 	if !s.writable() {
+		return nil, false
+	}
+	if amount == nil {
+		s.fail(errPrecompileNilAmount)
 		return nil, false
 	}
 	if amount.Sign() < 0 {
