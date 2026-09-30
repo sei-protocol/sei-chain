@@ -21,10 +21,11 @@ func HashLogCmd() *cobra.Command {
 		Use:   "hashlog",
 		Short: "Inspect hash log archives produced by the hashlogger",
 		Long: "Read-only tools for hash log archives. Use 'get-block' to print every hash recorded for a " +
-			"single block, 'compare' to find blocks whose hashes differ between two archives, or " +
-			"'apphash-overrides' to write the app hash override table for a reserve's state.",
+			"single block, 'compare' to find blocks whose hashes differ between two archives, " +
+			"'apphash-overrides' to write the app hash override table for a reserve's state, or 'rewind' to " +
+			"write the list of blocks a restart abandons.",
 	}
-	cmd.AddCommand(hashLogGetBlockCmd(), hashLogCompareCmd(), hashLogAppHashOverridesCmd())
+	cmd.AddCommand(hashLogGetBlockCmd(), hashLogCompareCmd(), hashLogAppHashOverridesCmd(), hashLogRewindCmd())
 	return cmd
 }
 

@@ -139,3 +139,20 @@ func TestHashLogAppHashOverridesCmdWritesFile(t *testing.T) {
 		},
 	}, file)
 }
+
+func TestBuildDiscardedBlocks(t *testing.T) {
+	prod, _ := appHashTestChains()
+	archive := writeAppHashTestArchive(t, prod)
+
+	discarded, err := buildDiscardedBlocks(archive, 2, 4)
+	require.NoError(t, err)
+	require.Equal(t, []discardedBlockJSON{
+		{Height: 3, Hash: "B003"},
+		{Height: 4, Hash: "B004"},
+	}, discarded)
+
+	_, err = buildDiscardedBlocks(archive, 2, 6)
+	require.ErrorContains(t, err, "block 6: no record")
+	_, err = buildDiscardedBlocks(archive, 4, 4)
+	require.Error(t, err)
+}

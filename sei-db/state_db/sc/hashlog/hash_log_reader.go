@@ -339,6 +339,31 @@ func WalkHashesInRange(
 	}
 }
 
+// WalkArchiveRange calls visit once for every block in the inclusive range [lowBlock, highBlock], in increasing
+// order, with the records the archive holds for that block. The records are empty when the archive has no record
+// for the block. The walk stops at the first error visit returns.
+func WalkArchiveRange(path string, lowBlock uint64, highBlock uint64, visit func(block uint64, hashes []*HashLog) error) error {
+	if lowBlock > highBlock {
+		return fmt.Errorf("lowBlock (%d) must not exceed highBlock (%d)", lowBlock, highBlock)
+	}
+	reader, err := newArchiveReader(path)
+	if err != nil {
+		return fmt.Errorf("failed to open archive: %w", err)
+	}
+	for block := lowBlock; ; block++ {
+		hashes, err := reader.at(block)
+		if err != nil {
+			return fmt.Errorf("failed to read block %d: %w", block, err)
+		}
+		if err := visit(block, hashes); err != nil {
+			return err
+		}
+		if block == highBlock {
+			return nil
+		}
+	}
+}
+
 // openArchiveReaders opens both archives for streaming comparison.
 func openArchiveReaders(pathA string, pathB string) (*archiveReader, *archiveReader, error) {
 	readerA, err := newArchiveReader(pathA)
