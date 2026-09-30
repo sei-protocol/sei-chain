@@ -196,6 +196,10 @@ func (h *Handshaker) ReplayBlocks(
 	stateBlockHeight := state.LastBlockHeight
 	logger.Info("ABCI Replay Blocks", "appHeight", appBlockHeight, "storeHeight", storeBlockHeight, "stateHeight", stateBlockHeight)
 
+	if err := h.refuseDiscardedStoredBlocks(state.ChainID, appBlockHeight); err != nil {
+		return nil, err
+	}
+
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
 		res, err := app.InitChain(h.genDoc.ToRequestInitChain())
@@ -352,6 +356,24 @@ func (h *Handshaker) ReplayBlocks(
 		appBlockHeight, storeBlockHeight, stateBlockHeight)
 }
 
+// refuseDiscardedStoredBlocks returns ErrDiscardedBlock when the block store's tip, or a
+// stored block above the app's height, is a block that a rewind discarded.
+func (h *Handshaker) refuseDiscardedStoredBlocks(chainID string, appBlockHeight int64) error {
+	storeBlockHeight := h.store.Height()
+	from := max(min(appBlockHeight+1, storeBlockHeight), h.store.Base(), 1)
+	for height := from; height <= storeBlockHeight; height++ {
+		meta := h.store.LoadBlockMeta(height)
+		if meta == nil {
+			continue
+		}
+		if types.IsDiscardedBlock(chainID, height, meta.BlockID.Hash) {
+			return fmt.Errorf("stored block %d (%X): %w; roll the block store back below it",
+				height, meta.BlockID.Hash, types.ErrDiscardedBlock)
+		}
+	}
+	return nil
+}
+
 func (h *Handshaker) replayBlocks(
 	ctx context.Context,
 	state sm.State,
@@ -383,10 +405,6 @@ func (h *Handshaker) replayBlocks(
 	for i := firstBlock; i <= finalBlock; i++ {
 		logger.Info("Applying block", "height", i)
 		block := h.store.LoadBlock(i)
-		if types.IsDiscardedBlock(block.ChainID, block.Height, block.Hash()) {
-			return nil, fmt.Errorf("stored block %d (%X): %w; roll the block store back below it",
-				block.Height, block.Hash(), types.ErrDiscardedBlock)
-		}
 		// Extra check to ensure the app was not changed in a way it shouldn't have.
 		if len(appHash) > 0 {
 			if err := checkAppHashEqualsOneFromBlock(appHash, block); err != nil {

@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func TestHandshakeRefusesToReplayDiscardedBlock(t *testing.T) {
+func TestHandshakeRefusesDiscardedStoredBlocks(t *testing.T) {
 	ctx := t.Context()
 
 	cfg, err := ResetConfig(t.TempDir(), "handshake_rewind_test_")
@@ -40,12 +40,32 @@ func TestHandshakeRefusesToReplayDiscardedBlock(t *testing.T) {
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
-	h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-	err = h.Handshake(ctx, proxy.New(&genesisValidatorsApp{
-		badApp:     badApp{numBlocks: 3, onlyLastHashIsWrong: true},
-		validators: genDoc.ValidatorUpdates(),
-	}))
-	require.True(t, errors.Is(err, types.ErrDiscardedBlock), "got %v", err)
+
+	t.Run("replay", func(t *testing.T) {
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
+		err := h.Handshake(ctx, proxy.New(&genesisValidatorsApp{
+			badApp:     badApp{numBlocks: 3, onlyLastHashIsWrong: true},
+			validators: genDoc.ValidatorUpdates(),
+		}))
+		require.True(t, errors.Is(err, types.ErrDiscardedBlock), "got %v", err)
+	})
+
+	t.Run("app at the discarded tip", func(t *testing.T) {
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
+		err := h.Handshake(ctx, proxy.New(&tipApp{height: 3, appHash: state.AppHash}))
+		require.True(t, errors.Is(err, types.ErrDiscardedBlock), "got %v", err)
+	})
+}
+
+// tipApp reports that it has already committed the given height.
+type tipApp struct {
+	abci.BaseApplication
+	height  int64
+	appHash []byte
+}
+
+func (app *tipApp) Info() *abci.ResponseInfo {
+	return &abci.ResponseInfo{LastBlockHeight: app.height, LastBlockAppHash: app.appHash}
 }
 
 // genesisValidatorsApp returns the genesis validators from InitChain.
