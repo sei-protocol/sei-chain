@@ -549,6 +549,10 @@ func (evpool *Pool) processConsensusBuffer(ctx context.Context, state sm.State) 
 	evpool.mtx.Lock()
 	defer evpool.mtx.Unlock()
 	for _, voteSet := range evpool.consensusBuffer {
+		if types.InRewoundWindow(state.ChainID, voteSet.VoteA.Height) {
+			logger.Info("ignoring conflicting votes from a height a rewind abandoned", "height", voteSet.VoteA.Height)
+			continue
+		}
 
 		// Check the height of the conflicting votes and fetch the corresponding time and validator set
 		// to produce the valid evidence

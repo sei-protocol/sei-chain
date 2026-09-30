@@ -383,6 +383,10 @@ func (h *Handshaker) replayBlocks(
 	for i := firstBlock; i <= finalBlock; i++ {
 		logger.Info("Applying block", "height", i)
 		block := h.store.LoadBlock(i)
+		if types.IsDiscardedBlock(block.ChainID, block.Height, block.Hash()) {
+			return nil, fmt.Errorf("stored block %d (%X): %w; roll the block store back below it",
+				block.Height, block.Hash(), types.ErrDiscardedBlock)
+		}
 		// Extra check to ensure the app was not changed in a way it shouldn't have.
 		if len(appHash) > 0 {
 			if err := checkAppHashEqualsOneFromBlock(appHash, block); err != nil {
