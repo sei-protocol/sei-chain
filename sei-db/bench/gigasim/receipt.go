@@ -7,7 +7,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -31,17 +30,13 @@ var erc20TransferEventSignatureBytes = [hashLen]byte{
 	0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
 }
 
-// The ranges the synthetic gas and transfer values are drawn from, chosen so a receipt's numeric
+// The ranges the synthetic gas price and transfer values are drawn from, chosen so a receipt's numeric
 // fields occupy as many bytes as a real transfer's would.
 const (
-	receiptGasUsedBase     int64 = 52_000
-	receiptGasUsedSpan     int64 = 18_000
-	receiptPreviousGasBase int64 = 21_000
-	receiptPreviousGasSpan int64 = 35_000
-	receiptGasPriceBase    int64 = 1_000_000_000
-	receiptGasPriceSpan    int64 = 9_000_000_000
-	receiptTransferBase    int64 = 1_000_000
-	receiptTransferSpan    int64 = 10_000_000_000
+	receiptGasPriceBase int64 = 1_000_000_000
+	receiptGasPriceSpan int64 = 9_000_000_000
+	receiptTransferBase int64 = 1_000_000
+	receiptTransferSpan int64 = 10_000_000_000
 )
 
 // txIDBlockStride separates one block's transaction identifiers from the next block's, so that a
@@ -151,19 +146,25 @@ type receiptBuffer struct {
 
 	// What the generator has already resolved about the contract pool, kept across blocks.
 	cache *receiptCache
+
+	// The gas every receipt in the block records, the same figure the block's gas totals and
+	// gigasim_gas_used_total count.
+	gasPerTransaction uint64
 }
 
-// newReceiptBuffer allocates the backing storage for one block of receipts.
-func newReceiptBuffer(count int, cache *receiptCache) *receiptBuffer {
+// newReceiptBuffer allocates the backing storage for one block of receipts, each recording
+// gasPerTransaction gas.
+func newReceiptBuffer(count int, cache *receiptCache, gasPerTransaction uint64) *receiptBuffer {
 	return &receiptBuffer{
-		records: make([]receipt.ReceiptRecord, count),
-		storage: make([]evmtypes.Receipt, count),
-		logs:    make([]evmtypes.Log, count),
-		logRefs: make([]*evmtypes.Log, count),
-		topics:  make([]string, count*topicsPerTransferLog),
-		blooms:  make([]ethtypes.Bloom, count),
-		data:    make([]byte, count*hashLen),
-		cache:   cache,
+		records:           make([]receipt.ReceiptRecord, count),
+		storage:           make([]evmtypes.Receipt, count),
+		logs:              make([]evmtypes.Log, count),
+		logRefs:           make([]*evmtypes.Log, count),
+		topics:            make([]string, count*topicsPerTransferLog),
+		blooms:            make([]ethtypes.Bloom, count),
+		data:              make([]byte, count*hashLen),
+		cache:             cache,
+		gasPerTransaction: gasPerTransaction,
 	}
 }
 
@@ -185,6 +186,8 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	*built = evmtypes.Receipt{
 		TxType:            txType,
 		TxHashHex:         bytesToHex(txHash[:]),
+		GasUsed:           b.gasPerTransaction,
+		CumulativeGasUsed: uint64(index+1) * b.gasPerTransaction,
 		EffectiveGasPrice: uint64(effectiveGasPrice),
 		BlockNumber:       uint64(blockNumber),
 		TransactionIndex:  uint32(index),
@@ -213,14 +216,12 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	return nil
 }
 
-// fillNativeTransfer fills in what a native transfer's receipt adds to the common fields: the fixed
-// transaction gas and the recipient as the call's target. It emits no log, so its bloom is empty.
+// fillNativeTransfer fills in what a native transfer's receipt adds to the common fields: the recipient
+// as the call's target. It emits no log, so its bloom is empty.
 func (b *receiptBuffer) fillNativeTransfer(built *evmtypes.Receipt, index int, txn *transaction) {
 	bloom := &b.blooms[index]
 	*bloom = ethtypes.Bloom{}
 
-	built.GasUsed = params.TxGas
-	built.CumulativeGasUsed = uint64(index+1) * params.TxGas //nolint:gosec // a transaction index is non-negative
 	built.To = bytesToHex(addressFromKey(txn.dstAccount))
 	built.LogsBloom = bloom[:]
 }
@@ -234,8 +235,6 @@ func (b *receiptBuffer) fillErc20Transfer(
 	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
 	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccount))
 
-	gasUsed := receiptGasUsedBase + rand.Int64Range(0, receiptGasUsedSpan)
-	previousGas := receiptPreviousGasBase + rand.Int64Range(0, receiptPreviousGasSpan)
 	transferAmount := receiptTransferBase + rand.Int64Range(0, receiptTransferSpan)
 
 	bloom := &b.blooms[index]
@@ -260,9 +259,6 @@ func (b *receiptBuffer) fillErc20Transfer(
 		Index:   0,
 	}
 
-	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
-	built.CumulativeGasUsed = uint64(gasUsed + int64(index)*previousGas)
-	built.GasUsed = uint64(gasUsed) //nolint:gosec // bounded well below the conversion limit
 	built.ContractAddress = contract.hex
 	built.To = contract.hex
 	built.Logs = b.logRefs[index : index+1]

@@ -42,7 +42,7 @@ func TestBuiltRecordKeysOnItsOwnReceiptHash(t *testing.T) {
 	t.Parallel()
 
 	const count = 8
-	buffer := newReceiptBuffer(count, newReceiptCache())
+	buffer := newReceiptBuffer(count, newReceiptCache(), 50_000)
 	rand := crand.NewCannedRandom(1<<20, 1337)
 	txn := &transaction{
 		erc20Contract: make([]byte, 1+keys.AddressLen+hashLen),
@@ -65,7 +65,9 @@ func TestBuiltRecordKeysOnItsOwnReceiptHash(t *testing.T) {
 func TestNativeTransferReceiptCarriesNoLog(t *testing.T) {
 	t.Parallel()
 
-	buffer := newReceiptBuffer(2, newReceiptCache())
+	config := DefaultGigasimConfig()
+	config.TransactionType = transactionTypeTransfer
+	buffer := newReceiptBuffer(2, newReceiptCache(), uint64(config.gasUsedBy(1)))
 	rand := crand.NewCannedRandom(1<<20, 1337)
 	txn := &transaction{
 		kind:       nativeTransfer,
@@ -83,6 +85,32 @@ func TestNativeTransferReceiptCarriesNoLog(t *testing.T) {
 		require.Empty(t, built.Logs)
 		require.Empty(t, built.ContractAddress)
 		require.Equal(t, make([]byte, len(built.LogsBloom)), built.LogsBloom, "no log sets no bloom bit")
+	}
+}
+
+// TestErc20ReceiptRecordsTheConfiguredGas pins an ERC20 transfer's receipt to Erc20GasPerTransaction,
+// the gas the block's totals and gigasim_gas_used_total count, with CumulativeGasUsed their running sum.
+func TestErc20ReceiptRecordsTheConfiguredGas(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.Erc20GasPerTransaction = 43_210
+	const count = 3
+	buffer := newReceiptBuffer(count, newReceiptCache(), uint64(config.gasUsedBy(1)))
+	rand := crand.NewCannedRandom(1<<20, 1337)
+	txn := &transaction{
+		erc20Contract: make([]byte, 1+keys.AddressLen),
+		srcAccount:    testAccountKey(1),
+		dstAccount:    testAccountKey(2),
+	}
+
+	for index := range count {
+		require.NoError(t, buffer.build(index, rand, txn, 3))
+
+		built := buffer.records[index].Receipt
+		require.Equal(t, uint64(43_210), built.GasUsed)
+		require.Equal(t, uint64(43_210*(index+1)), built.CumulativeGasUsed)
+		require.Len(t, built.Logs, 1, "an ERC20 transfer emits its Transfer log")
 	}
 }
 

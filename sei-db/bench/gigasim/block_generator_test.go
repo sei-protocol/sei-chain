@@ -112,6 +112,35 @@ func TestGeneratedBlockWritesTheFeeAccountOnce(t *testing.T) {
 	require.Equal(t, last.newFeeBalance, value, "the surviving value is the last draw")
 }
 
+// A block's receipts account for exactly the gas the block's totals and gigasim_gas_used_total count,
+// for either kind of transaction.
+func TestReceiptGasMatchesTheReportedGas(t *testing.T) {
+	t.Parallel()
+
+	for _, transactionType := range []string{transactionTypeErc20, transactionTypeTransfer} {
+		t.Run(transactionType, func(t *testing.T) {
+			t.Parallel()
+
+			g := newTestGeneratorOfType(t, 32, transactionType)
+			g.config.EnableReceiptStore = true
+			g.receiptCache = newReceiptCache()
+
+			blk, err := g.buildBlock()
+			require.NoError(t, err)
+			require.Len(t, blk.receiptRecords, len(blk.transactions))
+
+			var receiptGas uint64
+			for _, record := range blk.receiptRecords {
+				receiptGas += record.Receipt.GasUsed
+			}
+			reported := uint64(g.config.gasUsedBy(len(blk.transactions))) //nolint:gosec // positive by construction
+			require.Equal(t, reported, receiptGas, "the receipts' gas must sum to the gas the block reports")
+			require.Equal(t, reported, blk.receiptRecords[len(blk.receiptRecords)-1].Receipt.CumulativeGasUsed,
+				"the last receipt's cumulative gas is the block's total")
+		})
+	}
+}
+
 // A native transfer writes both accounts' balances and no contract state: no balance slot, and no code
 // beyond the identifier counters every block carries.
 func TestNativeTransferBlockWritesOnlyAccounts(t *testing.T) {

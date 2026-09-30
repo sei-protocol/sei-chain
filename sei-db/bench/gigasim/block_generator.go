@@ -219,7 +219,8 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	}
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
-		receipts = newReceiptBuffer(count, g.receiptCache)
+		//nolint:gosec // G115 - validation keeps the gas positive
+		receipts = newReceiptBuffer(count, g.receiptCache, uint64(g.config.gasUsedBy(1)))
 		block.receiptRecords = receipts.records
 	}
 

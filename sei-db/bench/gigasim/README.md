@@ -97,7 +97,8 @@ payment to a first-time holder does.
 
 A native transfer's 21,000 gas is the EVM's fixed transaction cost. An ERC20 transfer between existing
 holders uses roughly 35,000 to 50,000 gas and one to a first-time holder around 55,000 to 65,000, which
-is what `Erc20GasPerTransaction` averages over.
+is what `Erc20GasPerTransaction` averages over. Every transaction's receipt records the same gas, so the
+receipts, each block's gas totals and `gigasim_gas_used_total` all agree.
 
 Accounts are drawn from a hot set chosen most of the time, a cold set chosen occasionally, and a
 dormant set that is never chosen and exists only to give the state DB a realistic resident size. All
