@@ -2122,6 +2122,9 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 	if proposal.Height != cs.roundState.Height() || proposal.Round != cs.roundState.Round() {
 		return nil
 	}
+	if types.IsDiscardedBlock(cs.state.ChainID, proposal.Height, proposal.BlockID.Hash) {
+		return fmt.Errorf("proposal for block %X: %w", proposal.BlockID.Hash, types.ErrDiscardedBlock)
+	}
 
 	// If we already know the commit block for this height, ignore proposals that don't match it.
 	if commitRound := cs.roundState.CommitRound(); commitRound >= 0 && cs.roundState.Step() == cstypes.RoundStepCommit {
