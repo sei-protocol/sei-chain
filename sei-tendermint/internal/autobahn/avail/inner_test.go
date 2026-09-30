@@ -51,20 +51,20 @@ func TestBlockQueueRetainsLast(t *testing.T) {
 	q.prune(2, blockHash(blocks[1]))
 	require.Equal(t, types.BlockNumber(2), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
-	require.Equal(t, utils.Some(blocks[2].Proposal), q.last)
+	require.Equal(t, utils.Some(blocks[2].Proposal), q.localTip)
 	// Block 2 is still active and carries the chain, so nothing below first is needed.
 	require.Equal(t, types.BlockNumber(2), q.retentionFloor())
 
 	q.prune(3, blockHash(blocks[2]))
 	require.Equal(t, types.BlockNumber(3), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
-	require.Equal(t, utils.Some(blocks[2].Proposal), q.last)
+	require.Equal(t, utils.Some(blocks[2].Proposal), q.localTip)
 	require.Equal(t, types.BlockNumber(2), q.retentionFloor())
 
 	q.prune(5, types.GenBlockHeaderHash(rng))
 	require.Equal(t, types.BlockNumber(5), q.first)
 	require.Equal(t, types.BlockNumber(5), q.next)
-	require.Equal(t, utils.None[*types.Signed[*types.LaneProposal]](), q.last)
+	require.Equal(t, utils.None[*types.Signed[*types.LaneProposal]](), q.localTip)
 	require.Equal(t, types.BlockNumber(5), q.retentionFloor())
 }
 
@@ -95,10 +95,10 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 	q := i.blocks[lane]
 	require.Equal(t, types.BlockNumber(3), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
-	require.Equal(t, utils.Some(blocks[2].Proposal), q.last)
+	require.Equal(t, utils.Some(blocks[2].Proposal), q.localTip)
 	require.Equal(t, types.BlockNumber(2), q.retentionFloor())
 	require.Equal(t, types.BlockNumber(2), i.nextBlockToPersist[lane])
-	p, ok := q.unpersistedLast(i.nextBlockToPersist[lane]).Get()
+	p, ok := q.unpersistedLocalTip(i.nextBlockToPersist[lane]).Get()
 	require.True(t, ok)
 	require.Equal(t, blocks[2].Proposal, p)
 }
@@ -127,7 +127,7 @@ func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
 	q := i.blocks[lane]
 	require.Equal(t, types.BlockNumber(1), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
-	require.Equal(t, utils.Some(blocks[2].Proposal), q.last)
+	require.Equal(t, utils.Some(blocks[2].Proposal), q.localTip)
 }
 
 func TestBlockQueueLastSurvivesRestart(t *testing.T) {
@@ -157,12 +157,12 @@ func TestBlockQueueLastSurvivesRestart(t *testing.T) {
 	i := newInner(registry.MustEpoch(0), 0)
 	i.blocks[lane].prune(1, blockHash(block))
 	require.NoError(t, i.restoreBlocks(loaded))
-	last, ok := i.blocks[lane].last.Get()
+	localTip, ok := i.blocks[lane].localTip.Get()
 	require.True(t, ok)
-	require.Equal(t, block.Proposal.Msg().Block().Header().Hash(), last.Msg().Block().Header().Hash())
+	require.Equal(t, block.Proposal.Msg().Block().Header().Hash(), localTip.Msg().Block().Header().Hash())
 }
 
-func TestBlockQueueUnflushedLastSurvivesRestart(t *testing.T) {
+func TestBlockQueueUnflushedLocalTipSurvivesRestart(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	key := keys[0]
@@ -176,7 +176,7 @@ func TestBlockQueueUnflushedLastSurvivesRestart(t *testing.T) {
 	q.pushBack(block.Proposal)
 	q.prune(1, blockHash(block))
 
-	p, ok := q.unpersistedLast(0).Get()
+	p, ok := q.unpersistedLocalTip(0).Get()
 	require.True(t, ok)
 	require.Equal(t, block.Proposal, p)
 	require.NoError(t, persister.PruneAndPersist(
@@ -184,7 +184,7 @@ func TestBlockQueueUnflushedLastSurvivesRestart(t *testing.T) {
 		q.retentionFloor(),
 		[]*types.Signed[*types.LaneProposal]{p},
 	))
-	require.False(t, q.unpersistedLast(1).IsPresent())
+	require.False(t, q.unpersistedLocalTip(1).IsPresent())
 	require.NoError(t, persister.Close())
 
 	persister, loaded, err := persist.NewBlockPersister(utils.Some(dir))
@@ -193,9 +193,9 @@ func TestBlockQueueUnflushedLastSurvivesRestart(t *testing.T) {
 	i := newInner(registry.MustEpoch(0), 0)
 	i.blocks[lane].prune(1, blockHash(block))
 	require.NoError(t, i.restoreBlocks(loaded))
-	last, ok := i.blocks[lane].last.Get()
+	localTip, ok := i.blocks[lane].localTip.Get()
 	require.True(t, ok)
-	require.Equal(t, block.Proposal.Msg().Block().Header().Hash(), last.Msg().Block().Header().Hash())
+	require.Equal(t, block.Proposal.Msg().Block().Header().Hash(), localTip.Msg().Block().Header().Hash())
 }
 
 func TestRestoreInner_Empty(t *testing.T) {
@@ -254,7 +254,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		require.Equal(t, types.BlockNumber(0), q.next)
 	})
 
-	t.Run("last below anchor", func(t *testing.T) {
+	t.Run("local tip below anchor", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
@@ -267,7 +267,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		q := i.blocks[lane]
 		require.Equal(t, types.BlockNumber(2), q.first)
 		require.Equal(t, types.BlockNumber(2), q.next)
-		require.Equal(t, utils.Some(blocks[1].Proposal), q.last)
+		require.Equal(t, utils.Some(blocks[1].Proposal), q.localTip)
 		require.Equal(t, types.BlockNumber(1), q.retentionFloor())
 		require.Equal(t, types.BlockNumber(2), i.nextBlockToPersist[lane])
 	})
@@ -292,7 +292,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		q := i.blocks[lane]
 		require.Equal(t, types.BlockNumber(1), q.first)
 		require.Equal(t, types.BlockNumber(2), q.next)
-		require.Equal(t, utils.Some(live), q.last)
+		require.Equal(t, utils.Some(live), q.localTip)
 	})
 
 	t.Run("after prune the local block is kept", func(t *testing.T) {
@@ -314,7 +314,7 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		q := i.blocks[lane]
 		require.Equal(t, types.BlockNumber(1), q.first)
 		require.Equal(t, types.BlockNumber(2), q.next)
-		require.Equal(t, utils.Some(live), q.last)
+		require.Equal(t, utils.Some(live), q.localTip)
 	})
 
 	t.Run("foreign loaded lane does not touch committee queues", func(t *testing.T) {

@@ -480,8 +480,8 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// chain than we already have). We log it to aid debugging stalled
 		// lanes but do not return an error — the caller should not tear
 		// down the peer connection over an equivocating producer.
-		// parentHash is the in-queue predecessor, or parentOfFirst when the queue is empty.
-		// last retained below first is for WAL retention, not this check.
+		// parentHash is the in-queue predecessor, or parentOfFirstLaneBlock when the queue is empty.
+		// localTip retained below first is for WAL retention, not this check.
 		want := q.parentHash()
 		if h.ParentHash() != want {
 			logger.Error("parent hash mismatch (producer equivocation)",
@@ -945,7 +945,7 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 		for lane, q := range inner.blocks {
 			cursor := inner.nextBlockToPersist[lane]
 			bb := blocksBatch{first: q.retentionFloor()}
-			if p, ok := q.unpersistedLast(cursor).Get(); ok {
+			if p, ok := q.unpersistedLocalTip(cursor).Get(); ok {
 				bb.tail = append(bb.tail, p)
 			}
 			for n := max(cursor, q.first); n < q.next; n++ {
