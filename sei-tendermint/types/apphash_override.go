@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"sync"
@@ -115,15 +116,28 @@ func LoadAppHashOverrides(fsys fs.FS) ([]AppHashOverride, error) {
 	return overrides, nil
 }
 
+// decodeStrictJSON decodes data as exactly one JSON value into v, and refuses
+// unknown fields and any data after the value.
+func decodeStrictJSON(data []byte, v any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(v); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("unexpected data after the JSON value")
+	}
+	return nil
+}
+
 func readAppHashOverrideFile(fsys fs.FS, filePath string) ([]AppHashOverride, error) {
 	data, err := fs.ReadFile(fsys, filePath)
 	if err != nil {
 		return nil, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var file appHashOverrideFile
-	if err := decoder.Decode(&file); err != nil {
+	if err := decodeStrictJSON(data, &file); err != nil {
 		return nil, err
 	}
 	if file.ChainID == "" {

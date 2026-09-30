@@ -52,7 +52,7 @@ func TestLoadAppHashOverrides(t *testing.T) {
 	fsys := fstest.MapFS{
 		"apphash_overrides/a.json": {Data: []byte(`{"chain_id":"chain-a","source":"test",
 			"overrides":[{"height":10,"recorded":"C1","replacement":"A1"},{"height":11,"recorded":"C2","replacement":"A2"}]}`)},
-		"apphash_overrides/b.json":   {Data: []byte(`{"chain_id":"chain-b","overrides":[{"height":10,"recorded":"C1","replacement":"A1"}]}`)},
+		"apphash_overrides/b.json":   {Data: []byte(`{"chain_id":"chain-b","overrides":[{"height":10,"recorded":"C1","replacement":"A1"}]}` + "\n")},
 		"apphash_overrides/.gitkeep": {Data: nil},
 	}
 	overrides, err := LoadAppHashOverrides(fsys)
@@ -76,6 +76,8 @@ func TestLoadAppHashOverridesRejects(t *testing.T) {
 		"not hex":                 {`{"chain_id":"c","overrides":[{"height":10,"recorded":"zz","replacement":"A1"}]}`},
 		"duplicate in a file":     {`{"chain_id":"c","overrides":[` + row + `,` + row + `]}`},
 		"duplicate across files":  {`{"chain_id":"c","overrides":[` + row + `]}`, `{"chain_id":"c","overrides":[` + row + `]}`},
+		"second object":           {`{"chain_id":"c","overrides":[` + row + `]}` + "\n" + `{"chain_id":"d","overrides":[` + row + `]}`},
+		"trailing garbage":        {`{"chain_id":"c","overrides":[` + row + `]} xyz`},
 	}
 	for name, files := range testcases {
 		t.Run(name, func(t *testing.T) {
