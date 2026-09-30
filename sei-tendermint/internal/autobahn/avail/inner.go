@@ -2,6 +2,7 @@ package avail
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
@@ -53,6 +54,16 @@ func (q *blockQueue) prune(newFirst types.BlockNumber, parent types.BlockHeaderH
 	// TODO: the block at newFirst may not name parent when the cluster certified
 	// a different block at newFirst-1. Switching to the certified branch would
 	// rewrite the lane WAL, so the local block is kept for now.
+	if q.first < q.next {
+		h := q.q[q.first].Msg().Block().Header()
+		if h.ParentHash() != parent {
+			logger.Error("local block does not extend certified tip",
+				"lane", h.Lane(),
+				slog.Uint64("block", uint64(h.BlockNumber())),
+				"got", h.ParentHash(),
+				"want", parent)
+		}
+	}
 	q.parentOfFirst = parent
 }
 
