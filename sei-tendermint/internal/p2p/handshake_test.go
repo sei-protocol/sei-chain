@@ -9,6 +9,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -216,27 +217,27 @@ func handshakeAgainst(
 	t.Helper()
 	return scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		a, b := tcp.TestPipe()
-		s.SpawnBg(func() error { return utils.IgnoreCancel(a.Run(ctx)) })
-		s.SpawnBg(func() error { return utils.IgnoreCancel(b.Run(ctx)) })
-		// The remote's error is a value rather than a task failure: when the
-		// local side rejects and closes the pipe, the remote's pending write or
-		// read fails too, and that must not race the local verdict for being
-		// the scope's first error.
-		remoteDone := scope.Spawn1(s, func() (error, error) {
+		// The pipe's own errors are dropped, as in handshakePair: a rejecting
+		// local side closes its write half while the pipe may still be inside
+		// a socket write, and the resulting broken pipe is not a verdict.
+		s.SpawnBg(func() error { _ = a.Run(ctx); return nil })
+		s.SpawnBg(func() error { _ = b.Run(ctx); return nil })
+		s.Spawn(func() error {
 			sc, err := conn.MakeSecretConnection(ctx, b)
 			if err != nil {
-				return err, nil
+				return err
 			}
-			return remote(ctx, sc), nil
+			if err := remote(ctx, sc); err != nil {
+				return err
+			}
+			// Only the local handshake's verdict is asserted. This read keeps
+			// the pipe open until it reaches one, and sees EOF when the local
+			// side rejects and closes first.
+			_, _ = conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize()))
+			return nil
 		})
-		if _, err := handshake(ctx, a, localKey, localSpec, localOffer); err != nil {
-			return err
-		}
-		remoteErr, err := remoteDone.Join(ctx)
-		if err != nil {
-			return err
-		}
-		return remoteErr
+		_, err := handshake(ctx, a, localKey, localSpec, localOffer)
+		return err
 	})
 }
 

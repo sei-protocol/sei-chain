@@ -457,7 +457,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	switch path[0] {
 	// "/app" prefix for special application queries
 	case "app":
-		resp = handleQueryApp(app, path, *req)
+		resp = handleQueryApp(app, ctx, path, *req)
 
 	case "store":
 		resp = handleQueryStore(ctx, app, path, *req)
@@ -812,8 +812,8 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) (int64, error) {
 	return retentionHeight, nil
 }
 
-func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
+func (app *BaseApp) Simulate(goCtx context.Context, txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
+	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx)).WithContext(goCtx)
 	ctx, _ = ctx.CacheContext()
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
@@ -823,13 +823,13 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	return runTxRes.gasInfo, runTxRes.result, err
 }
 
-func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
+func handleQueryApp(app *BaseApp, ctx context.Context, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	if len(path) >= 2 {
 		switch path[1] {
 		case "simulate":
 			txBytes := req.Data
 
-			gInfo, res, err := app.Simulate(txBytes)
+			gInfo, res, err := app.Simulate(ctx, txBytes)
 			if err != nil {
 				return sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(err, "failed to simulate tx"), app.trace)
 			}
