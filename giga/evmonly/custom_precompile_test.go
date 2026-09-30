@@ -189,6 +189,43 @@ func TestCustomPrecompileStorageOutlivesItsFirstCall(t *testing.T) {
 	}
 }
 
+// TestCustomPrecompileKeepsStorageHeldBeforeItsFirstWrite seeds a precompile
+// account with storage but no nonce, code or balance, as genesis could, and
+// requires its first state-changing calls to read and keep that storage.
+func TestCustomPrecompileKeepsStorageHeldBeforeItsFirstWrite(t *testing.T) {
+	for _, occ := range []bool{false, true} {
+		t.Run(map[bool]string{false: "sequential", true: "occ"}[occ], func(t *testing.T) {
+			const txCount = 8
+			const seeded = 7
+			untouched := common.HexToHash("0xdead")
+			state := NewMemoryState()
+			callers := newCounterCallers(t, txCount, state)
+			state.SetState(counterPrecompileAddr, counterSharedSlot, common.BigToHash(big.NewInt(seeded)))
+			state.SetState(counterPrecompileAddr, untouched, common.BigToHash(big.NewInt(seeded)))
+			rawTxs := make([][]byte, txCount)
+			for i, caller := range callers {
+				rawTxs[i] = counterTx(t, caller, counterShared)
+			}
+			cfg := Config{MinGasPrice: big.NewInt(0), CustomPrecompiles: counterRegistry{}}
+			if occ {
+				cfg.OCCWorkers = 4
+			}
+			result, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
+				Context: blockContext(big.NewInt(testChainID)),
+				Txs:     rawTxs,
+			})
+			require.NoError(t, err)
+			requireOCCRan(t, cfg, result)
+			require.Empty(t, result.ChangeSet.StorageClears)
+
+			state.ApplyChangeSet(result.ChangeSet)
+			require.Equal(t, uint64(1), state.GetNonce(counterPrecompileAddr))
+			require.Equal(t, big.NewInt(seeded+txCount), counterValue(state, counterSharedSlot))
+			require.Equal(t, big.NewInt(seeded), counterValue(state, untouched))
+		})
+	}
+}
+
 func TestCustomPrecompileFailureRevertsItsWrites(t *testing.T) {
 	state := NewMemoryState()
 	caller := newCounterCallers(t, 1, state)[0]
