@@ -30,6 +30,11 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 		ageNumBlocks   = height - evidence.Height()
 	)
 
+	if fromRewoundWindow(state.ChainID, evidence) {
+		return types.NewErrInvalidEvidence(evidence, fmt.Errorf(
+			"evidence at height %d is from a height a rewind abandoned", evidence.Height()))
+	}
+
 	// ensure we have the block for the evidence height
 	//
 	// NOTE: It is currently possible for a peer to send us evidence we're not
@@ -148,6 +153,16 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 	default:
 		return types.NewErrInvalidEvidence(evidence, fmt.Errorf("unrecognized evidence type: %T", evidence))
 	}
+}
+
+// fromRewoundWindow reports whether evidence concerns a height that a compiled
+// rewind abandoned. For light client attack evidence that is the height of the
+// conflicting block.
+func fromRewoundWindow(chainID string, evidence types.Evidence) bool {
+	if ev, ok := evidence.(*types.LightClientAttackEvidence); ok && ev.ConflictingBlock != nil {
+		return types.InRewoundWindow(chainID, ev.ConflictingBlock.Height)
+	}
+	return types.InRewoundWindow(chainID, evidence.Height())
 }
 
 // VerifyLightClientAttack verifies LightClientAttackEvidence against the state of the full node. This involves

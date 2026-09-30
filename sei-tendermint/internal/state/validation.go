@@ -17,6 +17,10 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 		return fmt.Errorf("ValidateBasic(): %w", err)
 	}
 
+	if types.IsDiscardedBlock(state.ChainID, block.Height, block.Hash()) {
+		return fmt.Errorf("block %d (%X): %w", block.Height, block.Hash(), types.ErrDiscardedBlock)
+	}
+
 	// Validate basic info.
 	if block.Version != state.Version.Consensus {
 		return fmt.Errorf("wrong Block.Header.Version. Expected %v, got %v",
