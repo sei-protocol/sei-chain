@@ -30,7 +30,6 @@ type Context struct {
 	ApparentValue *big.Int
 	ReadOnly      bool
 	DelegateCall  bool
-	GasRemaining  uint64
 	Block         BlockContext
 	State         State
 	Logs          LogSink
