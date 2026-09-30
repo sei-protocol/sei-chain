@@ -77,6 +77,10 @@ func TestLoadRewindsRejects(t *testing.T) {
 		"hash is not hex":       {`{"chain_id":"c","safe_height":10,"discarded":[{"height":11,"hash":"zz"}]}`},
 		"second object":         {rewind("c", 10, 11) + "\n" + rewind("c", 20, 21)},
 		"trailing garbage":      {rewind("c", 10, 11) + " xyz"},
+		"field twice in a block": {fmt.Sprintf(`{"chain_id":"c","safe_height":10,"discarded":[{"height":11,"hash":"%s","hash":"%X"}]}`,
+			hash, testBlockHash(2))},
+		"field twice at the top": {fmt.Sprintf(`{"chain_id":"c","safe_height":10,"safe_height":10,"discarded":[{"height":11,"hash":"%s"}]}`, hash)},
+		"field in another case":  {fmt.Sprintf(`{"chain_id":"c","Safe_Height":10,"discarded":[{"height":11,"hash":"%s"}]}`, hash)},
 	}
 	for name, files := range testcases {
 		t.Run(name, func(t *testing.T) {
