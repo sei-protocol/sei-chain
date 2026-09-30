@@ -49,6 +49,9 @@ func executeHashLogAppHashOverrides(cmd *cobra.Command, args []string) {
 	match, _ := cmd.Flags().GetStringSlice("match")
 	source, _ := cmd.Flags().GetString("source")
 	output, _ := cmd.Flags().GetString("output")
+	if chainID == "" {
+		panic("--chain-id must not be empty")
+	}
 
 	rows, err := buildAppHashOverrides(args[0], args[1], low, high, match)
 	if err != nil {

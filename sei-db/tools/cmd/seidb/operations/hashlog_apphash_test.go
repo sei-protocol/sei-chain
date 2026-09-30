@@ -108,6 +108,12 @@ func TestBuildAppHashOverridesRejects(t *testing.T) {
 	}
 }
 
+func TestHashLogAppHashOverridesCmdRejectsEmptyChainID(t *testing.T) {
+	cmd := HashLogCmd()
+	cmd.SetArgs([]string{"apphash-overrides", "missing-a", "missing-b", "--chain-id", "", "--low", "1", "--high", "2"})
+	require.PanicsWithValue(t, "--chain-id must not be empty", func() { _ = cmd.Execute() })
+}
+
 func TestHashLogAppHashOverridesCmdWritesFile(t *testing.T) {
 	prod, reserve := appHashTestChains()
 	output := filepath.Join(t.TempDir(), "overrides.json")

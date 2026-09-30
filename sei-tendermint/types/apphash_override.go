@@ -9,9 +9,9 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"sync"
 
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // appHashOverridesDir holds the override files compiled into the binary.
@@ -42,10 +42,12 @@ type appHashOverrideKey struct {
 	height  int64
 }
 
-var (
-	appHashOverridesMu sync.RWMutex
-	appHashOverrides   = mustLoadAppHashOverrides()
-)
+// appHashOverrideTable is the override table that AppHashMatches reads.
+type appHashOverrideTable struct {
+	byKey map[appHashOverrideKey]AppHashOverride
+}
+
+var appHashOverrides = utils.NewRWMutex(&appHashOverrideTable{byKey: mustLoadAppHashOverrides()})
 
 // AppHashMatches reports whether computed is an acceptable app hash for the
 // state committed at height on chainID, where the chain records recorded. It
@@ -55,10 +57,11 @@ func AppHashMatches(chainID string, height int64, recorded, computed []byte) boo
 	if bytes.Equal(recorded, computed) {
 		return true
 	}
-	appHashOverridesMu.RLock()
-	o, ok := appHashOverrides[appHashOverrideKey{chainID, height}]
-	appHashOverridesMu.RUnlock()
-	return ok && bytes.Equal(o.Recorded, recorded) && bytes.Equal(o.Replacement, computed)
+	for table := range appHashOverrides.RLock() {
+		o, ok := table.byKey[appHashOverrideKey{chainID, height}]
+		return ok && bytes.Equal(o.Recorded, recorded) && bytes.Equal(o.Replacement, computed)
+	}
+	panic("unreachable")
 }
 
 // ReplaceAppHashOverrides installs overrides in place of the compiled table
@@ -68,14 +71,14 @@ func ReplaceAppHashOverrides(overrides []AppHashOverride) (restore func()) {
 	if err != nil {
 		panic(err)
 	}
-	appHashOverridesMu.Lock()
-	previous := appHashOverrides
-	appHashOverrides = table
-	appHashOverridesMu.Unlock()
+	var previous map[appHashOverrideKey]AppHashOverride
+	for t := range appHashOverrides.Lock() {
+		previous, t.byKey = t.byKey, table
+	}
 	return func() {
-		appHashOverridesMu.Lock()
-		appHashOverrides = previous
-		appHashOverridesMu.Unlock()
+		for t := range appHashOverrides.Lock() {
+			t.byKey = previous
+		}
 	}
 }
 

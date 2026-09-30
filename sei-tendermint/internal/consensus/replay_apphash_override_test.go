@@ -3,9 +3,8 @@ package consensus
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
