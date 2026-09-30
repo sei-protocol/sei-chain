@@ -41,6 +41,9 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			cdc.MustUnmarshal(kvB.Value, &delegationB)
 
 			return fmt.Sprintf("%v\n%v", delegationA, delegationB)
+		case bytes.Equal(kvA.Key[:1], types.DelegationByValIndexKey),
+			bytes.Equal(kvA.Key[:1], types.DelegationByValIndexReadyKey):
+			return fmt.Sprintf("%X\n%X", kvA.Key, kvB.Key)
 		case bytes.Equal(kvA.Key[:1], types.UnbondingDelegationKey),
 			bytes.Equal(kvA.Key[:1], types.UnbondingDelegationByValIndexKey):
 			var ubdA, ubdB types.UnbondingDelegation
