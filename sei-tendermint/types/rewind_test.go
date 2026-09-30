@@ -43,7 +43,7 @@ func TestLoadRewinds(t *testing.T) {
 	file := fmt.Sprintf(`{"chain_id":"chain-a","source":"test","safe_height":10,
 		"discarded":[{"height":11,"hash":"%X"},{"height":12,"hash":"%X"}]}`, testBlockHash(1), testBlockHash(2))
 	rs, err := LoadRewinds(fstest.MapFS{
-		"rewinds/a.json":   {Data: []byte(file)},
+		"rewinds/a.json":   {Data: []byte(file + "\n")},
 		"rewinds/.gitkeep": {Data: nil},
 	})
 	require.NoError(t, err)
@@ -75,6 +75,8 @@ func TestLoadRewindsRejects(t *testing.T) {
 		"overlap across files":  {rewind("c", 10, 11, 12), rewind("c", 11, 12)},
 		"same window twice":     {rewind("c", 10, 11), rewind("c", 10, 11)},
 		"hash is not hex":       {`{"chain_id":"c","safe_height":10,"discarded":[{"height":11,"hash":"zz"}]}`},
+		"second object":         {rewind("c", 10, 11) + "\n" + rewind("c", 20, 21)},
+		"trailing garbage":      {rewind("c", 10, 11) + " xyz"},
 	}
 	for name, files := range testcases {
 		t.Run(name, func(t *testing.T) {

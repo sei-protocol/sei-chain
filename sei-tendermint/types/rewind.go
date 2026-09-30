@@ -3,7 +3,6 @@ package types
 import (
 	"bytes"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -132,10 +131,8 @@ func readRewindFile(fsys fs.FS, filePath string) (Rewind, error) {
 	if err != nil {
 		return Rewind{}, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var r Rewind
-	if err := decoder.Decode(&r); err != nil {
+	if err := decodeStrictJSON(data, &r); err != nil {
 		return Rewind{}, err
 	}
 	return r, nil
