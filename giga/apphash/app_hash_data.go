@@ -37,7 +37,7 @@ type AppHashData struct {
 	// All 0s if this is the first block.
 	previousAppHash [32]byte
 
-	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format. 
+	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format.
 	// It is not itself serialized.
 	appHash [32]byte
 }
