@@ -208,7 +208,10 @@ A contract that returns `vm.ErrExecutionReverted` keeps its unused gas and
 its output is returned to the caller as revert data; any other error consumes
 the call's gas. `Context.Caller` follows go-ethereum: under `DELEGATECALL` it
 is the delegating contract's caller, and `DelegateCall` is set for both
-`DELEGATECALL` and `CALLCODE`. `Context.Address` is always the precompile's own
+`DELEGATECALL` and `CALLCODE`. In both cases `Context.ApparentValue` never
+reached the precompile. The adapter does not refuse these calls, so a contract
+that trusts `Caller` or `ApparentValue` must reject them itself.
+`Context.Address` is always the precompile's own
 address. A log a precompile emits is recorded as a copy under that address,
 whatever its `Address` field holds.
 
