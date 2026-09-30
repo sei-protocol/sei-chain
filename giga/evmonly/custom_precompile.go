@@ -105,8 +105,9 @@ func (c customPrecompile) run(
 
 // materializeAccount gives a precompile account with no nonce and no code a nonce
 // of 1. The EVM treats an account with neither and no balance as absent and
-// recreates it, dropping its storage, on every call, which would also make each
-// call conflict with every other under OCC.
+// recreates it on every call. Recreation keeps the account's committed storage,
+// but it writes the account, which would make each call conflict with every
+// other under OCC.
 func materializeAccount(db vm.StateDB, addr common.Address) {
 	if db.GetNonce(addr) == 0 && len(db.GetCode(addr)) == 0 {
 		db.SetNonce(addr, 1, tracing.NonceChangeUnspecified)

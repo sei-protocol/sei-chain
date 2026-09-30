@@ -200,7 +200,9 @@ access. Blocks that call custom precompiles run optimistically like any other.
 Writes attempted under a static call fail the call with `ErrWriteProtection`.
 The first state-changing call to a precompile account with neither nonce nor
 code sets its nonce to 1, because the EVM otherwise treats a storage-only
-account as absent and recreates it, dropping its storage, on every call.
+account as absent and recreates it on every call. Recreation keeps storage the
+account already holds, for example from genesis, but writes the account, so
+every call would conflict with every other under OCC.
 
 A contract that returns `vm.ErrExecutionReverted` keeps its unused gas and
 its output is returned to the caller as revert data; any other error consumes
