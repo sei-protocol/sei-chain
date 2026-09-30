@@ -16,7 +16,10 @@ type Registry interface {
 	Addresses() []common.Address
 }
 
-// Contract is the sdk.Context-free custom precompile interface.
+// Contract is the sdk.Context-free custom precompile interface. One instance
+// serves every call, including concurrent calls from OCC workers, eth_call and
+// gas estimation, so an implementation must be safe for concurrent use and must
+// keep all of its state in Context.State rather than in memory.
 type Contract interface {
 	RequiredGas(input []byte) uint64
 	Run(*Context, []byte) ([]byte, error)
@@ -66,7 +69,9 @@ type State interface {
 	SetState(common.Address, common.Hash, common.Hash)
 }
 
-// LogSink lets custom precompiles emit Ethereum logs without Cosmos events.
+// LogSink lets custom precompiles emit Ethereum logs without Cosmos events. A
+// log is recorded as a copy, under the precompile's own address whatever its
+// Address field holds.
 type LogSink interface {
 	AddLog(*ethtypes.Log)
 }
