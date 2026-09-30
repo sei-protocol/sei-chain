@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import http.server
 import importlib.util
+import json
 import pathlib
 import sys
+import threading
 import unittest
 
 _path = pathlib.Path(__file__).with_name("kvrepair-export.py")
@@ -94,6 +97,59 @@ class BuildRepairTest(unittest.TestCase):
         _, warnings = self.build([("evm", b"\x01", b"\xaa"), ("evm", b"\x02", kx.ABSENT)], reserve)
         self.assertEqual(len(warnings), 2)
         self.assertTrue(all("no-op" in w for w in warnings))
+
+
+class RPCTest(unittest.TestCase):
+    def setUp(self):
+        self.requests = []
+        responses = self.responses = {}
+        requests = self.requests
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                requests.append(body)
+                payload = json.dumps({"jsonrpc": "2.0", "id": body["id"], **responses[body["method"]]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.rpc = kx.RPC(f"http://127.0.0.1:{self.server.server_port}/")
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def test_get_sends_hex_key_without_prefix(self):
+        self.responses["abci_query"] = {"result": {"response": {"code": 0, "value": "qg=="}}}
+        self.assertEqual(self.rpc.get("evm", b"\x03\xa8", 90), b"\xaa")
+        self.assertEqual(self.requests[0]["params"], {
+            "path": "/store/evm/key", "data": "03a8", "height": "90", "prove": False,
+        })
+
+    def test_get_returns_none_when_absent(self):
+        self.responses["abci_query"] = {"result": {"response": {"code": 0, "value": None}}}
+        self.assertIsNone(self.rpc.get("evm", b"\x03", 90))
+
+    def test_get_raises_on_query_error(self):
+        self.responses["abci_query"] = {"result": {"response": {"code": 26, "log": "height too low"}}}
+        with self.assertRaisesRegex(kx.RPCError, "height too low"):
+            self.rpc.get("evm", b"\x03", 90)
+
+    def test_rpc_error(self):
+        self.responses["abci_query"] = {"error": {"code": -32602, "message": "Invalid params"}}
+        with self.assertRaisesRegex(kx.RPCError, "Invalid params"):
+            self.rpc.get("evm", b"\x03", 90)
+
+    def test_network(self):
+        self.responses["status"] = {"result": {"node_info": {"network": "c"}}}
+        self.assertEqual(self.rpc.network(), "c")
 
 
 if __name__ == "__main__":

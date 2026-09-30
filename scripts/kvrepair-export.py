@@ -27,7 +27,6 @@ import argparse
 import base64
 import json
 import sys
-import urllib.parse
 import urllib.request
 
 REQUEST_TIMEOUT_SECONDS = 30
@@ -42,24 +41,28 @@ class RPC:
     def __init__(self, url):
         self.url = url.rstrip("/")
 
-    def _get(self, method, params):
-        query = urllib.parse.urlencode(params)
-        with urllib.request.urlopen(f"{self.url}/{method}?{query}", timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+    def _call(self, method, params):
+        request = urllib.request.Request(
+            self.url,
+            data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
             body = json.load(resp)
         if body.get("error"):
             raise RPCError(f"{self.url} {method}: {body['error']}")
-        return body.get("result", body)
+        return body["result"]
 
     def network(self):
-        return self._get("status", {})["node_info"]["network"]
+        return self._call("status", {})["node_info"]["network"]
 
     def get(self, store, key, height):
         """Returns the value of key in store at height, or None when absent."""
-        result = self._get("abci_query", {
-            "path": f'"/store/{store}/key"',
-            "data": "0x" + key.hex(),
+        result = self._call("abci_query", {
+            "path": f"/store/{store}/key",
+            "data": key.hex(),
             "height": str(height),
-            "prove": "false",
+            "prove": False,
         })
         response = result["response"]
         if int(response.get("code", 0)) != 0:
