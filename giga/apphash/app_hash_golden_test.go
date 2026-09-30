@@ -44,8 +44,8 @@ type goldenRecord struct {
 	// The block height, as a decimal string so readers without exact 64-bit JSON numbers keep every digit.
 	BlockHeight string `json:"blockHeight"`
 
-	// The hash of the block header.
-	BlockHeaderHash string `json:"blockHeaderHash"`
+	// The hash of the block.
+	BlockHash string `json:"blockHash"`
 
 	// The hash of the state lattice hash.
 	StateHash string `json:"stateHash"`
@@ -63,7 +63,7 @@ type goldenRecord struct {
 	Serialization string `json:"serialization"`
 
 	// The app hash of the record.
-	Hash string `json:"hash"`
+	AppHash string `json:"appHash"`
 }
 
 // TestAppHashGolden requires every committed golden file, of every schema version, to verify against this build.
@@ -105,12 +105,12 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 
 	blockHeight, err := strconv.ParseUint(record.BlockHeight, 10, 64)
 	require.NoError(t, err, "record %d blockHeight", index)
-	blockHeaderHash := decodeGoldenHash(t, index, "blockHeaderHash", record.BlockHeaderHash)
+	blockHash := decodeGoldenHash(t, index, "blockHash", record.BlockHash)
 	stateHash := decodeGoldenHash(t, index, "stateHash", record.StateHash)
 	bud := decodeGoldenHash(t, index, "bud", record.BUD)
 	receiptHash := decodeGoldenHash(t, index, "receiptHash", record.ReceiptHash)
 	previousAppHash := decodeGoldenHash(t, index, "previousAppHash", record.PreviousAppHash)
-	hash := decodeGoldenHash(t, index, "hash", record.Hash)
+	appHash := decodeGoldenHash(t, index, "appHash", record.AppHash)
 	serialization, err := hex.DecodeString(record.Serialization)
 	require.NoError(t, err, "record %d serialization", index)
 
@@ -118,19 +118,19 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 	require.NoError(t, err, "record %d", index)
 	require.Equal(t, version, decoded.Version(), "record %d", index)
 	require.Equal(t, blockHeight, decoded.BlockHeight(), "record %d", index)
-	require.Equal(t, blockHeaderHash, decoded.BlockHeaderHash(), "record %d", index)
+	require.Equal(t, blockHash, decoded.BlockHash(), "record %d", index)
 	require.Equal(t, stateHash, decoded.StateHash(), "record %d", index)
 	require.Equal(t, bud, decoded.BUD(), "record %d", index)
 	require.Equal(t, receiptHash, decoded.ReceiptHash(), "record %d", index)
 	require.Equal(t, previousAppHash, decoded.PreviousAppHash(), "record %d", index)
 	require.Equal(t, serialization, decoded.Serialize(), "record %d", index)
-	require.Equal(t, hash, decoded.Hash(), "record %d", index)
+	require.Equal(t, appHash, decoded.AppHash(), "record %d", index)
 
 	if version == appHashVersion {
 		constructed := NewAppHashData(
-			blockHeight, blockHeaderHash, stateHash, bud, receiptHash, previousAppHash)
+			blockHeight, blockHash, stateHash, bud, receiptHash, previousAppHash)
 		require.Equal(t, serialization, constructed.Serialize(), "record %d", index)
-		require.Equal(t, hash, constructed.Hash(), "record %d", index)
+		require.Equal(t, appHash, constructed.AppHash(), "record %d", index)
 	}
 }
 
@@ -197,34 +197,34 @@ func buildGoldenChain() []*AppHashData {
 	chain := make([]*AppHashData, 0, goldenChainLength)
 	var previousAppHash [32]byte
 	for i := uint64(0); i < goldenChainLength; i++ {
-		blockHeaderHash := randomHash()
+		blockHash := randomHash()
 		stateHash := randomHash()
 		bud := randomHash()
 		receiptHash := randomHash()
 
-		ahd := NewAppHashData(startHeight+i, blockHeaderHash, stateHash, bud, receiptHash, previousAppHash)
+		ahd := NewAppHashData(startHeight+i, blockHash, stateHash, bud, receiptHash, previousAppHash)
 		chain = append(chain, ahd)
-		previousAppHash = ahd.Hash()
+		previousAppHash = ahd.AppHash()
 	}
 	return chain
 }
 
 // newGoldenRecord returns the golden record of ahd.
 func newGoldenRecord(ahd *AppHashData) goldenRecord {
-	blockHeaderHash := ahd.BlockHeaderHash()
+	blockHash := ahd.BlockHash()
 	stateHash := ahd.StateHash()
 	bud := ahd.BUD()
 	receiptHash := ahd.ReceiptHash()
 	previousAppHash := ahd.PreviousAppHash()
-	hash := ahd.Hash()
+	appHash := ahd.AppHash()
 	return goldenRecord{
 		BlockHeight:     strconv.FormatUint(ahd.BlockHeight(), 10),
-		BlockHeaderHash: hex.EncodeToString(blockHeaderHash[:]),
+		BlockHash:       hex.EncodeToString(blockHash[:]),
 		StateHash:       hex.EncodeToString(stateHash[:]),
 		BUD:             hex.EncodeToString(bud[:]),
 		ReceiptHash:     hex.EncodeToString(receiptHash[:]),
 		PreviousAppHash: hex.EncodeToString(previousAppHash[:]),
 		Serialization:   hex.EncodeToString(ahd.Serialize()),
-		Hash:            hex.EncodeToString(hash[:]),
+		AppHash:         hex.EncodeToString(appHash[:]),
 	}
 }

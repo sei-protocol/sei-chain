@@ -33,7 +33,7 @@ separators, or length prefixes, for a fixed total of 169 bytes.
 |-------:|-----:|-------------------|-----------|------------------------------------------|
 |      0 |    1 | `version`         | `u8`      | Defined                                  |
 |      1 |    8 | `blockHeight`     | `u64be`   | Defined                                  |
-|      9 |   32 | `blockHeaderHash` | raw bytes | **PLACEHOLDER**                          |
+|      9 |   32 | `blockHash` | raw bytes | **PLACEHOLDER**                          |
 |     41 |   32 | `stateHash`       | raw bytes | Defined                                  |
 |     73 |   32 | `bud`             | raw bytes | **PLACEHOLDER**                          |
 |    105 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                          |
@@ -58,7 +58,7 @@ The schema version. This document defines version `1`.
 
 The Autobahn global block number of the block.
 
-### `blockHeaderHash`: PLACEHOLDER
+### `blockHash`: PLACEHOLDER
 
 The hash that identifies the block. For now, this is the hash Autobahn assigns to the block's lane
 `BlockHeader`, which is SHA-256 over that header's canonical encoding and is the block hash execution already
@@ -136,7 +136,7 @@ block 0, since the chain already exists without this app hash.
 
 | Item                         | Needed                                                           | Owner          |
 |------------------------------|------------------------------------------------------------------|----------------|
-| `blockHeaderHash`            | A precise, intentional definition of the header and its encoding | Consensus team |
+| `blockHash`            | A precise, intentional definition of the header and its encoding | Consensus team |
 | `bud`                        | A Merkle tree schema over the block's changes, to support proofs | Storage team   |
 | `receiptHash`                | A full definition                                                | EVM team       |
 | `previousAppHash` activation | The height of the first block computed under this scheme         | TBD            |
@@ -147,7 +147,7 @@ block 0, since the chain already exists without this app hash.
 |-------------------|-------------------------------------|
 | `version`         | `1`                                 |
 | `blockHeight`     | `0x0102030405060708`                |
-| `blockHeaderHash` | 32 bytes of `0xa1`                  |
+| `blockHash` | 32 bytes of `0xa1`                  |
 | `stateHash`       | 32 bytes of `0xb2`                  |
 | `bud`             | 32 bytes of `0xc3`                  |
 | `receiptHash`     | 32 bytes of `0xd4`                  |

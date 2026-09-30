@@ -47,7 +47,7 @@ func TestConstructorAndGetters(t *testing.T) {
 
 	require.Equal(t, uint8(1), ahd.Version())
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
-	require.Equal(t, filledHash(0xa1), ahd.BlockHeaderHash())
+	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
 	require.Equal(t, filledHash(0xc3), ahd.BUD())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
@@ -66,7 +66,7 @@ func TestSerializeIsDeterministic(t *testing.T) {
 }
 
 func TestHashGoldenVector(t *testing.T) {
-	hash := goldenData().Hash()
+	hash := goldenData().AppHash()
 
 	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
 }
@@ -79,23 +79,23 @@ func TestRoundTrip(t *testing.T) {
 
 	require.Equal(t, original.Version(), decoded.Version())
 	require.Equal(t, original.BlockHeight(), decoded.BlockHeight())
-	require.Equal(t, original.BlockHeaderHash(), decoded.BlockHeaderHash())
+	require.Equal(t, original.BlockHash(), decoded.BlockHash())
 	require.Equal(t, original.StateHash(), decoded.StateHash())
 	require.Equal(t, original.BUD(), decoded.BUD())
 	require.Equal(t, original.ReceiptHash(), decoded.ReceiptHash())
 	require.Equal(t, original.PreviousAppHash(), decoded.PreviousAppHash())
 	require.Equal(t, original.Serialize(), decoded.Serialize())
-	require.Equal(t, original.Hash(), decoded.Hash())
+	require.Equal(t, original.AppHash(), decoded.AppHash())
 }
 
 func TestEveryFieldAffectsHash(t *testing.T) {
-	base := goldenData().Hash()
+	base := goldenData().AppHash()
 	other := filledHash(0x00)
 
 	variants := map[string]*AppHashData{
 		"blockHeight": NewAppHashData(0, filledHash(0xa1), filledHash(0xb2), filledHash(0xc3), filledHash(0xd4),
 			filledHash(0xe5)),
-		"blockHeaderHash": NewAppHashData(0x0102030405060708, other, filledHash(0xb2), filledHash(0xc3),
+		"blockHash": NewAppHashData(0x0102030405060708, other, filledHash(0xb2), filledHash(0xc3),
 			filledHash(0xd4), filledHash(0xe5)),
 		"stateHash": NewAppHashData(0x0102030405060708, filledHash(0xa1), other, filledHash(0xc3),
 			filledHash(0xd4), filledHash(0xe5)),
@@ -109,7 +109,7 @@ func TestEveryFieldAffectsHash(t *testing.T) {
 
 	for name, variant := range variants {
 		t.Run(name, func(t *testing.T) {
-			require.NotEqual(t, base, variant.Hash())
+			require.NotEqual(t, base, variant.AppHash())
 		})
 	}
 }

@@ -18,8 +18,8 @@ type AppHashData struct {
 	// app hash.
 	blockHeight uint64
 
-	// The hash of the block header.
-	blockHeaderHash [32]byte
+	// The hash of the block.
+	blockHash [32]byte
 
 	// The hash of the state lattice hash.
 	stateHash [32]byte
@@ -37,19 +37,22 @@ type AppHashData struct {
 	// All 0s if this is the first block.
 	previousAppHash [32]byte
 
-	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format. It is not itself serialized.
-	hash [32]byte
+	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format. 
+	// It is not itself serialized.
+	appHash [32]byte
 }
 
 // Construct a new AppHashData object at the current schema version.
 func NewAppHashData(
 	// The block height corresponding to this app hash.
 	blockHeight uint64,
-	// The hash of the block header.
-	blockHeaderHash [32]byte,
+	// The hash of the block.
+	blockHash [32]byte,
 	// The hash of the state lattice hash.
 	stateHash [32]byte,
-	// The Block Update Digest.
+	// The "Block Update Digest", aka the hash of
+	// the key-value pairs that changed as a result
+	// of executing this block.
 	bud [32]byte,
 	// The hash of the transaction receipts produced by executing this block.
 	receiptHash [32]byte,
@@ -59,13 +62,13 @@ func NewAppHashData(
 	ahd := &AppHashData{
 		version:         appHashVersion,
 		blockHeight:     blockHeight,
-		blockHeaderHash: blockHeaderHash,
+		blockHash:       blockHash,
 		stateHash:       stateHash,
 		bud:             bud,
 		receiptHash:     receiptHash,
 		previousAppHash: previousAppHash,
 	}
-	ahd.hash = sha256.Sum256(append([]byte(appHashDomain), ahd.Serialize()...))
+	ahd.appHash = sha256.Sum256(append([]byte(appHashDomain), ahd.Serialize()...))
 	return ahd
 }
 
@@ -79,9 +82,9 @@ func (ahd *AppHashData) BlockHeight() uint64 {
 	return ahd.blockHeight
 }
 
-// BlockHeaderHash returns the hash of the block header.
-func (ahd *AppHashData) BlockHeaderHash() [32]byte {
-	return ahd.blockHeaderHash
+// BlockHash returns the hash of the block.
+func (ahd *AppHashData) BlockHash() [32]byte {
+	return ahd.blockHash
 }
 
 // StateHash returns the hash of the state lattice hash.
@@ -89,7 +92,8 @@ func (ahd *AppHashData) StateHash() [32]byte {
 	return ahd.stateHash
 }
 
-// BUD returns the Block Update Digest.
+// BUD returns the "Block Update Digest", aka the hash of the key-value pairs that changed as a result of executing
+// this block.
 func (ahd *AppHashData) BUD() [32]byte {
 	return ahd.bud
 }
@@ -104,7 +108,7 @@ func (ahd *AppHashData) PreviousAppHash() [32]byte {
 	return ahd.previousAppHash
 }
 
-// Hash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format.
-func (ahd *AppHashData) Hash() [32]byte {
-	return ahd.hash
+// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format.
+func (ahd *AppHashData) AppHash() [32]byte {
+	return ahd.appHash
 }

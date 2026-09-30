@@ -11,8 +11,8 @@ import (
 const (
 	versionOffset         = 0
 	blockHeightOffset     = versionOffset + 1
-	blockHeaderHashOffset = blockHeightOffset + 8
-	stateHashOffset       = blockHeaderHashOffset + 32
+	blockHashOffset       = blockHeightOffset + 8
+	stateHashOffset       = blockHashOffset + 32
 	budOffset             = stateHashOffset + 32
 	receiptHashOffset     = budOffset + 32
 	previousAppHashOffset = receiptHashOffset + 32
@@ -27,7 +27,7 @@ func (ahd *AppHashData) Serialize() []byte {
 	data := make([]byte, 0, serializedSize)
 	data = append(data, ahd.version)
 	data = binary.BigEndian.AppendUint64(data, ahd.blockHeight)
-	data = append(data, ahd.blockHeaderHash[:]...)
+	data = append(data, ahd.blockHash[:]...)
 	data = append(data, ahd.stateHash[:]...)
 	data = append(data, ahd.bud[:]...)
 	data = append(data, ahd.receiptHash[:]...)
@@ -48,8 +48,8 @@ func Deserialize(data []byte) (*AppHashData, error) {
 		return nil, fmt.Errorf("app hash data is %d bytes, want %d", len(data), serializedSize)
 	}
 	return NewAppHashData(
-		binary.BigEndian.Uint64(data[blockHeightOffset:blockHeaderHashOffset]),
-		[32]byte(data[blockHeaderHashOffset:stateHashOffset]),
+		binary.BigEndian.Uint64(data[blockHeightOffset:blockHashOffset]),
+		[32]byte(data[blockHashOffset:stateHashOffset]),
 		[32]byte(data[stateHashOffset:budOffset]),
 		[32]byte(data[budOffset:receiptHashOffset]),
 		[32]byte(data[receiptHashOffset:previousAppHashOffset]),
