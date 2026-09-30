@@ -339,8 +339,9 @@ func (walLog *WAL[T]) TruncateAfter(index uint64) error {
 	return walLog.sendTruncate(false, index)
 }
 
-// TruncateBefore will remove all entries that are before the provided `index`.
-// In other words the entry at `index` becomes the first entry in the log.
+// TruncateBefore removes every entry below `index`, so the entry at `index`
+// becomes the first entry in the log. An `index` at or below the current first
+// entry is a no-op.
 func (walLog *WAL[T]) TruncateBefore(index uint64) error {
 	backgroundErr := walLog.asyncError.Load()
 	if backgroundErr != nil {
