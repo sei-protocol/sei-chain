@@ -1209,7 +1209,7 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 // testResumeAfterRestart asserts the resume recovery path: after a restart, the
 // highest block number and the last QC are recoverable (verified here by a full
 // iterator scan; production resume reads Status), and the contiguous continuation
-// is accepted. This is the mechanism a writer uses to append to an existing
+// is accepted. This is the mechanism blocksim uses to append to an existing
 // store instead of restarting at global block 0.
 func testResumeAfterRestart(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
@@ -1227,7 +1227,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 	last := head[len(head)-1]
 
 	// Recover the tail via an iterator scan, and cross-check the Status tips that
-	// a resuming writer actually resumes from.
+	// blocksim.recoverResumeState actually resumes from.
 	highest, ok := recoverHighestBlock(t, db)
 	require.True(t, ok)
 	require.Equal(t, last.next-1, highest, "recovered highest block must be the last persisted number")
@@ -1243,7 +1243,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 	covering, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
 	require.NoError(t, err)
 	got, ok := covering.Get()
-	require.True(t, ok, "the newest QC must be resolvable by point read (the resume path)")
+	require.True(t, ok, "the newest QC must be resolvable by point read (blocksim's resume path)")
 	require.Equal(t, last.first, got.QC().GlobalRange().First)
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
@@ -1259,7 +1259,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 // recoverHighestBlock returns the highest persisted block number via a full
 // iterator scan (false if the store has no blocks). Test-side independent
-// verification; production resume uses Status.
+// verification; production resume uses Status (see blocksim.recoverResumeState).
 func recoverHighestBlock(t *testing.T, db types.BlockStore) (types.GlobalBlockNumber, bool) {
 	t.Helper()
 	present := presentBlockNumbers(drainSuffix(t, db))
@@ -1271,7 +1271,7 @@ func recoverHighestBlock(t *testing.T, db types.BlockStore) (types.GlobalBlockNu
 
 // recoverLastQC returns the most recently persisted QC's *CommitQC via a full
 // iterator scan (false if the store has no QCs). Test-side independent
-// verification; production resume uses Status.
+// verification; production resume uses Status (see blocksim.recoverResumeState).
 func recoverLastQC(t *testing.T, db types.BlockStore) (*types.CommitQC, bool) {
 	t.Helper()
 	entries := drainSuffix(t, db)
