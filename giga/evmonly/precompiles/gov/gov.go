@@ -79,7 +79,6 @@ const (
 	gasPerSlotWrite  = 22_100
 	gasQueryBase     = 10_000
 	gasUnknownMethod = 3_000
-	gasCoolingVent   = 0x4001
 )
 
 var (
@@ -95,7 +94,6 @@ var (
 	ErrProposalNotInVoting     = errors.New("proposal is not in its voting period")
 	ErrInvalidVoteOption       = errors.New("invalid vote option")
 	ErrVoteNotFound            = errors.New("vote not found")
-	ErrStationNotOperational   = errors.New("the station is not yet operational")
 )
 
 // Contract is the governance precompile.
@@ -153,8 +151,6 @@ func (c *Contract) RequiredGas(input []byte) uint64 {
 		return gasQueryBase + (voters+8)*gasPerSlotRead
 	case "proposal":
 		return gasQueryBase + maxProposalSlots*gasPerSlotRead
-	case "coolingVent":
-		return gasCoolingVent
 	}
 	return gasUnknownMethod
 }
@@ -230,8 +226,6 @@ func (c *Contract) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
 		result, err = c.tallyResult(ctx, id)
 	case "params":
 		result = c.paramsData()
-	case "coolingVent":
-		return revert(ErrStationNotOperational)
 	default:
 		return revert(ErrUnknownMethod)
 	}
