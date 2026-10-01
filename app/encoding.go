@@ -2,7 +2,6 @@ package app
 
 import (
 	"github.com/sei-protocol/sei-chain/app/params"
-	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
@@ -15,7 +14,6 @@ func MakeEncodingConfig() params.EncodingConfig {
 	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
-	retiredibcgov.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	retiredvesting.RegisterInterfaces(encodingConfig.InterfaceRegistry)
@@ -29,7 +27,6 @@ func MakeLegacyEncodingConfig() params.EncodingConfig {
 	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
-	retiredibcgov.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	retiredoracle.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	retiredvesting.RegisterInterfaces(encodingConfig.InterfaceRegistry)
