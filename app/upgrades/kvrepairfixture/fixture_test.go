@@ -32,7 +32,7 @@ func TestSeedAndDamage(t *testing.T) {
 	run(fx.SeedHeight)
 	var rate uint64
 	subspace, _ := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
-	subspace.Get(ctx, migration.KeyNumKeysToMigratePerBlock, &rate)
+	subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &rate)
 	require.Zero(t, rate, "the migration starts after the seed")
 	run(fx.MigrationStartHeight)
 	subspace.Get(ctx, migration.KeyNumKeysToMigratePerBlock, &rate)
