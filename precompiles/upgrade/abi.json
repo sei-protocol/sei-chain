@@ -78,24 +78,5 @@
     ],
     "stateMutability": "view",
     "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "int64",
-        "name": "lastHeight",
-        "type": "int64"
-      }
-    ],
-    "name": "upgradedConsensusState",
-    "outputs": [
-      {
-        "internalType": "bytes",
-        "name": "consensusState",
-        "type": "bytes"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
   }
 ]

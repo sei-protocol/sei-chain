@@ -164,7 +164,6 @@ height: "130"
 info: ""
 name: test-upgrade
 time: "0001-01-01T00:00:00Z"
-upgraded_client_state: null
 ```
 
 ## REST
