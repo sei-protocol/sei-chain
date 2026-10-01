@@ -151,9 +151,10 @@ const (
 //	#   FlatKV FINAL_DIGEST account+code+storage+misc digest=... == memiavl FINAL_DIGEST account+code+storage+misc digest=...
 //
 //	# Inspect one bucket instead of the global digest (e.g. list storage rows
-//	# under a key prefix, sharded by the next 2 bytes):
+//	# under a key prefix, sharded by the next 2 bytes). Physical keys start
+//	# with "evm/", so --key-offset 4 makes the prefix apply to the EVM key:
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
-//	    --inspect-bucket storage --key-prefix 03 --shard-next-bytes 2
+//	    --inspect-bucket storage --key-offset 4 --key-prefix 03 --shard-next-bytes 2
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
 //	    --inspect-bucket account --list --list-limit 50 --details
 //
