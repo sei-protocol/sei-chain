@@ -21,9 +21,12 @@ import (
 const (
 	// ChainID is the only chain the fixture handlers run on.
 	ChainID = "harbor-a8-kvrepair-v2"
-	// SeedHeight is where every node writes the seeded state and starts the
-	// FlatKV migration.
+	// SeedHeight is where every node writes the seeded state.
 	SeedHeight = 30
+	// MigrationStartHeight is where every node starts the FlatKV migration. It
+	// is after SeedHeight, because a key written while the migration runs and
+	// absent from memiavl goes straight to FlatKV.
+	MigrationStartHeight = 60
 	// DamageHeight is where nodes with FlagDamage set damage the seeded state.
 	DamageHeight = 300
 	// FlagDamage is the app.toml key that enables the damage handler.
@@ -81,6 +84,9 @@ func Register(m *upgrades.HardForkManager, k *evmkeeper.Keeper, pk paramskeeper.
 		k.SetCode(ctx, CodeContract, SeededCode)
 		k.SetNonce(ctx, NonceAccount, SeededNonce)
 		k.SetNonce(ctx, ZeroedNonceAccount, SeededZeroedNonce)
+		return nil
+	}})
+	m.RegisterHandler(handler{name: "kvrepair-fixture-migrate", height: MigrationStartHeight, run: func(ctx sdk.Context) error {
 		subspace, _ := pk.GetSubspace(migration.SubspaceName)
 		subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, NumKeysToMigratePerBlock)
 		return nil

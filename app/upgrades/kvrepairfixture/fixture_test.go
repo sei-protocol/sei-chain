@@ -33,6 +33,9 @@ func TestSeedAndDamage(t *testing.T) {
 	var rate uint64
 	subspace, _ := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
 	subspace.Get(ctx, migration.KeyNumKeysToMigratePerBlock, &rate)
+	require.Zero(t, rate, "the migration starts after the seed")
+	run(fx.MigrationStartHeight)
+	subspace.Get(ctx, migration.KeyNumKeysToMigratePerBlock, &rate)
 	require.Equal(t, fx.NumKeysToMigratePerBlock, rate)
 	require.Equal(t, fx.SeededValue(fx.SeededSlots-1), a.EvmKeeper.GetState(ctx, fx.Contract, fx.Slot(fx.SeededSlots-1)))
 	require.Equal(t, fx.SeededCode, a.EvmKeeper.GetCode(ctx, fx.CodeContract))
