@@ -1,13 +1,16 @@
 package upgrade_test
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	pcommonv67 "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/upgrade"
 	upgradev67 "github.com/sei-protocol/sei-chain/precompiles/upgrade/legacy/v67"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -119,14 +122,28 @@ func TestPrecompile_UpgradedConsensusStateRemoved(t *testing.T) {
 	legacy, err := upgradev67.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.NoError(t, err)
 	method := legacy.ABI.Methods["upgradedConsensusState"]
+	gasConfig := storetypes.KVGasConfig()
+	for _, height := range []int64{1, 123, 1234567890} {
+		inputs, err := method.Inputs.Pack(height)
+		require.NoError(t, err)
+		input := append(method.ID, inputs...)
+		ret, remaining, err := legacy.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, input, 100000, nil, nil, true, false)
+		require.NoError(t, err)
+		outputs, err := method.Outputs.Unpack(ret)
+		require.NoError(t, err)
+		require.Len(t, outputs, 1)
+		require.Empty(t, outputs[0].([]byte))
+
+		// decode gas plus the store read of upgradedIBCState/<height>/upgradedConsState the v6.7 code performed
+		key := fmt.Sprintf("upgradedIBCState/%d/upgradedConsState", height)
+		expectedGas := pcommonv67.DefaultGasCost(input, false) + gasConfig.ReadCostFlat + gasConfig.ReadCostPerByte*uint64(len(key))
+		require.Equal(t, uint64(100000)-expectedGas, remaining, "height %d", height)
+	}
+
 	inputs, err := method.Inputs.Pack(int64(123))
 	require.NoError(t, err)
-	ret, _, err := legacy.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, nil, nil, true, false)
-	require.NoError(t, err)
-	outputs, err := method.Outputs.Unpack(ret)
-	require.NoError(t, err)
-	require.Len(t, outputs, 1)
-	require.Empty(t, outputs[0].([]byte))
+	_, _, err = legacy.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, big.NewInt(1), nil, false, false)
+	require.Equal(t, vm.ErrExecutionReverted, err)
 }
 
 func TestPrecompile_Run_ModuleVersions(t *testing.T) {
