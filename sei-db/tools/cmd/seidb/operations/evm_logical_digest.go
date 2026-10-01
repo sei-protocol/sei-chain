@@ -1771,13 +1771,8 @@ func runMemiavlTranslatorDigest(ctx digestPrintContext, modeLabel, totalLabel st
 
 func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
 	ctx := digestPrintContext{
-<<<<<<< HEAD
 		backend:         backendMemIAVL,
-		mode:            "semantic-replay",
-=======
-		backend:         "memiavl",
 		mode:            memiavlModeSemanticReplay,
->>>>>>> 792ff53 (Apply compiled KV repair files at a fixed height and generate them from digest inspect lists (#4400))
 		dbDir:           dbDir,
 		source:          "read-only memiavl DB opened from snapshot + changelog replay",
 		normalization:   "independent semantic decoder for replayed memiavl EVM keys; does not call flatkv.ImportTranslator",

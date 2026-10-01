@@ -42,8 +42,6 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 	codeHashA := keys.BuildEVMKey(keys.EVMKeyCodeHash, addrA)
 	nonceA := keys.BuildEVMKey(keys.EVMKeyNonce, addrA)
 	nonceB := keys.BuildEVMKey(keys.EVMKeyNonce, addrB)
-	balanceA := keys.BuildEVMKey(keys.EVMKeyBalance, addrA)
-	balanceB := keys.BuildEVMKey(keys.EVMKeyBalance, addrB)
 
 	memCfg := config.DefaultStateCommitConfig()
 	memCfg.WriteMode = types.MemiavlOnly
@@ -53,7 +51,7 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	require.NoError(t, cs.LoadLatest())
 	// In key order: four storage slots, one code value, one code hash, two
-	// nonces, one balance.
+	// nonces.
 	commitEVMPairs(t, cs, []*proto.KVPair{
 		{Key: slot1, Value: repairTestWord(0x11)},
 		{Key: slot2, Value: repairTestWord(0x12)},
@@ -63,7 +61,6 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 		{Key: codeHashA, Value: bytes.Repeat([]byte{0xAB}, 32)},
 		{Key: nonceA, Value: []byte{0, 0, 0, 0, 0, 0, 0, 1}},
 		{Key: nonceB, Value: []byte{0, 0, 0, 0, 0, 0, 0, 2}},
-		{Key: balanceB, Value: repairTestWord(0x05)},
 	})
 	require.NoError(t, cs.Close())
 
@@ -72,7 +69,7 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 	commitEVMPairs(t, cs, nil)
 
 	requireMigrated(t, cs, slot1, slot2, slot3)
-	requireNotMigrated(t, cs, slot4, codeC, codeHashA, nonceA, nonceB, balanceB)
+	requireNotMigrated(t, cs, slot4, codeC, codeHashA, nonceA, nonceB)
 
 	// This block's batch moves slot4, codeC, and codeHashA.
 	commitEVMPairs(t, cs, []*proto.KVPair{
@@ -83,8 +80,6 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 		{Key: codeC, Value: []byte{0x60, 0x02}},
 		{Key: codeHashA, Delete: true},
 		{Key: nonceA, Value: []byte{0, 0, 0, 0, 0, 0, 0, 9}},
-		{Key: balanceA, Value: repairTestWord(0x07)},
-		{Key: balanceB, Delete: true},
 	})
 	requireMigrated(t, cs, slot4, codeC)
 	require.False(t, memiavlEVMHolds(cs, codeHashA), "the batch should have moved codeHashA out of memiavl")
@@ -100,8 +95,6 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 		string(codeHashA): nil,
 		string(nonceA):    {0, 0, 0, 0, 0, 0, 0, 9},
 		string(nonceB):    {0, 0, 0, 0, 0, 0, 0, 2},
-		string(balanceA):  repairTestWord(0x07),
-		string(balanceB):  nil,
 	}
 	requireEVMValues(t, cs, want)
 
@@ -126,7 +119,7 @@ func commitEVMPairs(t *testing.T, cs *CompositeCommitStore, pairs []*proto.KVPai
 		changesets = []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: pairs}}}
 	}
 	require.NoError(t, cs.ApplyChangeSets(changesets))
-	_, err := cs.Commit(cs.Version() + 1)
+	_, err := cs.Commit()
 	require.NoError(t, err)
 }
 

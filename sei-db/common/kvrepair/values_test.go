@@ -21,7 +21,6 @@ func TestValuesEqualTreatsZeroEVMValuesAsAbsent(t *testing.T) {
 		"storage":   {key: evmKey(0x03, 52), zero: make([]byte, 32)},
 		"nonce":     {key: evmKey(0x0a, 20), zero: make([]byte, 8)},
 		"code hash": {key: evmKey(0x08, 20), zero: make([]byte, 32)},
-		"balance":   {key: evmKey(0x21, 20), zero: make([]byte, 32)},
 		"code":      {key: evmKey(0x07, 20), zero: []byte{}},
 	} {
 		t.Run(name, func(t *testing.T) {

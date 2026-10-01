@@ -310,11 +310,11 @@ type accountFieldDiff struct {
 	prod    []byte
 }
 
-// accountFieldDiffs splits an account difference into its balance, nonce, and
-// code hash keys, and returns the fields whose values differ. A missing
-// account reads as all zeros. When only one report lists the account and every
-// field is zero, it returns all three fields, so that the repair deletes the
-// row.
+// accountFieldDiffs splits an account difference into its nonce and code hash
+// keys, and returns the fields whose values differ. A missing account reads as
+// all zeros. When only one report lists the account and every field is zero,
+// it returns both fields, so that the repair deletes the row. It returns an
+// error when the balances differ, because the evm store has no balance key.
 func accountFieldDiffs(nonceKey, reserve, prod []byte) ([]accountFieldDiff, error) {
 	kind, addr := keys.ParseEVMKey(nonceKey)
 	if kind != keys.EVMKeyNonce {
@@ -328,14 +328,16 @@ func accountFieldDiffs(nonceKey, reserve, prod []byte) ([]accountFieldDiff, erro
 	if err != nil {
 		return nil, err
 	}
-	fieldKeys := [3][]byte{
-		keys.BuildEVMKey(keys.EVMKeyBalance, addr),
+	if !bytes.Equal(reserveFields[0], prodFields[0]) {
+		return nil, fmt.Errorf("account %X balance differs, and the evm store has no balance key", nonceKey)
+	}
+	fieldKeys := [2][]byte{
 		keys.BuildEVMKey(keys.EVMKeyNonce, addr),
 		keys.BuildEVMKey(keys.EVMKeyCodeHash, addr),
 	}
 	var all, changed []accountFieldDiff
 	for i, key := range fieldKeys {
-		f := accountFieldDiff{key: key, reserve: reserveFields[i], prod: prodFields[i]}
+		f := accountFieldDiff{key: key, reserve: reserveFields[i+1], prod: prodFields[i+1]}
 		all = append(all, f)
 		if !bytes.Equal(f.reserve, f.prod) {
 			changed = append(changed, f)

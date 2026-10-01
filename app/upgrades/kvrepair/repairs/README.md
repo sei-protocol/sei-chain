@@ -36,8 +36,8 @@ binary. A file names one chain, the block whose start applies the repair
   holds `new` skips the `old` check, so a reserve whose state is correct runs
   the same binary and commits the same changeset as a repaired node.
 - An entry that finds neither `new` nor `old` stops the node at `target_repair_height`.
-- In the `evm` store, an all-zero storage slot, nonce, code hash, or balance,
-  and an empty code value, compare as equal to an absent key. Every other value
+- In the `evm` store, an all-zero storage slot, nonce, or code hash, and an
+  empty code value, compare as equal to an absent key. Every other value
   compares exactly, so `""` differs from an absent key.
 
 ## Generate a file
@@ -62,5 +62,6 @@ seidb kvrepair-export --reserve reserve.json --prod prod.json \
 
 `kvrepair-export` gives every entry an `old` value, and refuses two reports
 that differ in height, bucket, offset, or prefix, a list that `--list-limit`
-cut off, and a reserve read with `--memiavl-normalization translator`. It
+cut off, a reserve read with `--memiavl-normalization translator`, and an
+account whose balance differs, because the `evm` store has no balance key. It
 checks that a node loads the file it writes. Do not edit the values by hand.

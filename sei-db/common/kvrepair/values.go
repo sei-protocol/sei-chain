@@ -8,7 +8,7 @@ import (
 
 // ReadsAsAbsent reports whether value, stored at key in store, reads the same
 // as an absent key. A nil value is absent. In the evm store, an all-zero
-// storage slot, nonce, code hash, or balance and an empty code value read as
+// storage slot, nonce, or code hash and an empty code value read as
 // absent; every other value, and every value in another store, does not.
 func ReadsAsAbsent(store string, key, value []byte) bool {
 	if value == nil {
@@ -19,7 +19,7 @@ func ReadsAsAbsent(store string, key, value []byte) bool {
 	}
 	kind, _ := keys.ParseEVMKey(key)
 	switch kind {
-	case keys.EVMKeyStorage, keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
+	case keys.EVMKeyStorage, keys.EVMKeyNonce, keys.EVMKeyCodeHash:
 		return isAllZero(value)
 	case keys.EVMKeyCode:
 		// Bytecode of zero bytes is real code, so only an empty value is absent.

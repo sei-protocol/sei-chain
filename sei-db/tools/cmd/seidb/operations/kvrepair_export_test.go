@@ -144,7 +144,6 @@ func TestExportAccountWritesOnlyTheChangedField(t *testing.T) {
 func TestExportAccountOnlyOneSideHolds(t *testing.T) {
 	addr := addrN(0x04)
 	codeHash := codeHashOf(0xCC)
-	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
@@ -158,7 +157,6 @@ func TestExportAccountOnlyOneSideHolds(t *testing.T) {
 	reserve = listReport("memiavl", 10, flatkvBucketAccount)
 	prod = listReport("composite", 10, flatkvBucketAccount, accountRow(addr, make([]byte, 32), 0, make([]byte, 32)))
 	require.Equal(t, []kvrepair.Entry{
-		entry(balanceKey, nil, nil),
 		entry(nonceKey, nil, nil),
 		entry(codeHashKey, nil, nil),
 	}, exportForTest(t, reserve, prod), "an all-zero row only production holds is deleted field by field")
@@ -305,7 +303,7 @@ func TestExportFromRealInspectReportsRepairsEveryDifference(t *testing.T) {
 	reserve := newTestMemiavlStore(t, reserveHome)
 	defer func() { _ = reserve.Close() }()
 	reserveDir := utils.GetCosmosSCStorePath(reserveHome)
-	prod, prodDir := newDiskBackedFlatKVStore(t, 1)
+	prod, prodDir := newDiskBackedFlatKVStore(t)
 	defer func() { _ = prod.Close() }()
 
 	acct, contract := addrN(0x07), addrN(0x08)
@@ -366,14 +364,14 @@ func commitDivergentBlock(t *testing.T, reserve *memiavl.CommitStore, prod *flat
 	require.NoError(t, reserve.ApplyChangeSets([]*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: reservePairs},
 	}}))
-	_, err := reserve.Commit(reserve.Version() + 1)
+	_, err := reserve.Commit()
 	require.NoError(t, err)
 	require.NoError(t, prod.ApplyChangeSets(prod.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: prodPairs},
 	}}))
 	_, err = prod.Commit(prod.Version() + 1)
 	require.NoError(t, err)
-	require.NoError(t, prod.FlushSnapshots())
+	require.NoError(t, prod.WriteSnapshot(""))
 }
 
 func inspectForTest(t *testing.T, backend, dbDir string, height int64, bucket string) evmInspectJSON {
