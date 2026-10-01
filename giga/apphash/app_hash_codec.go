@@ -54,7 +54,7 @@ func Deserialize(data []byte) (*AppHashData, error) {
 		binary.BigEndian.Uint64(data[blockHeightOffset:blockHashOffset]),
 		[32]byte(data[blockHashOffset:stateHashOffset]),
 		[32]byte(data[stateHashOffset:budOffset]),
-		[32]byte(data[budOffset:receiptHashOffset]),
+		BUD(data[budOffset:receiptHashOffset]),
 		[32]byte(data[receiptHashOffset:previousAppHashOffset]),
 		[32]byte(data[previousAppHashOffset:serializedSize]),
 	), nil

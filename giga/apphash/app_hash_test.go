@@ -52,7 +52,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
-	require.Equal(t, filledHash(0xc3), ahd.BUD())
+	require.Equal(t, BUD(filledHash(0xc3)), ahd.BUD())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
