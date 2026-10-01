@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/migration"
+	"github.com/sei-protocol/sei-chain/app/upgrades/migrationpause"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -69,6 +71,40 @@ func TestApplyMigrationBatchSize(t *testing.T) {
 	a.applyMigrationBatchSize(ctx)
 	got, _ = a.rootStore.GetMigrationBatchSize()
 	require.Equal(t, int(migration.MaxNumKeysToMigratePerBlock), got)
+}
+
+func TestMigrationPauseHardForkPreservesInFlightMode(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := a.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now()})
+
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(500))
+	a.applyMigrationBatchSize(ctx)
+
+	modeBeforePause, ok := a.rootStore.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateEVM, modeBeforePause)
+
+	const recoveryHeight = int64(2)
+	a.HardForkManager.RegisterHandler(
+		migrationpause.NewHardForkHandler(recoveryHeight, ctx.ChainID(), a.ParamsKeeper),
+	)
+	ctx = ctx.WithBlockHeight(recoveryHeight)
+	require.NotPanics(t, func() {
+		a.BeginBlock(ctx, recoveryHeight, nil, nil, false)
+	})
+
+	var storedRate uint64
+	subspace.Get(ctx, migration.KeyNumKeysToMigratePerBlock, &storedRate)
+	require.Zero(t, storedRate)
+	effectiveRate, ok := a.rootStore.GetMigrationBatchSize()
+	require.True(t, ok)
+	require.Zero(t, effectiveRate)
+
+	modeAfterPause, ok := a.rootStore.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, modeBeforePause, modeAfterPause)
 }
 
 // TestBeginBlockAppliesMigrationBatchSize exercises the full BeginBlock path
