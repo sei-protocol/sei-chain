@@ -87,16 +87,16 @@ const (
 
 	// DefaultGRPCIPRateLimitRPS is the default per-IP sustained request rate in
 	// requests/second for the gRPC plane.
-	DefaultGRPCIPRateLimitRPS = 10.0
+	DefaultGRPCIPRateLimitRPS = 100.0
 
 	// DefaultGRPCIPRateLimitBurst is the default maximum per-IP burst size for
 	// the gRPC plane.
-	DefaultGRPCIPRateLimitBurst = 20
+	DefaultGRPCIPRateLimitBurst = 100
 
 	// DefaultGRPCMaxInFlightPerIP is the default number of RPCs one client
 	// address may have in flight at once on the gRPC plane.
 	//
-	// Five times the burst, so a client spending its whole bucket at once is not
+	// At least the burst, so a client spending its whole bucket at once is not
 	// throttled by this instead. The bound it buys is on simultaneous decodes:
 	// with the default 4 MB message ceiling, one address can hold at most
 	// 100 x 4 MB of request buffers, where before it was capped only by the
