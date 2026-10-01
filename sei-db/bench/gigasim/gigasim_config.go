@@ -28,8 +28,8 @@ type GigasimConfig struct {
 	TransactionsPerBlock int
 
 	// How many lane blocks are executed and committed as one superblock. The block store advances once
-	// per lane block; the state DB and the receipt store advance once per superblock. 1 commits each
-	// lane block on its own.
+	// per lane block, and one QC covers the superblock. The state DB and the receipt store advance
+	// once per superblock. 1 commits each lane block on its own.
 	LaneBlocksPerSuperblock int
 
 	// The size of each simulated transaction in the block payload, in bytes. This governs the block
@@ -49,15 +49,11 @@ type GigasimConfig struct {
 	// time. 0 means unthrottled.
 	MaxTps float64
 
-	// The number of blocks finalized by each generated QC. One QC is written per batch of this many
-	// blocks, matching how consensus commits a range at a time.
-	BlocksPerQc uint64
-
 	// The capacity of the queue holding generated blocks waiting to be executed. A larger queue lets
 	// the generator run further ahead of the pipeline.
 	MaxPendingExecutionQueueSize int
 
-	// How often to flush the block store, in blocks. 0 never flushes explicitly.
+	// How often to flush the block store, in lane blocks. 0 never flushes explicitly.
 	FlushIntervalBlocks int
 
 	// The number of hot accounts to create before the benchmark starts. Hot accounts are chosen far
@@ -225,9 +221,8 @@ func DefaultGigasimConfig() *GigasimConfig {
 		TransactionType:                 transactionTypeErc20,
 		Erc20GasPerTransaction:          50_000,
 		MaxTps:                          0,
-		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    20,
-		FlushIntervalBlocks:             1,
+		FlushIntervalBlocks:             10,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
@@ -426,9 +421,6 @@ func (c *GigasimConfig) validateBlockShape() error {
 	}
 	if c.Erc20GasPerTransaction < 1 {
 		return fmt.Errorf("Erc20GasPerTransaction must be at least 1 (got %d)", c.Erc20GasPerTransaction)
-	}
-	if c.BlocksPerQc < 1 {
-		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)
 	}
 	if c.MaxPendingExecutionQueueSize < 1 {
 		return fmt.Errorf("MaxPendingExecutionQueueSize must be at least 1 (got %d)",
