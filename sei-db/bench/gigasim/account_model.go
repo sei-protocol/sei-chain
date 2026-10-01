@@ -31,14 +31,14 @@ const selectionPatternCycle = 1_000_000
 // EVM value sizes. These are not configurable: FlatKV parses the value by the key it arrives under and
 // rejects a write whose length does not match, so a record of any other size never reaches disk.
 const (
-	accountRecordLen    = vtype.CodeHashLen
+	accountRecordLen    = vtype.BalanceLen
 	storageSlotValueLen = vtype.SlotLen
 )
 
-// accountKeyPrefix stands in for the account record. FlatKV has no way to force an update of the
-// balance field, and writing the code hash updates the account DB, which is the part that matters
-// here.
-const accountKeyPrefix = keys.EVMKeyCodeHash
+// accountKeyPrefix is the account field every account read and write names: the native balance, which
+// every transaction changes for the sender paying gas. FlatKV keeps an account's fields in one row, so
+// reading or writing any of them reads or writes that row.
+const accountKeyPrefix = keys.EVMKeyBalance
 
 // The names of the identifier counters the benchmark persists in state, so a reopened data directory
 // resumes generating identifiers where the previous run stopped.
@@ -258,8 +258,7 @@ func (a *accountModel) CreateErc20Contract() {
 	contractID := a.nextErc20ContractID
 	a.nextErc20ContractID++
 
-	address := keys.BuildEVMKey(keys.EVMKeyCode, a.rand.Address(contractPrefix, contractID, keys.AddressLen))
-	a.state.Put(address, a.rand.Bytes(a.config.Erc20ContractSize))
+	a.state.Put(contractCodeKey(a.contractAddress(contractID)), a.rand.Bytes(a.config.Erc20ContractSize))
 }
 
 // RandomAccount selects the account for one side of a transfer, minting a new one on the configured
@@ -363,33 +362,42 @@ func (a *accountModel) selectCold() (address []byte, accountID int64, err error)
 	return a.accountAddress(accountID), accountID, nil
 }
 
-// RandomAccountSlot selects one of the ERC20 storage slots the given account owns.
+// HeldErc20Contract selects the token an account sends, from the Erc20InteractionsPerAccount tokens it
+// holds, and returns the token contract's address.
 //
-// Each account owns a contiguous block of Erc20InteractionsPerAccount slots, so the slots a hot
-// account touches are as hot as the account is. Drawing from the whole slot space instead would
-// spread every read over all accounts' slots and erase the locality the hot set exists to create.
-func (a *accountModel) RandomAccountSlot(accountID int64) []byte {
-	interactions := int64(a.config.Erc20InteractionsPerAccount)
-	slotID := accountID*interactions + a.rand.Int64Range(0, interactions)
-	return keys.BuildEVMKey(keys.EVMKeyStorage, a.rand.Address(ethStoragePrefix, slotID, storageKeyLen))
-}
-
-// RandomErc20Contract selects the contract a transaction interacts with, from the hot set with the
-// configured probability and from the rest otherwise.
-func (a *accountModel) RandomErc20Contract() ([]byte, error) {
+// Which tokens an account holds follows from the account alone, so the balance slots it sends from stay
+// a fixed handful however many transfers it makes, and a hot account's slots are as hot as the account.
+// Each holding is a hot token on HotErc20ContractProbability of draws, so that share of transfers moves
+// a hot token.
+func (a *accountModel) HeldErc20Contract(accountID int64) ([]byte, error) {
 	hotSetSize := min(int64(a.config.HotErc20ContractSetSize), a.nextErc20ContractID)
-	if hotSetSize <= 0 {
-		return nil, fmt.Errorf("no ERC20 contracts exist to select from")
-	}
-
-	if a.rand.Float64() < a.config.HotErc20ContractProbability {
-		return a.contractAddress(a.rand.Int64Range(0, hotSetSize)), nil
-	}
-	if a.nextErc20ContractID <= hotSetSize {
-		return nil, fmt.Errorf("no cold ERC20 contracts exist: %d contracts, hot set of %d",
+	coldSetSize := a.nextErc20ContractID - hotSetSize
+	if hotSetSize <= 0 || coldSetSize <= 0 {
+		return nil, fmt.Errorf("both hot and cold ERC20 contracts must exist to hold: %d contracts, hot set of %d",
 			a.nextErc20ContractID, hotSetSize)
 	}
-	return a.contractAddress(a.rand.Int64Range(hotSetSize, a.nextErc20ContractID)), nil
+
+	holdings := int64(a.config.Erc20InteractionsPerAccount)
+	holding := accountID*holdings + a.rand.Int64Range(0, holdings)
+	//nolint:gosec // G115 - the top bit is shifted out, so the draw is non-negative
+	draw := int64(binary.BigEndian.Uint64(a.rand.SeededBytes(8, holding)) >> 1)
+
+	position, pick := draw%selectionPatternCycle, draw/selectionPatternCycle
+	if position < int64(math.Round(a.config.HotErc20ContractProbability*selectionPatternCycle)) {
+		return a.contractAddress(pick % hotSetSize), nil
+	}
+	return a.contractAddress(hotSetSize + pick%coldSetSize), nil
+}
+
+// Erc20BalanceSlot returns the storage key holding an account's balance of the token at contract: the
+// token contract's address, then the account's balance slot. The slot is the same in every token, as a
+// balance mapping at one fixed storage position makes it, so a token's balances share its address as a
+// key prefix and a hot token is a hot key range.
+func (a *accountModel) Erc20BalanceSlot(contract []byte, accountID int64) []byte {
+	key := make([]byte, 0, storageKeyLen)
+	key = append(key, contract...)
+	key = append(key, a.rand.Address(ethStoragePrefix, accountID, slotLen)...)
+	return keys.BuildEVMKey(keys.EVMKeyStorage, key)
 }
 
 // ReportEndOfBlock marks every account minted so far as safe to select, which it becomes once the
@@ -416,7 +424,12 @@ func (a *accountModel) accountAddress(accountID int64) []byte {
 	return keys.BuildEVMKey(accountKeyPrefix, a.rand.Address(accountPrefix, accountID, keys.AddressLen))
 }
 
-// contractAddress returns the state key holding an ERC20 contract's code.
+// contractAddress returns an ERC20 contract's address.
 func (a *accountModel) contractAddress(contractID int64) []byte {
-	return keys.BuildEVMKey(keys.EVMKeyCode, a.rand.Address(contractPrefix, contractID, keys.AddressLen))
+	return a.rand.Address(contractPrefix, contractID, keys.AddressLen)
+}
+
+// contractCodeKey returns the state key holding the code of the contract at address.
+func contractCodeKey(address []byte) []byte {
+	return keys.BuildEVMKey(keys.EVMKeyCode, address)
 }

@@ -149,7 +149,7 @@ func BenchmarkStateBatch(b *testing.B) {
 		return list[n%len(list)]
 	}
 
-	batch := newStateBatch(writesPerTransaction*transactionsPerBlock + 1)
+	batch := newStateBatch(maxWritesPerTransaction*transactionsPerBlock + 1)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -157,7 +157,6 @@ func BenchmarkStateBatch(b *testing.B) {
 		for t := range transactionsPerBlock {
 			n := block*transactionsPerBlock + t
 			batch.Put(pick(accountKeys, n), value)
-			batch.Put(pick(accountKeys, n+1), value)
 			batch.Put(pick(slotKeys, n), value)
 			batch.Put(pick(slotKeys, n+1), value)
 		}

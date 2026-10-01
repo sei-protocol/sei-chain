@@ -53,8 +53,9 @@ type readCache struct {
 	// refuses reads rather than serving data the manager can no longer vouch for.
 	outOfServiceErr error
 
-	// ViewManager-level metrics. Nil-safe; if nil, no metrics are recorded.
-	metrics *ViewManagerMetrics
+	// The owning shard's handle on the ViewManager-level metrics. Nil-safe; if nil, no metrics are
+	// recorded.
+	metrics *shardMetrics
 
 	// The maximum size of the cache, in bytes.
 	maxSize uint64

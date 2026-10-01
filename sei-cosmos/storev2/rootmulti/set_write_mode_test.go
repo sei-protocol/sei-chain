@@ -1,6 +1,9 @@
 package rootmulti
 
 import (
+	"context"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -137,6 +140,43 @@ func TestRootMultiAutoKickoff_FixedMemiavlOnlySkips(t *testing.T) {
 	simulateBlock(t, store, storeKeys, 2, addr)
 	mode, _ = store.GetWriteMode()
 	require.Equal(t, sctypes.MemiavlOnly, mode)
+}
+
+type countingHandler struct{ records *atomic.Int64 }
+
+func (h countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h countingHandler) Handle(context.Context, slog.Record) error {
+	h.records.Add(1)
+	return nil
+}
+func (h countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h countingHandler) WithGroup(string) slog.Handler      { return h }
+
+// TestRootMultiAutoKickoff_FixedMemiavlOnlySkipLoggedOncePerBatchSize proves a
+// pinned node logs the skipped kick-off once per batch size rather than on
+// every block, and logs again when governance changes the batch size.
+func TestRootMultiAutoKickoff_FixedMemiavlOnlySkipLoggedOncePerBatchSize(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var records atomic.Int64
+	prev := logger
+	logger = slog.New(countingHandler{records: &records})
+	defer func() { logger = prev }()
+
+	for range 3 {
+		require.NoError(t, store.SetMigrationBatchSize(100))
+	}
+	require.Equal(t, int64(1), records.Load(), "repeated batch size must log once")
+
+	require.NoError(t, store.SetMigrationBatchSize(200))
+	require.NoError(t, store.SetMigrationBatchSize(200))
+	require.Equal(t, int64(2), records.Load(), "a new batch size must log again")
+
+	require.NoError(t, store.SetMigrationBatchSize(0))
+	require.NoError(t, store.SetMigrationBatchSize(200))
+	require.Equal(t, int64(3), records.Load(), "re-raising after 0 must log again")
 }
 
 // TestRootMultiAutoKickoff_RestartResumesMigrateEVM proves the crash/restart
