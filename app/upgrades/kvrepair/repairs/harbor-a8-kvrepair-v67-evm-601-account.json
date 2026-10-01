@@ -1,0 +1,12 @@
+{
+  "name": "harbor-a8-kvrepair-v67-evm-601-account",
+  "chain_id": "harbor-a8-kvrepair-v67",
+  "target_repair_height": 601,
+  "state_height": 600,
+  "source": "reserve harbor-a8-kvrepair-v67-rsv memiavl and production harbor-a8-kvrepair-v67-0 composite at 600, bucket account",
+  "entries": [
+    {"store":"evm","key":"0800000000000000000000000000000000000000a9","new":"7efcce47028dabcb0d42f3a7eda8820bf6f7f4e618398c2547d52f703cafb073","old":"a51cb46f094f8c610fce4b453e0647ea49168bdaa0bb94409a165bfba9d01a8d"},
+    {"store":"evm","key":"0a00000000000000000000000000000000000000aa","new":"0000000000000005","old":"0000000000000009"},
+    {"store":"evm","key":"0a00000000000000000000000000000000000000ab","new":"0000000000000003","old_absent":true}
+  ]
+}
