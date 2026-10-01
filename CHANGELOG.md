@@ -211,6 +211,9 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4411](https://github.com/sei-protocol/sei-chain/pull/4411) Backport `release/v6.7`: Log a pinned node's skipped migration kick-off once per batch size
+* [#4410](https://github.com/sei-protocol/sei-chain/pull/4410) Backport `release/v6.7`: Apply compiled KV repair files at a fixed height and generate them from digest inspect lists
+* [#4409](https://github.com/sei-protocol/sei-chain/pull/4409) Backport `release/v6.7`: feat: add migration pause handler
 * [#4397](https://github.com/sei-protocol/sei-chain/pull/4397) Backport `release/v6.7`: fix(evmrpc): release eth_getLogs DB-read slots when a block read panics
 * [#4378](https://github.com/sei-protocol/sei-chain/pull/4378) Backport release/v6.7: Raise goreleaser timeout to 2h (#4375)
 * [#4377](https://github.com/sei-protocol/sei-chain/pull/4377) Backport `release/v6.7`: Fix FlatKV state sync bad-hash scenario.
