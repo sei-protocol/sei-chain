@@ -59,6 +59,9 @@ const (
 	memiavlModeTranslatorReplay = "translator-replay"
 )
 
+// defaultInspectListLimit is the --list-limit default.
+const defaultInspectListLimit = 1000
+
 // EvmLogicalDigestCmd computes a backend-independent digest of the EVM logical
 // state (account / code / storage canonical buckets) so a memIAVL node and a
 // FlatKV node can be compared at the same chain height.
@@ -181,11 +184,12 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	cmd.Flags().String("memiavl-open-mode", memiavlOpenModeSnapshot, "memiavl read mode: snapshot (FAST: sequential scan of the completed snapshot kvs file; requires an on-disk snapshot at --height, or --height 0 for current) | replay (SLOW, ~10x: replays changelog to --height then walks the mmap tree; use only when no snapshot exists at the target height) | changelog (scans the snapshot kvs file at or below --height merged with the EVM writes of the changelog above it; same rows and labels as replay). Prefer snapshot when --height matches an existing snapshot boundary")
 	cmd.Flags().String("memiavl-normalization", memiavlNormSemantic, "memiavl digest/inspect normalization: semantic/independent (raw EVM key/value decoder) | translator (current migration mapping)")
 	cmd.Flags().String("inspect-bucket", "", "Inspect one normalized bucket (account|code|storage|misc) instead of printing the global digest")
+	cmd.Flags().String("inspect-plan", "", "Inspect mode: JSON file with a list of inspect reports to take from one scan. Each item has inspect_bucket, key_offset, key_prefix (hex), shard_next_bytes, list, list_limit, and out (the file its JSON report is written to). An item without list_limit lists every match. Replaces the single-report inspect flags")
 	cmd.Flags().Int("key-offset", 0, "Inspect mode: byte offset into physical key before applying --key-prefix / sharding")
 	cmd.Flags().String("key-prefix", "", "Inspect mode: hex prefix, relative to --key-offset, used to filter physical keys")
 	cmd.Flags().Int("shard-next-bytes", 0, "Inspect mode: group matching keys by this many bytes after --key-prefix")
 	cmd.Flags().Bool("list", false, "Inspect mode: list matching key/logical-value pairs instead of shard bucket_digest values")
-	cmd.Flags().Int("list-limit", 1000, "Inspect mode: maximum pairs to print with --list; <=0 means unlimited")
+	cmd.Flags().Int("list-limit", defaultInspectListLimit, "Inspect mode: maximum pairs to print with --list; <=0 means unlimited")
 	cmd.Flags().Bool("details", false, "Inspect list mode: include backend-specific version metadata")
 	cmd.Flags().String("find-hash", "", "Optional 32-byte hex per-entry hash to hunt for. When two bucket_digest values differ by exactly one entry, their XOR IS that entry's hash; this prints every entry whose sha256(len(key)||key||len(val)||val) matches")
 	cmd.Flags().Bool("json", false, "Emit the digest or inspect report as one JSON object on stdout and send the narration to stderr, for callers that check digests on a schedule instead of reading them. Storage-layer logging is quieted to error level so it leaves stdout; set SEI_LOG_OUTPUT=stderr to move an error-level line off stdout too")
@@ -619,11 +623,12 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 	inspectBucket, _ := cmd.Flags().GetString("inspect-bucket")
 	memiavlNormalization, _ := cmd.Flags().GetString("memiavl-normalization")
 	memiavlOpenMode, _ := cmd.Flags().GetString("memiavl-open-mode")
-	if inspectBucket != "" {
+	inspectPlan, _ := cmd.Flags().GetString("inspect-plan")
+	if inspectBucket != "" || inspectPlan != "" {
 		if asJSON {
 			enterJSONMode()
 		}
-		return runEvmLogicalInspect(cmd, backend, dbDir, flatKVDir, memIAVLDir, height, inspectBucket, memiavlNormalization, memiavlOpenMode)
+		return runEvmLogicalInspect(cmd, backend, dbDir, flatKVDir, memIAVLDir, height, memiavlNormalization, memiavlOpenMode)
 	}
 	if asJSON {
 		enterJSONMode()
@@ -1105,27 +1110,71 @@ type evmInspectJSON struct {
 	Entries        []evmInspectEntryJSON `json:"entries,omitempty"`
 }
 
-func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir, flatKVDir, memIAVLDir string, height int64, inspectBucket string, memiavlNormalization string, memiavlOpenMode string) error {
+func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir, flatKVDir, memIAVLDir string, height int64, memiavlNormalization string, memiavlOpenMode string) error {
+	fanout, err := inspectFanoutFromFlags(cmd)
+	if err != nil {
+		return err
+	}
+	switch backend {
+	case "flatkv":
+		return inspectFlatKV(dbDir, height, fanout)
+	case "memiavl":
+		return inspectMemIAVL(dbDir, height, fanout, memiavlNormalization, memiavlOpenMode)
+	case "composite":
+		if flatKVDir == "" || memIAVLDir == "" {
+			return errors.New("--backend composite requires --flatkv-dir and --memiavl-dir")
+		}
+		return inspectCompositeMigrateEVM(flatKVDir, memIAVLDir, height, fanout, memiavlOpenMode)
+	default:
+		return fmt.Errorf("unknown --backend %q (want flatkv|memiavl|composite)", backend)
+	}
+}
+
+// singleInspectFlags are the flags that describe one inspect report, which --inspect-plan replaces.
+var singleInspectFlags = []string{"inspect-bucket", "key-offset", "key-prefix", "shard-next-bytes", "list", "list-limit", "details"}
+
+// inspectFanoutFromFlags returns the inspect reports the command asks for: the items of
+// --inspect-plan, or the one report the single inspect flags describe.
+func inspectFanoutFromFlags(cmd *cobra.Command) (*inspectFanout, error) {
+	planPath, _ := cmd.Flags().GetString("inspect-plan")
+	if planPath == "" {
+		acc, err := inspectAccumulatorFromFlags(cmd)
+		if err != nil {
+			return nil, err
+		}
+		return singleInspectFanout(acc), nil
+	}
+	for _, name := range singleInspectFlags {
+		if cmd.Flags().Changed(name) {
+			return nil, fmt.Errorf("--inspect-plan replaces --%s; set it in the plan items", name)
+		}
+	}
+	return loadInspectPlan(planPath)
+}
+
+// inspectAccumulatorFromFlags returns the accumulator of the one report the single inspect flags describe.
+func inspectAccumulatorFromFlags(cmd *cobra.Command) (*inspectAccumulator, error) {
+	inspectBucket, _ := cmd.Flags().GetString("inspect-bucket")
 	if !isFlatKVBucket(inspectBucket) {
-		return fmt.Errorf("unknown --inspect-bucket %q", inspectBucket)
+		return nil, fmt.Errorf("unknown --inspect-bucket %q", inspectBucket)
 	}
 	keyOffset, _ := cmd.Flags().GetInt("key-offset")
 	keyPrefixHex, _ := cmd.Flags().GetString("key-prefix")
 	keyPrefix, err := hex.DecodeString(keyPrefixHex)
 	if err != nil {
-		return fmt.Errorf("decode --key-prefix: %w", err)
+		return nil, fmt.Errorf("decode --key-prefix: %w", err)
 	}
 	shardNextBytes, _ := cmd.Flags().GetInt("shard-next-bytes")
 	list, _ := cmd.Flags().GetBool("list")
 	listLimit, _ := cmd.Flags().GetInt("list-limit")
 	details, _ := cmd.Flags().GetBool("details")
 	if keyOffset < 0 {
-		return errors.New("--key-offset must be non-negative")
+		return nil, errors.New("--key-offset must be non-negative")
 	}
 	if shardNextBytes < 0 {
-		return errors.New("--shard-next-bytes must be non-negative")
+		return nil, errors.New("--shard-next-bytes must be non-negative")
 	}
-	acc := &inspectAccumulator{
+	return &inspectAccumulator{
 		inspectBucket:  inspectBucket,
 		keyOffset:      keyOffset,
 		keyPrefix:      keyPrefix,
@@ -1135,21 +1184,7 @@ func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir, flatKVDir, memIAVL
 		details:        details,
 		echoRows:       digestOut.jsonReport == nil,
 		shards:         make(map[string]*digestBucket),
-	}
-
-	switch backend {
-	case "flatkv":
-		return inspectFlatKV(dbDir, height, acc)
-	case "memiavl":
-		return inspectMemIAVL(dbDir, height, acc, memiavlNormalization, memiavlOpenMode)
-	case "composite":
-		if flatKVDir == "" || memIAVLDir == "" {
-			return errors.New("--backend composite requires --flatkv-dir and --memiavl-dir")
-		}
-		return inspectCompositeMigrateEVM(flatKVDir, memIAVLDir, height, acc, memiavlOpenMode)
-	default:
-		return fmt.Errorf("unknown --backend %q (want flatkv|memiavl|composite)", backend)
-	}
+	}, nil
 }
 
 func (a *inspectAccumulator) consume(physKey, val []byte) error {
@@ -1181,21 +1216,6 @@ func (a *inspectAccumulator) matchesPhysicalKey(bucket string, physKey []byte) b
 
 func (a *inspectAccumulator) matchesAccountPhysicalKey(physKey []byte) bool {
 	return a.matchesPhysicalKey(flatkvBucketAccount, physKey)
-}
-
-// finalizeAccounts feeds the buffered accounts that match the inspect filter to the
-// accumulator, in ascending address order.
-func (a *inspectAccumulator) finalizeAccounts(accounts map[string]*semanticAccountDigestState) {
-	addrs := make([]string, 0, len(accounts))
-	for addr := range accounts {
-		if a.matchesAccountPhysicalKey(ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))) {
-			addrs = append(addrs, addr)
-		}
-	}
-	sort.Strings(addrs)
-	for _, addr := range addrs {
-		finalizeSemanticAccount(addr, accounts[addr], a.addLogical, nil)
-	}
 }
 
 func (a *inspectAccumulator) consumeLogical(bucket string, physKey, logical []byte, meta string) {
@@ -1310,7 +1330,7 @@ func (a *inspectAccumulator) print(r evmInspectJSON) {
 	}
 }
 
-func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
+func inspectFlatKV(dbDir string, height int64, fanout *inspectFanout) error {
 	opened, err := openFlatKVReadOnly(dbDir, height)
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
@@ -1330,24 +1350,24 @@ func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
 			continue
 		}
 		meta := ""
-		if acc.details && acc.list {
+		if fanout.listsDetails() {
 			var derr error
 			meta, derr = flatKVValueMeta(iter.Key(), iter.Value())
 			if derr != nil {
 				return derr
 			}
 		}
-		if err := acc.consumeWithMeta(iter.Key(), iter.Value(), meta); err != nil {
+		if err := fanout.consumeWithMeta(iter.Key(), iter.Value(), meta); err != nil {
 			return err
 		}
 		if seen%20000000 == 0 {
-			digestOut.sayf("  ...flatkv inspect seen=%d matched=%d\n", seen, acc.matched)
+			digestOut.sayf("  ...flatkv inspect seen=%d matched=%d\n", seen, fanout.matched())
 		}
 	}
 	if err := iter.Error(); err != nil {
 		return fmt.Errorf("iterate: %w", err)
 	}
-	return acc.emit(digestPrintContext{
+	return fanout.emit(digestPrintContext{
 		backend:         "flatkv",
 		mode:            "native",
 		dbDir:           dbDir,
@@ -1358,7 +1378,7 @@ func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
 	})
 }
 
-func inspectCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, acc *inspectAccumulator, memiavlOpenMode string) error {
+func inspectCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, fanout *inspectFanout, memiavlOpenMode string) error {
 	source, err := openCompositeMigrateEVMSource(flatKVDir, memIAVLDir, height, memiavlOpenMode)
 	if err != nil {
 		return err
@@ -1366,10 +1386,10 @@ func inspectCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, acc 
 	defer source.Close()
 
 	var accounts map[string]*semanticAccountDigestState
-	if acc.inspectBucket == flatkvBucketAccount {
+	if fanout.inspectsAccounts() {
 		accounts = make(map[string]*semanticAccountDigestState)
 	}
-	if err := consumeCompositeFlatKV(source.opened, acc.addLogical, accounts, acc.matchesAccountPhysicalKey, nil); err != nil {
+	if err := consumeCompositeFlatKV(source.opened, fanout.addLogical, accounts, fanout.matchesAccountPhysicalKey, nil); err != nil {
 		return err
 	}
 	if source.boundary.Status() != migration.MigrationComplete {
@@ -1377,22 +1397,22 @@ func inspectCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, acc 
 			source.memIAVL.scan,
 			source.memIAVL.srcLabel,
 			source.boundary,
-			acc.addLogical,
+			fanout.addLogical,
 			nil,
 			accounts,
-			acc.matchesAccountPhysicalKey,
+			fanout.matchesAccountPhysicalKey,
 			nil,
 		); err != nil {
 			return err
 		}
 	}
-	acc.finalizeAccounts(accounts)
-	return acc.emit(source.ctx)
+	fanout.finalizeAccounts(accounts)
+	return fanout.emit(source.ctx)
 }
 
 // inspectMemIAVL feeds the memiavl EVM tree at height, read in memiavlOpenMode and
-// normalized by normalization, into acc and prints its report.
-func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator, normalization string, memiavlOpenMode string) error {
+// normalized by normalization, into fanout and writes its reports.
+func inspectMemIAVL(dbDir string, height int64, fanout *inspectFanout, normalization string, memiavlOpenMode string) error {
 	normalization, err := canonicalMemiavlNormalization(normalization)
 	if err != nil {
 		return err
@@ -1400,7 +1420,7 @@ func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator, normali
 	if normalization == memiavlNormTranslator && !isMemiavlSnapshotOpenMode(memiavlOpenMode) {
 		return fmt.Errorf("--inspect-bucket with --memiavl-normalization=translator does not support --memiavl-open-mode=%q", memiavlOpenMode)
 	}
-	if acc.details && acc.list && acc.inspectBucket == flatkvBucketStorage {
+	if acc := fanout.storageDetailsList(); acc != nil {
 		if !isMemiavlSnapshotOpenMode(memiavlOpenMode) {
 			return fmt.Errorf("--details storage memiavl inspect does not support --memiavl-open-mode=%q", memiavlOpenMode)
 		}
@@ -1415,20 +1435,20 @@ func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator, normali
 
 	var leaves uint64
 	if normalization == memiavlNormTranslator {
-		leaves, err = inspectMemIAVLTranslator(stream.scan, acc)
+		leaves, err = inspectMemIAVLTranslator(stream.scan, fanout)
 	} else {
-		leaves, err = inspectMemIAVLSemantic(stream.scan, acc)
+		leaves, err = inspectMemIAVLSemantic(stream.scan, fanout)
 	}
 	if err != nil {
 		return err
 	}
 	digestOut.sayf("  memiavl inspect total leaves=%d\n", leaves)
-	return acc.emit(memiavlReportContext(dbDir, height, normalization, stream))
+	return fanout.emit(memiavlReportContext(dbDir, height, normalization, stream))
 }
 
-// inspectMemIAVLTranslator feeds the leaves of scan into acc through flatkv.ImportTranslator
+// inspectMemIAVLTranslator feeds the leaves of scan into fanout through flatkv.ImportTranslator
 // and returns the number of leaves read.
-func inspectMemIAVLTranslator(scan evmLeafSource, acc *inspectAccumulator) (uint64, error) {
+func inspectMemIAVLTranslator(scan evmLeafSource, fanout *inspectFanout) (uint64, error) {
 	translator := flatkv.NewImportTranslator(0)
 	var leaves uint64
 	const batchCap = 8192
@@ -1443,7 +1463,7 @@ func inspectMemIAVLTranslator(scan evmLeafSource, acc *inspectAccumulator) (uint
 			return fmt.Errorf("translate batch: %w", terr)
 		}
 		for _, p := range pairs {
-			if cerr := acc.consume(p.Key, p.Value); cerr != nil {
+			if cerr := fanout.consume(p.Key, p.Value); cerr != nil {
 				return cerr
 			}
 		}
@@ -1454,7 +1474,7 @@ func inspectMemIAVLTranslator(scan evmLeafSource, acc *inspectAccumulator) (uint
 	if err := scan(func(k, v []byte) error {
 		leaves++
 		if leaves%20000000 == 0 {
-			digestOut.sayf("  ...memiavl inspect leaves=%d matched=%d\n", leaves, acc.matched)
+			digestOut.sayf("  ...memiavl inspect leaves=%d matched=%d\n", leaves, fanout.matched())
 		}
 		batch = append(batch, &proto.KVPair{Key: k, Value: v})
 		if len(batch) >= batchCap {
@@ -1470,31 +1490,31 @@ func inspectMemIAVLTranslator(scan evmLeafSource, acc *inspectAccumulator) (uint
 	accounts := translator.Finalize()
 	sort.Slice(accounts, func(i, j int) bool { return bytes.Compare(accounts[i].Key, accounts[j].Key) < 0 })
 	for _, p := range accounts {
-		if err := acc.consume(p.Key, p.Value); err != nil {
+		if err := fanout.consume(p.Key, p.Value); err != nil {
 			return leaves, err
 		}
 	}
 	return leaves, nil
 }
 
-// inspectMemIAVLSemantic feeds the leaves of scan into acc through the independent
+// inspectMemIAVLSemantic feeds the leaves of scan into fanout through the independent
 // semantic decoder and returns the number of leaves read.
-func inspectMemIAVLSemantic(scan evmLeafSource, acc *inspectAccumulator) (uint64, error) {
+func inspectMemIAVLSemantic(scan evmLeafSource, fanout *inspectFanout) (uint64, error) {
 	var accounts map[string]*semanticAccountDigestState
-	if acc.inspectBucket == flatkvBucketAccount {
+	if fanout.inspectsAccounts() {
 		accounts = make(map[string]*semanticAccountDigestState)
 	}
 	var leaves uint64
 	if err := scan(func(k, v []byte) error {
 		leaves++
 		if leaves%20000000 == 0 {
-			digestOut.sayf("  ...memiavl inspect mode=semantic leaves=%d matched=%d\n", leaves, acc.matched)
+			digestOut.sayf("  ...memiavl inspect mode=semantic leaves=%d matched=%d\n", leaves, fanout.matched())
 		}
-		return consumeSemanticMemiavlLeafFiltered(accounts, k, v, acc.addLogical, nil, "inspect", acc.matchesAccountPhysicalKey)
+		return consumeSemanticMemiavlLeafFiltered(accounts, k, v, fanout.addLogical, nil, "inspect", fanout.matchesAccountPhysicalKey)
 	}); err != nil {
 		return leaves, err
 	}
-	acc.finalizeAccounts(accounts)
+	fanout.finalizeAccounts(accounts)
 	return leaves, nil
 }
 

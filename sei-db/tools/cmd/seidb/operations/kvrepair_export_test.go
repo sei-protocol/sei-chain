@@ -388,11 +388,12 @@ func commitDivergentBlock(t *testing.T, reserve *memiavl.CommitStore, prod *flat
 func inspectForTest(t *testing.T, backend, dbDir string, height int64, bucket, openMode string) evmInspectJSON {
 	t.Helper()
 	cmd := EvmLogicalDigestCmd()
+	require.NoError(t, cmd.Flags().Set("inspect-bucket", bucket))
 	require.NoError(t, cmd.Flags().Set("key-offset", fmt.Sprint(testEVMKeyOffset)))
 	require.NoError(t, cmd.Flags().Set("list", "true"))
 	require.NoError(t, cmd.Flags().Set("list-limit", "0"))
 	_, jsonReport := captureDigestOutput(t, true)
-	require.NoError(t, runEvmLogicalInspect(cmd, backend, dbDir, "", "", height, bucket,
+	require.NoError(t, runEvmLogicalInspect(cmd, backend, dbDir, "", "", height,
 		memiavlNormSemantic, openMode))
 	var report evmInspectJSON
 	require.NoError(t, json.Unmarshal(jsonReport.Bytes(), &report))
