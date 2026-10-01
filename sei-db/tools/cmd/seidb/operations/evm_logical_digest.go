@@ -48,11 +48,12 @@ var migrationBoundaryPhysKey = []byte(migration.MigrationStore + "/" + migration
 // memiavl-open-mode and memiavl-normalization flag values, named so they are not
 // repeated as bare string literals (goconst).
 const (
-	memiavlOpenModeSnapshot = "snapshot"
-	memiavlOpenModeReplay   = "replay"
-	memiavlNormSemantic     = "semantic"
-	memiavlNormIndependent  = "independent"
-	memiavlNormTranslator   = "translator"
+	memiavlOpenModeSnapshot  = "snapshot"
+	memiavlOpenModeReplay    = "replay"
+	memiavlOpenModeChangelog = "changelog"
+	memiavlNormSemantic      = "semantic"
+	memiavlNormIndependent   = "independent"
+	memiavlNormTranslator    = "translator"
 
 	memiavlModeSemanticReplay   = "semantic-replay"
 	memiavlModeTranslatorReplay = "translator-replay"
@@ -177,7 +178,7 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	cmd.Flags().String("flatkv-dir", "", "Composite mode: flatkv data dir")
 	cmd.Flags().String("memiavl-dir", "", "Composite mode: memiavl root dir (contains current/ and snapshot-* )")
 	cmd.Flags().Int64("height", 0, "Target version. flatkv WAL-replays to it; memiavl resolves snapshot-<height>/evm (0 = current symlink)")
-	cmd.Flags().String("memiavl-open-mode", memiavlOpenModeSnapshot, "memiavl read mode: snapshot (FAST: sequential scan of the completed snapshot kvs file; requires an on-disk snapshot at --height, or --height 0 for current) | replay (SLOW, ~10x: replays changelog to --height then walks the mmap tree; use only when no snapshot exists at the target height). Prefer snapshot when --height matches an existing snapshot boundary")
+	cmd.Flags().String("memiavl-open-mode", memiavlOpenModeSnapshot, "memiavl read mode: snapshot (FAST: sequential scan of the completed snapshot kvs file; requires an on-disk snapshot at --height, or --height 0 for current) | replay (SLOW, ~10x: replays changelog to --height then walks the mmap tree; use only when no snapshot exists at the target height) | changelog (scans the snapshot kvs file at or below --height merged with the EVM writes of the changelog above it; same rows and labels as replay). Prefer snapshot when --height matches an existing snapshot boundary")
 	cmd.Flags().String("memiavl-normalization", memiavlNormSemantic, "memiavl digest/inspect normalization: semantic/independent (raw EVM key/value decoder) | translator (current migration mapping)")
 	cmd.Flags().String("inspect-bucket", "", "Inspect one normalized bucket (account|code|storage|misc) instead of printing the global digest")
 	cmd.Flags().Int("key-offset", 0, "Inspect mode: byte offset into physical key before applying --key-prefix / sharding")
@@ -709,8 +710,25 @@ func openMemiAVLEVMLeafStream(dbDir string, height int64, memiavlOpenMode string
 			version:     memReplayDB.Version(),
 			close:       func() { _ = memReplayDB.Close() },
 		}, nil
+	case memiavlOpenModeChangelog:
+		overlay, r, err := readMemiavlEVMChangelogOverlay(dbDir, height)
+		if err != nil {
+			return nil, err
+		}
+		evmSnapshotDir := filepath.Join(r.SnapshotDir, keys.EVMStoreKey)
+		return &memiavlLeafStream{
+			scan: func(fn func(rawKey, rawVal []byte) error) error {
+				return scanMemiavlChangelogEVMLeaves(evmSnapshotDir, overlay, fn)
+			},
+			openMode:    memiavlOpenModeChangelog,
+			srcLabel:    "memiavl-changelog",
+			source:      dbDir,
+			description: fmt.Sprintf("%s merged with memiavl %s", filepath.Join(evmSnapshotDir, "kvs"), changelogVersionsText(r)),
+			version:     r.Version,
+			close:       func() {},
+		}, nil
 	default:
-		return nil, fmt.Errorf("unknown --memiavl-open-mode %q (want snapshot|replay)", memiavlOpenMode)
+		return nil, fmt.Errorf("unknown --memiavl-open-mode %q (want snapshot|replay|changelog)", memiavlOpenMode)
 	}
 }
 
@@ -736,11 +754,11 @@ func canonicalMemiavlNormalization(normalization string) (string, error) {
 // normalization and open mode.
 func memiavlReportMode(normalization, openMode string) string {
 	switch {
-	case normalization == memiavlNormTranslator && openMode == memiavlOpenModeReplay:
+	case normalization == memiavlNormTranslator && openMode != memiavlOpenModeSnapshot:
 		return memiavlModeTranslatorReplay
 	case normalization == memiavlNormTranslator:
 		return memiavlNormTranslator
-	case openMode == memiavlOpenModeReplay:
+	case openMode != memiavlOpenModeSnapshot:
 		return memiavlModeSemanticReplay
 	default:
 		return memiavlNormSemantic
@@ -801,10 +819,14 @@ func openCompositeMigrateEVMSource(flatKVDir, memIAVLDir string, height int64, m
 		version:         opened.Version(),
 		boundary:        boundary.String(),
 	}
-	if memiavlOpenMode == memiavlOpenModeReplay {
+	switch memStream.openMode {
+	case memiavlOpenModeReplay:
 		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl read-only replay dir=%s", opened.Version(), memStream.source)
 		ctx.normalization = fmt.Sprintf("flatkv rows plus replayed memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memStream.version)
-	} else {
+	case memiavlOpenModeChangelog:
+		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl %s", opened.Version(), memStream.description)
+		ctx.normalization = fmt.Sprintf("flatkv rows plus replayed memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memStream.version)
+	default:
 		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl snapshot=%s", opened.Version(), memStream.source)
 		ctx.normalization = fmt.Sprintf("flatkv rows plus memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memStream.version)
 	}
@@ -1640,14 +1662,19 @@ func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) 
 	})
 	if err != nil {
 		if errors.Is(err, wal.ErrCorrupt) {
-			return nil, fmt.Errorf("the changelog under %s ends mid-record, which is what a node "+
-				"writing a block looks like; %s was left as it was found, so rerun this command, and if "+
-				"it keeps failing the changelog is corrupt and the node needs attention: %w",
-				dbDir, dbDir, err)
+			return nil, changelogEndsMidRecordError(dbDir, err)
 		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
 	return db, nil
+}
+
+// changelogEndsMidRecordError explains a wal.ErrCorrupt from reading the changelog under dbDir.
+func changelogEndsMidRecordError(dbDir string, err error) error {
+	return fmt.Errorf("the changelog under %s ends mid-record, which is what a node "+
+		"writing a block looks like; %s was left as it was found, so rerun this command, and if "+
+		"it keeps failing the changelog is corrupt and the node needs attention: %w",
+		dbDir, dbDir, err)
 }
 
 // evmLeafSource streams raw memiavl EVM (key,val) leaves to fn, stopping on the

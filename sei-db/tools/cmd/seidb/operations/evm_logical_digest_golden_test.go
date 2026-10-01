@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -274,14 +276,90 @@ func evmDigestGoldenSources(fx evmDigestGoldenFixture) []evmDigestGoldenSource {
 		{"memiavl-semantic-replay-h3", goldenMemiavlSource(fx, goldenMidHeight, memiavlOpenModeReplay, memiavlNormSemantic), true, false},
 		{"memiavl-semantic-replay-h4", goldenMemiavlSource(fx, goldenTipHeight, memiavlOpenModeReplay, memiavlNormSemantic), true, false},
 		{"memiavl-semantic-replay-tip", goldenMemiavlSource(fx, 0, memiavlOpenModeReplay, memiavlNormSemantic), true, false},
+		{"memiavl-semantic-changelog-h2", goldenMemiavlSource(fx, goldenSnapshotHeight, memiavlOpenModeChangelog, memiavlNormSemantic), true, false},
+		{"memiavl-semantic-changelog-h3", goldenMemiavlSource(fx, goldenMidHeight, memiavlOpenModeChangelog, memiavlNormSemantic), true, false},
+		{"memiavl-semantic-changelog-h4", goldenMemiavlSource(fx, goldenTipHeight, memiavlOpenModeChangelog, memiavlNormSemantic), true, false},
+		{"memiavl-semantic-changelog-tip", goldenMemiavlSource(fx, 0, memiavlOpenModeChangelog, memiavlNormSemantic), true, false},
 		{"memiavl-translator-snapshot-h2", goldenMemiavlSource(fx, goldenSnapshotHeight, memiavlOpenModeSnapshot, memiavlNormTranslator), true, false},
 		{"memiavl-translator-replay-h4", goldenMemiavlSource(fx, goldenTipHeight, memiavlOpenModeReplay, memiavlNormTranslator), false, false},
+		{"memiavl-translator-changelog-h4", goldenMemiavlSource(fx, goldenTipHeight, memiavlOpenModeChangelog, memiavlNormTranslator), false, false},
 		{"flatkv-h2", goldenFlatKVSource(fx, goldenSnapshotHeight), true, false},
 		{"flatkv-h4", goldenFlatKVSource(fx, goldenTipHeight), true, true},
 		{"composite-snapshot-h2", goldenCompositeSource(fx, goldenSnapshotHeight, memiavlOpenModeSnapshot), true, false},
 		{"composite-replay-h3", goldenCompositeSource(fx, goldenMidHeight, memiavlOpenModeReplay), true, false},
 		{"composite-replay-h4", goldenCompositeSource(fx, goldenTipHeight, memiavlOpenModeReplay), true, false},
+		{"composite-changelog-h3", goldenCompositeSource(fx, goldenMidHeight, memiavlOpenModeChangelog), true, false},
+		{"composite-changelog-h4", goldenCompositeSource(fx, goldenTipHeight, memiavlOpenModeChangelog), true, false},
 	}
+}
+
+// TestEvmLogicalDigestChangelogModeMatchesReplay requires every changelog-mode report to equal the
+// replay-mode report of the same source, apart from the descriptive fields.
+func TestEvmLogicalDigestChangelogModeMatchesReplay(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	got := runEvmDigestGoldenCases(t, fx)
+	want := 0
+	for _, src := range evmDigestGoldenSources(fx) {
+		if !strings.Contains(src.name, "-changelog-") {
+			continue
+		}
+		want++
+		if src.inspect {
+			want += len(evmDigestGoldenInspections())
+		}
+	}
+	compared := 0
+	for name, report := range got {
+		if !strings.Contains(name, "-changelog-") {
+			continue
+		}
+		replayName := strings.Replace(name, "-changelog-", "-replay-", 1)
+		replay, ok := got[replayName]
+		require.True(t, ok, "case %s has no replay counterpart %s", name, replayName)
+		require.JSONEq(t, string(replay), string(report), "case %s differs from %s", name, replayName)
+		compared++
+	}
+	require.Equal(t, want, compared)
+}
+
+// TestEvmLogicalInspectRefusesSnapshotOnlyPathsAboveTheSnapshot pins that the translator inspect and
+// the storage details list run only on the snapshot open mode.
+func TestEvmLogicalInspectRefusesSnapshotOnlyPathsAboveTheSnapshot(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	details := evmDigestGoldenInspections()["list-"+flatkvBucketStorage]
+	details["details"] = "true"
+	for _, openMode := range []string{memiavlOpenModeReplay, memiavlOpenModeChangelog} {
+		for _, tc := range []struct {
+			normalization string
+			inspect       map[string]string
+			want          string
+		}{
+			{memiavlNormTranslator, evmDigestGoldenInspections()["list-"+flatkvBucketStorage], "--memiavl-normalization=translator does not support"},
+			{memiavlNormSemantic, details, "--details storage memiavl inspect does not support"},
+		} {
+			cmd := newEvmDigestGoldenCmd(t, goldenMemiavlSource(fx, goldenTipHeight, openMode, tc.normalization), tc.inspect)
+			captureDigestOutput(t, true)
+			require.ErrorContains(t, runEvmLogicalDigest(cmd, nil), tc.want, "open mode %s", openMode)
+		}
+	}
+}
+
+// TestEvmLogicalDigestChangelogModeRefusesHeightAboveTheChangelog pins the two open modes at a height
+// the changelog does not reach: replay stops at the tip and reports it, and changelog refuses.
+func TestEvmLogicalDigestChangelogModeRefusesHeightAboveTheChangelog(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	above := int64(goldenTipHeight + 1)
+
+	replay := runEvmDigestGoldenCase(t, goldenMemiavlSource(fx, above, memiavlOpenModeReplay, memiavlNormSemantic), nil)
+	var report struct {
+		Version int64 `json:"version"`
+	}
+	require.NoError(t, json.Unmarshal(replay, &report))
+	require.Equal(t, int64(goldenTipHeight), report.Version)
+
+	cmd := newEvmDigestGoldenCmd(t, goldenMemiavlSource(fx, above, memiavlOpenModeChangelog, memiavlNormSemantic))
+	captureDigestOutput(t, true)
+	require.ErrorContains(t, runEvmLogicalDigest(cmd, nil), "changelog ends below version 5")
 }
 
 // evmDigestGoldenInspections returns the inspect flags run against each source, keyed by case suffix.
@@ -335,15 +413,22 @@ func runEvmDigestGoldenCases(t *testing.T, fx evmDigestGoldenFixture) map[string
 // runEvmDigestGoldenCase runs the command with the given flags and returns its canonical JSON report.
 func runEvmDigestGoldenCase(t *testing.T, source, inspect map[string]string) json.RawMessage {
 	t.Helper()
+	cmd := newEvmDigestGoldenCmd(t, source, inspect)
+	_, jsonReport := captureDigestOutput(t, true)
+	require.NoError(t, runEvmLogicalDigest(cmd, nil), "flags %v %v", source, inspect)
+	return canonicalEvmDigestGoldenReport(t, jsonReport.Bytes())
+}
+
+// newEvmDigestGoldenCmd returns the command with every flag of flagSets set.
+func newEvmDigestGoldenCmd(t *testing.T, flagSets ...map[string]string) *cobra.Command {
+	t.Helper()
 	cmd := EvmLogicalDigestCmd()
-	for _, flags := range []map[string]string{source, inspect} {
+	for _, flags := range flagSets {
 		for name, value := range flags {
 			require.NoError(t, cmd.Flags().Set(name, value), "flag %s", name)
 		}
 	}
-	_, jsonReport := captureDigestOutput(t, true)
-	require.NoError(t, runEvmLogicalDigest(cmd, nil), "flags %v %v", source, inspect)
-	return canonicalEvmDigestGoldenReport(t, jsonReport.Bytes())
+	return cmd
 }
 
 // canonicalEvmDigestGoldenReport replaces the descriptive fields of a report with a placeholder.

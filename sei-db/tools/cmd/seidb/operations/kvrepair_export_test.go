@@ -2,6 +2,7 @@ package operations
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -299,8 +300,15 @@ func TestKVRepairExportCommandWritesALoadableFile(t *testing.T) {
 // TestExportFromRealInspectReportsRepairsEveryDifference runs the inspect code
 // path on a memiavl reserve and a FlatKV production store, exports a repair,
 // applies its writes to both stores the way the handler does on every node,
-// and checks that the reports then agree.
+// and checks that the reports then agree, for each memiavl open mode that
+// reads a height above the reserve's snapshot.
 func TestExportFromRealInspectReportsRepairsEveryDifference(t *testing.T) {
+	for _, openMode := range []string{memiavlOpenModeReplay, memiavlOpenModeChangelog} {
+		t.Run(openMode, func(t *testing.T) { testExportFromRealInspectReports(t, openMode) })
+	}
+}
+
+func testExportFromRealInspectReports(t *testing.T, openMode string) {
 	reserveHome := t.TempDir()
 	reserve := newTestMemiavlStore(t, reserveHome)
 	defer func() { _ = reserve.Close() }()
@@ -319,6 +327,7 @@ func TestExportFromRealInspectReportsRepairsEveryDifference(t *testing.T) {
 		storagePair(contract, slotN(2), 0x22),
 		{Key: miscKey, Value: []byte{0x01}},
 	})
+	require.NoError(t, reserve.GetDB().RewriteSnapshot(context.Background()))
 	commitDivergentBlock(t, reserve, prod,
 		[]*proto.KVPair{noncePair(acct, 5)},
 		[]*proto.KVPair{
@@ -332,8 +341,8 @@ func TestExportFromRealInspectReportsRepairsEveryDifference(t *testing.T) {
 
 	var repairWrites []*proto.KVPair
 	for _, bucket := range flatkvBucketOrder {
-		reserveReport := inspectForTest(t, "memiavl", reserveDir, 2, bucket)
-		prodReport := inspectForTest(t, "flatkv", prodDir, 2, bucket)
+		reserveReport := inspectForTest(t, "memiavl", reserveDir, 2, bucket, openMode)
+		prodReport := inspectForTest(t, "flatkv", prodDir, 2, bucket, openMode)
 		r, err := exportKVRepair(reserveReport, prodReport, "c", "r-"+bucket, 3, "test")
 		require.NoError(t, err, "bucket %s", bucket)
 		for _, e := range r.Entries {
@@ -349,8 +358,8 @@ func TestExportFromRealInspectReportsRepairsEveryDifference(t *testing.T) {
 	commitEVMBlock(t, reserve, prod, repairWrites)
 
 	for _, bucket := range flatkvBucketOrder {
-		reserveReport := inspectForTest(t, "memiavl", reserveDir, 3, bucket)
-		prodReport := inspectForTest(t, "flatkv", prodDir, 3, bucket)
+		reserveReport := inspectForTest(t, "memiavl", reserveDir, 3, bucket, openMode)
+		prodReport := inspectForTest(t, "flatkv", prodDir, 3, bucket, openMode)
 		_, err := exportKVRepair(reserveReport, prodReport, "c", "r-"+bucket, 4, "test")
 		require.ErrorContains(t, err, "no differences", "bucket %s", bucket)
 	}
@@ -376,7 +385,7 @@ func commitDivergentBlock(t *testing.T, reserve *memiavl.CommitStore, prod *flat
 	require.NoError(t, prod.FlushSnapshots())
 }
 
-func inspectForTest(t *testing.T, backend, dbDir string, height int64, bucket string) evmInspectJSON {
+func inspectForTest(t *testing.T, backend, dbDir string, height int64, bucket, openMode string) evmInspectJSON {
 	t.Helper()
 	cmd := EvmLogicalDigestCmd()
 	require.NoError(t, cmd.Flags().Set("key-offset", fmt.Sprint(testEVMKeyOffset)))
@@ -384,7 +393,7 @@ func inspectForTest(t *testing.T, backend, dbDir string, height int64, bucket st
 	require.NoError(t, cmd.Flags().Set("list-limit", "0"))
 	_, jsonReport := captureDigestOutput(t, true)
 	require.NoError(t, runEvmLogicalInspect(cmd, backend, dbDir, "", "", height, bucket,
-		memiavlNormSemantic, memiavlOpenModeReplay))
+		memiavlNormSemantic, openMode))
 	var report evmInspectJSON
 	require.NoError(t, json.Unmarshal(jsonReport.Bytes(), &report))
 	return report
