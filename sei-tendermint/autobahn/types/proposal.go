@@ -212,6 +212,16 @@ func (m *Proposal) Index() RoadIndex { return m.view.Index }
 // View of the proposal.
 func (m *Proposal) View() View { return m.view }
 
+// atView returns this tipcut at view.
+func (m *Proposal) atView(view View) *Proposal {
+	return &Proposal{
+		view:        view,
+		timestamp:   m.timestamp,
+		laneRanges:  m.laneRanges,
+		globalRange: m.globalRange,
+	}
+}
+
 // Timestamp of the proposal.
 func (m *Proposal) Timestamp() time.Time { return m.timestamp }
 
