@@ -191,6 +191,31 @@ func TestInspectAccountPrefixFilterSkipsOutOfRangeMemiavlAccounts(t *testing.T) 
 	require.Equal(t, uint64(1), acc.matched)
 }
 
+// TestInspectAccountPrefixFilterDoesNotBufferOutOfRangeBalances pins that an account
+// inspect with a prefix holds only the matching addresses, for every account field.
+func TestInspectAccountPrefixFilterDoesNotBufferOutOfRangeBalances(t *testing.T) {
+	matchingAddr := bytesOfLen(keys.AddressLen, 0x11)
+	skippedAddr := bytesOfLen(keys.AddressLen, 0x22)
+	acc := newTestInspectAccumulator(flatkvBucketAccount)
+	acc.keyOffset = len(ktype.EVMPhysicalKey(keys.EVMKeyNonce, nil))
+	acc.keyPrefix = []byte{0x11}
+
+	accounts := make(map[string]*semanticAccountDigestState)
+	for _, addr := range [][]byte{matchingAddr, skippedAddr} {
+		for _, p := range []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: nonceBytes(7)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: bytesOfLen(32, 0xAB)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr), Value: bytesOfLen(32, 0x01)},
+		} {
+			require.NoError(t, consumeSemanticMemiavlLeafFiltered(
+				accounts, p.Key, p.Value, acc.addLogical, nil, "inspect", acc.matchesAccountPhysicalKey))
+		}
+	}
+
+	require.Len(t, accounts, 1)
+	require.Contains(t, accounts, string(matchingAddr))
+}
+
 func TestInspectMemiavlRejectsUnknownNormalizationBeforeOpeningSnapshot(t *testing.T) {
 	cmd := EvmLogicalDigestCmd()
 	require.NoError(t, cmd.Flags().Set("backend", "memiavl"))
