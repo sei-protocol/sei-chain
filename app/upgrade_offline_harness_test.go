@@ -46,6 +46,21 @@ type offlineUpgradeArtifact struct {
 	Retained       offlineUpgradeRetainedState  `json:"retained"`
 	MigratedRoot   string                       `json:"migrated_root"`
 	UpgradeHash    string                       `json:"upgrade_hash"`
+	// VestingAccounts are the accounts the source phase wrote under a vesting
+	// module type.
+	VestingAccounts []offlineUpgradeVestingAccount `json:"vesting_accounts,omitempty"`
+}
+
+// offlineUpgradeVestingAccount identifies an account the source phase wrote
+// under a vesting module type: the base account it embeds, as a hex-encoded
+// public key and account number and sequence, and the balance it held.
+type offlineUpgradeVestingAccount struct {
+	Address       string `json:"address"`
+	TypeURL       string `json:"type_url"`
+	PubKey        string `json:"pub_key"`
+	AccountNumber uint64 `json:"account_number"`
+	Sequence      uint64 `json:"sequence"`
+	Balance       string `json:"balance"`
 }
 
 // offlineUpgradeRetainedState identifies the state the source phase wrote: the

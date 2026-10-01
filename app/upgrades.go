@@ -126,6 +126,7 @@ func (app *App) RegisterUpgradeHandlers() {
 					return nil, err
 				}
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, retiredoracle.ModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				return newVM, nil
 			}
 

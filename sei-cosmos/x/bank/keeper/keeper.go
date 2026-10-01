@@ -10,7 +10,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -209,10 +208,8 @@ func (k BaseKeeper) WithMintCoinsRestriction(check MintingRestrictionFn) BaseKee
 }
 
 // DelegateCoins performs delegation by deducting amt coins from an account with
-// address addr. For vesting accounts, delegations amounts are tracked for both
-// vesting and vested coins. The coins are then transferred from the delegator
-// address to a ModuleAccount address. If any of the delegation amounts are negative,
-// an error is returned.
+// address addr and transferring them to a ModuleAccount address. If any of the
+// delegation amounts are negative, an error is returned.
 func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) error {
 	moduleAcc := k.ak.GetAccount(ctx, moduleAccAddr)
 	if moduleAcc == nil {
@@ -223,8 +220,6 @@ func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr 
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
 
-	balances := sdk.NewCoins()
-
 	for _, coin := range amt {
 		balance := k.GetBalance(ctx, delegatorAddr, coin.GetDenom())
 		if balance.IsLT(coin) {
@@ -233,14 +228,13 @@ func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr 
 			)
 		}
 
-		balances = balances.Add(balance)
 		err := k.setBalance(ctx, delegatorAddr, balance.Sub(coin), true)
 		if err != nil {
 			return err
 		}
 	}
 
-	if err := k.trackDelegation(ctx, delegatorAddr, balances, amt); err != nil {
+	if err := k.retraceDelegatorLookup(ctx, delegatorAddr); err != nil {
 		return sdkerrors.Wrap(err, "failed to track delegation")
 	}
 	// emit coin spent event
@@ -256,11 +250,9 @@ func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr 
 	return nil
 }
 
-// UndelegateCoins performs undelegation by crediting amt coins to an account with
-// address addr. For vesting accounts, undelegation amounts are tracked for both
-// vesting and vested coins. The coins are then transferred from a ModuleAccount
-// address to the delegator address. If any of the undelegation amounts are
-// negative, an error is returned.
+// UndelegateCoins performs undelegation by transferring amt coins from a
+// ModuleAccount address to the delegator address. If any of the undelegation
+// amounts are negative, an error is returned.
 func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error {
 	moduleAcc := k.ak.GetAccount(ctx, moduleAccAddr)
 	if moduleAcc == nil {
@@ -279,7 +271,7 @@ func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAdd
 		return err
 	}
 
-	if err := k.trackUndelegation(ctx, delegatorAddr, amt); err != nil {
+	if err := k.retraceDelegatorLookup(ctx, delegatorAddr); err != nil {
 		return sdkerrors.Wrap(err, "failed to track undelegation")
 	}
 
@@ -686,37 +678,12 @@ func (k BaseKeeper) SetSupply(ctx sdk.Context, coin sdk.Coin) {
 	}
 }
 
-// trackDelegation tracks the delegation of the given account if it is a vesting account
-func (k BaseKeeper) trackDelegation(ctx sdk.Context, addr sdk.AccAddress, balance, amt sdk.Coins) error {
-	acc := k.ak.GetAccount(ctx, addr)
-	if acc == nil {
+// retraceDelegatorLookup reads the delegator's account when ctx re-traces a
+// block from before VestingRemovalUpgrade, and returns an error if none exists.
+func (k BaseKeeper) retraceDelegatorLookup(ctx sdk.Context, addr sdk.AccAddress) error {
+	if RetracesLockedCoinsLookup(ctx) && k.ak.GetAccount(ctx, addr) == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)
 	}
-
-	vacc, ok := acc.(vestexported.VestingAccount)
-	if ok {
-		// TODO: return error on account.TrackDelegation
-		vacc.TrackDelegation(ctx.BlockHeader().Time, balance, amt)
-		k.ak.SetAccount(ctx, acc)
-	}
-
-	return nil
-}
-
-// trackUndelegation trakcs undelegation of the given account if it is a vesting account
-func (k BaseKeeper) trackUndelegation(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins) error {
-	acc := k.ak.GetAccount(ctx, addr)
-	if acc == nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)
-	}
-
-	vacc, ok := acc.(vestexported.VestingAccount)
-	if ok {
-		// TODO: return error on account.TrackUndelegation
-		vacc.TrackUndelegation(amt)
-		k.ak.SetAccount(ctx, acc)
-	}
-
 	return nil
 }
 

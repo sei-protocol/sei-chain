@@ -28,12 +28,4 @@ This module will be used in the Cosmos Hub.
    - [Handlers](03_antehandlers.md#handlers)
 4. **[Keepers](04_keepers.md)**
    - [Account Keeper](04_keepers.md#account-keeper)
-5. **[Vesting](05_vesting.md)**
-   - [Intro and Requirements](05_vesting.md#intro-and-requirements)
-   - [Vesting Account Types](05_vesting.md#vesting-account-types)
-   - [Vesting Account Specification](05_vesting.md#vesting-account-specification)
-   - [Keepers & Handlers](05_vesting.md#keepers-&-handlers)
-   - [Genesis Initialization](05_vesting.md#genesis-initialization)
-   - [Examples](05_vesting.md#examples)
-   - [Glossary](05_vesting.md#glossary)
-6. **[Parameters](07_params.md)**
+5. **[Parameters](07_params.md)**

@@ -19,18 +19,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	authvesting "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-)
-
-const (
-	flagVestingStart = "vesting-start-time"
-	flagVestingEnd   = "vesting-end-time"
-	flagVestingAmt   = "vesting-amount"
 )
 
 // AddGenesisAccountCmd returns add-genesis-account cobra Command.
@@ -41,7 +34,7 @@ func AddGenesisAccountCmd(defaultNodeHome string) *cobra.Command {
 		Long: `Add a genesis account to genesis.json. The provided account must specify
 the account address or key name and a list of initial coins. If a key name is given,
 the address will be looked up in the local Keybase. The list of initial tokens must
-contain valid denominations. Accounts may optionally be supplied with vesting parameters.
+contain valid denominations.
 The association between the sei address and the eth address will also be created here if using keyring-backend test.
 `,
 		Args: cobra.ExactArgs(2),
@@ -87,43 +80,8 @@ The association between the sei address and the eth address will also be created
 				return fmt.Errorf("failed to parse coins: %w", err)
 			}
 
-			vestingStart, _ := cmd.Flags().GetInt64(flagVestingStart)
-			vestingEnd, _ := cmd.Flags().GetInt64(flagVestingEnd)
-			vestingAmtStr, _ := cmd.Flags().GetString(flagVestingAmt)
-
-			vestingAmt, err := sdk.ParseCoinsNormalized(vestingAmtStr)
-			if err != nil {
-				return fmt.Errorf("failed to parse vesting amount: %w", err)
-			}
-
-			// create concrete account type based on input parameters
-			var genAccount authtypes.GenesisAccount
-
 			balances := banktypes.Balance{Address: addr.String(), Coins: coins.Sort()}
-			baseAccount := authtypes.NewBaseAccount(addr, nil, 0, 0)
-
-			if !vestingAmt.IsZero() {
-				baseVestingAccount := authvesting.NewBaseVestingAccount(baseAccount, vestingAmt.Sort(), vestingEnd, nil)
-
-				if (balances.Coins.IsZero() && !baseVestingAccount.OriginalVesting.IsZero()) ||
-					baseVestingAccount.OriginalVesting.IsAnyGT(balances.Coins) {
-					return errors.New("vesting amount cannot be greater than total amount")
-				}
-
-				switch {
-				case vestingStart != 0 && vestingEnd != 0:
-					genAccount = authvesting.NewContinuousVestingAccountRaw(baseVestingAccount, vestingStart)
-
-				case vestingEnd != 0:
-					genAccount = authvesting.NewDelayedVestingAccountRaw(baseVestingAccount)
-
-				default:
-					return errors.New("invalid vesting parameters; must supply start and end time or end time")
-				}
-			} else {
-				genAccount = baseAccount
-			}
-
+			genAccount := authtypes.NewBaseAccount(addr, nil, 0, 0)
 			if err := genAccount.Validate(); err != nil {
 				return fmt.Errorf("failed to validate new genesis account: %w", err)
 			}
@@ -201,13 +159,6 @@ The association between the sei address and the eth address will also be created
 
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	cmd.Flags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
-	cmd.Flags().String(flagVestingAmt, "", "amount of coins for vesting accounts")
-	cmd.Flags().Int64(flagVestingStart, 0, "schedule start time (unix epoch) for vesting accounts")
-	cmd.Flags().Int64(flagVestingEnd, 0, "schedule end time (unix epoch) for vesting accounts")
-	deprecationNotice := "the vesting module is deprecated; vesting parameters are kept only for legacy genesis tooling"
-	_ = cmd.Flags().MarkDeprecated(flagVestingAmt, deprecationNotice)
-	_ = cmd.Flags().MarkDeprecated(flagVestingStart, deprecationNotice)
-	_ = cmd.Flags().MarkDeprecated(flagVestingEnd, deprecationNotice)
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
