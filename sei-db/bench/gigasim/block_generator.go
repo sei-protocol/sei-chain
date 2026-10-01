@@ -15,14 +15,18 @@ import (
 // written once per block rather than once per transaction, so it is not counted here.
 const maxWritesPerTransaction = 3
 
-// simulatedBlock is one block's worth of work: the transactions the execution phase runs, the payload
-// the block store persists, and the receipts that execution is taken to have produced.
+// simulatedBlock is one superblock's worth of work: the transactions the execution phase runs, the
+// lane blocks the block store persists, and the receipts that execution is taken to have produced.
+// A superblock of one lane block is a single block.
 type simulatedBlock struct {
-	// The height this block commits at, shared by the block store, the state DB and the receipt store.
+	// The height this superblock commits at in the state DB and the receipt store.
 	number int64
 
+	// The block store height of lanePayloads[0]. The lane blocks occupy the heights from here on.
+	firstLaneBlock int64
+
 	// The transactions the execution phase runs against state. They are executed in parallel across the
-	// executor pool, so a block's transaction count is also its degree of parallelism.
+	// executor pool, so a superblock's transaction count is also its degree of parallelism.
 	transactions []*transaction
 
 	// The receipts written to the receipt store, in the form it takes them, empty when receipts are
@@ -33,9 +37,10 @@ type simulatedBlock struct {
 	// What those records marshaled to, which the run reports as bytes written.
 	receiptBytes int64
 
-	// The transaction bytes the block store persists, packed as ledgerPayload lays them out. These stand
-	// in for encoded transactions, which the block store holds as opaque bytes.
-	payload [][]byte
+	// The transaction bytes of each lane block, packed as ledgerPayload lays them out, in the order
+	// they are written. These stand in for encoded transactions, which the block store holds as opaque
+	// bytes.
+	lanePayloads [][][]byte
 
 	// The state changes this block makes, in the form the state DB takes, carrying the identifier
 	// counters as of this block so that a resumed run mints identifiers where this one stopped.
@@ -54,9 +59,13 @@ type identifierCounters struct {
 	nextErc20ContractID int64
 }
 
-// payloadBytes is the block's size on the block store's write path.
+// payloadBytes is the superblock's size on the block store's write path, summed across its lane blocks.
 func (b *simulatedBlock) payloadBytes() int64 {
-	return payloadBytes(b.payload)
+	var total int64
+	for _, payload := range b.lanePayloads {
+		total += payloadBytes(payload)
+	}
+	return total
 }
 
 // blockGenerator produces blocks on its own goroutine, persists each one to the block ledger, and hands
@@ -77,8 +86,11 @@ type blockGenerator struct {
 	// the block and leaves the batch empty.
 	batch *stateBatch
 
-	// The height the next block generated commits at.
+	// The height the next superblock commits at in the state DB and the receipt store.
 	next int64
+
+	// The block store height the next lane block is written at.
+	nextLane int64
 
 	// The number of blocks written to the ledger, which drives the flush cadence.
 	written int64
@@ -119,8 +131,8 @@ func newBlockGenerator(
 ) *blockGenerator {
 	var rateLimiter *rate.Limiter
 	if config.MaxTps > 0 {
-		// The burst is one block, since throttle waits for a whole block's transactions at once.
-		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTps), config.TransactionsPerBlock)
+		// The burst is one superblock, since throttle waits for a whole superblock's transactions at once.
+		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTps), config.transactionsPerSuperblock())
 	}
 
 	return &blockGenerator{
@@ -129,7 +141,7 @@ func newBlockGenerator(
 		config:          config,
 		accounts:        accounts,
 		blocks:          blocks,
-		batch:           newStateBatch(maxWritesPerTransaction*config.TransactionsPerBlock + 1),
+		batch:           newStateBatch(maxWritesPerTransaction*config.transactionsPerSuperblock() + 1),
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
 		receiptCache:    newReceiptCache(),
@@ -142,6 +154,7 @@ func newBlockGenerator(
 // Start begins generating blocks at the given height.
 func (g *blockGenerator) Start(first int64) {
 	g.next = first
+	g.nextLane = g.config.firstLaneBlock(first)
 	go g.mainLoop()
 }
 
@@ -201,22 +214,28 @@ func (g *blockGenerator) abort(err error) {
 	g.cancel()
 }
 
-// buildBlock assembles the next block: its transactions, the payload standing in for their encoded
-// form, and their receipts when receipts are enabled.
+// buildBlock assembles the next superblock: its transactions, one payload per lane block standing in
+// for their encoded form, and their receipts when receipts are enabled.
 func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 
 	number := g.next
 	g.next++
 
-	count := g.config.TransactionsPerBlock
+	lanes := g.config.LaneBlocksPerSuperblock
+	perLane := g.config.TransactionsPerBlock
+	count := perLane * lanes
 
-	// Each of these is one allocation for the whole block. Allocating per transaction instead puts
+	// Each of these is one allocation for the whole superblock. Allocating per transaction instead puts
 	// thousands of objects a second in front of the collector, which the storage stack then pays for.
 	transactions := make([]transaction, count)
 	block := &simulatedBlock{
-		number:       number,
-		transactions: make([]*transaction, count),
+		number:         number,
+		firstLaneBlock: g.nextLane,
+		transactions:   make([]*transaction, count),
+		lanePayloads:   make([][][]byte, lanes),
 	}
+	g.nextLane += int64(lanes)
+
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
 		//nolint:gosec // G115 - validation keeps the gas positive
@@ -224,29 +243,31 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		block.receiptRecords = receipts.records
 	}
 
-	for i := range count {
-		txn := &transactions[i]
-		if err := buildTransaction(txn, g.accounts); err != nil {
-			return nil, fmt.Errorf("failed to build transaction %d: %w", i, err)
-		}
-		block.transactions[i] = txn
-		g.stageTransactionWrites(txn)
+	for lane := range lanes {
+		for i := range perLane {
+			index := lane*perLane + i
+			txn := &transactions[index]
+			if err := buildTransaction(txn, g.accounts); err != nil {
+				return nil, fmt.Errorf("failed to build transaction %d: %w", index, err)
+			}
+			block.transactions[index] = txn
+			g.stageTransactionWrites(txn)
 
-		if receipts != nil {
-			if err := receipts.build(i, g.accounts.Rand(), txn, number); err != nil {
-				return nil, err
+			if receipts != nil {
+				if err := receipts.build(index, g.accounts.Rand(), txn, number); err != nil {
+					return nil, err
+				}
 			}
 		}
+		block.lanePayloads[lane] = ledgerPayload(g.accounts.Rand(), g.config)
 	}
 	if receipts != nil {
 		block.receiptBytes = receipts.encodedBytes
 	}
-	block.payload = ledgerPayload(g.accounts.Rand(), g.config)
 
 	// Staged once, after the transactions, because they all name this one key: every transaction draws
-	// a fee balance, since the draw is part of the sequence the block's randomness is defined by, but
-	// only the last draw survives into the block. Staging it per transaction made the same entry
-	// TransactionsPerBlock times and threw all but one away.
+	// a fee balance, since the draw is part of the sequence the superblock's randomness is defined by,
+	// but only the last draw survives into the superblock.
 	g.batch.Put(g.accounts.FeeCollectionAddress(), transactions[count-1].newFeeBalance)
 
 	// Accounts minted for this block become legal read targets once it is complete.
@@ -257,7 +278,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 
 // stageTransactionWrites stages the writes one transfer makes: the sender's balance, then either the
 // recipient's balance for a native transfer or both token balance slots for an ERC20 transfer. The fee
-// account is staged once per block instead; see buildBlock().
+// account is staged once per superblock instead; see buildBlock().
 func (g *blockGenerator) stageTransactionWrites(txn *transaction) {
 	g.batch.Put(txn.srcAccount, txn.newSrcBalance)
 	if txn.kind == nativeTransfer {
@@ -268,22 +289,26 @@ func (g *blockGenerator) stageTransactionWrites(txn *transaction) {
 	g.batch.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
 }
 
-// storeBlock appends a block to the ledger and flushes on the configured cadence.
+// storeBlock appends a superblock's lane blocks to the ledger and flushes on the configured cadence.
 func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
 	// The writer names the record it is on; this closes whichever it ended on, so that these phases
 	// cover the same window as the generator's write_block phase and no more.
 	defer g.blockStoreWrite.Reset()
 
-	if err := g.blocks.writeBlock(block.number, block.payload); err != nil {
-		return err
+	for i, payload := range block.lanePayloads {
+		if err := g.blocks.writeBlock(block.firstLaneBlock+int64(i), payload); err != nil {
+			return err
+		}
+		g.written++
+		if g.config.FlushIntervalBlocks <= 0 || g.written%int64(g.config.FlushIntervalBlocks) != 0 {
+			continue
+		}
+		g.blockStoreWrite.SetPhase("flush")
+		if err := g.flush(); err != nil {
+			return err
+		}
 	}
-	g.written++
-
-	if g.config.FlushIntervalBlocks <= 0 || g.written%int64(g.config.FlushIntervalBlocks) != 0 {
-		return nil
-	}
-	g.blockStoreWrite.SetPhase("flush")
-	return g.flush()
+	return nil
 }
 
 // finalFlush pushes the last blocks to disk as generation ends, so that the consumer can close the
@@ -314,5 +339,5 @@ func (g *blockGenerator) throttle() {
 	if g.rateLimiter == nil {
 		return
 	}
-	_ = g.rateLimiter.WaitN(g.ctx, g.config.TransactionsPerBlock)
+	_ = g.rateLimiter.WaitN(g.ctx, g.config.transactionsPerSuperblock())
 }
