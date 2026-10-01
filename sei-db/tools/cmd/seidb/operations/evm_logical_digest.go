@@ -1161,6 +1161,21 @@ func (a *inspectAccumulator) matchesAccountPhysicalKey(physKey []byte) bool {
 	return a.matchesPhysicalKey(flatkvBucketAccount, physKey)
 }
 
+// finalizeAccounts feeds the buffered accounts that match the inspect filter to the
+// accumulator, in ascending address order.
+func (a *inspectAccumulator) finalizeAccounts(accounts map[string]*semanticAccountDigestState) {
+	addrs := make([]string, 0, len(accounts))
+	for addr := range accounts {
+		if a.matchesAccountPhysicalKey(ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))) {
+			addrs = append(addrs, addr)
+		}
+	}
+	sort.Strings(addrs)
+	for _, addr := range addrs {
+		finalizeSemanticAccount(addr, accounts[addr], a.addLogical, nil)
+	}
+}
+
 func (a *inspectAccumulator) consumeLogical(bucket string, physKey, logical []byte, meta string) {
 	if bucket != a.inspectBucket {
 		return
@@ -1349,7 +1364,7 @@ func inspectCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, acc 
 			return err
 		}
 	}
-	finalizeSemanticAccounts(accounts, acc.addLogical, nil)
+	acc.finalizeAccounts(accounts)
 	return acc.emit(source.ctx)
 }
 
@@ -1430,7 +1445,9 @@ func inspectMemIAVLTranslator(scan evmLeafSource, acc *inspectAccumulator) (uint
 	if err := flush(); err != nil {
 		return leaves, err
 	}
-	for _, p := range translator.Finalize() {
+	accounts := translator.Finalize()
+	sort.Slice(accounts, func(i, j int) bool { return bytes.Compare(accounts[i].Key, accounts[j].Key) < 0 })
+	for _, p := range accounts {
 		if err := acc.consume(p.Key, p.Value); err != nil {
 			return leaves, err
 		}
@@ -1455,7 +1472,7 @@ func inspectMemIAVLSemantic(scan evmLeafSource, acc *inspectAccumulator) (uint64
 	}); err != nil {
 		return leaves, err
 	}
-	finalizeSemanticAccounts(accounts, acc.addLogical, nil)
+	acc.finalizeAccounts(accounts)
 	return leaves, nil
 }
 
@@ -1851,24 +1868,30 @@ func (d *evmDigest) consumeSemanticMemiavlLeaf(accounts map[string]*semanticAcco
 
 type semanticLogicalConsumer func(bucket string, physKey, logical, rawVal []byte)
 
+// finalizeSemanticAccounts emits every buffered account to consume, in map order.
 func finalizeSemanticAccounts(accounts map[string]*semanticAccountDigestState, consume semanticLogicalConsumer, census *evmZeroCensus) {
 	for addr, account := range accounts {
-		if account.isZeroAccount() {
-			if census != nil {
-				census.ZeroAccounts++
-			}
-			continue
-		}
-		if account.hasZeroCodeHash() && account.isLiveAccount() && census != nil {
-			if account.codeHashRow {
-				census.LiveAccountsWithZeroCodeHashRow++
-			} else {
-				census.LiveAccountsWithoutCodeHashRow++
-			}
-		}
-		physKey := ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))
-		consume(flatkvBucketAccount, physKey, account.logicalPayload(), nil)
+		finalizeSemanticAccount(addr, account, consume, census)
 	}
+}
+
+// finalizeSemanticAccount emits one buffered account to consume, unless it is a zero account.
+func finalizeSemanticAccount(addr string, account *semanticAccountDigestState, consume semanticLogicalConsumer, census *evmZeroCensus) {
+	if account.isZeroAccount() {
+		if census != nil {
+			census.ZeroAccounts++
+		}
+		return
+	}
+	if account.hasZeroCodeHash() && account.isLiveAccount() && census != nil {
+		if account.codeHashRow {
+			census.LiveAccountsWithZeroCodeHashRow++
+		} else {
+			census.LiveAccountsWithoutCodeHashRow++
+		}
+	}
+	physKey := ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))
+	consume(flatkvBucketAccount, physKey, account.logicalPayload(), nil)
 }
 
 func consumeSemanticMemiavlLeaf(accounts map[string]*semanticAccountDigestState, rawKey, rawVal []byte, consume semanticLogicalConsumer, census *evmZeroCensus, caller string) error {

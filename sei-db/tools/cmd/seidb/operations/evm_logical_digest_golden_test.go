@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"testing"
 
@@ -307,6 +306,9 @@ func evmDigestGoldenInspections() map[string]map[string]string {
 	account := list(flatkvBucketAccount)
 	account["key-prefix"] = "0A11"
 	out["list-account-prefix"] = account
+	truncatedAccount := list(flatkvBucketAccount)
+	truncatedAccount["list-limit"] = "2"
+	out["list-account-limit2"] = truncatedAccount
 	return out
 }
 
@@ -344,8 +346,7 @@ func runEvmDigestGoldenCase(t *testing.T, source, inspect map[string]string) jso
 	return canonicalEvmDigestGoldenReport(t, jsonReport.Bytes())
 }
 
-// canonicalEvmDigestGoldenReport replaces the descriptive fields with a placeholder, and sorts account
-// list entries, which the scan emits in map order.
+// canonicalEvmDigestGoldenReport replaces the descriptive fields of a report with a placeholder.
 func canonicalEvmDigestGoldenReport(t *testing.T, raw []byte) json.RawMessage {
 	t.Helper()
 	require.Equal(t, 1, bytes.Count(raw, []byte("\n")), "a report is one line: %s", raw)
@@ -366,24 +367,10 @@ func canonicalEvmDigestGoldenReport(t *testing.T, raw []byte) json.RawMessage {
 		require.NotEmpty(t, value, "report field %s is empty", field)
 		report[field] = goldenDescriptive
 	}
-	if report["inspect_bucket"] == flatkvBucketAccount {
-		sortGoldenEntries(t, report)
-	}
 
 	out, err := json.Marshal(report)
 	require.NoError(t, err)
 	return out
-}
-
-func sortGoldenEntries(t *testing.T, report map[string]any) {
-	t.Helper()
-	entries, _ := report["entries"].([]any)
-	keyOf := func(i int) string {
-		entry, ok := entries[i].(map[string]any)
-		require.True(t, ok, "entry %d is %T", i, entries[i])
-		return fmt.Sprint(entry["key"])
-	}
-	sort.SliceStable(entries, func(i, j int) bool { return keyOf(i) < keyOf(j) })
 }
 
 // The fixture must exercise the snapshot boundary it claims to: the blocks above it exist only in the
