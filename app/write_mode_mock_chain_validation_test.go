@@ -6,9 +6,9 @@ import (
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// See write_mode_default_test.go for what these four values are and why each
-// build states them separately. This build declares sc-write-mode-enable-auto
-// false, so an explicit sc-write-mode is honored rather than replaced by auto.
+// See write_mode_default_test.go for what these values are and why each build
+// states them separately. This build declares sc-write-mode-enable-auto false, so
+// an explicit sc-write-mode is honored rather than replaced by auto.
 
 const stateCommitRecord = "state-commit.reserve"
 
@@ -20,3 +20,5 @@ const wantAbsentAutoWriteMode = sctypes.MemiavlOnly
 var scWriteModeDivergence []string
 
 const scWriteModeANodeRuns = "memiavl_only"
+
+const wantKickoffWriteMode = sctypes.MemiavlOnly
