@@ -57,6 +57,8 @@ const (
 	memiavlNormSemantic     = "semantic"
 	memiavlNormIndependent  = "independent"
 	memiavlNormTranslator   = "translator"
+
+	memiavlModeSemanticReplay = "semantic-replay"
 )
 
 // EvmLogicalDigestCmd computes a backend-independent digest of the EVM logical
@@ -155,9 +157,10 @@ const (
 //	#   FlatKV FINAL_DIGEST account+code+storage+misc digest=... == memiavl FINAL_DIGEST account+code+storage+misc digest=...
 //
 //	# Inspect one bucket instead of the global digest (e.g. list storage rows
-//	# under a key prefix, sharded by the next 2 bytes):
+//	# under a key prefix, sharded by the next 2 bytes). Physical keys start
+//	# with "evm/", so --key-offset 4 makes the prefix apply to the EVM key:
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
-//	    --inspect-bucket storage --key-prefix 03 --shard-next-bytes 2
+//	    --inspect-bucket storage --key-offset 4 --key-prefix 03 --shard-next-bytes 2
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
 //	    --inspect-bucket account --list --list-limit 50 --details
 //
@@ -1399,7 +1402,7 @@ func inspectMemIAVLSemantic(dbDir string, height int64, acc *inspectAccumulator,
 	mode := memiavlNormSemantic
 	if memiavlOpenMode == memiavlOpenModeReplay {
 		source = "read-only memiavl DB opened from snapshot + changelog replay"
-		mode = "semantic-replay"
+		mode = memiavlModeSemanticReplay
 	}
 	return acc.emit(digestPrintContext{
 		backend:         backendMemIAVL,
@@ -1769,7 +1772,7 @@ func runMemiavlTranslatorDigest(ctx digestPrintContext, modeLabel, totalLabel st
 func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
 	ctx := digestPrintContext{
 		backend:         backendMemIAVL,
-		mode:            "semantic-replay",
+		mode:            memiavlModeSemanticReplay,
 		dbDir:           dbDir,
 		source:          "read-only memiavl DB opened from snapshot + changelog replay",
 		normalization:   "independent semantic decoder for replayed memiavl EVM keys; does not call flatkv.ImportTranslator",
@@ -1779,7 +1782,7 @@ func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, fin
 	printDigestStart(ctx)
 	digestOut.say("Scan progress: replayed memiavl iterator -> independently decoded EVM logical bucket counts")
 	digestOut.say("Note: semantic replay mode walks the in-memory/mmap tree, not the snapshot kvs file.")
-	return runMemiavlSemanticDigest(ctx, "semantic-replay", "memiavl-replay total leaves", findTarget,
+	return runMemiavlSemanticDigest(ctx, memiavlModeSemanticReplay, "memiavl-replay total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlReplayEVMLeaves(db, fn) })
 }
 
