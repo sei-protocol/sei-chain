@@ -178,7 +178,7 @@ func checkInspectPair(reserve, prod evmInspectJSON) error {
 		if !side.report.List {
 			return fmt.Errorf("%s report is not an inspect list; run it with --list", side.name)
 		}
-		if side.report.Listed < 0 || uint64(side.report.Listed) != side.report.Matched {
+		if side.report.Listed < 0 || uint64(side.report.Listed) != side.report.Matched { //nolint:gosec // Listed < 0 is refused first
 			return fmt.Errorf("%s report lists %d of %d matched keys; run it with --list-limit 0",
 				side.name, side.report.Listed, side.report.Matched)
 		}
