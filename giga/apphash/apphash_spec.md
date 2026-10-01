@@ -26,21 +26,22 @@ appHash(N) = SHA-256("sei-apphash" ‖ serialize(appHashData(N)))
 `"sei-apphash"` is a domain separation tag: its 11 ASCII bytes, with no terminator or length prefix. It is part of
 the hash input only, not of the serialization.
 
-`appHashData(N)` holds seven fields. Its serialization is the fields in the order below, with no padding,
-separators, or length prefixes, for a fixed total of 169 bytes.
+`appHashData(N)` holds eight fields. Its serialization is the fields in the order below, with no padding,
+separators, or length prefixes, for a fixed total of 177 bytes.
 
 | Offset | Size | Field             | Encoding  | Status                                   |
 |-------:|-----:|-------------------|-----------|------------------------------------------|
 |      0 |    1 | `version`         | `u8`      | Defined                                  |
-|      1 |    8 | `blockHeight`     | `u64be`   | Defined                                  |
-|      9 |   32 | `blockHash` | raw bytes | **PLACEHOLDER**                          |
-|     41 |   32 | `stateHash`       | raw bytes | Defined                                  |
-|     73 |   32 | `bud`             | raw bytes | **PLACEHOLDER**                          |
-|    105 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                          |
-|    137 |   32 | `previousAppHash` | raw bytes | Defined, except for the activation block |
+|      1 |    8 | `chainID`         | `u64be`   | Defined                                  |
+|      9 |    8 | `blockHeight`     | `u64be`   | Defined                                  |
+|     17 |   32 | `blockHash`       | raw bytes | **PLACEHOLDER**                          |
+|     49 |   32 | `stateHash`       | raw bytes | Defined                                  |
+|     81 |   32 | `bud`             | raw bytes | **PLACEHOLDER**                          |
+|    113 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                          |
+|    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the activation block |
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects
-any input that is not exactly the length that version defines, which is 169 bytes for version 1.
+any input that is not exactly the length that version defines, which is 177 bytes for version 1.
 
 ### Versioning
 
@@ -54,6 +55,10 @@ app hash is always computed under the version in effect at that block.
 
 The schema version. This document defines version `1`.
 
+### `chainID`
+
+The EVM chain ID of the chain the block belongs to.
+
 ### `blockHeight`
 
 The Autobahn global block number of the block.
@@ -62,7 +67,13 @@ The Autobahn global block number of the block.
 
 The hash that identifies the block. For now, this is the hash Autobahn assigns to the block's lane
 `BlockHeader`, which is SHA-256 over that header's canonical encoding and is the block hash execution already
-uses.
+uses. The header contains:
+
+- `lane_id`: the lane that produced the block.
+- `block_number`: the block's number within its lane, which is not `blockHeight`.
+- `parent_hash`: the hash of the previous header in the same lane.
+- `payload_hash`: SHA-256 over the canonical encoding of the block's payload, which holds the block's
+  transactions in block order, the time the block was created, and its total gas wanted and total gas estimated.
 
 **Needs design.** Which header this commits to, which fields that header covers, and its exact byte encoding
 must be specified precisely and intentionally. This definition is owned by the consensus team.
@@ -136,7 +147,7 @@ block 0, since the chain already exists without this app hash.
 
 | Item                         | Needed                                                           | Owner          |
 |------------------------------|------------------------------------------------------------------|----------------|
-| `blockHash`            | A precise, intentional definition of the header and its encoding | Consensus team |
+| `blockHash`                  | A precise, intentional definition of the header and its encoding | Consensus team |
 | `bud`                        | A Merkle tree schema over the block's changes, to support proofs | Storage team   |
 | `receiptHash`                | A full definition                                                | EVM team       |
 | `previousAppHash` activation | The height of the first block computed under this scheme         | TBD            |
@@ -146,17 +157,19 @@ block 0, since the chain already exists without this app hash.
 | Field             | Value                               |
 |-------------------|-------------------------------------|
 | `version`         | `1`                                 |
+| `chainID`         | `0x1112131415161718`                |
 | `blockHeight`     | `0x0102030405060708`                |
-| `blockHash` | 32 bytes of `0xa1`                  |
+| `blockHash`       | 32 bytes of `0xa1`                  |
 | `stateHash`       | 32 bytes of `0xb2`                  |
 | `bud`             | 32 bytes of `0xc3`                  |
 | `receiptHash`     | 32 bytes of `0xd4`                  |
 | `previousAppHash` | 32 bytes of `0xe5`                  |
 
-Serialization (169 bytes, hex, wrapped for readability):
+Serialization (177 bytes, hex, wrapped for readability):
 
 ```
 01
+1112131415161718
 0102030405060708
 a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
 b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
@@ -168,5 +181,5 @@ e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5
 App hash, i.e. SHA-256 of `"sei-apphash"` followed by the serialization:
 
 ```
-8016253cd17f4d1db6e1fbce6cf2159f08878acb37fc458a3c80c6de3549c0c0
+5cc80f7617e8286151501cfccacbf5bc8b60826b7e224832519b84bdfef6c533
 ```

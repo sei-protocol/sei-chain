@@ -21,6 +21,7 @@ func filledHash(b byte) [32]byte {
 // goldenData returns the AppHashData whose serialization and hash are pinned by the tests below.
 func goldenData() *AppHashData {
 	return NewAppHashData(
+		0x1112131415161718,
 		0x0102030405060708,
 		filledHash(0xa1),
 		filledHash(0xb2),
@@ -32,6 +33,7 @@ func goldenData() *AppHashData {
 
 // goldenSerialization is the version 1 wire format of goldenData(), field by field.
 var goldenSerialization = "01" +
+	"1112131415161718" +
 	"0102030405060708" +
 	strings.Repeat("a1", 32) +
 	strings.Repeat("b2", 32) +
@@ -40,12 +42,13 @@ var goldenSerialization = "01" +
 	strings.Repeat("e5", 32)
 
 // goldenHash is SHA-256 of "sei-apphash" followed by goldenSerialization, computed independently of this package.
-const goldenHash = "8016253cd17f4d1db6e1fbce6cf2159f08878acb37fc458a3c80c6de3549c0c0"
+const goldenHash = "5cc80f7617e8286151501cfccacbf5bc8b60826b7e224832519b84bdfef6c533"
 
 func TestConstructorAndGetters(t *testing.T) {
 	ahd := goldenData()
 
 	require.Equal(t, uint8(1), ahd.Version())
+	require.Equal(t, uint64(0x1112131415161718), ahd.ChainID())
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
@@ -57,7 +60,7 @@ func TestConstructorAndGetters(t *testing.T) {
 func TestSerializeLayout(t *testing.T) {
 	serialized := goldenData().Serialize()
 
-	require.Len(t, serialized, 169)
+	require.Len(t, serialized, 177)
 	require.Equal(t, goldenSerialization, hex.EncodeToString(serialized))
 }
 
@@ -78,6 +81,7 @@ func TestRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, original.Version(), decoded.Version())
+	require.Equal(t, original.ChainID(), decoded.ChainID())
 	require.Equal(t, original.BlockHeight(), decoded.BlockHeight())
 	require.Equal(t, original.BlockHash(), decoded.BlockHash())
 	require.Equal(t, original.StateHash(), decoded.StateHash())
@@ -93,18 +97,20 @@ func TestEveryFieldAffectsHash(t *testing.T) {
 	other := filledHash(0x00)
 
 	variants := map[string]*AppHashData{
-		"blockHeight": NewAppHashData(0, filledHash(0xa1), filledHash(0xb2), filledHash(0xc3), filledHash(0xd4),
-			filledHash(0xe5)),
-		"blockHash": NewAppHashData(0x0102030405060708, other, filledHash(0xb2), filledHash(0xc3),
+		"chainID": NewAppHashData(0, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2), filledHash(0xc3),
 			filledHash(0xd4), filledHash(0xe5)),
-		"stateHash": NewAppHashData(0x0102030405060708, filledHash(0xa1), other, filledHash(0xc3),
+		"blockHeight": NewAppHashData(0x1112131415161718, 0, filledHash(0xa1), filledHash(0xb2),
+			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
+		"blockHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, other, filledHash(0xb2),
+			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
+		"stateHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), other,
+			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
+		"bud": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2), other,
 			filledHash(0xd4), filledHash(0xe5)),
-		"bud": NewAppHashData(0x0102030405060708, filledHash(0xa1), filledHash(0xb2), other,
-			filledHash(0xd4), filledHash(0xe5)),
-		"receiptHash": NewAppHashData(0x0102030405060708, filledHash(0xa1), filledHash(0xb2), filledHash(0xc3),
-			other, filledHash(0xe5)),
-		"previousAppHash": NewAppHashData(0x0102030405060708, filledHash(0xa1), filledHash(0xb2),
-			filledHash(0xc3), filledHash(0xd4), other),
+		"receiptHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
+			filledHash(0xb2), filledHash(0xc3), other, filledHash(0xe5)),
+		"previousAppHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
+			filledHash(0xb2), filledHash(0xc3), filledHash(0xd4), other),
 	}
 
 	for name, variant := range variants {

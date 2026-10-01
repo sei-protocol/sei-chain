@@ -41,6 +41,9 @@ type goldenFile struct {
 
 // goldenRecord is one recorded app hash: its inputs, its serialization, and its hash. Byte fields are lowercase hex.
 type goldenRecord struct {
+	// The EVM chain ID, as a decimal string so readers without exact 64-bit JSON numbers keep every digit.
+	ChainID string `json:"chainID"`
+
 	// The block height, as a decimal string so readers without exact 64-bit JSON numbers keep every digit.
 	BlockHeight string `json:"blockHeight"`
 
@@ -103,6 +106,8 @@ func TestCurrentVersionHasGoldenFile(t *testing.T) {
 func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRecord) {
 	t.Helper()
 
+	chainID, err := strconv.ParseUint(record.ChainID, 10, 64)
+	require.NoError(t, err, "record %d chainID", index)
 	blockHeight, err := strconv.ParseUint(record.BlockHeight, 10, 64)
 	require.NoError(t, err, "record %d blockHeight", index)
 	blockHash := decodeGoldenHash(t, index, "blockHash", record.BlockHash)
@@ -117,6 +122,7 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 	decoded, err := Deserialize(serialization)
 	require.NoError(t, err, "record %d", index)
 	require.Equal(t, version, decoded.Version(), "record %d", index)
+	require.Equal(t, chainID, decoded.ChainID(), "record %d", index)
 	require.Equal(t, blockHeight, decoded.BlockHeight(), "record %d", index)
 	require.Equal(t, blockHash, decoded.BlockHash(), "record %d", index)
 	require.Equal(t, stateHash, decoded.StateHash(), "record %d", index)
@@ -128,7 +134,7 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 
 	if version == appHashVersion {
 		constructed := NewAppHashData(
-			blockHeight, blockHash, stateHash, bud, receiptHash, previousAppHash)
+			chainID, blockHeight, blockHash, stateHash, bud, receiptHash, previousAppHash)
 		require.Equal(t, serialization, constructed.Serialize(), "record %d", index)
 		require.Equal(t, appHash, constructed.AppHash(), "record %d", index)
 	}
@@ -183,8 +189,9 @@ func recordGoldenFile(t *testing.T) {
 	t.Logf("recorded %d records into %s; review the diff before committing", len(chain), path)
 }
 
-// buildGoldenChain returns goldenChainLength records at consecutive heights with random hashes, each chained to
-// the one before it through previousAppHash. The first record's previousAppHash is all zeros.
+// buildGoldenChain returns goldenChainLength records of one random chain ID at consecutive heights with random
+// hashes, each chained to the one before it through previousAppHash. The first record's previousAppHash is all
+// zeros.
 func buildGoldenChain() []*AppHashData {
 	rng := rand.New(rand.NewSource(goldenSeed))
 	randomHash := func() [32]byte {
@@ -193,6 +200,7 @@ func buildGoldenChain() []*AppHashData {
 		return h
 	}
 
+	chainID := rng.Uint64()
 	startHeight := rng.Uint64() >> 1
 	chain := make([]*AppHashData, 0, goldenChainLength)
 	var previousAppHash [32]byte
@@ -202,7 +210,7 @@ func buildGoldenChain() []*AppHashData {
 		bud := randomHash()
 		receiptHash := randomHash()
 
-		ahd := NewAppHashData(startHeight+i, blockHash, stateHash, bud, receiptHash, previousAppHash)
+		ahd := NewAppHashData(chainID, startHeight+i, blockHash, stateHash, bud, receiptHash, previousAppHash)
 		chain = append(chain, ahd)
 		previousAppHash = ahd.AppHash()
 	}
@@ -218,6 +226,7 @@ func newGoldenRecord(ahd *AppHashData) goldenRecord {
 	previousAppHash := ahd.PreviousAppHash()
 	appHash := ahd.AppHash()
 	return goldenRecord{
+		ChainID:         strconv.FormatUint(ahd.ChainID(), 10),
 		BlockHeight:     strconv.FormatUint(ahd.BlockHeight(), 10),
 		BlockHash:       hex.EncodeToString(blockHash[:]),
 		StateHash:       hex.EncodeToString(stateHash[:]),

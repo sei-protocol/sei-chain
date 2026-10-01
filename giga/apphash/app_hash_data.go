@@ -14,6 +14,9 @@ type AppHashData struct {
 	// The version of the app hash schema.
 	version uint8
 
+	// The EVM chain ID of the chain the block belongs to.
+	chainID uint64
+
 	// The block height corresponding to this
 	// app hash.
 	blockHeight uint64
@@ -44,6 +47,8 @@ type AppHashData struct {
 
 // Construct a new AppHashData object at the current schema version.
 func NewAppHashData(
+	// The EVM chain ID of the chain the block belongs to.
+	chainID uint64,
 	// The block height corresponding to this app hash.
 	blockHeight uint64,
 	// The hash of the block.
@@ -61,6 +66,7 @@ func NewAppHashData(
 ) *AppHashData {
 	ahd := &AppHashData{
 		version:         appHashVersion,
+		chainID:         chainID,
 		blockHeight:     blockHeight,
 		blockHash:       blockHash,
 		stateHash:       stateHash,
@@ -75,6 +81,11 @@ func NewAppHashData(
 // Version returns the version of the app hash schema.
 func (ahd *AppHashData) Version() uint8 {
 	return ahd.version
+}
+
+// ChainID returns the EVM chain ID of the chain the block belongs to.
+func (ahd *AppHashData) ChainID() uint64 {
+	return ahd.chainID
 }
 
 // BlockHeight returns the block height corresponding to this app hash.

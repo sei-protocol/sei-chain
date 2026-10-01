@@ -10,7 +10,8 @@ import (
 // Byte offsets of each field in the canonical format, which is the fields in declaration order with no padding.
 const (
 	versionOffset         = 0
-	blockHeightOffset     = versionOffset + 1
+	chainIDOffset         = versionOffset + 1
+	blockHeightOffset     = chainIDOffset + 8
 	blockHashOffset       = blockHeightOffset + 8
 	stateHashOffset       = blockHashOffset + 32
 	budOffset             = stateHashOffset + 32
@@ -26,6 +27,7 @@ const (
 func (ahd *AppHashData) Serialize() []byte {
 	data := make([]byte, 0, serializedSize)
 	data = append(data, ahd.version)
+	data = binary.BigEndian.AppendUint64(data, ahd.chainID)
 	data = binary.BigEndian.AppendUint64(data, ahd.blockHeight)
 	data = append(data, ahd.blockHash[:]...)
 	data = append(data, ahd.stateHash[:]...)
@@ -48,6 +50,7 @@ func Deserialize(data []byte) (*AppHashData, error) {
 		return nil, fmt.Errorf("app hash data is %d bytes, want %d", len(data), serializedSize)
 	}
 	return NewAppHashData(
+		binary.BigEndian.Uint64(data[chainIDOffset:blockHeightOffset]),
 		binary.BigEndian.Uint64(data[blockHeightOffset:blockHashOffset]),
 		[32]byte(data[blockHashOffset:stateHashOffset]),
 		[32]byte(data[stateHashOffset:budOffset]),
