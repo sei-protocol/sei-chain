@@ -9,7 +9,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/app/upgrades/migrationpause"
-	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -84,7 +83,7 @@ func TestMigrationPauseHardForkPreservesInFlightMode(t *testing.T) {
 
 	modeBeforePause, ok := a.rootStore.GetWriteMode()
 	require.True(t, ok)
-	require.Equal(t, sctypes.MigrateEVM, modeBeforePause)
+	require.Equal(t, wantKickoffWriteMode, modeBeforePause)
 
 	const recoveryHeight = int64(2)
 	a.HardForkManager.RegisterHandler(
