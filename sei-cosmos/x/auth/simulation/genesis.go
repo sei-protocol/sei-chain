@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"math/rand"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 )
 
 // Simulation parameter constants
@@ -22,38 +20,11 @@ const (
 )
 
 // RandomGenesisAccounts defines the default RandomGenesisAccountsFn used on the SDK.
-// It creates a slice of BaseAccount, ContinuousVestingAccount and DelayedVestingAccount.
+// It creates a BaseAccount for every simulation account.
 func RandomGenesisAccounts(simState *module.SimulationState) types.GenesisAccounts {
 	genesisAccs := make(types.GenesisAccounts, len(simState.Accounts))
 	for i, acc := range simState.Accounts {
-		bacc := types.NewBaseAccountWithAddress(acc.Address)
-
-		// Only consider making a vesting account once the initial bonded validator
-		// set is exhausted due to needing to track DelegatedVesting.
-		if int64(i) <= simState.NumBonded || simState.Rand.Intn(100) >= 50 {
-			genesisAccs[i] = bacc
-			continue
-		}
-
-		initialVesting := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, simState.Rand.Int63n(simState.InitialStake)))
-		var endTime int64
-
-		startTime := simState.GenTimestamp.Unix()
-
-		// Allow for some vesting accounts to vest very quickly while others very slowly.
-		if simState.Rand.Intn(100) < 50 {
-			endTime = int64(simulation.RandIntBetween(simState.Rand, int(startTime)+1, int(startTime+(60*60*24*30))))
-		} else {
-			endTime = int64(simulation.RandIntBetween(simState.Rand, int(startTime)+1, int(startTime+(60*60*12))))
-		}
-
-		bva := vestingtypes.NewBaseVestingAccount(bacc, initialVesting, endTime, nil)
-
-		if simState.Rand.Intn(100) < 50 {
-			genesisAccs[i] = vestingtypes.NewContinuousVestingAccountRaw(bva, startTime)
-		} else {
-			genesisAccs[i] = vestingtypes.NewDelayedVestingAccountRaw(bva)
-		}
+		genesisAccs[i] = types.NewBaseAccountWithAddress(acc.Address)
 	}
 
 	return genesisAccs

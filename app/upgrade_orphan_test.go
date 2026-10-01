@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -21,18 +20,13 @@ var retainedStores = map[string]struct {
 		upgrade: "v6.7",
 		reason:  "module removed in v6.7; allowances kept for historical state access",
 	},
-	capabilityModuleName: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; capabilities kept for freeze-mode historical state access",
-	},
-	transferModuleName: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; transfer state kept for historical state access",
-	},
-	storekeys.IBCStoreKey: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; client, connection and channel state kept for historical state access",
-	},
+}
+
+// removedModulesWithoutStores maps every module dropped from the manager that
+// owned no store to the upgrade whose handler deletes its version-map entry. A
+// removed module that left its store mounted is declared on retainedStores.
+var removedModulesWithoutStores = map[string]string{
+	vestingModuleName: "v6.8",
 }
 
 // storeKeyOwners names the owning module for the KV stores whose key differs
@@ -51,10 +45,10 @@ func owningModuleName(storeKey string) string {
 // Removing a module from the manager does not remove it from the stored module
 // version map: SetModuleVersionMap only writes the keys it is given and never
 // deletes the ones it is not, so a departing module's entry survives every
-// later upgrade unless a handler calls DeleteModuleVersion for it. This asserts
-// the whole map rather than the names v6.7 happens to drop, so the next module
-// removal that forgets the call fails here instead of leaving a version entry
-// on chain forever.
+// later upgrade unless a handler calls DeleteModuleVersion for it. This models
+// the version map of a chain upgrading from the previous release and asserts
+// the whole map after the handler, so a removal whose handler forgets the call
+// fails here instead of leaving a version entry on chain forever.
 func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	previousUpgrades := upgradesList
 	t.Cleanup(func() { upgradesList = previousUpgrades })
@@ -69,12 +63,17 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 		registered[name] = struct{}{}
 	}
 
-	// Model a chain that carried every retained store's module version across
-	// earlier upgrades, which is what a real node upgrading into this release
-	// has in state.
+	// The previous release still registered, and so still versions, every
+	// module the latest upgrade removes.
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(ctx)
-	for name, retained := range retainedStores {
-		if retained.upgrade == LatestUpgrade {
+	for name := range retainedStores {
+		versionMap[name] = 1
+	}
+	for _, name := range v68DeletedStores {
+		versionMap[name] = 1
+	}
+	for name, upgrade := range removedModulesWithoutStores {
+		if upgrade == LatestUpgrade {
 			versionMap[name] = 1
 		}
 	}

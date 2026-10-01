@@ -44,8 +44,10 @@ func (m *LaneRange) Next() BlockNumber { return m.next }
 // Len returns the number of blocks in the range.
 func (m *LaneRange) Len() uint64 { return uint64(m.next - m.first) }
 
-// LastHash is the hash of the last block of the range.
-// Returns a zero hash for an empty range.
+// LastHash is the certified lane tip the next block must extend.
+// For a non-empty range it is the hash of block Next()-1.
+// For an empty range it is the previous commit's LastHash for this lane,
+// or zero when the lane has never been extended.
 func (m *LaneRange) LastHash() BlockHeaderHash { return m.lastHash }
 
 // Verify verifies the LaneRange against the committee.
@@ -56,8 +58,8 @@ func (m *LaneRange) Verify(c *Committee) error {
 	if m.first > m.next {
 		return fmt.Errorf("invalid range [%v,%v)", m.first, m.next)
 	}
-	if m.first == m.next && m.lastHash != (BlockHeaderHash{}) {
-		return errors.New("non-zero hash for an empty range")
+	if m.next == 0 && m.lastHash != (BlockHeaderHash{}) {
+		return errors.New("non-zero hash for height 0")
 	}
 	return nil
 }
@@ -242,7 +244,7 @@ func (m *Proposal) NextTimestamp() time.Time {
 }
 
 // Verify checks epoch binding, lane-range structural validity (bounds, max-length,
-// and lane committee membership). Empty tipcuts (no finalized blocks) are rejected;
+// lane committee membership, and a zero hash on an empty height-0 range). Empty tipcuts (no finalized blocks) are rejected;
 // leaders wait for LaneQCs via WaitForLaneQCs instead. QC-chain continuity
 // (matching starts against the previous QC) is only enforced by FullProposal.Verify.
 func (m *Proposal) Verify(ep *Epoch) error {
@@ -337,7 +339,8 @@ func buildProposal(
 ) (*Proposal, error) {
 	var laneRanges []*LaneRange
 	for lane := range committee.Lanes().All() {
-		first := LaneRangeOpt(viewSpec.CommitQC, lane).Next()
+		prev := LaneRangeOpt(viewSpec.CommitQC, lane)
+		first := prev.Next()
 		if lQC, ok := laneQCs[lane]; ok {
 			if lQC.Header().Lane() != lane {
 				return nil, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
@@ -348,7 +351,7 @@ func buildProposal(
 			}
 			laneRanges = append(laneRanges, laneRange)
 		} else {
-			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
+			laneRanges = append(laneRanges, &LaneRange{lane: lane, first: first, next: first, lastHash: prev.LastHash()})
 		}
 	}
 	// Normalize the creation timestamp.
@@ -458,9 +461,16 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for lane := range c.Lanes().All() {
 			r := proposal.LaneRange(lane)
+			prev := LaneRangeOpt(vs.CommitQC, r.Lane())
 			// Verify that range matches previous commitQC.
-			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
+			if got, want := r.First(), prev.Next(); got != want {
 				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
+			}
+			// An empty range carries the previous commit's LastHash.
+			if r.Len() == 0 {
+				if got, want := r.LastHash(), prev.LastHash(); got != want {
+					return fmt.Errorf("laneRange[%v].LastHash() = %v, want %v", r.Lane(), got, want)
+				}
 			}
 			// Verify that the necessary laneQC is present and valid.
 			if r.First() < r.Next() {
