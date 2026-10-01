@@ -108,6 +108,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepair"
+	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepairfixture"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
@@ -1005,6 +1006,7 @@ func New(
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 	kvrepair.Register(app.HardForkManager, keys)
+	kvrepairfixture.Register(app.HardForkManager, &app.EvmKeeper, app.ParamsKeeper, appOpts)
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
