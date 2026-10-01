@@ -1,10 +1,9 @@
 {
-  "Comment": "A validator's stack: no historical state store and no receipt store, so only the block store and the live state DB are written. Checkpoints are paced by blocks rather than wall-clock time, so a run shorter than a time interval still leaves a snapshot to restart from.",
+  "Comment": "A validator's stack: no historical state store and no receipt store, so only the block store and the live state DB are written. History is kept only as far back as the rollback window.",
   "Seed": 1337,
   "DataDir": "~/gigasim/validator/data",
-  "LogDir": "~/gigasim/validator/logs",
+  "TransactionType": "erc20",
   "EnableSS": false,
   "EnableReceiptStore": false,
-  "CheckpointIntervalSeconds": 60,
-  "CheckpointBlockInterval": 5000
+  "LookbackWindow": 0
 }
