@@ -1512,6 +1512,11 @@ func (s *CommitStore) resetForImport() error {
 		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
 	}
 
+	// An imported store's history starts at the imported version, not at any earlier seed.
+	if err := os.Remove(filepath.Join(dir, seededVersionFile)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", seededVersionFile, err)
+	}
+
 	// The WAL is deliberately left alone. Import bypasses it, so a pre-existing WAL is stale relative to the
 	// imported version — but a state-sync restore is a manual procedure in which the operator stops the node
 	// and removes its data directories, changelog included, so the restored node opens an empty WAL and its

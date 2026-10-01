@@ -7,6 +7,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/cockroachdb/pebble/v2"
 
@@ -386,6 +388,12 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 
 	seededVersion := initialVersion - 1
 
+	if seededVersion > 0 {
+		if err := writeSeededVersion(s.flatkvDir(), seededVersion); err != nil {
+			return fmt.Errorf("flatkv: SetInitialVersion: %w", err)
+		}
+	}
+
 	for _, dir := range dataDBDirs {
 		if s.loadedHashes.PerDB[dir] == nil {
 			s.loadedHashes.PerDB[dir] = lthash.New()
@@ -427,6 +435,51 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		}
 	}
 	logger.Info("FlatKV SetInitialVersion", "initialVersion", initialVersion, "seededVersion", seededVersion)
+	return nil
+}
+
+// SeededVersion reports the version SetInitialVersion seeded the store under dir at. The store holds no
+// history at or below it: those blocks predate the store, and its seeded state is empty. ok is false for a
+// store that was never seeded above genesis, and for one seeded before the version was recorded.
+//
+// The record is a decimal height on a single line, so an operator can write it by hand for a store seeded
+// before it existed.
+func SeededVersion(dir string) (version int64, ok bool, err error) {
+	data, err := os.ReadFile(filepath.Join(dir, seededVersionFile)) //nolint:gosec // path under the store root
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("flatkv: read %s: %w", seededVersionFile, err)
+	}
+	version, err = strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil || version <= 0 {
+		return 0, false, fmt.Errorf("flatkv: %s holds %q, not a positive height", seededVersionFile, data)
+	}
+	return version, true, nil
+}
+
+// writeSeededVersion durably records version as the height the store under dir was seeded at.
+func writeSeededVersion(dir string, version int64) error {
+	path := filepath.Join(dir, seededVersionFile)
+	tmpPath := path + tmpSuffix
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600) //nolint:gosec // path under the store root
+	if err != nil {
+		return fmt.Errorf("create %s: %w", seededVersionFile, err)
+	}
+	_, err = f.WriteString(strconv.FormatInt(version, 10) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("write %s: %w", seededVersionFile, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install %s: %w", seededVersionFile, err)
+	}
 	return nil
 }
 

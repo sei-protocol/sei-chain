@@ -33,6 +33,7 @@ import (
 //	    account/, code/, storage/, misc/
 //	    SNAPSHOT_BASE                        (records source snapshot name)
 //	  changelog/                             (WAL, shared across snapshots)
+//	  SEEDED_VERSION                         (height SetInitialVersion seeded at, if above genesis)
 const (
 	// snapshotPrefix is the directory name prefix for versioned snapshots.
 	snapshotPrefix = "snapshot-"

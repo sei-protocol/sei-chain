@@ -581,17 +581,10 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	requireOracleMatches(t, ro, workload.snapshotOracle())
 }
 
-// TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails records a guarantee that was deliberately
-// given up: heights predating flatkv's history used to be served memiavl-only, because flatkv kept a
-// persisted record of the height its history began at and the read path consulted it.
-//
-// That record is gone, so nothing distinguishes "this height predates flatkv" from "flatkv failed to
-// load at this height", and the read path can only take the safe branch — attempt the load and
-// surface the failure. Answering the other way would serve the height from a memiavl whose migrated
-// keys were deleted, fabricating a nonexistence answer, so failing here is the correct direction.
-//
-// In-era heights are unaffected. Delete this test only alongside a decision to restore pre-era reads.
-func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
+// TestComposite_Auto_ReadOnlyPreFlatKVEraHeight pins the era-aware read-only path: heights that predate
+// flatkv's history must remain queryable after the migration has begun, served memiavl-only with as-of-height
+// values. In-era heights keep loading flatkv.
+func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 	dir := t.TempDir()
 	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	defer func() { _ = cs.Close() }()
@@ -617,14 +610,21 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Pre-era height: the load is attempted against a flatkv that has no such height, and fails.
-	_, err := cs.LoadVersionReadOnly(3)
-	require.Error(t, err, "a pre-flatkv-era height is no longer distinguishable from a load failure")
-
-	// In-era height: unchanged.
-	roCommitter, err := cs.LoadVersionReadOnly(7)
-	require.NoError(t, err)
+	roCommitter, err := cs.LoadVersionReadOnly(3)
+	require.NoError(t, err, "pre-flatkv-era heights must remain queryable")
 	ro, ok := roCommitter.(*CompositeCommitStore)
+	require.True(t, ok)
+	require.Equal(t, types.MemiavlOnly, ro.currentWriteMode)
+	require.Nil(t, ro.flatKV)
+	val, found, err := ro.Get(keys.BankStoreKey, []byte("k"))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, valAt(3), val, "value as-of height 3")
+	require.NoError(t, ro.Close())
+
+	roCommitter, err = cs.LoadVersionReadOnly(7)
+	require.NoError(t, err)
+	ro, ok = roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.NotNil(t, ro.flatKV, "in-era heights must keep loading flatkv")
@@ -656,4 +656,92 @@ func TestComposite_Auto_CopyAvailability(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.Nil(t, cs.Copy(),
 		"Copy is unavailable once flatkv is open")
+}
+
+// TestComposite_Auto_ReadOnlyBelowSeededVersion pins historical reads across the MemiavlOnly -> MigrateEVM
+// seam. flatkv is seeded at the height memiavl had reached and holds no history below it, so a read-only
+// view or export there must be served from memiavl alone and match what the node served before the
+// transition, instead of asking flatkv to replay blocks it never had.
+func TestComposite_Auto_ReadOnlyBelowSeededVersion(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA078)
+	cfg := autoExportConfig()
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 100
+
+	cs := openAutoStoreWithConfig(t, dir, cfg, 25)
+	defer func() { _ = cs.Close() }()
+
+	runBlocks(t, cs, workload, 10)
+	pre := cs.Version()
+	oracle := workload.snapshotOracle()
+	runBlocks(t, cs, workload, 3)
+
+	before, err := cs.LoadVersionReadOnly(pre)
+	require.NoError(t, err)
+	beforeInfo := before.(*CompositeCommitStore).LastCommitInfo()
+	require.NoError(t, before.(*CompositeCommitStore).Close())
+	exp, err := cs.Exporter(pre)
+	require.NoError(t, err)
+	beforeItems := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 5)
+	require.True(t, hasLatticeHash(cs))
+
+	view, err := cs.LoadVersionReadOnly(pre)
+	require.NoError(t, err)
+	ro := view.(*CompositeCommitStore)
+	defer func() { _ = ro.Close() }()
+	require.Nil(t, ro.flatKV, "flatkv holds no history below its seeded version")
+	require.Equal(t, beforeInfo, ro.LastCommitInfo())
+	requireOracleMatches(t, ro, oracle)
+
+	exp, err = cs.Exporter(pre)
+	require.NoError(t, err)
+	afterItems := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Equal(t, beforeItems, afterItems)
+
+	latest, err := cs.LoadVersionReadOnly(cs.Version())
+	require.NoError(t, err)
+	defer func() { _ = latest.(*CompositeCommitStore).Close() }()
+	require.True(t, hasLatticeHash(latest.(*CompositeCommitStore)),
+		"a view above the seeded version must still include flatkv")
+}
+
+// TestComposite_FixedMigrateEVM_ReadOnlyBelowSeededVersion covers the same seam for a node switched from
+// memiavl_only to a fixed migrate_evm configuration, where flatkv is seeded on the first LoadLatest.
+func TestComposite_FixedMigrateEVM_ReadOnlyBelowSeededVersion(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA079)
+	open := func(mode types.WriteMode) *CompositeCommitStore {
+		cfg := autoConfig()
+		cfg.WriteMode = mode
+		cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+		require.NoError(t, err)
+		require.NoError(t, cs.SetMigrationBatchSize(25))
+		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+		require.NoError(t, cs.LoadLatest())
+		return cs
+	}
+
+	cs := open(types.MemiavlOnly)
+	runBlocks(t, cs, workload, 10)
+	pre := cs.Version()
+	oracle := workload.snapshotOracle()
+	runBlocks(t, cs, workload, 3)
+	require.NoError(t, cs.Close())
+
+	cs = open(types.MigrateEVM)
+	defer func() { _ = cs.Close() }()
+	runBlocks(t, cs, workload, 5)
+
+	view, err := cs.LoadVersionReadOnly(pre)
+	require.NoError(t, err)
+	ro := view.(*CompositeCommitStore)
+	defer func() { _ = ro.Close() }()
+	require.Nil(t, ro.flatKV)
+	require.False(t, hasLatticeHash(ro))
+	requireOracleMatches(t, ro, oracle)
 }

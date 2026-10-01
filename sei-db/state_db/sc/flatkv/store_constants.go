@@ -12,6 +12,9 @@ const (
 	changelogDir  = "changelog"
 	lockFileName  = "LOCK"
 
+	// seededVersionFile records the version SetInitialVersion seeded the store at (see SeededVersion).
+	seededVersionFile = "SEEDED_VERSION"
+
 	// DB subdirectories (inside each snapshot)
 	accountDBDir = "account"
 	codeDBDir    = "code"

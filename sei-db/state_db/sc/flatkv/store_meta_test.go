@@ -214,6 +214,10 @@ func TestSetInitialVersion_HappyPath(t *testing.T) {
 	target, err := os.Readlink(currentPath(s.flatkvDir()))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(99), target)
+	seeded, ok, err := SeededVersion(s.flatkvDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(99), seeded)
 
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
@@ -235,6 +239,9 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	target, err := os.Readlink(currentPath(s.flatkvDir()))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(0), target)
+	_, ok, err := SeededVersion(s.flatkvDir())
+	require.NoError(t, err)
+	require.False(t, ok, "a genesis seed predates nothing")
 
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
@@ -244,6 +251,33 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
+}
+
+func TestSetInitialVersion_ImportClearsSeededVersion(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(100))
+	imp, err := s.Importer(200)
+	require.NoError(t, err)
+	require.NoError(t, imp.Close())
+
+	_, ok, err := SeededVersion(s.flatkvDir())
+	require.NoError(t, err)
+	require.False(t, ok, "an imported store's history starts at the import, not the earlier seed")
+}
+
+func TestSeededVersion_RejectsMalformedRecord(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, seededVersionFile), []byte("abc\n"), 0600))
+	_, _, err := SeededVersion(dir)
+	require.Error(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, seededVersionFile), []byte("274411998\n"), 0600))
+	seeded, ok, err := SeededVersion(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(274411998), seeded)
 }
 
 func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
