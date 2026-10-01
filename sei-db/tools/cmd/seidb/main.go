@@ -32,6 +32,7 @@ func main() {
 		operations.TraceProfileReportCmd(),
 		operations.MigrateEvmStatusCmd(),
 		operations.EvmLogicalDigestCmd(),
+		operations.KVRepairExportCmd(),
 		operations.HashLogCmd())
 	if err := rootCmd.Execute(); err != nil {
 		// Subcommands with a --json mode make stdout a machine-readable channel, so a
