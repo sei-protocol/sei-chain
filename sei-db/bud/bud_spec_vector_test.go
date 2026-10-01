@@ -20,13 +20,13 @@ func TestBUDSpecVector(t *testing.T) {
 		"00000005" + "65766d2f63" + "00" + "00000001" + "cc" + "0102030405060708",
 	}
 	leafHashes := []string{
-		"2c04f8ef01f65fcf00309d0eb3b513fbd67f963c84bdced043becfa555a81984",
-		"a9ffe6eeb707bdc90e75cedc80ddd41cea6b6d99b56a00b8deb832942f11406d",
-		"e9d985609a1790ef720997688285b872e4e3b5b0767c7a55c8eb339bbd9e6a56",
+		"35d10b1d4b1150c9e192fd6e3990c335059a082b034552b0c8c5fb84b18b8120",
+		"658e7daf30805c8bea7e7128f4776983b4bfcb2baed616d2ce4aa72c5aa6bb02",
+		"c28796d5c82fad7b487cb8abf8141c7a70b593fca1ed6066f910bef4aa873fd3",
 	}
-	inner01 := "c61a514b106ecf34b8371ad4af73a1d8d0c00962f9979128da71682bbb211ca2"
-	root := "aa81ff328275dcf86485ec05be9a5a6eb47ebb242e3492e3be0d91fe0188f368"
-	bud := "a60f1c2ddcd436250a3634bd33732a485610bfd1047283d6c5d63cad526cf86d"
+	inner01 := "ba10a4fe9d2471b43c2962f3316edc63cca7affe2b6cf3b5d26b2b5dd34356fc"
+	root := "9e7ca3a63b3fe038f0eccb200772166d2c8a4cdaaf9370f8cd19dcfe588944da"
+	bud := "84f9b7bcac72e99f8e8da42848209a1ec0587f8b8d2b7c4c1e7ba7da9e3bd29f"
 	serializedTree := "01" + "0000000000000003" + serializations[0] + serializations[1] + serializations[2]
 	proofs := []string{
 		"01" + "01" + serializations[0] + "0000000000000003" + "0000000000000000" +

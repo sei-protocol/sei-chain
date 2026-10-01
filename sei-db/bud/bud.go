@@ -1,9 +1,8 @@
 package bud
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
-
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
@@ -29,5 +28,5 @@ func hashBUD(
 	preimage = append(preimage, budVersion)
 	preimage = binary.BigEndian.AppendUint64(preimage, leafCount)
 	preimage = append(preimage, treeRoot[:]...)
-	return apphash.BUD(crypto.Keccak256(preimage))
+	return sha256.Sum256(preimage)
 }

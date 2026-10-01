@@ -2,11 +2,10 @@ package bud
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"slices"
-
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
@@ -127,12 +126,16 @@ func (tree *BUDTree) Serialize() []byte {
 
 // budLeafHash returns the hash of the BUD tree leaf holding budlet.
 func budLeafHash(budlet *Budlet) [32]byte {
-	return [32]byte(crypto.Keccak256([]byte{budLeafPrefix}, budlet.Serialize()))
+	return sha256.Sum256(append([]byte{budLeafPrefix}, budlet.Serialize()...))
 }
 
 // budInnerHash returns the hash of the BUD tree inner node with children left and right.
 func budInnerHash(left [32]byte, right [32]byte) [32]byte {
-	return [32]byte(crypto.Keccak256([]byte{budInnerPrefix}, left[:], right[:]))
+	var preimage [1 + 32 + 32]byte
+	preimage[0] = budInnerPrefix
+	copy(preimage[1:], left[:])
+	copy(preimage[1+32:], right[:])
+	return sha256.Sum256(preimage[:])
 }
 
 // budLeafHashes returns the leaf hash of each budlet, in order.

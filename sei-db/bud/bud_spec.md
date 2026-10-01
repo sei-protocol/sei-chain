@@ -14,9 +14,8 @@ blocks. It does not define where a BUD tree is stored, or how a reader comes to 
 - `u8(x)` is `x` as a single byte.
 - `u32be(x)` is `x` as a 4-byte unsigned big-endian integer.
 - `u64be(x)` is `x` as an 8-byte unsigned big-endian integer.
-- `keccak256(x)` is the original Keccak-256 with a 32-byte output, as used by Ethereum's `KECCAK256` opcode. It
-  is not FIPS 202 SHA3-256, which pads differently. `keccak256` of the empty string is
-  `c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470`.
+- `SHA-256(x)` is FIPS 180-4 SHA-256, with a 32-byte output. `SHA-256` of the empty string is
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
 - `⊥` is the value of a deleted key. It is distinct from every byte string, including the empty one.
 - A *hash* is exactly 32 bytes.
 - Byte strings are ordered lexicographically by unsigned byte value, and a proper prefix orders before any
@@ -77,8 +76,8 @@ deletion flag other than `0` or `1`, a set deletion flag with a non-zero value l
 The hashes of BUD tree nodes are
 
 ```
-leafHash(b)            = keccak256(u8(0x00) ‖ serialize(b))
-innerHash(left, right) = keccak256(u8(0x01) ‖ left ‖ right)
+leafHash(b)            = SHA-256(u8(0x00) ‖ serialize(b))
+innerHash(left, right) = SHA-256(u8(0x01) ‖ left ‖ right)
 ```
 
 The leading byte separates leaves from inner nodes, so that no leaf can be presented as an inner node or the
@@ -118,7 +117,7 @@ the budlet decoder rejects, and budlets whose keys are not strictly increasing.
 ## BUD
 
 ```
-BUD = keccak256("sei-bud" ‖ u8(version) ‖ u64be(n) ‖ R)
+BUD = SHA-256("sei-bud" ‖ u8(version) ‖ u64be(n) ‖ R)
 ```
 
 | Size | Field     | Value                                                                             |
@@ -167,7 +166,7 @@ A BUD proof (`budlet`, `count`, `index`, `siblings`) determines a BUD. The decod
    - If `p` is odd: `h ← innerHash(siblings[k], h)`, and `k ← k + 1`.
    - Otherwise, if `p + 1 < s`: `h ← innerHash(h, siblings[k])`, and `k ← k + 1`.
    - Then `p ← ⌊p / 2⌋` and `s ← ⌈s / 2⌉`.
-2. The computed BUD is `keccak256("sei-bud" ‖ u8(1) ‖ u64be(count) ‖ h)`.
+2. The computed BUD is `SHA-256("sei-bud" ‖ u8(1) ‖ u64be(count) ‖ h)`.
 
 The proof shows that a block wrote `budlet` when the computed BUD equals that block's BUD, obtained from a source
 the verifier trusts. A mismatch is a failed proof, not an error.
@@ -282,23 +281,23 @@ serialize(b[2]) = 00000005 65766d2f63 00 00000001 cc   0102030405060708
 Leaf hashes:
 
 ```
-L0 = leafHash(b[0]) = 2c04f8ef01f65fcf00309d0eb3b513fbd67f963c84bdced043becfa555a81984
-L1 = leafHash(b[1]) = a9ffe6eeb707bdc90e75cedc80ddd41cea6b6d99b56a00b8deb832942f11406d
-L2 = leafHash(b[2]) = e9d985609a1790ef720997688285b872e4e3b5b0767c7a55c8eb339bbd9e6a56
+L0 = leafHash(b[0]) = 35d10b1d4b1150c9e192fd6e3990c335059a082b034552b0c8c5fb84b18b8120
+L1 = leafHash(b[1]) = 658e7daf30805c8bea7e7128f4776983b4bfcb2baed616d2ce4aa72c5aa6bb02
+L2 = leafHash(b[2]) = c28796d5c82fad7b487cb8abf8141c7a70b593fca1ed6066f910bef4aa873fd3
 ```
 
 Level 0 is `L0 L1 L2`. Level 1 is `N = innerHash(L0, L1)` followed by `L2`, carried up unpaired. Level 2 is
 the root.
 
 ```
-N = innerHash(L0, L1) = c61a514b106ecf34b8371ad4af73a1d8d0c00962f9979128da71682bbb211ca2
-R = innerHash(N, L2)  = aa81ff328275dcf86485ec05be9a5a6eb47ebb242e3492e3be0d91fe0188f368
+N = innerHash(L0, L1) = ba10a4fe9d2471b43c2962f3316edc63cca7affe2b6cf3b5d26b2b5dd34356fc
+R = innerHash(N, L2)  = 9e7ca3a63b3fe038f0eccb200772166d2c8a4cdaaf9370f8cd19dcfe588944da
 ```
 
-BUD, i.e. `keccak256` of `7365692d627564 01 0000000000000003 ‖ R`:
+BUD, i.e. `SHA-256` of `7365692d627564 01 0000000000000003 ‖ R`:
 
 ```
-a60f1c2ddcd436250a3634bd33732a485610bfd1047283d6c5d63cad526cf86d
+84f9b7bcac72e99f8e8da42848209a1ec0587f8b8d2b7c4c1e7ba7da9e3bd29f
 ```
 
 Serialized BUD tree (hex, wrapped at field boundaries):
