@@ -3,10 +3,10 @@
 **Status:** draft. **BUD version:** 1. **BUD proof version:** 1. **BUD state proof version:** 1.
 
 This document defines the Block Update Digest (BUD): a 32-byte commitment to the key-value writes a block
-makes. It also defines the serialization of a BUD tree; the BUD proof, which proves that one write is among
-those a BUD commits to; and the BUD state proof, which combines one or two BUD proofs to prove a key's value
-over a range of blocks. It does not define where a BUD is stored, how it is signed or attested, or how a reader
-comes to trust one.
+makes. A block's BUD is the `bud` field of its [app hash](../../giga/apphash/apphash_spec.md). This document
+also defines the serialization of a BUD tree; the BUD proof, which proves that one write is among those a BUD
+commits to; and the BUD state proof, which combines one or two BUD proofs to prove a key's value over a range of
+blocks. It does not define where a BUD tree is stored, or how a reader comes to trust an app hash.
 
 ## Notation
 
@@ -259,7 +259,6 @@ There are three versions, and they change independently.
 
 | Item           | Needed                                                                     |
 |----------------|----------------------------------------------------------------------------|
-| Keys           | Which bytes a budlet's `key` holds for each kind of state.                 |
 | Inherited keys | How `previousHeight` marks a key last written before BUDs were introduced. |
 
 ## Test vector
