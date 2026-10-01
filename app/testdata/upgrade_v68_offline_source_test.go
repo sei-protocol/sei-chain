@@ -9,15 +9,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
+	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -33,16 +36,28 @@ const (
 	v68OfflineVestingEndTime int64  = 32_503_680_000
 	v68OfflineVestingAmount  int64  = 1_000_000_000
 	v68OfflineAuthVersion    uint64 = 3
+
+	v68OfflineVoucherDenom              = "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"
+	v68OfflineVoucherAmount       int64 = 1_234_567
+	v68OfflineProposalTitle             = "Recover client 07-tendermint-0"
+	v68OfflineProposalDescription       = "Substitute the expired client with 07-tendermint-1"
 )
 
-var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank"}
+var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "upgrade"}
+
+// v68OfflineDeletedStores are the stores v6.8 deletes; the source phase writes
+// a key into each so the target phase can prove the trees are gone.
+var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "transfer"}
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
-	seedV68OfflineOracleState(t, testApp, ctx)
+	seedV68OfflineDeletedStores(t, testApp, ctx)
 	vesting, retained := seedV68OfflineVestingAccounts(t, testApp, ctx)
+	seedV68IBCProposal(t, testApp, ctx, &retained)
+	seedV68UpgradedIBCState(t, testApp, ctx, &retained)
+	seedV68Voucher(t, testApp, ctx, &retained)
 	requireV68OfflineBalancesLocked(t, testApp, ctx, retained)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
@@ -57,6 +72,12 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, moduleVersions, "oracle")
 	require.Contains(t, moduleVersions, "vesting", "v6.7 module version map does not contain vesting")
+	// v6.7 dropped the IBC module versions while keeping their stores mounted;
+	// only oracle and vesting still carry a version into v6.8.
+	for _, name := range []string{"capability", "ibc", "transfer"} {
+		require.NotContains(t, moduleVersions, name)
+		require.NotNil(t, testApp.GetKey(name))
+	}
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(offlineUpgradeReadContext(testApp, sourceHeight))
 	require.Equal(t, v68OfflineAuthVersion, versionMap[authtypes.ModuleName])
 	storeNames := make([]string, 0, len(v68OfflineSourceStores))
@@ -77,7 +98,8 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	copyV68OfflineUpgradeInfo(t, root, upgradeHeight)
 }
 
-// TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose Oracle tree v6.8 deleted.
+// TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose
+// oracle and IBC trees v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
@@ -96,14 +118,73 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 		closeOfflineUpgradeApp(t, testApp)
 	}()
 	require.NotNil(t, recovered,
-		"v6.7 binary reopened a database whose oracle tree was deleted")
-	require.Contains(t, fmt.Sprint(recovered), `store "oracle"`)
+		"v6.7 binary reopened a database whose oracle and IBC trees were deleted")
+	message := fmt.Sprint(recovered)
+	namesDeletedStore := false
+	for _, name := range v68OfflineDeletedStores {
+		if strings.Contains(message, fmt.Sprintf("store %q", name)) {
+			namesDeletedStore = true
+			break
+		}
+	}
+	require.True(t, namesDeletedStore, "panic does not name a deleted store: %s", message)
 }
 
-// seedV68OfflineOracleState writes an entry to the oracle store v6.8 deletes.
-func seedV68OfflineOracleState(t *testing.T, testApp *App, ctx sdk.Context) {
+// seedV68OfflineDeletedStores writes an entry into every store v6.8 deletes.
+func seedV68OfflineDeletedStores(t *testing.T, testApp *App, ctx sdk.Context) {
 	t.Helper()
-	ctx.KVStore(testApp.GetKey("oracle")).Set([]byte("historical"), []byte("retained"))
+	for _, name := range v68OfflineDeletedStores {
+		ctx.KVStore(testApp.GetKey(name)).Set([]byte("historical"), []byte("retained"))
+	}
+}
+
+// seedV68IBCProposal stores a passed IBC client update proposal, which v6.8
+// rewrites as a text proposal.
+func seedV68IBCProposal(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	content := &retiredibcgov.ClientUpdateProposal{
+		Title:              v68OfflineProposalTitle,
+		Description:        v68OfflineProposalDescription,
+		SubjectClientId:    "07-tendermint-0",
+		SubstituteClientId: "07-tendermint-1",
+	}
+	proposalID, err := testApp.GovKeeper.GetProposalID(ctx)
+	require.NoError(t, err)
+	proposal, err := govtypes.NewProposal(content, proposalID, ctx.BlockTime(), ctx.BlockTime().Add(time.Hour), false)
+	require.NoError(t, err)
+	proposal.Status = govtypes.StatusPassed
+	testApp.GovKeeper.SetProposal(ctx, proposal)
+	testApp.GovKeeper.SetProposalID(ctx, proposalID+1)
+	stored, found := testApp.GovKeeper.GetProposal(ctx, proposalID)
+	require.True(t, found)
+	require.Equal(t, retiredibcgov.ClientUpdateProposalTypeURL, stored.Content.TypeUrl)
+	retained.IBCProposalID = proposalID
+	retained.IBCProposalTitle = v68OfflineProposalTitle
+	retained.IBCProposalDescription = v68OfflineProposalDescription
+}
+
+// seedV68UpgradedIBCState records an upgraded IBC client in the upgrade store,
+// which v6.8 prunes.
+func seedV68UpgradedIBCState(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	key := upgradetypes.UpgradedClientKey(ctx.BlockHeight() + 1000)
+	ctx.KVStore(testApp.GetKey(upgradetypes.StoreKey)).Set(key, []byte("upgraded-client"))
+	retained.UpgradedIBCStateKey = encodeOfflineUpgradeKey(key)
+}
+
+// seedV68Voucher mints an IBC voucher balance that must survive the upgrade.
+func seedV68Voucher(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	holder := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	testApp.AccountKeeper.SetAccount(ctx, testApp.AccountKeeper.NewAccountWithAddress(ctx, holder))
+	voucher := sdk.NewInt64Coin(v68OfflineVoucherDenom, v68OfflineVoucherAmount)
+	require.NoError(t, testApp.BankKeeper.MintCoins(ctx, "transfer", sdk.NewCoins(voucher)))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "transfer", holder, sdk.NewCoins(voucher)))
+	require.Equal(t, voucher, testApp.BankKeeper.GetBalance(ctx, holder, voucher.Denom))
+	retained.TransferIBCDenom = voucher.Denom
+	retained.VoucherHolder = holder.String()
+	retained.VoucherAmount = voucher.Amount.String()
+	retained.VoucherSupply = testApp.BankKeeper.GetSupply(ctx, voucher.Denom).Amount.String()
 }
 
 // seedV68OfflineVestingAccounts writes one account of every vesting type

@@ -7,9 +7,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
@@ -22,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/upgradetest"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // v6.8 removes the oracle and vesting modules. The store loader deletes the
@@ -32,6 +35,10 @@ import (
 // account type, spending a balance a schedule had locked, the messages both
 // modules served, genesis export over the migrated store, and the handler
 // itself.
+
+// v68RemovedStoreModules are the module version map entries the v6.8 handler
+// deletes along with their stores.
+var v68RemovedStoreModules = []string{"capability", "ibc", "oracle", "transfer"}
 
 const (
 	v68UpgradeName = "v6.8"
@@ -275,6 +282,11 @@ func TestV68ConvertedAccountSpendsTheBalanceItsScheduleLocked(t *testing.T) {
 func TestV68ApplyUpgradeTwice(t *testing.T) {
 	a := newV68Chain(t)
 	seedV67VestingState(t, a)
+	versions := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
+	for _, module := range v68RemovedStoreModules {
+		versions[module] = 1
+	}
+	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versions)
 	accountStore := a.Ctx().KVStore(a.GetKey(authtypes.StoreKey))
 
 	applyV68(t, a)
@@ -282,8 +294,11 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 	onceVersions := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	onceDone := a.UpgradeKeeper.GetDoneHeight(a.Ctx(), v68UpgradeName)
 	onceAppVersion := a.AppVersion()
-	require.NotContains(t, onceVersions, retiredoracle.ModuleName)
+	for _, module := range v68RemovedStoreModules {
+		require.NotContains(t, onceVersions, module)
+	}
 	require.NotContains(t, onceVersions, v68VestingModule)
+	require.Contains(t, onceVersions, "bank")
 	require.Equal(t, a.Ctx().BlockHeight(), onceDone)
 
 	require.NotPanics(t, func() { applyV68(t, a) })
@@ -372,6 +387,81 @@ func TestV68RejectsTheVestingMessageWithoutCharging(t *testing.T) {
 	check := a.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
 	require.Equal(t, retiredvesting.ErrDeprecated.ABCICode(), check.Code, check.Log)
 	require.Equal(t, retiredvesting.ErrDeprecated.Codespace(), check.Codespace)
+}
+
+// TestV68RewritesRetiredIBCProposals pins that a stored proposal whose content
+// type lives under an IBC protobuf package reads back as a text proposal with
+// the original title and description, with its status, deposits and votes
+// untouched, and that unrelated proposals are left alone.
+func TestV68RewritesRetiredIBCProposals(t *testing.T) {
+	app := newV68Chain(t)
+	ctx := app.Ctx()
+	text, err := govtypes.NewProposal(
+		govtypes.NewTextProposal("keep", "unrelated", false), 41, ctx.BlockTime(), ctx.BlockTime().Add(time.Hour), false)
+	require.NoError(t, err)
+	app.GovKeeper.SetProposal(ctx, text)
+
+	retired := text
+	retired.ProposalId = 42
+	retired.Status = govtypes.StatusPassed
+	retired.Content = &codectypes.Any{
+		TypeUrl: "/ibc.core.client.v1.ClientUpdateProposal",
+		Value:   v68EncodeStrings("Recover client", "Substitute 07-tendermint-0", "07-tendermint-0", "07-tendermint-1"),
+	}
+	voter := app.NewAccount()
+	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
+	store.Set(govtypes.ProposalKey(retired.ProposalId), app.GovKeeper.MustMarshalProposal(retired))
+	app.GovKeeper.SetVote(ctx, govtypes.NewVote(retired.ProposalId, voter, govtypes.NewNonSplitVoteOption(govtypes.OptionYes)))
+	require.Panics(t, func() { app.GovKeeper.GetProposal(ctx, retired.ProposalId) },
+		"retired IBC proposal content is still decodable before the upgrade")
+
+	applyV68(t, app)
+
+	proposal, found := app.GovKeeper.GetProposal(ctx, retired.ProposalId)
+	require.True(t, found)
+	require.Equal(t, govtypes.StatusPassed, proposal.Status)
+	require.Equal(t, "/cosmos.gov.v1beta1.TextProposal", proposal.Content.TypeUrl)
+	require.Equal(t, "Recover client", proposal.GetTitle())
+	require.Equal(t, "Substitute 07-tendermint-0", proposal.GetContent().GetDescription())
+	_, found = app.GovKeeper.GetVote(ctx, retired.ProposalId, voter)
+	require.True(t, found)
+	kept, found := app.GovKeeper.GetProposal(ctx, text.ProposalId)
+	require.True(t, found)
+	require.Equal(t, app.GovKeeper.MustMarshalProposal(text), app.GovKeeper.MustMarshalProposal(kept))
+	require.Len(t, app.GovKeeper.GetProposals(ctx), 2)
+}
+
+// v68EncodeStrings protobuf-encodes the given values as consecutive string
+// fields numbered from 1.
+func v68EncodeStrings(values ...string) []byte {
+	var bz []byte
+	for i, value := range values {
+		bz = protowire.AppendTag(bz, protowire.Number(i+1), protowire.BytesType)
+		bz = protowire.AppendString(bz, value)
+	}
+	return bz
+}
+
+// TestV68PrunesUpgradedIBCState pins that the upgrade store's upgraded IBC
+// client and consensus state records are deleted while the rest of the store
+// is kept.
+func TestV68PrunesUpgradedIBCState(t *testing.T) {
+	app := newV68Chain(t)
+	ctx := app.Ctx()
+	store := ctx.KVStore(app.GetKey(upgradetypes.StoreKey))
+	store.Set([]byte("upgradedIBCState/100/upgradedClient"), []byte("client"))
+	store.Set([]byte("upgradedIBCState/100/upgradedConsState"), []byte("consensus"))
+	store.Set([]byte("upgradedIBCStateless"), []byte("unrelated"))
+
+	applyV68(t, app)
+
+	iterator := sdk.KVStorePrefixIterator(store, []byte("upgradedIBCState/"))
+	defer iterator.Close()
+	require.False(t, iterator.Valid())
+	require.Equal(t, []byte("unrelated"), store.Get([]byte("upgradedIBCStateless")))
+	require.NotEmpty(t, app.UpgradeKeeper.GetModuleVersionMap(ctx))
+	name, _ := app.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
+	require.Equal(t, v68UpgradeName, name)
 }
 
 func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
@@ -495,6 +585,11 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		"http://127.0.0.1:26657/abci_query?path=%2Fstore%2Foracle%2Fkey")
 	require.NotContains(t, oracleStore.Combined(), retiredoracle.ErrDeprecated.Error())
 	require.Contains(t, oracleStore.Combined(), "no such store: oracle")
+	for _, store := range []string{"ibc", "transfer", "capability"} {
+		raw := chain.Binary("", "curl", "-s",
+			"http://127.0.0.1:26657/abci_query?path=%2Fstore%2F"+store+"%2Fkey")
+		require.Contains(t, raw.Combined(), "no such store: "+store)
+	}
 
 	vestingCommand := chain.Seid("", "tx", v68VestingModule)
 	chain.WriteDiagnostic(t, "v68-tx-vesting.stdout", []byte(vestingCommand.Stdout))

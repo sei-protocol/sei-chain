@@ -25,8 +25,8 @@ import (
 var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-	govtypes.StoreKey, paramstypes.StoreKey, seidbkeys.IBCStoreKey, upgradetypes.StoreKey, seidbkeys.FeegrantStoreKey,
-	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, seidbkeys.CapabilityStoreKey,
+	govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey, seidbkeys.FeegrantStoreKey,
+	evidencetypes.StoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 
@@ -34,20 +34,17 @@ var Modules = []string{
 	"authz",
 	"acc",
 	"bank",
-	seidbkeys.CapabilityStoreKey,
 	"distribution",
 	"epoch",
 	"evidence",
 	"evm",
 	seidbkeys.FeegrantStoreKey,
 	"gov",
-	seidbkeys.IBCStoreKey,
 	"mint",
 	"params",
 	"slashing",
 	"staking",
 	"tokenfactory",
-	seidbkeys.IBCTransferStoreKey,
 	"upgrade",
 	"wasm"}
 
