@@ -20,7 +20,7 @@ import (
 
 const (
 	// ChainID is the only chain the fixture handlers run on.
-	ChainID = "harbor-a8-kvrepair"
+	ChainID = "harbor-a8-kvrepair-v2"
 	// SeedHeight is where every node writes the seeded state and starts the
 	// FlatKV migration.
 	SeedHeight = 30
