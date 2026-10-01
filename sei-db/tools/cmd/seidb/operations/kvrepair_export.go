@@ -156,8 +156,9 @@ func checkInspectPair(reserve, prod evmInspectJSON) error {
 	switch {
 	case reserve.Backend != "memiavl":
 		return fmt.Errorf("reserve report backend is %q, want memiavl", reserve.Backend)
-	case reserve.Mode == memiavlNormTranslator:
-		return errors.New("reserve report uses translator normalization, which shares the migration mapping; use semantic")
+	case reserve.Mode != memiavlNormSemantic && reserve.Mode != memiavlModeSemanticReplay:
+		return fmt.Errorf("reserve report mode is %q, want %s or %s; translator normalization shares the migration mapping",
+			reserve.Mode, memiavlNormSemantic, memiavlModeSemanticReplay)
 	case prod.Backend != "composite" && prod.Backend != "flatkv":
 		return fmt.Errorf("production report backend is %q, want composite or flatkv", prod.Backend)
 	case reserve.Version != prod.Version:

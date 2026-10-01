@@ -34,6 +34,9 @@ func listReport(backend string, version int64, bucket string, rows ...inspectRow
 		KeyOffset:     testEVMKeyOffset,
 		List:          true,
 	}
+	if backend == "memiavl" {
+		r.Mode = memiavlModeSemanticReplay
+	}
 	for _, row := range rows {
 		r.Entries = append(r.Entries, evmInspectEntryJSON{
 			Key:     fmt.Sprintf("%X", row.physKey),
@@ -181,6 +184,10 @@ func TestExportRefusesInputs(t *testing.T) {
 		"reserve uses the translator": {
 			edit: func(reserve, _ *evmInspectJSON) { reserve.Mode = memiavlNormTranslator },
 			err:  "translator",
+		},
+		"reserve mode is missing": {
+			edit: func(reserve, _ *evmInspectJSON) { reserve.Mode = "" },
+			err:  "reserve report mode",
 		},
 		"production is memiavl": {
 			edit: func(_, prod *evmInspectJSON) { prod.Backend = "memiavl" },
