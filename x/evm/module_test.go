@@ -3,7 +3,6 @@ package evm_test
 import (
 	"context"
 	"encoding/hex"
-	"math"
 	"math/big"
 	"testing"
 
@@ -18,8 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
@@ -127,18 +124,6 @@ func TestABCI(t *testing.T) {
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, tx.Hash())
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
-
-	// creating vesting accounts (including for coinbase addresses) is rejected: the module is deprecated
-	k.BeginBlock(ctx)
-	coinbase := state.GetCoinbaseAddress(2)
-	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper(), k.UpgradeKeeper())
-	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
-		FromAddress: sdk.AccAddress(evmAddr1[:]).String(),
-		ToAddress:   coinbase.String(),
-		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
-		EndTime:     math.MaxInt64,
-	})
-	require.NotNil(t, err)
 }
 
 func TestAnteSurplus(t *testing.T) {

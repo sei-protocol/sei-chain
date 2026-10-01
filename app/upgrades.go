@@ -147,6 +147,7 @@ func (app *App) RegisterUpgradeHandlers() {
 					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 				}
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				app.pruneUpgradedIBCState(ctx)
 				return newVM, nil
 			}

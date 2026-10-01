@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -21,6 +22,9 @@ type flatKVStateView struct {
 
 	// Guards the release, so a second Close does not release a reservation this view no longer owns.
 	closeOnce sync.Once
+
+	// Closed by Close.
+	closed utils.CloseMarker[flatKVStateView]
 }
 
 // GetBlockHeight returns the block height of this view.
@@ -32,6 +36,7 @@ func (v *flatKVStateView) GetBlockHeight() int64 {
 // Idempotent.
 func (v *flatKVStateView) Close() {
 	v.closeOnce.Do(func() {
+		v.closed.Close(v)
 		if err := v.blockView.Release(); err != nil {
 			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.BlockHeight(), err))
 		}
@@ -118,6 +123,24 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 		return gigatypes.EmptyCodeHash
 	}
 	return codeHash
+}
+
+// ReadAccount returns addr's balance, nonce and code hash from one account row read.
+func (v *flatKVStateView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
+	account, ok := v.accountRow(addr)
+	if !ok {
+		return gigatypes.Account{}, false
+	}
+	codeHash := gigatypes.Hash(account.CodeHash())
+	if codeHash == (gigatypes.Hash{}) {
+		// The row exists, so some field is non-zero and it is not this one: no code. See GetCodeHash.
+		codeHash = gigatypes.EmptyCodeHash
+	}
+	return gigatypes.Account{
+		Balance:  gigatypes.Hash(account.Balance()),
+		Nonce:    account.Nonce(),
+		CodeHash: codeHash,
+	}, true
 }
 
 // GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.

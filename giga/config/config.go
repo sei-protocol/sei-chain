@@ -62,6 +62,10 @@ type ExecutionConfig struct {
 	ParseWorkers int `mapstructure:"parse_workers"`
 	// BlockResultPoolSize is the number of block results kept pooled between executions.
 	BlockResultPoolSize int `mapstructure:"block_result_pool_size"`
+	// EvmRpcPort is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
+	EvmRpcPort int `mapstructure:"evm_rpc_port"`
+	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
+	EvmWsPort int `mapstructure:"evm_ws_port"`
 }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
@@ -73,6 +77,8 @@ var DefaultConfig = Config{
 		OCCWorkers:          0,
 		ParseWorkers:        0,
 		BlockResultPoolSize: 1,
+		EvmRpcPort:          8545,
+		EvmWsPort:           8546,
 	},
 }
 
@@ -103,6 +109,8 @@ const (
 	FlagExecutionOCCWorkers            = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers          = "giga.execution.parse_workers"
 	FlagExecutionBlockResultPoolSize   = "giga.execution.block_result_pool_size"
+	FlagExecutionEvmRpcPort            = "giga.execution.evm_rpc_port"
+	FlagExecutionEvmWsPort             = "giga.execution.evm_ws_port"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -164,6 +172,16 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionBlockResultPoolSize, err)
 		}
 	}
+	if v := opts.Get(FlagExecutionEvmRpcPort); v != nil {
+		if cfg.Execution.EvmRpcPort, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmRpcPort, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionEvmWsPort); v != nil {
+		if cfg.Execution.EvmWsPort, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -199,6 +217,16 @@ func (c Config) Validate() error {
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
 			c.Execution.BlockResultPoolSize)
+	}
+	if c.Execution.EvmRpcPort < 1 || c.Execution.EvmRpcPort > 65535 {
+		return fmt.Errorf("%s: must be in 1..65535, got %d", FlagExecutionEvmRpcPort, c.Execution.EvmRpcPort)
+	}
+	if c.Execution.EvmWsPort < 1 || c.Execution.EvmWsPort > 65535 {
+		return fmt.Errorf("%s: must be in 1..65535, got %d", FlagExecutionEvmWsPort, c.Execution.EvmWsPort)
+	}
+	if c.Execution.EvmWsPort == c.Execution.EvmRpcPort {
+		return fmt.Errorf("%s: must differ from %s, both are %d", FlagExecutionEvmWsPort, FlagExecutionEvmRpcPort,
+			c.Execution.EvmWsPort)
 	}
 	return nil
 }
@@ -252,4 +280,10 @@ parse_workers = {{ .Giga.Execution.ParseWorkers }}
 
 # block_result_pool_size is the number of block results kept pooled between executions.
 block_result_pool_size = {{ .Giga.Execution.BlockResultPoolSize }}
+
+# evm_rpc_port is the TCP port the EVM-only JSON-RPC listens on, on all interfaces.
+evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
+
+# evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
+evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 `

@@ -251,6 +251,12 @@ func (l *Listener) Close() error {
 	panic("unreachable")
 }
 
+// Accept implements net.Listener.
+func (l *Listener) Accept() (net.Conn, error) { return l.inner.Accept() }
+
+// Addr implements net.Listener.
+func (l *Listener) Addr() net.Addr { return l.inner.Addr() }
+
 // Accepts an incoming TCP connection.
 // Closes the listener if ctx is done before a connection is accepted.
 func (l *Listener) AcceptOrClose(ctx context.Context) (Conn, error) {

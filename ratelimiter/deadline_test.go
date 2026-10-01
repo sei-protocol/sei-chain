@@ -26,41 +26,51 @@ func TestDeadlineEnforcer_Deadline_DefaultAndOverride(t *testing.T) {
 	require.Equal(t, time.Duration(0), e.Deadline("eth_subscribe"), "zero override marks the method deliberately unbounded")
 }
 
+func TestDeadlineEnforcer_Deadline_PrefixOverride(t *testing.T) {
+	e := NewDeadlineEnforcer(DeadlineConfig{
+		Default: 10 * time.Second,
+		PrefixOverrides: map[string]time.Duration{
+			"debug_trace": 0,
+		},
+	})
+
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceCall"), "method matching the prefix is exempted")
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceTransaction"), "another method matching the same prefix is also exempted")
+	require.Equal(t, 10*time.Second, e.Deadline("debug_getRawHeader"), "debug method not matching the prefix still falls back to Default")
+	require.Equal(t, 10*time.Second, e.Deadline("eth_getBalance"), "unrelated method falls back to Default")
+}
+
+func TestDeadlineEnforcer_Deadline_ExactOverrideTakesPrecedenceOverPrefix(t *testing.T) {
+	e := NewDeadlineEnforcer(DeadlineConfig{
+		Default: 10 * time.Second,
+		Overrides: map[string]time.Duration{
+			"debug_traceCall": 45 * time.Second,
+		},
+		PrefixOverrides: map[string]time.Duration{
+			"debug_trace": 0,
+		},
+	})
+
+	require.Equal(t, 45*time.Second, e.Deadline("debug_traceCall"), "exact override wins over a matching prefix")
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceTransaction"), "method with no exact entry still falls back to the prefix")
+}
+
+func TestDeadlineEnforcer_Deadline_LongestPrefixWins(t *testing.T) {
+	e := NewDeadlineEnforcer(DeadlineConfig{
+		Default: 10 * time.Second,
+		PrefixOverrides: map[string]time.Duration{
+			"debug_trace":     0,
+			"debug_traceCall": 45 * time.Second,
+		},
+	})
+
+	require.Equal(t, 45*time.Second, e.Deadline("debug_traceCall"), "the more specific (longer) prefix takes precedence")
+	require.Equal(t, time.Duration(0), e.Deadline("debug_traceTransaction"), "the broader prefix still applies to methods it alone matches")
+}
+
 func TestDeadlineEnforcer_Deadline_NoDefaultNoOverride(t *testing.T) {
 	e := NewDeadlineEnforcer(DeadlineConfig{})
 	require.Equal(t, time.Duration(0), e.Deadline("eth_getBalance"))
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingClampsOverride(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Overrides: map[string]time.Duration{"eth_call": 60 * time.Second},
-		Ceiling:   30 * time.Second,
-	})
-	require.Equal(t, 30*time.Second, e.Deadline("eth_call"), "resolves the HTTP(30s)/WS(60s) eth_call inconsistency to one value")
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingClampsDefault(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Default: 60 * time.Second,
-		Ceiling: 30 * time.Second,
-	})
-	require.Equal(t, 30*time.Second, e.Deadline("eth_getBalance"))
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingNeverRaisesASmallerValue(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Default: 5 * time.Second,
-		Ceiling: 30 * time.Second,
-	})
-	require.Equal(t, 5*time.Second, e.Deadline("eth_getBalance"))
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingNeverBoundsAnUnboundedMethod(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Overrides: map[string]time.Duration{"eth_subscribe": 0},
-		Ceiling:   30 * time.Second,
-	})
-	require.Equal(t, time.Duration(0), e.Deadline("eth_subscribe"), "a deliberately unbounded method stays unbounded despite a Ceiling")
 }
 
 func TestDeadlineEnforcer_WithDeadline_NoEffectiveDeadlineLeavesCtxUnchanged(t *testing.T) {
@@ -114,7 +124,7 @@ func TestDeadlineEnforcer_WithDeadline_ActuallyExpires(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
 }
 
-func TestDeadlineEnforcer_RecordExceeded_IncrementsMetric(t *testing.T) {
+func TestDeadlineEnforcer_WithDeadlineAndRecord_IncrementsMetric(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	prev := otel.GetMeterProvider()
@@ -126,7 +136,16 @@ func TestDeadlineEnforcer_RecordExceeded_IncrementsMetric(t *testing.T) {
 	))
 
 	e := NewDeadlineEnforcer(DeadlineConfig{Default: time.Millisecond})
-	e.RecordExceeded(t.Context(), "evm", "eth_getBalance")
+	ctx, cleanup := e.WithDeadlineAndRecord(t.Context(), "evm", "eth_getBalance")
+	<-ctx.Done()
+	cleanup()
+
+	parent, parentCancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer parentCancel()
+	inherited := NewDeadlineEnforcer(DeadlineConfig{Default: time.Hour})
+	ctx, cleanup = inherited.WithDeadlineAndRecord(parent, "evm", "eth_getBalance")
+	<-ctx.Done()
+	cleanup()
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
@@ -138,7 +157,7 @@ func TestDeadlineEnforcer_RecordExceeded_IncrementsMetric(t *testing.T) {
 				continue
 			}
 			sum := m.Data.(metricdata.Sum[int64])
-			require.Equal(t, int64(1), sum.DataPoints[0].Value)
+			require.Equal(t, int64(2), sum.DataPoints[0].Value)
 			attrs := sum.DataPoints[0].Attributes.ToSlice()
 			require.Contains(t, attrs, attribute.String("plane", "evm"))
 			require.Contains(t, attrs, attribute.String("method_namespace", "eth"))

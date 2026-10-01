@@ -10,7 +10,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/bench/gigasim"
@@ -35,14 +34,16 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logDir, err := utils.ResolveAndCreateDir(cfg.LogDir)
+	dataDir, err := utils.ResolveAndCreateDir(cfg.DataDir)
 	if err != nil {
-		return fmt.Errorf("resolve log dir: %w", err)
+		return fmt.Errorf("resolve data dir: %w", err)
+	}
+	cfg.DataDir = dataDir
+	if _, err := utils.ResolveAndCreateDir(cfg.LogDir()); err != nil {
+		return fmt.Errorf("create log dir: %w", err)
 	}
 
-	logFile := filepath.Join(logDir, "gigasim.log")
-
-	fmt.Printf("export SEI_LOG_OUTPUT=%s\n", shellQuote(logFile))
+	fmt.Printf("export SEI_LOG_OUTPUT=%s\n", shellQuote(cfg.LogFile()))
 	fmt.Printf("export SEI_LOG_LEVEL=%s\n", shellQuote(strings.ToLower(cfg.LogLevel)))
 
 	return nil
