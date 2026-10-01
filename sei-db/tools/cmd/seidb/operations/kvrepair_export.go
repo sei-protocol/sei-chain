@@ -29,12 +29,12 @@ const accountLogicalLen = 72
 // from a production node. Each entry sets a key to the reserve value and
 // states the production value as its old value.
 //
-// Usage:
+// Usage (--memiavl-open-mode replay reads the same rows, more slowly):
 //
 //	seidb evm-logical-digest --backend memiavl -d <reserve memiavl dir> \
-//	    --memiavl-open-mode replay --height H --inspect-bucket storage \
+//	    --memiavl-open-mode changelog --height H --inspect-bucket storage \
 //	    --key-offset 4 --key-prefix 03AB --list --list-limit 0 --json > reserve.json
-//	seidb evm-logical-digest --backend composite --memiavl-open-mode replay \
+//	seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
 //	    --flatkv-dir <flatkv dir> --memiavl-dir <memiavl dir> --height H \
 //	    --inspect-bucket storage --key-offset 4 --key-prefix 03AB \
 //	    --list --list-limit 0 --json > prod.json

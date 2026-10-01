@@ -102,11 +102,17 @@ const defaultInspectListLimit = 1000
 //     node this mode can read a changelog record the node is midway through
 //     writing; it then reports that and asks for a rerun rather than repairing
 //     the changelog under its writer.
+//   - changelog: sequentially scans the newest snapshot at or below --height
+//     and merges in the EVM writes of the changelog versions above it. It reads
+//     the same rows as replay and reports the same mode labels, without opening
+//     the other modules or walking the tree. It refuses a changelog that does
+//     not reach --height or that upgrades the evm tree in that range.
 //
 // The flatkv side is always a pebble WAL-replay-to-height and is fast
 // regardless. So when comparing across nodes, pick a height that is an existing
-// memiavl snapshot on every node and use snapshot mode; fall back to replay only
-// when no such common height is reachable within each backend's retained window.
+// memiavl snapshot on every node and use snapshot mode; use changelog (or
+// replay) when no such common height is reachable within each backend's
+// retained window.
 //
 // The primary comparison is account+code+storage. The misc bucket is printed
 // separately, plus marker-adjusted comparison lines, because FlatKV can contain
@@ -138,13 +144,19 @@ const defaultInspectListLimit = 1000
 //	seidb evm-logical-digest --backend memiavl --memiavl-open-mode replay \
 //	    --db-dir /.sei/data/state_commit/memiavl --height 213205000
 //
+//	# Same rows as replay, read as the snapshot below the height plus the EVM
+//	# changelog writes above it:
+//	seidb evm-logical-digest --backend memiavl --memiavl-open-mode changelog \
+//	    --db-dir /.sei/data/state_commit/memiavl --height 213205000
+//
 //	# Mid-migration node: digest the full EVM logical view as the union of
 //	# flatkv (migrated rows) and memiavl (rows not yet past the boundary), to
 //	# compare a migrating node against a memiavl-only node at the same height.
-//	# Use --memiavl-open-mode replay when memiavl's retained snapshot height is
-//	# outside flatkv's retained snapshot window (the common case on a live
-//	# migrating node, where the two backends keep snapshots at different heights).
-//	seidb evm-logical-digest --backend composite --memiavl-open-mode replay \
+//	# Use --memiavl-open-mode changelog (or replay) when memiavl's retained
+//	# snapshot height is outside flatkv's retained snapshot window (the common
+//	# case on a live migrating node, where the two backends keep snapshots at
+//	# different heights).
+//	seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
 //	    --flatkv-dir /.sei/data/state_commit/flatkv \
 //	    --memiavl-dir /.sei/data/state_commit/memiavl --height 213200000
 //
@@ -164,6 +176,14 @@ const defaultInspectListLimit = 1000
 //	    --inspect-bucket storage --key-offset 4 --key-prefix 03 --shard-next-bytes 2
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
 //	    --inspect-bucket account --list --list-limit 50 --details
+//
+//	# Take many inspect reports from one scan. plan.json is a list of items,
+//	# each with its own out file, for example
+//	#   [{"inspect_bucket":"storage","key_offset":4,"list":true,"out":"storage.json"},
+//	#    {"inspect_bucket":"account","key_offset":4,"list":true,"out":"account.json"}]
+//	# An item without list_limit lists every match.
+//	seidb evm-logical-digest --backend memiavl --memiavl-open-mode changelog \
+//	    -d <dir> --height H --inspect-plan plan.json
 //
 //	# Hunt the single diverging entry between two runs: when two bucket_digest
 //	# values differ by exactly one row, XOR those two 32-byte hex values and
