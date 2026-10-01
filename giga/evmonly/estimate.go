@@ -56,7 +56,7 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		BlockOverrides:    estimateBlockOverrides(blockCtx),
 		CustomPrecompiles: customPrecompileMap(e.cfg.CustomPrecompiles),
 	}
-	estimate, revert, err := gasestimator.Estimate(estimateCtx, msg, opts, gasCap)
+	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		// Distinct from the timeout below: this is the caller's own cancellation.
 		return 0, nil, ctxErr
@@ -76,6 +76,21 @@ func estimateBlockOverrides(ctx BlockContext) *export.BlockOverrides {
 		overrides.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
 	}
 	return overrides
+}
+
+// resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg
+// when msg carries blob hashes.
+func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
+	if msg.BlobGasFeeCap != nil || len(msg.BlobHashes) == 0 {
+		return msg
+	}
+	// gasestimator.Estimate multiplies BlobGasFeeCap unchecked once BlobHashes
+	// is non-empty, so a nil value panics there. Leaving it nil otherwise lets
+	// the estimate honor the block's actual blob base fee instead of forcing it
+	// to zero.
+	clone := *msg
+	clone.BlobGasFeeCap = new(big.Int)
+	return &clone
 }
 
 // buildEstimateHeader builds the *types.Header core.NewEVMBlockContext needs.
@@ -108,6 +123,8 @@ type estimateEngine struct {
 	*ethash.Ethash
 }
 
+// Author returns the zero address. estimateBlockOverrides always sets
+// FeeRecipient, which overrides this value, so it is never observed.
 func (estimateEngine) Author(*ethtypes.Header) (common.Address, error) {
 	return common.Address{}, nil
 }
