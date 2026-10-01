@@ -29,6 +29,7 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -1067,6 +1068,117 @@ func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.
 	nextState := stateAtBlock(v68UpgradeHeight+1, nextBlockTime)
 	nextStore := nextState.Ctx().KVStore(testApp.GetKey(govtypes.StoreKey))
 	require.True(t, nextStore.Has(govtypes.GapTallyBoundaryKey(nextBlockTime)))
+}
+
+// TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights re-traces
+// blocks around v6.7 and v6.8 upgrades, recorded at their heights, through the
+// app's RPCContextProvider, and requires bank's locked-coins lookup to read the
+// account only in blocks whose named upgrade precedes v6.8. Every binary before
+// v6.8 made that read. The provider names the first upgrade applied at or after
+// a block's parent, so v6.7 blocks from the second after that upgrade on are
+// named v6.8 and re-traced without it, as bank's RetracesLockedCoinsLookup
+// documents.
+func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *testing.T) {
+	const (
+		v67UpgradeHeight = int64(3)
+		v68UpgradeHeight = int64(7)
+		latestHeight     = v68UpgradeHeight + 1
+	)
+
+	testApp := app.Setup(t, false, false, false)
+	holder := sdk.AccAddress([]byte("locked_coins_holder_"))
+	genesisTime := time.Now().UTC()
+	blockTime := func(height int64) time.Time {
+		return genesisTime.Add(time.Duration(height) * time.Second)
+	}
+	for height := int64(1); height <= latestHeight; height++ {
+		_, err := testApp.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+			Header: &tenderminttypes.Header{ChainID: testApp.ChainID, Height: height, Time: blockTime(height)},
+		})
+		require.NoError(t, err)
+		blockCtx := testApp.GetContextForDeliverTx(nil)
+		switch height {
+		case 1:
+			testApp.AccountKeeper.SetAccount(blockCtx, testApp.AccountKeeper.NewAccountWithAddress(blockCtx, holder))
+		case v67UpgradeHeight:
+			testApp.UpgradeKeeper.SetDone(blockCtx, "v6.7")
+		case v68UpgradeHeight:
+			testApp.UpgradeKeeper.SetDone(blockCtx, "v6.8")
+		}
+		_, err = testApp.Commit(t.Context())
+		require.NoError(t, err)
+	}
+	if stateStore, ok := testApp.GetStateStore().(dbtypes.PendingWriteWaiter); ok {
+		stateStore.WaitForPendingWrites()
+	}
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), latestHeight)
+
+	stateAtBlock := func(height int64) *state.DBImpl {
+		tmClient := &fixedBlockClient{block: &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header:     tmtypes.Header{Height: height, Time: blockTime(height)},
+				LastCommit: &tmtypes.Commit{Height: height - 1},
+			},
+		}}
+		watermarks := evmrpc.NewWatermarkManager(tmClient, testApp.RPCContextProvider, nil, testApp.EvmKeeper.ReceiptStore())
+		backend := evmrpc.NewBackend(
+			testApp.RPCContextProvider,
+			&testApp.EvmKeeper,
+			testApp.BeginBlockKeepers,
+			func(int64) client.TxConfig { return TxConfig },
+			tmClient,
+			&SConfig,
+			testApp.BaseApp,
+			testApp.TracerAnteHandler,
+			evmrpc.NewBlockCache(3000),
+			&sync.Mutex{},
+			watermarks,
+		)
+		block := ethtypes.NewBlock(
+			&ethtypes.Header{Number: big.NewInt(height), Time: uint64(blockTime(height).Unix()), Difficulty: big.NewInt(0)}, //nolint:gosec
+			&ethtypes.Body{},
+			nil,
+			trie.NewStackTrie(nil),
+		)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		require.NoError(t, err)
+		t.Cleanup(release)
+		return stateDB.(*state.DBImpl)
+	}
+	gasConsumedBy := func(ctx sdk.Context, f func(sdk.Context)) sdk.Gas {
+		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+		f(ctx)
+		return ctx.GasMeter().GasConsumed()
+	}
+
+	for _, tc := range []struct {
+		name         string
+		height       int64
+		upgradeName  string
+		readsAccount bool
+	}{
+		{name: "a block before the v6.7 upgrade", height: v67UpgradeHeight - 1, upgradeName: "v6.7", readsAccount: true},
+		{name: "the v6.7 upgrade block", height: v67UpgradeHeight, upgradeName: "v6.7", readsAccount: true},
+		{name: "the first block after the v6.7 upgrade", height: v67UpgradeHeight + 1, upgradeName: "v6.7", readsAccount: true},
+		// v6.7 executed the next two blocks with the read their traces skip.
+		{name: "the second block after the v6.7 upgrade", height: v67UpgradeHeight + 2, upgradeName: "v6.8", readsAccount: false},
+		{name: "the last block before the v6.8 upgrade", height: v68UpgradeHeight - 1, upgradeName: "v6.8", readsAccount: false},
+		{name: "the v6.8 upgrade block", height: v68UpgradeHeight, upgradeName: "v6.8", readsAccount: false},
+		{name: "a block after the v6.8 upgrade", height: v68UpgradeHeight + 1, upgradeName: "v6.8", readsAccount: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := stateAtBlock(tc.height).Ctx()
+			require.Equal(t, tc.upgradeName, ctx.ClosestUpgradeName())
+
+			accountRead := gasConsumedBy(ctx, func(ctx sdk.Context) { testApp.AccountKeeper.GetAccount(ctx, holder) })
+			require.Positive(t, accountRead)
+			var want sdk.Gas
+			if tc.readsAccount {
+				want = accountRead
+			}
+			require.Equal(t, want, gasConsumedBy(ctx, func(ctx sdk.Context) { testApp.BankKeeper.LockedCoins(ctx, holder) }))
+		})
+	}
 }
 
 func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) {

@@ -71,6 +71,16 @@ func run() (err error) {
 		_ = shutdown(context.Background())
 	}()
 
+	// Started before the benchmark is built, so that opening storage and setup are profilable too.
+	pprofAddr, err := metrics.StartPprofServer(
+		ctx, config.PprofAddr, config.MutexProfileFraction, config.BlockProfileRate)
+	if err != nil {
+		return fmt.Errorf("start pprof server: %w", err)
+	}
+	if pprofAddr != "" {
+		fmt.Printf("pprof listening on %s\n", pprofAddr)
+	}
+
 	gsMetrics := gigasim.NewGigasimMetrics()
 
 	gs, err := gigasim.NewGigaSim(ctx, config, gsMetrics)

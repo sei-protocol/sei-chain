@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+
 	"github.com/sei-protocol/sei-chain/app/migration"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -170,9 +172,9 @@ func TestIBCStoreQueriesAreUnavailable(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: path})
 			require.NoError(t, err)
-			require.Equal(t, "ibc", response.Codespace)
-			require.Equal(t, uint32(103), response.Code)
-			require.Equal(t, "ibc module is deprecated", response.Log)
+			require.True(t, response.IsErr())
+			require.Equal(t, sdkerrors.ErrUnknownRequest.Codespace(), response.Codespace)
+			require.Equal(t, sdkerrors.ErrUnknownRequest.ABCICode(), response.Code)
 		})
 	}
 

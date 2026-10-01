@@ -19,12 +19,9 @@ const (
 	SlashingStoreKey     = "slashing"     // sei-cosmos/x/slashing/types.StoreKey
 	GovStoreKey          = "gov"          // sei-cosmos/x/gov/types.StoreKey
 	ParamsStoreKey       = "params"       // sei-cosmos/x/params/types.StoreKey
-	IBCStoreKey          = "ibc"          // retained for historical state access
 	UpgradeStoreKey      = "upgrade"      // sei-cosmos/x/upgrade/types.StoreKey
 	FeegrantStoreKey     = "feegrant"     // retained for historical state access
 	EvidenceStoreKey     = "evidence"     // sei-cosmos/x/evidence/types.StoreKey
-	IBCTransferStoreKey  = "transfer"     // retained for historical state access
-	CapabilityStoreKey   = "capability"   // retained for historical state access
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey
 	EpochStoreKey        = "epoch"        // x/epoch/types.StoreKey
@@ -45,12 +42,9 @@ var MemIAVLStoreKeys = []string{
 	SlashingStoreKey,
 	GovStoreKey,
 	ParamsStoreKey,
-	IBCStoreKey,
 	UpgradeStoreKey,
 	FeegrantStoreKey,
 	EvidenceStoreKey,
-	IBCTransferStoreKey,
-	CapabilityStoreKey,
 	EVMStoreKey,
 	WasmStoreKey,
 	EpochStoreKey,

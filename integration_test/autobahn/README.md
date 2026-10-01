@@ -347,7 +347,7 @@ The overview line is executed TPS, blocks/sec, and produce-to-execute
 finalize time. The pie and stacked line are the execute goroutine split
 across consensus wait, EVM execution, and storage.
 
-If Prometheus was already running from a gigasim or cryptosim session,
+If Prometheus was already running from a gigasim session,
 run `start-prometheus.sh` again after the cluster is up so it joins the
 node network and reloads scrape targets.
 
