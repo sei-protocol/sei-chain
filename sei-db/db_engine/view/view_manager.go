@@ -238,6 +238,11 @@ type View interface {
 	// failing to release a view will stall flushes of all later views indefinitely.
 	Release() error
 
+	// Abandon gives up on this view without releasing its reservations, so the view is not reported as
+	// leaked. The reservations stay held and the version stays pinned. It is for failure paths on which
+	// the node is going down. Idempotent.
+	Abandon()
+
 	// Finalize attaches this view's metadata — whatever the consumer wants recorded alongside
 	// the block, such as its content hash. It must be called exactly once, by a consumer that
 	// currently holds a reservation, and must return before that consumer issues its final Release

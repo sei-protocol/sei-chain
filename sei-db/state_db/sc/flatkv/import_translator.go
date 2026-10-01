@@ -3,6 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -88,7 +89,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		Changeset: proto.ChangeSet{Pairs: filteredPairs},
 	}
 
-	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS})
+	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, [keys.EVMKeyKindCount]int{}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +125,10 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge account changes: %w", err)
 	}
-	for addr, batchUpdate := range batchAccts {
+	for arenaAddr, batchUpdate := range batchAccts {
+		// arenaAddr is carved from a key arena and this map outlives the call, so storing it as a key
+		// would pin the arena for the rest of the import. Every map write stores its key.
+		addr := strings.Clone(arenaAddr)
 		existing, ok := t.pendingAccts[addr]
 		if !ok {
 			t.pendingAccts[addr] = batchUpdate

@@ -26,11 +26,7 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 			return nil, ErrLaneClosed
 		}
 		n := q.next
-		parent := types.BlockHeaderHash{}
-		if prev, ok := q.last.Get(); ok {
-			parent = prev.Msg().Block().Header().Hash()
-		}
-		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, q.parentHash(), payload)))
 		q.pushBack(b)
 		ctrl.Updated()
 	}
@@ -551,6 +547,26 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	}
 }
 
+func TestPushBlockRejectsNonZeroParentAtHeightZero(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	bad := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(bad))))
+	require.Equal(t, types.BlockNumber(0), state.NextBlock(lane))
+
+	good := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(good))))
+	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+}
+
 func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -575,7 +591,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
-func TestPushBlockDoesNotCheckParentAfterPrune(t *testing.T) {
+func TestPushBlockRejectsBadParentAfterPrune(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -590,8 +606,58 @@ func TestPushBlockDoesNotCheckParentAfterPrune(t *testing.T) {
 	require.NoError(t, err)
 	pruneToHeader(state, keys, first.Msg().Block().Header())
 
-	block := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(block))))
+	bad := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(bad))))
+	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+
+	good := types.NewBlock(lane, 1, first.Msg().Block().Header().Hash(), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(good))))
+	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
+}
+
+func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	ep := registry.MustEpoch(0)
+	committee := ep.Committee()
+	lane := committee.Lane(keys[0].Public()).OrPanic("lane")
+	other := committee.Lane(keys[1].Public()).OrPanic("other")
+
+	first, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	tip := first.Msg().Block().Header()
+	qc1 := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
+		lane: types.NewLaneQC(makeLaneVotes(keys, tip)),
+	})
+	// A later commit extends a different lane. This lane's range is empty and
+	// must still name tip.
+	otherHeader := types.NewBlock(other, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+	qc2 := types.BuildCommitQC(ep, keys, utils.Some(qc1), map[types.LaneID]*types.LaneQC{
+		other: types.NewLaneQC(makeLaneVotes(keys, otherHeader)),
+	})
+	require.Equal(t, uint64(0), qc2.LaneRange(lane).Len())
+	require.Equal(t, tip.Hash(), qc2.LaneRange(lane).LastHash())
+	for inner, ctrl := range state.inner.Lock() {
+		inner.prune(data.Anchor{
+			CommitQC: qc2,
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc2.Proposal(), types.AppHash{})),
+			Epoch:    ep,
+		})
+		ctrl.Updated()
+	}
+
+	bad := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(bad))))
+	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+
+	good := types.NewBlock(lane, 1, tip.Hash(), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(good))))
 	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
 }
 
@@ -633,6 +699,50 @@ func TestProduceLocalBlockUsesRetainedLast(t *testing.T) {
 	second, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
 	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
+}
+
+func TestProduceLocalBlockFollowsCertifiedTip(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	local, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	certified := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+	require.NotEqual(t, local.Msg().Block().Header().Hash(), certified.Header().Hash())
+	pruneToHeader(state, keys, certified.Header())
+
+	next, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, certified.Header().Hash(), next.Msg().Block().Header().ParentHash())
+}
+
+func TestProduceLocalBlockKeepsLocalSuffix(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	_, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	local, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	certified := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+	pruneToHeader(state, keys, certified.Header())
+	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
+
+	next, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, local.Msg().Block().Header().Hash(), next.Msg().Block().Header().ParentHash())
 }
 
 func TestCollectPersistBatchWritesUnflushedLast(t *testing.T) {
@@ -900,7 +1010,10 @@ func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	qc := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
 	require.Equal(t, epoch.FirstRoad(f.m), qc.Proposal().Index())
 
+	leader := f.ep.Committee().Leader(qc.Proposal().View()).ED25519().Address().String()
+	commits := gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader})
 	require.NoError(t, f.state.PushCommitQC(t.Context(), qc))
+	require.Equal(t, commits+1, gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader}))
 	require.Equal(t, epoch.FirstRoad(f.m)+1, nextRoad(f.state))
 }
 

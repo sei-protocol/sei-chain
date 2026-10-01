@@ -351,9 +351,31 @@ func applyGeneratedStateChangeSet(state *generatedState, changeSet evmonly.State
 	}
 }
 
-func TestBlocksRequiresBoundedRun(t *testing.T) {
+func TestRunNeedsABlockCountOrAnAccountPool(t *testing.T) {
 	_, err := parseConfig([]string{})
-	require.ErrorContains(t, err, "blocks must be positive")
+	require.ErrorContains(t, err, "set --blocks for a fixed run, or --accounts to run until interrupted")
+}
+
+// An unbounded run reserves a contiguous range of pool slots per block, so a pool smaller than a
+// block would put two of its transactions on one sender.
+// The pool has to hold two blocks of senders, not one: a recipient is drawn half a pool away so it
+// falls outside the block that paid it, which a single block's worth cannot satisfy.
+func TestAccountPoolMustCoverTwoBlocks(t *testing.T) {
+	_, err := parseConfig([]string{"--blocks=0", "--accounts=199", "--txs-per-block=100"})
+	require.ErrorContains(t, err, "accounts must be at least twice txs-per-block")
+
+	_, err = parseConfig([]string{"--blocks=0", "--accounts=200", "--txs-per-block=100"})
+	require.NoError(t, err)
+}
+
+// A pooled run seeds its senders up front, but same-sender derives one from the block height, so
+// the two together would run every transaction from an unfunded account.
+func TestSameSenderIsRejectedWithAnAccountPool(t *testing.T) {
+	_, err := parseConfig([]string{"--blocks=0", "--accounts=4000", "--txs-per-block=100", "--same-sender"})
+	require.ErrorContains(t, err, "same-sender cannot be used with an account pool")
+
+	_, err = parseConfig([]string{"--blocks=10", "--txs-per-block=100", "--same-sender"})
+	require.NoError(t, err)
 }
 
 func TestDefaultChainIDIsLocal(t *testing.T) {

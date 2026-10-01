@@ -35,10 +35,11 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 
 	// TODO(concurrency): This takes a single coarse write lock for the whole
 	// commit, so it also blocks readers/iterator construction during the WAL
-	// fsync and the periodic auto-snapshot. That is fine today because commits
-	// are not pipelined with reads (there is currently no pipelining at all).
-	// When commit pipelining is introduced, replace this with a finer-grained
-	// scheme.
+	// fsync and the periodic auto-snapshot. Views are unaffected, since
+	// OpenView reads do not take this lock, but a caller on Get or Iterator
+	// waits out the whole commit. Commits are now pipelined behind the next
+	// block's execution, so that wait is on the execution path: replace this
+	// with a finer-grained scheme.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -151,34 +152,40 @@ func (s *CommitStore) sealBlock(
 	// The replay skip list: the height each database had already reached when replay started, or nil
 	// outside replay. A database listed at or above version keeps the metadata it already has.
 	alreadyHave map[string]int64,
-) error {
+) (err error) {
+	var blockView *sview.StoreView
+	var previous *sview.StoreView
+	defer func() {
+		if err != nil {
+			// Error is fatal; the reservations are given up rather than released.
+			blockView.Abandon()
+			previous.Abandon()
+		}
+	}()
+
 	s.phaseTimer.SetPhase("commit_seal_stores")
 
-	blockView, err := s.commitStores(version)
+	blockView, err = s.commitStores(version)
 	if err != nil {
 		return err
 	}
 
-	previous, err := s.lastSealed.Get()
+	previous, err = s.lastSealed.Get()
 	if err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("read previous block's view: %w", err)
 	}
 
 	if err := s.lastSealed.Set(blockView); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("install block %d: %w", version, err)
 	}
 
 	s.phaseTimer.SetPhase("commit_offer_finalization")
 	if err := s.finalizer.Offer(version, blockView, alreadyHave); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
 		return err
 	}
 
 	s.phaseTimer.SetPhase("commit_schedule_hash")
 	if err := s.hashEngine.ScheduleHash(blockView, previous); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
 		return err
 	}
 
@@ -235,6 +242,13 @@ func (s *CommitStore) commitStores(version int64) (*sview.StoreView, error) {
 
 	wg.Wait()
 	if err := errors.Join(accountErr, codeErr, storageErr, miscErr); err != nil {
+		// Error is fatal; the reservations the stores that did seal handed out are given up rather than
+		// released.
+		for _, dbView := range []view.View{account, code, storage, misc} {
+			if dbView != nil {
+				dbView.Abandon()
+			}
+		}
 		return nil, err
 	}
 	return sview.NewStoreView(version, account, code, storage, misc)
@@ -248,7 +262,8 @@ func (s *CommitStore) offerToSnapshotWriter() error {
 		return fmt.Errorf("read latest sealed view: %w", err)
 	}
 	if err := s.snapshotWriter.Offer(blockView); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
+		// Error is fatal; the reservation is given up rather than released.
+		blockView.Abandon()
 		return err
 	}
 	if err := blockView.Release(); err != nil {
@@ -291,7 +306,8 @@ func (s *CommitStore) flushLatestVersion() error {
 		return fmt.Errorf("read latest sealed view: %w", err)
 	}
 	if err := blockView.AwaitFlush(s.ctx); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
+		// Error is fatal; the reservation is given up rather than released.
+		blockView.Abandon()
 		return fmt.Errorf("await flush: %w", err)
 	}
 	if err := blockView.Release(); err != nil {
@@ -405,13 +421,15 @@ func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
 
 	for _, dbView := range blockView.Views() {
 		if err := finalizeStore(dbView, seededVersion, nil, s.loadedHashes); err != nil {
-			// Error is fatal; leaking reservations doesn't make it worse.
+			// Error is fatal; the reservations are given up rather than released.
+			blockView.Abandon()
 			return fmt.Errorf("%s finalize seeded version: %w", dbView.Name(), err)
 		}
 	}
 
 	if err := s.replaceSealedView(blockView); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
+		// Error is fatal; the reservations are given up rather than released.
+		blockView.Abandon()
 		return fmt.Errorf("install seeded version: %w", err)
 	}
 	if err := blockView.Release(); err != nil {
@@ -430,13 +448,15 @@ func (s *CommitStore) sealBaseline() error {
 
 	for _, dbView := range blockView.Views() {
 		if err := dbView.Finalize(nil); err != nil {
-			// Error is fatal; leaking reservations doesn't make it worse.
+			// Error is fatal; the reservations are given up rather than released.
+			blockView.Abandon()
 			return fmt.Errorf("%s finalize baseline: %w", dbView.Name(), err)
 		}
 	}
 
 	if err := s.replaceSealedView(blockView); err != nil {
-		// Error is fatal; leaking reservations doesn't make it worse.
+		// Error is fatal; the reservations are given up rather than released.
+		blockView.Abandon()
 		return fmt.Errorf("install baseline: %w", err)
 	}
 	if err := blockView.Release(); err != nil {
