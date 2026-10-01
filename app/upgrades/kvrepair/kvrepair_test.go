@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/kvrepair"
 )
 
 const testChainID = "kvrepair-test"
@@ -26,8 +27,8 @@ func repairFS(files map[string]string) fstest.MapFS {
 	return fsys
 }
 
-func hexPtr(b []byte) *HexBytes {
-	h := HexBytes(b)
+func hexPtr(b []byte) *kvrepair.HexBytes {
+	h := kvrepair.HexBytes(b)
 	return &h
 }
 
@@ -36,24 +37,14 @@ func TestEmbeddedRepairsLoad(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestLoadParsesRepair(t *testing.T) {
-	fsys := repairFS(map[string]string{
-		"a.json": `{"name":"a","chain_id":"c","height":10,"read_height":9,"source":"reserve at 9","entries":[
-			{"store":"evm","key":"0x0102","new":"aa","old":"bb"},
-			{"store":"evm","key":"0304","new":null,"old_absent":false}]}`,
+func TestLoadReadsJSONFilesOnly(t *testing.T) {
+	repairs, err := Load(repairFS(map[string]string{
+		"a.json":    `{"name":"a","chain_id":"c","height":10,"read_height":9,"entries":[{"store":"evm","key":"01","new":"aa","old":"bb"}]}`,
 		"README.md": "ignored",
-	})
-	repairs, err := Load(fsys, testKeys())
+	}), testKeys())
 	require.NoError(t, err)
 	require.Len(t, repairs, 1)
-	r := repairs[0]
-	require.Equal(t, "a", r.Name)
-	require.Equal(t, int64(10), r.Height)
-	require.Equal(t, "reserve at 9", r.Source)
-	require.Equal(t, HexBytes{1, 2}, r.Entries[0].Key)
-	require.Equal(t, hexPtr([]byte{0xaa}), r.Entries[0].New)
-	require.Equal(t, hexPtr([]byte{0xbb}), r.Entries[0].Old)
-	require.Nil(t, r.Entries[1].New)
+	require.Equal(t, "a", repairs[0].Name)
 }
 
 func TestLoadRejectsInvalidRepairs(t *testing.T) {
@@ -61,78 +52,13 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 		files map[string]string
 		err   string
 	}{
-		"unknown field": {
+		"parse error names the file": {
 			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","ne":"02"}]}`},
-			err:   "unknown field",
+			err:   "repairs/a.json: json: unknown field",
 		},
-		"bad hex": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"zz","new":"02"}]}`},
-			err:   "invalid hex",
-		},
-		"unknown store": {
+		"store without a key": {
 			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"nope","key":"01","new":"02"}]}`},
-			err:   `unknown store "nope"`,
-		},
-		"no entries": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[]}`},
-			err:   "no entries",
-		},
-		"zero height": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":0,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
-			err:   "not positive",
-		},
-		"field twice in an entry": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","new":"03"}]}`},
-			err:   `field "new" appears twice`,
-		},
-		"field twice at the top": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"height":3,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
-			err:   `field "height" appears twice`,
-		},
-		"field name in another case": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","NEW":"03"}]}`},
-			err:   `field name "NEW" must use lowercase`,
-		},
-		"field name with a folding rune": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","\u212aey":"01","new":"02"}]}`},
-			err:   "must use lowercase",
-		},
-		"both old values": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","old":"03","old_absent":true}]}`},
-			err:   "both set",
-		},
-		"second object": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}
-{"name":"b","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"02","new":"02"}]}`},
-			err: "unexpected data after the JSON value",
-		},
-		"trailing garbage": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]} xyz`},
-			err:   "unexpected data after the JSON value",
-		},
-		"missing new": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","old":"03"}]}`},
-			err:   "new is missing",
-		},
-		"null old": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02","old":null}]}`},
-			err:   "old is null",
-		},
-		"no read height": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
-			err:   "read_height 0 is not positive",
-		},
-		"read height at height": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`},
-			err:   "not below height",
-		},
-		"no old value with a gap": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":5,"read_height":3,"entries":[{"store":"evm","key":"01","new":"02","old":"03"},{"store":"evm","key":"02","new":"02"}]}`},
-			err:   "entry 1: no old value",
-		},
-		"duplicate key in one file": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"},{"store":"evm","key":"01","new":"03"}]}`},
-			err:   "appears twice",
+			err:   `repairs/a.json: entry 0: unknown store "nope"`,
 		},
 		"duplicate name": {
 			files: map[string]string{
@@ -156,48 +82,26 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 	}
 }
 
-func TestLoadAcceptsGapWhenEveryEntryHasAnOldValue(t *testing.T) {
-	repairs, err := Load(repairFS(map[string]string{
-		"a.json": `{"name":"a","chain_id":"c","height":100,"read_height":10,"entries":[
-			{"store":"evm","key":"01","new":"02","old":"03"},
-			{"store":"evm","key":"02","new":null,"old_absent":true}]}` + "\n\n",
-	}), testKeys())
-	require.NoError(t, err)
-	require.Len(t, repairs, 1)
-	require.Equal(t, int64(10), repairs[0].ReadHeight)
+func newTestContext(keys map[string]*sdk.KVStoreKey, store string) sdk.Context {
+	return testutil.DefaultContext(keys[store], sdk.NewTransientStoreKey("transient_test"))
 }
 
-func TestLoadParsesEmptyValues(t *testing.T) {
-	repairs, err := Load(repairFS(map[string]string{
-		"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[
-			{"store":"evm","key":"01","new":"","old":"0x"},
-			{"store":"evm","key":"02","new":null,"old":""}]}`,
-	}), testKeys())
-	require.NoError(t, err)
-	entries := repairs[0].Entries
-	require.Equal(t, hexPtr([]byte{}), entries[0].New)
-	require.NotNil(t, *entries[0].New)
-	require.Equal(t, hexPtr([]byte{}), entries[0].Old)
-	require.Nil(t, entries[1].New)
-	require.Equal(t, hexPtr([]byte{}), entries[1].Old)
-}
-
-func newTestContext(keys map[string]*sdk.KVStoreKey) sdk.Context {
-	return testutil.DefaultContext(keys["evm"], sdk.NewTransientStoreKey("transient_test"))
+func newHandler(keys map[string]*sdk.KVStoreKey, entries ...kvrepair.Entry) Handler {
+	return NewHandler(kvrepair.Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: entries}, keys).(Handler)
 }
 
 func TestExecuteWritesAndDeletes(t *testing.T) {
 	keys := testKeys()
-	ctx := newTestContext(keys)
+	ctx := newTestContext(keys, "evm")
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0xde, 0xad})
 	store.Set([]byte{2}, []byte{0xde, 0xad})
 
-	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde, 0xad})},
-		{Store: "evm", Key: HexBytes{2}, Old: hexPtr([]byte{0xde, 0xad})},
-		{Store: "evm", Key: HexBytes{3}, New: hexPtr([]byte{0x03}), OldAbsent: true},
-	}}, keys)
+	h := newHandler(keys,
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde, 0xad})},
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{2}, Old: hexPtr([]byte{0xde, 0xad})},
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{3}, New: hexPtr([]byte{0x03}), OldAbsent: true},
+	)
 	require.NoError(t, h.ExecuteHandler(ctx))
 
 	require.Equal(t, []byte{0x01}, store.Get([]byte{1}))
@@ -207,16 +111,16 @@ func TestExecuteWritesAndDeletes(t *testing.T) {
 
 func TestExecuteWritesEntriesThatHoldTheNewValue(t *testing.T) {
 	keys := testKeys()
-	ctx := newTestContext(keys)
+	ctx := newTestContext(keys, "evm")
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0x01})
 
 	var trace bytes.Buffer
 	ctx.MultiStore().SetTracer(&trace)
-	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde, 0xad})},
-		{Store: "evm", Key: HexBytes{2}, Old: hexPtr([]byte{0xde, 0xad})},
-	}}, keys)
+	h := newHandler(keys,
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde, 0xad})},
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{2}, Old: hexPtr([]byte{0xde, 0xad})},
+	)
 	require.NoError(t, h.ExecuteHandler(ctx))
 
 	require.Equal(t, []byte{0x01}, store.Get([]byte{1}))
@@ -227,19 +131,18 @@ func TestExecuteWritesEntriesThatHoldTheNewValue(t *testing.T) {
 
 func TestExecuteFailsWhenOldValueDiffers(t *testing.T) {
 	keys := testKeys()
-	ctx := newTestContext(keys)
+	ctx := newTestContext(keys, "evm")
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0x99})
 	store.Set([]byte{2}, []byte{0x99})
 
-	for name, e := range map[string]Entry{
-		"other value": {Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde})},
-		"present":     {Store: "evm", Key: HexBytes{2}, New: hexPtr([]byte{0x01}), OldAbsent: true},
-		"absent":      {Store: "evm", Key: HexBytes{3}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde})},
+	for name, e := range map[string]kvrepair.Entry{
+		"other value": {Store: "evm", Key: kvrepair.HexBytes{1}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde})},
+		"present":     {Store: "evm", Key: kvrepair.HexBytes{2}, New: hexPtr([]byte{0x01}), OldAbsent: true},
+		"absent":      {Store: "evm", Key: kvrepair.HexBytes{3}, New: hexPtr([]byte{0x01}), Old: hexPtr([]byte{0xde})},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{e}}, keys)
-			require.ErrorContains(t, h.ExecuteHandler(ctx), "expected")
+			require.ErrorContains(t, newHandler(keys, e).ExecuteHandler(ctx), "expected")
 		})
 	}
 	require.Equal(t, []byte{0x99}, store.Get([]byte{1}))
@@ -249,41 +152,106 @@ func TestExecuteFailsWhenOldValueDiffers(t *testing.T) {
 
 func TestExecuteSetsAndChecksEmptyValues(t *testing.T) {
 	keys := testKeys()
-	ctx := newTestContext(keys)
+	ctx := newTestContext(keys, "evm")
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0x99})
 	store.Set([]byte{2}, []byte{})
 
-	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{}), Old: hexPtr([]byte{0x99})},
-		{Store: "evm", Key: HexBytes{2}, New: hexPtr([]byte{0x02}), Old: hexPtr([]byte{})},
-	}}, keys)
+	h := newHandler(keys,
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{1}, New: hexPtr([]byte{}), Old: hexPtr([]byte{0x99})},
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{2}, New: hexPtr([]byte{0x02}), Old: hexPtr([]byte{})},
+	)
 	require.NoError(t, h.ExecuteHandler(ctx))
 	require.Equal(t, []byte{}, store.Get([]byte{1}))
 	require.Equal(t, []byte{0x02}, store.Get([]byte{2}))
 
-	absent := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{3}, New: hexPtr([]byte{0x03}), Old: hexPtr([]byte{})},
-	}}, keys)
+	absent := newHandler(keys,
+		kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{3}, New: hexPtr([]byte{0x03}), Old: hexPtr([]byte{})},
+	)
 	require.ErrorContains(t, absent.ExecuteHandler(ctx), "expected old value")
 	require.Nil(t, store.Get([]byte{3}))
 }
 
 func TestExecuteWithoutOldValueOverwrites(t *testing.T) {
 	keys := testKeys()
-	ctx := newTestContext(keys)
+	ctx := newTestContext(keys, "evm")
 	store := ctx.KVStore(keys["evm"])
 	store.Set([]byte{1}, []byte{0x99})
 
-	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: []Entry{
-		{Store: "evm", Key: HexBytes{1}, New: hexPtr([]byte{0x01})},
-	}}, keys)
+	h := newHandler(keys, kvrepair.Entry{Store: "evm", Key: kvrepair.HexBytes{1}, New: hexPtr([]byte{0x01})})
 	require.NoError(t, h.ExecuteHandler(ctx))
 	require.Equal(t, []byte{0x01}, store.Get([]byte{1}))
 }
 
+func evmKey(prefix byte, length int) kvrepair.HexBytes {
+	key := bytes.Repeat([]byte{0x11}, length+1)
+	key[0] = prefix
+	return key
+}
+
+func TestExecuteTreatsAZeroSlotAsHoldingADelete(t *testing.T) {
+	keys := testKeys()
+	ctx := newTestContext(keys, "evm")
+	store := ctx.KVStore(keys["evm"])
+	slot := evmKey(0x03, 52)
+	store.Set(slot, make([]byte, 32))
+
+	h := newHandler(keys, kvrepair.Entry{Store: "evm", Key: slot, Old: hexPtr(bytes.Repeat([]byte{0xde}, 32))})
+	require.NoError(t, h.ExecuteHandler(ctx))
+	require.Nil(t, store.Get(slot))
+}
+
+func TestExecuteTreatsAZeroNonceAsAbsentOld(t *testing.T) {
+	keys := testKeys()
+	ctx := newTestContext(keys, "evm")
+	store := ctx.KVStore(keys["evm"])
+	nonce := evmKey(0x0a, 20)
+	store.Set(nonce, make([]byte, 8))
+
+	target := []byte{0, 0, 0, 0, 0, 0, 0, 7}
+	h := newHandler(keys, kvrepair.Entry{Store: "evm", Key: nonce, New: hexPtr(target), OldAbsent: true})
+	require.NoError(t, h.ExecuteHandler(ctx))
+	require.Equal(t, target, store.Get(nonce))
+}
+
+func TestExecuteStillFailsOnAnotherNonZeroValue(t *testing.T) {
+	keys := testKeys()
+	ctx := newTestContext(keys, "evm")
+	store := ctx.KVStore(keys["evm"])
+	slot := evmKey(0x03, 52)
+	store.Set(slot, bytes.Repeat([]byte{0x99}, 32))
+
+	for name, e := range map[string]kvrepair.Entry{
+		"absent old":  {Store: "evm", Key: slot, New: hexPtr(bytes.Repeat([]byte{0x01}, 32)), OldAbsent: true},
+		"another old": {Store: "evm", Key: slot, Old: hexPtr(bytes.Repeat([]byte{0xde}, 32))},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorContains(t, newHandler(keys, e).ExecuteHandler(ctx), "expected")
+		})
+	}
+	require.Equal(t, bytes.Repeat([]byte{0x99}, 32), store.Get(slot))
+}
+
+func TestExecuteComparesMiscAndNonEVMKeysExactly(t *testing.T) {
+	keys := testKeys()
+	for name, tc := range map[string]struct {
+		store string
+		key   kvrepair.HexBytes
+	}{
+		"evm misc key":  {store: "evm", key: evmKey(0x09, 20)},
+		"non-evm store": {store: "bank", key: evmKey(0x03, 52)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := newTestContext(keys, tc.store)
+			ctx.KVStore(keys[tc.store]).Set(tc.key, make([]byte, 32))
+			h := newHandler(keys, kvrepair.Entry{Store: tc.store, Key: tc.key, New: hexPtr([]byte{0x01}), OldAbsent: true})
+			require.ErrorContains(t, h.ExecuteHandler(ctx), "expected the key to be absent")
+		})
+	}
+}
+
 func TestHandlerIdentity(t *testing.T) {
-	h := NewHandler(Repair{Name: "r", ChainID: testChainID, Height: 5}, testKeys())
+	h := newHandler(testKeys())
 	require.Equal(t, "kvrepair-r", h.GetName())
 	require.Equal(t, testChainID, h.GetTargetChainID())
 	require.Equal(t, int64(5), h.GetTargetHeight())
