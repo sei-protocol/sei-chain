@@ -106,9 +106,12 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	// SC and SS are handed the same changeset, so the volume they take in is the same. SS is reported
 	// only when it is open, which is what makes it fall to zero on a validator's stack rather than
 	// claiming writes nothing performed.
+	keys := int64(len(writes.changeSets[0].Changeset.Pairs))
 	s.metrics.ReportStoreBytesWritten(storeStateCommit, writes.bytes)
+	s.metrics.ReportStoreKeysWritten(storeStateCommit, keys)
 	if s.db.SS() != nil {
 		s.metrics.ReportStoreBytesWritten(storeStateStore, writes.bytes)
+		s.metrics.ReportStoreKeysWritten(storeStateStore, keys)
 	}
 
 	// One commit per block: that is the store contract, so the benchmark must not batch.
@@ -118,7 +121,7 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	if err := s.db.CommitStateChanges(blockNum, writes.changeSets); err != nil {
 		return fmt.Errorf("failed to commit block %d to the state DB: %w", blockNum, err)
 	}
-	s.metrics.ReportStateCommit(int64(len(writes.changeSets[0].Changeset.Pairs)))
+	s.metrics.ReportStateCommit(keys)
 
 	// Committing a block is not finishing it: the hash of a block committed a bounded number of blocks
 	// ago is taken here, and waited for when hashing has fallen behind execution. Reopening the view

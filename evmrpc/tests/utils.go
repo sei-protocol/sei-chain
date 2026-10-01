@@ -27,6 +27,7 @@ import (
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"github.com/stretchr/testify/require"
 )
 
 const testAddr = "127.0.0.1"
@@ -50,6 +51,15 @@ func (ts TestServer) Run(r func(port int)) {
 	_ = ts.Start()
 	defer ts.Stop()
 	r(ts.port)
+}
+
+// RequireTxSucceeded fails the test unless the index-th transaction of the
+// block at height committed with code 0.
+func (ts TestServer) RequireTxSucceeded(t *testing.T, height int64, index int) {
+	t.Helper()
+	results := ts.mockClient.txResults[height-1]
+	require.Less(t, index, len(results))
+	require.Equal(t, uint32(0), results[index].Code, results[index].Log)
 }
 
 func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Context, *app.App)) {

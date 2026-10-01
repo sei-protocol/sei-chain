@@ -343,8 +343,10 @@ func TestV67ApplyUpgradeTwice(t *testing.T) {
 	_, havePlan := a.UpgradeKeeper.GetUpgradePlan(a.Ctx())
 	require.False(t, havePlan)
 	require.Equal(t, a.Ctx().BlockHeight(), onceDone)
+	for _, module := range retiredModuleNames {
+		require.NotContains(t, onceVersions, module)
+	}
 	for _, store := range retiredStoreKeys {
-		require.NotContains(t, onceVersions, store)
 		require.Equal(t, seeded[store], onceStores[store]["seeded"])
 	}
 
@@ -424,7 +426,7 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 	seedV66EscrowShapedBankState(t, chain)
 
 	moduleVersions := chain.ModuleVersions(t)
-	for _, module := range append(retiredStoreKeys, "oracle") {
+	for _, module := range append(retiredModuleNames, "oracle") {
 		require.Contains(t, moduleVersions, module,
 			"v6.6 module version map does not contain %s", module)
 		require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(module)),
@@ -475,7 +477,7 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	afterVersions := chain.ModuleVersions(t)
 	chain.Record(t, "module_versions_after", afterVersions)
 	require.Equal(t,
-		sortedStrings(retiredStoreKeys),
+		sortedStrings(retiredModuleNames),
 		stringDifference(beforeVersions, afterVersions),
 		"v6.7 removed an unexpected set of module versions",
 	)
@@ -542,13 +544,13 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	chain.StopNode(t)
 
 	currentGenesis := chain.Export(t, v67RunningSeid, "v67-export")
-	for _, module := range retiredStoreKeys {
+	for _, module := range retiredModuleNames {
 		require.NotContains(t, currentGenesis.AppState, module,
 			"v6.7 export unexpectedly contains retired module %s", module)
 	}
 
 	releaseGenesis := chain.Export(t, chain.ReleaseBinary(t), "v66-export-after-v67")
-	for _, module := range retiredStoreKeys {
+	for _, module := range retiredModuleNames {
 		require.Contains(t, releaseGenesis.AppState, module,
 			"v6.6 cannot read retained %s state after the v6.7 store reload", module)
 	}
@@ -684,7 +686,7 @@ func v67ModuleVersionKey(module string) []byte {
 
 func requireV67UpgradeStoreVersions(t *testing.T, chain *upgradetest.CrossVersion) {
 	t.Helper()
-	for _, module := range retiredStoreKeys {
+	for _, module := range retiredModuleNames {
 		require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(module)),
 			"v6.7 upgrade store still has a version-map entry for %s", module)
 	}
@@ -1035,11 +1037,13 @@ func TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade(t *testing.T) {
 	a.RunBlock([]signing.Tx{})
 	requireRetiredStoresMounted(t, a)
 	before := snapshotRetiredStores(t, a)
+	for _, module := range retiredModuleNames {
+		require.True(t, committedModuleVersionExists(t, a, module),
+			"seeded %s module version is missing from the committed upgrade store", module)
+	}
 	for _, store := range retiredStoreKeys {
 		require.Equal(t, seeded[store], before[store]["seeded"],
 			"seeded %s state is missing from the committed store", store)
-		require.True(t, committedModuleVersionExists(t, a, store),
-			"seeded %s module version is missing from the committed upgrade store", store)
 		requireRetiredStoreInCommitment(t, a, store, []byte("seeded"), seeded[store])
 	}
 
@@ -1103,7 +1107,9 @@ func seedRetiredStores(t *testing.T, a *processblock.App) map[string][]byte {
 		value := []byte("pre-upgrade/" + store)
 		a.Ctx().KVStore(key).Set([]byte("seeded"), value)
 		seeded[store] = value
-		versionMap[store] = 1
+	}
+	for _, module := range retiredModuleNames {
+		versionMap[module] = 1
 	}
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
 	return seeded
@@ -1114,9 +1120,11 @@ func requireRetiredStoresUnchanged(t *testing.T, a *processblock.App, before map
 	requireRetiredStoresMounted(t, a)
 	require.Equal(t, before, snapshotRetiredStores(t, a),
 		"a retired store's committed key/value set changed after v6.7")
+	for _, module := range retiredModuleNames {
+		require.False(t, committedModuleVersionExists(t, a, module),
+			"committed upgrade store still has a version-map entry for %s", module)
+	}
 	for _, store := range retiredStoreKeys {
-		require.False(t, committedModuleVersionExists(t, a, store),
-			"committed upgrade store still has a version-map entry for %s", store)
 		requireRetiredStoreInCommitment(t, a, store, []byte("seeded"), seeded[store])
 	}
 }
@@ -1530,12 +1538,11 @@ func TestV67RetainedStateIsAbsentFromExportedGenesis(t *testing.T) {
 	}
 }
 
-// retiredStoreKeys are the stores whose modules v6.7 removes while keeping the
-// store mounted. Declared here in terms of the sei-db key constants so this
-// external test package does not need the unexported names in package app.
-var retiredStoreKeys = []string{
-	keys.FeegrantStoreKey,
-	keys.CapabilityStoreKey,
-	keys.IBCStoreKey,
-	keys.IBCTransferStoreKey,
-}
+// retiredModuleNames are the modules v6.7 removes from the module manager and
+// whose version-map entries its handler deletes.
+var retiredModuleNames = []string{"feegrant", "capability", "ibc", "transfer"}
+
+// retiredStoreKeys are the retired modules' stores that this binary still
+// mounts. The capability, ibc and transfer stores are deleted at v6.8, so only
+// feegrant can be seeded and read back in-process here.
+var retiredStoreKeys = []string{keys.FeegrantStoreKey}
