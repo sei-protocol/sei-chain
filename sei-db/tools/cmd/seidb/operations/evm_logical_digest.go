@@ -238,17 +238,19 @@ type digestBucket struct {
 
 // entryHash is the per-entry digest unit shared by all buckets:
 // sha256(len(key)||key||len(val)||val), lengths big-endian uint32.
-func entryHash(physKey, logicalVal []byte) (sum [sha256.Size]byte) {
-	h := sha256.New()
-	var lenbuf [4]byte
-	binary.BigEndian.PutUint32(lenbuf[:], uint32(len(physKey))) //nolint:gosec
-	_, _ = h.Write(lenbuf[:])
-	_, _ = h.Write(physKey)
-	binary.BigEndian.PutUint32(lenbuf[:], uint32(len(logicalVal))) //nolint:gosec
-	_, _ = h.Write(lenbuf[:])
-	_, _ = h.Write(logicalVal)
-	copy(sum[:], h.Sum(nil))
-	return sum
+func entryHash(physKey, logicalVal []byte) [sha256.Size]byte {
+	// Account and storage rows fit the stack buffer; a larger row, such as most code rows, allocates.
+	var stack [256]byte
+	n := 8 + len(physKey) + len(logicalVal)
+	buf := stack[:0]
+	if n > len(stack) {
+		buf = make([]byte, 0, n)
+	}
+	buf = binary.BigEndian.AppendUint32(buf, uint32(len(physKey))) //nolint:gosec
+	buf = append(buf, physKey...)
+	buf = binary.BigEndian.AppendUint32(buf, uint32(len(logicalVal))) //nolint:gosec
+	buf = append(buf, logicalVal...)
+	return sha256.Sum256(buf)
 }
 
 func (b *digestBucket) add(physKey, logicalVal []byte) {
