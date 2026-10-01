@@ -30,9 +30,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.7
 sei-chain
-<<<<<<< HEAD
-* [#4347](https://github.com/sei-protocol/sei-chain/pull/4347) Backport `release/v6.7`: fix(flatkv): keep 10 old checkpoints instead of mirroring memIAVL's count
-=======
 * [#4411](https://github.com/sei-protocol/sei-chain/pull/4411) Backport `release/v6.7`: Log a pinned node's skipped migration kick-off once per batch size
 * [#4410](https://github.com/sei-protocol/sei-chain/pull/4410) Backport `release/v6.7`: Apply compiled KV repair files at a fixed height and generate them from digest inspect lists
 * [#4409](https://github.com/sei-protocol/sei-chain/pull/4409) Backport `release/v6.7`: feat: add migration pause handler
@@ -48,7 +45,6 @@ sei-chain
 * [#4313](https://github.com/sei-protocol/sei-chain/pull/4313) Backport `release/v6.7`: fix(memiavl): hold a snapshot reference for an iterator's lifetime
 * [#4295](https://github.com/sei-protocol/sei-chain/pull/4295) Bump version to v6.7.0-rc2 in prep for release
 * [#4294](https://github.com/sei-protocol/sei-chain/pull/4294) Backport `release/v6.7`: Update v6.7 changelog in prep to cut rc2
->>>>>>> 1d30aa1 (Update v6.7 changelog in prep to cut rc4 (#4406))
 * [#4292](https://github.com/sei-protocol/sei-chain/pull/4292) Backport `release/v6.7`: Flush MemIAVL changelog before exiting on an upgrade panic
 * [#4285](https://github.com/sei-protocol/sei-chain/pull/4285) Backport `release/v6.7`: fix(seidb): refuse a corrupted changelog in digest replay instead of repairing it
 * [#4255](https://github.com/sei-protocol/sei-chain/pull/4255) Backport `release/v6.7`: feat(seidb): Add JSON output to evm-logical-digest and inspect a FlatKV migration in flight
