@@ -111,8 +111,6 @@ module_versions:
   version: "1"
 - name: gov
   version: "2"
-- name: ibc
-  version: "2"
 - name: mint
   version: "1"
 - name: params
@@ -121,26 +119,20 @@ module_versions:
   version: "2"
 - name: staking
   version: "2"
-- name: transfer
-  version: "1"
 - name: upgrade
-  version: "1"
-- name: vesting
   version: "1"
 ```
 
 Example:
 
 ```bash
-regen query upgrade module_versions ibc
+regen query upgrade module_versions staking
 ```
 
 Example Output:
 
 ```bash
 module_versions:
-- name: ibc
-  version: "2"
 ```
 
 #### plan
@@ -270,10 +262,6 @@ Example Output:
       "version": "2"
     },
     {
-      "name": "ibc",
-      "version": "2"
-    },
-    {
       "name": "mint",
       "version": "1"
     },
@@ -290,15 +278,7 @@ Example Output:
       "version": "2"
     },
     {
-      "name": "transfer",
-      "version": "1"
-    },
-    {
       "name": "upgrade",
-      "version": "1"
-    },
-    {
-      "name": "vesting",
       "version": "1"
     }
   ]
@@ -412,10 +392,6 @@ Example Output:
       "version": "2"
     },
     {
-      "name": "ibc",
-      "version": "2"
-    },
-    {
       "name": "mint",
       "version": "1"
     },
@@ -432,15 +408,7 @@ Example Output:
       "version": "2"
     },
     {
-      "name": "transfer",
-      "version": "1"
-    },
-    {
       "name": "upgrade",
-      "version": "1"
-    },
-    {
-      "name": "vesting",
       "version": "1"
     }
   ]

@@ -891,7 +891,7 @@ sc-zero-copy = false
 sc-async-commit-buffer = 100
 
 # KeepRecent defines how many state-commit snapshots (besides the latest one) to keep
-# defaults to 1 to make sure ibc relayers work.
+# defaults to 1 so clients can still prove state against the previous commit.
 sc-keep-recent = 1
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.

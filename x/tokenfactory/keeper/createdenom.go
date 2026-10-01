@@ -50,10 +50,9 @@ func (k Keeper) createDenomAfterValidation(ctx sdk.Context, creatorAddr string, 
 }
 
 func (k Keeper) validateCreateDenom(ctx sdk.Context, creatorAddr string, subdenom string) (newTokenDenom string, err error) {
-	// Temporary check until IBC bug is sorted out
+	// A subdenom must not collide with a denom that already has supply.
 	if k.bankKeeper.HasSupply(ctx, subdenom) {
-		return "", fmt.Errorf("temporary error until IBC bug is sorted out, " +
-			"can't create subdenoms that are the same as a native denom")
+		return "", fmt.Errorf("can't create subdenoms that are the same as a native denom")
 	}
 
 	denom, err := types.GetTokenDenom(creatorAddr, subdenom)
