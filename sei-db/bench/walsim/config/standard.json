@@ -1,5 +1,0 @@
-{
-  "Comment": "Standard walsim configuration.",
-  "DataDir": "~/walsim/data",
-  "LogDir": "~/walsim/logs"
-}

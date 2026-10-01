@@ -221,6 +221,12 @@ func (s *SendAPI) SignTransaction(ctx context.Context, args apitypes.SendTxArgs,
 }
 
 func (s *SendAPI) SendTransaction(ctx context.Context, args export.TransactionArgs) (result common.Hash, returnErr error) {
+	if timeout, ok := s.methodTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_sendTransaction", s.connectionType, startTime, returnErr, recover())

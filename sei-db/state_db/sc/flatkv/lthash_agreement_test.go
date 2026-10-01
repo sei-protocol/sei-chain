@@ -209,8 +209,8 @@ type accountEdit struct {
 func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.NamedChangeSet) {
 	t.Helper()
 
-	// Within one call the last write for a physical key wins, matching classifyAndPrefix's per-kind
-	// maps. Accounts additionally accumulate across the two logical keys that share their row.
+	// Within one call the last write for a physical key wins. Accounts additionally accumulate across the
+	// two logical keys that share their row.
 	accountEdits := make(map[string]*accountEdit)
 	storage := make(map[string][]byte)
 	code := make(map[string][]byte)

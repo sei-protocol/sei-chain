@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -1477,11 +1478,17 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	return res, end, nil
 }
 
-// Batch processing function for blocks
+// processBatch sends to res each block in [start, end] that crit can match, and reports on errChan
+// each block it cannot read. A panic is reported the same way and ends the batch.
 func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
-	wpMetrics := GetGlobalMetrics()
+	var height int64
+	defer func() {
+		if r := recover(); r != nil {
+			reportBatchPanic(errChan, height, r)
+		}
+	}()
 
-	for height := start; height <= end; height++ {
+	for height = start; height <= end; height++ {
 		if height == 0 {
 			continue
 		}
@@ -1497,65 +1504,96 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			continue
 		}
 
-		// Block cache miss, acquire semaphore for I/O operations
-		semWaitStart := time.Now()
-		f.dbReadSemaphore <- struct{}{}
-		wpMetrics.RecordDBSemaphoreWait(time.Since(semWaitStart))
-		wpMetrics.RecordDBSemaphoreAcquire()
-
-		// Re-check cache after acquiring semaphore, in case another worker cached it.
-		if cachedEntry, found := f.globalBlockCache.Get(height); found {
-			<-f.dbReadSemaphore
-			wpMetrics.RecordDBSemaphoreRelease()
-			if cachedEntry.Block != nil {
-				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
-					continue
-				}
-			}
-			res <- cachedEntry.Block
-			continue
-		}
-
-		// check bloom filter if cache miss AND we have filters
-		var blockBloom ethtypes.Bloom
-		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			// Bloom cache miss - read from database
-			providerCtx := f.ctxProvider(height)
-			if f.includeSyntheticReceipts {
-				blockBloom = f.k.GetBlockBloom(providerCtx)
-			} else {
-				blockBloom = f.k.GetEvmOnlyBlockBloom(providerCtx)
-			}
-
-			// When we cannot retrieve a bloom for the EVM-only view (all zeroes),
-			// skip the bloom pre-filter instead of short-circuiting the block.
-			if blockBloom != (ethtypes.Bloom{}) && !MatchFilters(blockBloom, bloomIndexes) {
-				<-f.dbReadSemaphore
-				wpMetrics.RecordDBSemaphoreRelease()
-				continue // skip the block if bloom filter does not match
-			}
-		}
-
-		// fetch block from network
-		block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+		// Block cache miss, read the block from the store
+		block, ok, err := f.readUncachedBlock(ctx, height, crit, bloomIndexes)
 		if err != nil {
-			select {
-			case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", height, err):
-			default:
-			}
-			<-f.dbReadSemaphore
-			wpMetrics.RecordDBSemaphoreRelease()
+			reportBatchError(errChan, fmt.Errorf("failed to fetch block at height %d: %w", height, err))
 			continue
 		}
-
-		// Use LoadOrStore to create/get cache entry atomically
-		entry := loadOrStoreCacheEntry(f.cacheCreationMutex, f.globalBlockCache, height, block)
-		// Fill bloom if we have it and it's missing
-		if blockBloom != (ethtypes.Bloom{}) {
-			fillMissingFields(entry, block, blockBloom)
+		if ok {
+			res <- block
 		}
+	}
+}
+
+// reportBatchPanic logs and counts a panic raised while processBatch handled height, and reports it
+// on errChan.
+func reportBatchPanic(errChan chan<- error, height int64, panicValue any) {
+	logger.Error("panic while fetching block for logs", "height", height, "panic", panicValue, "stack", string(debug.Stack()))
+	// Recovered in processBatch, the panic never reaches the worker pool, which counts task panics.
+	GetGlobalMetrics().RecordTaskPanicked()
+	reportBatchError(errChan, fmt.Errorf("failed to fetch block at height %d: panic: %v", height, panicValue))
+}
+
+// reportBatchError sends err on errChan without blocking, dropping it when errChan is full.
+func reportBatchError(errChan chan<- error, err error) {
+	select {
+	case errChan <- err:
+	default: // fetchBlocksByCrit reports only the first failure
+	}
+}
+
+// readUncachedBlock reads the block at height under a DB-read slot and adds it to the block cache.
+// It returns ok=false, with no error, when the block's bloom rules out crit or when a copy another
+// worker cached meanwhile is outside the available range.
+func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (block *coretypes.ResultBlock, ok bool, err error) {
+	release := f.acquireDBReadSlot()
+	defer release()
+
+	// Re-check cache after acquiring semaphore, in case another worker cached it.
+	if cachedEntry, found := f.globalBlockCache.Get(height); found {
+		if cachedEntry.Block != nil {
+			if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				return nil, false, nil
+			}
+		}
+		return cachedEntry.Block, true, nil
+	}
+
+	// check bloom filter if cache miss AND we have filters
+	var blockBloom ethtypes.Bloom
+	if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+		// Bloom cache miss - read from database
+		providerCtx := f.ctxProvider(height)
+		if f.includeSyntheticReceipts {
+			blockBloom = f.k.GetBlockBloom(providerCtx)
+		} else {
+			blockBloom = f.k.GetEvmOnlyBlockBloom(providerCtx)
+		}
+
+		// When we cannot retrieve a bloom for the EVM-only view (all zeroes),
+		// skip the bloom pre-filter instead of short-circuiting the block.
+		if blockBloom != (ethtypes.Bloom{}) && !MatchFilters(blockBloom, bloomIndexes) {
+			return nil, false, nil // skip the block if bloom filter does not match
+		}
+	}
+
+	// fetch block from network
+	block, err = blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Use LoadOrStore to create/get cache entry atomically
+	entry := loadOrStoreCacheEntry(f.cacheCreationMutex, f.globalBlockCache, height, block)
+	// Fill bloom if we have it and it's missing
+	if blockBloom != (ethtypes.Bloom{}) {
+		fillMissingFields(entry, block, blockBloom)
+	}
+	return block, true, nil
+}
+
+// acquireDBReadSlot blocks until a DB-read slot is free and returns the function that frees it.
+// Callers must defer the returned function so the slot is freed on every exit, panics included:
+// GetLogs turns requests away while too many slots are held.
+func (f *LogFetcher) acquireDBReadSlot() (release func()) {
+	wpMetrics := GetGlobalMetrics()
+	semWaitStart := time.Now()
+	f.dbReadSemaphore <- struct{}{}
+	wpMetrics.RecordDBSemaphoreWait(time.Since(semWaitStart))
+	wpMetrics.RecordDBSemaphoreAcquire()
+	return func() {
 		<-f.dbReadSemaphore
 		wpMetrics.RecordDBSemaphoreRelease()
-		res <- block
 	}
 }
