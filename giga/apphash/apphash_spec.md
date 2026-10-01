@@ -12,8 +12,6 @@ currently placeholders that need further design; each one is marked **PLACEHOLDE
 - `‖` is byte concatenation.
 - `u64be(x)` is `x` as an 8-byte unsigned big-endian integer.
 - `u32le(x)` is `x` as a 4-byte unsigned little-endian integer.
-- `Keccak-256` is the Keccak-256 hash used by Ethereum, with the original Keccak padding. It is not FIPS 202
-  SHA3-256, which pads differently and produces different output.
 - `SHA-256` is FIPS 180-4 SHA-256, and `BLAKE3-256` is unkeyed BLAKE3 with a 32-byte output.
 - A *hash* is exactly 32 bytes.
 
@@ -22,7 +20,7 @@ currently placeholders that need further design; each one is marked **PLACEHOLDE
 The app hash of block `N` is
 
 ```
-appHash(N) = Keccak-256("sei-apphash" ‖ serialize(appHashData(N)))
+appHash(N) = SHA-256("sei-apphash" ‖ serialize(appHashData(N)))
 ```
 
 `"sei-apphash"` is a domain separation tag: its 11 ASCII bytes, with no terminator or length prefix. It is part of
@@ -180,8 +178,8 @@ d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4
 e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5
 ```
 
-App hash, i.e. Keccak-256 of `"sei-apphash"` followed by the serialization:
+App hash, i.e. SHA-256 of `"sei-apphash"` followed by the serialization:
 
 ```
-fb6e2bcec12367f483ee0d97571f74fa01ef6e101ff708962b65acfd25eb44c9
+5cc80f7617e8286151501cfccacbf5bc8b60826b7e224832519b84bdfef6c533
 ```

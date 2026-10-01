@@ -1,6 +1,6 @@
 package apphash
 
-import "github.com/ethereum/go-ethereum/crypto"
+import "crypto/sha256"
 
 // appHashVersion is the version of the app hash schema produced by this package.
 const appHashVersion uint8 = 1
@@ -40,7 +40,7 @@ type AppHashData struct {
 	// All 0s if this is the first block.
 	previousAppHash [32]byte
 
-	// The app hash: Keccak-256 of appHashDomain followed by the canonical byte format.
+	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format.
 	// It is not itself serialized.
 	appHash [32]byte
 }
@@ -74,7 +74,7 @@ func NewAppHashData(
 		receiptHash:     receiptHash,
 		previousAppHash: previousAppHash,
 	}
-	ahd.appHash = [32]byte(crypto.Keccak256Hash([]byte(appHashDomain), ahd.Serialize()))
+	ahd.appHash = sha256.Sum256(append([]byte(appHashDomain), ahd.Serialize()...))
 	return ahd
 }
 
@@ -119,7 +119,7 @@ func (ahd *AppHashData) PreviousAppHash() [32]byte {
 	return ahd.previousAppHash
 }
 
-// AppHash returns the app hash: the Keccak-256 of appHashDomain followed by the canonical byte format.
+// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format.
 func (ahd *AppHashData) AppHash() [32]byte {
 	return ahd.appHash
 }
