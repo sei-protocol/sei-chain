@@ -11,9 +11,11 @@ import (
 
 	protoio "github.com/gogo/protobuf/io"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -118,18 +120,20 @@ func TestRestoreRejectsMalformedStream(t *testing.T) {
 	}
 }
 
-// fakeStateStore is a state store whose Import returns importErr, either at once or after reading every
-// node, and which counts the version writes restore makes.
+// fakeStateStore is a state store whose Import returns importErr, either at once or after reading and
+// recording every node, and which counts the version writes restore makes.
 type fakeStateStore struct {
 	seidbtypes.StateStore
 	returnEarly   bool
 	importErr     error
+	imported      []seidbtypes.SnapshotNode
 	versionWrites int
 }
 
 func (f *fakeStateStore) Import(_ int64, ch <-chan seidbtypes.SnapshotNode) error {
 	if !f.returnEarly {
-		for range ch {
+		for node := range ch {
+			f.imported = append(f.imported, node)
 		}
 	}
 	return f.importErr
@@ -194,6 +198,29 @@ func TestRestoreFailurePublishesNothing(t *testing.T) {
 			require.Zero(t, tc.ss.versionWrites, "a failed restore must not record the snapshot height")
 		})
 	}
+}
+
+// TestRestoreStopsWhenCommitStoreRejectsNode pins that a node the SC importer rejects fails the restore, and
+// that the state store receives only the nodes accepted before it.
+func TestRestoreStopsWhenCommitStoreRejectsNode(t *testing.T) {
+	store, _ := newTestRootMulti(t, t.TempDir(), flatKVOnlyConfig())
+	ss := &fakeStateStore{}
+	store.ssStore = ss
+
+	leaf := func(key string, version int64) snapshottypes.SnapshotItem {
+		return snapshottypes.SnapshotItem{Item: &snapshottypes.SnapshotItem_IAVL{IAVL: &snapshottypes.SnapshotIAVLItem{
+			Key:     []byte(key),
+			Value:   vtype.SerializeMisc(1, []byte("v")),
+			Version: version,
+		}}}
+	}
+	items := []snapshottypes.SnapshotItem{storeItem(keys.FlatKVStoreKey), leaf("bank/a", 1), leaf("bank/b", 2)}
+
+	err := restoreWithin(t, store, snapshotStream(t, items))
+	require.ErrorContains(t, err, "the import is at version")
+	require.Len(t, ss.imported, 1)
+	require.Equal(t, []byte("bank/a"), ss.imported[0].Key)
+	require.Zero(t, ss.versionWrites, "a failed restore must not record the snapshot height")
 }
 
 // TestRestoreSuccessPublishes pins that a successful restore publishes the memIAVL snapshot and records
