@@ -39,7 +39,7 @@ func TestEmbeddedRepairsLoad(t *testing.T) {
 
 func TestLoadReadsJSONFilesOnly(t *testing.T) {
 	repairs, err := Load(repairFS(map[string]string{
-		"a.json":    `{"name":"a","chain_id":"c","height":10,"read_height":9,"entries":[{"store":"evm","key":"01","new":"aa","old":"bb"}]}`,
+		"a.json":    `{"name":"a","chain_id":"c","target_repair_height":10,"state_height":9,"entries":[{"store":"evm","key":"01","new":"aa","old":"bb"}]}`,
 		"README.md": "ignored",
 	}), testKeys())
 	require.NoError(t, err)
@@ -53,24 +53,24 @@ func TestLoadRejectsInvalidRepairs(t *testing.T) {
 		err   string
 	}{
 		"parse error names the file": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","ne":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","target_repair_height":2,"state_height":1,"entries":[{"store":"evm","key":"01","ne":"02"}]}`},
 			err:   "repairs/a.json: json: unknown field",
 		},
 		"store without a key": {
-			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"nope","key":"01","new":"02"}]}`},
+			files: map[string]string{"a.json": `{"name":"a","chain_id":"c","target_repair_height":2,"state_height":1,"entries":[{"store":"nope","key":"01","new":"02"}]}`},
 			err:   `repairs/a.json: entry 0: unknown store "nope"`,
 		},
 		"duplicate name": {
 			files: map[string]string{
-				"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
-				"b.json": `{"name":"a","chain_id":"c","height":3,"read_height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
+				"a.json": `{"name":"a","chain_id":"c","target_repair_height":2,"state_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
+				"b.json": `{"name":"a","chain_id":"c","target_repair_height":3,"state_height":2,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
 			},
 			err: "already used",
 		},
 		"same key at same height in two files": {
 			files: map[string]string{
-				"a.json": `{"name":"a","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
-				"b.json": `{"name":"b","chain_id":"c","height":2,"read_height":1,"entries":[{"store":"evm","key":"01","new":"03"}]}`,
+				"a.json": `{"name":"a","chain_id":"c","target_repair_height":2,"state_height":1,"entries":[{"store":"evm","key":"01","new":"02"}]}`,
+				"b.json": `{"name":"b","chain_id":"c","target_repair_height":2,"state_height":1,"entries":[{"store":"evm","key":"01","new":"03"}]}`,
 			},
 			err: "also repaired by",
 		},
@@ -87,7 +87,7 @@ func newTestContext(keys map[string]*sdk.KVStoreKey, store string) sdk.Context {
 }
 
 func newHandler(keys map[string]*sdk.KVStoreKey, entries ...kvrepair.Entry) Handler {
-	return NewHandler(kvrepair.Repair{Name: "r", ChainID: testChainID, Height: 5, Entries: entries}, keys).(Handler)
+	return NewHandler(kvrepair.Repair{Name: "r", ChainID: testChainID, TargetRepairHeight: 5, Entries: entries}, keys).(Handler)
 }
 
 func TestExecuteWritesAndDeletes(t *testing.T) {

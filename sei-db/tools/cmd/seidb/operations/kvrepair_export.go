@@ -39,7 +39,7 @@ const accountLogicalLen = 72
 //	    --inspect-bucket storage --key-offset 4 --key-prefix 03AB \
 //	    --list --list-limit 0 --json > prod.json
 //	seidb kvrepair-export --reserve reserve.json --prod prod.json \
-//	    --chain-id pacific-1 --name pacific-1-evm-<H+1> --repair-height <H+1> \
+//	    --chain-id pacific-1 --name pacific-1-evm-<H+1> --target-repair-height <H+1> \
 //	    -o app/upgrades/kvrepair/repairs/pacific-1-evm-<H+1>.json
 func KVRepairExportCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -52,7 +52,7 @@ func KVRepairExportCmd() *cobra.Command {
 	cmd.Flags().String("prod", "", "Inspect list report (--list --json) from a production node, at the same height, bucket, offset, and prefix")
 	cmd.Flags().String("chain-id", "", "Chain ID the repair runs on")
 	cmd.Flags().String("name", "", "Repair name, unique across the repair files")
-	cmd.Flags().Int64("repair-height", 0, "Height whose BeginBlock applies the repair; must be above the report height")
+	cmd.Flags().Int64("target-repair-height", 0, "Height whose BeginBlock applies the repair; must be above the report height")
 	cmd.Flags().String("source", "", "Free text for reviewers; defaults to the two report sources")
 	cmd.Flags().StringP("output", "o", "", "Output file; stdout when empty")
 	return cmd
@@ -63,11 +63,11 @@ func runKVRepairExport(cmd *cobra.Command, _ []string) error {
 	prodPath, _ := cmd.Flags().GetString("prod")
 	chainID, _ := cmd.Flags().GetString("chain-id")
 	name, _ := cmd.Flags().GetString("name")
-	repairHeight, _ := cmd.Flags().GetInt64("repair-height")
+	targetRepairHeight, _ := cmd.Flags().GetInt64("target-repair-height")
 	source, _ := cmd.Flags().GetString("source")
 	output, _ := cmd.Flags().GetString("output")
-	if reservePath == "" || prodPath == "" || chainID == "" || name == "" || repairHeight == 0 {
-		return errors.New("--reserve, --prod, --chain-id, --name, and --repair-height are required")
+	if reservePath == "" || prodPath == "" || chainID == "" || name == "" || targetRepairHeight == 0 {
+		return errors.New("--reserve, --prod, --chain-id, --name, and --target-repair-height are required")
 	}
 
 	reserve, err := readInspectReport(reservePath)
@@ -82,7 +82,7 @@ func runKVRepairExport(cmd *cobra.Command, _ []string) error {
 		source = fmt.Sprintf("reserve %s %s and production %s %s at %d",
 			reserve.Backend, reserve.DBDir, prod.Backend, prod.DBDir, reserve.Version)
 	}
-	r, err := exportKVRepair(reserve, prod, chainID, name, repairHeight, source)
+	r, err := exportKVRepair(reserve, prod, chainID, name, targetRepairHeight, source)
 	if err != nil {
 		return err
 	}
@@ -98,8 +98,8 @@ func runKVRepairExport(cmd *cobra.Command, _ []string) error {
 	if err := os.WriteFile(filepath.Clean(output), encoded.Bytes(), 0o600); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d entries for %s bucket keys under prefix %q at read height %d to %s\n",
-		len(r.Entries), reserve.InspectBucket, reserve.KeyPrefix, r.ReadHeight, output)
+	_, err = fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d entries for %s bucket keys under prefix %q at state height %d to %s\n",
+		len(r.Entries), reserve.InspectBucket, reserve.KeyPrefix, r.StateHeight, output)
 	return err
 }
 
@@ -117,12 +117,12 @@ func readInspectReport(path string) (evmInspectJSON, error) {
 
 // exportKVRepair builds the repair that makes production match the reserve
 // for every key the two reports list, and checks that a node would load it.
-func exportKVRepair(reserve, prod evmInspectJSON, chainID, name string, repairHeight int64, source string) (kvrepair.Repair, error) {
+func exportKVRepair(reserve, prod evmInspectJSON, chainID, name string, targetRepairHeight int64, source string) (kvrepair.Repair, error) {
 	if err := checkInspectPair(reserve, prod); err != nil {
 		return kvrepair.Repair{}, err
 	}
-	if repairHeight <= reserve.Version {
-		return kvrepair.Repair{}, fmt.Errorf("--repair-height %d is not above the report height %d", repairHeight, reserve.Version)
+	if targetRepairHeight <= reserve.Version {
+		return kvrepair.Repair{}, fmt.Errorf("--target-repair-height %d is not above the report height %d", targetRepairHeight, reserve.Version)
 	}
 	diffs, err := inspectDiffs(reserve, prod)
 	if err != nil {
@@ -136,12 +136,12 @@ func exportKVRepair(reserve, prod evmInspectJSON, chainID, name string, repairHe
 		return kvrepair.Repair{}, err
 	}
 	r := kvrepair.Repair{
-		Name:       name,
-		ChainID:    chainID,
-		Height:     repairHeight,
-		ReadHeight: reserve.Version,
-		Source:     source,
-		Entries:    entries,
+		Name:               name,
+		ChainID:            chainID,
+		TargetRepairHeight: targetRepairHeight,
+		StateHeight:        reserve.Version,
+		Source:             source,
+		Entries:            entries,
 	}
 	if err := checkRepairLoads(r); err != nil {
 		return kvrepair.Repair{}, err

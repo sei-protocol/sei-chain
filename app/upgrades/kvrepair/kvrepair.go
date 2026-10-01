@@ -72,10 +72,10 @@ func Load(fsys fs.FS, keys map[string]*sdk.KVStoreKey) ([]kvrepair.Repair, error
 		}
 		names[r.Name] = filePath
 		for _, e := range r.Entries {
-			target := fmt.Sprintf("%s/%d/%s/%x", r.ChainID, r.Height, e.Store, []byte(e.Key))
+			target := fmt.Sprintf("%s/%d/%s/%x", r.ChainID, r.TargetRepairHeight, e.Store, []byte(e.Key))
 			if other, ok := targets[target]; ok {
 				return nil, fmt.Errorf("%s: store %s key %x at height %d is also repaired by %s",
-					filePath, e.Store, []byte(e.Key), r.Height, other)
+					filePath, e.Store, []byte(e.Key), r.TargetRepairHeight, other)
 			}
 			targets[target] = filePath
 		}
@@ -99,7 +99,7 @@ func (h Handler) GetName() string { return "kvrepair-" + h.repair.Name }
 
 func (h Handler) GetTargetChainID() string { return h.repair.ChainID }
 
-func (h Handler) GetTargetHeight() int64 { return h.repair.Height }
+func (h Handler) GetTargetHeight() int64 { return h.repair.TargetRepairHeight }
 
 // ExecuteHandler writes every entry and reads each one back. It returns an
 // error when a key that does not hold its new value holds something other than

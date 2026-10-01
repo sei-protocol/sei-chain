@@ -170,9 +170,9 @@ func TestExportRefusesInputs(t *testing.T) {
 	}
 
 	for name, tc := range map[string]struct {
-		edit         func(reserve, prod *evmInspectJSON)
-		repairHeight int64
-		err          string
+		edit               func(reserve, prod *evmInspectJSON)
+		targetRepairHeight int64
+		err                string
 	}{
 		"reserve is not memiavl": {
 			edit: func(reserve, _ *evmInspectJSON) { reserve.Backend = "flatkv" },
@@ -210,9 +210,9 @@ func TestExportRefusesInputs(t *testing.T) {
 			edit: func(reserve, _ *evmInspectJSON) { reserve.Matched = 2 },
 			err:  "reserve report lists 1 of 2 matched keys",
 		},
-		"repair height at the report height": {
-			repairHeight: 10,
-			err:          "is not above the report height 10",
+		"target repair height at the report height": {
+			targetRepairHeight: 10,
+			err:                "is not above the report height 10",
 		},
 		"no differences": {
 			edit: func(reserve, prod *evmInspectJSON) { prod.Entries = reserve.Entries },
@@ -247,11 +247,11 @@ func TestExportRefusesInputs(t *testing.T) {
 			if tc.edit != nil {
 				tc.edit(&reserve, &prod)
 			}
-			repairHeight := tc.repairHeight
-			if repairHeight == 0 {
-				repairHeight = 11
+			targetRepairHeight := tc.targetRepairHeight
+			if targetRepairHeight == 0 {
+				targetRepairHeight = 11
 			}
-			_, err := exportKVRepair(reserve, prod, "c", "r", repairHeight, "test")
+			_, err := exportKVRepair(reserve, prod, "c", "r", targetRepairHeight, "test")
 			require.ErrorContains(t, err, tc.err)
 		})
 	}
@@ -273,7 +273,7 @@ func TestKVRepairExportCommandWritesALoadableFile(t *testing.T) {
 
 	cmd := KVRepairExportCmd()
 	cmd.SetArgs([]string{"--reserve", reservePath, "--prod", prodPath, "--chain-id", "c", "--name", "r",
-		"--repair-height", "11", "-o", output})
+		"--target-repair-height", "11", "-o", output})
 	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
 	require.NoError(t, cmd.Execute())
@@ -284,8 +284,8 @@ func TestKVRepairExportCommandWritesALoadableFile(t *testing.T) {
 	r, err := kvrepair.Parse(data)
 	require.NoError(t, err)
 	require.NoError(t, r.Validate(func(store string) bool { return store == keys.EVMStoreKey }))
-	require.Equal(t, int64(10), r.ReadHeight)
-	require.Equal(t, int64(11), r.Height)
+	require.Equal(t, int64(10), r.StateHeight)
+	require.Equal(t, int64(11), r.TargetRepairHeight)
 	require.Contains(t, r.Source, "reserve memiavl")
 }
 

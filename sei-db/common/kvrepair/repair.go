@@ -12,16 +12,17 @@ import (
 	"strings"
 )
 
-// Repair is one reviewed set of entries that runs at Height on ChainID, with
-// target values read at ReadHeight. Source records where the values came from
-// and has no effect on execution.
+// Repair is one reviewed set of entries that runs at the start of block
+// TargetRepairHeight on ChainID, with values taken from the state committed at
+// StateHeight. Source records where the values came from and has no effect on
+// execution.
 type Repair struct {
-	Name       string  `json:"name"`
-	ChainID    string  `json:"chain_id"`
-	Height     int64   `json:"height"`
-	ReadHeight int64   `json:"read_height"`
-	Source     string  `json:"source,omitempty"`
-	Entries    []Entry `json:"entries"`
+	Name               string  `json:"name"`
+	ChainID            string  `json:"chain_id"`
+	TargetRepairHeight int64   `json:"target_repair_height"`
+	StateHeight        int64   `json:"state_height"`
+	Source             string  `json:"source,omitempty"`
+	Entries            []Entry `json:"entries"`
 }
 
 // Entry sets Key in Store to New, or deletes Key when New is nil. An empty New
@@ -193,19 +194,19 @@ func (r Repair) Validate(storeExists func(string) bool) error {
 		return errors.New("name is empty")
 	case r.ChainID == "":
 		return errors.New("chain_id is empty")
-	case r.Height <= 0:
-		return fmt.Errorf("height %d is not positive", r.Height)
-	case r.ReadHeight <= 0:
-		return fmt.Errorf("read_height %d is not positive", r.ReadHeight)
-	case r.ReadHeight >= r.Height:
-		return fmt.Errorf("read_height %d is not below height %d", r.ReadHeight, r.Height)
+	case r.TargetRepairHeight <= 0:
+		return fmt.Errorf("target_repair_height %d is not positive", r.TargetRepairHeight)
+	case r.StateHeight <= 0:
+		return fmt.Errorf("state_height %d is not positive", r.StateHeight)
+	case r.StateHeight >= r.TargetRepairHeight:
+		return fmt.Errorf("state_height %d is not below target_repair_height %d", r.StateHeight, r.TargetRepairHeight)
 	case len(r.Entries) == 0:
 		return errors.New("no entries")
 	}
-	// Between ReadHeight and Height-1 a key can change, so a new value read at
-	// ReadHeight can be stale. An old value turns a stale entry into a halt;
-	// without one the entry would overwrite the newer value.
-	valuesAreCurrent := r.ReadHeight == r.Height-1
+	// Between StateHeight and TargetRepairHeight-1 a key can change, so a new
+	// value taken from StateHeight can be stale. An old value turns a stale entry
+	// into a halt; without one the entry would overwrite the newer value.
+	valuesAreCurrent := r.StateHeight == r.TargetRepairHeight-1
 	seen := map[string]bool{}
 	for i, e := range r.Entries {
 		if !storeExists(e.Store) {
@@ -218,8 +219,8 @@ func (r Repair) Validate(storeExists func(string) bool) error {
 			return fmt.Errorf("entry %d: old and old_absent are both set", i)
 		}
 		if !valuesAreCurrent && !e.HasOld() {
-			return fmt.Errorf("entry %d: no old value, and the new values were read at %d, not %d",
-				i, r.ReadHeight, r.Height-1)
+			return fmt.Errorf("entry %d: no old value, and state_height is %d, not %d",
+				i, r.StateHeight, r.TargetRepairHeight-1)
 		}
 		id := e.Store + "/" + hex.EncodeToString(e.Key)
 		if seen[id] {
@@ -239,8 +240,8 @@ func Encode(w io.Writer, r Repair) error {
 	header := []field{
 		{"name", r.Name},
 		{"chain_id", r.ChainID},
-		{"height", r.Height},
-		{"read_height", r.ReadHeight},
+		{"target_repair_height", r.TargetRepairHeight},
+		{"state_height", r.StateHeight},
 	}
 	if r.Source != "" {
 		header = append(header, field{"source", r.Source})
