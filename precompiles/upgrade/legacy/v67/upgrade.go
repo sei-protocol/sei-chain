@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
@@ -175,7 +176,13 @@ func (p PrecompileExecutor) upgradedConsensusState(ctx sdk.Context, method *abi.
 		return nil, 0, err
 	}
 
-	// The upgrade store never holds an upgraded consensus state on Sei.
+	// The upgrade store never held an upgraded consensus state on Sei, so the
+	// result is always empty; the gas of the store read the lookup used to
+	// perform is still charged so historical replays stay identical.
+	key := fmt.Sprintf("upgradedIBCState/%d/upgradedConsState", args[0].(int64))
+	gasConfig := storetypes.KVGasConfig()
+	ctx.GasMeter().ConsumeGas(gasConfig.ReadCostFlat, storetypes.GasReadCostFlatDesc)
+	ctx.GasMeter().ConsumeGas(gasConfig.ReadCostPerByte*storetypes.Gas(len(key)), storetypes.GasReadPerByteDesc)
 	bz, err := method.Outputs.Pack([]byte{})
 	if err != nil {
 		return nil, 0, err
