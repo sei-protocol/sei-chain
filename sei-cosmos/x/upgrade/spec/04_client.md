@@ -133,6 +133,8 @@ Example Output:
 
 ```bash
 module_versions:
+- name: staking
+  version: "2"
 ```
 
 #### plan
