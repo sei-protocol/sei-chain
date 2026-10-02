@@ -12,6 +12,7 @@ const (
 	DefaultSSAsyncBuffer   = 100
 	PebbleDBBackend        = "pebbledb"
 	RocksDBBackend         = "rocksdb"
+	PebbleDBUndoBackend    = "undolog"
 	DefaultSSBackend       = PebbleDBBackend
 )
 
