@@ -1,7 +1,5 @@
 #!/usr/bin/make -f
 
-PACKAGES_NOSIMULATION=$(shell go list ./... | grep -v '/simulation')
-PACKAGES_SIMTEST=$(shell go list ./... | grep '/simulation')
 VERSION := $(shell echo $(shell git describe --always --match "v*") | sed 's/^v//')
 TMVERSION := $(shell go list -m github.com/tendermint/tendermint | sed 's:.* ::')
 COMMIT := $(shell git log -1 --format='%H')
@@ -206,7 +204,6 @@ test-unit-amino: ARGS=-tags='ledger test_ledger_mock test_amino norace'
 test-ledger: ARGS=-tags='cgo ledger norace'
 test-ledger-mock: ARGS=-tags='ledger test_ledger_mock norace'
 test-race: ARGS=-race -tags='cgo ledger test_ledger_mock'
-test-race: TEST_PACKAGES=$(PACKAGES_NOSIMULATION)
 $(TEST_TARGETS): run-tests
 
 # check-* compiles and collects tests without running them
@@ -236,7 +233,7 @@ test-rosetta:
 .PHONY: test-rosetta
 
 benchmark:
-	@go test -mod=readonly -bench=. $(PACKAGES_NOSIMULATION)
+	@go test -mod=readonly -bench=. ./...
 .PHONY: benchmark
 
 ###############################################################################
