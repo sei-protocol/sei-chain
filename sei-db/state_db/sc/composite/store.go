@@ -451,10 +451,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		}
 	}
 
-	flatKVPredates, err := cs.flatKVPredates(targetVersion)
-	if err != nil {
-		return nil, err
-	}
+	flatKVPredates := cs.flatKVPredates(targetVersion)
 	if cs.flatKV != nil && !flatKVPredates {
 		fkv, err := cs.flatKV.LoadVersionReadOnly(targetVersion)
 		if err != nil {
@@ -493,18 +490,15 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	return ro, nil
 }
 
-// flatKVPredates reports whether version is at or below the height flatKV was seeded at when it was
-// switched on mid-chain. Up to that height memIAVL alone made up the AppHash and flatKV holds no history,
-// so a view or export there is served from memIAVL alone. Version 0 means latest and never predates.
-func (cs *CompositeCommitStore) flatKVPredates(version int64) (bool, error) {
+// flatKVPredates reports whether version is at or below the height flatKV was seeded at, so that a view or
+// export there is served from memIAVL alone. Version 0 means latest and never predates.
+func (cs *CompositeCommitStore) flatKVPredates(version int64) bool {
 	if cs.flatKV == nil || cs.memIAVL == nil || version <= 0 {
-		return false, nil
+		return false
 	}
-	seeded, ok, err := flatkv.SeededVersion(utils.GetFlatKVPath(cs.homeDir))
-	if err != nil {
-		return false, fmt.Errorf("failed to read FlatKV seeded version: %w", err)
-	}
-	return ok && version <= seeded, nil
+	// Up to the seeded height memIAVL alone made up the AppHash, and flatKV holds no history there.
+	seeded, ok := cs.flatKV.SeededVersion()
+	return ok && version <= seeded
 }
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been
@@ -1451,10 +1445,7 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
 
-	flatKVPredates, err := cs.flatKVPredates(version)
-	if err != nil {
-		return nil, err
-	}
+	flatKVPredates := cs.flatKVPredates(version)
 	includeMemiavl := cs.memIAVL != nil
 	includeFlatKV := cs.flatKV != nil && !flatKVPredates
 

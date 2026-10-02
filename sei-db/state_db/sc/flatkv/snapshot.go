@@ -179,8 +179,8 @@ func updateCurrentSymlink(root, snapshotDir string) error {
 	return nil
 }
 
-// removeTmpDirs removes any directories ending in "-tmp" or "-removing"
-// left over from interrupted snapshot writes or deletes.
+// removeTmpDirs removes the directories ending in "-tmp" or "-removing" and the temporary seeded-version
+// record left over from interrupted writes or deletes.
 func removeTmpDirs(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -192,6 +192,10 @@ func removeTmpDirs(dir string) error {
 		if e.IsDir() && (strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix)) {
 			if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
 				errs = append(errs, fmt.Errorf("remove tmp dir %s: %w", name, err))
+			}
+		} else if name == seededVersionFile+tmpSuffix {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil {
+				errs = append(errs, fmt.Errorf("remove tmp file %s: %w", name, err))
 			}
 		}
 	}

@@ -1,6 +1,8 @@
 package composite
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -708,40 +710,144 @@ func TestComposite_Auto_ReadOnlyBelowSeededVersion(t *testing.T) {
 	defer func() { _ = latest.(*CompositeCommitStore).Close() }()
 	require.True(t, hasLatticeHash(latest.(*CompositeCommitStore)),
 		"a view above the seeded version must still include flatkv")
+
+	seeded, ok := cs.flatKV.SeededVersion()
+	require.True(t, ok)
+	require.Equal(t, pre+3, seeded)
+	requireSeedBoundary(t, cs, seeded)
+}
+
+// requireSeedBoundary asserts that a view at seeded is served from memiavl alone and one at seeded+1 includes
+// flatkv.
+func requireSeedBoundary(t *testing.T, cs *CompositeCommitStore, seeded int64) {
+	t.Helper()
+	atSeed, err := cs.LoadVersionReadOnly(seeded)
+	require.NoError(t, err)
+	defer func() { _ = atSeed.(*CompositeCommitStore).Close() }()
+	require.Nil(t, atSeed.(*CompositeCommitStore).flatKV, "the seeded version itself predates flatkv")
+	require.False(t, hasLatticeHash(atSeed.(*CompositeCommitStore)))
+
+	afterSeed, err := cs.LoadVersionReadOnly(seeded + 1)
+	require.NoError(t, err)
+	defer func() { _ = afterSeed.(*CompositeCommitStore).Close() }()
+	require.NotNil(t, afterSeed.(*CompositeCommitStore).flatKV, "the first block after the seed is in flatkv's era")
+	require.True(t, hasLatticeHash(afterSeed.(*CompositeCommitStore)))
+}
+
+// openFixedStore opens (or reopens) a composite store at dir in a fixed write mode.
+func openFixedStore(t *testing.T, dir string, mode types.WriteMode) (*CompositeCommitStore, error) {
+	t.Helper()
+	cfg := autoConfig()
+	cfg.WriteMode = mode
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(25))
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	if err := cs.LoadLatest(); err != nil {
+		_ = cs.Close()
+		return nil, err
+	}
+	return cs, nil
+}
+
+// seedFixedMigrateEVM runs a memiavl_only node for 13 blocks, switches it to a fixed migrate_evm configuration,
+// which seeds flatkv at 13 on the first LoadLatest, and runs 5 more blocks. It returns the closed store's
+// directory and the oracle of the state at height 10.
+func seedFixedMigrateEVM(t *testing.T, seed int64) (string, map[migKeyPair][]byte) {
+	t.Helper()
+	dir := t.TempDir()
+	workload := newMigrationWorkload(seed)
+	cs, err := openFixedStore(t, dir, types.MemiavlOnly)
+	require.NoError(t, err)
+	runBlocks(t, cs, workload, 10)
+	oracle := workload.snapshotOracle()
+	runBlocks(t, cs, workload, 3)
+	require.NoError(t, cs.Close())
+
+	cs, err = openFixedStore(t, dir, types.MigrateEVM)
+	require.NoError(t, err)
+	runBlocks(t, cs, workload, 5)
+	require.NoError(t, cs.Close())
+	return dir, oracle
 }
 
 // TestComposite_FixedMigrateEVM_ReadOnlyBelowSeededVersion covers the same seam for a node switched from
 // memiavl_only to a fixed migrate_evm configuration, where flatkv is seeded on the first LoadLatest.
 func TestComposite_FixedMigrateEVM_ReadOnlyBelowSeededVersion(t *testing.T) {
-	dir := t.TempDir()
-	workload := newMigrationWorkload(0xA079)
-	open := func(mode types.WriteMode) *CompositeCommitStore {
-		cfg := autoConfig()
-		cfg.WriteMode = mode
-		cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-		require.NoError(t, err)
-		require.NoError(t, cs.SetMigrationBatchSize(25))
-		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-		require.NoError(t, cs.LoadLatest())
-		return cs
-	}
-
-	cs := open(types.MemiavlOnly)
-	runBlocks(t, cs, workload, 10)
-	pre := cs.Version()
-	oracle := workload.snapshotOracle()
-	runBlocks(t, cs, workload, 3)
-	require.NoError(t, cs.Close())
-
-	cs = open(types.MigrateEVM)
+	dir, oracle := seedFixedMigrateEVM(t, 0xA079)
+	cs, err := openFixedStore(t, dir, types.MigrateEVM)
+	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
-	runBlocks(t, cs, workload, 5)
 
-	view, err := cs.LoadVersionReadOnly(pre)
+	view, err := cs.LoadVersionReadOnly(10)
 	require.NoError(t, err)
 	ro := view.(*CompositeCommitStore)
 	defer func() { _ = ro.Close() }()
 	require.Nil(t, ro.flatKV)
 	require.False(t, hasLatticeHash(ro))
 	requireOracleMatches(t, ro, oracle)
+
+	seeded, ok := cs.flatKV.SeededVersion()
+	require.True(t, ok)
+	require.Equal(t, int64(13), seeded)
+	requireSeedBoundary(t, cs, seeded)
+}
+
+// TestComposite_RecordedSeededVersionRestoresPreSeedReads pins the remediation for a node seeded before the
+// seeded version was recorded: without the record, heights below the seed fail to load; once it is recorded,
+// they are served from memiavl alone.
+func TestComposite_RecordedSeededVersionRestoresPreSeedReads(t *testing.T) {
+	dir, oracle := seedFixedMigrateEVM(t, 0xA07A)
+	flatKVDir := utils.GetFlatKVPath(dir)
+	require.NoError(t, os.Remove(filepath.Join(flatKVDir, "SEEDED_VERSION")))
+
+	cs, err := openFixedStore(t, dir, types.MigrateEVM)
+	require.NoError(t, err)
+	_, err = cs.LoadVersionReadOnly(10)
+	require.ErrorContains(t, err, "data loss or corruption")
+	_, err = cs.Exporter(10)
+	require.ErrorContains(t, err, "data loss or corruption")
+	require.NoError(t, cs.Close())
+
+	fkvCfg := autoConfig().FlatKVConfig
+	fkvCfg.DataDir = flatKVDir
+	stateWAL, err := flatkv.OpenStateWAL(&fkvCfg)
+	require.NoError(t, err)
+	fkv, err := flatkv.NewCommitStore(t.Context(), &fkvCfg, stateWAL)
+	require.NoError(t, err)
+	require.NoError(t, fkv.LoadLatest())
+	require.ErrorContains(t, fkv.RecordSeededVersion(14), "predates it")
+	require.NoError(t, fkv.RecordSeededVersion(13))
+	require.NoError(t, fkv.Close())
+
+	cs, err = openFixedStore(t, dir, types.MigrateEVM)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+	view, err := cs.LoadVersionReadOnly(10)
+	require.NoError(t, err)
+	defer func() { _ = view.(*CompositeCommitStore).Close() }()
+	require.Nil(t, view.(*CompositeCommitStore).flatKV)
+	requireOracleMatches(t, view.(*CompositeCommitStore), oracle)
+	exp, err := cs.Exporter(10)
+	require.NoError(t, err)
+	require.NotContains(t, moduleNamesOf(drainCompositeExporter(t, exp)), keys.FlatKVStoreKey)
+	require.NoError(t, exp.Close())
+	requireSeedBoundary(t, cs, 13)
+}
+
+// TestComposite_InvalidSeededVersionFailsLoadLatest pins that a seeded-version record flatkv's history
+// contradicts stops the node at open, rather than letting it start and fail every historical read.
+func TestComposite_InvalidSeededVersionFailsLoadLatest(t *testing.T) {
+	dir, _ := seedFixedMigrateEVM(t, 0xA07B)
+	recordPath := filepath.Join(utils.GetFlatKVPath(dir), "SEEDED_VERSION")
+
+	for record, wantErr := range map[string]string{
+		"abc\n":    "not a positive height",
+		"999999\n": "above the store's version",
+		"15\n":     "predates it",
+	} {
+		require.NoError(t, os.WriteFile(recordPath, []byte(record), 0600))
+		_, err := openFixedStore(t, dir, types.MigrateEVM)
+		require.ErrorContains(t, err, wantErr, "record %q", record)
+	}
 }

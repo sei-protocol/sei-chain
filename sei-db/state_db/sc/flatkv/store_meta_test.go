@@ -214,10 +214,13 @@ func TestSetInitialVersion_HappyPath(t *testing.T) {
 	target, err := os.Readlink(currentPath(s.flatkvDir()))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(99), target)
-	seeded, ok, err := SeededVersion(s.flatkvDir())
-	require.NoError(t, err)
+	seeded, ok := s.SeededVersion()
 	require.True(t, ok)
 	require.Equal(t, int64(99), seeded)
+	onDisk, ok, err := readSeededVersion(s.flatkvDir())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(99), onDisk)
 
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
@@ -239,9 +242,11 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	target, err := os.Readlink(currentPath(s.flatkvDir()))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(0), target)
-	_, ok, err := SeededVersion(s.flatkvDir())
-	require.NoError(t, err)
+	_, ok := s.SeededVersion()
 	require.False(t, ok, "a genesis seed predates nothing")
+	_, ok, err = readSeededVersion(s.flatkvDir())
+	require.NoError(t, err)
+	require.False(t, ok)
 
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
@@ -262,22 +267,145 @@ func TestSetInitialVersion_ImportClearsSeededVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, imp.Close())
 
-	_, ok, err := SeededVersion(s.flatkvDir())
-	require.NoError(t, err)
+	_, ok := s.SeededVersion()
 	require.False(t, ok, "an imported store's history starts at the import, not the earlier seed")
+	_, ok, err = readSeededVersion(s.flatkvDir())
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
-func TestSeededVersion_RejectsMalformedRecord(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, seededVersionFile), []byte("abc\n"), 0600))
-	_, _, err := SeededVersion(dir)
-	require.Error(t, err)
+func TestSetInitialVersion_ReseedAfterAbortedImportRecordsNewVersion(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, seededVersionFile), []byte("274411998\n"), 0600))
-	seeded, ok, err := SeededVersion(dir)
+	require.NoError(t, s.SetInitialVersion(100))
+	imp, err := s.Importer(200)
+	require.NoError(t, err)
+	require.Error(t, imp.Abort(nil))
+	_, ok := s.SeededVersion()
+	require.False(t, ok)
+
+	require.NoError(t, s.LoadLatest())
+	require.Equal(t, int64(0), s.Version())
+	require.NoError(t, s.SetInitialVersion(301))
+	seeded, ok := s.SeededVersion()
+	require.True(t, ok)
+	require.Equal(t, int64(300), seeded)
+	onDisk, ok, err := readSeededVersion(s.flatkvDir())
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, int64(274411998), seeded)
+	require.Equal(t, int64(300), onDisk)
+}
+
+// seededStoreWithBlocks returns the config of a closed store seeded at 10 that committed blocks 11-13.
+func seededStoreWithBlocks(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := config.DefaultTestConfig(t)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	require.NoError(t, s.SetInitialVersion(11))
+	commitBlocks(t, s, 3)
+	require.Equal(t, int64(13), s.Version())
+	require.NoError(t, s.Close())
+	return cfg
+}
+
+// openWithSeededRecord writes record as the store's seeded-version record and opens the store.
+func openWithSeededRecord(t *testing.T, cfg *config.Config, record string) (*CommitStore, error) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(cfg.DataDir, seededVersionFile), []byte(record), 0600))
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	if err := s.LoadLatest(); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+func TestLoadLatest_ValidatesSeededVersion(t *testing.T) {
+	cfg := seededStoreWithBlocks(t)
+
+	for _, tc := range []struct {
+		record  string
+		wantErr string
+	}{
+		{record: "abc\n", wantErr: "not a positive height"},
+		{record: "0\n", wantErr: "not a positive height"},
+		{record: "999999\n", wantErr: "above the store's version 13"},
+		{record: "12\n", wantErr: "snapshot 10 predates it"},
+	} {
+		_, err := openWithSeededRecord(t, cfg, tc.record)
+		require.ErrorContains(t, err, tc.wantErr, "record %q", tc.record)
+	}
+
+	for _, tc := range []struct {
+		record string
+		want   int64
+	}{
+		{record: "10\n", want: 10},
+		{record: "9", want: 9}, // too low only leaves heights 10 and below failing to load
+	} {
+		s, err := openWithSeededRecord(t, cfg, tc.record)
+		require.NoError(t, err, "record %q", tc.record)
+		seeded, ok := s.SeededVersion()
+		require.True(t, ok)
+		require.Equal(t, tc.want, seeded)
+		require.NoError(t, s.Close())
+	}
+}
+
+func TestLoadLatest_RejectsSeededVersionTheWALContradicts(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	commitBlocks(t, s, 5)
+	require.NoError(t, s.Close())
+
+	_, err = openWithSeededRecord(t, cfg, "3")
+	require.ErrorContains(t, err, "the WAL holds block 1")
+}
+
+func TestRecordSeededVersion(t *testing.T) {
+	cfg := seededStoreWithBlocks(t)
+	require.NoError(t, os.Remove(filepath.Join(cfg.DataDir, seededVersionFile)))
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	_, ok := s.SeededVersion()
+	require.False(t, ok)
+
+	require.ErrorContains(t, s.RecordSeededVersion(13), "snapshot 10 predates it")
+	require.ErrorContains(t, s.RecordSeededVersion(14), "above the store's version 13")
+	_, ok = s.SeededVersion()
+	require.False(t, ok, "a rejected record must not be adopted")
+
+	require.NoError(t, s.RecordSeededVersion(10))
+	seeded, ok := s.SeededVersion()
+	require.True(t, ok)
+	require.Equal(t, int64(10), seeded)
+
+	s = reopenStore(t, s, cfg)
+	defer s.Close()
+	require.NoError(t, s.LoadLatest())
+	seeded, ok = s.SeededVersion()
+	require.True(t, ok)
+	require.Equal(t, int64(10), seeded)
+}
+
+func TestLoadLatest_RemovesTemporarySeededVersionRecord(t *testing.T) {
+	cfg := seededStoreWithBlocks(t)
+	tmpPath := filepath.Join(cfg.DataDir, seededVersionFile+tmpSuffix)
+	require.NoError(t, os.WriteFile(tmpPath, []byte("1"), 0600))
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	defer s.Close()
+	require.NoError(t, s.LoadLatest())
+	require.NoFileExists(t, tmpPath)
 }
 
 func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {

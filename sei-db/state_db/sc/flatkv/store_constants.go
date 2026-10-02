@@ -12,7 +12,8 @@ const (
 	changelogDir  = "changelog"
 	lockFileName  = "LOCK"
 
-	// seededVersionFile records the version SetInitialVersion seeded the store at (see SeededVersion).
+	// seededVersionFile records the version SetInitialVersion seeded the store at (see SeededVersion), as a
+	// decimal height on a single line. Write it with `seidb flatkv-record-seeded-version`, not by hand.
 	seededVersionFile = "SEEDED_VERSION"
 
 	// DB subdirectories (inside each snapshot)

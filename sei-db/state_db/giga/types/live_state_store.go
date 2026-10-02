@@ -73,6 +73,10 @@ type LiveStateStore interface {
 	// initialVersion <= 0.
 	SetInitialVersion(initialVersion int64) error
 
+	// SeededVersion returns the version SetInitialVersion seeded this store at above genesis. The store holds
+	// no history at or below it. ok is false when no such version is recorded.
+	SeededVersion() (version int64, ok bool)
+
 	// Get returns the value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
 	// routed to account/storage/code/misc DBs internally.
