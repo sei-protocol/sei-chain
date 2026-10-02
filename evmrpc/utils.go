@@ -87,6 +87,9 @@ func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
 	switch blockNumber.Int64() {
 	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
 		return latest
+	case rpc.EarliestBlockNumber.Int64():
+		// "earliest" decoded to 0 before go-ethereum v1.17; keep resolving it to 0.
+		return 0
 	default:
 		return blockNumber.Int64()
 	}

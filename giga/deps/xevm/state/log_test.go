@@ -34,7 +34,7 @@ func TestAddLog(t *testing.T) {
 	require.Equal(t, log1, *logs[0])
 	require.Equal(t, log2, *logs[1])
 
-	logs = statedb.GetLogs(common.Hash{}, 0, common.Hash{})
+	logs = statedb.GetLogs(common.Hash{}, 0, common.Hash{}, 0)
 	require.Equal(t, 2, len(logs))
 }
 

@@ -19,7 +19,7 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 ) error {
 	stateDB := state.NewDBImpl(ctx, k, false)
 	evmModuleAddress := k.GetEVMAddressOrDefault(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName))
-	gp := core.GasPool(math.MaxUint64)
+	gp := core.NewGasPool(math.MaxUint64)
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		logger("get block context", err.Error())
@@ -27,8 +27,8 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 	}
 	sstore := k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
-	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: utils.Big0})
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: new(uint256.Int)})
+	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	err = runner(evmInstance)
 	if err != nil {
@@ -130,7 +130,9 @@ func (k *Keeper) UpsertERCPointer(
 			sdb.RefreshCodeCache(contractAddr, ret)
 		}
 	} else {
-		_, contractAddr, remainingGas, err = evm.Create(evmModuleAddress, bin, suppliedGas, uint256.NewInt(0))
+		var leftover vm.GasBudget
+		_, contractAddr, leftover, err = evm.Create(evmModuleAddress, bin, vm.NewGasBudget(suppliedGas, 0), uint256.NewInt(0))
+		remainingGas = leftover.ExecutionGas
 	}
 	if err != nil {
 		return

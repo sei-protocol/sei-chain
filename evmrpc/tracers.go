@@ -414,7 +414,7 @@ func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.
 	if cache == nil || bakeableTracerName(config) == "" {
 		return nil, false
 	}
-	block, _, err := api.backend.BlockByNumber(ctx, number)
+	block, err := api.backend.BlockByNumber(ctx, number)
 	if err != nil || block == nil {
 		return nil, false
 	}
@@ -430,7 +430,7 @@ func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.H
 	if cache == nil || bakeableTracerName(config) == "" {
 		return nil, false
 	}
-	block, _, err := api.backend.BlockByHash(ctx, hash)
+	block, err := api.backend.BlockByHash(ctx, hash)
 	if err != nil || block == nil {
 		return nil, false
 	}
@@ -583,7 +583,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 	api.clampDefaultStructLogLimit(&config.TraceConfig)
-	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	result, returnErr = api.tracersAPI.TraceCall(ctx, args, &blockNrOrHash, config)
 	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
@@ -664,7 +664,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if blockNumber == 0 {
 		return nil, errors.New("genesis is not traceable")
 	}
-	block, _, err := tracingBackend.BlockByHash(ctx, blockHash)
+	block, err := tracingBackend.BlockByHash(ctx, blockHash)
 	if err != nil {
 		return nil, err
 	}

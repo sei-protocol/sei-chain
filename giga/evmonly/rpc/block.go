@@ -93,6 +93,11 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	switch number {
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
 		// nil height resolves to the current committed block.
+	case ethrpc.EarliestBlockNumber:
+		// "earliest" was 0 before go-ethereum v1.17 and resolves to no block,
+		// like any zero height.
+		h := coretypes.Int64(0)
+		height = &h
 	default:
 		h := coretypes.Int64(number.Int64())
 		height = &h

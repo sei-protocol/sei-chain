@@ -7,14 +7,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/gasestimator"
-	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 )
 
 // estimateGasErrorRatio is the search's allowed overestimation tolerance.
@@ -53,7 +52,7 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		Header:            buildEstimateHeader(blockCtx),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
-		BlockOverrides:    estimateBlockOverrides(blockCtx),
+		BlobBaseFee:       cloneOptionalBig(blockCtx.BlobBaseFee),
 		CustomPrecompiles: customPrecompileMap(e.cfg.CustomPrecompiles),
 	}
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
@@ -68,16 +67,6 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 	return estimate, revert, err
 }
 
-// estimateBlockOverrides returns the coinbase and blob base fee gas estimation applies.
-func estimateBlockOverrides(ctx BlockContext) *export.BlockOverrides {
-	coinbase := ctx.Coinbase
-	overrides := &export.BlockOverrides{FeeRecipient: &coinbase}
-	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); blobBaseFee != nil {
-		overrides.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
-	}
-	return overrides
-}
-
 // resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg
 // when msg carries blob hashes.
 func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
@@ -89,7 +78,7 @@ func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
 	// the estimate honor the block's actual blob base fee instead of forcing it
 	// to zero.
 	clone := *msg
-	clone.BlobGasFeeCap = new(big.Int)
+	clone.BlobGasFeeCap = new(uint256.Int)
 	return &clone
 }
 
@@ -97,6 +86,7 @@ func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
 func buildEstimateHeader(ctx BlockContext) *ethtypes.Header {
 	return &ethtypes.Header{
 		ParentHash: ctx.ParentHash,
+		Coinbase:   ctx.Coinbase,
 		Number:     new(big.Int).SetUint64(ctx.Number),
 		GasLimit:   ctx.GasLimit,
 		Time:       ctx.Time,
@@ -115,6 +105,12 @@ func (c estimateChainContext) Engine() consensus.Engine { return estimateEngine{
 
 func (estimateChainContext) GetHeader(common.Hash, uint64) *ethtypes.Header { return nil }
 
+func (estimateChainContext) CurrentHeader() *ethtypes.Header { return nil }
+
+func (estimateChainContext) GetHeaderByNumber(uint64) *ethtypes.Header { return nil }
+
+func (estimateChainContext) GetHeaderByHash(common.Hash) *ethtypes.Header { return nil }
+
 func (c estimateChainContext) Config() *params.ChainConfig { return c.config }
 
 // estimateEngine supplies only Author, the one method core.NewEVMBlockContext
@@ -123,8 +119,8 @@ type estimateEngine struct {
 	*ethash.Ethash
 }
 
-// Author returns the zero address. estimateBlockOverrides always sets
-// FeeRecipient, which overrides this value, so it is never observed.
-func (estimateEngine) Author(*ethtypes.Header) (common.Address, error) {
-	return common.Address{}, nil
+// Author returns the header's coinbase, which buildEstimateHeader sets to the
+// block context's coinbase.
+func (estimateEngine) Author(header *ethtypes.Header) (common.Address, error) {
+	return header.Coinbase, nil
 }

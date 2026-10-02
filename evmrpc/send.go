@@ -231,7 +231,7 @@ func (s *SendAPI) SendTransaction(ctx context.Context, args export.TransactionAr
 	defer func() {
 		recordMetricsWithError(ctx, "eth_sendTransaction", s.connectionType, startTime, returnErr, recover())
 	}()
-	if err := args.SetDefaults(ctx, s.backend, false); err != nil {
+	if err := args.SetDefaults(ctx, s.backend); err != nil {
 		return common.Hash{}, err
 	}
 	var unsignedTx = args.ToTransaction(ethtypes.LegacyTxType)

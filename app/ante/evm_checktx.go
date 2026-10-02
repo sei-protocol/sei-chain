@@ -103,14 +103,14 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	}
 	etx, _ := msg.AsTransaction()
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
-		return fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
+		return fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
 	}
 
 	if etx.Value().Sign() < 0 {
 		return sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
+	intrGas, err := evmtypes.IntrinsicGas(etx)
 	if err != nil {
 		return err
 	}
@@ -306,9 +306,9 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 		return nil, err
 	}
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, ek.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, ethCfg, vm.Config{}, ek.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
-	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
+	st := core.NewStateTransition(evmInstance, emsg, gp, true, false)
 	if statelessChecks {
 		if err := st.StatelessChecks(); err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrWrongSequence, err.Error())

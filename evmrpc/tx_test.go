@@ -13,13 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"math/big"
-
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
@@ -245,7 +244,7 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 		msg := &core.Message{
 			From:     common.HexToAddress("0x1234567890123456789012345678901234567890"),
 			To:       &common.Address{},
-			GasPrice: big.NewInt(1000000000),
+			GasPrice: uint256.NewInt(1000000000),
 			Nonce:    uint64(i),
 		}
 

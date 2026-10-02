@@ -161,7 +161,7 @@ func NewEVMOnlyApplication(
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
-	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig := *evmonly.DefaultChainConfig()
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
 		chainID:          new(big.Int).SetUint64(chainID),

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -104,7 +105,7 @@ func TestUpsertERCNativePointerKeepsCodeCacheCoherent(t *testing.T) {
 		}
 		// Distinct warm entry so a missed memo update is observable (metadata-only
 		// redeploys often produce identical runtime bytecode).
-		sdb.SetCode(addr, stalePlant)
+		sdb.SetCode(addr, stalePlant, tracing.CodeChangeUnspecified)
 		warmed = sdb.GetCode(addr)
 
 		_, err = k.UpsertERCNativePointer(ctx, e, "cache-coherent", utils.ERCMetadata{
@@ -157,7 +158,7 @@ func TestUpsertERCNativePointerFailedRedeployPreservesCode(t *testing.T) {
 		if sdb == nil {
 			return errors.New("expected DBImpl StateDB")
 		}
-		sdb.SetCode(addr, preserved)
+		sdb.SetCode(addr, preserved, tracing.CodeChangeUnspecified)
 		require.Equal(t, preserved, sdb.GetCode(addr))
 
 		// Finite cosmos meter large enough for the pointer-registry getter reads, but

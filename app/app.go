@@ -1929,7 +1929,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	gigaExecutor := gigaexecutor.NewGethExecutor(blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
 
 	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
-	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, gp)
 
 	// Self-destruct requires iterating the store, unsupported by giga. Fallback to v2.
 	if stateDB.AnySelfDestructed() {
@@ -1977,11 +1977,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	evmMsg := &core.Message{
 		Nonce:     ethTx.Nonce(),
 		GasLimit:  ethTx.Gas(),
-		GasPrice:  effectiveGasPrice,
-		GasFeeCap: ethTx.GasFeeCap(),
-		GasTipCap: ethTx.GasTipCap(),
+		GasPrice:  uint256.MustFromBig(effectiveGasPrice),
+		GasFeeCap: uint256.MustFromBig(ethTx.GasFeeCap()),
+		GasTipCap: uint256.MustFromBig(ethTx.GasTipCap()),
 		To:        ethTx.To(),
-		Value:     ethTx.Value(),
+		Value:     uint256.MustFromBig(ethTx.Value()),
 		Data:      ethTx.Data(),
 		From:      sender,
 	}

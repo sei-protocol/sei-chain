@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	occtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
@@ -190,38 +191,39 @@ func isContextCancellation(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func (k *Keeper) GetGasPool() core.GasPool {
-	return math.MaxUint64
+func (k *Keeper) GetGasPool() *core.GasPool {
+	return core.NewGasPool(math.MaxUint64)
 }
 
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
 	msg := &core.Message{
 		Nonce:                 tx.Nonce(),
 		GasLimit:              tx.Gas(),
-		GasPrice:              new(big.Int).Set(tx.GasPrice()),
-		GasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
-		GasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		GasPrice:              uint256.MustFromBig(tx.GasPrice()),
+		GasFeeCap:             uint256.MustFromBig(tx.GasFeeCap()),
+		GasTipCap:             uint256.MustFromBig(tx.GasTipCap()),
 		To:                    tx.To(),
-		Value:                 tx.Value(),
+		Value:                 uint256.MustFromBig(tx.Value()),
 		Data:                  tx.Data(),
 		AccessList:            tx.AccessList(),
 		BlobHashes:            tx.BlobHashes(),
-		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+		BlobGasFeeCap:         uint256.MustFromBig(tx.BlobGasFeeCap()),
 		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
 		From:                  sender,
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetBaseFee(ctx)
 	if baseFee != nil {
-		msg.GasPrice = msg.GasPrice.Add(msg.GasTipCap, baseFee)
-		if msg.GasPrice.Cmp(msg.GasFeeCap) > 0 {
-			msg.GasPrice = msg.GasFeeCap
+		effectiveGasPrice := new(big.Int).Add(tx.GasTipCap(), baseFee)
+		if effectiveGasPrice.Cmp(tx.GasFeeCap()) > 0 {
+			effectiveGasPrice = tx.GasFeeCap()
 		}
+		msg.GasPrice = uint256.MustFromBig(effectiveGasPrice)
 	}
 	return msg
 }
 
-func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
+func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp *core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
@@ -230,9 +232,9 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(msg)
 
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
-	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
+	st := core.NewStateTransition(evmInstance, msg, gp, true, shouldIncrementNonce) // fee already charged in ante handler
 	return executeEVMStateTransition(ctx, evmInstance, st)
 }
 

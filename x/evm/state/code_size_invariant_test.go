@@ -33,28 +33,28 @@ func TestStateDBGetCodeSizeMatchesGetCodeLength(t *testing.T) {
 	})
 
 	t.Run("set and resize", func(t *testing.T) {
-		statedb.SetCode(addr, []byte{1, 2, 3})
+		statedb.SetCode(addr, []byte{1, 2, 3}, tracing.CodeChangeUnspecified)
 		assertInvariant(t)
 
 		designator := ethtypes.AddressToDelegation(common.BytesToAddress([]byte("target")))
-		statedb.SetCode(addr, designator)
+		statedb.SetCode(addr, designator, tracing.CodeChangeUnspecified)
 		assertInvariant(t)
 		require.Equal(t, 23, statedb.GetCodeSize(addr))
 
 		large := make([]byte, params.MaxCodeSize)
-		statedb.SetCode(addr, large)
+		statedb.SetCode(addr, large, tracing.CodeChangeUnspecified)
 		assertInvariant(t)
 
-		statedb.SetCode(addr, nil)
+		statedb.SetCode(addr, nil, tracing.CodeChangeUnspecified)
 		assertInvariant(t)
 		require.Equal(t, 0, statedb.GetCodeSize(addr))
 	})
 
 	t.Run("snapshot revert restores matching size", func(t *testing.T) {
-		statedb.SetCode(addr, []byte{1, 2, 3, 4})
+		statedb.SetCode(addr, []byte{1, 2, 3, 4}, tracing.CodeChangeUnspecified)
 		assertInvariant(t)
 		rev := statedb.Snapshot()
-		statedb.SetCode(addr, make([]byte, params.MaxCodeSize))
+		statedb.SetCode(addr, make([]byte, params.MaxCodeSize), tracing.CodeChangeUnspecified)
 		assertInvariant(t)
 		statedb.RevertToSnapshot(rev)
 		assertInvariant(t)
@@ -63,7 +63,7 @@ func TestStateDBGetCodeSizeMatchesGetCodeLength(t *testing.T) {
 
 	t.Run("recreate clears code and size together", func(t *testing.T) {
 		statedb.CreateAccount(addr)
-		statedb.SetCode(addr, []byte("code"))
+		statedb.SetCode(addr, []byte("code"), tracing.CodeChangeUnspecified)
 		statedb.AddBalance(addr, uint256.NewInt(1), tracing.BalanceChangeUnspecified)
 		assertInvariant(t)
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/holiman/uint256"
+
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -28,6 +28,11 @@ func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common
 		return ov.committed[hash.Hex()]
 	}
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
+}
+
+// GetStateAndCommittedState returns the current and the committed value of a slot.
+func (s *DBImpl) GetStateAndCommittedState(addr common.Address, hash common.Hash) (common.Hash, common.Hash) {
+	return s.GetState(addr, hash), s.GetCommittedState(addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
@@ -79,31 +84,30 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 	s.journal = append(s.journal, &transientStorageChange{account: addr, key: key, prevalue: prev})
 }
 
-// debits account's balance. The corresponding credit happens here:
-// https://github.com/sei-protocol/go-ethereum/blob/master/core/vm/instructions.go#L825
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
-func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
+// SelfDestruct marks the account as self-destructed. The SELFDESTRUCT opcode has
+// already moved (or burned) the balance. Account state is cleared except the
+// transient state (in Ethereum transient states are still available even after
+// self destruction in the same tx).
+func (s *DBImpl) SelfDestruct(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
-	b := s.GetBalance(acc)
-	s.SubBalance(acc, b, tracing.BalanceDecreaseSelfdestruct)
-
 	// mark account as self-destructed
 	s.MarkAccount(acc, AccountDeleted)
-	return *b
 }
 
-func (s *DBImpl) SelfDestruct6780(acc common.Address) (uint256.Int, bool) {
-	// only self-destruct if acc is newly created in the same block
-	if s.Created(acc) {
-		return s.SelfDestruct(acc), true
-	}
-	return *uint256.NewInt(0), false
+// IsNewContract reports whether the contract at acc was created in the current
+// transaction (EIP-6780).
+func (s *DBImpl) IsNewContract(acc common.Address) bool {
+	return s.Created(acc)
 }
+
+// Touch is used by upstream for block access lists, which Sei does not build.
+func (s *DBImpl) Touch(common.Address) {}
 
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block

@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +26,7 @@ func TestExecutorEstimateGasPlainTransferReturnsIntrinsicGas(t *testing.T) {
 	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
 
 	msg := callMessage(sender, &target)
-	msg.Value = big.NewInt(1)
+	msg.Value = uint256.NewInt(1)
 
 	estimate, revert, err := executor.EstimateGas(t.Context(), blockContext(chainID), msg, 0)
 
@@ -301,7 +302,7 @@ func TestExecutorEstimateGasHonorsCoinbaseAndBlobBaseFee(t *testing.T) {
 	cases := []struct {
 		name          string
 		op            vm.OpCode
-		blobGasFeeCap *big.Int
+		blobGasFeeCap *uint256.Int
 		want          []byte
 	}{
 		{
@@ -317,14 +318,14 @@ func TestExecutorEstimateGasHonorsCoinbaseAndBlobBaseFee(t *testing.T) {
 		{
 			name:          "non-nil blob fee cap",
 			op:            vm.BLOBBASEFEE,
-			blobGasFeeCap: big.NewInt(1),
+			blobGasFeeCap: uint256.NewInt(1),
 			want:          common.LeftPadBytes(blobBaseFee.Bytes(), 32),
 		},
 		{
 			// A zero cap is the signal gasestimator uses to report a zero blob base fee.
 			name:          "explicit zero blob fee cap",
 			op:            vm.BLOBBASEFEE,
-			blobGasFeeCap: new(big.Int),
+			blobGasFeeCap: new(uint256.Int),
 			want:          make([]byte, 32),
 		},
 	}

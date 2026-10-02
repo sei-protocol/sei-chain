@@ -14,7 +14,7 @@ type Config struct {
 	DisableNonceCheck    bool
 	DisableGasPriceCheck bool
 	MinGasPrice          *big.Int
-	// ChainConfig defaults to params.AllDevChainProtocolChanges when nil. Test
+	// ChainConfig defaults to DefaultChainConfig() when nil. Test
 	// and scaffold callers can use the default, but production wiring should pass
 	// the chain's explicit config.
 	ChainConfig       *params.ChainConfig
@@ -53,4 +53,24 @@ func (c Config) WithDefaults() Config {
 		c.ParseWorkers = defaults.ParseWorkers
 	}
 	return c
+}
+
+// DefaultChainConfig returns params.AllDevChainProtocolChanges limited to the
+// forks it enabled before go-ethereum v1.17 (through Prague). Later upstream
+// forks (Osaka, BPOs, Amsterdam, Bogota, UBT) change execution semantics and are
+// left disabled. Sei does not burn the base fee, so the coinbase receives base
+// fee plus tip.
+func DefaultChainConfig() *params.ChainConfig {
+	cfg := *params.AllDevChainProtocolChanges
+	cfg.OsakaTime = nil
+	cfg.BPO1Time = nil
+	cfg.BPO2Time = nil
+	cfg.BPO3Time = nil
+	cfg.BPO4Time = nil
+	cfg.BPO5Time = nil
+	cfg.AmsterdamTime = nil
+	cfg.BogotaTime = nil
+	cfg.UBTTime = nil
+	cfg.SeiCoinbaseReceivesBaseFee = true
+	return &cfg
 }

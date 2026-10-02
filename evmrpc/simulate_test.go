@@ -396,7 +396,9 @@ func TestConvertBlockNumber(t *testing.T) {
 		return sdk.Context{}
 	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
-	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
+	// "earliest" resolves to the first real block; a literal 0 is block 0.
+	require.Equal(t, int64(1), backend.ConvertBlockNumber(rpc.EarliestBlockNumber))
+	require.Equal(t, int64(0), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
@@ -524,7 +526,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(200_000_000), header.GasLimit)
 
-	header2, err := backend.HeaderByNumber(context.Background(), 0)
+	header2, err := backend.HeaderByNumber(context.Background(), rpc.EarliestBlockNumber)
 	require.NoError(t, err)
 	require.Equal(t, uint64(200_000_000), header2.GasLimit)
 }
@@ -1038,7 +1040,7 @@ func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.
 			nil,
 			trie.NewStackTrie(nil),
 		)
-		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, nil, true, false)
 		require.NoError(t, err)
 		t.Cleanup(release)
 		return stateDB.(*state.DBImpl)
@@ -1140,7 +1142,7 @@ func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *test
 			nil,
 			trie.NewStackTrie(nil),
 		)
-		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, nil, true, false)
 		require.NoError(t, err)
 		t.Cleanup(release)
 		return stateDB.(*state.DBImpl)
@@ -1260,7 +1262,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
 			)
 
-			ethBlock, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			ethBlock, metadata, err := backend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(blockHeight))
 			require.NoError(t, err)
 			require.Len(t, ethBlock.Transactions(), 0)
 			require.Len(t, metadata, 1)
@@ -1275,7 +1277,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 				testApp.BaseApp, testApp.TracerAnteHandler,
 				evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
 			)
-			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v65Height))
+			_, _, err = strictBackend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(v65Height))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "does not match canonical size")
 		})
@@ -1352,7 +1354,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		testApp.BaseApp, testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, compatWatermarks,
 	)
-	ethBlock, metadata, err := compatBackend.BlockByNumber(context.Background(), rpc.BlockNumber(preV67Height))
+	ethBlock, metadata, err := compatBackend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(preV67Height))
 	require.NoError(t, err)
 	require.Len(t, ethBlock.Transactions(), 0)
 	require.Len(t, metadata, 1)
@@ -1368,7 +1370,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		testApp.BaseApp, testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
 	)
-	_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v67Height))
+	_, _, err = strictBackend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(v67Height))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not match canonical size")
 	require.Contains(t, err.Error(), "auth info")
@@ -1431,7 +1433,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
 	)
 
-	_, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+	_, metadata, err := backend.BlockWithTraceMetadataByNumber(context.Background(), rpc.BlockNumber(blockHeight))
 	require.NoError(t, err)
 	require.Len(t, metadata, 1)
 	require.NotNil(t, metadata[0].TraceRunnable)

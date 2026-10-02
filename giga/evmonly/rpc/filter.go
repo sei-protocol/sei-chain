@@ -152,14 +152,16 @@ func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
 // the retention floor. Other explicit numbers pass through so the caller can
 // check them against the indexed range.
 func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
+	// The earliest tag decodes to ethrpc.EarliestBlockNumber (-5) since
+	// go-ethereum v1.17 (0 before); both mean the retention floor.
+	if bound != nil && bound.IsInt64() && (bound.Int64() == ethrpc.EarliestBlockNumber.Int64() || bound.Sign() == 0) {
+		return earliest, nil
+	}
 	if bound == nil || bound.Sign() < 0 {
 		return latest, nil
 	}
 	if !bound.IsUint64() || bound.Uint64() > math.MaxInt64 {
 		return 0, &invalidParamsError{error: fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)}
-	}
-	if bound.Int64() == ethrpc.EarliestBlockNumber.Int64() {
-		return earliest, nil
 	}
 	return bound.Uint64(), nil
 }

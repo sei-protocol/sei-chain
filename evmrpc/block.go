@@ -43,6 +43,13 @@ var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
+// isGenesisBlockNumber reports whether number selects the synthetic genesis
+// block. Only a literal 0x0 does: since go-ethereum v1.17 the "earliest" tag
+// decodes to rpc.EarliestBlockNumber and resolves to the earliest real block.
+func isGenesisBlockNumber(number rpc.BlockNumber) bool {
+	return number == 0
+}
+
 func encodeGenesisBlock() map[string]any {
 	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(0)),
@@ -100,7 +107,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	if number == 0 {
+	if isGenesisBlockNumber(number) {
 		return genesisBlockTxCount, nil
 	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
@@ -200,7 +207,7 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	// synthetic genesis block, not the Tendermint block at height 0.
-	if number == 0 || (numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0) {
+	if isGenesisBlockNumber(number) || (numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0) {
 		return encodeGenesisBlock(), nil
 	}
 
@@ -240,7 +247,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == genesisBlockHash {
 		return []map[string]any{}, nil
 	}
-	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
+	if blockNrOrHash.BlockNumber != nil && isGenesisBlockNumber(*blockNrOrHash.BlockNumber) {
 		return []map[string]any{}, nil
 	}
 	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
