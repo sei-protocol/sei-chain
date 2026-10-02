@@ -178,6 +178,18 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.NotNil(t, rb.Block, "router[%v].BlockByNumber(%v).Block", i, committed)
 			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
 			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
+			// Covers GigaRouter.BlockHash — the receipt path's block hash. It must equal
+			// the hash BlockByNumber reports for every executed height.
+			last := atypes.GlobalBlockNumber(committed) //nolint:gosec // committed is positive (validated above)
+			for n := last - min(last-1, 256); n <= last; n++ {
+				want, err := giga.BlockByNumber(ctx, n)
+				if err != nil {
+					continue
+				}
+				got, err := giga.BlockHash(ctx, n)
+				require.NoError(t, err, "router[%v].BlockHash(%v)", i, n)
+				require.Equal(t, want.BlockID.Hash, got, "router[%v].BlockHash(%v) ≠ BlockByNumber", i, n)
+			}
 			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
 			// LastCommit is non-nil with empty Signatures — mirrors
 			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)

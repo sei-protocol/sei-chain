@@ -630,6 +630,28 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 	return s.globalBlockFromDB(n)
 }
 
+// GlobalBlockHash returns the header hash of the block with the given global number, with
+// GlobalBlock's wait and errors. A block evicted from memory is answered from its covering
+// CommitQC's headers, so its payload is not read.
+func (s *State) GlobalBlockHash(ctx context.Context, n types.GlobalBlockNumber) (types.BlockHeaderHash, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			return n < inner.nextBlock
+		}); err != nil {
+			return types.BlockHeaderHash{}, err
+		}
+		if n < inner.first {
+			break
+		}
+		return inner.blocks[n].Header().Hash(), nil
+	}
+	qc, err := s.qcFromDB(n)
+	if err != nil {
+		return types.BlockHeaderHash{}, err
+	}
+	return qc.Headers()[n-qc.QC().GlobalRange().First].Hash(), nil
+}
+
 func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
 	opt, err := s.blockStore.ReadBlockByNumber(n)
 	if err != nil {
