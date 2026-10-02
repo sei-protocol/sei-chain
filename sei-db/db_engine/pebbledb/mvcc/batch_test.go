@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/batchrepr"
 	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
@@ -106,8 +107,8 @@ func TestEncodeMVCC(t *testing.T) {
 }
 
 // TestChangesetBatchSize checks that a batch sized by changesetBatchSize takes
-// every pair of its changesets without growing its buffer, and that an unsized
-// one does grow, so the check is not vacuous.
+// every pair of its changesets without growing its buffer, and that a buffer
+// one byte smaller does grow, so the check is not vacuous.
 func TestChangesetBatchSize(t *testing.T) {
 	const version = 9
 	var pairs []*proto.KVPair
@@ -123,37 +124,41 @@ func TestChangesetBatchSize(t *testing.T) {
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs[100:]}},
 	}
 
-	fillAllocs := func(t *testing.T, bufSize int) float64 {
+	fill := func(t *testing.T, b *Batch) {
 		t.Helper()
-		db := newMemDB(t)
-		const runs = 5
-		batches := make([]*Batch, runs+1) // AllocsPerRun makes one warm-up call
-		for i := range batches {
-			b, err := NewBatch(db, version, bufSize, false, "test")
-			require.NoError(t, err)
-			batches[i] = b
-			t.Cleanup(func() { require.NoError(t, b.Close()) })
-		}
-		next := 0
-		return testing.AllocsPerRun(runs, func() {
-			b := batches[next]
-			next++
-			for _, cs := range changesets {
-				for _, pair := range cs.Changeset.Pairs {
-					if pair.Value == nil {
-						require.NoError(t, b.Delete(cs.Name, pair.Key))
-					} else {
-						require.NoError(t, b.Set(cs.Name, pair.Key, pair.Value))
-					}
+		for _, cs := range changesets {
+			for _, pair := range cs.Changeset.Pairs {
+				if pair.Value == nil {
+					require.NoError(t, b.Delete(cs.Name, pair.Key))
+				} else {
+					require.NoError(t, b.Set(cs.Name, pair.Key, pair.Value))
 				}
 			}
-			var versionBz [VersionSize]byte
-			require.NoError(t, b.pb.Set([]byte(latestVersionKey), versionBz[:], nil))
-		})
+		}
+		var versionBz [VersionSize]byte
+		require.NoError(t, b.pb.Set([]byte(latestVersionKey), versionBz[:], nil))
+	}
+	db := newMemDB(t)
+	newBatch := func(t *testing.T, bufSize int) *Batch {
+		t.Helper()
+		b, err := NewBatch(db, version, bufSize, false, "test")
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Close()) })
+		return b
 	}
 
-	require.Zero(t, fillAllocs(t, changesetBatchSize(changesets, version)))
-	require.Positive(t, fillAllocs(t, 0))
+	sized := newBatch(t, changesetBatchSize(changesets, version))
+	sizedCap := cap(sized.pb.Repr())
+	fill(t, sized)
+	require.Equal(t, sizedCap, cap(sized.pb.Repr()), "sized batch grew its buffer")
+
+	// A buffer one byte short of what the fill wrote must grow.
+	written := len(sized.pb.Repr())
+	short := newBatch(t, 0)
+	require.NoError(t, short.pb.SetRepr(make([]byte, batchrepr.HeaderLen, written-1)))
+	fill(t, short)
+	require.Equal(t, written, len(short.pb.Repr()))
+	require.Greater(t, cap(short.pb.Repr()), written-1)
 }
 
 // TestBatchSingleUse checks that a written or closed Batch refuses further use
