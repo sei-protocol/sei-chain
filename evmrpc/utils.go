@@ -27,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -78,12 +79,11 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		numberPtr = nil // requesting Block with nil means the latest block
 	case rpc.EarliestBlockNumber:
-		genesisRes, err := tmClient.Genesis(ctx)
+		earliest, err := earliestBlockHeight(ctx, tmClient)
 		if err != nil {
 			return nil, err
 		}
-		TraceTendermintIfApplicable(ctx, "Genesis", []string{}, genesisRes)
-		numberPtr = &genesisRes.Genesis.InitialHeight
+		numberPtr = &earliest
 	default:
 		numberI64 := number.Int64()
 		numberPtr = &numberI64
@@ -91,13 +91,35 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	return numberPtr, nil
 }
 
-func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
+// earliestBlockHeight returns the lowest block height this node can serve, the
+// JSON-RPC "earliest" tag for block queries. It is not genesis on nodes whose
+// block history starts later (pruning, state sync, a Giga cutover or SIP-3),
+// but is never below the chain's initial height.
+func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int64, error) {
+	if tmClient == nil {
+		return 0, errors.New("tendermint client is not configured")
+	}
+	status, err := tmClient.Status(ctx)
+	if err != nil {
+		return 0, err
+	}
+	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
+	initial := tmClient.GenesisInitialHeight()
+	if initial <= 0 {
+		initial = genesistypes.DefaultGenesisInitialHeight
+	}
+	return max(status.SyncInfo.EarliestBlockHeight, initial), nil
+}
+
+// getHeightFromBigIntBlockNumber resolves a log filter bound. "earliest" and a
+// literal 0 mean "from the start of available history" and are clamped to
+// earliest; other heights pass through unchanged.
+func getHeightFromBigIntBlockNumber(latest, earliest int64, blockNumber *big.Int) int64 {
 	switch blockNumber.Int64() {
 	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
 		return latest
-	case rpc.EarliestBlockNumber.Int64():
-		// "earliest" decoded to 0 before go-ethereum v1.17; keep resolving it to 0.
-		return 0
+	case rpc.EarliestBlockNumber.Int64(), 0:
+		return earliest
 	default:
 		return blockNumber.Int64()
 	}

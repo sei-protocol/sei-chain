@@ -24,6 +24,15 @@ type blockAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
+// earliestHeight is the lowest retained height, matching eth_feeHistory and
+// eth_getLogs.
+func (api *blockAPI) earliestHeight() int64 {
+	if api.store == nil {
+		return earliestCommittedHeight
+	}
+	return max(earliestCommittedHeight, api.store.EarliestVersion())
+}
+
 // GetBlockByNumber returns the block for number, nil for a zero/negative or
 // future height, or an error for a pruned height.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
@@ -94,9 +103,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
 		// nil height resolves to the current committed block.
 	case ethrpc.EarliestBlockNumber:
-		// "earliest" was 0 before go-ethereum v1.17 and resolves to no block,
-		// like any zero height.
-		h := coretypes.Int64(0)
+		// "earliest" is the lowest block this node retains, which is not
+		// genesis on a node that starts at the Giga cutover or prunes history.
+		h := coretypes.Int64(api.earliestHeight())
 		height = &h
 	default:
 		h := coretypes.Int64(number.Int64())

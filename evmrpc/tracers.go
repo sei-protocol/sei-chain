@@ -151,14 +151,7 @@ func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rp
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return api.ctxProvider(LatestCtxHeight).BlockHeight(), nil
 	case rpc.EarliestBlockNumber:
-		if api.tmClient == nil {
-			return 0, errors.New("tendermint client is not configured")
-		}
-		genesisRes, err := api.tmClient.Genesis(ctx)
-		if err != nil {
-			return 0, err
-		}
-		return genesisRes.Genesis.InitialHeight, nil
+		return earliestBlockHeight(ctx, api.tmClient)
 	default:
 		return number.Int64(), nil
 	}

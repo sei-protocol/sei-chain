@@ -111,6 +111,37 @@ func (m *WatermarkManager) EarliestHeight(ctx context.Context) (int64, error) {
 	return blockEarliest, err
 }
 
+// HistoryKind selects the data an "earliest" query refers to. Blocks, receipts
+// and state are pruned independently, so each has its own floor.
+type HistoryKind int
+
+const (
+	BlockHistory HistoryKind = iota
+	ReceiptHistory
+	StateHistory
+)
+
+// EarliestAvailable returns the lowest height with kind data available: the
+// JSON-RPC "earliest" tag. It is genesis only on nodes holding full history.
+func (m *WatermarkManager) EarliestAvailable(ctx context.Context, kind HistoryKind) (int64, error) {
+	blockEarliest, stateEarliest, _, err := m.Watermarks(ctx)
+	if err != nil {
+		return 0, err
+	}
+	blockEarliest = max(blockEarliest, m.genesisInitialHeight())
+	switch kind {
+	case StateHistory:
+		return stateEarliest, nil
+	case ReceiptHistory:
+		if m.receiptStore != nil {
+			return max(blockEarliest, m.receiptStore.EarliestVersion()), nil
+		}
+		return blockEarliest, nil
+	default:
+		return blockEarliest, nil
+	}
+}
+
 // EarliestStateHeight returns the earliest height with state availability.
 func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, error) {
 	_, stateEarliest, _, err := m.Watermarks(ctx)

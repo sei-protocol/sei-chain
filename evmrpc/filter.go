@@ -821,10 +821,10 @@ func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.Filte
 	end := latest
 
 	if crit.FromBlock != nil {
-		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
+		begin = getHeightFromBigIntBlockNumber(latest, earliest, crit.FromBlock)
 	}
 	if crit.ToBlock != nil {
-		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+		end = getHeightFromBigIntBlockNumber(latest, earliest, crit.ToBlock)
 		if crit.FromBlock == nil && begin > end {
 			begin = end
 		}
@@ -1127,8 +1127,10 @@ func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
 	return f.watermarks.LatestHeight(ctx)
 }
 
+// earliestHeight is the lowest height with logs available: receipts may be
+// pruned above the block floor.
 func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
-	return f.watermarks.EarliestHeight(ctx)
+	return f.watermarks.EarliestAvailable(ctx, ReceiptHistory)
 }
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.

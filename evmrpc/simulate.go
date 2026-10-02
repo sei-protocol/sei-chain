@@ -449,11 +449,11 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
 		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
 	case rpc.EarliestBlockNumber.Int64():
-		genesisRes, err := b.tmClient.Genesis(context.Background())
+		earliest, err := earliestBlockHeight(context.Background(), b.tmClient)
 		if err != nil {
-			panic("could not get genesis info from tendermint")
+			panic("could not get earliest block height from tendermint")
 		}
-		blockNum = genesisRes.Genesis.InitialHeight
+		blockNum = earliest
 	case rpc.PendingBlockNumber.Int64():
 		panic("tracing on pending block is not supported")
 	}

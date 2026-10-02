@@ -113,14 +113,34 @@ func TestGetBlockByNumberReturnsNullForAFutureHeight(t *testing.T) {
 func TestGetBlockByNumberEarliestReturnsNullBeforeAnyCommittedBlock(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.NotNil(t, req.Height)
-		require.Equal(t, coretypes.Int64(0), *req.Height)
-		return nil, fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)
+		require.Equal(t, coretypes.Int64(earliestCommittedHeight), *req.Height)
+		return nil, fmt.Errorf("%w: 1", coretypes.ErrHeightExceedsChainHead)
 	})
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.EarliestBlockNumber, false)
 
 	require.NoError(t, err)
 	require.Nil(t, got)
+}
+
+// "earliest" is the lowest retained height, not genesis, once history is pruned
+// (or the node starts at the Giga cutover).
+func TestGetBlockByNumberEarliestRespectsThePruneFloor(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(1); h <= 5; h++ {
+		setBlockReceipt(t, store, h, 10, 100)
+	}
+	require.NoError(t, store.PruneHistory(3))
+	var requested coretypes.Int64
+	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		requested = *req.Height
+		return nil, fmt.Errorf("%w: %d", coretypes.ErrHeightExceedsChainHead, requested)
+	})
+
+	_, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), ethrpc.EarliestBlockNumber, false)
+
+	require.NoError(t, err)
+	require.Equal(t, coretypes.Int64(3), requested)
 }
 
 func TestGetBlockByNumberReturnsErrorForAPrunedHeight(t *testing.T) {
