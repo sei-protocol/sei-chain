@@ -3,6 +3,7 @@ package gigasim
 import (
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
@@ -43,27 +44,31 @@ func TestBuiltRecordKeysOnItsOwnReceiptHash(t *testing.T) {
 	const count = 8
 	buffer := newReceiptBuffer(count, 50_000)
 	rand := crand.NewCannedRandom(1<<20, 1337)
+	txn := testErc20Transfer(1, 2, 9)
 
 	for index := range count {
-		buffer.build(index, rand, 3)
+		require.NoError(t, buffer.build(index, rand, txn, 3))
 
 		record := buffer.records[index]
 		require.NotNil(t, record.Receipt)
-		require.Equal(t, receiptLog, record.Receipt.Logs)
+		require.Len(t, record.Receipt.Logs, 1)
 		require.Len(t, record.Receipt.Logs[0].Topics, 3)
-		require.Len(t, record.ReceiptBytes, len(receiptBody))
-		require.Equal(t, record.TxHash[:], record.ReceiptBytes[len(record.ReceiptBytes)-hashLen:])
+		encoded, err := record.Receipt.Marshal()
+		require.NoError(t, err)
+		require.Equal(t, encoded, record.ReceiptBytes, "the stored body must be the receipt it is stored with")
+
 		var decoded evmtypes.Receipt
 		require.NoError(t, decoded.Unmarshal(record.ReceiptBytes))
-		var expected [hashLen]byte
-		writeSyntheticTxHash(expected[:], crand.NewCannedRandom(1<<20, 1337), 3, index)
-		require.Equal(t, expected[:], record.TxHash[:])
+		require.Equal(t, uint64(3), decoded.BlockNumber)
+		require.Equal(t, uint32(index), decoded.TransactionIndex)
+		require.Equal(t, uint64(50_000), decoded.GasUsed)
+		require.Equal(t, uint64(50_000*(index+1)), decoded.CumulativeGasUsed)
+		require.Equal(t, record.TxHash, common.HexToHash(decoded.TxHashHex))
 	}
-	require.Equal(t, int64(count*len(receiptBody)), buffer.encodedBytes)
 }
 
 // TestNativeTransferReceiptRecordsTheFixedGas pins a native transfer's receipt to the fixed 21,000 gas,
-// with CumulativeGasUsed the running sum, and a body of the fixed receipt size.
+// with CumulativeGasUsed the running sum.
 func TestNativeTransferReceiptRecordsTheFixedGas(t *testing.T) {
 	t.Parallel()
 
@@ -71,14 +76,15 @@ func TestNativeTransferReceiptRecordsTheFixedGas(t *testing.T) {
 	config.TransactionType = transactionTypeTransfer
 	buffer := newReceiptBuffer(2, uint64(config.gasUsedBy(1)))
 	rand := crand.NewCannedRandom(1<<20, 1337)
+	txn := &transaction{kind: nativeTransfer, srcAccount: testAccountKey(1), dstAccount: testAccountKey(2)}
 
 	for index := range 2 {
-		buffer.build(index, rand, 3)
+		require.NoError(t, buffer.build(index, rand, txn, 3))
 
 		built := buffer.records[index].Receipt
 		require.Equal(t, uint64(21_000), built.GasUsed)
 		require.Equal(t, uint64(21_000*(index+1)), built.CumulativeGasUsed)
-		require.Len(t, buffer.records[index].ReceiptBytes, len(receiptBody))
+		require.Empty(t, built.Logs)
 	}
 }
 
@@ -94,12 +100,32 @@ func TestErc20ReceiptRecordsTheConfiguredGas(t *testing.T) {
 	rand := crand.NewCannedRandom(1<<20, 1337)
 
 	for index := range count {
-		buffer.build(index, rand, 3)
+		txn := testErc20Transfer(index+1, index+100, index+1000)
+		require.NoError(t, buffer.build(index, rand, txn, 3))
 
 		built := buffer.records[index].Receipt
 		require.Equal(t, uint64(43_210), built.GasUsed)
 		require.Equal(t, uint64(43_210*(index+1)), built.CumulativeGasUsed)
-		require.Len(t, buffer.records[index].ReceiptBytes, len(receiptBody))
+		require.Len(t, built.Logs, 1)
+		sender := indexedAddressTopic(addressFromKey(txn.srcAccount))
+		recipient := indexedAddressTopic(addressFromKey(txn.dstAccount))
+		require.Equal(t, addressHex(addressFromKey(txn.erc20Contract)), built.Logs[0].Address)
+		require.Equal(t, transferEventTopic, built.Logs[0].Topics[0])
+		require.Equal(t, txHashHex(sender[:]), built.Logs[0].Topics[1])
+		require.Equal(t, txHashHex(recipient[:]), built.Logs[0].Topics[2])
+	}
+	require.NotEqual(t, buffer.records[0].Receipt.Logs[0].Address, buffer.records[1].Receipt.Logs[0].Address)
+	require.NotEqual(t, buffer.records[0].Receipt.Logs[0].Topics[1], buffer.records[1].Receipt.Logs[0].Topics[1])
+	require.NotEqual(t, buffer.records[0].Receipt.Logs[0].Topics[2], buffer.records[1].Receipt.Logs[0].Topics[2])
+}
+
+// testErc20Transfer is an ERC20 transfer between the numbered accounts of the numbered contract.
+func testErc20Transfer(src, dst, contract int) *transaction {
+	return &transaction{
+		kind:          erc20Transfer,
+		srcAccount:    testAccountKey(src),
+		dstAccount:    testAccountKey(dst),
+		erc20Contract: testAccountKey(contract),
 	}
 }
 
@@ -111,7 +137,11 @@ func TestReceiptDrawsStayInTheBlockSequence(t *testing.T) {
 	for _, kind := range []transactionKind{nativeTransfer, erc20Transfer} {
 		got := crand.NewCannedRandom(1<<20, 1337)
 		drawReceiptInputs(got, kind)
-		newReceiptBuffer(1, 1).build(0, got, 1)
+		txn := &transaction{kind: kind}
+		if kind != nativeTransfer {
+			txn = testErc20Transfer(1, 2, 3)
+		}
+		require.NoError(t, newReceiptBuffer(1, 1).build(0, got, txn, 1))
 
 		want := crand.NewCannedRandom(1<<20, 1337)
 		_ = want.Int64Range(0, 5)

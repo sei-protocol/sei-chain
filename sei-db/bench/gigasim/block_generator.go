@@ -248,7 +248,9 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		block.lanePayloads[lane] = ledgerPayload(g.accounts.Rand(), g.config)
 	}
 	if g.config.EnableReceiptStore {
-		g.buildReceipts(block)
+		if err := g.buildReceipts(block); err != nil {
+			return nil, err
+		}
 	}
 
 	// Staged once, after the transactions, because they all name this one key: every transaction draws
@@ -263,7 +265,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 }
 
 // buildReceipts fills the block's receipt records. It is its own phase of the block producing loop.
-func (g *blockGenerator) buildReceipts(block *simulatedBlock) {
+func (g *blockGenerator) buildReceipts(block *simulatedBlock) error {
 	g.lifecycle.SetPhase("generate_receipts")
 	defer g.lifecycle.SetPhase("generate")
 
@@ -271,10 +273,13 @@ func (g *blockGenerator) buildReceipts(block *simulatedBlock) {
 	//nolint:gosec // G115 - validation keeps the gas positive
 	receipts := newReceiptBuffer(count, uint64(g.config.gasUsedBy(1)))
 	block.receiptRecords = receipts.records
-	for index := range block.transactions {
-		receipts.build(index, g.accounts.Rand(), block.number)
+	for index, txn := range block.transactions {
+		if err := receipts.build(index, g.accounts.Rand(), txn, block.number); err != nil {
+			return err
+		}
 	}
 	block.receiptBytes = receipts.encodedBytes
+	return nil
 }
 
 // stageTransactionWrites stages the writes one transfer makes: the sender's balance, then either the
