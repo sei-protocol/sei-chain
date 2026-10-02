@@ -146,8 +146,12 @@ The root `R` of the BUD tree over a block's `n` budlets `b[0] … b[n−1]` is c
 
 When `n = 1`, `R` is the single leaf hash.
 
-*Non-normative:* this is the Merkle Tree Hash of RFC 9162 §2.1.1 (RFC 6962 §2.1), with `leafHash` and
-`innerHash` as its leaf and node hashes and a different value for the empty tree.
+*Non-normative:* this is the Merkle Tree Hash of
+[RFC 9162 §2.1.1](https://www.rfc-editor.org/rfc/rfc9162#section-2.1.1)
+([RFC 6962 §2.1](https://www.rfc-editor.org/rfc/rfc6962#section-2.1)), with `leafHash` and `innerHash` as its leaf
+and node hashes and a different value for the empty tree.
+
+*Non-normative:* [BUD tree shapes](bud_tree_shapes.md) shows how to draw the tree for a given `n`.
 
 #### Serialization
 
