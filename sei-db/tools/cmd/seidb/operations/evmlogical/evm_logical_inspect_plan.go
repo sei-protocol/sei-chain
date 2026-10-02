@@ -66,18 +66,12 @@ func loadInspectPlan(path string) (*inspectFanout, error) {
 		return nil, fmt.Errorf("--inspect-plan %s has no items", path)
 	}
 	f := &inspectFanout{}
-	outs := make(map[string]int, len(items))
 	for i, item := range items {
 		acc, err := item.accumulator()
 		if err != nil {
 			return nil, fmt.Errorf("--inspect-plan item %d: %w", i, err)
 		}
-		out := filepath.Clean(item.Out)
-		if prev, ok := outs[out]; ok {
-			return nil, fmt.Errorf("--inspect-plan items %d and %d both write %s", prev, i, out)
-		}
-		outs[out] = i
-		f.targets = append(f.targets, inspectTarget{acc: acc, out: out})
+		f.targets = append(f.targets, inspectTarget{acc: acc, out: filepath.Clean(item.Out)})
 	}
 	if err := f.createOutputs(); err != nil {
 		f.close()
@@ -87,8 +81,9 @@ func loadInspectPlan(path string) (*inspectFanout, error) {
 }
 
 // createOutputs creates and truncates the output file of every target that has one, so that a
-// bad path fails before the scan.
+// bad path fails before the scan. It refuses two targets that name the same file by any path.
 func (f *inspectFanout) createOutputs() error {
+	created := make([]os.FileInfo, len(f.targets))
 	for i := range f.targets {
 		t := &f.targets[i]
 		if t.out == "" {
@@ -99,6 +94,16 @@ func (f *inspectFanout) createOutputs() error {
 			return fmt.Errorf("--inspect-plan item %d: create %s: %w", i, t.out, err)
 		}
 		t.file = file
+		info, err := file.Stat()
+		if err != nil {
+			return fmt.Errorf("--inspect-plan item %d: stat %s: %w", i, t.out, err)
+		}
+		for prev, prevInfo := range created[:i] {
+			if prevInfo != nil && os.SameFile(prevInfo, info) {
+				return fmt.Errorf("--inspect-plan items %d and %d both write %s", prev, i, t.out)
+			}
+		}
+		created[i] = info
 	}
 	return nil
 }

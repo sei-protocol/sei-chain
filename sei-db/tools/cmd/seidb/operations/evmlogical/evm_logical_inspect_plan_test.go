@@ -124,6 +124,33 @@ func TestEvmLogicalInspectPlanCreatesOutputsBeforeTheScan(t *testing.T) {
 	require.Empty(t, data)
 }
 
+// TestEvmLogicalInspectPlanRefusesOneFileByTwoPaths requires two items whose out paths name the
+// same file to be refused, however the second path spells it.
+func TestEvmLogicalInspectPlanRefusesOneFileByTwoPaths(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	source := goldenFlatKVSource(fx, goldenTipHeight)
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.json")
+	require.NoError(t, os.WriteFile(out, nil, 0o600))
+	require.NoError(t, os.Symlink(out, filepath.Join(dir, "symlink.json")))
+	require.NoError(t, os.Link(out, filepath.Join(dir, "hardlink.json")))
+	t.Chdir(dir)
+
+	for name, second := range map[string]string{
+		"relative":  "out.json",
+		"symlink":   filepath.Join(dir, "symlink.json"),
+		"hard link": filepath.Join(dir, "hardlink.json"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := writeInspectPlan(t, []map[string]any{
+				{"inspect_bucket": operations.FlatKVBucketStorage, "list": true, "out": out},
+				{"inspect_bucket": operations.FlatKVBucketAccount, "list": true, "out": second},
+			})
+			require.ErrorContains(t, runInspectPlan(t, source, plan), "items 0 and 1 both write")
+		})
+	}
+}
+
 // TestEvmLogicalInspectRefusesUnknownOpenModeFirst requires an unknown --memiavl-open-mode to be
 // named as unknown, before any check that depends on the open mode.
 func TestEvmLogicalInspectRefusesUnknownOpenModeFirst(t *testing.T) {
