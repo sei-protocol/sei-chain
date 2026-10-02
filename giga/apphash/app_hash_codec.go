@@ -39,7 +39,10 @@ func (ahd *AppHashData) Serialize() []byte {
 
 // Deserialize the app hash from the canonical byte format. It returns an error unless data starts with a
 // supported schema version and is exactly the length that version defines.
-func Deserialize(data []byte) (*AppHashData, error) {
+func Deserialize(
+	// The serialized app hash data.
+	data []byte,
+) (*AppHashData, error) {
 	if len(data) < 1 {
 		return nil, fmt.Errorf("app hash data is empty")
 	}

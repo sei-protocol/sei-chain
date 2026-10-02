@@ -59,10 +59,43 @@ func TestBUDSpecVector(t *testing.T) {
 	require.Equal(t, serializedTree, hex.EncodeToString(tree.Serialize()))
 
 	for i, budlet := range budlets {
+		deserialized, err := DeserializeBudlet(decodeSpecHex(t, serializations[i]))
+		require.NoError(t, err, "budlet %d", i)
+		require.Equal(t, budlet, deserialized, "budlet %d", i)
+	}
+	deserializedTree, err := DeserializeBUDTree(decodeSpecHex(t, serializedTree))
+	require.NoError(t, err)
+	require.Equal(t, tree, deserializedTree)
+
+	for i, budlet := range budlets {
 		proof, found := tree.BuildBUDProof(budlet.Key())
 		require.True(t, found)
 		require.Equal(t, proofs[i], hex.EncodeToString(proof.Serialize()), "budlet %d proof", i)
+
+		deserializedProof, err := DeserializeBUDProof(decodeSpecHex(t, proofs[i]))
+		require.NoError(t, err, "budlet %d proof", i)
+		require.Equal(t, proof, deserializedProof, "budlet %d proof", i)
+		deserializedBUD := deserializedProof.ComputeBUD()
+		require.Equal(t, bud, hex.EncodeToString(deserializedBUD[:]), "budlet %d proof", i)
 	}
+}
+
+// TestBUDSpecEmptyTreeVector pins the serialized BUD tree and the BUD of a block with no budlets in bud_spec.md.
+func TestBUDSpecEmptyTreeVector(t *testing.T) {
+	serializedTree := "01" + "0000000000000000"
+	bud := "3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2"
+
+	tree, err := NewBUDTree(nil)
+	require.NoError(t, err)
+	require.Equal(t, serializedTree, hex.EncodeToString(tree.Serialize()))
+	computedBUD := tree.BUD()
+	require.Equal(t, bud, hex.EncodeToString(computedBUD[:]))
+
+	deserialized, err := DeserializeBUDTree(decodeSpecHex(t, serializedTree))
+	require.NoError(t, err)
+	require.Empty(t, deserialized.Budlets())
+	deserializedBUD := deserialized.BUD()
+	require.Equal(t, bud, hex.EncodeToString(deserializedBUD[:]))
 }
 
 // TestBUDSpecStateProofVector pins every value of the BUD state proof test vector in bud_spec.md.
@@ -119,23 +152,37 @@ func TestBUDSpecStateProofVector(t *testing.T) {
 	require.Equal(t, bud7, hex.EncodeToString(computedBUD7[:]))
 	require.Equal(t, serializedAppHashData7, hex.EncodeToString(appHashData7.Serialize()))
 	require.Equal(t, serializedAppHashData9, hex.EncodeToString(appHashData9.Serialize()))
-	appHashes := stateProof.AppHashes()
-	require.Equal(t, appHash7, hex.EncodeToString(appHashes[0][:]))
-	require.Equal(t, appHash9, hex.EncodeToString(appHashes[1][:]))
 	require.Equal(t, serializedProof7, hex.EncodeToString(proof7.Serialize()))
 	require.Equal(t, serializedProof9, hex.EncodeToString(proof9.Serialize()))
 	require.Equal(t, serializedStateProof, hex.EncodeToString(stateProof.Serialize()))
 
+	deserialized, err := DeserializeBUDStateProof(decodeSpecHex(t, serializedStateProof))
+	require.NoError(t, err)
+	require.Equal(t, stateProof, deserialized)
+	require.Equal(t, uint64(chainID), deserialized.ChainID())
+	appHashes := deserialized.AppHashes()
+	require.Equal(t, appHash7, hex.EncodeToString(appHashes[0][:]))
+	require.Equal(t, appHash9, hex.EncodeToString(appHashes[1][:]))
+
 	for _, height := range []uint64{7, 8} {
-		value, covered := stateProof.ValueAt(height)
+		value, covered := deserialized.ValueAt(height)
 		require.True(t, covered, "height %d", height)
 		require.Equal(t, []byte{0xbb}, value, "height %d", height)
 	}
-	value, covered := stateProof.ValueAt(9)
+	value, covered := deserialized.ValueAt(9)
 	require.True(t, covered)
 	require.Nil(t, value)
 	for _, height := range []uint64{6, 10} {
-		_, covered := stateProof.ValueAt(height)
+		_, covered := deserialized.ValueAt(height)
 		require.False(t, covered, "height %d", height)
 	}
+}
+
+// decodeSpecHex decodes a hex string from bud_spec.md, failing the test if it does not parse.
+func decodeSpecHex(t *testing.T, encoded string) []byte {
+	t.Helper()
+
+	decoded, err := hex.DecodeString(encoded)
+	require.NoError(t, err)
+	return decoded
 }

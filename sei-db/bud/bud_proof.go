@@ -24,7 +24,7 @@ const (
 // BUDTree.BuildBUDProof() or DeserializeBUDProof().
 type BUDProof struct {
 	// The budlet proven to be a leaf.
-	budlet *Budlet
+	budlet Budlet
 
 	// The number of leaves in the BUD tree.
 	count uint64
@@ -39,7 +39,10 @@ type BUDProof struct {
 // DeserializeBUDProof parses a BUD proof from the serialized BUD proof format. It returns an error unless data is
 // exactly one serialized BUD proof with a supported BUD proof version and BUD version, a valid budlet, an index
 // less than its count, and the number of siblings its count and index define.
-func DeserializeBUDProof(data []byte) (*BUDProof, error) {
+func DeserializeBUDProof(
+	// The serialized BUD proof.
+	data []byte,
+) (*BUDProof, error) {
 	proof, rest, err := readBUDProof(data)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing BUD proof: %w", err)
@@ -53,7 +56,7 @@ func DeserializeBUDProof(data []byte) (*BUDProof, error) {
 // ComputeBUD returns the BUD of the BUD tree the proof places its budlet in. The proof shows that a block wrote
 // the budlet only when the result equals that block's BUD, taken from a trusted source.
 func (p *BUDProof) ComputeBUD() apphash.BUD {
-	node := budLeafHash(p.budlet)
+	node := budLeafHash(&p.budlet)
 	siblings := p.siblings
 	position := p.index
 	for size := p.count; size > 1; size = size/2 + size%2 {
@@ -74,7 +77,7 @@ func (p *BUDProof) ComputeBUD() apphash.BUD {
 
 // Budlet returns the budlet the proof is about.
 func (p *BUDProof) Budlet() *Budlet {
-	return p.budlet
+	return &p.budlet
 }
 
 // Count returns the number of leaves in the BUD tree.
@@ -108,7 +111,10 @@ func (p *BUDProof) Serialize() []byte {
 }
 
 // readBUDProof parses the serialized BUD proof at the start of data, returning it and the bytes after it.
-func readBUDProof(data []byte) (*BUDProof, []byte, error) {
+func readBUDProof(
+	// Bytes that start with a serialized BUD proof.
+	data []byte,
+) (*BUDProof, []byte, error) {
 	if len(data) < 1 {
 		return nil, nil, fmt.Errorf("serialized BUD proof is empty")
 	}
@@ -147,5 +153,20 @@ func readBUDProof(data []byte) (*BUDProof, []byte, error) {
 	}
 	rest = rest[32*siblingCount:]
 
-	return &BUDProof{budlet: budlet, count: count, index: index, siblings: siblings}, rest, nil
+	return &BUDProof{budlet: *budlet, count: count, index: index, siblings: siblings}, rest, nil
+}
+
+// validate returns an error unless the proof is one DeserializeBUDProof() could return: a budlet NewBudlet() would
+// accept, an index less than its count, and the number of siblings its count and index define.
+func (p *BUDProof) validate() error {
+	if err := p.budlet.validate(); err != nil {
+		return fmt.Errorf("invalid budlet: %w", err)
+	}
+	if p.index >= p.count {
+		return fmt.Errorf("index %d is not less than count %d", p.index, p.count)
+	}
+	if want := budTreeSiblingCount(p.count, p.index); len(p.siblings) != want {
+		return fmt.Errorf("%d siblings, want %d", len(p.siblings), want)
+	}
+	return nil
 }

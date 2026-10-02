@@ -21,11 +21,12 @@ const (
 	appHashDataLengthSize = 4
 )
 
-// BUDStateProof proves the value of one key over a range of block heights, from one or two BUD proofs, each
-// paired with the app hash data of its block. With one BUD proof the range is that block. With two, the key was
-// written at the first block and next written at the second, so its value is the first budlet's value from the
-// first block until the second, and the second budlet's value at the second. Every BUDStateProof is internally
-// consistent; trusting it still requires authenticating each of AppHashes().
+// BUDStateProof proves the value of one key over a range of block heights. It proves nothing until the caller
+// has also:
+//   - authenticated each of AppHashes()
+//   - confirmed that ChainID() is the chain it expects
+//   - confirmed that Key() is the key it asked about
+//   - confirmed that the heights it asked about lie within StartHeight() and EndHeight()
 type BUDStateProof struct {
 	// The app hash data of each BUD proof's block, in height order.
 	appHashData []*apphash.AppHashData
@@ -35,10 +36,7 @@ type BUDStateProof struct {
 }
 
 // NewBUDStateProof returns the BUD state proof made of one or two BUD proofs, each paired with the app hash data
-// at the same position. It returns an error unless each BUD proof computes the BUD in its pair's app hash data.
-// With two, it also returns an error unless both budlets have the same key, the second budlet's previous height
-// is the first block's height, the first block's height is the lower, and both blocks share a chain ID and app
-// hash version.
+// at the same position. It returns an error unless they form a valid BUD state proof.
 func NewBUDStateProof(
 	// The app hash data of each BUD proof's block, in height order. Must hold as many entries as budProofs.
 	// Retained, so it must not be mutated afterward.
@@ -53,6 +51,9 @@ func NewBUDStateProof(
 	}
 	if len(budProofs) != 1 && len(budProofs) != 2 {
 		return nil, fmt.Errorf("creating BUD state proof: %d BUD proofs, want 1 or 2", len(budProofs))
+	}
+	if err := checkPairsValid(appHashData, budProofs); err != nil {
+		return nil, fmt.Errorf("creating BUD state proof: %w", err)
 	}
 	if err := checkBUDsMatchAppHashData(appHashData, budProofs); err != nil {
 		return nil, fmt.Errorf("creating BUD state proof: %w", err)
@@ -69,7 +70,10 @@ func NewBUDStateProof(
 // DeserializeBUDStateProof parses a BUD state proof from the serialized BUD state proof format. It returns an
 // error unless data starts with a supported version, holds exactly the pairs of app hash data and BUD proof it
 // declares, each of which deserializes, and those pairs are ones NewBUDStateProof() would accept.
-func DeserializeBUDStateProof(data []byte) (*BUDStateProof, error) {
+func DeserializeBUDStateProof(
+	// The serialized BUD state proof.
+	data []byte,
+) (*BUDStateProof, error) {
 	if len(data) < 1 {
 		return nil, fmt.Errorf("serialized BUD state proof is empty")
 	}
@@ -113,30 +117,44 @@ func DeserializeBUDStateProof(data []byte) (*BUDStateProof, error) {
 
 // Key returns the key whose value the proof is about. The caller must not mutate it.
 func (p *BUDStateProof) Key() []byte {
-	return p.budProofs[0].budlet.key
+	_, budProof := p.firstPair()
+	return budProof.budlet.key
+}
+
+// ChainID returns the EVM chain ID of the chain the proof's blocks belong to.
+func (p *BUDStateProof) ChainID() uint64 {
+	ahd, _ := p.firstPair()
+	return ahd.ChainID()
 }
 
 // StartHeight returns the lowest block height the proof covers.
 func (p *BUDStateProof) StartHeight() uint64 {
-	return p.appHashData[0].BlockHeight()
+	ahd, _ := p.firstPair()
+	return ahd.BlockHeight()
 }
 
 // EndHeight returns the highest block height the proof covers. It equals StartHeight() for a proof of one BUD
 // proof.
 func (p *BUDStateProof) EndHeight() uint64 {
-	return p.appHashData[len(p.appHashData)-1].BlockHeight()
+	ahd, _ := p.lastPair()
+	return ahd.BlockHeight()
 }
 
 // ValueAt returns the value the key held at height, nil if the key was deleted, or false when the proof does not
 // cover height. The caller must not mutate the value.
-func (p *BUDStateProof) ValueAt(height uint64) ([]byte, bool) {
-	if height < p.StartHeight() || height > p.EndHeight() {
+func (p *BUDStateProof) ValueAt(
+	// The block height to look up.
+	height uint64,
+) ([]byte, bool) {
+	if len(p.budProofs) == 0 || height < p.StartHeight() || height > p.EndHeight() {
 		return nil, false
 	}
 	if height == p.EndHeight() {
-		return p.budProofs[len(p.budProofs)-1].budlet.value, true
+		_, budProof := p.lastPair()
+		return budProof.budlet.value, true
 	}
-	return p.budProofs[0].budlet.value, true
+	_, budProof := p.firstPair()
+	return budProof.budlet.value, true
 }
 
 // AppHashes returns the app hash of each BUD proof's block, in height order: the first is the app hash at
@@ -163,6 +181,46 @@ func (p *BUDStateProof) Serialize() []byte {
 	return serialized
 }
 
+// firstPair returns the app hash data and BUD proof of the lowest block the proof covers, or zero values when the
+// proof holds no pairs.
+func (p *BUDStateProof) firstPair() (*apphash.AppHashData, *BUDProof) {
+	if len(p.budProofs) == 0 {
+		return &apphash.AppHashData{}, &BUDProof{}
+	}
+	return p.appHashData[0], p.budProofs[0]
+}
+
+// lastPair returns the app hash data and BUD proof of the highest block the proof covers, or zero values when the
+// proof holds no pairs.
+func (p *BUDStateProof) lastPair() (*apphash.AppHashData, *BUDProof) {
+	if len(p.budProofs) == 0 {
+		return &apphash.AppHashData{}, &BUDProof{}
+	}
+	return p.appHashData[len(p.appHashData)-1], p.budProofs[len(p.budProofs)-1]
+}
+
+// checkPairsValid returns an error unless every app hash data and BUD proof is non-nil and every BUD proof is one
+// DeserializeBUDProof() could return.
+func checkPairsValid(
+	// The app hash data of each BUD proof's block, as many as budProofs.
+	appHashData []*apphash.AppHashData,
+	// The BUD proofs to check.
+	budProofs []*BUDProof,
+) error {
+	for i, budProof := range budProofs {
+		if appHashData[i] == nil {
+			return fmt.Errorf("app hash data %d is nil", i)
+		}
+		if budProof == nil {
+			return fmt.Errorf("BUD proof %d is nil", i)
+		}
+		if err := budProof.validate(); err != nil {
+			return fmt.Errorf("BUD proof %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 // checkBUDsMatchAppHashData returns an error unless each BUD proof computes the BUD in the app hash data at the
 // same position.
 func checkBUDsMatchAppHashData(
@@ -183,9 +241,13 @@ func checkBUDsMatchAppHashData(
 // checkConsecutiveWrites returns an error unless the second BUD proof's budlet is the next write, after the first's,
 // of the same key on the same chain.
 func checkConsecutiveWrites(
+	// The app hash data of the block holding the first write.
 	firstAppHashData *apphash.AppHashData,
+	// The BUD proof of the first write.
 	firstProof *BUDProof,
+	// The app hash data of the block holding the second write.
 	secondAppHashData *apphash.AppHashData,
+	// The BUD proof of the second write.
 	secondProof *BUDProof,
 ) error {
 	if !bytes.Equal(firstProof.budlet.key, secondProof.budlet.key) {
@@ -203,16 +265,15 @@ func checkConsecutiveWrites(
 		return fmt.Errorf("blocks are on chains %d and %d",
 			firstAppHashData.ChainID(), secondAppHashData.ChainID())
 	}
-	if firstAppHashData.Version() != secondAppHashData.Version() {
-		return fmt.Errorf("blocks have app hash versions %d and %d",
-			firstAppHashData.Version(), secondAppHashData.Version())
-	}
 	return nil
 }
 
 // readAppHashData parses the length-prefixed serialized app hash data at the start of data, returning it and the
 // bytes after it.
-func readAppHashData(data []byte) (*apphash.AppHashData, []byte, error) {
+func readAppHashData(
+	// Bytes that start with a length-prefixed serialized app hash data.
+	data []byte,
+) (*apphash.AppHashData, []byte, error) {
 	if len(data) < appHashDataLengthSize {
 		return nil, nil, fmt.Errorf("serialized BUD state proof ends before an app hash data length")
 	}

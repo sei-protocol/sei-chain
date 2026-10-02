@@ -48,6 +48,22 @@ func TestNewBUDTreeRejectsUnsortedBudlets(t *testing.T) {
 	}
 }
 
+func TestNewBUDTreeRejectsNilAndInvalidBudlets(t *testing.T) {
+	valid := newTestBudlet(t, "evm/a", []byte{0x01}, 0)
+	testCases := map[string][]*Budlet{
+		"nil budlet":          {nil},
+		"nil after a budlet":  {valid, nil},
+		"zero budlet":         {&Budlet{}},
+		"zero after a budlet": {valid, &Budlet{}},
+	}
+	for name, budlets := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewBUDTree(budlets)
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestBUDTreeSerializationRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
 	for count := 0; count <= 17; count++ {

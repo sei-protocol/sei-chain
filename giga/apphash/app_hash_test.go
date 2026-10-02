@@ -74,6 +74,17 @@ func TestHashGoldenVector(t *testing.T) {
 	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
 }
 
+func TestDeserializeGoldenVector(t *testing.T) {
+	serialized, err := hex.DecodeString(goldenSerialization)
+	require.NoError(t, err)
+
+	decoded, err := Deserialize(serialized)
+	require.NoError(t, err)
+	require.Equal(t, goldenData(), decoded)
+	hash := decoded.AppHash()
+	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
+}
+
 func TestRoundTrip(t *testing.T) {
 	original := goldenData()
 

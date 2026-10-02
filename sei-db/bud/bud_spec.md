@@ -30,6 +30,8 @@ blocks. It does not define where a BUD tree is stored, or how a reader comes to 
 - **BUD proof:** a budlet together with the proof that it is a leaf of the BUD tree under a given BUD.
 - **BUD state proof:** one or two BUD proofs of the same key, each paired with its block's app hash data,
   proving the key's value over a range of block heights.
+- **value at a height:** a key's value at height `h` is its value in the state after executing the block at
+  height `h`, or `⊥` if the key is absent from that state.
 
 ## Budlets
 
@@ -83,7 +85,6 @@ An implementation rejects, as an error, a budlet that does not follow the schema
 A decoder rejects, as an error:
 
 - input that ends before the end of a field
-- bytes after `previousHeight`
 - a deletion flag other than `0` or `1`
 - a set deletion flag with a non-zero value length
 - a key length of 0
@@ -175,7 +176,6 @@ an error:
 
 - input shorter than 9 bytes
 - input that ends before the `n`th budlet does
-- bytes after the `n`th budlet
 - any budlet the budlet decoder rejects
 - budlets whose keys are not strictly increasing
 
@@ -207,7 +207,15 @@ budlets  serialize(b[0])
          serialize(b[2])
 ```
 
-Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go).
+A block with no budlets has a root `R` of 32 zero bytes. Its serialized BUD tree is:
+
+```
+version  01
+n        0000000000000000
+```
+
+Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
+[`TestBUDSpecEmptyTreeVector`](bud_spec_vector_test.go).
 
 ## BUD
 
@@ -252,7 +260,14 @@ which is
 84f9b7bcac72e99f8e8da42848209a1ec0587f8b8d2b7c4c1e7ba7da9e3bd29f
 ```
 
-Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go).
+The BUD of a block with no budlets, with `n` = 0 and `R` 32 zero bytes, is
+
+```
+3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2
+```
+
+Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
+[`TestBUDSpecEmptyTreeVector`](bud_spec_vector_test.go).
 
 ## BUD proof
 
@@ -321,8 +336,7 @@ order:
 5. an `index` not less than `count`
 6. input that ends before the last sibling
 
-A decoder of a standalone BUD proof also rejects bytes after the last sibling. Each rejection is an error,
-distinct from a proof that decodes but computes the wrong BUD.
+Each rejection is an error, distinct from a proof that decodes but computes the wrong BUD.
 
 #### Computing the BUD
 
@@ -451,7 +465,6 @@ an error:
 - input that ends before a length prefix, or before the end of the app hash data it declares
 - app hash data the app hash decoder rejects
 - a BUD proof the BUD proof decoder rejects
-- bytes after the `n`th pair
 - pairs that violate the conditions above
 
 #### Trust

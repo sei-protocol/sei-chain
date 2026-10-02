@@ -70,12 +70,10 @@ type budProofClaim struct {
 func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProofClaim {
 	claims := make(map[string]budProofClaim)
 	alter := func(name string, change func(claim *budProofClaim)) {
-		budletCopy := *proof.budlet
-		budletCopy.key = bytes.Clone(proof.budlet.key)
-		// bytes.Clone keeps a nil value nil and an empty one non-nil, so deletions and empty writes stay apart.
-		budletCopy.value = bytes.Clone(proof.budlet.value)
 		proofCopy := *proof
-		proofCopy.budlet = &budletCopy
+		proofCopy.budlet.key = bytes.Clone(proof.budlet.key)
+		// bytes.Clone keeps a nil value nil and an empty one non-nil, so deletions and empty writes stay apart.
+		proofCopy.budlet.value = bytes.Clone(proof.budlet.value)
 		proofCopy.siblings = append([][32]byte(nil), proof.siblings...)
 		claim := budProofClaim{bud: bud, proof: &proofCopy}
 		change(&claim)

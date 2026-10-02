@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -45,7 +46,43 @@ type budGoldenFile struct {
 	Records []budGoldenRecord `json:"records"`
 
 	// Serialized BUD state proofs, each over one or two recorded writes of a key.
-	StateProofs []string `json:"stateProofs"`
+	StateProofs []budGoldenStateProof `json:"stateProofs"`
+}
+
+// budGoldenStateProof is one recorded BUD state proof and the answers it gives. Byte fields are lowercase hex.
+type budGoldenStateProof struct {
+	// The serialized BUD state proof.
+	Proof string `json:"proof"`
+
+	// The key the proof is about.
+	Key string `json:"key"`
+
+	// The EVM chain ID of the proof's blocks, as a decimal string.
+	ChainID string `json:"chainID"`
+
+	// The lowest block height the proof covers, as a decimal string.
+	StartHeight string `json:"startHeight"`
+
+	// The highest block height the proof covers, as a decimal string.
+	EndHeight string `json:"endHeight"`
+
+	// The app hash of each of the proof's blocks, in height order.
+	AppHashes []string `json:"appHashes"`
+
+	// The value the proof gives at the start height and at every height below the end height.
+	StartValue budGoldenValue `json:"startValue"`
+
+	// The value the proof gives at the end height.
+	EndValue budGoldenValue `json:"endValue"`
+}
+
+// budGoldenValue is one recorded value of a key. Byte fields are lowercase hex.
+type budGoldenValue struct {
+	// The value's bytes, empty for a deletion.
+	Value string `json:"value"`
+
+	// Whether the value is a deletion.
+	Deleted bool `json:"deleted"`
 }
 
 // budGoldenRecord is one recorded block: its budlets, its serialized BUD tree, its BUD, and the BUD proof of each
@@ -89,8 +126,7 @@ func TestBUDGolden(t *testing.T) {
 
 	paths, err := filepath.Glob(filepath.Join(budGoldenDir, "*.json"))
 	require.NoError(t, err)
-	require.Contains(t, paths, budGoldenFilePath(budVersion, budProofVersion, budStateProofVersion),
-		"no golden file for the current versions")
+	require.NotEmpty(t, paths, "no golden files in %s", budGoldenDir)
 
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -99,27 +135,41 @@ func TestBUDGolden(t *testing.T) {
 				file.BUDVersion, file.BUDProofVersion, file.BUDStateProofVersion)
 			require.Equal(t, versionsPath, path,
 				"golden file names different versions")
-			require.Equal(t, budVersion, file.BUDVersion, "this build does not produce that BUD version")
-			require.Equal(t, budProofVersion, file.BUDProofVersion,
-				"this build does not produce that BUD proof version")
-			require.Equal(t, budStateProofVersion, file.BUDStateProofVersion,
-				"this build does not produce that BUD state proof version")
+			current := file.BUDVersion == budVersion && file.BUDProofVersion == budProofVersion &&
+				file.BUDStateProofVersion == budStateProofVersion
 			require.NotEmpty(t, file.Records)
 
 			for i, record := range file.Records {
-				verifyBUDGoldenRecord(t, i, record)
+				verifyBUDGoldenRecord(t, i, current, record)
 			}
 			require.NotEmpty(t, file.StateProofs)
 			for i, stateProof := range file.StateProofs {
-				verifyBUDGoldenStateProof(t, i, stateProof)
+				verifyBUDGoldenStateProof(t, i, current, stateProof)
 			}
 		})
 	}
 }
 
-// verifyBUDGoldenRecord requires this build to reproduce the recorded BUD and BUD proofs, and every recorded BUD
-// proof to verify.
-func verifyBUDGoldenRecord(t *testing.T, index int, record budGoldenRecord) {
+// TestCurrentVersionsHaveGoldenFile requires a golden file for the BUD, BUD proof, and BUD state proof versions this
+// build produces.
+func TestCurrentVersionsHaveGoldenFile(t *testing.T) {
+	path := budGoldenFilePath(budVersion, budProofVersion, budStateProofVersion)
+	_, err := os.Stat(path)
+	require.NoError(t, err, "no golden file for the current versions; record %s with -bud-golden-record", path)
+}
+
+// verifyBUDGoldenRecord requires the recorded BUD tree and BUD proofs to deserialize to the recorded budlets and
+// compute the recorded BUD. A record of the current versions must also be reproduced by NewBUDTree() and
+// BuildBUDProof().
+func verifyBUDGoldenRecord(
+	t *testing.T,
+	// The position of the record in its golden file.
+	index int,
+	// Whether the record's golden file is of the versions this build produces.
+	current bool,
+	// The record to verify.
+	record budGoldenRecord,
+) {
 	t.Helper()
 
 	budlets := make([]*Budlet, 0, len(record.Budlets))
@@ -127,25 +177,16 @@ func verifyBUDGoldenRecord(t *testing.T, index int, record budGoldenRecord) {
 		budlets = append(budlets, decodeBUDGoldenBudlet(t, index, i, recorded))
 	}
 
-	tree, err := NewBUDTree(budlets)
-	require.NoError(t, err, "record %d", index)
-	require.Equal(t, record.Tree, hex.EncodeToString(tree.Serialize()), "record %d tree", index)
-	bud := tree.BUD()
-	require.Equal(t, record.BUD, hex.EncodeToString(bud[:]), "record %d BUD", index)
-
 	serializedTree, err := hex.DecodeString(record.Tree)
 	require.NoError(t, err, "record %d tree", index)
 	deserializedTree, err := DeserializeBUDTree(serializedTree)
 	require.NoError(t, err, "record %d tree", index)
-	require.Equal(t, bud, deserializedTree.BUD(), "record %d deserialized tree", index)
+	require.Equal(t, budlets, deserializedTree.Budlets(), "record %d deserialized tree", index)
+	bud := deserializedTree.BUD()
+	require.Equal(t, record.BUD, hex.EncodeToString(bud[:]), "record %d BUD", index)
 
 	require.Len(t, record.Proofs, len(budlets), "record %d", index)
 	for i, budlet := range budlets {
-		proof, found := tree.BuildBUDProof(budlet.Key())
-		require.True(t, found, "record %d budlet %d", index, i)
-		require.Equal(t, record.Proofs[i], hex.EncodeToString(proof.Serialize()),
-			"record %d budlet %d", index, i)
-
 		serialized, err := hex.DecodeString(record.Proofs[i])
 		require.NoError(t, err, "record %d budlet %d", index, i)
 		deserialized, err := DeserializeBUDProof(serialized)
@@ -153,17 +194,136 @@ func verifyBUDGoldenRecord(t *testing.T, index int, record budGoldenRecord) {
 		require.Equal(t, budlet, deserialized.Budlet(), "record %d budlet %d", index, i)
 		require.Equal(t, bud, deserialized.ComputeBUD(), "record %d budlet %d", index, i)
 	}
+
+	if !current {
+		return
+	}
+	tree, err := NewBUDTree(budlets)
+	require.NoError(t, err, "record %d", index)
+	require.Equal(t, record.Tree, hex.EncodeToString(tree.Serialize()), "record %d tree", index)
+	require.Equal(t, bud, tree.BUD(), "record %d BUD", index)
+	for i, budlet := range budlets {
+		proof, found := tree.BuildBUDProof(budlet.Key())
+		require.True(t, found, "record %d budlet %d", index, i)
+		require.Equal(t, record.Proofs[i], hex.EncodeToString(proof.Serialize()),
+			"record %d budlet %d", index, i)
+	}
 }
 
-// verifyBUDGoldenStateProof requires a recorded BUD state proof to deserialize and reserialize to the same bytes.
-func verifyBUDGoldenStateProof(t *testing.T, index int, recorded string) {
+// verifyBUDGoldenStateProof requires a recorded BUD state proof to deserialize and give the recorded key, chain ID,
+// heights, app hashes, and values. A state proof of the current versions must also serialize back to the recorded
+// bytes.
+func verifyBUDGoldenStateProof(
+	t *testing.T,
+	// The position of the state proof in its golden file.
+	index int,
+	// Whether the state proof's golden file is of the versions this build produces.
+	current bool,
+	// The recorded state proof.
+	recorded budGoldenStateProof,
+) {
 	t.Helper()
 
-	serialized, err := hex.DecodeString(recorded)
+	serialized, err := hex.DecodeString(recorded.Proof)
 	require.NoError(t, err, "state proof %d", index)
 	stateProof, err := DeserializeBUDStateProof(serialized)
 	require.NoError(t, err, "state proof %d", index)
-	require.Equal(t, recorded, hex.EncodeToString(stateProof.Serialize()), "state proof %d", index)
+	if current {
+		require.Equal(t, recorded.Proof, hex.EncodeToString(stateProof.Serialize()), "state proof %d", index)
+	}
+
+	require.Equal(t, recorded.Key, hex.EncodeToString(stateProof.Key()), "state proof %d key", index)
+	require.Equal(t, recorded.ChainID, strconv.FormatUint(stateProof.ChainID(), 10), "state proof %d", index)
+	require.Equal(t, recorded.StartHeight, strconv.FormatUint(stateProof.StartHeight(), 10),
+		"state proof %d", index)
+	require.Equal(t, recorded.EndHeight, strconv.FormatUint(stateProof.EndHeight(), 10), "state proof %d", index)
+	appHashes := make([]string, 0, len(stateProof.AppHashes()))
+	for _, appHash := range stateProof.AppHashes() {
+		appHashes = append(appHashes, hex.EncodeToString(appHash[:]))
+	}
+	require.Equal(t, recorded.AppHashes, appHashes, "state proof %d app hashes", index)
+
+	startValue := decodeBUDGoldenValue(t, recorded.StartValue)
+	endValue := decodeBUDGoldenValue(t, recorded.EndValue)
+	requireBUDGoldenValueAt(t, stateProof, stateProof.StartHeight(), startValue)
+	for height := stateProof.StartHeight(); height < stateProof.EndHeight(); height++ {
+		requireBUDGoldenValueAt(t, stateProof, height, startValue)
+	}
+	requireBUDGoldenValueAt(t, stateProof, stateProof.EndHeight(), endValue)
+	if stateProof.StartHeight() > 0 {
+		_, covered := stateProof.ValueAt(stateProof.StartHeight() - 1)
+		require.False(t, covered, "state proof %d below its start height", index)
+	}
+	if stateProof.EndHeight() < math.MaxUint64 {
+		_, covered := stateProof.ValueAt(stateProof.EndHeight() + 1)
+		require.False(t, covered, "state proof %d above its end height", index)
+	}
+}
+
+// requireBUDGoldenValueAt requires a BUD state proof to give want at height, telling a deletion apart from a write
+// of the empty value.
+func requireBUDGoldenValueAt(
+	t *testing.T,
+	// The state proof to ask.
+	stateProof *BUDStateProof,
+	// The height to ask about.
+	height uint64,
+	// The value the state proof must give, or nil for a deletion.
+	want []byte,
+) {
+	t.Helper()
+
+	value, covered := stateProof.ValueAt(height)
+	require.True(t, covered, "height %d", height)
+	require.Equal(t, want == nil, value == nil, "height %d deletion", height)
+	require.Equal(t, want, value, "height %d", height)
+}
+
+// decodeBUDGoldenValue decodes one recorded value, returning nil for a deletion and a non-nil slice for any write,
+// including a write of the empty value.
+func decodeBUDGoldenValue(t *testing.T, recorded budGoldenValue) []byte {
+	t.Helper()
+
+	value, err := hex.DecodeString(recorded.Value)
+	require.NoError(t, err, "value %q", recorded.Value)
+	switch {
+	case recorded.Deleted:
+		require.Empty(t, value, "deletion value")
+		return nil
+	case value == nil:
+		// A recorded write of the empty value must not become a deletion.
+		return []byte{}
+	}
+	return value
+}
+
+// newBUDGoldenValue returns the golden record of a value, nil for a deletion.
+func newBUDGoldenValue(value []byte) budGoldenValue {
+	return budGoldenValue{Value: hex.EncodeToString(value), Deleted: value == nil}
+}
+
+// newBUDGoldenStateProof returns the golden record of a BUD state proof and the answers it gives.
+func newBUDGoldenStateProof(t *testing.T, stateProof *BUDStateProof) budGoldenStateProof {
+	t.Helper()
+
+	startValue, covered := stateProof.ValueAt(stateProof.StartHeight())
+	require.True(t, covered)
+	endValue, covered := stateProof.ValueAt(stateProof.EndHeight())
+	require.True(t, covered)
+	recorded := budGoldenStateProof{
+		Proof:       hex.EncodeToString(stateProof.Serialize()),
+		Key:         hex.EncodeToString(stateProof.Key()),
+		ChainID:     strconv.FormatUint(stateProof.ChainID(), 10),
+		StartHeight: strconv.FormatUint(stateProof.StartHeight(), 10),
+		EndHeight:   strconv.FormatUint(stateProof.EndHeight(), 10),
+		AppHashes:   make([]string, 0, len(stateProof.AppHashes())),
+		StartValue:  newBUDGoldenValue(startValue),
+		EndValue:    newBUDGoldenValue(endValue),
+	}
+	for _, appHash := range stateProof.AppHashes() {
+		recorded.AppHashes = append(recorded.AppHashes, hex.EncodeToString(appHash[:]))
+	}
+	return recorded
 }
 
 // decodeBUDGoldenBudlet decodes one recorded budlet, failing the test if a field does not parse.
@@ -172,19 +332,10 @@ func decodeBUDGoldenBudlet(t *testing.T, recordIndex int, budletIndex int, recor
 
 	key, err := hex.DecodeString(recorded.Key)
 	require.NoError(t, err, "record %d budlet %d key", recordIndex, budletIndex)
-	value, err := hex.DecodeString(recorded.Value)
-	require.NoError(t, err, "record %d budlet %d value", recordIndex, budletIndex)
+	value := decodeBUDGoldenValue(t, budGoldenValue{Value: recorded.Value, Deleted: recorded.Deleted})
 	previousHeight, err := strconv.ParseUint(recorded.PreviousHeight, 10, 64)
 	require.NoError(t, err, "record %d budlet %d previous height", recordIndex, budletIndex)
 
-	switch {
-	case recorded.Deleted:
-		require.Empty(t, value, "record %d budlet %d deletion value", recordIndex, budletIndex)
-		value = nil
-	case value == nil:
-		// A recorded write of the empty value must not become a deletion.
-		value = []byte{}
-	}
 	budlet, err := NewBudlet(key, value, previousHeight)
 	require.NoError(t, err, "record %d budlet %d", recordIndex, budletIndex)
 	return budlet
@@ -192,7 +343,14 @@ func decodeBUDGoldenBudlet(t *testing.T, recordIndex int, budletIndex int, recor
 
 // budGoldenFilePath returns the path of the golden file for a combination of BUD, BUD proof, and BUD state proof
 // versions.
-func budGoldenFilePath(budVersion uint8, budProofVersion uint8, budStateProofVersion uint8) string {
+func budGoldenFilePath(
+	// The BUD version of the golden file.
+	budVersion uint8,
+	// The BUD proof version of the golden file.
+	budProofVersion uint8,
+	// The BUD state proof version of the golden file.
+	budStateProofVersion uint8,
+) string {
 	name := fmt.Sprintf("bud-v%d-proof-v%d-state-proof-v%d.json", budVersion, budProofVersion, budStateProofVersion)
 	return filepath.Join(budGoldenDir, name)
 }
@@ -227,7 +385,7 @@ func recordBUDGoldenFile(t *testing.T) {
 	require.NoError(t, err)
 	pair, err := NewBUDStateProof(writes.appHashData, writes.budProofs)
 	require.NoError(t, err)
-	file.StateProofs = []string{hex.EncodeToString(single.Serialize()), hex.EncodeToString(pair.Serialize())}
+	file.StateProofs = []budGoldenStateProof{newBUDGoldenStateProof(t, single), newBUDGoldenStateProof(t, pair)}
 	writeBUDGoldenFile(t, budGoldenFilePath(budVersion, budProofVersion, budStateProofVersion), file)
 }
 

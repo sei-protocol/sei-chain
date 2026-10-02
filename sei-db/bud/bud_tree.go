@@ -35,11 +35,15 @@ type BUDTree struct {
 	bud apphash.BUD
 }
 
-// NewBUDTree returns the BUD tree over one block's budlets, or an error if they are not strictly sorted by key.
+// NewBUDTree returns the BUD tree over one block's budlets. It returns an error unless every budlet is one
+// NewBudlet() would accept and the budlets are strictly sorted by key.
 func NewBUDTree(
 	// The block's budlets. Must be strictly sorted by key. Retained, so it must not be mutated afterward.
 	budlets []*Budlet,
 ) (*BUDTree, error) {
+	if err := checkBudletsValid(budlets); err != nil {
+		return nil, fmt.Errorf("creating BUD tree: %w", err)
+	}
 	if err := checkBudletsSortedByKey(budlets); err != nil {
 		return nil, fmt.Errorf("creating BUD tree: %w", err)
 	}
@@ -52,7 +56,10 @@ func NewBUDTree(
 // DeserializeBUDTree parses a BUD tree from the serialized BUD tree format. It returns an error unless data starts
 // with a supported BUD version, holds exactly the number of budlets it declares, and those budlets are ones
 // NewBUDTree() would accept.
-func DeserializeBUDTree(data []byte) (*BUDTree, error) {
+func DeserializeBUDTree(
+	// The serialized BUD tree.
+	data []byte,
+) (*BUDTree, error) {
 	if len(data) < 1 {
 		return nil, fmt.Errorf("serialized BUD tree is empty")
 	}
@@ -97,8 +104,11 @@ func (tree *BUDTree) Budlets() []*Budlet {
 }
 
 // BuildBUDProof returns the BUD proof of the budlet with key, or false when the tree holds no budlet with that
-// key.
-func (tree *BUDTree) BuildBUDProof(key []byte) (*BUDProof, bool) {
+// key. Each call rehashes the whole tree, so it costs as much as NewBUDTree().
+func (tree *BUDTree) BuildBUDProof(
+	// The key of the budlet to prove.
+	key []byte,
+) (*BUDProof, bool) {
 	index, found := slices.BinarySearchFunc(tree.budlets, key, func(budlet *Budlet, target []byte) int {
 		return bytes.Compare(budlet.key, target)
 	})
@@ -106,7 +116,7 @@ func (tree *BUDTree) BuildBUDProof(key []byte) (*BUDProof, bool) {
 		return nil, false
 	}
 	return &BUDProof{
-		budlet:   tree.budlets[index],
+		budlet:   *tree.budlets[index],
 		count:    uint64(len(tree.budlets)),
 		index:    uint64(index), //nolint:gosec // G115 - a slice index is never negative
 		siblings: budTreeSiblings(budLeafHashes(tree.budlets), index),
@@ -125,12 +135,20 @@ func (tree *BUDTree) Serialize() []byte {
 }
 
 // budLeafHash returns the hash of the BUD tree leaf holding budlet.
-func budLeafHash(budlet *Budlet) [32]byte {
+func budLeafHash(
+	// The budlet the leaf holds.
+	budlet *Budlet,
+) [32]byte {
 	return sha256.Sum256(append([]byte{budLeafPrefix}, budlet.Serialize()...))
 }
 
 // budInnerHash returns the hash of the BUD tree inner node with children left and right.
-func budInnerHash(left [32]byte, right [32]byte) [32]byte {
+func budInnerHash(
+	// The hash of the left child.
+	left [32]byte,
+	// The hash of the right child.
+	right [32]byte,
+) [32]byte {
 	var preimage [1 + 32 + 32]byte
 	preimage[0] = budInnerPrefix
 	copy(preimage[1:], left[:])
@@ -139,7 +157,10 @@ func budInnerHash(left [32]byte, right [32]byte) [32]byte {
 }
 
 // budLeafHashes returns the leaf hash of each budlet, in order.
-func budLeafHashes(budlets []*Budlet) [][32]byte {
+func budLeafHashes(
+	// The budlets to hash, in key order.
+	budlets []*Budlet,
+) [][32]byte {
 	hashes := make([][32]byte, len(budlets))
 	for i, budlet := range budlets {
 		hashes[i] = budLeafHash(budlet)
@@ -149,7 +170,10 @@ func budLeafHashes(budlets []*Budlet) [][32]byte {
 
 // nextBUDTreeLevel returns the BUD tree level above level: each adjacent pair hashed into its parent, and a
 // trailing unpaired node carried up unchanged.
-func nextBUDTreeLevel(level [][32]byte) [][32]byte {
+func nextBUDTreeLevel(
+	// The hashes of one level of a BUD tree, left to right. Must hold at least two.
+	level [][32]byte,
+) [][32]byte {
 	next := make([][32]byte, 0, (len(level)+1)/2)
 	for i := 0; i+1 < len(level); i += 2 {
 		next = append(next, budInnerHash(level[i], level[i+1]))

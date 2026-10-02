@@ -88,6 +88,7 @@ func TestBUDStateProofOfOneWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []byte(testStateKey), proof.Key())
+	require.Equal(t, uint64(testChainID), proof.ChainID())
 	require.Equal(t, uint64(testFirstHeight), proof.StartHeight())
 	require.Equal(t, uint64(testFirstHeight), proof.EndHeight())
 	require.Equal(t, [][32]byte{writes.appHashData[0].AppHash()}, proof.AppHashes())
@@ -105,6 +106,7 @@ func TestBUDStateProofOfConsecutiveWrites(t *testing.T) {
 	proof, err := NewBUDStateProof(writes.appHashData, writes.budProofs)
 	require.NoError(t, err)
 
+	require.Equal(t, uint64(testChainID), proof.ChainID())
 	require.Equal(t, uint64(testFirstHeight), proof.StartHeight())
 	require.Equal(t, uint64(testSecondHeight), proof.EndHeight())
 	appHashes := [][32]byte{writes.appHashData[0].AppHash(), writes.appHashData[1].AppHash()}
@@ -204,6 +206,39 @@ func TestNewBUDStateProofRejectsInconsistentPairs(t *testing.T) {
 			[]*apphash.AppHashData{first, withHeightAndChain(second, testSecondHeight, testChainID+1)},
 			writes.budProofs,
 		},
+	}
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewBUDStateProof(testCase.appHashData, testCase.budProofs)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestNewBUDStateProofRejectsNilAndInvalidPairs(t *testing.T) {
+	writes := newTestConsecutiveWrites(t, rand.New(rand.NewSource(13)), []byte("second value"))
+	first := writes.appHashData[0]
+	zeroProof := &BUDProof{}
+	// App hash data holding the BUD the zero proof computes, so that only the proof's validity is at fault.
+	zeroProofAppHashData := apphash.NewAppHashData(testChainID, testFirstHeight, first.BlockHash(),
+		first.StateHash(), zeroProof.ComputeBUD(), first.ReceiptHash(), first.PreviousAppHash())
+	missingSiblings := *writes.budProofs[0]
+	require.NotEmpty(t, missingSiblings.siblings)
+	missingSiblings.siblings = nil
+	indexOutOfRange := *writes.budProofs[0]
+	indexOutOfRange.index = indexOutOfRange.count
+
+	testCases := map[string]struct {
+		appHashData []*apphash.AppHashData
+		budProofs   []*BUDProof
+	}{
+		"nil app hash data":         {[]*apphash.AppHashData{nil}, writes.budProofs[:1]},
+		"nil BUD proof":             {writes.appHashData[:1], []*BUDProof{nil}},
+		"nil second app hash data":  {[]*apphash.AppHashData{first, nil}, writes.budProofs},
+		"nil second BUD proof":      {writes.appHashData, []*BUDProof{writes.budProofs[0], nil}},
+		"zero BUD proof":            {[]*apphash.AppHashData{zeroProofAppHashData}, []*BUDProof{zeroProof}},
+		"missing siblings":          {writes.appHashData[:1], []*BUDProof{&missingSiblings}},
+		"index not less than count": {writes.appHashData[:1], []*BUDProof{&indexOutOfRange}},
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {

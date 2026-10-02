@@ -31,24 +31,20 @@ func NewBudlet(
 	// The height of the block that last modified key before this one, or 0 if no block did.
 	previousHeight uint64,
 ) (*Budlet, error) {
-	if len(key) == 0 {
-		return nil, fmt.Errorf("creating budlet: key is empty")
+	budlet := &Budlet{key: key, value: value, previousHeight: previousHeight}
+	if err := budlet.validate(); err != nil {
+		return nil, fmt.Errorf("creating budlet: %w", err)
 	}
-	if uint64(len(key)) > math.MaxUint32 {
-		return nil, fmt.Errorf("creating budlet: key is %d bytes, more than %d",
-			len(key), uint64(math.MaxUint32))
-	}
-	if uint64(len(value)) > math.MaxUint32 {
-		return nil, fmt.Errorf("creating budlet: value is %d bytes, more than %d",
-			len(value), uint64(math.MaxUint32))
-	}
-	return &Budlet{key: key, value: value, previousHeight: previousHeight}, nil
+	return budlet, nil
 }
 
 // DeserializeBudlet parses a budlet from its serialization. It returns an error unless data is exactly one
 // serialized budlet that NewBudlet() would accept. The serialization carries no version:
 // the caller takes it from the BUD version of the BUD tree or BUD proof the budlet came with.
-func DeserializeBudlet(data []byte) (*Budlet, error) {
+func DeserializeBudlet(
+	// The serialized budlet.
+	data []byte,
+) (*Budlet, error) {
 	budlet, rest, err := readBudlet(data)
 	if err != nil {
 		return nil, fmt.Errorf("deserializing budlet: %w", err)
@@ -96,7 +92,10 @@ func (b *Budlet) Serialize() []byte {
 }
 
 // readBudlet parses the serialized budlet at the start of data, returning it and the bytes after it.
-func readBudlet(data []byte) (*Budlet, []byte, error) {
+func readBudlet(
+	// Bytes that start with a serialized budlet.
+	data []byte,
+) (*Budlet, []byte, error) {
 	if len(data) < 4 {
 		return nil, nil, fmt.Errorf("serialized budlet is %d bytes, too short to hold a key length", len(data))
 	}
@@ -137,8 +136,41 @@ func readBudlet(data []byte) (*Budlet, []byte, error) {
 	return budlet, rest, nil
 }
 
+// validate returns an error unless the budlet's key and value are within the bounds NewBudlet() accepts.
+func (b *Budlet) validate() error {
+	if len(b.key) == 0 {
+		return fmt.Errorf("key is empty")
+	}
+	if uint64(len(b.key)) > math.MaxUint32 {
+		return fmt.Errorf("key is %d bytes, more than %d", len(b.key), uint64(math.MaxUint32))
+	}
+	if uint64(len(b.value)) > math.MaxUint32 {
+		return fmt.Errorf("value is %d bytes, more than %d", len(b.value), uint64(math.MaxUint32))
+	}
+	return nil
+}
+
+// checkBudletsValid returns an error unless every budlet is non-nil and one NewBudlet() would accept.
+func checkBudletsValid(
+	// The budlets to check.
+	budlets []*Budlet,
+) error {
+	for i, budlet := range budlets {
+		if budlet == nil {
+			return fmt.Errorf("budlet %d is nil", i)
+		}
+		if err := budlet.validate(); err != nil {
+			return fmt.Errorf("budlet %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 // checkBudletsSortedByKey returns an error unless the budlets' keys are strictly increasing.
-func checkBudletsSortedByKey(budlets []*Budlet) error {
+func checkBudletsSortedByKey(
+	// The budlets to check.
+	budlets []*Budlet,
+) error {
 	for i := 1; i < len(budlets); i++ {
 		if bytes.Compare(budlets[i-1].key, budlets[i].key) >= 0 {
 			return fmt.Errorf("budlet %d: key %x does not follow key %x",

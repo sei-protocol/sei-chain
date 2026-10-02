@@ -48,3 +48,39 @@ func TestBUDDistinguishesDeletionFromEmptyValue(t *testing.T) {
 	empty := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{}, 0)})
 	require.NotEqual(t, deleted, empty)
 }
+
+func TestZeroValuesDoNotPanic(t *testing.T) {
+	var budlet Budlet
+	require.Nil(t, budlet.Key())
+	require.Nil(t, budlet.Value())
+	require.Zero(t, budlet.PreviousHeight())
+	_, err := DeserializeBudlet(budlet.Serialize())
+	require.Error(t, err)
+
+	var tree BUDTree
+	_ = tree.BUD()
+	require.Empty(t, tree.Budlets())
+	_, found := tree.BuildBUDProof([]byte("evm/a"))
+	require.False(t, found)
+	_ = tree.Serialize()
+
+	var proof BUDProof
+	_ = proof.ComputeBUD()
+	require.NotNil(t, proof.Budlet())
+	require.Zero(t, proof.Count())
+	require.Zero(t, proof.Index())
+	require.Empty(t, proof.Siblings())
+	_, err = DeserializeBUDProof(proof.Serialize())
+	require.Error(t, err)
+
+	var stateProof BUDStateProof
+	require.Nil(t, stateProof.Key())
+	require.Zero(t, stateProof.ChainID())
+	require.Zero(t, stateProof.StartHeight())
+	require.Zero(t, stateProof.EndHeight())
+	_, covered := stateProof.ValueAt(0)
+	require.False(t, covered)
+	require.Empty(t, stateProof.AppHashes())
+	_, err = DeserializeBUDStateProof(stateProof.Serialize())
+	require.Error(t, err)
+}
