@@ -3,6 +3,7 @@ package gigasim
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -180,6 +181,36 @@ func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int6
 	require.True(t, ok, "the newest lane block should be in the ledger")
 	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Payload().Txs()),
 		"each lane block carries one lane block's payload")
+}
+
+// TestResumeRefusesADifferentSuperblockSize pins both refusals of a directory whose lane blocks and
+// superblocks were written at a different LaneBlocksPerSuperblock: one lane block per commit, and a
+// different superblock size. The next lane block is not where the next superblock starts.
+func TestResumeRefusesADifferentSuperblockSize(t *testing.T) {
+	config := testConfig(t)
+	config.LaneBlocksPerSuperblock = 3
+	config.TransactionsPerBlock = 4
+	config.BytesPerTransaction = 32
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+	require.Positive(t, highest)
+	nextLane := highest*int64(config.LaneBlocksPerSuperblock) + 1
+	nextSuperblock := highest + 1
+
+	oneLane := *config
+	oneLane.LaneBlocksPerSuperblock = 1
+	_, err := NewGigaSim(t.Context(), &oneLane, NewGigasimMetrics())
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"the block store resumes at block %d but the state DB resumes at block %d",
+		nextLane, nextSuperblock))
+
+	other := *config
+	other.LaneBlocksPerSuperblock = 2
+	_, err = NewGigaSim(t.Context(), &other, NewGigasimMetrics())
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"the block store resumes at lane block %d but superblock %d starts at lane block %d",
+		nextLane, nextSuperblock, other.firstLaneBlock(nextSuperblock)))
 }
 
 // TestNativeTransfersRunThroughTheWholeStack pins that the native transfer workload drives every store

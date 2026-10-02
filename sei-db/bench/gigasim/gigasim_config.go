@@ -28,8 +28,8 @@ type GigasimConfig struct {
 	TransactionsPerBlock int
 
 	// How many lane blocks are executed and committed as one superblock. The block store advances once
-	// per lane block, and one QC covers the superblock. The state DB and the receipt store advance
-	// once per superblock. 1 commits each lane block on its own.
+	// per lane block; the state DB and the receipt store advance once per superblock. 1 commits each
+	// lane block on its own.
 	LaneBlocksPerSuperblock int
 
 	// The size of each simulated transaction in the block payload, in bytes. This governs the block
@@ -222,7 +222,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		Erc20GasPerTransaction:          50_000,
 		MaxTps:                          0,
 		MaxPendingExecutionQueueSize:    20,
-		FlushIntervalBlocks:             10,
+		FlushIntervalBlocks:             50,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
