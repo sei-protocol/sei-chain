@@ -29,12 +29,11 @@ type simulatedBlock struct {
 	// executor pool, so a superblock's transaction count is also its degree of parallelism.
 	transactions []*transaction
 
-	// The receipts written to the receipt store, in the form it takes them, empty when receipts are
-	// disabled. They are marshaled here because execution does not change them and its loop paces
-	// the run.
+	// The receipts written to the receipt store, empty when receipts are disabled. They are final
+	// when the block is built; execution does not change them.
 	receiptRecords []receipt.ReceiptRecord
 
-	// What those records marshaled to, which the run reports as bytes written.
+	// The total size of the receipt bodies, which the run reports as bytes written.
 	receiptBytes int64
 
 	// The transaction bytes of each lane block, packed as ledgerPayload lays them out, in the order
@@ -104,10 +103,6 @@ type blockGenerator struct {
 	// once that channel has drained, which is what orders the two.
 	failure error
 
-	// The keccak hasher every receipt's bloom is built with, held here because only this goroutine
-	// builds receipts.
-	receiptCache *receiptCache
-
 	// This goroutine's share of a block's critical path: building it and storing it.
 	lifecycle *metrics.PhaseTimer
 
@@ -144,7 +139,6 @@ func newBlockGenerator(
 		batch:           newStateBatch(maxWritesPerTransaction*config.transactionsPerSuperblock() + 1),
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
-		receiptCache:    newReceiptCache(),
 		lifecycle:       gigasimMetrics.NewBlockProducingTimer(),
 		blockStoreWrite: blockStoreWrite,
 		metrics:         gigasimMetrics,
@@ -236,13 +230,6 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	}
 	g.nextLane += int64(lanes)
 
-	var receipts *receiptBuffer
-	if g.config.EnableReceiptStore {
-		//nolint:gosec // G115 - validation keeps the gas positive
-		receipts = newReceiptBuffer(count, g.receiptCache, uint64(g.config.gasUsedBy(1)))
-		block.receiptRecords = receipts.records
-	}
-
 	for lane := range lanes {
 		for i := range perLane {
 			index := lane*perLane + i
@@ -253,16 +240,15 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 			block.transactions[index] = txn
 			g.stageTransactionWrites(txn)
 
-			if receipts != nil {
-				if err := receipts.build(index, g.accounts.Rand(), txn, number); err != nil {
-					return nil, err
-				}
+			// This receipt's draws follow the transaction, which is where the block's sequence takes them.
+			if g.config.EnableReceiptStore {
+				drawReceiptInputs(g.accounts.Rand(), txn.kind)
 			}
 		}
 		block.lanePayloads[lane] = ledgerPayload(g.accounts.Rand(), g.config)
 	}
-	if receipts != nil {
-		block.receiptBytes = receipts.encodedBytes
+	if g.config.EnableReceiptStore {
+		g.buildReceipts(block)
 	}
 
 	// Staged once, after the transactions, because they all name this one key: every transaction draws
@@ -274,6 +260,21 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	g.accounts.ReportEndOfBlock()
 	block.writes = g.batch.drainToChangeSet(g.accounts.Counters())
 	return block, nil
+}
+
+// buildReceipts fills the block's receipt records. It is its own phase of the block producing loop.
+func (g *blockGenerator) buildReceipts(block *simulatedBlock) {
+	g.lifecycle.SetPhase("generate_receipts")
+	defer g.lifecycle.SetPhase("generate")
+
+	count := len(block.transactions)
+	//nolint:gosec // G115 - validation keeps the gas positive
+	receipts := newReceiptBuffer(count, uint64(g.config.gasUsedBy(1)))
+	block.receiptRecords = receipts.records
+	for index := range block.transactions {
+		receipts.build(index, g.accounts.Rand(), block.number)
+	}
+	block.receiptBytes = receipts.encodedBytes
 }
 
 // stageTransactionWrites stages the writes one transfer makes: the sender's balance, then either the

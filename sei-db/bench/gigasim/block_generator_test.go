@@ -126,7 +126,6 @@ func TestReceiptGasMatchesTheReportedGas(t *testing.T) {
 
 			g := newTestGeneratorOfType(t, 32, transactionType)
 			g.config.EnableReceiptStore = true
-			g.receiptCache = newReceiptCache()
 
 			blk, err := g.buildBlock()
 			require.NoError(t, err)
