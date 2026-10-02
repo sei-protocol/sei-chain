@@ -227,8 +227,14 @@ func filterTransactions(
 	startOfBlockNonce := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
-	ctx := ctxProvider(block.Block.Height)
-	prevCtx := ctxProvider(block.Block.Height - 1)
+	ctx, err := ctxAtHeight(ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	prevCtx, err := ctxAtHeight(ctxProvider, block.Block.Height-1)
+	if err != nil {
+		return nil, err
+	}
 	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -409,6 +415,21 @@ func recoverAndLog() {
 		fmt.Printf("Panic recovered: %s\n", e)
 		debug.PrintStack()
 	}
+}
+
+// ctxAtHeight returns the context ctxProvider builds for height, or the error it
+// panics with when it cannot, e.g. historical state the node does not retain.
+func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			e, ok := r.(error)
+			if !ok {
+				panic(r)
+			}
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+		}
+	}()
+	return ctxProvider(height), nil
 }
 
 func must[V any](v V, err error) V {
