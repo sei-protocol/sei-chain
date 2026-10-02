@@ -1,6 +1,6 @@
 # Block Update Digest
 
-**Status:** draft. **BUD version:** 1. **BUD proof version:** 1. **BUD state proof version:** 1.
+**BUD version:** 1. **BUD proof version:** 1. **BUD state proof version:** 1.
 
 This document defines the Block Update Digest (BUD): a 32-byte commitment to the key-value writes a block
 makes. A block's BUD is the `bud` field of its [app hash](../apphash_spec.md). This document
