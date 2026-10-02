@@ -221,10 +221,20 @@ func TestExecutorEstimateGasReportsCancellationDistinctFromTimeout(t *testing.T)
 // it: PUSH1 0, MSTORE, PUSH1 32, PUSH1 0, RETURN.
 var contextOpcodeReturnSuffix = []byte{0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3}
 
+// contextOpcodeRevertSuffix stores the top stack word to memory and reverts
+// with it: PUSH1 0, MSTORE, PUSH1 32, PUSH1 0, REVERT.
+var contextOpcodeRevertSuffix = []byte{0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xfd}
+
 // pushReturns returns runtime bytecode that runs op with no stack input and
 // returns whatever it pushed.
 func pushReturns(op vm.OpCode) []byte {
 	return append([]byte{byte(op)}, contextOpcodeReturnSuffix...)
+}
+
+// pushReverts returns runtime bytecode that runs op with no stack input and
+// reverts with whatever it pushed.
+func pushReverts(op vm.OpCode) []byte {
+	return append([]byte{byte(op)}, contextOpcodeRevertSuffix...)
 }
 
 // TestExecutorEstimateGasContextOpcodesDoNotPanic covers every 0x30-0x4a
@@ -281,6 +291,77 @@ func TestExecutorEstimateGasContextOpcodesDoNotPanic(t *testing.T) {
 			_, _, err = executor.EstimateGas(t.Context(), blockContext(chainID), callMessage(sender, &contractAddr), 0)
 
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestExecutorEstimateGasHonorsCoinbaseAndBlobBaseFee(t *testing.T) {
+	coinbase := testAddress(0xe1)
+	blobBaseFee := big.NewInt(13)
+	cases := []struct {
+		name          string
+		op            vm.OpCode
+		blobGasFeeCap *big.Int
+		want          []byte
+	}{
+		{
+			name: "coinbase",
+			op:   vm.COINBASE,
+			want: common.LeftPadBytes(coinbase.Bytes(), 32),
+		},
+		{
+			name: "blob base fee",
+			op:   vm.BLOBBASEFEE,
+			want: common.LeftPadBytes(blobBaseFee.Bytes(), 32),
+		},
+		{
+			name:          "non-nil blob fee cap",
+			op:            vm.BLOBBASEFEE,
+			blobGasFeeCap: big.NewInt(1),
+			want:          common.LeftPadBytes(blobBaseFee.Bytes(), 32),
+		},
+		{
+			// A zero cap is the signal gasestimator uses to report a zero blob base fee.
+			name:          "explicit zero blob fee cap",
+			op:            vm.BLOBBASEFEE,
+			blobGasFeeCap: new(big.Int),
+			want:          make([]byte, 32),
+		},
+	}
+
+	chainID := big.NewInt(testChainID)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key, err := crypto.GenerateKey()
+			require.NoError(t, err)
+			sender := crypto.PubkeyToAddress(key.PublicKey)
+			contractAddr := crypto.CreateAddress(sender, 0)
+
+			state := NewMemoryState()
+			state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+			store := NewMemoryStore(state)
+			executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+
+			deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(pushReverts(tc.op)), 300_000)
+			_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
+				Context: blockContext(chainID),
+				Txs:     [][]byte{deploy},
+			})
+			require.NoError(t, err)
+
+			block := blockContext(chainID)
+			block.Coinbase = coinbase
+			block.BlobBaseFee = blobBaseFee
+			msg := callMessage(sender, &contractAddr)
+			msg.BlobGasFeeCap = tc.blobGasFeeCap
+			gasLimit := msg.GasLimit
+
+			_, revert, err := executor.EstimateGas(t.Context(), block, msg, 0)
+
+			require.ErrorIs(t, err, vm.ErrExecutionReverted)
+			require.Equal(t, tc.want, revert)
+			require.Equal(t, gasLimit, msg.GasLimit)
+			require.True(t, tc.blobGasFeeCap == msg.BlobGasFeeCap)
 		})
 	}
 }

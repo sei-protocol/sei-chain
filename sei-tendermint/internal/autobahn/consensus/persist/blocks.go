@@ -1,4 +1,3 @@
-// TODO: add Prometheus metrics for blocks written and truncated.
 package persist
 
 import (
@@ -41,6 +40,8 @@ type LoadedBlock struct {
 type laneWALState struct {
 	wal          seiwal.WAL[*types.Signed[*types.LaneProposal]]
 	nextBlockNum types.BlockNumber
+	// appended is the number of blocks accepted for append since the last successful flush.
+	appended uint64
 }
 
 // persistBlock schedules a proposal for the WAL and advances nextBlockNum. The block is not durable
@@ -52,10 +53,12 @@ func (s *laneWALState) persistBlock(proposal *types.Signed[*types.LaneProposal])
 	if s.nextBlockNum > 0 && h.BlockNumber() != s.nextBlockNum {
 		return fmt.Errorf("block %s/%d out of sequence (next=%d)", h.Lane(), h.BlockNumber(), s.nextBlockNum)
 	}
+	addMetricsRecords(walBlocks, stageAsked, 1)
 	if err := s.wal.Append(uint64(h.BlockNumber()), proposal); err != nil {
 		return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 	}
 	s.nextBlockNum = h.BlockNumber() + 1
+	s.appended++
 	return nil
 }
 
@@ -64,6 +67,8 @@ func (s *laneWALState) flush(lane types.LaneID) error {
 	if err := s.wal.Flush(); err != nil {
 		return fmt.Errorf("flush lane %s WAL: %w", lane, err)
 	}
+	addMetricsRecords(walBlocks, stagePersisted, s.appended)
+	s.appended = 0
 	return nil
 }
 

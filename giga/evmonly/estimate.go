@@ -7,11 +7,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/gasestimator"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -51,6 +53,7 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 		Header:            buildEstimateHeader(blockCtx),
 		State:             stateDB,
 		ErrorRatio:        estimateGasErrorRatio,
+		BlockOverrides:    estimateBlockOverrides(blockCtx),
 		CustomPrecompiles: customPrecompileMap(e.cfg.CustomPrecompiles),
 	}
 	estimate, revert, err := gasestimator.Estimate(estimateCtx, resolveBlobGasFeeCap(msg), opts, gasCap)
@@ -65,11 +68,26 @@ func (e *Executor) EstimateGas(ctx context.Context, blockCtx BlockContext, msg *
 	return estimate, revert, err
 }
 
-// resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg.
+// estimateBlockOverrides returns the coinbase and blob base fee gas estimation applies.
+func estimateBlockOverrides(ctx BlockContext) *export.BlockOverrides {
+	coinbase := ctx.Coinbase
+	overrides := &export.BlockOverrides{FeeRecipient: &coinbase}
+	if blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee); blobBaseFee != nil {
+		overrides.BlobBaseFee = (*hexutil.Big)(blobBaseFee)
+	}
+	return overrides
+}
+
+// resolveBlobGasFeeCap defaults a nil BlobGasFeeCap to zero on a copy of msg
+// when msg carries blob hashes.
 func resolveBlobGasFeeCap(msg *core.Message) *core.Message {
-	if msg.BlobGasFeeCap != nil {
+	if msg.BlobGasFeeCap != nil || len(msg.BlobHashes) == 0 {
 		return msg
 	}
+	// gasestimator.Estimate multiplies BlobGasFeeCap unchecked once BlobHashes
+	// is non-empty, so a nil value panics there. Leaving it nil otherwise lets
+	// the estimate honor the block's actual blob base fee instead of forcing it
+	// to zero.
 	clone := *msg
 	clone.BlobGasFeeCap = new(big.Int)
 	return &clone
@@ -105,6 +123,8 @@ type estimateEngine struct {
 	*ethash.Ethash
 }
 
+// Author returns the zero address. estimateBlockOverrides always sets
+// FeeRecipient, which overrides this value, so it is never observed.
 func (estimateEngine) Author(*ethtypes.Header) (common.Address, error) {
 	return common.Address{}, nil
 }
