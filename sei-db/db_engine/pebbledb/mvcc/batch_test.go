@@ -152,7 +152,12 @@ func TestChangesetBatchSize(t *testing.T) {
 		})
 	}
 
-	require.Zero(t, fillAllocs(t, changesetBatchSize(changesets, version)))
+	sized := fillAllocs(t, changesetBatchSize(changesets, version))
+	// AllocsPerRun counts every allocation in the process, and under -race
+	// other goroutines allocate often enough to show up in the average.
+	if !raceEnabled {
+		require.Zero(t, sized)
+	}
 	require.Positive(t, fillAllocs(t, 0))
 }
 
