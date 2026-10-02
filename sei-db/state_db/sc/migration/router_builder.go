@@ -19,11 +19,8 @@ type routerOptions struct {
 	telemetry bool
 }
 
-// WithoutTelemetry keeps the router's migration metrics local to the
-// MigrationManager instead of publishing them on the process-wide OTel
-// instruments. Read-only handles opened at historical heights use it: their
-// MigrationManager observes the migration state as of that height, and
-// publishing it would overwrite what the live manager reports.
+// WithoutTelemetry makes the router's MigrationManager keep its migration
+// metrics in process, without publishing them on the process-wide OTel instruments.
 func WithoutTelemetry() RouterOption {
 	return func(o *routerOptions) { o.telemetry = false }
 }

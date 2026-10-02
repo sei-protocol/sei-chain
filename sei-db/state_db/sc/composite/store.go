@@ -538,6 +538,8 @@ func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
 	var options []migration.RouterOption
 	if cs.derived {
+		// A derived store sees the migration state at its own height; publishing it would overwrite the
+		// live store's gauges.
 		options = append(options, migration.WithoutTelemetry())
 	}
 	router, err := migration.BuildRouter(
