@@ -115,7 +115,7 @@ func (*SignedAppProposal) MaxSize() int {
 	return 184
 }
 
-func (*ConsensusReq) MaxSize() int {
+func (*ConsensusMsg) MaxSize() int {
 	return 1111608
 }
 
@@ -363,8 +363,8 @@ func init() {
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
-	// Register the wireguard.Schema generated for autobahn.ConsensusReq.
-	runtime.MustRegister[*ConsensusReq](runtime.Schema{
+	// Register the wireguard.Schema generated for autobahn.ConsensusMsg.
+	runtime.MustRegister[*ConsensusMsg](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullProposal]())},
 		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
 		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
