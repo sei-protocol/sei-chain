@@ -742,8 +742,12 @@ type memiavlLeafStream struct {
 }
 
 func openMemiAVLEVMLeafStream(dbDir string, height int64, memiavlOpenMode string) (*memiavlLeafStream, error) {
-	switch memiavlOpenMode {
-	case "", memiavlOpenModeSnapshot:
+	openMode, err := canonicalMemiavlOpenMode(memiavlOpenMode)
+	if err != nil {
+		return nil, err
+	}
+	switch openMode {
+	case memiavlOpenModeSnapshot:
 		memEvmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
 		if err != nil {
 			return nil, err
@@ -779,7 +783,7 @@ func openMemiAVLEVMLeafStream(dbDir string, height int64, memiavlOpenMode string
 			version:     memReplayDB.Version(),
 			close:       func() { _ = memReplayDB.Close() },
 		}, nil
-	case memiavlOpenModeChangelog:
+	default: // memiavlOpenModeChangelog
 		overlay, r, err := readMemiavlEVMChangelogOverlay(dbDir, height)
 		if err != nil {
 			return nil, err
@@ -796,14 +800,20 @@ func openMemiAVLEVMLeafStream(dbDir string, height int64, memiavlOpenMode string
 			version:     r.Version,
 			close:       func() {},
 		}, nil
-	default:
-		return nil, fmt.Errorf("unknown --memiavl-open-mode %q (want snapshot|replay|changelog)", memiavlOpenMode)
 	}
 }
 
-// isMemiavlSnapshotOpenMode reports whether memiavlOpenMode selects the snapshot kvs scan.
-func isMemiavlSnapshotOpenMode(memiavlOpenMode string) bool {
-	return memiavlOpenMode == "" || memiavlOpenMode == memiavlOpenModeSnapshot
+// canonicalMemiavlOpenMode returns memiavlOpenModeSnapshot, memiavlOpenModeReplay, or
+// memiavlOpenModeChangelog for a --memiavl-open-mode value.
+func canonicalMemiavlOpenMode(memiavlOpenMode string) (string, error) {
+	switch memiavlOpenMode {
+	case "", memiavlOpenModeSnapshot:
+		return memiavlOpenModeSnapshot, nil
+	case memiavlOpenModeReplay, memiavlOpenModeChangelog:
+		return memiavlOpenMode, nil
+	default:
+		return "", fmt.Errorf("unknown --memiavl-open-mode %q (want snapshot|replay|changelog)", memiavlOpenMode)
+	}
 }
 
 // canonicalMemiavlNormalization returns memiavlNormSemantic or memiavlNormTranslator for a
@@ -888,17 +898,17 @@ func openCompositeMigrateEVMSource(flatKVDir, memIAVLDir string, height int64, m
 		version:         opened.Version(),
 		boundary:        boundary.String(),
 	}
+	memRows := "replayed memiavl rows"
 	switch memStream.openMode {
 	case memiavlOpenModeReplay:
 		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl read-only replay dir=%s", opened.Version(), memStream.source)
-		ctx.normalization = fmt.Sprintf("flatkv rows plus replayed memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memStream.version)
 	case memiavlOpenModeChangelog:
 		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl %s", opened.Version(), memStream.description)
-		ctx.normalization = fmt.Sprintf("flatkv rows plus replayed memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memStream.version)
 	default:
 		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl snapshot=%s", opened.Version(), memStream.source)
-		ctx.normalization = fmt.Sprintf("flatkv rows plus memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memStream.version)
+		memRows = "memiavl rows"
 	}
+	ctx.normalization = fmt.Sprintf("flatkv rows plus %s not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", memRows, boundary.String(), versionKnown, migrationVersion, memStream.version)
 	return &compositeMigrateEVMSource{
 		opened:   opened,
 		boundary: boundary,
@@ -1179,6 +1189,7 @@ func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir, flatKVDir, memIAVL
 	if err != nil {
 		return err
 	}
+	defer fanout.close()
 	switch backend {
 	case "flatkv":
 		return inspectFlatKV(dbDir, height, fanout)
@@ -1481,17 +1492,21 @@ func inspectMemIAVL(dbDir string, height int64, fanout *inspectFanout, normaliza
 	if err != nil {
 		return err
 	}
-	if normalization == memiavlNormTranslator && !isMemiavlSnapshotOpenMode(memiavlOpenMode) {
+	openMode, err := canonicalMemiavlOpenMode(memiavlOpenMode)
+	if err != nil {
+		return err
+	}
+	if normalization == memiavlNormTranslator && openMode != memiavlOpenModeSnapshot {
 		return fmt.Errorf("--inspect-bucket with --memiavl-normalization=translator does not support --memiavl-open-mode=%q", memiavlOpenMode)
 	}
 	if acc := fanout.storageDetailsList(); acc != nil {
-		if !isMemiavlSnapshotOpenMode(memiavlOpenMode) {
+		if openMode != memiavlOpenModeSnapshot {
 			return fmt.Errorf("--details storage memiavl inspect does not support --memiavl-open-mode=%q", memiavlOpenMode)
 		}
 		return inspectMemIAVLStorageDetails(dbDir, height, acc)
 	}
 
-	stream, err := openMemiAVLEVMLeafStream(dbDir, height, memiavlOpenMode)
+	stream, err := openMemiAVLEVMLeafStream(dbDir, height, openMode)
 	if err != nil {
 		return err
 	}

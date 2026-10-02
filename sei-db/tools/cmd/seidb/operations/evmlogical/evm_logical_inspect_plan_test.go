@@ -106,6 +106,35 @@ func TestEvmLogicalInspectPlanOmittedListLimitListsEveryMatch(t *testing.T) {
 	require.Equal(t, int(report.Matched), report.Listed)
 }
 
+// TestEvmLogicalInspectPlanCreatesOutputsBeforeTheScan requires a plan with an output that cannot
+// be created to fail before the scan writes any report.
+func TestEvmLogicalInspectPlanCreatesOutputsBeforeTheScan(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	outDir := t.TempDir()
+	first := filepath.Join(outDir, "account.json")
+	plan := writeInspectPlan(t, []map[string]any{
+		{"inspect_bucket": flatkvBucketAccount, "out": first},
+		{"inspect_bucket": flatkvBucketStorage, "out": filepath.Join(outDir, "missing", "storage.json")},
+	})
+	require.ErrorContains(t, runInspectPlan(t, goldenFlatKVSource(fx, goldenTipHeight), plan), "--inspect-plan item 1: create")
+
+	data, err := os.ReadFile(first)
+	require.NoError(t, err)
+	require.Empty(t, data)
+}
+
+// TestEvmLogicalInspectRefusesUnknownOpenModeFirst requires an unknown --memiavl-open-mode to be
+// named as unknown, before any check that depends on the open mode.
+func TestEvmLogicalInspectRefusesUnknownOpenModeFirst(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	for _, normalization := range []string{memiavlNormSemantic, memiavlNormTranslator} {
+		cmd := newEvmDigestGoldenCmd(t, goldenMemiavlSource(fx, goldenTipHeight, "bogus", normalization),
+			map[string]string{"inspect-bucket": flatkvBucketStorage})
+		captureDigestOutput(t, true)
+		require.ErrorContains(t, runEvmLogicalDigest(cmd, nil), `unknown --memiavl-open-mode "bogus"`, "normalization %s", normalization)
+	}
+}
+
 func TestEvmLogicalInspectPlanRefusesInvalidPlans(t *testing.T) {
 	fx := buildEvmDigestGoldenFixture(t)
 	source := goldenFlatKVSource(fx, goldenTipHeight)
@@ -131,6 +160,14 @@ func TestEvmLogicalInspectPlanRefusesInvalidPlans(t *testing.T) {
 			require.ErrorContains(t, runInspectPlan(t, source, writeInspectPlan(t, tc.plan)), tc.want)
 		})
 	}
+
+	t.Run("data after the item list", func(t *testing.T) {
+		data, err := json.Marshal([]any{item(func(map[string]any) {})})
+		require.NoError(t, err)
+		path := filepath.Join(t.TempDir(), "plan.json")
+		require.NoError(t, os.WriteFile(path, append(data, []byte(" junk")...), 0o600))
+		require.ErrorContains(t, runInspectPlan(t, source, path), "data after the item list")
+	})
 
 	t.Run("single inspect flag", func(t *testing.T) {
 		plan := writeInspectPlan(t, []any{item(func(map[string]any) {})})

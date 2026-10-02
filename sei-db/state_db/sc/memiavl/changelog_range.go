@@ -17,7 +17,9 @@ type TreeChangelogRange struct {
 	SnapshotDir string
 	// SnapshotVersion is the version of the snapshot at SnapshotDir.
 	SnapshotVersion int64
-	// Version is the version the replay reaches.
+	// StartVersion is the first version the replay applies above the snapshot.
+	StartVersion int64
+	// Version is the version the replay reaches. It is SnapshotVersion when nothing is replayed.
 	Version int64
 }
 
@@ -47,6 +49,7 @@ func ReplayTreeChangelog(
 	r := TreeChangelogRange{
 		SnapshotDir:     snapshotDir,
 		SnapshotVersion: metadata.CommitInfo.Version,
+		StartVersion:    utils.NextVersion(metadata.CommitInfo.Version, uint32(metadata.InitialVersion)),
 		Version:         metadata.CommitInfo.Version,
 	}
 
@@ -60,15 +63,14 @@ func ReplayTreeChangelog(
 		return TreeChangelogRange{}, err
 	}
 
-	startVersion := utils.NextVersion(r.SnapshotVersion, uint32(metadata.InitialVersion))
-	endVersion, err := span.replayEnd(startVersion, targetVersion)
+	endVersion, err := span.replayEnd(r.StartVersion, targetVersion)
 	if err != nil {
 		return TreeChangelogRange{}, fmt.Errorf("replay above snapshot %d: %w", r.SnapshotVersion, err)
 	}
-	if endVersion < startVersion {
+	if endVersion < r.StartVersion {
 		return r, nil
 	}
-	if err := replayTreeChangeSets(stream, span, startVersion, endVersion, treeName, fn); err != nil {
+	if err := replayTreeChangeSets(stream, span, r.StartVersion, endVersion, treeName, fn); err != nil {
 		return TreeChangelogRange{}, err
 	}
 	r.Version = endVersion

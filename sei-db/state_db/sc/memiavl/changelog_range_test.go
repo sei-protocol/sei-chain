@@ -3,6 +3,8 @@ package memiavl
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,11 +58,18 @@ func commitChangelogRangeBlock(t *testing.T, db *DB, changeSets ...*proto.NamedC
 // buildChangelogRangeDB writes changelogRangeBlocks with a snapshot at changelogRangeSnapshot.
 func buildChangelogRangeDB(t *testing.T) string {
 	t.Helper()
+	return buildChangelogRangeDBWithSnapshots(t, changelogRangeSnapshot)
+}
+
+// buildChangelogRangeDBWithSnapshots writes changelogRangeBlocks with a snapshot at each of
+// snapshots.
+func buildChangelogRangeDBWithSnapshots(t *testing.T, snapshots ...int64) string {
+	t.Helper()
 	dir := t.TempDir()
 	db := openChangelogRangeDB(t, dir, changelogRangeTree, changelogRangeOtherTree)
 	for i, pairs := range changelogRangeBlocks {
 		commitChangelogRangeBlock(t, db, &proto.NamedChangeSet{Name: changelogRangeTree, Changeset: proto.ChangeSet{Pairs: pairs}})
-		if int64(i+1) == changelogRangeSnapshot {
+		if slices.Contains(snapshots, int64(i+1)) {
 			require.NoError(t, db.RewriteSnapshot(context.Background()))
 		}
 	}
@@ -105,6 +114,35 @@ func TestReplayTreeChangelogMatchesOpenDB(t *testing.T) {
 		})
 		require.NoError(t, err, "target %d", target)
 		require.Equal(t, changelogRangeSnapshot, r.SnapshotVersion, "target %d", target)
+		require.Equal(t, wantVersion, r.Version, "target %d", target)
+		require.Equal(t, want, got, "target %d", target)
+	}
+}
+
+func TestReplayTreeChangelogStartsFromTheSnapshotOpenDBLoads(t *testing.T) {
+	dir := buildChangelogRangeDBWithSnapshots(t, 2, 4)
+	for _, snapshot := range []int64{2, 4} {
+		_, err := os.Stat(filepath.Join(dir, snapshotName(snapshot)))
+		require.NoError(t, err, "snapshot %d", snapshot)
+	}
+
+	for target, wantSnapshot := range map[int64]int64{3: 2, 5: 4} {
+		want, wantVersion := readTreeLeaves(t, dir, target)
+		got, _ := readTreeLeaves(t, dir, wantSnapshot)
+		r, err := ReplayTreeChangelog(dir, target, changelogRangeTree, func(_ int64, cs proto.ChangeSet) error {
+			for _, pair := range cs.Pairs {
+				if pair.Delete {
+					delete(got, string(pair.Key))
+				} else {
+					got[string(pair.Key)] = string(pair.Value)
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err, "target %d", target)
+		require.Equal(t, filepath.Join(dir, snapshotName(wantSnapshot)), r.SnapshotDir, "target %d", target)
+		require.Equal(t, wantSnapshot, r.SnapshotVersion, "target %d", target)
+		require.Equal(t, wantSnapshot+1, r.StartVersion, "target %d", target)
 		require.Equal(t, wantVersion, r.Version, "target %d", target)
 		require.Equal(t, want, got, "target %d", target)
 	}

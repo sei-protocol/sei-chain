@@ -60,10 +60,10 @@ func readMemiavlEVMChangelogOverlay(dbDir string, height int64) ([]memiavlOverla
 
 // changelogVersionsText names the changelog versions r replays above its snapshot.
 func changelogVersionsText(r memiavl.TreeChangelogRange) string {
-	if r.Version <= r.SnapshotVersion {
+	if r.Version < r.StartVersion {
 		return "no changelog versions"
 	}
-	return fmt.Sprintf("changelog versions %d to %d", r.SnapshotVersion+1, r.Version)
+	return fmt.Sprintf("changelog versions %d to %d", r.StartVersion, r.Version)
 }
 
 // scanMemiavlChangelogEVMLeaves streams the leaves of the memiavl EVM snapshot at evmSnapshotDir

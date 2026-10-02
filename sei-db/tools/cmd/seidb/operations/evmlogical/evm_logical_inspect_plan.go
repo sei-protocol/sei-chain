@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,11 +15,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
-// inspectTarget is one inspect report of a scan, written to out, or through digestOut when out
-// is empty.
+// inspectTarget is one inspect report of a scan, written to file at out, or through digestOut
+// when out is empty.
 type inspectTarget struct {
-	acc *inspectAccumulator
-	out string
+	acc  *inspectAccumulator
+	out  string
+	file *os.File
 }
 
 // inspectFanout feeds every row of one scan to each of its inspect accumulators.
@@ -43,7 +45,8 @@ func singleInspectFanout(acc *inspectAccumulator) *inspectFanout {
 	return &inspectFanout{targets: []inspectTarget{{acc: acc}}}
 }
 
-// loadInspectPlan returns a fanout with one accumulator for each item of the plan file at path.
+// loadInspectPlan returns a fanout with one accumulator for each item of the plan file at path,
+// with every output file created and truncated. The caller must close the fanout.
 func loadInspectPlan(path string) (*inspectFanout, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -54,6 +57,9 @@ func loadInspectPlan(path string) (*inspectFanout, error) {
 	var items []inspectPlanItem
 	if err := dec.Decode(&items); err != nil {
 		return nil, fmt.Errorf("decode --inspect-plan %s: %w", path, err)
+	}
+	if err := dec.Decode(&json.RawMessage{}); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("decode --inspect-plan %s: data after the item list", path)
 	}
 	if len(items) == 0 {
 		return nil, fmt.Errorf("--inspect-plan %s has no items", path)
@@ -72,7 +78,38 @@ func loadInspectPlan(path string) (*inspectFanout, error) {
 		outs[out] = i
 		f.targets = append(f.targets, inspectTarget{acc: acc, out: out})
 	}
+	if err := f.createOutputs(); err != nil {
+		f.close()
+		return nil, err
+	}
 	return f, nil
+}
+
+// createOutputs creates and truncates the output file of every target that has one, so that a
+// bad path fails before the scan.
+func (f *inspectFanout) createOutputs() error {
+	for i := range f.targets {
+		t := &f.targets[i]
+		if t.out == "" {
+			continue
+		}
+		file, err := os.OpenFile(t.out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			return fmt.Errorf("--inspect-plan item %d: create %s: %w", i, t.out, err)
+		}
+		t.file = file
+	}
+	return nil
+}
+
+// close closes every output file that emit did not write.
+func (f *inspectFanout) close() {
+	for i := range f.targets {
+		if f.targets[i].file != nil {
+			_ = f.targets[i].file.Close()
+			f.targets[i].file = nil
+		}
+	}
 }
 
 // accumulator returns the inspect accumulator the item describes.
@@ -203,14 +240,17 @@ func (f *inspectFanout) matched() uint64 {
 
 // emit writes the report of every accumulator.
 func (f *inspectFanout) emit(ctx digestPrintContext) error {
-	for _, t := range f.targets {
+	for i := range f.targets {
+		t := &f.targets[i]
 		if t.out == "" {
 			if err := t.acc.emit(ctx); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := writeInspectPlanReport(t, ctx); err != nil {
+		file := t.file
+		t.file = nil
+		if err := writeInspectPlanReport(file, *t, ctx); err != nil {
 			return err
 		}
 		digestOut.sayf("inspect plan: wrote %s bucket=%s key_prefix=%X matched=%d\n",
@@ -219,11 +259,8 @@ func (f *inspectFanout) emit(ctx digestPrintContext) error {
 	return nil
 }
 
-func writeInspectPlanReport(t inspectTarget, ctx digestPrintContext) (err error) {
-	file, err := os.OpenFile(t.out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("create inspect plan output: %w", err)
-	}
+// writeInspectPlanReport writes the report of t to file and closes file.
+func writeInspectPlanReport(file *os.File, t inspectTarget, ctx digestPrintContext) (err error) {
 	defer func() {
 		if cerr := file.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("close inspect plan output %s: %w", t.out, cerr)
