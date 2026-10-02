@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
@@ -429,6 +430,36 @@ func TestV68RewritesRetiredIBCProposals(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, app.GovKeeper.MustMarshalProposal(text), app.GovKeeper.MustMarshalProposal(kept))
 	require.Len(t, app.GovKeeper.GetProposals(ctx), 2)
+}
+
+// TestV68RetiredIBCProposalScanIsBounded pins that the v6.8 proposal rewrite
+// decodes nothing above app.RetiredIBCProposalIDLimit: a proposal at the limit is
+// still rewritten, while bytes stored just above it are neither decoded nor
+// touched, even when they would fail to decode.
+func TestV68RetiredIBCProposalScanIsBounded(t *testing.T) {
+	chain := newV68Chain(t)
+	ctx := chain.Ctx()
+	text, err := govtypes.NewProposal(
+		govtypes.NewTextProposal("edge", "at the limit", false), app.RetiredIBCProposalIDLimit, ctx.BlockTime(), ctx.BlockTime().Add(time.Hour), false)
+	require.NoError(t, err)
+	text.Content = &codectypes.Any{
+		TypeUrl: "/ibc.core.client.v1.ClientUpdateProposal",
+		Value:   v68EncodeStrings("edge", "at the limit", "07-tendermint-0", "07-tendermint-1"),
+	}
+	store := ctx.KVStore(chain.GetKey(govtypes.StoreKey))
+	store.Set(govtypes.ProposalKey(text.ProposalId), chain.GovKeeper.MustMarshalProposal(text))
+	undecodable := []byte{0xff, 0xff, 0xff}
+	store.Set(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1), undecodable)
+	store.Set(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1_000_000), undecodable)
+
+	require.NotPanics(t, func() { applyV68(t, chain) })
+
+	proposal, found := chain.GovKeeper.GetProposal(ctx, app.RetiredIBCProposalIDLimit)
+	require.True(t, found)
+	require.Equal(t, "/cosmos.gov.v1beta1.TextProposal", proposal.Content.TypeUrl)
+	require.Equal(t, "at the limit", proposal.GetContent().GetDescription())
+	require.Equal(t, undecodable, store.Get(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1)))
+	require.Equal(t, undecodable, store.Get(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1_000_000)))
 }
 
 // v68EncodeStrings protobuf-encodes the given values as consecutive string

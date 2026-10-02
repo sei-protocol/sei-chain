@@ -189,7 +189,7 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 // TODO: PushPrepareVote, PushCommitVote, and PushTimeoutVote should wait for the
 // vote's epoch when it is ahead of myView (ahead-within-epoch ingest is fine).
 
-// PushPrepareVote processes an unverified Prepare vote message.
+// The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
 	if !committee.HasReplica(vote.Key()) {
@@ -204,7 +204,7 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	return nil
 }
 
-// PushCommitVote processes an unverified CommitVote message.
+// The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
 	if !committee.HasReplica(vote.Key()) {

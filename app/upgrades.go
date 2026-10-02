@@ -28,6 +28,13 @@ var v68DeletedStores = append([]string{retiredoracle.ModuleName}, retiredIBCStor
 // whose decoders no longer exist.
 const retiredIBCProposalTypeURLPrefix = "/ibc."
 
+// RetiredIBCProposalIDLimit bounds the proposal scan at the v6.8 upgrade. IBC
+// proposal content types stopped being submittable at v6.7, when the highest
+// proposal ID on any Sei network was below 300, so proposals above this ID
+// cannot carry IBC content and are not decoded. The bound keeps the upgrade
+// block's work independent of how many proposals are submitted before it.
+const RetiredIBCProposalIDLimit uint64 = 1000
+
 // upgradedIBCStateKeyPrefix is the upgrade-store prefix under which the cosmos
 // upgrade module recorded planned IBC client state before IBC was retired.
 const upgradedIBCStateKeyPrefix = "upgradedIBCState/"
@@ -169,12 +176,16 @@ func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
 // rewriteRetiredIBCProposals replaces the content of every stored governance
 // proposal whose type lives under an IBC protobuf package with a TextProposal
 // carrying the original title and description. The proposal record, its
-// deposits, votes and tally indexes are left untouched.
+// deposits, votes and tally indexes are left untouched. Proposal keys sort by
+// big-endian ID, so the scan stops at RetiredIBCProposalIDLimit.
 func (app *App) rewriteRetiredIBCProposals(ctx sdk.Context) {
 	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
 	iterator := sdk.KVStorePrefixIterator(store, govtypes.ProposalsKeyPrefix)
 	var retired []govtypes.Proposal
 	for ; iterator.Valid(); iterator.Next() {
+		if govtypes.SplitProposalKey(iterator.Key()) > RetiredIBCProposalIDLimit {
+			break
+		}
 		var proposal govtypes.Proposal
 		if err := proposal.Unmarshal(iterator.Value()); err != nil {
 			panic(err)

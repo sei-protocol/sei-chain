@@ -675,6 +675,24 @@ func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestProposalAtView(t *testing.T) {
+	rng := utils.TestRng()
+	view := GenView(rng)
+	timestamp := utils.GenTimestamp(rng)
+	laneRanges := utils.GenSlice(rng, GenLaneRange)
+	globalFirst := GlobalBlockNumber(rng.Uint64())
+	p := newProposal(view, timestamp, laneRanges, globalFirst)
+
+	next := GenView(rng)
+	got := p.atView(next)
+	if err := utils.TestDiff(newProposal(next, timestamp, laneRanges, globalFirst), got); err != nil {
+		t.Fatal(err)
+	}
+	if err := utils.TestDiff(newProposal(view, timestamp, laneRanges, globalFirst), p); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProposalVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
