@@ -7,6 +7,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/cockroachdb/pebble/v2"
 
@@ -425,8 +427,135 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		if err := s.outOfBandSnapshot(); err != nil {
 			return fmt.Errorf("flatkv: SetInitialVersion: write seeded snapshot: %w", err)
 		}
+		// Recorded last, so a crash partway through the seed leaves no record. A missing record only makes
+		// heights at or below the seed fail to load, where one that outlived a torn seed would be trusted.
+		if err := writeSeededVersion(s.flatkvDir(), seededVersion); err != nil {
+			return fmt.Errorf("flatkv: SetInitialVersion: %w", err)
+		}
+		s.seededVersion = seededVersion
 	}
 	logger.Info("FlatKV SetInitialVersion", "initialVersion", initialVersion, "seededVersion", seededVersion)
+	return nil
+}
+
+// SeededVersion returns the version SetInitialVersion seeded this store at. The store holds no history at or
+// below it. ok is false when the store was seeded at genesis, imported, or seeded before the version was
+// recorded. The record is read and validated by LoadLatest.
+func (s *CommitStore) SeededVersion() (version int64, ok bool) {
+	return s.seededVersion, s.seededVersion > 0
+}
+
+// RecordSeededVersion records version as the height this store was seeded at, for a store seeded before
+// SetInitialVersion recorded it. It fails when the store's snapshots or WAL show history at or below version.
+func (s *CommitStore) RecordSeededVersion(version int64) error {
+	if s.readOnly {
+		return errReadOnly
+	}
+	if s.isClosed() {
+		return fmt.Errorf("flatkv: RecordSeededVersion called before LoadLatest")
+	}
+	if err := s.validateSeededVersion(version); err != nil {
+		return err
+	}
+	if err := writeSeededVersion(s.flatkvDir(), version); err != nil {
+		return fmt.Errorf("flatkv: RecordSeededVersion: %w", err)
+	}
+	s.seededVersion = version
+	return nil
+}
+
+// loadSeededVersion reads the seeded-version record of the open store, validates it and caches it.
+func (s *CommitStore) loadSeededVersion() error {
+	version, ok, err := readSeededVersion(s.flatkvDir())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		s.seededVersion = 0
+		return nil
+	}
+	if err := s.validateSeededVersion(version); err != nil {
+		return err
+	}
+	s.seededVersion = version
+	return nil
+}
+
+// validateSeededVersion checks a seeded version against the history the open store holds.
+func (s *CommitStore) validateSeededVersion(version int64) error {
+	// Only a record that is too high is dangerous: it would serve in-era heights without flatkv. One that is
+	// too low leaves the heights between it and the real seed failing to load, as with no record at all. The
+	// seeded snapshot is the floor of the store's history and the first WAL block follows it, so any history
+	// below the record disproves it.
+	if version <= 0 {
+		return fmt.Errorf("flatkv: %s holds %d, not a positive height", seededVersionFile, version)
+	}
+	if version > s.committedVersion {
+		return fmt.Errorf("flatkv: %s holds %d, above the store's version %d",
+			seededVersionFile, version, s.committedVersion)
+	}
+	var earliest int64
+	if err := traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+		earliest = v
+		return v > 0, nil
+	}); err != nil {
+		return fmt.Errorf("flatkv: list snapshots: %w", err)
+	}
+	// snapshot-0 is the empty genesis baseline every store starts from, so it says nothing about the seed.
+	if earliest > 0 && earliest < version {
+		return fmt.Errorf("flatkv: %s holds %d, but snapshot %d predates it",
+			seededVersionFile, version, earliest)
+	}
+	if s.wal != nil {
+		stored, first, _, err := s.wal.GetStoredRange()
+		if err != nil {
+			return fmt.Errorf("flatkv: WAL range: %w", err)
+		}
+		if stored && first <= uint64(version) { //nolint:gosec // version > 0
+			return fmt.Errorf("flatkv: %s holds %d, but the WAL holds block %d",
+				seededVersionFile, version, first)
+		}
+	}
+	return nil
+}
+
+// readSeededVersion reads the seeded-version record of the store under dir. ok is false when there is none.
+func readSeededVersion(dir string) (version int64, ok bool, err error) {
+	data, err := os.ReadFile(filepath.Join(dir, seededVersionFile)) //nolint:gosec // path under the store root
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("flatkv: read %s: %w", seededVersionFile, err)
+	}
+	version, err = strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil || version <= 0 {
+		return 0, false, fmt.Errorf("flatkv: %s holds %q, not a positive height", seededVersionFile, data)
+	}
+	return version, true, nil
+}
+
+// writeSeededVersion durably records version as the height the store under dir was seeded at.
+func writeSeededVersion(dir string, version int64) error {
+	path := filepath.Join(dir, seededVersionFile)
+	tmpPath := path + tmpSuffix
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600) //nolint:gosec // path under the store root
+	if err != nil {
+		return fmt.Errorf("create %s: %w", seededVersionFile, err)
+	}
+	_, err = f.WriteString(strconv.FormatInt(version, 10) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("write %s: %w", seededVersionFile, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install %s: %w", seededVersionFile, err)
+	}
 	return nil
 }
 

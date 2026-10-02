@@ -31,6 +31,7 @@ func main() {
 		operations.ReplayChangelogCmd(),
 		operations.TraceProfileReportCmd(),
 		operations.MigrateEvmStatusCmd(),
+		operations.FlatKVRecordSeededVersionCmd(),
 		operations.EvmLogicalDigestCmd(),
 		operations.KVRepairExportCmd(),
 		operations.HashLogCmd())

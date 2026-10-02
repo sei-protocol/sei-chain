@@ -173,6 +173,9 @@ type CommitStore struct {
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
 
+	// The version SetInitialVersion seeded this store at, 0 when none is recorded. See SeededVersion.
+	seededVersion int64
+
 	readOnlyWorkDir string // Temp working dir for readonly store; removed by Close.
 
 	// A work pool for reading from the DBs.
@@ -421,6 +424,10 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 	}()
 
 	if err := s.openTo(0); err != nil {
+		return fmt.Errorf("failed to open FlatKV store: %w", err)
+	}
+	if err := s.loadSeededVersion(); err != nil {
+		_ = s.closeDBsOnly()
 		return fmt.Errorf("failed to open FlatKV store: %w", err)
 	}
 	return nil
@@ -1511,6 +1518,12 @@ func (s *CommitStore) resetForImport() error {
 	if err := os.Remove(currentPath(dir)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
 	}
+
+	// An imported store's history starts at the imported version, not at any earlier seed.
+	if err := os.Remove(filepath.Join(dir, seededVersionFile)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", seededVersionFile, err)
+	}
+	s.seededVersion = 0
 
 	// The WAL is deliberately left alone. Import bypasses it, so a pre-existing WAL is stale relative to the
 	// imported version — but a state-sync restore is a manual procedure in which the operator stops the node

@@ -44,6 +44,7 @@ func (f *failingEVMStore) CommitStateChanges(int64, []*proto.NamedChangeSet) err
 }
 func (f *failingEVMStore) OpenView() gigatypes.StateView     { return nil }
 func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
+func (f *failingEVMStore) SeededVersion() (int64, bool)      { return 0, false }
 func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
