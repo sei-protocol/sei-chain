@@ -3,6 +3,7 @@ package gigasim
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,6 +29,8 @@ func testConfig(t *testing.T) *GigasimConfig {
 	config.DataDir = filepath.Join(t.TempDir(), "data")
 
 	config.TransactionsPerBlock = 10
+	// One lane block per commit, so a test's height is the same in every store.
+	config.LaneBlocksPerSuperblock = 1
 	config.BytesPerTransaction = 64
 	config.NumberOfHotAccounts = 5
 	config.MinimumNumberOfColdAccounts = 20
@@ -128,6 +131,86 @@ func TestBlocksLargerThanALedgerBlockAreStoredAndReopened(t *testing.T) {
 	require.True(t, ok, "the newest block should be in the ledger")
 	require.Len(t, block.Payload().Txs(), maxLedgerEntries, "the transactions are packed into the ledger's entries")
 	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Payload().Txs()))
+}
+
+// TestSuperblockWritesEveryLaneBlockAndCommitsOnce pins that a superblock stores each lane block and
+// commits the bundle once. The block store's height is the lane-block count; the state DB and the
+// receipt store sit at the superblock count. A second run appends on that same alignment.
+func TestSuperblockWritesEveryLaneBlockAndCommitsOnce(t *testing.T) {
+	config := testConfig(t)
+	config.LaneBlocksPerSuperblock = 3
+	config.TransactionsPerBlock = 4
+	config.BytesPerTransaction = 32
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+	assertSuperblockAlignment(t, config, highest)
+
+	resumed := runBlocks(t, config)
+	require.Greater(t, resumed, highest, "a second run should append to the first rather than restart it")
+	assertSuperblockAlignment(t, config, resumed)
+}
+
+// assertSuperblockAlignment checks that the stores of a superblock run reopen at the heights the
+// pipeline commits: one state and receipt version per superblock, and that many lane blocks each.
+func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int64) {
+	t.Helper()
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	lanes := uint64(config.LaneBlocksPerSuperblock) //nolint:gosec // the test's lane count is small
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest)*lanes, blockStoreHead, //nolint:gosec // test heights are small
+		"the block store should hold every lane block of every superblock")
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight(),
+		"the state DB should commit once per superblock")
+	require.Equal(t, highest, manager.ReceiptDB().LatestVersion(),
+		"the receipt store should commit once per superblock")
+
+	stored, err := manager.BlockStore().ReadBlockByNumber(autobahn.GlobalBlockNumber(blockStoreHead))
+	require.NoError(t, err)
+	block, ok := stored.Get()
+	require.True(t, ok, "the newest lane block should be in the ledger")
+	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Payload().Txs()),
+		"each lane block carries one lane block's payload")
+}
+
+// TestResumeRefusesADifferentSuperblockSize pins both refusals of a directory whose lane blocks and
+// superblocks were written at a different LaneBlocksPerSuperblock: one lane block per commit, and a
+// different superblock size. The next lane block is not where the next superblock starts.
+func TestResumeRefusesADifferentSuperblockSize(t *testing.T) {
+	config := testConfig(t)
+	config.LaneBlocksPerSuperblock = 3
+	config.TransactionsPerBlock = 4
+	config.BytesPerTransaction = 32
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+	require.Positive(t, highest)
+	nextLane := highest*int64(config.LaneBlocksPerSuperblock) + 1
+	nextSuperblock := highest + 1
+
+	oneLane := *config
+	oneLane.LaneBlocksPerSuperblock = 1
+	_, err := NewGigaSim(t.Context(), &oneLane, NewGigasimMetrics())
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"the block store resumes at block %d but the state DB resumes at block %d",
+		nextLane, nextSuperblock))
+
+	other := *config
+	other.LaneBlocksPerSuperblock = 2
+	_, err = NewGigaSim(t.Context(), &other, NewGigasimMetrics())
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"the block store resumes at lane block %d but superblock %d starts at lane block %d",
+		nextLane, nextSuperblock, other.firstLaneBlock(nextSuperblock)))
 }
 
 // TestNativeTransfersRunThroughTheWholeStack pins that the native transfer workload drives every store

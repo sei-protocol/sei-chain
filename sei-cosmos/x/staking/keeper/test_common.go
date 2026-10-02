@@ -2,7 +2,6 @@ package keeper // noalias
 
 import (
 	"bytes"
-	"math/rand"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
@@ -54,16 +53,4 @@ func TestingUpdateValidator(keeper Keeper, ctx sdk.Context, validator types.Vali
 	}
 
 	return validator
-}
-
-// RandomValidator returns a random validator given access to the keeper and ctx
-func RandomValidator(r *rand.Rand, keeper Keeper, ctx sdk.Context) (val types.Validator, ok bool) {
-	vals := keeper.GetAllValidators(ctx)
-	if len(vals) == 0 {
-		return types.Validator{}, false
-	}
-
-	i := r.Intn(len(vals))
-
-	return vals[i], true
 }

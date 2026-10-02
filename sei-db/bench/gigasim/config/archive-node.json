@@ -3,6 +3,8 @@
   "Seed": 1337,
   "DataDir": "~/gigasim/archive-node/data",
   "TransactionType": "erc20",
+  "TransactionsPerBlock": 2000,
+  "LaneBlocksPerSuperblock": 50,
   "EnableSS": true,
   "EnableReceiptStore": true,
   "LookbackWindow": -1

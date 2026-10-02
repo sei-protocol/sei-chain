@@ -170,9 +170,9 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) 
 	return nil
 }
 
-// writeCoveringQC writes the QC finalizing the range that starts at first.
+// writeCoveringQC writes the QC finalizing the single lane block at first.
 func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) error {
-	next := first + autobahn.GlobalBlockNumber(w.config.BlocksPerQc)
+	next := first + 1
 
 	w.phases.SetPhase("write_qc")
 	if err := w.store.WriteQC(autobahn.GenFullCommitQCRange(w.rng, first, next)); err != nil {
