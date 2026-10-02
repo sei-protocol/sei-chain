@@ -1,6 +1,7 @@
 package gigasim
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -22,9 +23,10 @@ const txHashHexLen = 2 + 2*hashLen
 // transferEventTopic is the ERC20 Transfer event signature, the first topic of a Transfer log.
 const transferEventTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-// The ranges the synthetic gas price and transfer amount are drawn from. drawReceiptInputs consumes
-// one draw from each range that applies to the transaction kind.
+// The ranges the synthetic transaction type, gas price, and transfer amount are drawn from.
+// drawReceiptInputs takes one draw from each range that applies to the transaction kind.
 const (
+	receiptTxTypeSpan   int64 = 5
 	receiptGasPriceSpan int64 = 9_000_000_000
 	receiptTransferSpan int64 = 10_000_000_000
 )
@@ -49,8 +51,18 @@ var txHashHexWidth = "0x" + hex.EncodeToString(make([]byte, hashLen))
 // addressHexWidth is an address of addressHexLen bytes, so a sized Transfer log includes one.
 var addressHexWidth = "0x" + hex.EncodeToString(make([]byte, keys.AddressLen))
 
-// transferLogData is the 32-byte amount a Transfer log carries.
-var transferLogData = make([]byte, hashLen)
+// receiptBloom is the logs bloom every receipt carries.
+var receiptBloom = bytes.Repeat([]byte{0xa5}, ethtypes.BloomByteLength)
+
+// sizingLogData is a 32-byte amount, so a sized Transfer log includes one.
+var sizingLogData = make([]byte, hashLen)
+
+// receiptDraw is the transaction type, gas price, and token amount one receipt records.
+type receiptDraw struct {
+	txType   uint32
+	gasPrice uint64
+	amount   uint64
+}
 
 // maxReceiptSize is the most bytes a receipt in a block of count transactions encodes to. The block
 // number and the transaction index are taken at their widest varint, so a later block still fits.
@@ -60,12 +72,18 @@ func maxReceiptSize(gasPerTransaction uint64, count int) int {
 		cumulative = math.MaxUint64
 	}
 	return (&evmtypes.Receipt{
+		TxType:            uint32(receiptTxTypeSpan - 1),
 		TxHashHex:         txHashHexWidth,
 		GasUsed:           gasPerTransaction,
+		EffectiveGasPrice: uint64(receiptGasPriceSpan - 1),
 		CumulativeGasUsed: cumulative,
 		BlockNumber:       math.MaxUint64,
 		TransactionIndex:  math.MaxUint32,
 		Status:            uint32(ethtypes.ReceiptStatusSuccessful),
+		From:              addressHexWidth,
+		To:                addressHexWidth,
+		ContractAddress:   addressHexWidth,
+		LogsBloom:         receiptBloom,
 		Logs:              []*evmtypes.Log{sizingTransferLog()},
 	}).Size()
 }
@@ -75,7 +93,7 @@ func sizingTransferLog() *evmtypes.Log {
 	return &evmtypes.Log{
 		Address: addressHexWidth,
 		Topics:  []string{transferEventTopic, txHashHexWidth, txHashHexWidth},
-		Data:    transferLogData,
+		Data:    sizingLogData,
 	}
 }
 
@@ -99,14 +117,17 @@ func writeSyntheticTxHash(dst []byte, rand *crand.CannedRandom, blockNumber int6
 	binary.BigEndian.PutUint64(dst[txHashPositionOffset:], uint64(position))
 }
 
-// drawReceiptInputs consumes the random draws that sit between one transaction and the next in the
-// block's sequence.
-func drawReceiptInputs(rand *crand.CannedRandom, kind transactionKind) {
-	_ = rand.Int64Range(0, 5)
-	_ = rand.Int64Range(0, receiptGasPriceSpan)
-	if kind != nativeTransfer {
-		_ = rand.Int64Range(0, receiptTransferSpan)
+// drawReceiptInputs draws the transaction type, gas price, and, for an ERC20 transfer, the token amount
+// that the receipt records.
+func drawReceiptInputs(rand *crand.CannedRandom, kind transactionKind) receiptDraw {
+	drawn := receiptDraw{
+		txType:   uint32(rand.Int64Range(0, receiptTxTypeSpan)),   //nolint:gosec // G115 - the range is [0, 5)
+		gasPrice: uint64(rand.Int64Range(0, receiptGasPriceSpan)), //nolint:gosec // G115 - the range is non-negative
 	}
+	if kind != nativeTransfer {
+		drawn.amount = uint64(rand.Int64Range(0, receiptTransferSpan)) //nolint:gosec // G115 - the range is non-negative
+	}
+	return drawn
 }
 
 // receiptBuffer holds one block's receipts. Each record's body is the encoding of its own receipt.
@@ -122,6 +143,7 @@ type receiptBuffer struct {
 	logs    []evmtypes.Log
 	logRefs []*evmtypes.Log
 	topics  []string
+	amounts []byte
 
 	// The gas every receipt in the block records, the same figure the block's gas totals and
 	// gigasim_gas_used_total count.
@@ -140,13 +162,14 @@ func newReceiptBuffer(count int, gasPerTransaction uint64) *receiptBuffer {
 		logs:              make([]evmtypes.Log, count),
 		logRefs:           make([]*evmtypes.Log, count),
 		topics:            make([]string, count*topicsPerTransferLog),
+		amounts:           make([]byte, count*hashLen),
 		gasPerTransaction: gasPerTransaction,
 	}
 }
 
-// build records the receipt for txn at index and encodes that receipt as its body. An ERC20 transfer
-// carries one Transfer log naming the contract, the sender and the recipient. A native transfer
-// carries no log. It does not draw from rand.
+// build records the receipt for txn at index and encodes that receipt as its body. It records txn.drawn,
+// the sender, and the recipient or the contract. An ERC20 transfer carries one Transfer log; a native
+// transfer carries none. It does not draw from rand.
 func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) error {
 	var txHash [hashLen]byte
 	writeSyntheticTxHash(txHash[:], rand, blockNumber, index)
@@ -154,15 +177,24 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	built := &b.storage[index]
 	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
 	*built = evmtypes.Receipt{
+		TxType:            txn.drawn.txType,
 		TxHashHex:         txHashHex(txHash[:]),
 		GasUsed:           b.gasPerTransaction,
+		EffectiveGasPrice: txn.drawn.gasPrice,
 		CumulativeGasUsed: uint64(index+1) * b.gasPerTransaction,
 		BlockNumber:       uint64(blockNumber),
 		TransactionIndex:  uint32(index),
 		Status:            uint32(ethtypes.ReceiptStatusSuccessful),
+		From:              addressHex(addressFromKey(txn.srcAccount)),
+		LogsBloom:         receiptBloom,
 	}
-	if txn.kind != nativeTransfer {
-		built.Logs = b.transferLog(index, txn)
+	if txn.kind == nativeTransfer {
+		built.To = addressHex(addressFromKey(txn.dstAccount))
+	} else {
+		contract := addressHex(addressFromKey(txn.erc20Contract))
+		built.To = contract
+		built.ContractAddress = contract
+		built.Logs = b.transferLog(index, txn, contract, txn.drawn.amount)
 	}
 	window := b.bodies[index*b.stride : (index+1)*b.stride]
 	n, err := built.MarshalToSizedBuffer(window)
@@ -180,20 +212,22 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	return nil
 }
 
-// transferLog is txn's ERC20 Transfer log: the contract as the emitter, and the sender and recipient
-// as indexed topics.
-func (b *receiptBuffer) transferLog(index int, txn *transaction) []*evmtypes.Log {
+// transferLog is txn's ERC20 Transfer log: contract as the emitter, the sender and recipient as indexed
+// topics, and amount as the 32-byte data.
+func (b *receiptBuffer) transferLog(index int, txn *transaction, contract string, amount uint64) []*evmtypes.Log {
 	sender := indexedAddressTopic(addressFromKey(txn.srcAccount))
 	recipient := indexedAddressTopic(addressFromKey(txn.dstAccount))
 	topics := b.topics[index*topicsPerTransferLog : (index+1)*topicsPerTransferLog]
 	topics[0] = transferEventTopic
 	topics[1] = txHashHex(sender[:])
 	topics[2] = txHashHex(recipient[:])
+	data := b.amounts[index*hashLen : (index+1)*hashLen]
+	binary.BigEndian.PutUint64(data[hashLen-8:], amount)
 
 	b.logs[index] = evmtypes.Log{
-		Address: addressHex(addressFromKey(txn.erc20Contract)),
+		Address: contract,
 		Topics:  topics,
-		Data:    transferLogData,
+		Data:    data,
 	}
 	b.logRefs[index] = &b.logs[index]
 	return b.logRefs[index : index+1]

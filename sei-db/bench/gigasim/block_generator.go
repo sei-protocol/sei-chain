@@ -242,7 +242,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 
 			// This receipt's draws follow the transaction, which is where the block's sequence takes them.
 			if g.config.EnableReceiptStore {
-				drawReceiptInputs(g.accounts.Rand(), txn.kind)
+				txn.drawn = drawReceiptInputs(g.accounts.Rand(), txn.kind)
 			}
 		}
 		block.lanePayloads[lane] = ledgerPayload(g.accounts.Rand(), g.config)
