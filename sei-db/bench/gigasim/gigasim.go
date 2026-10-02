@@ -101,6 +101,10 @@ func NewGigaSim(
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir())
 	fmt.Printf("The historical state store is %s and the receipt store is %s.\n",
 		enabledLabel(config.EnableSS), enabledLabel(config.EnableReceiptStore))
+	if config.LaneBlocksPerSuperblock > 1 {
+		fmt.Printf("Superblocks bundle %d lane blocks of %d transactions.\n",
+			config.LaneBlocksPerSuperblock, config.TransactionsPerBlock)
+	}
 
 	storageConfig, err := config.storageConfig()
 	if err != nil {
@@ -245,7 +249,7 @@ func assemble(
 	// phase once the flush behind those writes is done.
 	blockStoreWrite := metrics.NewBlockStoreWriteTimer()
 	blocks := newBlockStoreWriter(storage.BlockStore(), config, metrics, blockStoreWrite)
-	nextBlock, err := agreedNextBlockNumber(state, blocks)
+	nextBlock, err := agreedNextBlockNumber(config, state, blocks)
 	if err != nil {
 		state.Close()
 		return nil, err
@@ -304,18 +308,28 @@ func (g *GigaSim) stopExecutors() {
 	g.executorsRunning.Wait()
 }
 
-// agreedNextBlockNumber returns the height the next block commits at, refusing a data directory whose
-// block store and state DB disagree on where they left off. That gap is what a run which died without
-// draining leaves behind, and such a directory has to be cleaned rather than resumed.
-func agreedNextBlockNumber(state *executionState, blocks *blockStoreWriter) (int64, error) {
+// agreedNextBlockNumber returns the height the next superblock commits at, refusing a data directory
+// whose block store and state DB disagree on where they left off. Lane blocks and superblocks stay in
+// step: after superblock h the block store's next height is the first lane block of superblock h+1.
+// A gap is what a run which died without draining leaves behind, and such a directory has to be
+// cleaned rather than resumed.
+func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (int64, error) {
 	next := state.height() + 1
-	if blockStoreNext, ok := blocks.nextBlockNumber(); ok && blockStoreNext != next {
+	expectedLane := config.firstLaneBlock(next)
+	blockStoreNext, ok := blocks.nextBlockNumber()
+	if !ok || blockStoreNext == expectedLane {
+		return next, nil
+	}
+	if config.LaneBlocksPerSuperblock == 1 {
 		return 0, fmt.Errorf(
 			"the block store resumes at block %d but the state DB resumes at block %d; "+
 				"this data directory was left by an interrupted run and has to be cleaned to be reused",
 			blockStoreNext, next)
 	}
-	return next, nil
+	return 0, fmt.Errorf(
+		"the block store resumes at lane block %d but superblock %d starts at lane block %d; "+
+			"this data directory was left by an interrupted run and has to be cleaned to be reused",
+		blockStoreNext, next, expectedLane)
 }
 
 // setup brings the ERC20 contracts and the account population up to the configured size before
@@ -343,7 +357,7 @@ func (g *GigaSim) setupErc20Contracts() error {
 		}
 		g.accounts.CreateErc20Contract()
 		staged++
-		if staged >= g.config.TransactionsPerBlock {
+		if staged >= g.config.transactionsPerSuperblock() {
 			if err := g.finalizeSetupBlock(); err != nil {
 				return err
 			}
@@ -372,7 +386,7 @@ func (g *GigaSim) setupAccounts() error {
 		}
 		g.accounts.CreateAccount()
 		staged++
-		if staged >= g.config.TransactionsPerBlock {
+		if staged >= g.config.transactionsPerSuperblock() {
 			if err := g.finalizeSetupBlock(); err != nil {
 				return err
 			}
@@ -388,12 +402,16 @@ func (g *GigaSim) setupAccounts() error {
 	return nil
 }
 
-// finalizeSetupBlock commits the accounts and contracts staged so far as one block, carrying a payload
-// of the configured shape so the block store sees the same write volume it will during measurement.
+// finalizeSetupBlock commits the accounts and contracts staged so far as one superblock. Each lane
+// block carries a payload of the configured shape, so the block store sees the same write volume it
+// will during measurement.
 func (g *GigaSim) finalizeSetupBlock() error {
 	number := g.highestBlock.Load() + 1
-	if err := g.blocks.writeBlock(number, ledgerPayload(g.accounts.Rand(), g.config)); err != nil {
-		return err
+	firstLane := g.config.firstLaneBlock(number)
+	for i := range g.config.LaneBlocksPerSuperblock {
+		if err := g.blocks.writeBlock(firstLane+int64(i), ledgerPayload(g.accounts.Rand(), g.config)); err != nil {
+			return err
+		}
 	}
 	writes := g.state.drainSetupWrites(g.accounts.Counters())
 	if err := g.persistExecutionResults(number, nil, 0, writes); err != nil {
@@ -404,9 +422,9 @@ func (g *GigaSim) finalizeSetupBlock() error {
 	return nil
 }
 
-// run takes each generated block through execution and into the stores that record its results, until
-// the generator closes the channel. It ends on that close rather than on cancellation, so that a run
-// being shut down drains the blocks already in the ledger and leaves every store on one height.
+// run takes each generated superblock through execution and into the stores that record its results,
+// until the generator closes the channel. It ends on that close rather than on cancellation, so that a
+// run being shut down drains the superblocks already in the ledger and leaves the stores aligned.
 func (g *GigaSim) run() {
 	defer g.teardown()
 

@@ -4,6 +4,7 @@
   "DataDir": "~/gigasim/debug/data",
   "TransactionType": "erc20",
   "TransactionsPerBlock": 100,
+  "LaneBlocksPerSuperblock": 1,
   "MaxTps": 1000,
   "MinimumNumberOfColdAccounts": 2000,
   "MinimumNumberOfDormantAccounts": 2000,

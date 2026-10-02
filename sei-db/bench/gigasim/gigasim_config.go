@@ -21,14 +21,19 @@ var _ utils.Config = (*GigasimConfig)(nil)
 // these names exactly, and anything left out keeps its default.
 type GigasimConfig struct {
 
-	// The number of transactions in each simulated block. Every transaction is executed against the
-	// state DB and contributes BytesPerTransaction bytes to the block payload written to the block store.
-	// A block may carry more transactions than a ledger block has payload entries; they are then packed
-	// several to an entry.
+	// The number of transactions in each lane block written to the block store. Every transaction is
+	// executed against the state DB and contributes BytesPerTransaction bytes to that lane block's
+	// payload. A lane block may carry more transactions than the ledger has payload entries; they are
+	// then packed several to an entry.
 	TransactionsPerBlock int
 
+	// How many lane blocks are executed and committed as one superblock. The block store advances once
+	// per lane block; the state DB and the receipt store advance once per superblock. 1 commits each
+	// lane block on its own.
+	LaneBlocksPerSuperblock int
+
 	// The size of each simulated transaction in the block payload, in bytes. This governs the block
-	// store's write volume and is independent of the state each transaction touches. A block's
+	// store's write volume and is independent of the state each transaction touches. One lane block's
 	// transactions together must fit the ledger's payload byte budget.
 	BytesPerTransaction int
 
@@ -40,19 +45,15 @@ type GigasimConfig struct {
 	// transaction cost. It fills each block's gas totals and is what the reported gas throughput counts.
 	Erc20GasPerTransaction int
 
-	// Throttle block production to this many transactions per second, a whole block's worth at a time.
-	// 0 means unthrottled.
+	// Throttle block production to this many transactions per second, a whole superblock's worth at a
+	// time. 0 means unthrottled.
 	MaxTps float64
-
-	// The number of blocks finalized by each generated QC. One QC is written per batch of this many
-	// blocks, matching how consensus commits a range at a time.
-	BlocksPerQc uint64
 
 	// The capacity of the queue holding generated blocks waiting to be executed. A larger queue lets
 	// the generator run further ahead of the pipeline.
 	MaxPendingExecutionQueueSize int
 
-	// How often to flush the block store, in blocks. 0 never flushes explicitly.
+	// How often to flush the block store, in lane blocks. 0 never flushes explicitly.
 	FlushIntervalBlocks int
 
 	// The number of hot accounts to create before the benchmark starts. Hot accounts are chosen far
@@ -211,17 +212,17 @@ type GigasimConfig struct {
 }
 
 // DefaultGigasimConfig returns the configuration a run takes when its file sets nothing: a full node's
-// stack driven at the largest block consensus accepts.
+// stack executing superblocks of 50 lane blocks of 2,000 transactions.
 func DefaultGigasimConfig() *GigasimConfig {
 	return &GigasimConfig{
-		TransactionsPerBlock:            10_000,
+		TransactionsPerBlock:            2_000,
+		LaneBlocksPerSuperblock:         50,
 		BytesPerTransaction:             200,
 		TransactionType:                 transactionTypeErc20,
 		Erc20GasPerTransaction:          50_000,
 		MaxTps:                          0,
-		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    20,
-		FlushIntervalBlocks:             1,
+		FlushIntervalBlocks:             50,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
@@ -231,7 +232,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		NewAccountDormantProbability:    0.9,
 		MinimumNumberOfErc20Contracts:   1_000,
 		HotErc20ContractSetSize:         10,
-		HotErc20ContractProbability:     0.5,
+		HotErc20ContractProbability:     0.9,
 		Erc20ContractSize:               2048,
 		Erc20InteractionsPerAccount:     8,
 		RollbackWindow:                  1_000,
@@ -257,9 +258,9 @@ func DefaultGigasimConfig() *GigasimConfig {
 		BlockProfileRate:                0,
 		BackgroundMetricsScrapeInterval: 60,
 		LittMetricsEnabled:              true,
-		AccountCacheSizeBytes:           unit.GB,
+		AccountCacheSizeBytes:           2 * unit.GB,
 		CodeCacheSizeBytes:              unit.GB,
-		StorageCacheSizeBytes:           4 * unit.GB,
+		StorageCacheSizeBytes:           8 * unit.GB,
 		EnableSuspension:                true,
 		LogLevel:                        "info",
 	}
@@ -281,10 +282,21 @@ func (c *GigasimConfig) LogFile() string {
 	return filepath.Join(c.LogDir(), logFileName)
 }
 
-// blockPayloadBytes is the size of one generated block's payload: the transaction bytes a real block
-// of this shape would carry.
+// blockPayloadBytes is the size of one lane block's payload: the transaction bytes a real block of
+// this shape would carry.
 func (c *GigasimConfig) blockPayloadBytes() int {
 	return c.TransactionsPerBlock * c.BytesPerTransaction
+}
+
+// transactionsPerSuperblock is the number of transactions executed and committed together.
+func (c *GigasimConfig) transactionsPerSuperblock() int {
+	return c.TransactionsPerBlock * c.LaneBlocksPerSuperblock
+}
+
+// firstLaneBlock is the block store height of the first lane block in superblock. Superblock heights
+// and lane-block heights both start at 1.
+func (c *GigasimConfig) firstLaneBlock(superblock int64) int64 {
+	return (superblock-1)*int64(c.LaneBlocksPerSuperblock) + 1
 }
 
 // The values TransactionType takes.
@@ -377,12 +389,19 @@ func (c *GigasimConfig) Validate() error {
 // validateBlockShape checks the generated block against the ledger's payload budget and the simulation's
 // own ceilings, so the benchmark cannot be configured to write blocks the ledger would refuse.
 func (c *GigasimConfig) validateBlockShape() error {
-	// The transaction count is not held to the ledger's entry limit, since ledgerPayload packs a block's
-	// transactions into as few entries as that limit requires. Synthetic transaction hashes give each
-	// block txIDBlockStride identifiers, which is the ceiling instead.
-	if c.TransactionsPerBlock < 1 || int64(c.TransactionsPerBlock) > txIDBlockStride {
-		return fmt.Errorf("TransactionsPerBlock must be in [1, %d] (got %d)",
-			txIDBlockStride, c.TransactionsPerBlock)
+	// The transaction count is not held to the ledger's entry limit, since ledgerPayload packs a lane
+	// block's transactions into as few entries as that limit requires. Synthetic transaction hashes give
+	// each superblock txIDBlockStride identifiers, which is the ceiling on the bundle instead.
+	if c.LaneBlocksPerSuperblock < 1 {
+		return fmt.Errorf("LaneBlocksPerSuperblock must be at least 1 (got %d)", c.LaneBlocksPerSuperblock)
+	}
+	if c.TransactionsPerBlock < 1 {
+		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
+	}
+	// Each factor is bounded before the product is taken, so the multiplication stays inside int64.
+	if int64(c.TransactionsPerBlock) > txIDBlockStride/int64(c.LaneBlocksPerSuperblock) {
+		return fmt.Errorf("TransactionsPerBlock*LaneBlocksPerSuperblock must be at most %d (got %d*%d)",
+			txIDBlockStride, c.TransactionsPerBlock, c.LaneBlocksPerSuperblock)
 	}
 	// Each factor is bounded before the product is taken, both because a single oversized transaction is
 	// its own error and because it keeps the multiplication below well inside the range of an int.
@@ -402,9 +421,6 @@ func (c *GigasimConfig) validateBlockShape() error {
 	}
 	if c.Erc20GasPerTransaction < 1 {
 		return fmt.Errorf("Erc20GasPerTransaction must be at least 1 (got %d)", c.Erc20GasPerTransaction)
-	}
-	if c.BlocksPerQc < 1 {
-		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)
 	}
 	if c.MaxPendingExecutionQueueSize < 1 {
 		return fmt.Errorf("MaxPendingExecutionQueueSize must be at least 1 (got %d)",
