@@ -180,3 +180,6 @@ App hash, i.e. SHA-256 of `"sei-apphash"` followed by the serialization:
 ```
 5cc80f7617e8286151501cfccacbf5bc8b60826b7e224832519b84bdfef6c533
 ```
+
+Verified by [`TestSerializeLayout`](app_hash_test.go) (serialization) and
+[`TestHashGoldenVector`](app_hash_test.go) (app hash).
