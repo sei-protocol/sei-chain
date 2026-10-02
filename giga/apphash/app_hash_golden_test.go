@@ -126,7 +126,7 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 	require.Equal(t, blockHeight, decoded.BlockHeight(), "record %d", index)
 	require.Equal(t, blockHash, decoded.BlockHash(), "record %d", index)
 	require.Equal(t, stateHash, decoded.StateHash(), "record %d", index)
-	require.Equal(t, bud, decoded.BUD(), "record %d", index)
+	require.Equal(t, BUD(bud), decoded.BUD(), "record %d", index)
 	require.Equal(t, receiptHash, decoded.ReceiptHash(), "record %d", index)
 	require.Equal(t, previousAppHash, decoded.PreviousAppHash(), "record %d", index)
 	require.Equal(t, serialization, decoded.Serialize(), "record %d", index)
