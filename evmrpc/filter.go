@@ -269,7 +269,6 @@ type FilterAPI struct {
 	tmClient            client.LocalClient
 	filtersMu           sync.RWMutex
 	filters             map[ethrpc.ID]filter
-	toDelete            chan ethrpc.ID
 	filterConfig        *FilterConfig
 	logFetcher          *LogFetcher
 	connectionType      ConnectionType
@@ -345,7 +344,6 @@ func NewFilterAPI(
 		tmClient:            tmClient,
 		filtersMu:           sync.RWMutex{},
 		filters:             filters,
-		toDelete:            make(chan ethrpc.ID, 1000),
 		filterConfig:        filterConfig,
 		logFetcher:          logFetcher,
 		connectionType:      connectionType,
@@ -415,7 +413,6 @@ func (a *FilterAPI) takeBlockHashes(filterID ethrpc.ID) ([]common.Hash, error) {
 	return hashes, nil
 }
 
-// Unified cleanup loop that handles both timeout and manual deletion
 func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
 	ticker := time.NewTicker(timeout / 2) // Check more frequently than timeout
 	defer func() {
@@ -430,9 +427,6 @@ func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
 		case <-ticker.C:
 			// Clean up expired filters
 			a.cleanupExpiredFilters(timeout)
-		case filterID := <-a.toDelete:
-			// Handle manual filter deletion
-			a.removeFilter(filterID)
 		}
 	}
 }
@@ -465,16 +459,19 @@ func (a *FilterAPI) cleanupExpiredFilters(timeout time.Duration) {
 	}
 }
 
-func (a *FilterAPI) removeFilter(filterID ethrpc.ID) {
+func (a *FilterAPI) removeFilter(filterID ethrpc.ID) bool {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 
-	if filter, exists := a.filters[filterID]; exists {
-		delete(a.filters, filterID)
-		if filter.cancelFunc != nil {
-			filter.cancelFunc()
-		}
+	filter, exists := a.filters[filterID]
+	if !exists {
+		return false
 	}
+	delete(a.filters, filterID)
+	if filter.cancelFunc != nil {
+		filter.cancelFunc()
+	}
+	return true
 }
 
 func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
@@ -782,25 +779,7 @@ func (a *FilterAPI) UninstallFilter(
 	defer func() {
 		recordMetrics(ctx, fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, startTime)
 	}()
-
-	// Check if filter exists
-	a.filtersMu.RLock()
-	_, found := a.filters[filterID]
-	a.filtersMu.RUnlock()
-
-	if !found {
-		return false
-	}
-
-	// Queue for deletion in cleanup loop to avoid race conditions
-	select {
-	case a.toDelete <- filterID:
-		return true
-	default:
-		// Channel is full, fall back to direct deletion
-		a.removeFilter(filterID)
-		return true
-	}
+	return a.removeFilter(filterID)
 }
 
 // shutdown method for graceful shutdown
@@ -816,8 +795,6 @@ func (a *FilterAPI) shutdown() {
 	}
 	a.filters = make(map[ethrpc.ID]filter)
 	a.filtersMu.Unlock()
-
-	close(a.toDelete)
 }
 
 type LogFetcher struct {
