@@ -464,14 +464,23 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	}
 }
 
-// GenFullCommitQCRange generates a FullCommitQC whose GlobalRange is
-// [first, next) and which is internally consistent (First + len(headers) ==
-// Next), for tests that index a QC by its own range. littblock does not verify
+// GenFullCommitQCRange generates a FullCommitQC whose GlobalRange is [first, next), with lane
+// ranges summing to that length so encoding leaves the range unchanged. littblock does not verify
 // signatures, so the QC need not be otherwise well-formed.
 func GenFullCommitQCRange(rng utils.Rng, first GlobalBlockNumber, next GlobalBlockNumber) *FullCommitQC {
 	qc := GenCommitQC(rng)
-	qc.vote.Msg().Proposal().globalRange = GlobalRange{First: first, Next: next}
-	headers := utils.GenSliceN(rng, int(next-first), GenBlockHeader) //nolint:gosec // small test range
+	span := next - first
+	headers := utils.GenSliceN(rng, int(span), GenBlockHeader) //nolint:gosec // small test range
+	proposal := qc.Proposal()
+	lane := GenLaneID(rng)
+	var lastHash BlockHeaderHash
+	if len(headers) > 0 {
+		lastHash = headers[len(headers)-1].Hash()
+	}
+	proposal.laneRanges = map[LaneID]*LaneRange{
+		lane: {lane: lane, first: 0, next: BlockNumber(span), lastHash: lastHash},
+	}
+	proposal.globalRange = GlobalRange{First: first, Next: next}
 	return NewFullCommitQC(qc, headers)
 }
 
