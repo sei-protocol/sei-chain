@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -66,9 +67,9 @@ func changelogVersionsText(r memiavl.TreeChangelogRange) string {
 	return fmt.Sprintf("changelog versions %d to %d", r.StartVersion, r.Version)
 }
 
-// scanMemiavlChangelogEVMLeaves streams the leaves of the memiavl EVM snapshot at evmSnapshotDir
-// with overlay applied, in ascending key order. overlay must be sorted by key.
-func scanMemiavlChangelogEVMLeaves(evmSnapshotDir string, overlay []memiavlOverlayWrite, fn func(rawKey, rawVal []byte) error) error {
+// scanMemiavlChangelogEVMLeaves streams the leaves of the memiavl EVM snapshot kvs file with
+// overlay applied, in ascending key order. overlay must be sorted by key.
+func scanMemiavlChangelogEVMLeaves(kvs io.ReaderAt, overlay []memiavlOverlayWrite, fn func(rawKey, rawVal []byte) error) error {
 	emit := func(w memiavlOverlayWrite) error {
 		if w.deleted {
 			return nil
@@ -76,7 +77,7 @@ func scanMemiavlChangelogEVMLeaves(evmSnapshotDir string, overlay []memiavlOverl
 		return fn(w.key, w.value)
 	}
 	next := 0
-	if err := scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, func(k, v []byte) error {
+	if err := scanMemiavlSnapshotEVMLeaves(kvs, func(k, v []byte) error {
 		for ; next < len(overlay) && bytes.Compare(overlay[next].key, k) < 0; next++ {
 			if err := emit(overlay[next]); err != nil {
 				return err

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -709,25 +710,7 @@ func openMemiAVLEVMLeafStream(dbDir string, height int64, memiavlOpenMode string
 	}
 	switch openMode {
 	case memiavlOpenModeSnapshot:
-		memEvmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
-		if err != nil {
-			return nil, err
-		}
-		memVersion, err := readMemIAVLSnapshotVersion(memEvmSnapshotDir)
-		if err != nil {
-			return nil, err
-		}
-		return &memiavlLeafStream{
-			scan: func(fn func(rawKey, rawVal []byte) error) error {
-				return scanMemiavlSnapshotEVMLeaves(memEvmSnapshotDir, fn)
-			},
-			openMode:    memiavlOpenModeSnapshot,
-			srcLabel:    "memiavl",
-			source:      memEvmSnapshotDir,
-			description: memEvmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
-			version:     memVersion,
-			close:       func() {},
-		}, nil
+		return openMemiavlSnapshotLeafStream(dbDir, height)
 	case memiavlOpenModeReplay:
 		memReplayDB, err := openMemiAVLReplayReadOnly(dbDir, height)
 		if err != nil {
@@ -745,23 +728,86 @@ func openMemiAVLEVMLeafStream(dbDir string, height int64, memiavlOpenMode string
 			close:       func() { _ = memReplayDB.Close() },
 		}, nil
 	default: // memiavlOpenModeChangelog
-		overlay, r, err := readMemiavlEVMChangelogOverlay(dbDir, height)
-		if err != nil {
-			return nil, err
-		}
-		evmSnapshotDir := filepath.Join(r.SnapshotDir, keys.EVMStoreKey)
-		return &memiavlLeafStream{
-			scan: func(fn func(rawKey, rawVal []byte) error) error {
-				return scanMemiavlChangelogEVMLeaves(evmSnapshotDir, overlay, fn)
-			},
-			openMode:    memiavlOpenModeChangelog,
-			srcLabel:    "memiavl-changelog",
-			source:      dbDir,
-			description: fmt.Sprintf("%s merged with memiavl %s", filepath.Join(evmSnapshotDir, "kvs"), changelogVersionsText(r)),
-			version:     r.Version,
-			close:       func() {},
-		}, nil
+		return retryIfSnapshotPruned(func() (*memiavlLeafStream, error) {
+			return openMemiavlChangelogLeafStream(dbDir, height)
+		})
 	}
+}
+
+// openMemiavlSnapshotLeafStream returns the stream of the memiavl EVM snapshot at height, where 0
+// selects the current snapshot.
+func openMemiavlSnapshotLeafStream(dbDir string, height int64) (*memiavlLeafStream, error) {
+	evmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
+	if err != nil {
+		return nil, err
+	}
+	kvs, err := openMemiavlSnapshotKVs(evmSnapshotDir)
+	if err != nil {
+		return nil, err
+	}
+	version, err := readMemIAVLSnapshotVersion(evmSnapshotDir)
+	if err != nil {
+		_ = kvs.Close()
+		return nil, memiavl.SnapshotPrunedError(filepath.Dir(evmSnapshotDir), err)
+	}
+	return &memiavlLeafStream{
+		scan: func(fn func(rawKey, rawVal []byte) error) error {
+			return scanMemiavlSnapshotEVMLeaves(kvs, fn)
+		},
+		openMode:    memiavlOpenModeSnapshot,
+		srcLabel:    "memiavl",
+		source:      evmSnapshotDir,
+		description: evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
+		version:     version,
+		close:       func() { _ = kvs.Close() },
+	}, nil
+}
+
+// openMemiavlChangelogLeafStream returns the stream of the memiavl EVM snapshot at or below height
+// merged with the EVM writes of the changelog above it up to height.
+func openMemiavlChangelogLeafStream(dbDir string, height int64) (*memiavlLeafStream, error) {
+	overlay, r, err := readMemiavlEVMChangelogOverlay(dbDir, height)
+	if err != nil {
+		return nil, err
+	}
+	evmSnapshotDir := filepath.Join(r.SnapshotDir, keys.EVMStoreKey)
+	kvs, err := openMemiavlSnapshotKVs(evmSnapshotDir)
+	if err != nil {
+		return nil, err
+	}
+	return &memiavlLeafStream{
+		scan: func(fn func(rawKey, rawVal []byte) error) error {
+			return scanMemiavlChangelogEVMLeaves(kvs, overlay, fn)
+		},
+		openMode:    memiavlOpenModeChangelog,
+		srcLabel:    "memiavl-changelog",
+		source:      dbDir,
+		description: fmt.Sprintf("%s merged with memiavl %s", filepath.Join(evmSnapshotDir, "kvs"), changelogVersionsText(r)),
+		version:     r.Version,
+		close:       func() { _ = kvs.Close() },
+	}, nil
+}
+
+// retryIfSnapshotPruned returns the stream open returns, calling open once more when the node
+// pruned the snapshot it selected.
+func retryIfSnapshotPruned(open func() (*memiavlLeafStream, error)) (*memiavlLeafStream, error) {
+	stream, err := open()
+	if !errors.Is(err, memiavl.ErrSnapshotPruned) {
+		return stream, err
+	}
+	digestOut.sayf("memiavl: %v; selecting the snapshot again\n", err)
+	return open()
+}
+
+// openMemiavlSnapshotKVs opens the kvs file of the memiavl snapshot tree at evmSnapshotDir. The
+// open file keeps its contents readable after the node prunes the snapshot.
+func openMemiavlSnapshotKVs(evmSnapshotDir string) (*os.File, error) {
+	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
+	kvs, err := os.Open(filepath.Clean(kvsPath))
+	if err != nil {
+		return nil, memiavl.SnapshotPrunedError(filepath.Dir(evmSnapshotDir), fmt.Errorf("open kvs %s: %w", kvsPath, err))
+	}
+	return kvs, nil
 }
 
 // canonicalMemiavlOpenMode returns memiavlOpenModeSnapshot, memiavlOpenModeReplay, or
@@ -1744,21 +1790,15 @@ func changelogEndsMidRecordError(dbDir string, err error) error {
 type evmLeafSource func(fn func(rawKey, rawVal []byte) error) error
 
 // scanMemiavlSnapshotEVMLeaves streams every leaf of a memiavl EVM snapshot from its
-// kvs file, in ascending key order. The file holds exactly the leaf set, one record
-// per leaf, little-endian:
+// kvs file, from the start, in ascending key order. The file holds exactly the leaf
+// set, one record per leaf, little-endian:
 //
 //	keyLen uint32 | key [keyLen] | valLen uint32 | value [valLen]
-func scanMemiavlSnapshotEVMLeaves(evmSnapshotDir string, fn func(rawKey, rawVal []byte) error) error {
+func scanMemiavlSnapshotEVMLeaves(kvs io.ReaderAt, fn func(rawKey, rawVal []byte) error) error {
 	// A buffered sequential read keeps kernel readahead. The tree walk goes through
 	// the snapshot mmap, which OpenSnapshot tags MADV_RANDOM, and so faults one page
 	// at a time.
-	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
-	f, err := os.Open(filepath.Clean(kvsPath))
-	if err != nil {
-		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReaderSize(f, 16*1024*1024)
+	r := bufio.NewReaderSize(io.NewSectionReader(kvs, 0, math.MaxInt64), 16*1024*1024)
 	var lenbuf [4]byte
 	for {
 		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
@@ -2100,12 +2140,16 @@ func readMemIAVLSnapshotVersion(snapshotDir string) (int64, error) {
 	return int64(binary.LittleEndian.Uint32(bz[8:])), nil
 }
 
+// resolveMemIAVLEvmSnapshotDir returns the evm directory of the memiavl snapshot at height, where 0
+// selects the snapshot the current link names when this is called.
 func resolveMemIAVLEvmSnapshotDir(dbDir string, height int64) (string, error) {
-	var snapshotName string
+	snapshotName := fmt.Sprintf("snapshot-%020d", height)
 	if height == 0 {
-		snapshotName = "current"
-	} else {
-		snapshotName = fmt.Sprintf("snapshot-%020d", height)
+		name, err := os.Readlink(filepath.Join(dbDir, "current"))
+		if err != nil {
+			return "", fmt.Errorf("read current snapshot link: %w", err)
+		}
+		snapshotName = name
 	}
 	return filepath.Join(dbDir, snapshotName, keys.EVMStoreKey), nil
 }

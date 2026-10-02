@@ -69,7 +69,10 @@ func BenchmarkMemiavlSemanticDigestSnapshotScan(b *testing.B) {
 	saved := digestOut
 	b.Cleanup(func() { digestOut = saved })
 	digestOut = digestSink{prose: io.Discard, jsonReport: io.Discard}
-	scan := func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlSnapshotEVMLeaves(dir, fn) }
+	kvs, err := openMemiavlSnapshotKVs(dir)
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = kvs.Close() })
+	scan := func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlSnapshotEVMLeaves(kvs, fn) }
 
 	b.ReportAllocs()
 	for b.Loop() {

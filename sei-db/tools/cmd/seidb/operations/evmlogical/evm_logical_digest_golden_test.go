@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -386,6 +387,84 @@ func TestEvmLogicalDigestChangelogModeRefusesHeightAboveTheChangelog(t *testing.
 	cmd := newEvmDigestGoldenCmd(t, goldenMemiavlSource(fx, above, memiavlOpenModeChangelog, memiavlNormSemantic))
 	captureDigestOutput(t, true)
 	require.ErrorContains(t, runEvmLogicalDigest(cmd, nil), "changelog ends below version 5")
+}
+
+// TestMemiavlLeafStreamReadsTheSnapshotItOpenedAfterAPrune requires a snapshot or changelog
+// stream to return the same leaves after the node prunes the snapshot the stream opened.
+func TestMemiavlLeafStreamReadsTheSnapshotItOpenedAfterAPrune(t *testing.T) {
+	for openMode, height := range map[string]int64{
+		memiavlOpenModeSnapshot:  goldenSnapshotHeight,
+		memiavlOpenModeChangelog: goldenTipHeight,
+	} {
+		t.Run(openMode, func(t *testing.T) {
+			fx := buildEvmDigestGoldenFixture(t)
+			captureDigestOutput(t, false)
+			stream, err := openMemiAVLEVMLeafStream(fx.memiavlDir, height, openMode)
+			require.NoError(t, err)
+			defer stream.close()
+
+			before := collectGoldenStreamLeaves(t, stream)
+			require.NoError(t, os.RemoveAll(goldenMemiavlSnapshotDir(fx.memiavlDir, goldenSnapshotHeight)))
+			require.Equal(t, before, collectGoldenStreamLeaves(t, stream))
+		})
+	}
+}
+
+// TestMemiavlSnapshotStreamResolvesTheCurrentLinkOnce requires a snapshot stream at height 0 to
+// read the snapshot the current link names when it opens, not the link itself.
+func TestMemiavlSnapshotStreamResolvesTheCurrentLinkOnce(t *testing.T) {
+	fx := buildEvmDigestGoldenFixture(t)
+	stream, err := openMemiAVLEVMLeafStream(fx.memiavlDir, 0, memiavlOpenModeSnapshot)
+	require.NoError(t, err)
+	defer stream.close()
+	require.Equal(t, filepath.Join(goldenMemiavlSnapshotDir(fx.memiavlDir, goldenSnapshotHeight), keys.EVMStoreKey), stream.source)
+}
+
+func TestRetryIfSnapshotPrunedRetriesOnce(t *testing.T) {
+	captureDigestOutput(t, false)
+	pruned := fmt.Errorf("open kvs: %w", memiavl.ErrSnapshotPruned)
+	other := errors.New("bad changelog")
+	opened := &memiavlLeafStream{}
+	for name, tc := range map[string]struct {
+		results   []error
+		wantCalls int
+		wantErr   error
+	}{
+		"opens first time": {[]error{nil}, 1, nil},
+		"pruned once":      {[]error{pruned, nil}, 2, nil},
+		"pruned twice":     {[]error{pruned, pruned}, 2, memiavl.ErrSnapshotPruned},
+		"other error":      {[]error{other}, 1, other},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			got, err := retryIfSnapshotPruned(func() (*memiavlLeafStream, error) {
+				err := tc.results[calls]
+				calls++
+				if err != nil {
+					return nil, err
+				}
+				return opened, nil
+			})
+			require.Equal(t, tc.wantCalls, calls)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Same(t, opened, got)
+		})
+	}
+}
+
+func collectGoldenStreamLeaves(t *testing.T, stream *memiavlLeafStream) []string {
+	t.Helper()
+	var leaves []string
+	require.NoError(t, stream.scan(func(rawKey, rawVal []byte) error {
+		leaves = append(leaves, hex.EncodeToString(rawKey)+"="+hex.EncodeToString(rawVal))
+		return nil
+	}))
+	require.NotEmpty(t, leaves)
+	return leaves
 }
 
 // evmDigestGoldenInspections returns the inspect flags run against each source, keyed by case suffix.

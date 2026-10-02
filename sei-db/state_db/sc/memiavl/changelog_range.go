@@ -1,7 +1,9 @@
 package memiavl
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -23,12 +25,31 @@ type TreeChangelogRange struct {
 	Version int64
 }
 
+// ErrSnapshotPruned reports that a snapshot a reader selected was pruned before the reader
+// finished with it or with the changelog above it.
+var ErrSnapshotPruned = errors.New("memiavl snapshot was pruned while it was read")
+
+// SnapshotPrunedError returns err wrapped with ErrSnapshotPruned when snapshotDir no longer
+// exists, and err unchanged otherwise.
+func SnapshotPrunedError(snapshotDir string, err error) error {
+	if err == nil {
+		return nil
+	}
+	// The node truncates the changelog only below its earliest snapshot, so the entries above
+	// snapshotDir can go missing only after snapshotDir itself is removed.
+	if _, statErr := os.Stat(snapshotDir); !errors.Is(statErr, fs.ErrNotExist) {
+		return err
+	}
+	return fmt.Errorf("%w: %s: %w", ErrSnapshotPruned, snapshotDir, err)
+}
+
 // ReplayTreeChangelog passes to fn, in changelog order, every changeset of treeName that
 // OpenDB(targetVersion) would apply on top of its snapshot. A targetVersion of 0 selects the
 // current snapshot and the changelog tip. It loads no tree and never repairs the changelog.
 //
 // It refuses a changelog that starts above the first version after the snapshot, a changelog
-// that ends below targetVersion, and an upgrade that adds, deletes, or renames treeName.
+// that ends below targetVersion, and an upgrade that adds, deletes, or renames treeName. A
+// failure caused by the node pruning the selected snapshot wraps ErrSnapshotPruned.
 func ReplayTreeChangelog(
 	dir string,
 	targetVersion int64,
@@ -39,6 +60,20 @@ func ReplayTreeChangelog(
 	if err != nil {
 		return TreeChangelogRange{}, err
 	}
+	r, err := replayTreeChangelogFrom(dir, snapshotDir, targetVersion, treeName, fn)
+	if err != nil {
+		return TreeChangelogRange{}, SnapshotPrunedError(snapshotDir, err)
+	}
+	return r, nil
+}
+
+// replayTreeChangelogFrom is ReplayTreeChangelog from the snapshot at snapshotDir.
+func replayTreeChangelogFrom(
+	dir, snapshotDir string,
+	targetVersion int64,
+	treeName string,
+	fn func(version int64, changeSet proto.ChangeSet) error,
+) (TreeChangelogRange, error) {
 	metadata, err := readMetadata(snapshotDir)
 	if err != nil {
 		return TreeChangelogRange{}, fmt.Errorf("read snapshot metadata %s: %w", snapshotDir, err)

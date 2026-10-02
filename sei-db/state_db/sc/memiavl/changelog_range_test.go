@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -219,6 +220,26 @@ func TestReplayTreeChangelogAcceptsEmptyChangelogWithNothingToReplay(t *testing.
 	}
 	_, err := ReplayTreeChangelog(dir, changelogRangeSnapshot+1, changelogRangeTree, nopChangeSet)
 	require.ErrorContains(t, err, "changelog ends below version 4: the changelog is empty")
+}
+
+// TestReplayTreeChangelogReportsASnapshotPrunedDuringTheRead requires a read that fails after the
+// node removed the selected snapshot to wrap ErrSnapshotPruned, and the same failure with the
+// snapshot still present not to.
+func TestReplayTreeChangelogReportsASnapshotPrunedDuringTheRead(t *testing.T) {
+	readErr := errors.New("segment is gone")
+	for name, pruned := range map[string]bool{"pruned": true, "present": false} {
+		t.Run(name, func(t *testing.T) {
+			dir := buildChangelogRangeDB(t)
+			_, err := ReplayTreeChangelog(dir, changelogRangeTipVersion, changelogRangeTree, func(int64, proto.ChangeSet) error {
+				if pruned {
+					require.NoError(t, os.RemoveAll(filepath.Join(dir, snapshotName(changelogRangeSnapshot))))
+				}
+				return readErr
+			})
+			require.ErrorIs(t, err, readErr)
+			require.Equal(t, pruned, errors.Is(err, ErrSnapshotPruned))
+		})
+	}
 }
 
 func nopChangeSet(int64, proto.ChangeSet) error { return nil }
