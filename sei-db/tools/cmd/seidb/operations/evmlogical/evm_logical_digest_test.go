@@ -1,4 +1,4 @@
-package operations
+package evmlogical
 
 import (
 	"bytes"
@@ -270,6 +270,12 @@ func nonceBytes(n uint64) []byte {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, n)
 	return bz
+}
+
+func padLeft32(value byte) []byte {
+	var padded [32]byte
+	padded[len(padded)-1] = value
+	return padded[:]
 }
 
 // TestMiscForCompareOmitsMigrationMarkerRows pins the marker adjustment that

@@ -1,4 +1,4 @@
-package operations
+package evmlogical
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
@@ -56,6 +57,54 @@ func storageRow(addr ktype.Address, slot ktype.Slot, value []byte) inspectRow {
 func accountRow(addr ktype.Address, balance []byte, nonce uint64, codeHash []byte) inspectRow {
 	logical := append(append(append([]byte{}, balance...), nonceBytes(nonce)...), codeHash...)
 	return inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr[:]), logical: logical}
+}
+
+func addrN(last byte) ktype.Address {
+	var address ktype.Address
+	address[len(address)-1] = last
+	return address
+}
+
+func slotN(last byte) ktype.Slot {
+	var slot ktype.Slot
+	slot[len(slot)-1] = last
+	return slot
+}
+
+func codeHashOf(value byte) vtype.CodeHash {
+	var hash vtype.CodeHash
+	for i := range hash {
+		hash[i] = value
+	}
+	return hash
+}
+
+func noncePair(addr ktype.Address, nonce uint64) *proto.KVPair {
+	return &proto.KVPair{
+		Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
+		Value: nonceBytes(nonce),
+	}
+}
+
+func codeHashPair(addr ktype.Address, codeHash vtype.CodeHash) *proto.KVPair {
+	return &proto.KVPair{
+		Key:   keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]),
+		Value: codeHash[:],
+	}
+}
+
+func codePair(addr ktype.Address, bytecode []byte) *proto.KVPair {
+	return &proto.KVPair{
+		Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
+		Value: bytecode,
+	}
+}
+
+func storagePair(addr ktype.Address, slot ktype.Slot, value byte) *proto.KVPair {
+	return &proto.KVPair{
+		Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+		Value: padLeft32(value),
+	}
 }
 
 func exportForTest(t *testing.T, reserve, prod evmInspectJSON) []kvrepair.Entry {

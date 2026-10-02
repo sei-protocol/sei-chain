@@ -1,4 +1,6 @@
-package operations
+// Package evmlogical implements the seidb commands for comparing logical EVM
+// state and exporting reviewed KV repairs.
+package evmlogical
 
 import (
 	"bufio"
@@ -19,11 +21,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/spf13/cobra"
 )
@@ -48,6 +52,11 @@ var migrationBoundaryPhysKey = []byte(migration.MigrationStore + "/" + migration
 // memiavl-open-mode and memiavl-normalization flag values, named so they are not
 // repeated as bare string literals (goconst).
 const (
+	flatkvBucketAccount = "account"
+	flatkvBucketCode    = "code"
+	flatkvBucketStorage = "storage"
+	flatkvBucketMisc    = "misc"
+
 	memiavlOpenModeSnapshot  = "snapshot"
 	memiavlOpenModeReplay    = "replay"
 	memiavlOpenModeChangelog = "changelog"
@@ -58,6 +67,40 @@ const (
 	memiavlModeSemanticReplay   = "semantic-replay"
 	memiavlModeTranslatorReplay = "translator-replay"
 )
+
+var flatkvBucketOrder = []string{
+	flatkvBucketAccount,
+	flatkvBucketCode,
+	flatkvBucketStorage,
+	flatkvBucketMisc,
+}
+
+func isFlatKVBucket(name string) bool {
+	for _, bucket := range flatkvBucketOrder {
+		if bucket == name {
+			return true
+		}
+	}
+	return false
+}
+
+func classifyFlatKVPhysicalKey(key []byte) string {
+	moduleName, innerKey, err := ktype.StripModulePrefix(key)
+	if err != nil || moduleName != keys.EVMStoreKey {
+		return flatkvBucketMisc
+	}
+	kind, _ := keys.ParseEVMKey(innerKey)
+	switch kind {
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
+		return flatkvBucketAccount
+	case keys.EVMKeyCode:
+		return flatkvBucketCode
+	case keys.EVMKeyStorage:
+		return flatkvBucketStorage
+	default:
+		return flatkvBucketMisc
+	}
+}
 
 // defaultInspectListLimit is the --list-limit default.
 const defaultInspectListLimit = 1000
@@ -152,11 +195,10 @@ const defaultInspectListLimit = 1000
 //	# Mid-migration node: digest the full EVM logical view as the union of
 //	# flatkv (migrated rows) and memiavl (rows not yet past the boundary), to
 //	# compare a migrating node against a memiavl-only node at the same height.
-//	# Use --memiavl-open-mode changelog (or replay) when memiavl's retained
-//	# snapshot height is outside flatkv's retained snapshot window (the common
-//	# case on a live migrating node, where the two backends keep snapshots at
-//	# different heights).
-//	seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
+//	# Use --memiavl-open-mode replay when memiavl's retained snapshot height is
+//	# outside flatkv's retained snapshot window (the common case on a live
+//	# migrating node, where the two backends keep snapshots at different heights).
+//	seidb evm-logical-digest --backend composite --memiavl-open-mode replay \
 //	    --flatkv-dir /.sei/data/state_commit/flatkv \
 //	    --memiavl-dir /.sei/data/state_commit/memiavl --height 213200000
 //
@@ -814,14 +856,14 @@ func memiavlReportContext(dbDir string, height int64, normalization string, stre
 }
 
 type compositeMigrateEVMSource struct {
-	opened   *openedFlatKV
+	opened   gigatypes.LiveStateStore
 	boundary migration.MigrationBoundary
 	memIAVL  *memiavlLeafStream
 	ctx      digestPrintContext
 }
 
 func openCompositeMigrateEVMSource(flatKVDir, memIAVLDir string, height int64, memiavlOpenMode string) (*compositeMigrateEVMSource, error) {
-	opened, err := openFlatKVReadOnly(flatKVDir, height)
+	opened, err := operations.OpenFlatKVReadOnly(flatKVDir, height)
 	if err != nil {
 		return nil, fmt.Errorf("open flatkv read-only: %w", err)
 	}
@@ -908,7 +950,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	return d.emit(source.ctx)
 }
 
-func readFlatKVMigrationState(store *openedFlatKV) (migration.MigrationBoundary, bool, uint64, error) {
+func readFlatKVMigrationState(store gigatypes.LiveStateStore) (migration.MigrationBoundary, bool, uint64, error) {
 	if data, ok := store.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey)); ok {
 		if len(data) != 8 {
 			return migration.MigrationBoundary{}, false, 0, fmt.Errorf("flatkv migration version length=%d, want 8", len(data))
@@ -938,7 +980,7 @@ func shouldIncludeFlatKVEVMLogicalDigestKey(physKey []byte) bool {
 }
 
 func consumeCompositeFlatKV(
-	opened *openedFlatKV,
+	opened gigatypes.LiveStateStore,
 	consume semanticLogicalConsumer,
 	accounts map[string]*semanticAccountDigestState,
 	allowAccountKey func([]byte) bool,
@@ -1036,7 +1078,7 @@ func consumeCompositeMemiavl(
 }
 
 func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
-	opened, err := openFlatKVReadOnly(dbDir, height)
+	opened, err := operations.OpenFlatKVReadOnly(dbDir, height)
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
 	}
@@ -1353,7 +1395,7 @@ func (a *inspectAccumulator) print(r evmInspectJSON) {
 }
 
 func inspectFlatKV(dbDir string, height int64, fanout *inspectFanout) error {
-	opened, err := openFlatKVReadOnly(dbDir, height)
+	opened, err := operations.OpenFlatKVReadOnly(dbDir, height)
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
 	}

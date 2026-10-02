@@ -1,4 +1,4 @@
-package operations
+package evmlogical
 
 import (
 	"bytes"
@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 )
@@ -115,6 +116,30 @@ type evmDigestGoldenFixture struct {
 	memiavlDir         string
 	flatkvDir          string
 	compositeFlatKVDir string
+}
+
+func newTestMemiavlStore(t *testing.T, homeDir string) *memiavl.CommitStore {
+	t.Helper()
+	cfg := memiavl.DefaultConfig()
+	cfg.AsyncCommitBuffer = 0
+	store := memiavl.NewCommitStore(homeDir, cfg)
+	store.Initialize([]string{keys.EVMStoreKey})
+	_, err := store.LoadVersion(0, false)
+	require.NoError(t, err)
+	return store
+}
+
+func newDiskBackedFlatKVStore(t *testing.T, snapshotInterval uint32) (*flatkv.CommitStore, string) {
+	t.Helper()
+	cfg := flatkvconfig.DefaultTestConfig(t)
+	cfg.SnapshotInterval = snapshotInterval
+	cfg.SnapshotKeepRecent = 100
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
+	require.NoError(t, err)
+	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	require.NoError(t, err)
+	require.NoError(t, store.LoadLatest())
+	return store, cfg.DataDir
 }
 
 // buildEvmDigestGoldenFixture writes the same EVM blocks to a memiavl store and a FlatKV store, and a
