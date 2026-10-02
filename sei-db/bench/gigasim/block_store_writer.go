@@ -175,12 +175,62 @@ func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) err
 	next := first + autobahn.GlobalBlockNumber(w.config.LaneBlocksPerSuperblock) //nolint:gosec // G115 - validation keeps the count positive
 
 	w.phases.SetPhase("write_qc")
-	if err := w.store.WriteQC(autobahn.GenFullCommitQCRange(w.rng, first, next)); err != nil {
+	qc, err := superblockQC(w.rng, first, next)
+	if err != nil {
+		return err
+	}
+	if err := w.store.WriteQC(qc); err != nil {
 		return fmt.Errorf("failed to write the QC covering [%d, %d): %w", first, next, err)
 	}
 	w.qcNext = next
 	w.metrics.ReportQCWritten()
 	return nil
+}
+
+// superblockQC returns a QC covering [first, next). Its lane ranges sum to that length.
+func superblockQC(rng tmutils.Rng, first, next autobahn.GlobalBlockNumber) (*autobahn.FullCommitQC, error) {
+	span := next - first
+	if span == 0 {
+		return nil, fmt.Errorf("QC covering [%d, %d) contains no blocks", first, next)
+	}
+	maxPerLane := autobahn.GlobalBlockNumber(autobahn.MaxLaneRangeInProposal)
+	laneCount := int((span + maxPerLane - 1) / maxPerLane) //nolint:gosec // span is bounded by the superblock size
+
+	committee, keys := autobahn.GenCommittee(rng, laneCount)
+	epoch := autobahn.NewEpoch(autobahn.GenEpochIndex(rng), autobahn.OpenRoadRange(), time.Time{}, committee, first)
+	view := autobahn.ViewSpec{ConsensusSpec: autobahn.ConsensusSpec{Epoch: epoch}}
+
+	lanes := committee.Lanes()
+	laneQCs := make(map[autobahn.LaneID]*autobahn.LaneQC, laneCount)
+	var sig *autobahn.Signature
+	remaining := span
+	for i := range laneCount {
+		length := min(remaining, maxPerLane)
+		remaining -= length
+		lane := lanes.At(i)
+		header := autobahn.NewBlock(
+			lane,
+			autobahn.BlockNumber(length-1), //nolint:gosec // length is at most MaxLaneRangeInProposal
+			autobahn.GenBlockHeaderHash(rng),
+			autobahn.GenPayload(rng),
+		).Header()
+		signed := autobahn.Sign(keys[0], autobahn.NewLaneVote(header))
+		sig = signed.Sig()
+		laneQCs[lane] = autobahn.NewLaneQC([]*autobahn.Signed[*autobahn.LaneVote]{signed})
+	}
+
+	proposal, err := autobahn.NewProposalForTesting(committee, view, time.Now(), laneQCs, sig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build the QC covering [%d, %d): %w", first, next, err)
+	}
+	if got := proposal.Proposal().Msg().GlobalRange(); got.First != first || got.Next != next {
+		return nil, fmt.Errorf("QC covers [%d, %d), want [%d, %d)", got.First, got.Next, first, next)
+	}
+	commit := autobahn.NewCommitQC([]*autobahn.Signed[*autobahn.CommitVote]{
+		autobahn.Sign(keys[0], autobahn.NewCommitVote(proposal.Proposal().Msg())),
+	})
+	headers := tmutils.GenSliceN(rng, int(span), autobahn.GenBlockHeader) //nolint:gosec // span is bounded by the superblock size
+	return autobahn.NewFullCommitQC(commit, headers), nil
 }
 
 // buildBlock wraps a payload as the block the store persists, chained onto the previous one. Every block,

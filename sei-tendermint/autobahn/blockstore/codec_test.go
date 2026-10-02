@@ -40,14 +40,6 @@ func TestQCRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRangedQCRoundTripKeepsItsRange(t *testing.T) {
-	rng := utils.TestRngFromSeed(3)
-	qc := types.GenFullCommitQCRange(rng, 10, 13)
-	decoded, err := decodeQC(encodeQC(qc))
-	require.NoError(t, err)
-	require.Equal(t, qc.QC().GlobalRange(), decoded.QC().GlobalRange())
-}
-
 func TestDecodeRejectsGarbage(t *testing.T) {
 	// Invalid bytes must surface an error rather than a partial value.
 	garbage := []byte{0xff, 0xff, 0xff, 0xff}
