@@ -2,7 +2,6 @@ syntax = "proto3";
 package cosmos.upgrade.v1beta1;
 
 import "gogoproto/gogo.proto";
-import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types";
@@ -39,13 +38,8 @@ message Plan {
   // such as a git commit that validators could automatically upgrade to
   string info = 4;
 
-  // Deprecated: UpgradedClientState field has been deprecated. IBC upgrade logic has been
-  // moved to the IBC module in the sub module 02-client.
-  // If this field is not empty, an error will be thrown.
-  google.protobuf.Any upgraded_client_state = 5 [
-    deprecated = true,
-    (gogoproto.moretags) = "yaml:\"upgraded_client_state\""
-  ];
+  reserved 5;
+  reserved "upgraded_client_state";
 }
 
 // SoftwareUpgradeProposal is a gov Content type for initiating a software

@@ -215,13 +215,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	if !ok {
 		return nil, false
 	}
-	p := pQC.Proposal()
-	// TODO(gprusak): this unnecessarily accesses internal state and does the copy. Fix it.
-	var laneRanges []*LaneRange
-	for _, l := range p.laneRanges {
-		laneRanges = append(laneRanges, l)
-	}
-	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.GlobalRange().First), true
+	return pQC.Proposal().atView(m.View().Next()), true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.
