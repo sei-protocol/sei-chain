@@ -1,0 +1,33 @@
+package evmrpc
+
+import (
+	"context"
+
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+)
+
+func withRequestContext(ctx context.Context, ctxProvider func(int64) sdk.Context) func(int64) sdk.Context {
+	return func(height int64) sdk.Context {
+		return ctxProvider(height).WithContext(ctx)
+	}
+}
+
+// readStoreAtHeight runs a store read in a height-specific SDK context carrying
+// the request's cancellation and deadline.
+func readStoreAtHeight[T any](
+	ctx context.Context,
+	height int64,
+	ctxProvider func(int64) sdk.Context,
+	read func(sdk.Context) (T, error),
+) (T, error) {
+	var zero T
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+
+	result, err := read(ctxProvider(height).WithContext(ctx))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return zero, ctxErr
+	}
+	return result, err
+}
