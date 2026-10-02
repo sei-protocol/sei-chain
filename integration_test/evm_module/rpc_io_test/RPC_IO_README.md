@@ -17,7 +17,7 @@ Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suit
 
 When the target is localhost, the script sends one EVM tx and deploys one contract inside the node container before `go test`, so data-dependent `.iox` tests have block/tx/contract. Default RPC URL: `http://127.0.0.1:8545` (override with `SEI_EVM_RPC_URL`).
 
-**Legacy `sei_*` gating:** The docker localnet `app.toml` enables every remaining gated method. Deprecation is asserted in `testdata/sei_legacy_deprecation/*.iox`: **gate errors** use `error.data` `legacy_sei_deprecated` and messages mentioning disabled + deprecated; **forwarded** allowlisted calls use `@ expect_response_header Sei-Legacy-RPC-Deprecation`, including when the inner JSON-RPC handler returns an error. **`batch-nonobject-tail-gate.iox`** posts a JSON-RPC batch with an unregistered `sei_*` method and a trailing non-object; it asserts `legacy_sei_deprecated`, `Invalid Request`, and `-32600` in the raw body. Directives:
+**Legacy `sei_*` gating:** The docker localnet `app.toml` enables every remaining gated method. Deprecation is asserted in `testdata/sei_legacy_deprecation/*.iox`: **gate errors** use `error.data` `legacy_sei_deprecated` and messages mentioning disabled + deprecated; **forwarded** allowlisted calls use `@ expect_response_header Sei-Legacy-RPC-Deprecation`, including when the inner JSON-RPC handler returns an error. A batch with a trailing non-object element is rejected with HTTP 400 by the rate-limit admission layer before it reaches the `sei_*` gate, so it is covered by unit tests in `evmrpc` rather than here. Directives:
 - `@ expect_body_contains substring` - response body must contain the substring.
 - `@ expect_response_header Header-Name` - response must include that HTTP header (case-insensitive lookup).
 
@@ -267,7 +267,6 @@ The summary table below records historical suite snapshots. The current legacy b
 | sei_getCosmosTx                        | getCosmosTx.io                                                 | Sei          |
 | sei_getEVMAddress                      | getEVMAddress-invalid.io                                       | Sei          |
 | sei_getSeiAddress                      | getSeiAddress-not-found.io                                     | Sei          |
-| sei_legacy_deprecation                 | batch-nonobject-tail-gate.iox                                  | Sei          |
 | sei_legacy_deprecation                 | deprecation-success.iox                                        | Sei          |
 | txpool_content                         | content.io                                                     | Sei          |
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |

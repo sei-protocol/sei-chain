@@ -87,22 +87,26 @@ const (
 
 	// DefaultGRPCIPRateLimitRPS is the default per-IP sustained request rate in
 	// requests/second for the gRPC plane.
-	DefaultGRPCIPRateLimitRPS = 10.0
+	DefaultGRPCIPRateLimitRPS = 100.0
 
 	// DefaultGRPCIPRateLimitBurst is the default maximum per-IP burst size for
 	// the gRPC plane.
-	DefaultGRPCIPRateLimitBurst = 20
+	DefaultGRPCIPRateLimitBurst = 100
 
 	// DefaultGRPCMaxInFlightPerIP is the default number of RPCs one client
 	// address may have in flight at once on the gRPC plane.
 	//
-	// Five times the burst, so a client spending its whole bucket at once is not
+	// At least the burst, so a client spending its whole bucket at once is not
 	// throttled by this instead. The bound it buys is on simultaneous decodes:
 	// with the default 4 MB message ceiling, one address can hold at most
 	// 100 x 4 MB of request buffers, where before it was capped only by the
 	// per-connection stream limit multiplied by the global connection budget.
 	// 0 means unlimited.
 	DefaultGRPCMaxInFlightPerIP = 100
+
+	// DefaultGRPCRateLimitingEnabled is the default for the gRPC rate-limit
+	// admission master switch.
+	DefaultGRPCRateLimitingEnabled = true
 
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
@@ -475,7 +479,7 @@ func DefaultConfig() *Config {
 			IPRateLimitRPS:               DefaultGRPCIPRateLimitRPS,
 			IPRateLimitBurst:             DefaultGRPCIPRateLimitBurst,
 			MaxInFlightPerIP:             DefaultGRPCMaxInFlightPerIP,
-			RateLimitingEnabled:          false,
+			RateLimitingEnabled:          DefaultGRPCRateLimitingEnabled,
 			TrustedProxyCIDRs:            nil,
 			RequestTimeout:               DefaultGRPCRequestTimeout,
 		},
@@ -688,6 +692,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("grpc.max-in-flight-per-ip") {
 		grpcMaxInFlightPerIP = v.GetInt("grpc.max-in-flight-per-ip")
 	}
+	grpcRateLimitingEnabled := DefaultGRPCRateLimitingEnabled
+	if v.IsSet("grpc.rate-limiting-enabled") {
+		grpcRateLimitingEnabled = v.GetBool("grpc.rate-limiting-enabled")
+	}
 	grpcTrustedProxyCIDRs := []string(nil)
 	if v.IsSet("grpc.trusted-proxy-cidrs") {
 		grpcTrustedProxyCIDRs = v.GetStringSlice("grpc.trusted-proxy-cidrs")
@@ -756,7 +764,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			IPRateLimitRPS:               grpcIPRateLimitRPS,
 			IPRateLimitBurst:             grpcIPRateLimitBurst,
 			MaxInFlightPerIP:             grpcMaxInFlightPerIP,
-			RateLimitingEnabled:          v.GetBool("grpc.rate-limiting-enabled"),
+			RateLimitingEnabled:          grpcRateLimitingEnabled,
 			TrustedProxyCIDRs:            grpcTrustedProxyCIDRs,
 			RequestTimeout:               grpcRequestTimeout,
 		},
