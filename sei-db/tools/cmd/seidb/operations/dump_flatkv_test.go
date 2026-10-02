@@ -138,15 +138,15 @@ func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
 	n := lthashBatchCap*2 + 17
 	all := make([]lthash.KeyMutation, 0, n)
 	hashers := map[string]*bucketLtHasher{
-		flatkvBucketAccount: newBucketLtHasher(),
-		flatkvBucketStorage: newBucketLtHasher(),
+		FlatKVBucketAccount: newBucketLtHasher(),
+		FlatKVBucketStorage: newBucketLtHasher(),
 	}
 	bucketPairs := map[string][]lthash.KeyMutation{}
 
 	for i := 0; i < n; i++ {
-		bucket := flatkvBucketAccount
+		bucket := FlatKVBucketAccount
 		if i%2 == 0 {
-			bucket = flatkvBucketStorage
+			bucket = FlatKVBucketStorage
 		}
 		key := []byte{byte(bucket[0]), byte(i), byte(i >> 8), byte(i >> 16)}
 		val := []byte{byte(i), 0xAB, byte(i >> 8)}
@@ -193,8 +193,8 @@ func TestDumpFlatKVFromStoreLtHashOnlyWritesNoBucketFiles(t *testing.T) {
 
 func TestIsFlatKVBucket(t *testing.T) {
 	for _, b := range flatkvBucketOrder {
-		require.True(t, isFlatKVBucket(b), "%s should be accepted", b)
+		require.True(t, IsFlatKVBucket(b), "%s should be accepted", b)
 	}
-	require.False(t, isFlatKVBucket(""), "empty should not validate")
-	require.False(t, isFlatKVBucket("evm"), "evm is a module, not a bucket")
+	require.False(t, IsFlatKVBucket(""), "empty should not validate")
+	require.False(t, IsFlatKVBucket("evm"), "evm is a module, not a bucket")
 }

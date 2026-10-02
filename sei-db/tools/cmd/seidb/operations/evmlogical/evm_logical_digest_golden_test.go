@@ -24,6 +24,7 @@ import (
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 )
 
 // This file pins the JSON reports of evm-logical-digest to values recorded on disk, so that a change to
@@ -351,7 +352,7 @@ func TestEvmLogicalDigestChangelogModeMatchesReplay(t *testing.T) {
 // the storage details list run only on the snapshot open mode.
 func TestEvmLogicalInspectRefusesSnapshotOnlyPathsAboveTheSnapshot(t *testing.T) {
 	fx := buildEvmDigestGoldenFixture(t)
-	details := evmDigestGoldenInspections()["list-"+flatkvBucketStorage]
+	details := evmDigestGoldenInspections()["list-"+operations.FlatKVBucketStorage]
 	details["details"] = "true"
 	for _, openMode := range []string{memiavlOpenModeReplay, memiavlOpenModeChangelog} {
 		for _, tc := range []struct {
@@ -359,7 +360,7 @@ func TestEvmLogicalInspectRefusesSnapshotOnlyPathsAboveTheSnapshot(t *testing.T)
 			inspect       map[string]string
 			want          string
 		}{
-			{memiavlNormTranslator, evmDigestGoldenInspections()["list-"+flatkvBucketStorage], "--memiavl-normalization=translator does not support"},
+			{memiavlNormTranslator, evmDigestGoldenInspections()["list-"+operations.FlatKVBucketStorage], "--memiavl-normalization=translator does not support"},
 			{memiavlNormSemantic, details, "--details storage memiavl inspect does not support"},
 		} {
 			cmd := newEvmDigestGoldenCmd(t, goldenMemiavlSource(fx, goldenTipHeight, openMode, tc.normalization), tc.inspect)
@@ -394,22 +395,22 @@ func evmDigestGoldenInspections() map[string]map[string]string {
 		return map[string]string{"inspect-bucket": bucket, "key-offset": offset, "list": "true", "list-limit": "0"}
 	}
 	out := map[string]map[string]string{}
-	for _, bucket := range flatkvBucketOrder {
+	for _, bucket := range operations.FlatKVBuckets() {
 		out["list-"+bucket] = list(bucket)
 	}
 	out["shard-storage"] = map[string]string{
-		"inspect-bucket":   flatkvBucketStorage,
+		"inspect-bucket":   operations.FlatKVBucketStorage,
 		"key-offset":       offset,
 		"key-prefix":       "03" + hex.EncodeToString(goldenContract),
 		"shard-next-bytes": "32",
 	}
-	truncated := list(flatkvBucketStorage)
+	truncated := list(operations.FlatKVBucketStorage)
 	truncated["list-limit"] = "2"
 	out["list-storage-limit2"] = truncated
-	account := list(flatkvBucketAccount)
+	account := list(operations.FlatKVBucketAccount)
 	account["key-prefix"] = "0A11"
 	out["list-account-prefix"] = account
-	truncatedAccount := list(flatkvBucketAccount)
+	truncatedAccount := list(operations.FlatKVBucketAccount)
 	truncatedAccount["list-limit"] = "2"
 	out["list-account-limit2"] = truncatedAccount
 	return out
@@ -427,7 +428,7 @@ func runEvmDigestGoldenCases(t *testing.T, fx evmDigestGoldenFixture) map[string
 			got["inspect/"+src.name+"/"+suffix] = runEvmDigestGoldenCase(t, src.flags, inspect)
 		}
 		if src.details {
-			details := evmDigestGoldenInspections()["list-"+flatkvBucketStorage]
+			details := evmDigestGoldenInspections()["list-"+operations.FlatKVBucketStorage]
 			details["details"] = "true"
 			got["inspect/"+src.name+"/list-storage-details"] = runEvmDigestGoldenCase(t, src.flags, details)
 		}

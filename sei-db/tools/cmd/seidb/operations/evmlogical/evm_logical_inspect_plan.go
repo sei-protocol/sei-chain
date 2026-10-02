@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 )
 
 // inspectTarget is one inspect report of a scan, written to file at out, or through digestOut
@@ -114,7 +115,7 @@ func (f *inspectFanout) close() {
 
 // accumulator returns the inspect accumulator the item describes.
 func (item inspectPlanItem) accumulator() (*inspectAccumulator, error) {
-	if !isFlatKVBucket(item.InspectBucket) {
+	if !operations.IsFlatKVBucket(item.InspectBucket) {
 		return nil, fmt.Errorf("unknown inspect_bucket %q", item.InspectBucket)
 	}
 	if item.Details {
@@ -188,7 +189,7 @@ func (f *inspectFanout) storageDetailsList() *inspectAccumulator {
 		return nil
 	}
 	acc := f.targets[0].acc
-	if acc.details && acc.list && acc.inspectBucket == flatkvBucketStorage {
+	if acc.details && acc.list && acc.inspectBucket == operations.FlatKVBucketStorage {
 		return acc
 	}
 	return nil
@@ -197,7 +198,7 @@ func (f *inspectFanout) storageDetailsList() *inspectAccumulator {
 // inspectsAccounts reports whether any accumulator inspects the account bucket.
 func (f *inspectFanout) inspectsAccounts() bool {
 	for _, t := range f.targets {
-		if t.acc.inspectBucket == flatkvBucketAccount {
+		if t.acc.inspectBucket == operations.FlatKVBucketAccount {
 			return true
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,7 +91,7 @@ func TestEvmLogicalInspectPlanOmittedListLimitListsEveryMatch(t *testing.T) {
 	fx := buildEvmDigestGoldenFixture(t)
 	out := filepath.Join(t.TempDir(), "storage.json")
 	plan := writeInspectPlan(t, []map[string]any{{
-		"inspect_bucket": flatkvBucketStorage,
+		"inspect_bucket": operations.FlatKVBucketStorage,
 		"key_offset":     len("evm/"),
 		"list":           true,
 		"out":            out,
@@ -113,8 +114,8 @@ func TestEvmLogicalInspectPlanCreatesOutputsBeforeTheScan(t *testing.T) {
 	outDir := t.TempDir()
 	first := filepath.Join(outDir, "account.json")
 	plan := writeInspectPlan(t, []map[string]any{
-		{"inspect_bucket": flatkvBucketAccount, "out": first},
-		{"inspect_bucket": flatkvBucketStorage, "out": filepath.Join(outDir, "missing", "storage.json")},
+		{"inspect_bucket": operations.FlatKVBucketAccount, "out": first},
+		{"inspect_bucket": operations.FlatKVBucketStorage, "out": filepath.Join(outDir, "missing", "storage.json")},
 	})
 	require.ErrorContains(t, runInspectPlan(t, goldenFlatKVSource(fx, goldenTipHeight), plan), "--inspect-plan item 1: create")
 
@@ -129,7 +130,7 @@ func TestEvmLogicalInspectRefusesUnknownOpenModeFirst(t *testing.T) {
 	fx := buildEvmDigestGoldenFixture(t)
 	for _, normalization := range []string{memiavlNormSemantic, memiavlNormTranslator} {
 		cmd := newEvmDigestGoldenCmd(t, goldenMemiavlSource(fx, goldenTipHeight, "bogus", normalization),
-			map[string]string{"inspect-bucket": flatkvBucketStorage})
+			map[string]string{"inspect-bucket": operations.FlatKVBucketStorage})
 		captureDigestOutput(t, true)
 		require.ErrorContains(t, runEvmLogicalDigest(cmd, nil), `unknown --memiavl-open-mode "bogus"`, "normalization %s", normalization)
 	}
@@ -140,7 +141,7 @@ func TestEvmLogicalInspectPlanRefusesInvalidPlans(t *testing.T) {
 	source := goldenFlatKVSource(fx, goldenTipHeight)
 	out := filepath.Join(t.TempDir(), "out.json")
 	item := func(edit func(map[string]any)) map[string]any {
-		m := map[string]any{"inspect_bucket": flatkvBucketStorage, "list": true, "out": out}
+		m := map[string]any{"inspect_bucket": operations.FlatKVBucketStorage, "list": true, "out": out}
 		edit(m)
 		return m
 	}

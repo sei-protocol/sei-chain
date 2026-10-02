@@ -72,7 +72,6 @@ func BenchmarkMemiavlSemanticDigestSnapshotScan(b *testing.B) {
 	scan := func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlSnapshotEVMLeaves(dir, fn) }
 
 	b.ReportAllocs()
-	b.ResetTimer()
 	for b.Loop() {
 		require.NoError(b, runMemiavlSemanticDigest(digestPrintContext{}, "bench", "bench total leaves", nil, scan))
 	}

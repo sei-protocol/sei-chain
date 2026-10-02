@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 )
 
 const testEVMKeyOffset = len(keys.EVMStoreKey) + 1
@@ -132,12 +133,12 @@ func entry(key []byte, newValue []byte, oldValue []byte) kvrepair.Entry {
 func TestExportStorageSetsDeletesAndCreatesKeys(t *testing.T) {
 	addr := addrN(0x01)
 	changed, reserveOnly, prodOnly, same := slotN(1), slotN(2), slotN(3), slotN(4)
-	reserve := listReport("memiavl", 10, flatkvBucketStorage,
+	reserve := listReport("memiavl", 10, operations.FlatKVBucketStorage,
 		storageRow(addr, changed, padLeft32(5)),
 		storageRow(addr, reserveOnly, padLeft32(7)),
 		storageRow(addr, same, padLeft32(9)),
 	)
-	prod := listReport("composite", 10, flatkvBucketStorage,
+	prod := listReport("composite", 10, operations.FlatKVBucketStorage,
 		storageRow(addr, same, padLeft32(9)),
 		storageRow(addr, prodOnly, padLeft32(8)),
 		storageRow(addr, changed, padLeft32(6)),
@@ -152,8 +153,8 @@ func TestExportStorageSetsDeletesAndCreatesKeys(t *testing.T) {
 
 func TestExportDeletesAZeroRowThatOnlyProductionHolds(t *testing.T) {
 	addr, slot := addrN(0x01), slotN(1)
-	reserve := listReport("memiavl", 10, flatkvBucketStorage)
-	prod := listReport("flatkv", 10, flatkvBucketStorage, storageRow(addr, slot, make([]byte, 32)))
+	reserve := listReport("memiavl", 10, operations.FlatKVBucketStorage)
+	prod := listReport("flatkv", 10, operations.FlatKVBucketStorage, storageRow(addr, slot, make([]byte, 32)))
 
 	require.Equal(t, []kvrepair.Entry{
 		entry(keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), nil, nil),
@@ -163,17 +164,17 @@ func TestExportDeletesAZeroRowThatOnlyProductionHolds(t *testing.T) {
 func TestExportMapsCodeAndMiscKeys(t *testing.T) {
 	addr := addrN(0x02)
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
-	reserve := listReport("memiavl", 10, flatkvBucketCode,
+	reserve := listReport("memiavl", 10, operations.FlatKVBucketCode,
 		inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:]), logical: []byte{0x60, 0x01}})
-	prod := listReport("composite", 10, flatkvBucketCode,
+	prod := listReport("composite", 10, operations.FlatKVBucketCode,
 		inspectRow{physKey: ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:]), logical: []byte{0x60, 0x02}})
 	require.Equal(t, []kvrepair.Entry{entry(codeKey, []byte{0x60, 0x01}, []byte{0x60, 0x02})},
 		exportForTest(t, reserve, prod))
 
 	miscKey := append([]byte{0x09}, addr[:]...)
-	reserve = listReport("memiavl", 10, flatkvBucketMisc,
+	reserve = listReport("memiavl", 10, operations.FlatKVBucketMisc,
 		inspectRow{physKey: ktype.ModulePhysicalKey(keys.EVMStoreKey, miscKey), logical: []byte{}})
-	prod = listReport("composite", 10, flatkvBucketMisc,
+	prod = listReport("composite", 10, operations.FlatKVBucketMisc,
 		inspectRow{physKey: migrationBoundaryPhysKey, logical: []byte{0x01}},
 		inspectRow{physKey: migrationVersionPhysKey, logical: []byte{0x02}})
 	require.Equal(t, []kvrepair.Entry{entry(miscKey, []byte{}, nil)}, exportForTest(t, reserve, prod),
@@ -183,8 +184,8 @@ func TestExportMapsCodeAndMiscKeys(t *testing.T) {
 func TestExportAccountWritesOnlyTheChangedField(t *testing.T) {
 	addr := addrN(0x03)
 	codeHash := codeHashOf(0xCC)
-	reserve := listReport("memiavl", 10, flatkvBucketAccount, accountRow(addr, padLeft32(5), 2, codeHash[:]))
-	prod := listReport("composite", 10, flatkvBucketAccount, accountRow(addr, padLeft32(5), 1, codeHash[:]))
+	reserve := listReport("memiavl", 10, operations.FlatKVBucketAccount, accountRow(addr, padLeft32(5), 2, codeHash[:]))
+	prod := listReport("composite", 10, operations.FlatKVBucketAccount, accountRow(addr, padLeft32(5), 1, codeHash[:]))
 
 	require.Equal(t, []kvrepair.Entry{
 		entry(keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), nonceBytes(2), nonceBytes(1)),
@@ -198,15 +199,15 @@ func TestExportAccountOnlyOneSideHolds(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	reserve := listReport("memiavl", 10, flatkvBucketAccount, accountRow(addr, make([]byte, 32), 3, codeHash[:]))
-	prod := listReport("composite", 10, flatkvBucketAccount)
+	reserve := listReport("memiavl", 10, operations.FlatKVBucketAccount, accountRow(addr, make([]byte, 32), 3, codeHash[:]))
+	prod := listReport("composite", 10, operations.FlatKVBucketAccount)
 	require.Equal(t, []kvrepair.Entry{
 		entry(nonceKey, nonceBytes(3), nil),
 		entry(codeHashKey, codeHash[:], nil),
 	}, exportForTest(t, reserve, prod), "fields that are zero on both sides are left out")
 
-	reserve = listReport("memiavl", 10, flatkvBucketAccount)
-	prod = listReport("composite", 10, flatkvBucketAccount, accountRow(addr, make([]byte, 32), 0, make([]byte, 32)))
+	reserve = listReport("memiavl", 10, operations.FlatKVBucketAccount)
+	prod = listReport("composite", 10, operations.FlatKVBucketAccount, accountRow(addr, make([]byte, 32), 0, make([]byte, 32)))
 	require.Equal(t, []kvrepair.Entry{
 		entry(balanceKey, nil, nil),
 		entry(nonceKey, nil, nil),
@@ -219,7 +220,7 @@ func TestExportRefusesInputs(t *testing.T) {
 	row := storageRow(addr, slotN(1), padLeft32(1))
 	other := storageRow(addr, slotN(1), padLeft32(2))
 	valid := func() (evmInspectJSON, evmInspectJSON) {
-		return listReport("memiavl", 10, flatkvBucketStorage, row), listReport("composite", 10, flatkvBucketStorage, other)
+		return listReport("memiavl", 10, operations.FlatKVBucketStorage, row), listReport("composite", 10, operations.FlatKVBucketStorage, other)
 	}
 
 	for name, tc := range map[string]struct {
@@ -248,7 +249,7 @@ func TestExportRefusesInputs(t *testing.T) {
 			err:  "at height 10 and production report at 11",
 		},
 		"different buckets": {
-			edit: func(_, prod *evmInspectJSON) { prod.InspectBucket = flatkvBucketCode },
+			edit: func(_, prod *evmInspectJSON) { prod.InspectBucket = operations.FlatKVBucketCode },
 			err:  "bucket",
 		},
 		"different prefixes": {
@@ -281,7 +282,7 @@ func TestExportRefusesInputs(t *testing.T) {
 		},
 		"key in the wrong bucket": {
 			edit: func(reserve, prod *evmInspectJSON) {
-				reserve.InspectBucket, prod.InspectBucket = flatkvBucketCode, flatkvBucketCode
+				reserve.InspectBucket, prod.InspectBucket = operations.FlatKVBucketCode, operations.FlatKVBucketCode
 			},
 			err: "does not belong to the code bucket",
 		},
@@ -291,7 +292,7 @@ func TestExportRefusesInputs(t *testing.T) {
 		},
 		"short account value": {
 			edit: func(reserve, prod *evmInspectJSON) {
-				reserve.InspectBucket, prod.InspectBucket = flatkvBucketAccount, flatkvBucketAccount
+				reserve.InspectBucket, prod.InspectBucket = operations.FlatKVBucketAccount, operations.FlatKVBucketAccount
 				reserve.Entries[0].Key = fmt.Sprintf("%X", ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr[:]))
 				prod.Entries = nil
 				prod.Listed, prod.Matched = 0, 0
@@ -324,8 +325,8 @@ func TestKVRepairExportCommandWritesALoadableFile(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, data, 0o600))
 		return path
 	}
-	reservePath := writeReport("reserve.json", listReport("memiavl", 10, flatkvBucketStorage, storageRow(addr, slotN(1), padLeft32(1))))
-	prodPath := writeReport("prod.json", listReport("composite", 10, flatkvBucketStorage, storageRow(addr, slotN(1), padLeft32(2))))
+	reservePath := writeReport("reserve.json", listReport("memiavl", 10, operations.FlatKVBucketStorage, storageRow(addr, slotN(1), padLeft32(1))))
+	prodPath := writeReport("prod.json", listReport("composite", 10, operations.FlatKVBucketStorage, storageRow(addr, slotN(1), padLeft32(2))))
 	output := filepath.Join(dir, "repair.json")
 
 	cmd := KVRepairExportCmd()
@@ -389,7 +390,7 @@ func testExportFromRealInspectReports(t *testing.T, openMode string) {
 		})
 
 	var repairWrites []*proto.KVPair
-	for _, bucket := range flatkvBucketOrder {
+	for _, bucket := range operations.FlatKVBuckets() {
 		reserveReport := inspectForTest(t, "memiavl", reserveDir, 2, bucket, openMode)
 		prodReport := inspectForTest(t, "flatkv", prodDir, 2, bucket, openMode)
 		r, err := exportKVRepair(reserveReport, prodReport, "c", "r-"+bucket, 3, "test")
@@ -406,7 +407,7 @@ func testExportFromRealInspectReports(t *testing.T, openMode string) {
 	}
 	commitEVMBlock(t, reserve, prod, repairWrites)
 
-	for _, bucket := range flatkvBucketOrder {
+	for _, bucket := range operations.FlatKVBuckets() {
 		reserveReport := inspectForTest(t, "memiavl", reserveDir, 3, bucket, openMode)
 		prodReport := inspectForTest(t, "flatkv", prodDir, 3, bucket, openMode)
 		_, err := exportKVRepair(reserveReport, prodReport, "c", "r-"+bucket, 4, "test")

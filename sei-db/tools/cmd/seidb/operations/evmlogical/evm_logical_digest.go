@@ -52,11 +52,6 @@ var migrationBoundaryPhysKey = []byte(migration.MigrationStore + "/" + migration
 // memiavl-open-mode and memiavl-normalization flag values, named so they are not
 // repeated as bare string literals (goconst).
 const (
-	flatkvBucketAccount = "account"
-	flatkvBucketCode    = "code"
-	flatkvBucketStorage = "storage"
-	flatkvBucketMisc    = "misc"
-
 	memiavlOpenModeSnapshot  = "snapshot"
 	memiavlOpenModeReplay    = "replay"
 	memiavlOpenModeChangelog = "changelog"
@@ -67,40 +62,6 @@ const (
 	memiavlModeSemanticReplay   = "semantic-replay"
 	memiavlModeTranslatorReplay = "translator-replay"
 )
-
-var flatkvBucketOrder = []string{
-	flatkvBucketAccount,
-	flatkvBucketCode,
-	flatkvBucketStorage,
-	flatkvBucketMisc,
-}
-
-func isFlatKVBucket(name string) bool {
-	for _, bucket := range flatkvBucketOrder {
-		if bucket == name {
-			return true
-		}
-	}
-	return false
-}
-
-func classifyFlatKVPhysicalKey(key []byte) string {
-	moduleName, innerKey, err := ktype.StripModulePrefix(key)
-	if err != nil || moduleName != keys.EVMStoreKey {
-		return flatkvBucketMisc
-	}
-	kind, _ := keys.ParseEVMKey(innerKey)
-	switch kind {
-	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
-		return flatkvBucketAccount
-	case keys.EVMKeyCode:
-		return flatkvBucketCode
-	case keys.EVMKeyStorage:
-		return flatkvBucketStorage
-	default:
-		return flatkvBucketMisc
-	}
-}
 
 // defaultInspectListLimit is the --list-limit default.
 const defaultInspectListLimit = 1000
@@ -403,13 +364,13 @@ func (d *evmDigest) addLogical(bucket string, physKey, logical, rawVal []byte) {
 		digestOut.sayf("FOUND-HASH bucket=%s keyhex=%X logicalhex=%X rawhex=%X\n", bucket, physKey, logical, rawVal)
 	}
 	switch bucket {
-	case flatkvBucketAccount:
+	case operations.FlatKVBucketAccount:
 		d.account.addSum(sum)
-	case flatkvBucketCode:
+	case operations.FlatKVBucketCode:
 		d.code.addSum(sum)
-	case flatkvBucketStorage:
+	case operations.FlatKVBucketStorage:
 		d.storage.addSum(sum)
-	default: // flatkvBucketMisc
+	default: // operations.FlatKVBucketMisc
 		d.misc.addSum(sum)
 		if bytes.Equal(physKey, migrationVersionPhysKey) {
 			d.migrationVersionFound = true
@@ -423,8 +384,8 @@ func (d *evmDigest) addLogical(bucket string, physKey, logical, rawVal []byte) {
 }
 
 func normalizeEVMFlatKVPair(physKey, val []byte) (string, []byte, error) {
-	switch bucket := classifyFlatKVPhysicalKey(physKey); bucket {
-	case flatkvBucketAccount:
+	switch bucket := operations.ClassifyFlatKVPhysicalKey(physKey); bucket {
+	case operations.FlatKVBucketAccount:
 		ad, err := vtype.DeserializeAccountData(val)
 		if err != nil {
 			return "", nil, fmt.Errorf("deserialize account %X: %w", physKey, err)
@@ -437,20 +398,20 @@ func normalizeEVMFlatKVPair(physKey, val []byte) (string, []byte, error) {
 		logical = append(logical, nonce[:]...)
 		logical = append(logical, ad.GetCodeHash()[:]...)
 		return bucket, logical, nil
-	case flatkvBucketCode:
+	case operations.FlatKVBucketCode:
 		cd, err := vtype.DeserializeCodeData(val)
 		if err != nil {
 			return "", nil, fmt.Errorf("deserialize code %X: %w", physKey, err)
 		}
 		return bucket, cd.GetBytecode(), nil
-	case flatkvBucketStorage:
+	case operations.FlatKVBucketStorage:
 		sd, err := vtype.DeserializeStorageData(val)
 		if err != nil {
 			return "", nil, fmt.Errorf("deserialize storage %X: %w", physKey, err)
 		}
 		value := sd.GetValue()
 		return bucket, value[:], nil
-	default: // flatkvBucketMisc
+	default: // operations.FlatKVBucketMisc
 		ld, err := vtype.DeserializeMiscData(val)
 		if err != nil {
 			return "", nil, fmt.Errorf("deserialize misc %X: %w", physKey, err)
@@ -1008,7 +969,7 @@ func consumeCompositeFlatKV(
 		if !shouldIncludeFlatKVEVMLogicalDigestKey(k) {
 			continue
 		}
-		if classifyFlatKVPhysicalKey(k) == flatkvBucketAccount {
+		if operations.ClassifyFlatKVPhysicalKey(k) == operations.FlatKVBucketAccount {
 			if accounts == nil || (allowAccountKey != nil && !allowAccountKey(k)) {
 				continue
 			}
@@ -1230,7 +1191,7 @@ func inspectFanoutFromFlags(cmd *cobra.Command) (*inspectFanout, error) {
 // inspectAccumulatorFromFlags returns the accumulator of the one report the single inspect flags describe.
 func inspectAccumulatorFromFlags(cmd *cobra.Command) (*inspectAccumulator, error) {
 	inspectBucket, _ := cmd.Flags().GetString("inspect-bucket")
-	if !isFlatKVBucket(inspectBucket) {
+	if !operations.IsFlatKVBucket(inspectBucket) {
 		return nil, fmt.Errorf("unknown --inspect-bucket %q", inspectBucket)
 	}
 	keyOffset, _ := cmd.Flags().GetInt("key-offset")
@@ -1290,7 +1251,7 @@ func (a *inspectAccumulator) matchesPhysicalKey(bucket string, physKey []byte) b
 }
 
 func (a *inspectAccumulator) matchesAccountPhysicalKey(physKey []byte) bool {
-	return a.matchesPhysicalKey(flatkvBucketAccount, physKey)
+	return a.matchesPhysicalKey(operations.FlatKVBucketAccount, physKey)
 }
 
 func (a *inspectAccumulator) consumeLogical(bucket string, physKey, logical []byte, meta string) {
@@ -1694,20 +1655,20 @@ func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumu
 }
 
 func flatKVValueMeta(physKey, val []byte) (string, error) {
-	switch bucket := classifyFlatKVPhysicalKey(physKey); bucket {
-	case flatkvBucketAccount:
+	switch bucket := operations.ClassifyFlatKVPhysicalKey(physKey); bucket {
+	case operations.FlatKVBucketAccount:
 		ad, err := vtype.DeserializeAccountData(val)
 		if err != nil {
 			return "", fmt.Errorf("deserialize account %X: %w", physKey, err)
 		}
 		return fmt.Sprintf("block_height=%d", ad.GetBlockHeight()), nil
-	case flatkvBucketCode:
+	case operations.FlatKVBucketCode:
 		cd, err := vtype.DeserializeCodeData(val)
 		if err != nil {
 			return "", fmt.Errorf("deserialize code %X: %w", physKey, err)
 		}
 		return fmt.Sprintf("block_height=%d", cd.GetBlockHeight()), nil
-	case flatkvBucketStorage:
+	case operations.FlatKVBucketStorage:
 		sd, err := vtype.DeserializeStorageData(val)
 		if err != nil {
 			return "", fmt.Errorf("deserialize storage %X: %w", physKey, err)
@@ -2017,7 +1978,7 @@ func finalizeSemanticAccount(addr string, account *semanticAccountDigestState, c
 		}
 	}
 	physKey := ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))
-	consume(flatkvBucketAccount, physKey, account.logicalPayload(), nil)
+	consume(operations.FlatKVBucketAccount, physKey, account.logicalPayload(), nil)
 }
 
 func consumeSemanticMemiavlLeaf(accounts map[string]*semanticAccountDigestState, rawKey, rawVal []byte, consume semanticLogicalConsumer, census *evmZeroCensus, caller string) error {
@@ -2085,7 +2046,7 @@ func consumeSemanticMemiavlLeafFiltered(
 			return nil
 		}
 		physKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes)
-		consume(flatkvBucketCode, physKey, rawVal, rawVal)
+		consume(operations.FlatKVBucketCode, physKey, rawVal, rawVal)
 	case keys.EVMKeyStorage:
 		if len(rawVal) != 32 {
 			return fmt.Errorf("semantic memiavl %s: storage %X has length %d, want 32", caller, rawKey, len(rawVal))
@@ -2097,10 +2058,10 @@ func consumeSemanticMemiavlLeafFiltered(
 			return nil
 		}
 		physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
-		consume(flatkvBucketStorage, physKey, rawVal, rawVal)
+		consume(operations.FlatKVBucketStorage, physKey, rawVal, rawVal)
 	case keys.EVMKeyMisc:
 		physKey := ktype.ModulePhysicalKey(keys.EVMStoreKey, rawKey)
-		consume(flatkvBucketMisc, physKey, rawVal, rawVal)
+		consume(operations.FlatKVBucketMisc, physKey, rawVal, rawVal)
 	default:
 		return fmt.Errorf("semantic memiavl %s: unsupported EVM key kind %d for key %X", caller, kind, rawKey)
 	}

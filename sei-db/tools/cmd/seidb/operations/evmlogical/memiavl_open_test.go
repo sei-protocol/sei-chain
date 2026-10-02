@@ -1,7 +1,6 @@
 package evmlogical
 
 import (
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,23 +57,12 @@ func writeMemiavlNonces(t *testing.T, homeDir string, count uint64) {
 	for nonce := uint64(1); nonce <= count; nonce++ {
 		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
 			Name:      keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{replayTestNoncePair(0xA1, nonce)}},
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
 		}}))
 		_, err := store.Commit(store.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Close())
-}
-
-func replayTestNoncePair(last byte, nonce uint64) *proto.KVPair {
-	addr := make([]byte, keys.AddressLen)
-	addr[len(addr)-1] = last
-	value := make([]byte, 8)
-	binary.BigEndian.PutUint64(value, nonce)
-	return &proto.KVPair{
-		Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr),
-		Value: value,
-	}
 }
 
 // lastChangelogSegment returns the path of the segment the changelog appends to.
