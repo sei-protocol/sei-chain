@@ -3,7 +3,7 @@
 **Status:** draft. **BUD version:** 1. **BUD proof version:** 1. **BUD state proof version:** 1.
 
 This document defines the Block Update Digest (BUD): a 32-byte commitment to the key-value writes a block
-makes. A block's BUD is the `bud` field of its [app hash](../../giga/apphash/apphash_spec.md). This document
+makes. A block's BUD is the `bud` field of its [app hash](../apphash_spec.md). This document
 also defines the serialization of a BUD tree; the BUD proof, which proves that one write is among those a BUD
 commits to; and the BUD state proof, which combines one or two BUD proofs to prove a key's value over a range of
 blocks. It does not define where a BUD tree is stored, or how a reader comes to trust an app hash.
@@ -419,7 +419,7 @@ The verifier needs no state of its own and executes no blocks.
 
 A BUD state proof holds one or two pairs, each of a block's app hash data and a BUD proof against the BUD in it.
 App hash data and its serialization are defined by the
-[Giga app hash specification](../../giga/apphash/apphash_spec.md); its `blockHeight` field is the height of the
+[Giga app hash specification](../apphash_spec.md); its `blockHeight` field is the height of the
 block and its `bud` field the block's BUD.
 
 - **One pair**, for budlet `a` in the block at height `hA`: the key `a.key` held `a.value` at `hA`.

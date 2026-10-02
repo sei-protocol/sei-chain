@@ -123,7 +123,7 @@ entry the block writes, subtract the leaf of its previous value (if any) and add
 ### `bud`
 
 The Block Update Digest of the block: a commitment to the key-value changes produced by executing it. It is
-defined by the [BUD specification](../../sei-db/bud/bud_spec.md), which also defines the BUD proofs and BUD
+defined by the [BUD specification](bud/bud_spec.md), which also defines the BUD proofs and BUD
 state proofs built against it.
 
 ### `receiptHash`: PLACEHOLDER
