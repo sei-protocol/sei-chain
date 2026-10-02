@@ -1584,7 +1584,10 @@ func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit f
 	var blockBloom ethtypes.Bloom
 	if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 		// Bloom cache miss - read from database
-		providerCtx := f.ctxProvider(height)
+		providerCtx, err := ctxAtHeight(f.ctxProvider, height)
+		if err != nil {
+			return nil, false, err
+		}
 		if f.includeSyntheticReceipts {
 			blockBloom = f.k.GetBlockBloom(providerCtx)
 		} else {
