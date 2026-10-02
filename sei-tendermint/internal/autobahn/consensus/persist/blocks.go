@@ -53,7 +53,7 @@ func (s *laneWALState) persistBlock(proposal *types.Signed[*types.LaneProposal])
 	if s.nextBlockNum > 0 && h.BlockNumber() != s.nextBlockNum {
 		return fmt.Errorf("block %s/%d out of sequence (next=%d)", h.Lane(), h.BlockNumber(), s.nextBlockNum)
 	}
-	addRecords(walBlocks, stageAsked, 1)
+	addMetricsRecords(walBlocks, stageAsked, 1)
 	if err := s.wal.Append(uint64(h.BlockNumber()), proposal); err != nil {
 		return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 	}
@@ -67,7 +67,7 @@ func (s *laneWALState) flush(lane types.LaneID) error {
 	if err := s.wal.Flush(); err != nil {
 		return fmt.Errorf("flush lane %s WAL: %w", lane, err)
 	}
-	addRecords(walBlocks, stagePersisted, s.appended)
+	addMetricsRecords(walBlocks, stagePersisted, s.appended)
 	s.appended = 0
 	return nil
 }

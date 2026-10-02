@@ -42,7 +42,7 @@ func (s *commitQCState) persist(qc *types.CommitQC) error {
 		return fmt.Errorf("commitqc %d out of sequence (next=%d)", idx, s.persisted.Next)
 	}
 	if w, ok := s.wal.Get(); ok {
-		addRecords(walCommitQCs, stageAsked, 1)
+		addMetricsRecords(walCommitQCs, stageAsked, 1)
 		if err := w.Append(uint64(idx), qc); err != nil {
 			return fmt.Errorf("persist commitqc %d: %w", idx, err)
 		}
@@ -62,7 +62,7 @@ func (s *commitQCState) flush() error {
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("flush commitqc WAL: %w", err)
 	}
-	addRecords(walCommitQCs, stagePersisted, s.appended)
+	addMetricsRecords(walCommitQCs, stagePersisted, s.appended)
 	s.appended = 0
 	s.unflushed = false
 	return nil

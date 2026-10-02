@@ -21,7 +21,7 @@ type metrics struct {
 	records prometheus.CounterIntVec `metrics_labels:"wal,stage"`
 }
 
-func addRecords(wal, stage string, n uint64) {
+func addMetricsRecords(wal, stage string, n uint64) {
 	if n == 0 {
 		return
 	}
