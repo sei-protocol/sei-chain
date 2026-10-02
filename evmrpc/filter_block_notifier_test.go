@@ -175,3 +175,16 @@ func TestFilterAPI_NewBlockFilterIgnoresBlocksBeforeCreate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []common.Hash{after}, got)
 }
+
+func TestFilterAPI_UninstallFilterRemovesImmediately(t *testing.T) {
+	api := newTestFilterAPI(t, NewBlockHeaderNotifier(4))
+	ctx := context.Background()
+
+	id, err := api.NewBlockFilter(ctx)
+	require.NoError(t, err)
+
+	require.True(t, api.UninstallFilter(ctx, id))
+	require.False(t, api.UninstallFilter(ctx, id))
+	_, err = api.GetFilterChanges(ctx, id)
+	require.ErrorContains(t, err, "filter does not exist")
+}
