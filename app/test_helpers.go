@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,7 +37,6 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsign "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -897,11 +895,6 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, chainID string, accNums, accSeqs []uint64, priv ...cryptotypes.PrivKey) (sdk.Tx, error) {
 	sigs := make([]signing.SignatureV2, len(priv))
 
-	// create a random length memo
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	memo := simulation.RandStringOfLength(r, simulation.RandIntBetween(r, 0, 100))
-
 	signMode := gen.SignModeHandler().DefaultMode()
 
 	// 1st round: set SignatureV2 with empty signatures, to set correct
@@ -925,7 +918,6 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 	if err != nil {
 		return nil, err
 	}
-	tx.SetMemo(memo)
 	tx.SetFeeAmount(feeAmt)
 	tx.SetGasLimit(gas)
 
