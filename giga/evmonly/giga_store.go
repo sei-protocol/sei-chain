@@ -190,6 +190,21 @@ func (e *Executor) AwaitCommits() error {
 	return e.awaitPipelineCommit()
 }
 
+// CommitFailure reports an already failed state commit without waiting for a
+// currently running commit. Read-only callers can use it while serving an
+// earlier committed snapshot during the next block's execution.
+func (e *Executor) CommitFailure() error {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	if e.pipelineFailure != nil {
+		return e.pipelineFailure
+	}
+	if e.pipelineErr != nil {
+		return fmt.Errorf("commit state changes: %w", e.pipelineErr)
+	}
+	return nil
+}
+
 // pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
 // when the store is caught up.
 func (e *Executor) pipelinePending() *StateChangeSet {

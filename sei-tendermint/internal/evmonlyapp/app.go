@@ -104,10 +104,9 @@ type evmOnlyApplication struct {
 	executor         utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// Lock order: executor before cursor. FinalizeBlock holds executor while
 	// the block's cursor encoder takes cursor.
-	cursor utils.Mutex[*evmOnlyCursorState]
-	// settler publishes the executor to readers of committed state, which settle
-	// its in-flight block commit before opening a store view without waiting for
-	// FinalizeBlock to release executor.
+	cursor utils.Watch[*evmOnlyCursorState]
+	// settler publishes the executor to committed-state readers without making
+	// them wait for FinalizeBlock to release the executor lock.
 	settler utils.AtomicSend[utils.Option[*evmonly.Executor]]
 	// settleFailureLogged is set once a committed-state reader has logged a
 	// failed commit; the failure is latched, so it is logged once.
@@ -172,7 +171,7 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
+		cursor:           utils.NewWatch(&evmOnlyCursorState{}),
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
@@ -539,40 +538,10 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
 }
 
-// currentExecutionContext returns the executor and block context for a
-// read-only EVM execution against the most recently committed state. action
-// names the caller for its error messages, e.g. "call" or "gas estimate".
-func (a *evmOnlyApplication) currentExecutionContext(action string) (*evmonly.Executor, evmonly.BlockContext, error) {
-	for exec := range a.executor.Lock() {
-		executor, ok := exec.Get()
-		if !ok {
-			return nil, evmonly.BlockContext{}, fmt.Errorf("EVM-only %s attempted before InitChain", action)
-		}
-		blockCtx, err := a.committedBlockContext(action)
-		if err != nil {
-			return nil, evmonly.BlockContext{}, err
-		}
-		// The committed block's state may still be landing. Holding executor keeps
-		// the next block from starting, so once settled the store is at blockCtx.Number.
-		if err := executor.AwaitCommits(); err != nil {
-			return nil, evmonly.BlockContext{}, err
-		}
-		// Executor opens its own state snapshot later, outside this lock, so a
-		// commit landing in between can pair this BlockContext with a newer one.
-		return executor, blockCtx, nil
-	}
-	panic("unreachable")
-}
-
-// committedBlockContext returns the block context of the committed block, and
-// refuses while a finalized block awaits Commit. action names the caller for
-// its error messages.
-func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.BlockContext, error) {
+// committedBlockContext returns the context of the last acknowledged block.
+// Its state must be paired with a snapshot of the same height before use.
+func (a *evmOnlyApplication) committedBlockContext() (evmonly.BlockContext, error) {
 	for state := range a.cursor.Lock() {
-		if state.pending.IsPresent() {
-			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
-			return evmonly.BlockContext{}, fmt.Errorf("EVM-only %s attempted before committing the finalized block", action)
-		}
 		number, ok := utils.SafeCast[uint64](state.committed.height)
 		if !ok {
 			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
@@ -592,25 +561,71 @@ func (a *evmOnlyApplication) committedBlockContext(action string) (evmonly.Block
 	panic("unreachable")
 }
 
+// openCommittedState pairs block metadata with a point-in-time state snapshot.
+// A block may finish writing before Commit acknowledges it, or Commit may
+// advance before its asynchronous state write lands. In either case, retry or
+// wait until the two heights match. The caller owns the returned snapshot.
+func (a *evmOnlyApplication) openCommittedState(ctx context.Context, action string) (*evmonly.Executor, evmonly.BlockContext, gigatypes.StateView, error) {
+	executor, ok := a.settler.Load().Get()
+	if !ok {
+		return nil, evmonly.BlockContext{}, nil, fmt.Errorf("EVM-only %s attempted before InitChain", action)
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, evmonly.BlockContext{}, nil, err
+		}
+		blockCtx, err := a.committedBlockContext()
+		if err != nil {
+			return nil, evmonly.BlockContext{}, nil, err
+		}
+		snapshot := a.storage.StateDB().OpenView()
+		if snapshot == nil {
+			return nil, evmonly.BlockContext{}, nil, errors.New("giga store returned a nil snapshot")
+		}
+		height := snapshot.GetBlockHeight()
+		if failure := executor.CommitFailure(); failure != nil {
+			snapshot.Close()
+			return nil, evmonly.BlockContext{}, nil, failure
+		}
+		if height == int64(blockCtx.Number) {
+			return executor, blockCtx, snapshot, nil
+		}
+		snapshot.Close()
+		if height < int64(blockCtx.Number) {
+			if err := executor.AwaitCommits(); err != nil {
+				return nil, evmonly.BlockContext{}, nil, err
+			}
+			continue
+		}
+		for state, ctrl := range a.cursor.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool { return state.committed.height >= height }); err != nil {
+				return nil, evmonly.BlockContext{}, nil, err
+			}
+		}
+	}
+}
+
 // EvmCall executes msg as a read-only call against the most recently
 // committed EVM state and returns the execution result.
 func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
-	executor, blockCtx, err := a.currentExecutionContext("call")
+	executor, blockCtx, snapshot, err := a.openCommittedState(ctx, "call")
 	if err != nil {
 		return nil, err
 	}
-	return executor.Call(ctx, blockCtx, msg)
+	defer snapshot.Close()
+	return executor.CallOnSnapshot(ctx, blockCtx, snapshot, msg)
 }
 
 // EvmEstimateGas returns the lowest gas limit that lets msg execute
 // successfully against the most recently committed EVM state. Like EvmCall
 // it creates no transaction and persists no state change.
 func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Message, gasCap uint64) (uint64, []byte, error) {
-	executor, blockCtx, err := a.currentExecutionContext("gas estimate")
+	executor, blockCtx, snapshot, err := a.openCommittedState(ctx, "gas estimate")
 	if err != nil {
 		return 0, nil, err
 	}
-	return executor.EstimateGas(ctx, blockCtx, msg, gasCap)
+	defer snapshot.Close()
+	return executor.EstimateGasOnSnapshot(ctx, blockCtx, snapshot, msg, gasCap)
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -735,7 +750,7 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 // block's state commit is not waited for; a commit that fails halts the node
 // through the next FinalizeBlock.
 func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
-	for state := range a.cursor.Lock() {
+	for state, ctrl := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {
 			return nil, fmt.Errorf("EVM-only Commit called without a finalized block")
@@ -743,6 +758,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
+		ctrl.Updated()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")
