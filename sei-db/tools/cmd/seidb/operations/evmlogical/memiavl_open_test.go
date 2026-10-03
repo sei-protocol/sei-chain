@@ -1,4 +1,4 @@
-package operations
+package evmlogical
 
 import (
 	"os"

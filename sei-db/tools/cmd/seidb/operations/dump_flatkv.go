@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -34,17 +35,23 @@ const (
 	bytesPerMiB = 1 << 20
 )
 
+// The logical buckets that ClassifyFlatKVPhysicalKey sorts FlatKV physical keys into.
 const (
-	flatkvBucketAccount = "account"
-	flatkvBucketCode    = "code"
-	flatkvBucketStorage = "storage"
-	flatkvBucketMisc    = "misc"
+	FlatKVBucketAccount = "account"
+	FlatKVBucketCode    = "code"
+	FlatKVBucketStorage = "storage"
+	FlatKVBucketMisc    = "misc"
 )
 
 // flatkvBucketOrder lists the logical bucket names for dump output files.
 // RawGlobalIterator emits keys in global lex order; this order is used only
 // for CLI validation and per-bucket file allocation.
-var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketMisc}
+var flatkvBucketOrder = []string{FlatKVBucketAccount, FlatKVBucketCode, FlatKVBucketStorage, FlatKVBucketMisc}
+
+// FlatKVBuckets returns the logical bucket names in account, code, storage, misc order.
+func FlatKVBuckets() []string {
+	return slices.Clone(flatkvBucketOrder)
+}
 
 // DumpFlatKVCmd dumps every (physical key, value) pair of a FlatKV store into
 // per-bucket files, formatted to match dump-iavl so the same diff tooling works
@@ -143,7 +150,7 @@ func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 	if outputDir == "" && !lthashOnly {
 		panic("Must provide --output-dir")
 	}
-	if bucket != "" && !isFlatKVBucket(bucket) {
+	if bucket != "" && !IsFlatKVBucket(bucket) {
 		panic(fmt.Sprintf("Unknown --bucket %q. Valid: account, code, storage, misc", bucket))
 	}
 	if lthashOnly && !withLtHash {
@@ -161,13 +168,9 @@ func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 	}
 }
 
-func isFlatKVBucket(name string) bool {
-	for _, b := range flatkvBucketOrder {
-		if b == name {
-			return true
-		}
-	}
-	return false
+// IsFlatKVBucket reports whether name is one of the logical bucket names.
+func IsFlatKVBucket(name string) bool {
+	return slices.Contains(flatkvBucketOrder, name)
 }
 
 // DumpFlatKVData opens a read-only clone of a FlatKV store at the requested
@@ -265,7 +268,7 @@ func dumpFlatKVFromStore(store flatkv.Store, outputDir string, version int64, bu
 				return fmt.Errorf("read rate limiter: %w", err)
 			}
 		}
-		bucketName := classifyFlatKVPhysicalKey(key)
+		bucketName := ClassifyFlatKVPhysicalKey(key)
 		if h := hashers[bucketName]; h != nil {
 			h.add(key, val)
 		}

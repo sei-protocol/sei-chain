@@ -63,7 +63,7 @@ func collectFlatKVStateSize(store flatkv.Store) (*FlatKVStateSizeResult, error) 
 		result.Total.ValueSize += valueSize
 		result.Total.TotalSize += totalSize
 
-		dbName := classifyFlatKVPhysicalKey(key)
+		dbName := ClassifyFlatKVPhysicalKey(key)
 		if _, ok := result.DBSizes[dbName]; !ok {
 			result.DBSizes[dbName] = &FlatKVDBSize{}
 		}
@@ -73,7 +73,7 @@ func collectFlatKVStateSize(store flatkv.Store) (*FlatKVStateSizeResult, error) 
 		db.ValueSize += valueSize
 		db.TotalSize += totalSize
 
-		if dbName == flatkvBucketStorage {
+		if dbName == FlatKVBucketStorage {
 			addr := extractFlatKVContractAddress(key)
 			if addr != "" {
 				if _, ok := result.ContractSizes[addr]; !ok {
@@ -97,26 +97,26 @@ func collectFlatKVStateSize(store flatkv.Store) (*FlatKVStateSizeResult, error) 
 	return result, nil
 }
 
-// classifyFlatKVPhysicalKey determines which logical DB a physical key
+// ClassifyFlatKVPhysicalKey determines which logical DB a physical key
 // belongs to. Physical format: "<module>/" + type_prefix_byte + stripped_key.
 // Non-evm modules and evm keys with an unrecognised type prefix are bucketed
 // into "misc". The kind switch mirrors CommitStore.routePhysicalKey so the
 // classification stays in sync with FlatKV's actual write routing.
-func classifyFlatKVPhysicalKey(key []byte) string {
+func ClassifyFlatKVPhysicalKey(key []byte) string {
 	moduleName, innerKey, err := ktype.StripModulePrefix(key)
 	if err != nil || moduleName != keys.EVMStoreKey {
-		return flatkvBucketMisc
+		return FlatKVBucketMisc
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
 	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
-		return flatkvBucketAccount
+		return FlatKVBucketAccount
 	case keys.EVMKeyCode:
-		return flatkvBucketCode
+		return FlatKVBucketCode
 	case keys.EVMKeyStorage:
-		return flatkvBucketStorage
+		return FlatKVBucketStorage
 	default:
-		return flatkvBucketMisc
+		return FlatKVBucketMisc
 	}
 }
 
@@ -161,7 +161,7 @@ func printFlatKVResults(r *FlatKVStateSizeResult, height int64) {
 	fmt.Printf("%-12s %15s %15s %15s %15s\n", "DB", "Keys", "Key Size", "Value Size", "Total Size")
 	fmt.Printf("%s\n", strings.Repeat("-", 75))
 
-	dbOrder := []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketMisc}
+	dbOrder := []string{FlatKVBucketAccount, FlatKVBucketCode, FlatKVBucketStorage, FlatKVBucketMisc}
 	for _, name := range dbOrder {
 		db, ok := r.DBSizes[name]
 		if !ok {
