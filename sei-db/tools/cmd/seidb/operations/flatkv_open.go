@@ -125,6 +125,12 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 	}, nil
 }
 
+// OpenFlatKVReadOnly opens an isolated read-only FlatKV view for a seidb
+// operation. The caller must close the returned store.
+func OpenFlatKVReadOnly(dbDir string, height int64) (flatkv.Store, error) {
+	return openFlatKVReadOnly(dbDir, height)
+}
+
 func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 	return prepareFlatKVToolingCloneWith(dbDir, height, tryPrepareFlatKVToolingClone)
 }
