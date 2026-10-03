@@ -1281,8 +1281,9 @@ func (ti *trackingImporter) AddModule(name string) error {
 	return nil
 }
 
-func (ti *trackingImporter) AddNode(node *types.SnapshotNode) {
+func (ti *trackingImporter) AddNode(node *types.SnapshotNode) error {
 	*ti.nodes = append(*ti.nodes, node)
+	return nil
 }
 
 func (ti *trackingImporter) Close() error { return nil }

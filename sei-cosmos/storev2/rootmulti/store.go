@@ -1302,9 +1302,12 @@ loop:
 			if node.Height == 0 && node.Value == nil {
 				node.Value = []byte{}
 			}
-			scImporter.AddNode(node)
+			if err = scImporter.AddNode(node); err != nil {
+				restoreErr = err
+				break loop
+			}
 
-			// Check if we should also import to SS store
+			// Only leaves the SC importer accepted reach the state store.
 			if ssImport != nil && node.Height == 0 {
 				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,

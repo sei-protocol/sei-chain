@@ -638,9 +638,8 @@ func sortedKeys(m map[string][]byte) []string {
 // importFromInto exports src at version and imports the stream into dst, returning how many rows
 // crossed the boundary.
 //
-// The count is returned because AddNode silently drops any node whose version does not match the
-// importer's: without asserting it, an empty destination would compare equal to nothing and the whole
-// suite would pass vacuously.
+// The count is returned so callers can assert the stream was not empty: an empty destination would
+// compare equal to an empty source and the whole suite would pass vacuously.
 func importFromInto(t *testing.T, src *CommitStore, dst *CommitStore, version int64) int {
 	t.Helper()
 
