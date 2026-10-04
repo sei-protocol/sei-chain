@@ -327,6 +327,7 @@ func buildGigaRouter(
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
@@ -350,6 +351,7 @@ func buildGigaRouter(
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {

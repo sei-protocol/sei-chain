@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"sync/atomic"
 	"testing"
@@ -791,4 +792,36 @@ func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 		{PubKey: pk, Power: 2},
 	})
 	require.Error(t, err)
+}
+
+// A peer that accepts and then says nothing must return from the handshake.
+func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
+	rng := utils.TestRng()
+	addr := tcp.TestReserveAddr()
+	listener, err := tcp.Listen(addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, listener.Close()) })
+	router := &gigaRouterCommon{
+		cfg: &GigaRouterCommonConfig{HandshakeTimeout: utils.Some(100 * time.Millisecond)},
+		key: makeKey(rng),
+	}
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			// Hold the accepted connection open without ever speaking.
+			conn, err := listener.AcceptOrClose(ctx)
+			if err != nil {
+				return err
+			}
+			return conn.Run(ctx)
+		})
+		return router.dialAndRunConn(ctx, atypes.GenSecretKey(rng).Public(), makeKey(rng).Public(),
+			tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},
+			func(context.Context, rpc.Client[giga.API]) error { return nil })
+	})
+	// Cancelling the handshake half-closes the socket, so the connection pump
+	// often reports EOF before handshake returns the deadline.
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, io.EOF) {
+		t.Fatalf("dialAndRunConn() = %v, want context.DeadlineExceeded or io.EOF", err)
+	}
 }
