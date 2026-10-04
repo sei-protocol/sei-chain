@@ -88,7 +88,7 @@ func replayTreeChangelogFrom(
 		Version:         metadata.CommitInfo.Version,
 	}
 
-	stream, err := wal.NewChangelogWAL(utils.GetChangelogPath(dir), wal.Config{NoRepairOnOpen: true})
+	stream, err := wal.NewChangelogWAL(utils.GetChangelogPath(dir), wal.Config{NoRepairOnOpen: true, ReadOnly: true})
 	if err != nil {
 		return TreeChangelogRange{}, fmt.Errorf("open changelog: %w", err)
 	}

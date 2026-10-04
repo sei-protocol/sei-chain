@@ -214,6 +214,7 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
 		WriteBufferSize: opts.AsyncCommitBuffer,
 		NoRepairOnOpen:  opts.NoChangelogRepair,
+		ReadOnly:        opts.ReadOnly,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)

@@ -36,6 +36,9 @@ type WAL[T any] struct {
 	marshal   MarshalFn[T]
 	unmarshal UnmarshalFn[T]
 
+	// viewDir is the private view a read-only log was opened from, or empty.
+	viewDir string
+
 	// The size of write batches.
 	writeBatchSize int
 	asyncWrites    bool
@@ -99,11 +102,13 @@ type Config struct {
 	// When false (default), at least one entry must remain after truncation.
 	AllowEmpty bool
 
-	// NoRepairOnOpen returns wal.ErrCorrupt from the open instead of truncating a
-	// corrupted tail to recover the log. A reader that must leave the log as it
-	// found it sets it. It does not cover the segment cleanup the open performs for
-	// an interrupted TruncateFront, which reports no error to gate on.
+	// NoRepairOnOpen fails the open with wal.ErrCorrupt when the log ends
+	// mid-record, instead of truncating the corrupted tail.
 	NoRepairOnOpen bool
+
+	// ReadOnly opens the log without ever modifying its directory, so it is safe
+	// against a log another writer is using. Writes and truncations are refused.
+	ReadOnly bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -126,12 +131,24 @@ func NewWAL[T any](
 	dir string,
 	config Config,
 ) (*WAL[T], error) {
-	log, err := open(dir, &wal.Options{
+	var viewDir string
+	logDir := dir
+	if config.ReadOnly {
+		var err error
+		if viewDir, err = createReadOnlyView(dir); err != nil {
+			return nil, err
+		}
+		logDir = viewDir
+	}
+	log, err := open(logDir, &wal.Options{
 		NoSync:     !config.FsyncEnabled,
 		NoCopy:     !config.DeepCopyEnabled,
 		AllowEmpty: config.AllowEmpty,
 	}, config.NoRepairOnOpen)
 	if err != nil {
+		if viewDir != "" {
+			_ = os.RemoveAll(viewDir)
+		}
 		return nil, err
 	}
 
@@ -154,6 +171,7 @@ func NewWAL[T any](
 		cancel:         cancel,
 		dir:            dir,
 		log:            log,
+		viewDir:        viewDir,
 		config:         config,
 		marshal:        marshal,
 		unmarshal:      unmarshal,
@@ -175,6 +193,9 @@ func NewWAL[T any](
 // Whether the writes is in blocking or async manner depends on the buffer size.
 // For async writes, this also checks for any previous async write errors.
 func (walLog *WAL[T]) Write(entry T) error {
+	if walLog.config.ReadOnly {
+		return errReadOnly
+	}
 
 	backgroundErr := walLog.asyncError.Load()
 	if backgroundErr != nil {
@@ -372,6 +393,9 @@ func (walLog *WAL[T]) TruncateAll() error {
 
 // sendTruncate sends a truncate request to the main loop and waits for completion.
 func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
+	if walLog.config.ReadOnly {
+		return errReadOnly
+	}
 	req := &truncateRequest{
 		before:  before,
 		index:   index,
@@ -601,7 +625,7 @@ func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 func (walLog *WAL[T]) mainLoop() {
 
 	var pruneChan <-chan time.Time
-	if walLog.config.PruneInterval > 0 && walLog.config.KeepRecent > 0 {
+	if walLog.config.PruneInterval > 0 && walLog.config.KeepRecent > 0 && !walLog.config.ReadOnly {
 		pruneTicker := time.NewTicker(walLog.config.PruneInterval)
 		defer pruneTicker.Stop()
 		pruneChan = pruneTicker.C
@@ -637,6 +661,11 @@ func (walLog *WAL[T]) mainLoop() {
 			closeErr = fmt.Errorf("shutdown due to: %w; log close also failed: %v", closeErr, err)
 		} else {
 			closeErr = err
+		}
+	}
+	if walLog.viewDir != "" {
+		if err := os.RemoveAll(walLog.viewDir); err != nil && closeErr == nil {
+			closeErr = fmt.Errorf("remove read-only view: %w", err)
 		}
 	}
 	walLog.closeErrChan <- closeErr
