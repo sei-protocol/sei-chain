@@ -219,6 +219,11 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
+	defer func() {
+		if _err != nil {
+			_ = streamHandler.Close()
+		}
+	}()
 
 	// Compute WAL index delta (only needed once per DB open)
 	var walIndexDelta int64

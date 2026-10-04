@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +21,7 @@ var errReadOnly = errors.New("wal is read-only")
 // of the log in dir. The caller removes it once the log opened from it is
 // closed.
 func createReadOnlyView(dir string) (string, error) {
+	dir = filepath.Clean(dir)
 	var err error
 	for attempt := 0; attempt < readOnlyViewAttempts; attempt++ {
 		var view string
@@ -56,11 +58,11 @@ func populateReadOnlyView(dir, view string) error {
 			names = append(names, entry.Name())
 		}
 	}
-	for i, name := range names {
+	modifiable := modifiableOnOpen(names)
+	for _, name := range names {
 		src, dst := filepath.Join(dir, name), filepath.Join(view, name)
-		// Opening a log truncates a corrupted tail and renames truncation
-		// markers in place, so files it may modify are copied, not linked.
-		if i == len(names)-1 || isTruncationMarker(name) {
+		// Files an open may modify in place are copied, not linked.
+		if modifiable[name] {
 			err = copyFile(src, dst)
 		} else {
 			err = os.Link(src, dst)
@@ -70,6 +72,47 @@ func populateReadOnlyView(dir, view string) error {
 		}
 	}
 	return nil
+}
+
+// modifiableOnOpen returns the files among names, in directory order, that
+// opening the log may modify in place.
+func modifiableOnOpen(names []string) map[string]bool {
+	modifiable := make(map[string]bool)
+	var tail, repairTarget string
+	for _, name := range names {
+		if len(name) < 20 {
+			continue
+		}
+		// The tail repair in open truncates the last long name, which a stray
+		// file can make differ from the tail segment the log loads.
+		repairTarget = name
+		if isSegment(name) {
+			tail = name
+		}
+		if isTruncationMarker(name) {
+			modifiable[name] = true
+		}
+	}
+	for _, name := range []string{tail, repairTarget} {
+		if name != "" {
+			modifiable[name] = true
+		}
+	}
+	return modifiable
+}
+
+// isSegment reports whether opening the log loads name as a segment.
+func isSegment(name string) bool {
+	if len(name) < 20 {
+		return false
+	}
+	index, err := strconv.ParseUint(name[:20], 10, 64)
+	if err != nil || index == 0 {
+		return false
+	}
+	return len(name) == 20 ||
+		(len(name) == 26 && strings.HasSuffix(name, ".START")) ||
+		(len(name) == 24 && strings.HasSuffix(name, ".END"))
 }
 
 // isTruncationMarker reports whether name is the marker file an interrupted

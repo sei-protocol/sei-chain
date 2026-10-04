@@ -40,6 +40,15 @@ func dirState(t *testing.T, dir string) map[string]string {
 	return state
 }
 
+// tailSegment returns the path of the segment a log in dir appends to.
+func tailSegment(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+	return filepath.Join(dir, entries[len(entries)-1].Name())
+}
+
 func requireOnlyEntry(t *testing.T, root, name string) {
 	t.Helper()
 	entries, err := os.ReadDir(root)
@@ -81,7 +90,7 @@ func TestReadOnlyOpenLeavesCorruptedTail(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "changelog")
 	writeSegmentedLog(t, dir, 3)
-	tail, err := os.OpenFile(filepath.Join(dir, "00000000000000000003"), os.O_APPEND|os.O_WRONLY, 0)
+	tail, err := os.OpenFile(tailSegment(t, dir), os.O_APPEND|os.O_WRONLY, 0)
 	require.NoError(t, err)
 	// A length prefix of 16 followed by one byte: a record cut off mid-write.
 	_, err = tail.Write([]byte{0x10, 0x01})
@@ -94,6 +103,26 @@ func TestReadOnlyOpenLeavesCorruptedTail(t *testing.T) {
 	last, err := changelog.LastOffset()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), last)
+	require.NoError(t, changelog.Close())
+	require.Equal(t, before, dirState(t, dir))
+	requireOnlyEntry(t, root, "changelog")
+}
+
+func TestReadOnlyOpenLeavesCorruptedTailBeforeStrayFile(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "changelog")
+	writeSegmentedLog(t, dir, 3)
+	tail, err := os.OpenFile(tailSegment(t, dir), os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = tail.Write([]byte{0x10, 0x01})
+	require.NoError(t, err)
+	require.NoError(t, tail.Close())
+	// A file that is not a segment and sorts after the tail.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stray"), []byte("x"), 0o600))
+	before := dirState(t, dir)
+
+	changelog, err := NewChangelogWAL(dir, Config{ReadOnly: true})
+	require.NoError(t, err)
 	require.NoError(t, changelog.Close())
 	require.Equal(t, before, dirState(t, dir))
 	requireOnlyEntry(t, root, "changelog")
@@ -136,7 +165,7 @@ func TestReadOnlyOpenDuringWriterTruncation(t *testing.T) {
 	require.NoError(t, writer.Write(proto.ChangelogEntry{Version: 1}))
 
 	var stop atomic.Bool
-	var opens atomic.Int64
+	var opens, failures atomic.Int64
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Add(1)
@@ -145,6 +174,8 @@ func TestReadOnlyOpenDuringWriterTruncation(t *testing.T) {
 			for !stop.Load() {
 				reader, err := NewChangelogWAL(dir, Config{ReadOnly: true, NoRepairOnOpen: true})
 				if err != nil {
+					// A tail copied mid-append fails the open with wal.ErrCorrupt.
+					failures.Add(1)
 					continue
 				}
 				opens.Add(1)
@@ -164,5 +195,7 @@ func TestReadOnlyOpenDuringWriterTruncation(t *testing.T) {
 	wg.Wait()
 	require.NoError(t, writeErr)
 	require.NoError(t, writer.Close())
+	t.Logf("read-only opens: %d succeeded, %d failed", opens.Load(), failures.Load())
 	require.Positive(t, opens.Load())
+	require.Less(t, failures.Load(), opens.Load())
 }
