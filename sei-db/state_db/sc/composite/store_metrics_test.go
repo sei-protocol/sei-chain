@@ -79,7 +79,7 @@ func TestLoadVersionReadOnlyDoesNotReportMigrationVersion(t *testing.T) {
 	require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: pairs}},
 	}))
-	_, err = cs1.Commit(cs1.Version() + 1)
+	_, err = cs1.Commit()
 	require.NoError(t, err)
 	require.NoError(t, cs1.Close())
 
@@ -102,7 +102,7 @@ func TestLoadVersionReadOnlyDoesNotReportMigrationVersion(t *testing.T) {
 				{Key: []byte(fmt.Sprintf("bank_%d", block)), Value: []byte("v")},
 			}}},
 		}))
-		_, err = cs2.Commit(cs2.Version() + 1)
+		_, err = cs2.Commit()
 		require.NoError(t, err)
 		if _, done := cs2.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey)); done {
 			break
