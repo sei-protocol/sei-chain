@@ -1364,6 +1364,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 				return err
 			}
 			currentStoreName = item
+			keySizePerStore[item] = 0
+			valueSizePerStore[item] = 0
+			numKeysPerStore[item] = 0
 		default:
 			return fmt.Errorf("unknown item type %T", item)
 		}
