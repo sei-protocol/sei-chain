@@ -481,8 +481,14 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 // mode has been resolved.
 func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
+	var options []migration.RouterOption
+	if cs.derived {
+		// A derived store sees the migration state at its own height; publishing it would overwrite the
+		// live store's gauges.
+		options = append(options, migration.WithoutTelemetry())
+	}
 	router, err := migration.BuildRouter(
-		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, int(cs.migrationBatchSize.Load()))
+		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, int(cs.migrationBatchSize.Load()), options...)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to build router: %w", err)
