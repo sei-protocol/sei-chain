@@ -170,6 +170,8 @@ Once the migration has started, the app hash can't tell you whether a reserve's 
 go build -o build/seidb ./sei-db/tools/cmd/seidb
 ```
 
+The commands below call it as `./build/seidb` from the checkout, so a different `seidb` on your `PATH` can't run in its place. The normal node you compare against needs it too: build it there the same way, or copy the file over and adjust the path.
+
 Pick a height `H` that the reserve has a memIAVL snapshot for. Snapshot directories are named after the height padded to 20 digits, so `snapshot-00000000000213200000` is height `213200000`:
 
 ```bash
@@ -181,21 +183,21 @@ ls ~/.sei/data/state_commit/memiavl | grep '^snapshot-'
 On the reserve:
 
 ```bash
-seidb evm-logical-digest --backend memiavl \
+./build/seidb evm-logical-digest --backend memiavl \
   --db-dir ~/.sei/data/state_commit/memiavl --height H
 ```
 
 On one of your normal nodes, while the EVM phase is still running:
 
 ```bash
-seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
+./build/seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
   --flatkv-dir ~/.sei/data/state_commit/flatkv \
   --memiavl-dir ~/.sei/data/state_commit/memiavl --height H
 ```
 
 `--memiavl-open-mode changelog` reads the newest memIAVL snapshot at or below `H` plus the changelog above it, so the normal node doesn't need a snapshot at `H`. It gives the same result as `--memiavl-open-mode replay`, much faster and with far less memory: on a `pacific-1` memIAVL-only node 85,000 blocks past its snapshot, a digest took 405 seconds and peaked at 24 GB of memory this way, against 2,286 seconds and 142 GB with replay ([#4419](https://github.com/sei-protocol/sei-chain/pull/4419)). Add it to the reserve's command too if you pick a height the reserve has no snapshot for.
 
-Once the EVM phase has finished, use `--backend flatkv --db-dir ~/.sei/data/state_commit/flatkv --height H` on the normal node instead. The two `FINAL_DIGEST` lines must match. The tool reads the entire EVM state, so run it at a quiet time.
+Once the EVM phase has finished, run `./build/seidb evm-logical-digest --backend flatkv --db-dir ~/.sei/data/state_commit/flatkv --height H` on the normal node instead. The two `FINAL_DIGEST` lines must match. The tool reads the entire EVM state, so run it at a quiet time.
 
 ## Don't
 
