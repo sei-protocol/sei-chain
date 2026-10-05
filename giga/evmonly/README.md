@@ -251,6 +251,20 @@ reads or writes that balance, spends funds made available by that fee credit, or
 mixes a normal balance write with a fee credit to the same address, it is rerun
 against the updated prefix.
 
+The parallel acceptance helps most when a block touches many distinct
+addresses with few conflicts, such as plain transfers between many accounts.
+It helps little, or costs a few percent, when one address dominates the block.
+A hot contract's storage or a heavily used address sits in one shard, so one
+worker does its apply and merge work. Dependency chains fall back to the serial
+stretch. Addresses with leading zero bytes all land in the first shard.
+
+Local benchmarks of validate and merge per block show the range:
+
+- a conflict-free block of 1,800 transactions: 20% faster than the serial path
+- a sparse block of 1,800 transactions: 11% faster
+- a dense block of 320 transactions: 3.8% slower
+- a block of transfers to one hot recipient: 1.7% slower
+
 Speculative execution reuses scratch `nativeStateDB` instances from an executor
 pool. The returned receipts, logs, read/write sets, commutative balance deltas,
 and changesets are detached before the scratch state DB is reset. EVM snapshots

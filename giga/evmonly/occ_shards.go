@@ -12,22 +12,27 @@ import (
 
 // occStateShards is the number of address shards the accepted prefix and the write index are split
 // into. Shards are contiguous address ranges, so concatenating per-shard output in shard order keeps
-// it in canonical address order.
+// it in canonical address order. The value is a design choice, not a measurement: occShardSet is a
+// uint64 bitmask, and 64 ranges give each worker several shards to balance over.
 const occStateShards = 64
 
 // occMinParallelValidation is the fewest results a parallel validation pass is worth running for;
-// below it, waking the pool costs more than validating on the calling goroutine.
+// below it, waking the pool costs more than validating on the calling goroutine. The value is the
+// package's pool threshold, shared with occParallelReceiptThreshold; it is not measured for validation.
 const occMinParallelValidation = 64
 
 // occMinParallelMergeKeys is the fewest accepted keys a parallel merge is worth running for; below
-// it, the merge runs on the calling goroutine and appends straight into the pooled changeset.
+// it, the merge runs on the calling goroutine and appends straight into the pooled changeset. The
+// value is the threshold of the account prefetch this merge replaced; it is not measured for the merge.
 const occMinParallelMergeKeys = 256
 
-// occCancellationCheckInterval is how many items a worker handles between context checks.
+// occCancellationCheckInterval is how many items a worker handles between context checks: rare enough
+// that the check costs little, often enough that a cancelled pass stops promptly. It is not measured.
 const occCancellationCheckInterval = 64
 
 // occMinPassLookahead is the fewest results a parallel validation pass looks ahead over. A pass looks
-// ahead at most twice as far as the previous pass accepted, and at least this far.
+// ahead at most twice as far as the previous pass accepted, and at least this far. 2048 covers a
+// block of about 1,800 transactions, the giga-testnet block size, in one pass.
 const occMinPassLookahead = 2048
 
 // occAllShards is the set of every shard.
@@ -38,7 +43,9 @@ var _ = [1]struct{}{}[occStateShards-64] // occShardSet has exactly one bit per 
 // occShardSet is a set of shards, one bit per shard.
 type occShardSet uint64
 
-// occShardOf returns the shard that holds addr.
+// occShardOf returns the shard that holds addr. Hash-derived addresses spread evenly over the shards,
+// but a hot contract, or addresses with leading zero bytes, put their keys in one shard; that costs
+// parallelism, not correctness.
 func occShardOf(addr common.Address) int {
 	return int(addr[0]) * occStateShards / 256
 }
