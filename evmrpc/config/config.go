@@ -10,8 +10,11 @@ import (
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 )
+
+var logger = seilog.NewLogger("evmrpc", "config")
 
 const (
 	// WorkerBatchSize is the number of blocks processed in each batch.
@@ -744,6 +747,7 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	rateLimitingSwitchSet := opts.Get(flagRateLimitingEnabled) != nil
 	if v := opts.Get(flagRateLimitingEnabled); v != nil {
 		if cfg.RateLimitingEnabled, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
@@ -808,8 +812,21 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	if _, err = cfg.DeadlineEnforcerConfig(); err != nil {
 		return cfg, err
 	}
-	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
-		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
+	burstBelowBatchLimit := cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
+		cfg.IPRateLimitBurst < cfg.BatchRequestLimit
+	// Config files that predate rate_limiting_enabled carry an explicit burst
+	// sized for the older, smaller batch default. When the switch is inherited
+	// rather than set, raise the burst so those nodes still start.
+	if burstBelowBatchLimit && !rateLimitingSwitchSet {
+		logger.Warn("raising EVM per-IP rate-limit burst to the batch request limit",
+			"configured", cfg.IPRateLimitBurst,
+			"effective", cfg.BatchRequestLimit,
+			"hint", "set "+flagIPRateLimitBurst+" >= "+flagBatchRequestLimit+" or set "+flagRateLimitingEnabled+" explicitly",
+		)
+		cfg.IPRateLimitBurst = cfg.BatchRequestLimit
+		burstBelowBatchLimit = false
+	}
+	if burstBelowBatchLimit {
 		return cfg, fmt.Errorf(
 			"%s (%d) must be >= %s (%d): the rate limiter charges one token per batch element, "+
 				"so a lower burst would permanently reject any full-size batch",

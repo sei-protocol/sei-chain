@@ -896,3 +896,18 @@ func TestReadConfigRateLimitingBurstBelowBatchLimitRejected(t *testing.T) {
 	_, err = config.ReadConfig(&o)
 	require.NoError(t, err)
 }
+
+func TestReadConfigRateLimitingPreSwitchConfigRaisesBurst(t *testing.T) {
+	// Shaped like an [evm] section written by a template that predates
+	// rate_limiting_enabled and batch_request_limit.
+	o := getDefaultOpts()
+	o.rateLimitingEnabled = nil
+	o.batchRequestLimit = nil
+	o.ipRateLimitRPS = float64(200)
+	o.ipRateLimitBurst = 400
+	cfg, err := config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.True(t, cfg.RateLimitingEnabled)
+	require.Equal(t, config.DefaultConfig.BatchRequestLimit, cfg.BatchRequestLimit)
+	require.Equal(t, cfg.BatchRequestLimit, cfg.IPRateLimitBurst)
+}
