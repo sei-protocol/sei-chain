@@ -619,8 +619,7 @@ func TestInsertTx_PriorityAdmissionStress(t *testing.T) {
 	require.Equal(t, uint64(0), mp.pendingInserts.Load())
 	for m := range mp.inner.Lock() {
 		require.Equal(t, uint64(0), m.waiters.Len())
-		require.Equal(t, 0, m.waiters.best.Len())
-		require.Equal(t, 0, m.waiters.worst.Len())
+		require.Equal(t, 0, m.waiters.eligible.Len())
 		require.Equal(t, 0, len(m.waiters.senders))
 	}
 }
@@ -742,7 +741,7 @@ func TestAdmissionQueue_MatchesModel(t *testing.T) {
 			}
 			return 1
 		})
-		require.Equal(t, len(want), q.best.Len())
+		require.Equal(t, len(want), q.eligible.Len())
 		require.Equal(t, len(queued), len(slices.Collect(q.All())))
 		if len(want) == 0 {
 			continue
@@ -758,4 +757,27 @@ func TestAdmissionQueue_MatchesModel(t *testing.T) {
 			require.Equal(t, worst, victim)
 		}
 	}
+}
+
+// Calls that tie on ownership and priority stay distinct in the queue, so a push never replaces
+// a queued call, and they keep arrival order: the first pushed is the best, the last the worst.
+func TestAdmissionQueue_EqualRanksNeverReplace(t *testing.T) {
+	q := newAdmissionQueue()
+	const n = 100
+	tickets := make([]*insertTicket, 0, n)
+	for i := range n {
+		var c *insertTicket
+		if i%2 == 0 {
+			c = newInsertTicket(rank{owned: true, priority: 7, seq: unqueuedSeq}, utils.None[common.Address](), 0)
+		} else {
+			c = newInsertTicket(rank{owned: true, priority: 7, seq: unqueuedSeq}, utils.Some(common.Address{byte(i)}), 0)
+		}
+		q.Push(c)
+		tickets = append(tickets, c)
+	}
+	require.Equal(t, uint64(n), q.Len())
+	require.Equal(t, n, q.eligible.Len())
+	require.Equal(t, tickets[0], q.Best().OrPanic("non-empty"))
+	require.Equal(t, tickets[n-1], q.Worst().OrPanic("non-empty"))
+	require.Equal(t, n, len(slices.Collect(q.All())))
 }

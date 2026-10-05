@@ -2,15 +2,19 @@ package producer
 
 import (
 	"cmp"
-	"container/heap"
 	"context"
 	"iter"
 	"math"
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/btree"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
+
+// eligibleDegree is the btree degree of the eligible calls: small nodes keep inserts cheap and
+// still give a depth of about 3 at the default 4096-call bound.
+const eligibleDegree = 16
 
 // unqueuedSeq is the seq of a call that is not queued yet, so it loses every tie to a queued one.
 const unqueuedSeq = math.MaxUint64
@@ -63,10 +67,8 @@ type insertTicket struct {
 	nonce  uint64
 
 	// The fields below are guarded by the mempool lock.
-	queued   bool
-	evicted  bool
-	bestIdx  int
-	worstIdx int
+	queued  bool
+	evicted bool
 }
 
 func newInsertTicket(r rank, sender utils.Option[common.Address], nonce uint64) *insertTicket {
@@ -75,8 +77,6 @@ func newInsertTicket(r rank, sender utils.Option[common.Address], nonce uint64) 
 		rank:     r,
 		sender:   sender,
 		nonce:    nonce,
-		bestIdx:  -1,
-		worstIdx: -1,
 	}
 }
 
@@ -90,50 +90,13 @@ func nonceOrder(a, b *insertTicket) int {
 	return cmp.Or(cmp.Compare(a.nonce, b.nonce), cmp.Compare(a.rank.seq, b.rank.seq))
 }
 
-// ticketHeap is a heap.Interface over tickets with the first under before on top. pos selects
-// the ticket field that holds its index, so a ticket can sit in two heaps and leave either in O(log n).
-type ticketHeap struct {
-	items  []*insertTicket
-	before func(a, b *insertTicket) bool
-	pos    func(t *insertTicket) *int
-}
-
-func (h *ticketHeap) Len() int           { return len(h.items) }
-func (h *ticketHeap) Less(i, j int) bool { return h.before(h.items[i], h.items[j]) }
-
-func (h *ticketHeap) Swap(i, j int) {
-	h.items[i], h.items[j] = h.items[j], h.items[i]
-	*h.pos(h.items[i]) = i
-	*h.pos(h.items[j]) = j
-}
-
-func (h *ticketHeap) Push(x any) {
-	t := x.(*insertTicket)
-	*h.pos(t) = len(h.items)
-	h.items = append(h.items, t)
-}
-
-func (h *ticketHeap) Pop() any {
-	n := len(h.items) - 1
-	t := h.items[n]
-	h.items[n] = nil
-	h.items = h.items[:n]
-	*h.pos(t) = -1
-	return t
-}
-
-func (h *ticketHeap) top() utils.Option[*insertTicket] {
-	if len(h.items) == 0 {
-		return utils.None[*insertTicket]()
-	}
-	return utils.Some(h.items[0])
-}
-
 // admissionQueue holds the blocked InsertTx calls. A call is eligible unless an earlier-nonce
-// call of the same EVM sender is queued; eligible calls are indexed best-first and worst-first.
+// call of the same EVM sender is queued.
 type admissionQueue struct {
-	best  ticketHeap
-	worst ticketHeap
+	// eligible holds the eligible calls best-first, so Min is the best and Max the worst. Every
+	// queued call has a unique seq, so no two compare equal and an insert never replaces one.
+	// A call's rank does not change while it is in the tree.
+	eligible *btree.BTreeG[*insertTicket]
 	// senders holds the queued calls of each EVM sender in nonceOrder; only the first is eligible.
 	senders map[common.Address][]*insertTicket
 	len     uint64
@@ -142,15 +105,8 @@ type admissionQueue struct {
 
 func newAdmissionQueue() *admissionQueue {
 	return &admissionQueue{
-		best: ticketHeap{
-			before: func(a, b *insertTicket) bool { return a.rank.outranks(b.rank) },
-			pos:    func(t *insertTicket) *int { return &t.bestIdx },
-		},
-		worst: ticketHeap{
-			before: func(a, b *insertTicket) bool { return b.rank.outranks(a.rank) },
-			pos:    func(t *insertTicket) *int { return &t.worstIdx },
-		},
-		senders: map[common.Address][]*insertTicket{},
+		eligible: btree.NewG(eligibleDegree, func(a, b *insertTicket) bool { return a.rank.outranks(b.rank) }),
+		senders:  map[common.Address][]*insertTicket{},
 	}
 }
 
@@ -158,18 +114,33 @@ func newAdmissionQueue() *admissionQueue {
 func (q *admissionQueue) Len() uint64 { return q.len }
 
 // Best returns the eligible call to admit next.
-func (q *admissionQueue) Best() utils.Option[*insertTicket] { return q.best.top() }
+func (q *admissionQueue) Best() utils.Option[*insertTicket] {
+	return someIf(q.eligible.Min())
+}
 
 // Worst returns the lowest-ranked eligible call.
-func (q *admissionQueue) Worst() utils.Option[*insertTicket] { return q.worst.top() }
+func (q *admissionQueue) Worst() utils.Option[*insertTicket] {
+	return someIf(q.eligible.Max())
+}
+
+// someIf returns Some(t) when ok and None otherwise.
+func someIf(t *insertTicket, ok bool) utils.Option[*insertTicket] {
+	if !ok {
+		return utils.None[*insertTicket]()
+	}
+	return utils.Some(t)
+}
 
 // All yields every queued call.
 func (q *admissionQueue) All() iter.Seq[*insertTicket] {
 	return func(yield func(*insertTicket) bool) {
-		for _, t := range q.best.items {
-			if !t.sender.IsPresent() && !yield(t) {
-				return
-			}
+		stopped := false
+		q.eligible.Ascend(func(t *insertTicket) bool {
+			stopped = !t.sender.IsPresent() && !yield(t)
+			return !stopped
+		})
+		if stopped {
+			return
 		}
 		for _, calls := range q.senders {
 			for _, t := range calls {
@@ -312,11 +283,13 @@ func (q *admissionQueue) Remove(t *insertTicket) bool {
 }
 
 func (q *admissionQueue) makeEligible(t *insertTicket) {
-	heap.Push(&q.best, t)
-	heap.Push(&q.worst, t)
+	if _, found := q.eligible.ReplaceOrInsert(t); found {
+		panic("admission queue: two queued calls compare equal")
+	}
 }
 
 func (q *admissionQueue) makeIneligible(t *insertTicket) {
-	heap.Remove(&q.best, t.bestIdx)
-	heap.Remove(&q.worst, t.worstIdx)
+	if _, found := q.eligible.Delete(t); !found {
+		panic("admission queue: an eligible call is missing from the tree")
+	}
 }
