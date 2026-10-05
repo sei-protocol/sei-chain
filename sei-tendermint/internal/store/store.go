@@ -153,9 +153,12 @@ func (bs *BlockStore) LoadBlock(height int64) *types.Block {
 		panic(fmt.Errorf("error reading block: %w", err))
 	}
 
-	block, err := types.BlockFromProto(pbb)
+	block, err := types.BlockFromStoredProto(pbb)
 	if err != nil {
 		panic(fmt.Errorf("error from proto block: %w", err))
+	}
+	if got, want := block.Hash(), blockMeta.BlockID.Hash; !bytes.Equal(got, want) {
+		panic(fmt.Errorf("block %d hash %X does not match its block meta %X", height, got, want))
 	}
 
 	return block

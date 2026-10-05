@@ -129,6 +129,17 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 
 	// End of setup, test data
 	commitAtH10 := makeTestCommit(10, tmtime.Now())
+	blockAtH1 := newBlock(header1, commitAtH10)
+	blockAtH1Parts := makeValidMultiPartSet(t, blockAtH1)
+	blockAtH5 := newBlock( // New block at height 5 in empty block store is fine
+		types.Header{
+			Version:         version.Consensus{Block: version.BlockProtocol},
+			Height:          5,
+			ChainID:         "block_test",
+			Time:            tmtime.Now(),
+			ProposerAddress: tmrand.Bytes(crypto.AddressSize)},
+		makeTestCommit(5, tmtime.Now()),
+	)
 	tuples := []struct {
 		block      *types.Block
 		parts      *types.PartSet
@@ -143,8 +154,8 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 		eraseSeenCommitInDB   bool
 	}{
 		{
-			block:      newBlock(header1, commitAtH10),
-			parts:      validPartSet,
+			block:      blockAtH1,
+			parts:      blockAtH1Parts,
 			seenCommit: seenCommit,
 		},
 
@@ -154,16 +165,8 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 		},
 
 		{
-			block: newBlock( // New block at height 5 in empty block store is fine
-				types.Header{
-					Version:         version.Consensus{Block: version.BlockProtocol},
-					Height:          5,
-					ChainID:         "block_test",
-					Time:            tmtime.Now(),
-					ProposerAddress: tmrand.Bytes(crypto.AddressSize)},
-				makeTestCommit(5, tmtime.Now()),
-			),
-			parts:      validPartSet,
+			block:      blockAtH5,
+			parts:      makeValidMultiPartSet(t, blockAtH5),
 			seenCommit: makeTestCommit(5, tmtime.Now()),
 		},
 
@@ -175,8 +178,8 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 		},
 
 		{
-			block:             newBlock(header1, commitAtH10),
-			parts:             validPartSet,
+			block:             blockAtH1,
+			parts:             blockAtH1Parts,
 			seenCommit:        seenCommit,
 			corruptCommitInDB: true, // Corrupt the DB's commit entry
 			wantPanic:         "error reading block commit",
@@ -191,8 +194,8 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 		},
 
 		{
-			block:      newBlock(header1, commitAtH10),
-			parts:      validPartSet,
+			block:      blockAtH1,
+			parts:      blockAtH1Parts,
 			seenCommit: seenCommit,
 
 			// Expecting no error and we want a nil back

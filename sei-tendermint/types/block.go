@@ -291,6 +291,19 @@ func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 // FromProto sets a protobuf Block to the given pointer.
 // It returns an error if the block is invalid.
 func BlockFromProto(bp *tmproto.Block) (*Block, error) {
+	b, err := BlockFromStoredProto(bp)
+	if err != nil {
+		return nil, err
+	}
+	return b, b.ValidateBasic(DefaultConsensusPolicy())
+}
+
+// BlockFromStoredProto decodes a block that was validated before it was
+// stored, without validating it again. Blocks from before v6.4 carry a
+// LastCommitHash that the current ValidateBasic rejects, so validating them
+// again would make them unreadable. Callers must authenticate the block some
+// other way, e.g. against its BlockID.
+func BlockFromStoredProto(bp *tmproto.Block) (*Block, error) {
 	if bp == nil {
 		return nil, errors.New("nil block")
 	}
@@ -318,7 +331,7 @@ func BlockFromProto(bp *tmproto.Block) (*Block, error) {
 		b.LastCommit = lc
 	}
 
-	return b, b.ValidateBasic(DefaultConsensusPolicy())
+	return b, nil
 }
 
 //-----------------------------------------------------------------------------
