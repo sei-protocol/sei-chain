@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -996,6 +997,84 @@ func TestEVMOnlyApplicationPreparesTheNextBlockWhileFinalizingTheCurrentOne(t *t
 	for i, block := range blocks {
 		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), hashes[i])
 	}
+}
+
+// A block prepared before FinalizeBlock reaches it survives the preparation of the
+// block after it, as when the fetcher runs ahead during catch-up, and both blocks
+// execute as if nobody had prepared them.
+func TestEVMOnlyApplicationKeepsAPreparedBlockWhileTheNextIsPrepared(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	blocks := []*abci.RequestFinalizeBlock{
+		evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)),
+		evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)),
+	}
+	for _, block := range blocks {
+		require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+	}
+	for _, block := range blocks {
+		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), finalizeAndCommitEVMOnlyTestBlock(t, prepared, block))
+	}
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(2), counts[true])
+	require.Equal(t, int64(0), counts[false])
+}
+
+// A prepared block that executes drops the senders CheckTx cached for its
+// transactions, as an unprepared one does.
+func TestEVMOnlyApplicationForgetsTheSendersOfAPreparedBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	require.Equal(t, abci.CodeTypeOK, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).Code)
+	hashes := hashRawTxs([][]byte{raw})
+	require.True(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+
+	block := evmOnlyTestBlock(1, raw)
+	require.NoError(t, evmOnlyApp.PrepareBlock(t.Context(), block))
+	require.True(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+	finalizeAndCommitEVMOnlyTestBlock(t, app, block)
+	require.False(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+}
+
+// The prepared queue keeps one block per height and at most maxPreparedBlocks of the
+// lowest heights, and drops the heights that can no longer execute.
+func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
+	block := func(height int64, hash byte) preparedBlock {
+		return preparedBlock{height: height, hash: common.Hash{hash}}
+	}
+	contents := func(q preparedQueue) []preparedBlock { return slices.Clone(q) }
+	var q preparedQueue
+
+	q.put(block(5, 1), 5)
+	q.put(block(7, 1), 5)
+	q.put(block(6, 1), 5)
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 1)}, contents(q))
+
+	q.put(block(6, 2), 5)
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 2)}, contents(q))
+
+	q.put(block(8, 1), 6)
+	require.Equal(t, []preparedBlock{block(6, 2), block(8, 1)}, contents(q))
+
+	_, ok := q.take(6, common.Hash{1})
+	require.False(t, ok)
+	require.Equal(t, []preparedBlock{block(6, 2), block(8, 1)}, contents(q))
+
+	got, ok := q.take(8, common.Hash{1})
+	require.True(t, ok)
+	require.Equal(t, block(8, 1), got)
+	require.Equal(t, []preparedBlock{}, contents(q))
 }
 
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
