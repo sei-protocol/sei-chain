@@ -238,6 +238,26 @@ func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
 	require.Equal(t, calls, app.checkTxCalls.Load())
 }
 
+// On a full mempool, the capacity error wins over the app's rejection: an invalid tx
+// gets the retryable errMempoolFull, not the CheckTx response it would get with room.
+func TestTryInsertTx_FullRejectsInvalidTxAsFull(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newCountingApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	_, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+	tx := utils.GenBytes(rng, 1)
+	_, err = decodeTxSpec(tx)
+	require.Error(t, err)
+
+	calls := app.checkTxCalls.Load()
+	resp, err := env.state.TryInsertTx(ctx, tx)
+	require.Nil(t, resp)
+	require.Equal(t, metrics.ResultFull, insertResult(nil, err))
+	require.Equal(t, calls, app.checkTxCalls.Load())
+}
+
 // InsertTx on a full mempool with MaxPendingInserts calls already queued fails with
 // errPendingFull without running CheckTx.
 func TestInsertTx_PendingFullSkipsCheckTx(t *testing.T) {
