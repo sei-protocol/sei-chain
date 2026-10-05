@@ -37,6 +37,10 @@ type Config struct {
 	// further calls fail immediately with a mempool-full error.
 	// 0 means DefaultMaxPendingInserts.
 	MaxPendingInserts uint64
+	// RankByShardOwnership admits blocked InsertTx calls from senders of a shard this
+	// validator owns ahead of the others. Set it only when the EVM proxy forwards a
+	// non-owned sender to its owner; without the proxy that sender has no other lane.
+	RankByShardOwnership bool
 }
 
 func (c *Config) maxConcurrentCheckTx() int {

@@ -230,7 +230,7 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 // then arrival order. The calls of one EVM sender are admitted in nonce order. TryInsertTx calls
 // do not queue and may take freed capacity ahead of them. Once Config.MaxPendingInserts calls are
 // blocked, a call that outranks the lowest-ranked one evicts it; the evicted call, or a call that
-// outranks none, fails with errMempoolFull.
+// outranks none, fails with errPendingFull.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
@@ -297,20 +297,32 @@ func (s *State) poolCanAdmit(ctx context.Context, mp *mempool, tx tmtypes.Tx, wa
 			worst = utils.Some(w.rank)
 		}
 	}
-	if w, ok := worst.Get(); ok && !s.hintRank(ctx, tx).outranks(w) {
-		return errPendingFull
+	if w, ok := worst.Get(); ok {
+		r, err := s.hintRank(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !r.outranks(w) {
+			return errPendingFull
+		}
 	}
 	return nil
 }
 
 // hintRank is the highest rank tx can get after CheckTx: its app priority hint, at an owned
 // shard since the sender is not known yet. A tx the app cannot rank gets the lowest rank.
-func (s *State) hintRank(ctx context.Context, tx tmtypes.Tx) rank {
+// The hint holds a CheckTx permit, since an app may recover the sender to compute it.
+func (s *State) hintRank(ctx context.Context, tx tmtypes.Tx) (rank, error) {
+	release, err := s.acquireCheckTxPermit(ctx)
+	if err != nil {
+		return rank{}, err
+	}
+	defer release()
 	hint, err := s.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 	if err != nil {
-		return rank{owned: false, priority: math.MinInt64, seq: unqueuedSeq}
+		return rank{owned: false, priority: math.MinInt64, seq: unqueuedSeq}, nil
 	}
-	return rank{owned: true, priority: hint.Priority, seq: unqueuedSeq}
+	return rank{owned: true, priority: hint.Priority, seq: unqueuedSeq}, nil
 }
 
 // checkedTicket returns the unqueued ticket of a tx that passed CheckTx, ranked by the
@@ -327,6 +339,9 @@ func (s *State) checkedTicket(mp *mempool, resp *abci.ResponseCheckTxV2) *insert
 // ownsShard reports whether validator sequences sender in the epoch EvmProxy routes by. It
 // reports true when validator is not in that epoch's committee, so ownership is unknown.
 func (s *State) ownsShard(validator types.PublicKey, sender common.Address) bool {
+	if !s.cfg.RankByShardOwnership {
+		return true
+	}
 	committee := s.nextCommitEpoch.Load().Committee()
 	return !committee.HasReplica(validator) || committee.EvmShard(sender) == validator
 }

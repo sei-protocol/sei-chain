@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -24,10 +25,12 @@ type txPriority struct {
 	checked int64
 }
 
-// priorityApp is a testApp that ranks txs by a per-tx priority and counts its CheckTx calls.
+// priorityApp is a testApp that ranks txs by a per-tx priority and counts its CheckTx and
+// priority hint calls.
 type priorityApp struct {
 	*testApp
 	checkTxCalls atomic.Int64
+	hintCalls    atomic.Int64
 	priorities   utils.Mutex[map[common.Hash]txPriority]
 }
 
@@ -67,6 +70,7 @@ func (a *priorityApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *
 }
 
 func (a *priorityApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
+	a.hintCalls.Add(1)
 	return &abci.ResponseGetTxPriorityHint{Priority: a.priority(req.Tx).hint}, nil
 }
 
@@ -168,7 +172,9 @@ func TestInsertTx_AdmitsOwnedShardBeforeFallback(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	app := newPriorityApp()
-	env, _, _ := newTestEnvN(rng, 2, app.Cfg(), app.Proxy())
+	cfg := app.Cfg()
+	cfg.RankByShardOwnership = true
+	env, _, _ := newTestEnvN(rng, 2, cfg, app.Proxy())
 	mp, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 
@@ -182,6 +188,62 @@ func TestInsertTx_AdmitsOwnedShardBeforeFallback(t *testing.T) {
 		}
 		return env.expectAdmissionOrder(ctx, mp, utils.Slice(ownedLow, ownedZero, fallbackHigh, fallbackLow))
 	}))
+}
+
+// Without RankByShardOwnership, a fallback sender ranks as an owned one: priority, then arrival.
+func TestInsertTx_IgnoresShardOwnershipWhenDisabled(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newPriorityApp()
+	env, _, _ := newTestEnvN(rng, 2, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+
+	fallbackHigh := env.rankedTx(rng, app, false, 5)
+	fallbackLow := env.rankedTx(rng, app, false, 1)
+	ownedLow := env.rankedTx(rng, app, true, 1)
+	ownedZero := env.rankedTx(rng, app, true, 0)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if err := env.enqueueTxs(ctx, s, mp, utils.Slice(fallbackHigh, fallbackLow, ownedLow, ownedZero), nil); err != nil {
+			return err
+		}
+		return env.expectAdmissionOrder(ctx, mp, utils.Slice(fallbackHigh, fallbackLow, ownedLow, ownedZero))
+	}))
+}
+
+// On a full queue, the priority hint waits for a CheckTx permit, so hints are bounded like CheckTx.
+func TestInsertTx_HintHoldsCheckTxPermit(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newPriorityApp()
+	cfg := app.Cfg()
+	cfg.MaxPendingInserts = 1
+	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
+	env := newTestEnv(rng, cfg, app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+
+	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if err := env.enqueueTxs(ctx, s, mp, utils.Slice(env.rankedTx(rng, app, true, 1)), context.Canceled); err != nil {
+			return err
+		}
+		release, err := env.state.acquireCheckTxPermit(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+		hints := app.hintCalls.Load()
+		callCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		defer cancel()
+		if _, err := env.state.InsertTx(callCtx, env.rankedTx(rng, app, true, 9).encode()); !errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("InsertTx with no permit free: got %v, want context.DeadlineExceeded", err)
+		}
+		if got := app.hintCalls.Load(); got != hints {
+			return fmt.Errorf("hint calls with no permit free: got %d, want %d", got, hints)
+		}
+		s.Cancel(context.Canceled)
+		return nil
+	})))
 }
 
 // On a full queue, a call that outranks the lowest-ranked blocked call evicts it with

@@ -270,6 +270,7 @@ func buildValidatorGigaConfig(
 			BlockInterval:           time.Duration(fc.BlockInterval),
 			MaxConcurrentCheckTx:    fc.MaxConcurrentCheckTx,
 			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
+			RankByShardOwnership:    fc.GetEnableEvmProxy(),
 		},
 	}, nil
 }
