@@ -256,8 +256,17 @@ func (s *blockSTMState) applyRange(ctx context.Context, pool *occWorkerPool, res
 // occChangeSetFragments holds one changeset per shard for a parallel merge to fill.
 type occChangeSetFragments [occStateShards]StateChangeSet
 
-// occFragmentPool recycles fragment arrays so their capacity survives across blocks.
+// occFragmentPool recycles fragment arrays so their capacity survives across blocks. It holds
+// only cleared fragments, so no block's balances or code stay reachable through it.
 var occFragmentPool = sync.Pool{New: func() any { return new(occChangeSetFragments) }}
+
+// releaseOCCFragments clears every fragment and returns the array to occFragmentPool.
+func releaseOCCFragments(fragments *occChangeSetFragments) {
+	for i := range fragments {
+		fragments[i].resetForReuse()
+	}
+	occFragmentPool.Put(fragments)
+}
 
 // changeSetIntoParallel writes the block's net state changes, in canonical order, computing each
 // shard's part on the pool. The shards' base-state reads are what the merge mostly spends its time
@@ -269,13 +278,12 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 	}
 	changes.resetForReuse()
 	fragments := occFragmentPool.Get().(*occChangeSetFragments)
-	defer occFragmentPool.Put(fragments)
+	defer releaseOCCFragments(fragments)
 	err := pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
 		for shard := workerID; shard < occStateShards; shard += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			fragments[shard].resetForReuse()
 			s.shards[shard].changeSetInto(s.source, &fragments[shard])
 		}
 		return nil

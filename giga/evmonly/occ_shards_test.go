@@ -188,3 +188,19 @@ func TestSmallMergeStaysOnTheCallingGoroutine(t *testing.T) {
 	require.NoError(t, state.changeSetIntoParallel(context.Background(), pool, &changes), "a closed pool is never touched below the threshold")
 	require.Equal(t, state.ChangeSet(), changes)
 }
+
+func TestReleaseOCCFragmentsClearsBlockData(t *testing.T) {
+	fragments := new(occChangeSetFragments)
+	for i := range fragments {
+		addr := common.Address{byte(i)}
+		fragments[i].Balances = append(fragments[i].Balances, BalanceChange{Address: addr, Balance: big.NewInt(int64(i + 1))})
+		fragments[i].Code = append(fragments[i].Code, CodeChange{Address: addr, Code: []byte{0x60, byte(i)}})
+	}
+	releaseOCCFragments(fragments)
+	for i := range fragments {
+		require.Empty(t, fragments[i].Balances)
+		require.Empty(t, fragments[i].Code)
+		require.Nil(t, fragments[i].Balances[:1][0].Balance, "a released fragment must not keep a balance reachable")
+		require.Nil(t, fragments[i].Code[:1][0].Code, "a released fragment must not keep code reachable")
+	}
+}
