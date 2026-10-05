@@ -1902,6 +1902,27 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
+// signalEVMServersStart lets the EVM HTTP and WS servers start. It only sends
+// each signal once.
+func (app *App) signalEVMServersStart() {
+	if !app.httpServerStartSignalSent {
+		app.httpServerStartSignalSent = true
+		app.httpServerStartSignal <- struct{}{}
+	}
+	if !app.wsServerStartSignalSent {
+		app.wsServerStartSignalSent = true
+		app.wsServerStartSignal <- struct{}{}
+	}
+}
+
+// InitLastHeader initializes checkState from the last block header and lets
+// the EVM servers start. A frozen node needs this after a restart, because it
+// processes no block that would otherwise start them.
+func (app *App) InitLastHeader(lastHeader *tmproto.Header) {
+	app.BaseApp.InitLastHeader(lastHeader)
+	app.signalEVMServersStart()
+}
+
 // ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
@@ -1924,16 +1945,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 		}
 	}()
 
-	defer func() {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}()
+	defer app.signalEVMServersStart()
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
