@@ -36,8 +36,8 @@ Size the machine like your current RPC nodes, since a reserve stores state the s
 git clone https://github.com/sei-protocol/sei-chain.git
 cd sei-chain
 git checkout v6.7.0-memiavl-reserve
-make install BUILD_TAGS=mock_chain_validation
-seid version --long | grep -E '^(version|commit|build_tags):'
+make build BUILD_TAGS=mock_chain_validation
+./build/seid version --long | grep -E '^(version|commit|build_tags):'
 ```
 
 `build_tags` must include `mock_chain_validation`:
@@ -49,6 +49,10 @@ build_tags: netgo ledger mock_chain_validation,
 ```
 
 Some versions of `make` separate the tags with commas instead, as in `netgo,ledger,mock_chain_validation`.
+
+`make build` leaves the reserve build in `build/seid` and doesn't touch the `seid` your node runs. Step 3 says when to put it in place. Don't run `make install` on a machine that runs a node: it overwrites `$(go env GOPATH)/bin/seid`, the binary a node installed with `make install` runs, and that node would start the reserve build at its next restart, without the checks in step 3.
+
+`build/seid` loads its wasm libraries from the checkout, so leave the checkout unchanged for as long as a node runs the build, and build later releases in a separate clone.
 
 The branch needs Go 1.25.6 or newer. To build a container image instead, run `docker build --build-arg GO_BUILD_TAGS=mock_chain_validation -t seid-reserve .` from the same checkout.
 
@@ -75,10 +79,12 @@ The reserve binary refuses to start if the node is set up as a validator or has 
 
 ## 3. Load the data
 
+Installing the reserve build means copying `build/seid` over the binary the node's service starts, which `systemctl cat seid` shows. Under Cosmovisor that binary is `$DAEMON_HOME/cosmovisor/current/bin/seid`.
+
 Before the migration starts, do one of these:
 
-- Convert an existing RPC node that runs the same release. Stop it, install the reserve binary, and apply step 2.
-- Set up a new node with a normal state sync. The script in the [SeiDB migration guide](https://github.com/sei-protocol/sei-chain/blob/main/docs/migration/seidb_migration.md#step-3-state-sync) works, as long as the reserve binary and step 2 are in place before the first start.
+- Convert an existing RPC node that runs the same release. Stop it, install the reserve build, and apply step 2.
+- Set up a new node with a normal state sync. The script in the [SeiDB migration guide](https://github.com/sei-protocol/sei-chain/blob/main/docs/migration/seidb_migration.md#step-3-state-sync) works, as long as the reserve build is installed and step 2 is in place before the first start.
 
 After the migration has started, copy `~/.sei/data` and `~/.sei/wasm` from a stopped reserve instead. Never copy data from a normal node.
 
@@ -140,13 +146,13 @@ Monitor the same things as in step 4: the node is at the tip, `app_hash` is the 
 
 ### Upgrades
 
-Every chain upgrade needs a reserve build of the new release, made from that release's `-memiavl-reserve` branch with `BUILD_TAGS=mock_chain_validation`.
+Every chain upgrade needs a reserve build of the new release, made from that release's `-memiavl-reserve` branch with `make build BUILD_TAGS=mock_chain_validation`, as in step 1.
 
 Let the node stop at the upgrade height with `UPGRADE "<name>" NEEDED at height: <height>` as usual (the reserve build still halts there), then install the new reserve build and start it again.
 
 Never install it early. A normal build of the new release panics if it starts before the upgrade height, but the reserve build only logs `BINARY UPDATED BEFORE TRIGGER` and carries on, so it executes blocks with the new code too soon.
 
-With Cosmovisor, put the reserve build in `upgrades/<name>/bin/` yourself and leave `DAEMON_ALLOW_DOWNLOAD_BINARIES` off, so Cosmovisor doesn't fetch the normal release binary.
+With Cosmovisor, copy the reserve build to `$DAEMON_HOME/cosmovisor/upgrades/<name>/bin/seid` yourself, where `<name>` is the upgrade plan's name in lower case (`seid query upgrade plan` shows it), and leave `DAEMON_ALLOW_DOWNLOAD_BINARIES` off, so Cosmovisor doesn't fetch the normal release binary.
 
 Don't run the normal `seid` on a reserve at any point. It stops at the first block whose app hash doesn't match.
 

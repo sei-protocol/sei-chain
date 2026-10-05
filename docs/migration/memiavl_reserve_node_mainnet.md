@@ -38,8 +38,8 @@ Size the machine like your current RPC nodes, since a reserve stores state the s
 git clone https://github.com/sei-protocol/sei-chain.git
 cd sei-chain
 git checkout v6.7.0-memiavl-reserve
-make install BUILD_TAGS=mock_chain_validation
-seid version --long | grep -E '^(version|commit|build_tags):'
+make build BUILD_TAGS=mock_chain_validation
+./build/seid version --long | grep -E '^(version|commit|build_tags):'
 ```
 
 `build_tags` must include `mock_chain_validation`:
@@ -51,6 +51,10 @@ build_tags: netgo ledger mock_chain_validation,
 ```
 
 Some versions of `make` separate the tags with commas instead, as in `netgo,ledger,mock_chain_validation`.
+
+`make build` leaves the reserve build in `build/seid` and doesn't touch the `seid` your node runs. Step 3 says when to put it in place. Don't run `make install` on a machine where a node still runs `v6.6`: it overwrites `$(go env GOPATH)/bin/seid`, the binary a node installed with `make install` runs, and that node's next restart would start the reserve build before the upgrade height (see [Upgrades](#upgrades)).
+
+`build/seid` loads its wasm libraries from the checkout, so leave the checkout unchanged for as long as a node runs the build, and build later releases in a separate clone.
 
 The branch needs Go 1.25.6 or newer. To build a container image instead, run `docker build --build-arg GO_BUILD_TAGS=mock_chain_validation -t seid-reserve .` from the same checkout.
 
@@ -77,12 +81,14 @@ The reserve binary refuses to start if the node is set up as a validator or has 
 
 ## 3. Load the data
 
-Before the `v6.7` upgrade, start from a `pacific-1` full node on the normal `v6.6` binary: an existing RPC node, or a new one set up with a normal state sync. Apply step 2 to it. When it stops at the upgrade height with `UPGRADE "v6.7" NEEDED at height: <height>`, install the reserve build where the normal `v6.7.0` binary would go, and start it. With Cosmovisor, put the reserve build in `upgrades/v6.7/bin/` before the upgrade height.
+Installing the reserve build means copying `build/seid` over the binary the node's service starts, which `systemctl cat seid` shows. Under Cosmovisor that binary is `$DAEMON_HOME/cosmovisor/current/bin/seid`.
+
+Before the `v6.7` upgrade, start from a `pacific-1` full node on the normal `v6.6` binary: an existing RPC node, or a new one set up with a normal state sync. Apply step 2 to it, but leave its `v6.6` binary in place. When it stops at the upgrade height with `UPGRADE "v6.7" NEEDED at height: <height>`, install the reserve build and start the node. With Cosmovisor, instead copy `build/seid` to `$DAEMON_HOME/cosmovisor/upgrades/v6.7/bin/seid` before the upgrade height, and Cosmovisor switches to it at the halt. The directory is named after the upgrade, `v6.7`, not the release.
 
 After the upgrade but before the migration starts, do one of these:
 
-- Convert an existing RPC node that runs `v6.7.0`. Stop it, install the reserve binary, and apply step 2.
-- Set up a new node with a normal state sync, with the reserve binary and step 2 in place before the first start. The snapshot it restores has to be from after the upgrade height. If the node logs `BINARY UPDATED BEFORE TRIGGER` after the sync, the snapshot was older: wipe the node and sync it again later.
+- Convert an existing RPC node that runs `v6.7.0`. Stop it, install the reserve build, and apply step 2.
+- Set up a new node with a normal state sync, with the reserve build installed and step 2 in place before the first start. The snapshot it restores has to be from after the upgrade height. If the node logs `BINARY UPDATED BEFORE TRIGGER` after the sync, the snapshot was older: wipe the node and sync it again later.
 
 For a state sync at either point, the script in the [SeiDB migration guide](https://github.com/sei-protocol/sei-chain/blob/main/docs/migration/seidb_migration.md#step-3-state-sync) works with `CHAIN_ID="pacific-1"` and `PRIMARY_ENDPOINT` set to a `pacific-1` RPC node you trust. Sei's [state sync guide](https://docs.sei.io/node/statesync) lists public ones.
 
@@ -146,13 +152,13 @@ Monitor the same things as in step 4: the node is at the tip, `app_hash` is the 
 
 ### Upgrades
 
-Every chain upgrade needs a reserve build of the new release, made from that release's `-memiavl-reserve` branch with `BUILD_TAGS=mock_chain_validation`.
+Every chain upgrade needs a reserve build of the new release, made from that release's `-memiavl-reserve` branch with `make build BUILD_TAGS=mock_chain_validation`, as in step 1.
 
 Let the node stop at the upgrade height with `UPGRADE "<name>" NEEDED at height: <height>` as usual (the reserve build still halts there), then install the new reserve build and start it again.
 
 Never install it early. A normal build of the new release panics if it starts before the upgrade height, but the reserve build only logs `BINARY UPDATED BEFORE TRIGGER` and carries on, so it executes blocks with the new code too soon. Before the upgrade proposal has passed there is no upgrade plan on chain, and the reserve build doesn't even log that. On `pacific-1` that includes `v6.7` itself: don't start the `v6.7.0` reserve build before the `v6.7` upgrade height.
 
-With Cosmovisor, put the reserve build in `upgrades/<name>/bin/` yourself and leave `DAEMON_ALLOW_DOWNLOAD_BINARIES` off, so Cosmovisor doesn't fetch the normal release binary.
+With Cosmovisor, copy the reserve build to `$DAEMON_HOME/cosmovisor/upgrades/<name>/bin/seid` yourself, where `<name>` is the upgrade plan's name in lower case (`seid query upgrade plan` shows it), and leave `DAEMON_ALLOW_DOWNLOAD_BINARIES` off, so Cosmovisor doesn't fetch the normal release binary.
 
 Once a node runs the reserve build, don't run the normal `seid` on it again. It stops at the first block whose app hash doesn't match.
 
@@ -197,7 +203,7 @@ Once the EVM phase has finished, use `--backend flatkv --db-dir ~/.sei/data/stat
 - Don't state-sync a reserve, restore a snapshot into it, or copy data into it from a normal node once the migration has started.
 - Don't run it as a validator, because it would vote for blocks it disagrees with. The build refuses to start that way anyway.
 - Don't try to turn a reserve back into a normal node in place. To retire one, wipe it and state-sync it as a normal node with the normal binary.
-- Don't start the reserve build on `pacific-1` before the `v6.7` upgrade height. Until then the node runs the normal `v6.6` binary.
+- Don't start the reserve build on `pacific-1` before the `v6.7` upgrade height, or install it anywhere a `v6.6` node's service would start it, as `make install` does. Until then the node runs the normal `v6.6` binary.
 
 ## If the migration fails
 
