@@ -292,10 +292,10 @@ func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[
 	return utils.Some(s.evmNonce(addr)), first, nil
 }
 
-// rejectBeforeCheckTx returns the error the admission loop would return right now for an insert
-// without a ticket, so an insert that can be neither admitted nor queued skips CheckTx. It returns
-// nil when the insert would be admitted or queued; the admission loop rechecks after CheckTx.
-func (s *State) rejectBeforeCheckTx(mp *mempool, waitIfFull bool) error {
+// poolCanAdmit returns nil when the pool would admit or queue an insert without a ticket right
+// now, and otherwise the error the admission loop would return, so such an insert skips CheckTx.
+// The admission loop rechecks after CheckTx.
+func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
 	for m := range mp.inner.Lock() {
 		switch {
 		case m.closed:
@@ -411,7 +411,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		}
 		mp = loaded
 	}
-	if err := s.rejectBeforeCheckTx(mp, waitIfFull); err != nil {
+	if err := s.poolCanAdmit(mp, waitIfFull); err != nil {
 		return nil, err
 	}
 	resp, err := s.checkTx(ctx, tx)
