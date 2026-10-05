@@ -646,6 +646,76 @@ func TestDiscardStateAboveKeepsOnlyRecordsAtOrBelowTheTarget(t *testing.T) {
 	require.NoError(t, DiscardStateAbove(t.TempDir()+"/absent", testConfig(), 1))
 }
 
+func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
+	// Block 10 opens bucket 1. Its records land, but the crash comes before its marker does.
+	for _, target := range []int64{8, 9} {
+		t.Run(fmt.Sprintf("target=%d", target), func(t *testing.T) {
+			dir := t.TempDir()
+			c := newChain(t, dir, 10, 0)
+			slot := storageKey(contract, 1)
+			for h := uint64(1); h <= 9; h++ {
+				c.apply(map[string][]byte{slot: word(h)}, false)
+			}
+			stale := []*proto.KVPair{{Key: []byte(slot), Value: word(0xbad)}}
+			require.NoError(t, c.db.writeRecords(stale, 1, 10))
+			require.NoError(t, c.db.Close())
+
+			require.NoError(t, DiscardStateAbove(dir, testConfig(), target))
+			c.db = openTestDB(t, dir, 10)
+			defer func() { require.NoError(t, c.db.Close()) }()
+			for _, r := range records(t, c.db) {
+				require.LessOrEqual(t, r.height, target)
+			}
+
+			// Execution resumes differently: block 10 no longer touches the slot.
+			c.mu.Lock()
+			c.states = c.states[:target+1]
+			c.mu.Unlock()
+			require.NoError(t, c.db.Resume(target, c.view(c.states[target])))
+			for h := target + 1; h <= 11; h++ {
+				changes := map[string][]byte{nonceKey(alice): nonce(uint64(h))} //nolint:gosec // positive
+				if h == 9 {
+					changes[slot] = word(90)
+				}
+				c.apply(changes, false)
+			}
+			for h := int64(0); h <= 11; h++ {
+				c.requireRead(h, slot)
+			}
+		})
+	}
+}
+
+func TestRollbackBelowTheEarliestHeightServesTheTarget(t *testing.T) {
+	dir := t.TempDir()
+	c := newChain(t, dir, 10, 0)
+	slot := storageKey(contract, 1)
+	for h := uint64(1); h <= 35; h++ {
+		c.apply(map[string][]byte{slot: word(h)}, false)
+	}
+	require.NoError(t, c.db.PruneHistory(30))
+	require.NoError(t, c.db.Close())
+
+	require.NoError(t, DiscardStateAbove(dir, testConfig(), 25))
+	c.db = openTestDB(t, dir, 10)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	require.Equal(t, int64(25), c.db.GetLatestVersion())
+	require.Equal(t, int64(25), c.db.GetEarliestVersion())
+
+	c.mu.Lock()
+	c.states = c.states[:26]
+	c.mu.Unlock()
+	require.NoError(t, c.db.Resume(25, c.view(c.states[25])))
+	for h := uint64(26); h <= 30; h++ {
+		c.apply(map[string][]byte{slot: word(100 + h)}, false)
+	}
+	for h := int64(25); h <= 30; h++ {
+		c.requireRead(h, slot)
+	}
+	_, ok := c.db.OpenView(24)
+	require.False(t, ok, "history below the target stays pruned")
+}
+
 func TestLargeBlocksLandWhole(t *testing.T) {
 	c := newChain(t, t.TempDir(), 4, 0)
 	defer func() { require.NoError(t, c.db.Close()) }()

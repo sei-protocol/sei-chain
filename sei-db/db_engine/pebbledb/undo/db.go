@@ -101,7 +101,8 @@ type Database struct {
 	head atomic.Pointer[head]
 
 	// mu guards the earliest served height against the open views, so a prune never excises a
-	// bucket an open view reads. earliestHeight only rises.
+	// bucket an open view reads. earliestHeight only rises while views can open; a rollback, which
+	// runs with the store open nowhere else, may lower it.
 	mu             sync.Mutex
 	earliestHeight atomic.Uint64
 	openViews      map[uint64]int
@@ -676,9 +677,9 @@ func (db *Database) GetLatestBlock() (uint64, error) {
 	return db.latestHeight.Load(), nil
 }
 
-// DiscardStateAbove removes every record above target from the undo log in dataDir, leaving it at
-// target: those records describe blocks that will be executed again, possibly differently. A log at
-// or below target, or none at all, is left alone. The database must not be open elsewhere.
+// DiscardStateAbove removes every record above target from the undo log in dataDir and leaves the log
+// at target, served from target when its earliest height was above it. A log below target, or none
+// at all, is left alone. The database must not be open elsewhere.
 func DiscardStateAbove(dataDir string, cfg config.StateStoreConfig, target int64) (err error) {
 	if _, statErr := os.Stat(dataDir); errors.Is(statErr, os.ErrNotExist) {
 		return nil
@@ -695,31 +696,58 @@ func DiscardStateAbove(dataDir string, cfg config.StateStoreConfig, target int64
 	return db.discardAbove(height)
 }
 
-// discardAbove removes every record above target and moves the latest-height marker to it. Buckets
-// entirely above target are excised; the bucket target falls in is scanned for the rest.
+// discardAbove removes every record above target, then moves the latest-height marker to target and
+// lowers the earliest served height to it. Buckets above target's are excised and target's own
+// bucket is scanned.
 func (db *Database) discardAbove(target uint64) error {
 	latest := db.latestHeight.Load()
-	if latest <= target {
+	if latest < target {
 		return nil
 	}
 	targetBucket := target / db.bucketSize
-	lastBucket := latest / db.bucketSize
-	if lastBucket > targetBucket {
-		if err := db.storage.Excise(context.Background(), pebble.KeyRange{
-			Start: bucketBoundary(targetBucket + 1),
-			End:   bucketBoundary(lastBucket + 1),
-		}); err != nil {
-			return fmt.Errorf("undo: excise buckets above %d: %w", targetBucket, err)
-		}
+	if err := db.exciseBucketsAbove(targetBucket); err != nil {
+		return err
 	}
 	if err := db.deleteRecordsAbove(targetBucket, target); err != nil {
 		return err
 	}
+	// The latest marker moves first: a crash before the earliest one follows leaves a log that
+	// refuses reads rather than one that serves heights whose records are gone, and running the
+	// rollback again completes it.
 	if err := writeMarker(db.storage, latestVersionKey, target, pebble.Sync); err != nil {
 		return fmt.Errorf("undo: record latest height %d: %w", target, err)
 	}
 	db.latestHeight.Store(target)
+	if err := db.lowerEarliest(target); err != nil {
+		return err
+	}
 	logger.Info("discarded undo records above the target", "target", target, "previousLatest", latest)
+	return nil
+}
+
+// exciseBucketsAbove removes every bucket above bucket, up to the metadata. It reaches past the
+// latest-height marker because a crash between a block's records and its marker leaves records
+// above the marker, which can open a bucket the marker never reached.
+func (db *Database) exciseBucketsAbove(bucket uint64) error {
+	if err := db.storage.Excise(context.Background(), pebble.KeyRange{
+		Start: bucketBoundary(bucket + 1),
+		End:   bucketBoundary(metadataBucket),
+	}); err != nil {
+		return fmt.Errorf("undo: excise buckets above %d: %w", bucket, err)
+	}
+	return nil
+}
+
+// lowerEarliest makes height the earliest served height when the earliest is above it. A rollback
+// below the earliest height leaves no record above height, and a read at height needs none.
+func (db *Database) lowerEarliest(height uint64) error {
+	if db.earliestHeight.Load() <= height {
+		return nil
+	}
+	if err := writeMarker(db.storage, earliestVersionKey, height, pebble.Sync); err != nil {
+		return fmt.Errorf("undo: record earliest height %d: %w", height, err)
+	}
+	db.earliestHeight.Store(height)
 	return nil
 }
 
