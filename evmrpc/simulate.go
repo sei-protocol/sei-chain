@@ -164,6 +164,10 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
+	// Overrides apply only through prior calls; with none they are ignored (pre-v1.17 behavior).
+	if len(calls) == 0 {
+		overrides = nil
+	}
 	estimate, err := export.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	return estimate, err
 }
