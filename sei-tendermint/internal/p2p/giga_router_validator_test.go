@@ -11,14 +11,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	dbm "github.com/tendermint/tm-db"
-	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -61,68 +58,17 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		var gigas []*gigaValidatorRouter
 		var allTxs [][]byte
 		for i, cfg := range cfgs {
-			nodeInfo := makeInfo(cfg.nodeKey)
-			nodeInfo.ListenAddr = cfg.addr.String()
-			nodeInfo.Network = genDoc.ChainID
-			e := Endpoint{AddrPort: cfg.addr}
-			app := newTestApp()
-			proxyApp := proxy.New(app)
-			// In giga mode the CometBFT handshaker is skipped; the router's
-			// runExecute calls InitChain itself on fresh start.
-			dir := t.TempDir()
-			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
-			// (zero overrides); p2p can't import config (import cycle).
-			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
-			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
-			littCfg.Litt.Fsync = true
-			db, err := littblock.NewBlockDB(littCfg)
-			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
-			blockStore, err := blockstore.New(db)
-			require.NoError(t, err, "blockstore.New[%v]", i)
-			t.Cleanup(func() { _ = blockStore.Close() })
-			commonCfg := GigaRouterCommonConfig{
-				// Aggressive dialing rate to speed up startup.
-				DialInterval:       100 * time.Millisecond,
-				ValidatorAddrs:     addrs,
-				PersistentStateDir: dir,
-				App:                proxyApp,
-				GenDoc:             genDoc,
-				EnableEvmProxy:     true,
-			}
-			dataState, err := BuildDataState(&commonCfg, blockStore)
+			commonCfg, app, blockStore := newTestGigaConfig(t, addrs, genDoc)
+			dataState, err := BuildDataState(commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-				GigaRouterCommonConfig: commonCfg,
+				GigaRouterCommonConfig: *commonCfg,
 				ValidatorKey:           cfg.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
-				Producer: &producer.Config{
-					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
-					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
-					MaxTxsPerBlock:          maxTxsPerBlock,
-					MaxTxsPerSecond:         utils.None[uint64](),
-					BlockInterval:           100 * time.Millisecond,
-					AllowEmptyBlocks:        false,
-					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
-				},
+				Producer:               testProducerConfig(txGasUsed, maxTxsPerBlock),
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
-			router, err := NewRouter(
-				cfg.nodeKey,
-				func() *types.NodeInfo { return &nodeInfo },
-				dbm.NewMemDB(),
-				&RouterOptions{
-					SelfAddress:              utils.Some(e.NodeAddress(cfg.nodeKey.Public().NodeID())),
-					Endpoint:                 e,
-					Connection:               conn.DefaultMConnConfig(),
-					IncomingConnectionWindow: utils.Some(time.Duration(0)),
-					MaxAcceptRate:            rate.Inf,
-					MaxDialRate:              rate.Limit(30),
-					Giga:                     utils.Some[GigaRouter](giga),
-				},
-			)
-			require.NoError(t, err, "NewRouter[%v]", i)
-			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
-			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
+			spawnTestRouter(ctx, t, s, fmt.Sprint(i), cfg, genDoc.ChainID, giga)
 			apps = append(apps, app)
 			gigas = append(gigas, giga)
 			var txs [][]byte
