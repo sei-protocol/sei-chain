@@ -337,22 +337,45 @@ func (imp *KVImporter) AddModule(_ string) error {
 	return nil
 }
 
-func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
-	if node.Height != 0 || node.Key == nil || node.Version != imp.version {
-		return
+// AddNode queues node for import. It fails the import and returns an error unless node is a leaf at the
+// import's version with a non-empty key and value. Once the import has failed, it returns that failure.
+func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
+	if err := imp.getErr(); err != nil {
+		return err
+	}
+	if err := imp.checkNode(node); err != nil {
+		imp.setErr(err)
+		return err
+	}
+	select {
+	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
+	case <-imp.done:
+	}
+	// A worker can fail while the send is pending, and select may still pick the send, so the failure is
+	// read again here rather than reporting the node as accepted.
+	return imp.getErr()
+}
+
+// checkNode returns an error unless node is a row this import can store.
+func (imp *KVImporter) checkNode(node *types.SnapshotNode) error {
+	if node.Height != 0 {
+		return fmt.Errorf("flatkv import: node %x has height %d; only leaves can be imported", node.Key, node.Height)
+	}
+	if len(node.Key) == 0 {
+		return errors.New("flatkv import: node has an empty key")
+	}
+	if node.Version != imp.version {
+		return fmt.Errorf("flatkv import: node %x has version %d; the import is at version %d",
+			node.Key, node.Version, imp.version)
 	}
 	// FlatKV import nodes carry already-serialized physical values. Even an
 	// empty logical misc value has a non-empty serialized header, so a
 	// zero-length physical value is malformed. Reject it instead of writing a
 	// Pebble row that LtHash and verification would both skip.
 	if len(node.Value) == 0 {
-		imp.setErr(fmt.Errorf("flatkv import: empty physical value for key %x", node.Key))
-		return
+		return fmt.Errorf("flatkv import: empty physical value for key %x", node.Key)
 	}
-	select {
-	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
-	case <-imp.done:
-	}
+	return nil
 }
 
 // Abort tears down the worker pipeline without finalizing the import.
