@@ -56,9 +56,8 @@ type Database struct {
 	config  config.StateStoreConfig
 	// cfHandle is the state_storage column family used for all reads and writes.
 	cfHandle *grocksdb.ColumnFamilyHandle
-	// defaultCFHandle is the default column family, which RocksDB requires to be
-	// opened alongside the others. It is never used, but it must be destroyed
-	// before the DB closes or the ColumnFamilySet destructor asserts.
+	// defaultCFHandle is the unused default column family, held only so Close
+	// can destroy it.
 	defaultCFHandle *grocksdb.ColumnFamilyHandle
 
 	// tsLow reflects the full_history_ts_low CF value. Since pruning is done in
@@ -83,12 +82,12 @@ type Database struct {
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
-	storage, cfHandles, err := OpenRocksDB(dataDir)
+	storage, cf, err := OpenRocksDB(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open RocksDB: %w", err)
 	}
 
-	slice, err := storage.GetFullHistoryTsLow(cfHandles[1])
+	slice, err := storage.GetFullHistoryTsLow(cf.StateStorage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get full_history_ts_low: %w", err)
 	}
@@ -113,8 +112,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	database := &Database{
 		storage:         storage,
 		config:          config,
-		cfHandle:        cfHandles[1],
-		defaultCFHandle: cfHandles[0],
+		cfHandle:        cf.StateStorage,
+		defaultCFHandle: cf.Default,
 		tsLow:           tsLow,
 		earliestVersion: earliestVersion,
 		latestVersion:   atomic.Int64{},
