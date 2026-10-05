@@ -1,4 +1,6 @@
-# Running a memIAVL reserve node for the FlatKV migration
+# Running a memIAVL reserve node for the FlatKV migration on testnet
+
+This guide is for testnet, `atlantic-2`. For mainnet, `pacific-1`, use the [mainnet guide](memiavl_reserve_node_mainnet.md).
 
 The FlatKV migration moves chain state out of memIAVL and into FlatKV in phases, starting with the EVM module (see the [migration README](https://github.com/sei-protocol/sei-chain/blob/main/sei-db/state_db/sc/migration/README.md)). It only runs forward: once a node has moved data into FlatKV, its memIAVL no longer has that data.
 
