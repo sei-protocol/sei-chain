@@ -68,9 +68,10 @@ generation may run ahead.
 generator ──build txs──> write to BlockDB ──> [channel] ──> executor pool ──> receipts + state DB
 ```
 
-Every block commits at the same height in every store. A block's transactions are executed in
-parallel across the pool, so a block's transaction count is also its degree of parallelism, and the
-pool is drained before the block is committed — a block's writes reach state as one version.
+A superblock's transactions are executed in parallel across the pool, so its transaction count is
+also its degree of parallelism, and the pool is drained before the superblock is committed — its
+writes reach state as one version. The default superblock is 50 lane blocks of 2,000 transactions.
+The block store's height counts lane blocks, and the state DB and receipt store count superblocks.
 
 ## Transaction Model
 
@@ -83,7 +84,7 @@ doing the arithmetic, because what is under measurement is storage traffic rathe
 | `erc20` (default) | token code, sender's account, sender's and recipient's balance slots, fee account | sender's account, both balance slots | `Erc20GasPerTransaction` (50,000) |
 | `transfer` | sender's and recipient's accounts, fee account | both accounts | 21,000 |
 
-The fee account is written once per block, not once per transaction. Accounts are read and written
+The fee account is written once per superblock, not once per transaction. Accounts are read and written
 through their native balance, which every transaction changes for the sender paying gas. An ERC20
 transfer never touches the recipient's account, as on chain: it names the recipient only as an argument
 to the token contract. A native transfer touches no contract code or storage.
@@ -127,27 +128,33 @@ run reconstructs the same population from its config and the persisted identifie
 Every option, its default and what it means live in the [gigasim config struct](./gigasim_config.go),
 which is the reference for them rather than this document. Fields in the JSON file mirror the struct
 field names exactly, and an unrecognised field is an error rather than a silent no-op. Anything left
-out takes its default, so the shipped configs in [`config/`](./config) set only what they change and
-read as worked examples.
+out takes its default. The shipped configs in [`config/`](./config) set `TransactionsPerBlock` and
+`LaneBlocksPerSuperblock` explicitly, and otherwise only what they change.
 
-Two relationships between the options are worth knowing before changing any of them, because neither is
+A few relationships between the options are worth knowing before changing any of them, because none is
 visible from a single field.
 
-The default block carries 10,000 transactions of 200 bytes, which is about the size of an ERC20
-transfer: some 180 bytes of RLP before Sei's envelope. A ledger block holds at most autobahn's
-`MaxTxsPerBlock` (2,000) payload entries, so a block with more transactions than that packs several into
-each entry. Every transaction is still executed and committed, one state commit per block. Packing
-leaves the bytes stored unchanged, and those are held to the ledger's byte budget, `MaxTxsBytesPerBlock`
-(2 MiB). The default block is 2 MB, just inside it, so `TransactionsPerBlock` and `BytesPerTransaction`
-trade off against each other: configuration validation rejects a product over the budget rather than
-generating a block the ledger would refuse.
+The default lane block carries 2,000 transactions of 200 bytes, one per ledger entry, which is
+autobahn's `MaxTxsPerBlock`. A transaction of 200 bytes is about the size of an ERC20 transfer: some
+180 bytes of RLP before Sei's envelope. A lane block may carry more transactions than it has entries
+by packing several into each entry. Packing leaves the bytes stored unchanged, and those are held to
+the ledger's byte budget, `MaxTxsBytesPerBlock` (2 MiB). `TransactionsPerBlock` and
+`BytesPerTransaction` trade off against each other: configuration validation rejects a product over
+the budget rather than generating a block the ledger would refuse.
+
+`LaneBlocksPerSuperblock` bundles that many lane blocks into one superblock, which is what gets
+executed and committed. The default is 50, so a superblock is 100,000 transactions. The block store
+advances once per lane block; the state DB and the receipt store advance once per superblock.
+`RollbackWindow` and `LookbackWindow` count each store's own versions, so the block store's window is
+lane blocks and the state DB's is superblocks. The debug config sets `LaneBlocksPerSuperblock` to 1,
+which commits each of its lane blocks on its own.
 
 Generation is unthrottled by default, so a measured run reports what the stack sustains rather than a
 rate chosen in advance. `MaxTps` exists for the runs that are not measurements — the debug config
 throttles itself well below what a machine can do, because a smoke test should confirm the pipeline
 works rather than saturate the laptop it runs on — and for holding two builds at the same offered load,
-which is what makes their latencies comparable. Blocks are released a whole block at a time, so the
-block rate it produces is `MaxTps / TransactionsPerBlock`.
+which is what makes their latencies comparable. Blocks are released a whole superblock at a time, so the
+block rate it produces is `MaxTps / (TransactionsPerBlock * LaneBlocksPerSuperblock)`.
 
 ## Optional Stores
 

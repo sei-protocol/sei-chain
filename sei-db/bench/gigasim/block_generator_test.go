@@ -23,6 +23,8 @@ func newTestGeneratorOfType(t *testing.T, transactionsPerBlock int, transactionT
 
 	config := DefaultGigasimConfig()
 	config.TransactionsPerBlock = transactionsPerBlock
+	// The transactionsPerBlock argument is the whole block these tests build.
+	config.LaneBlocksPerSuperblock = 1
 	config.TransactionType = transactionType
 	config.EnableReceiptStore = false
 
@@ -41,8 +43,9 @@ func newTestGeneratorOfType(t *testing.T, transactionsPerBlock int, transactionT
 	return &blockGenerator{
 		config:   config,
 		accounts: accounts,
-		batch:    newStateBatch(maxWritesPerTransaction*transactionsPerBlock + 1),
+		batch:    newStateBatch(maxWritesPerTransaction*config.transactionsPerSuperblock() + 1),
 		next:     1,
+		nextLane: 1,
 	}
 }
 
@@ -123,7 +126,6 @@ func TestReceiptGasMatchesTheReportedGas(t *testing.T) {
 
 			g := newTestGeneratorOfType(t, 32, transactionType)
 			g.config.EnableReceiptStore = true
-			g.receiptCache = newReceiptCache()
 
 			blk, err := g.buildBlock()
 			require.NoError(t, err)
@@ -195,6 +197,37 @@ func TestLedgerPayloadPacksTransactionsIntoTheLedgersEntries(t *testing.T) {
 		require.LessOrEqual(t, largest-smallest, config.BytesPerTransaction,
 			"transactions are spread evenly, so no entry holds more than one extra")
 	}
+}
+
+// A superblock executes every lane block's transactions as one commit, and stores one payload per
+// lane block. The lane blocks of the next superblock continue at the next block store height.
+func TestSuperblockBundlesLaneBlocksIntoOneCommit(t *testing.T) {
+	t.Parallel()
+
+	g := newTestGenerator(t, 4)
+	g.config.LaneBlocksPerSuperblock = 2
+	g.batch = newStateBatch(maxWritesPerTransaction*g.config.transactionsPerSuperblock() + 1)
+
+	first, err := g.buildBlock()
+	require.NoError(t, err)
+	require.Len(t, first.transactions, 8)
+	require.Len(t, first.lanePayloads, 2)
+	require.Equal(t, int64(1), first.number)
+	require.Equal(t, int64(1), first.firstLaneBlock)
+	require.Equal(t, int64(2*g.config.blockPayloadBytes()), first.payloadBytes())
+
+	feeWrites := 0
+	for _, pair := range first.writes.changeSets[0].Changeset.Pairs {
+		if string(pair.Key) == string(g.accounts.FeeCollectionAddress()) {
+			feeWrites++
+		}
+	}
+	require.Equal(t, 1, feeWrites, "the fee account is written once per superblock")
+
+	second, err := g.buildBlock()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), second.number)
+	require.Equal(t, int64(3), second.firstLaneBlock)
 }
 
 // Blocks are built back to back off one reused batch, so a block must carry only its own writes.

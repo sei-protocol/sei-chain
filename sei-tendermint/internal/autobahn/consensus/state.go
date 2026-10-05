@@ -56,8 +56,8 @@ type State struct {
 
 	myView        utils.AtomicSend[types.ViewSpec]
 	myProposal    utils.AtomicSend[utils.Option[*types.FullProposal]]
-	myPrepareVote utils.AtomicSend[utils.Option[*types.ConsensusReqPrepareVote]]
-	myCommitVote  utils.AtomicSend[utils.Option[*types.ConsensusReqCommitVote]]
+	myPrepareVote utils.AtomicSend[utils.Option[*types.ConsensusMsgPrepareVote]]
+	myCommitVote  utils.AtomicSend[utils.Option[*types.ConsensusMsgCommitVote]]
 	myTimeoutVote utils.AtomicSend[utils.Option[*types.FullTimeoutVote]]
 	myTimeoutQC   utils.AtomicSend[utils.Option[*types.TimeoutQC]]
 }
@@ -66,10 +66,10 @@ type State struct {
 func (s *State) SubscribeProposal() utils.AtomicRecv[utils.Option[*types.FullProposal]] {
 	return s.myProposal.Subscribe()
 }
-func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqPrepareVote]] {
+func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusMsgPrepareVote]] {
 	return s.myPrepareVote.Subscribe()
 }
-func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqCommitVote]] {
+func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusMsgCommitVote]] {
 	return s.myCommitVote.Subscribe()
 }
 func (s *State) SubscribeTimeoutVote() utils.AtomicRecv[utils.Option[*types.FullTimeoutVote]] {
@@ -130,8 +130,8 @@ func newState(
 
 		myView:        utils.NewAtomicSend(types.ViewSpec{ConsensusSpec: initialInner.spec, TimeoutQC: initialInner.TimeoutQC}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
-		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
-		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
+		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusMsgPrepareVote]()),
+		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusMsgCommitVote]()),
 		myTimeoutVote: utils.NewAtomicSend(utils.None[*types.FullTimeoutVote]()),
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
@@ -189,7 +189,7 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 // TODO: PushPrepareVote, PushCommitVote, and PushTimeoutVote should wait for the
 // vote's epoch when it is ahead of myView (ahead-within-epoch ingest is fine).
 
-// PushPrepareVote processes an unverified Prepare vote message.
+// The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
 	if !committee.HasReplica(vote.Key()) {
@@ -204,7 +204,7 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	return nil
 }
 
-// PushCommitVote processes an unverified CommitVote message.
+// The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
 	if !committee.HasReplica(vote.Key()) {
@@ -266,7 +266,7 @@ func (s *State) runPropose(ctx context.Context) error {
 	})
 }
 
-func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v T) {
+func updateOutput[T types.ConsensusMsg](w *utils.AtomicSend[utils.Option[T]], v T) {
 	old := w.Load()
 	if !v.View().Less(types.NextViewOpt(old)) {
 		w.Store(utils.Some(v))
@@ -293,10 +293,10 @@ func (s *State) runOutputs(ctx context.Context) error {
 			}
 		}
 		if v, ok := i.PrepareVote.Get(); ok {
-			updateOutput(&s.myPrepareVote, &types.ConsensusReqPrepareVote{Signed: v})
+			updateOutput(&s.myPrepareVote, &types.ConsensusMsgPrepareVote{Signed: v})
 		}
 		if v, ok := i.CommitVote.Get(); ok {
-			updateOutput(&s.myCommitVote, &types.ConsensusReqCommitVote{Signed: v})
+			updateOutput(&s.myCommitVote, &types.ConsensusMsgCommitVote{Signed: v})
 		}
 		if v, ok := i.TimeoutVote.Get(); ok {
 			updateOutput(&s.myTimeoutVote, v)

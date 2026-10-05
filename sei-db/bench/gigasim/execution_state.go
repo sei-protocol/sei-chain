@@ -59,7 +59,7 @@ func newExecutionState(
 	return &executionState{
 		db:          db,
 		view:        view,
-		setupWrites: newStateBatch(config.TransactionsPerBlock),
+		setupWrites: newStateBatch(config.transactionsPerSuperblock()),
 		hashes:      waiter,
 		lifecycle:   lifecycle,
 		metrics:     metrics,

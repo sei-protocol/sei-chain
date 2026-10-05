@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	CurrentPlanMethod            = "currentPlan"
-	AppliedPlanMethod            = "appliedPlan"
-	UpgradedConsensusStateMethod = "upgradedConsensusState"
-	ModuleVersionsMethod         = "moduleVersions"
+	CurrentPlanMethod    = "currentPlan"
+	AppliedPlanMethod    = "appliedPlan"
+	ModuleVersionsMethod = "moduleVersions"
 )
 
 const (
@@ -37,10 +36,9 @@ type PrecompileExecutor struct {
 	evmKeeper      utils.EVMKeeper
 	upgradeQuerier utils.UpgradeQuerier
 
-	CurrentPlanID            []byte
-	AppliedPlanID            []byte
-	UpgradedConsensusStateID []byte
-	ModuleVersionsID         []byte
+	CurrentPlanID    []byte
+	AppliedPlanID    []byte
+	ModuleVersionsID []byte
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -57,8 +55,6 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.CurrentPlanID = m.ID
 		case AppliedPlanMethod:
 			p.AppliedPlanID = m.ID
-		case UpgradedConsensusStateMethod:
-			p.UpgradedConsensusStateID = m.ID
 		case ModuleVersionsMethod:
 			p.ModuleVersionsID = m.ID
 		}
@@ -91,8 +87,6 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.currentPlan(ctx, method, args, value)
 	case AppliedPlanMethod:
 		return p.appliedPlan(ctx, method, args, value)
-	case UpgradedConsensusStateMethod:
-		return p.upgradedConsensusState(ctx, method, args, value)
 	case ModuleVersionsMethod:
 		return p.moduleVersions(ctx, method, args, value)
 	}
@@ -160,32 +154,6 @@ func (p PrecompileExecutor) appliedPlan(ctx sdk.Context, method *abi.Method, arg
 	}
 
 	bz, err := method.Outputs.Pack(response.Height)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-func (p PrecompileExecutor) upgradedConsensusState(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
-	}
-
-	// The request type is marked deprecated upstream, but it is still the
-	// wire type of the Query/UpgradedConsensusState rpc this method mirrors.
-	request := &upgradetypes.QueryUpgradedConsensusStateRequest{ //nolint:staticcheck
-		LastHeight: args[0].(int64),
-	}
-	response, err := p.upgradeQuerier.UpgradedConsensusState(sdk.WrapSDKContext(ctx), request)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(response.UpgradedConsensusState)
 	if err != nil {
 		return nil, 0, err
 	}

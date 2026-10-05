@@ -526,11 +526,12 @@ func (r *gigaRouterCommon) dialAndRunConn(
 			return fmt.Errorf("tcp.Dial(%v): %w", addrs[0], err)
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-		// TODO: handshake needs a timeout.
-		hConn, err := handshake(ctx, tcpConn, r.key, handshakeSpec{
-			SelfAddr:          r.selfAddr,
-			SeiGigaConnection: true,
-		}, r.offer)
+		hConn, err := utils.WithOptTimeout1(ctx, r.cfg.HandshakeTimeout, func(ctx context.Context) (*handshakedConn, error) {
+			return handshake(ctx, tcpConn, r.key, handshakeSpec{
+				SelfAddr:          r.selfAddr,
+				SeiGigaConnection: true,
+			}, r.offer)
+		})
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}

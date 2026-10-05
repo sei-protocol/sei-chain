@@ -68,6 +68,10 @@ type Store struct {
 
 	snapshotSCStoreWarnOnce sync.Once
 
+	// migrationSkipLoggedBatchSize is the batch size whose skipped migration kick-off was last
+	// logged. SetMigrationBatchSize runs every block, so the skip is logged once per batch size.
+	migrationSkipLoggedBatchSize int
+
 	// Hash logger state (per-block hash logging; a debugging/forensics tool). See hashlog.go.
 	hashLoggerConfig   config.HashLoggerConfig
 	hashLoggerDisabled bool
@@ -811,6 +815,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
 	if batchSize <= 0 {
+		rs.migrationSkipLoggedBatchSize = 0
 		return nil
 	}
 	mode, ok := rs.GetWriteMode()
@@ -825,6 +830,9 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		// cannot tell whether this is an auto store. Don't assume a deliberate
 		// opt-out — skip with a distinct message so it isn't mistaken for the
 		// pinned-memiavl_only case below during debugging.
+		if !rs.shouldLogMigrationSkip(batchSize) {
+			return nil
+		}
 		logger.Info(
 			"migration requested (batch size > 0) but the SC store does not expose a "+
 				"configured write mode; skipping migration kick-off",
@@ -832,6 +840,9 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return nil
 	}
 	if configured != sctypes.Auto {
+		if !rs.shouldLogMigrationSkip(batchSize) {
+			return nil
+		}
 		logger.Error(
 			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
 				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
@@ -845,6 +856,16 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	}
 
 	return nil
+}
+
+// shouldLogMigrationSkip reports whether a skipped kick-off at batchSize has
+// not been logged yet, and records it as logged.
+func (rs *Store) shouldLogMigrationSkip(batchSize int) bool {
+	if rs.migrationSkipLoggedBatchSize == batchSize {
+		return false
+	}
+	rs.migrationSkipLoggedBatchSize = batchSize
+	return true
 }
 
 // GetWriteMode returns the SC store's effective write mode. The bool is
@@ -1281,9 +1302,12 @@ loop:
 			if node.Height == 0 && node.Value == nil {
 				node.Value = []byte{}
 			}
-			scImporter.AddNode(node)
+			if err = scImporter.AddNode(node); err != nil {
+				restoreErr = err
+				break loop
+			}
 
-			// Check if we should also import to SS store
+			// Only leaves the SC importer accepted reach the state store.
 			if ssImport != nil && node.Height == 0 {
 				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
@@ -1442,6 +1466,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 				return err
 			}
 			currentStoreName = item
+			keySizePerStore[item] = 0
+			valueSizePerStore[item] = 0
+			numKeysPerStore[item] = 0
 		default:
 			return fmt.Errorf("unknown item type %T", item)
 		}

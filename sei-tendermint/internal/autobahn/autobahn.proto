@@ -303,8 +303,7 @@ message SignedAppProposal {
   Signature sig = 2;
 }
 
-// TODO(gprusak): rename to ConsensusMsg
-message ConsensusReq {
+message ConsensusMsg {
   reserved "prepare_vote", "commit_vote";
   reserved 2, 3;
   option (wireguard.sized) = true;
