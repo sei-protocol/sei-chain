@@ -1302,9 +1302,12 @@ loop:
 			if node.Height == 0 && node.Value == nil {
 				node.Value = []byte{}
 			}
-			scImporter.AddNode(node)
+			if err = scImporter.AddNode(node); err != nil {
+				restoreErr = err
+				break loop
+			}
 
-			// Check if we should also import to SS store
+			// Only leaves the SC importer accepted reach the state store.
 			if ssImport != nil && node.Height == 0 {
 				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
@@ -1463,6 +1466,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 				return err
 			}
 			currentStoreName = item
+			keySizePerStore[item] = 0
+			valueSizePerStore[item] = 0
+			numKeysPerStore[item] = 0
 		default:
 			return fmt.Errorf("unknown item type %T", item)
 		}

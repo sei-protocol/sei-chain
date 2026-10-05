@@ -49,6 +49,10 @@ jobs:
 
       - name: Go test
         run: |
+          # Build covdata into the cache once. Packages without tests run it in
+          # parallel, and on a cold cache one run can exec it while another is
+          # still writing it ("text file busy").
+          go tool -n covdata > /dev/null
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -coverprofile=coverage.out \

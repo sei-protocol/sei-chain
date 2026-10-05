@@ -1,4 +1,4 @@
-package operations
+package evmlogical
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/kvrepair"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 )
 
 // evmPhysicalKeyPrefix is the module prefix of every EVM row in an inspect
@@ -29,12 +30,12 @@ const accountLogicalLen = 72
 // from a production node. Each entry sets a key to the reserve value and
 // states the production value as its old value.
 //
-// Usage:
+// Usage (--memiavl-open-mode replay reads the same rows, more slowly):
 //
 //	seidb evm-logical-digest --backend memiavl -d <reserve memiavl dir> \
-//	    --memiavl-open-mode replay --height H --inspect-bucket storage \
+//	    --memiavl-open-mode changelog --height H --inspect-bucket storage \
 //	    --key-offset 4 --key-prefix 03AB --list --list-limit 0 --json > reserve.json
-//	seidb evm-logical-digest --backend composite --memiavl-open-mode replay \
+//	seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
 //	    --flatkv-dir <flatkv dir> --memiavl-dir <memiavl dir> --height H \
 //	    --inspect-bucket storage --key-offset 4 --key-prefix 03AB \
 //	    --list --list-limit 0 --json > prod.json
@@ -165,7 +166,7 @@ func checkInspectPair(reserve, prod evmInspectJSON) error {
 		return fmt.Errorf("reserve report is at height %d and production report at %d", reserve.Version, prod.Version)
 	case reserve.InspectBucket != prod.InspectBucket:
 		return fmt.Errorf("reserve report bucket is %q and production report bucket %q", reserve.InspectBucket, prod.InspectBucket)
-	case !isFlatKVBucket(reserve.InspectBucket):
+	case !operations.IsFlatKVBucket(reserve.InspectBucket):
 		return fmt.Errorf("unknown inspect bucket %q", reserve.InspectBucket)
 	case reserve.KeyOffset != prod.KeyOffset || reserve.KeyPrefix != prod.KeyPrefix:
 		return fmt.Errorf("reserve report filters offset %d prefix %q and production report offset %d prefix %q",
@@ -258,7 +259,7 @@ func buildRepairEntries(diffs []evmDiff) ([]kvrepair.Entry, error) {
 	var entries []kvrepair.Entry
 	for _, d := range diffs {
 		storeKey := d.physKey[len(evmPhysicalKeyPrefix):]
-		if d.bucket == flatkvBucketAccount {
+		if d.bucket == operations.FlatKVBucketAccount {
 			fields, err := accountFieldDiffs(storeKey, d.reserve, d.prod)
 			if err != nil {
 				return nil, err
@@ -279,9 +280,9 @@ func buildRepairEntries(diffs []evmDiff) ([]kvrepair.Entry, error) {
 func checkStoreKeyBucket(bucket string, storeKey []byte) error {
 	kind, _ := keys.ParseEVMKey(storeKey)
 	want := map[string]keys.EVMKeyKind{
-		flatkvBucketStorage: keys.EVMKeyStorage,
-		flatkvBucketCode:    keys.EVMKeyCode,
-		flatkvBucketMisc:    keys.EVMKeyMisc,
+		operations.FlatKVBucketStorage: keys.EVMKeyStorage,
+		operations.FlatKVBucketCode:    keys.EVMKeyCode,
+		operations.FlatKVBucketMisc:    keys.EVMKeyMisc,
 	}[bucket]
 	if kind != want {
 		return fmt.Errorf("evm key %X does not belong to the %s bucket", storeKey, bucket)

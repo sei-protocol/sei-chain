@@ -1,4 +1,4 @@
-package operations
+package evmlogical
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,7 +101,7 @@ func TestSemanticMemiavlDigestReportsZeroCensus(t *testing.T) {
 func TestSemanticMemiavlInspectMatchesTranslatorForCoreEVMKeys(t *testing.T) {
 	rawPairs := coreEVMRawPairs()
 
-	for _, bucket := range flatkvBucketOrder {
+	for _, bucket := range operations.FlatKVBuckets() {
 		t.Run(bucket, func(t *testing.T) {
 			translatorInspect := newTestInspectAccumulator(bucket)
 			tr := flatkv.NewImportTranslator(0)
@@ -152,15 +153,15 @@ func TestCompositeInspectMemiavlTailOnlyCountsUnmigratedRows(t *testing.T) {
 		return nil
 	}
 
-	composite := newTestInspectAccumulator(flatkvBucketStorage)
+	composite := newTestInspectAccumulator(operations.FlatKVBucketStorage)
 	composite.shardNextBytes = 1
-	composite.addLogical(flatkvBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
+	composite.addLogical(operations.FlatKVBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
 	require.NoError(t, consumeCompositeMemiavl(source, "memiavl", boundary, composite.addLogical, nil, nil, nil, nil))
 
-	expected := newTestInspectAccumulator(flatkvBucketStorage)
+	expected := newTestInspectAccumulator(operations.FlatKVBucketStorage)
 	expected.shardNextBytes = 1
-	expected.addLogical(flatkvBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
-	expected.addLogical(flatkvBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, highKeyBytes), highVal, nil)
+	expected.addLogical(operations.FlatKVBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, lowKeyBytes), lowVal, nil)
+	expected.addLogical(operations.FlatKVBucketStorage, ktype.EVMPhysicalKey(keys.EVMKeyStorage, highKeyBytes), highVal, nil)
 
 	require.Equal(t, expected.matched, composite.matched)
 	require.Equal(t, expected.shards, composite.shards)
@@ -170,7 +171,7 @@ func TestInspectAccountPrefixFilterSkipsOutOfRangeMemiavlAccounts(t *testing.T) 
 	matchingAddr := bytesOfLen(keys.AddressLen, 0x11)
 	skippedAddr := bytesOfLen(keys.AddressLen, 0x22)
 	accountOffset := len(ktype.EVMPhysicalKey(keys.EVMKeyNonce, nil))
-	acc := newTestInspectAccumulator(flatkvBucketAccount)
+	acc := newTestInspectAccumulator(operations.FlatKVBucketAccount)
 	acc.keyOffset = accountOffset
 	acc.keyPrefix = []byte{0x11}
 
@@ -191,11 +192,36 @@ func TestInspectAccountPrefixFilterSkipsOutOfRangeMemiavlAccounts(t *testing.T) 
 	require.Equal(t, uint64(1), acc.matched)
 }
 
+// TestInspectAccountPrefixFilterDoesNotBufferOutOfRangeBalances pins that an account
+// inspect with a prefix holds only the matching addresses, for every account field.
+func TestInspectAccountPrefixFilterDoesNotBufferOutOfRangeBalances(t *testing.T) {
+	matchingAddr := bytesOfLen(keys.AddressLen, 0x11)
+	skippedAddr := bytesOfLen(keys.AddressLen, 0x22)
+	acc := newTestInspectAccumulator(operations.FlatKVBucketAccount)
+	acc.keyOffset = len(ktype.EVMPhysicalKey(keys.EVMKeyNonce, nil))
+	acc.keyPrefix = []byte{0x11}
+
+	accounts := make(map[string]*semanticAccountDigestState)
+	for _, addr := range [][]byte{matchingAddr, skippedAddr} {
+		for _, p := range []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: nonceBytes(7)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: bytesOfLen(32, 0xAB)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr), Value: bytesOfLen(32, 0x01)},
+		} {
+			require.NoError(t, consumeSemanticMemiavlLeafFiltered(
+				accounts, p.Key, p.Value, acc.addLogical, nil, "inspect", acc.matchesAccountPhysicalKey))
+		}
+	}
+
+	require.Len(t, accounts, 1)
+	require.Contains(t, accounts, string(matchingAddr))
+}
+
 func TestInspectMemiavlRejectsUnknownNormalizationBeforeOpeningSnapshot(t *testing.T) {
 	cmd := EvmLogicalDigestCmd()
 	require.NoError(t, cmd.Flags().Set("backend", "memiavl"))
 	require.NoError(t, cmd.Flags().Set("db-dir", "/path/that/should/not/be/opened"))
-	require.NoError(t, cmd.Flags().Set("inspect-bucket", flatkvBucketStorage))
+	require.NoError(t, cmd.Flags().Set("inspect-bucket", operations.FlatKVBucketStorage))
 	require.NoError(t, cmd.Flags().Set("memiavl-normalization", "bogus"))
 
 	err := runEvmLogicalDigest(cmd, nil)
@@ -245,6 +271,12 @@ func nonceBytes(n uint64) []byte {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, n)
 	return bz
+}
+
+func padLeft32(value byte) []byte {
+	var padded [32]byte
+	padded[len(padded)-1] = value
+	return padded[:]
 }
 
 // TestMiscForCompareOmitsMigrationMarkerRows pins the marker adjustment that
@@ -531,11 +563,11 @@ func TestDigestJSONIsOneLine(t *testing.T) {
 }
 
 func TestInspectJSONReportCarriesTheSameNumbersAsTheProse(t *testing.T) {
-	acc := newTestInspectAccumulator(flatkvBucketStorage)
+	acc := newTestInspectAccumulator(operations.FlatKVBucketStorage)
 	acc.shardNextBytes = 1
 	physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, append(bytesOfLen(keys.AddressLen, 0x12), bytesOfLen(32, 0x34)...))
 	logical := bytesOfLen(32, 0x56)
-	acc.addLogical(flatkvBucketStorage, physKey, logical, nil)
+	acc.addLogical(operations.FlatKVBucketStorage, physKey, logical, nil)
 	ctx := testDigestContext()
 
 	proseBuf, _ := captureDigestOutput(t, false)
