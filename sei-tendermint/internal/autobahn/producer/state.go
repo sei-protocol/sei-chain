@@ -17,6 +17,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
+const DefaultMaxPendingInserts uint64 = 4096
+
+const minTxGas = 21000
+
 // Config is the config of the block scope.
 type Config struct {
 	MaxGasWantedPerBlock    uint64
@@ -49,11 +54,6 @@ func (c *Config) maxConcurrentCheckTx() int {
 	}
 	return max(1, runtime.GOMAXPROCS(0)/2)
 }
-
-// DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
-const DefaultMaxPendingInserts uint64 = 4096
-
-const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
 	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)

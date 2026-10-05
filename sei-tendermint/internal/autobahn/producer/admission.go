@@ -12,6 +12,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// unqueuedSeq is the seq of a call that is not queued yet, so it loses every tie to a queued one.
+const unqueuedSeq = math.MaxUint64
+
+const (
+	// fitContiguous keeps the sender's queued nonces contiguous: the sender has nothing queued,
+	// or the nonce directly follows its last queued call or directly precedes its first.
+	fitContiguous nonceFit = iota
+	// fitGap leaves a gap in the sender's queued nonces.
+	fitGap
+	// fitDuplicate repeats a nonce already queued for the sender.
+	fitDuplicate
+)
+
 // rank orders blocked InsertTx calls for admission: a sender of a shard this validator owns
 // first, then higher priority, then earlier arrival.
 type rank struct {
@@ -19,9 +32,6 @@ type rank struct {
 	priority int64
 	seq      uint64
 }
-
-// unqueuedSeq is the seq of a call that is not queued yet, so it loses every tie to a queued one.
-const unqueuedSeq = math.MaxUint64
 
 // outranks reports whether r is admitted before o.
 func (r rank) outranks(o rank) bool {
@@ -193,6 +203,32 @@ func (q *admissionQueue) effectiveRank(t *insertTicket) rank {
 	return t.rank
 }
 
+// nonceFit is how the nonce of an unqueued call relates to the queued calls of its sender.
+type nonceFit int
+
+// Fit returns how the nonce of unqueued t relates to the queued calls of its sender. A call
+// without a sender is contiguous.
+func (q *admissionQueue) Fit(t *insertTicket) nonceFit {
+	addr, ok := t.sender.Get()
+	if !ok {
+		return fitContiguous
+	}
+	calls := q.senders[addr]
+	if len(calls) == 0 {
+		return fitContiguous
+	}
+	if _, found := slices.BinarySearchFunc(calls, t.nonce, func(c *insertTicket, nonce uint64) int {
+		return cmp.Compare(c.nonce, nonce)
+	}); found {
+		return fitDuplicate
+	}
+	first, last := calls[0].nonce, calls[len(calls)-1].nonce
+	if (last < math.MaxUint64 && t.nonce == last+1) || (first > 0 && t.nonce == first-1) {
+		return fitContiguous
+	}
+	return fitGap
+}
+
 // AdmitsNext reports whether t is the next call to admit: the best eligible call when queued,
 // otherwise ahead of every queued call.
 func (q *admissionQueue) AdmitsNext(t *insertTicket) bool {
@@ -205,8 +241,11 @@ func (q *admissionQueue) AdmitsNext(t *insertTicket) bool {
 
 // VictimFor returns the queued call that unqueued t evicts from a full queue: the last call of
 // the lowest-ranked eligible call's sender, so no sender is left with a nonce gap. None when t
-// does not outrank that eligible call.
+// does not keep its sender's queued nonces contiguous, or does not outrank that eligible call.
 func (q *admissionQueue) VictimFor(t *insertTicket) utils.Option[*insertTicket] {
+	if q.Fit(t) != fitContiguous {
+		return utils.None[*insertTicket]()
+	}
 	w, ok := q.Worst().Get()
 	if !ok || !q.effectiveRank(t).outranks(w.rank) {
 		return utils.None[*insertTicket]()

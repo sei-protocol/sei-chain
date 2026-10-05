@@ -93,8 +93,12 @@ func (m *mempoolInner) signalBest() {
 }
 
 // enqueue queues t, first evicting the call t outranks when limit calls are already queued.
-// Returns errPendingFull when the queue is full and t outranks none of them.
+// Returns errBadNonce when t repeats a nonce queued for its sender, and errPendingFull when the
+// queue is full and t evicts none of them.
 func (mp *mempool) enqueue(m *mempoolInner, t *insertTicket, limit uint64) error {
+	if m.waiters.Fit(t) == fitDuplicate {
+		return fmt.Errorf("%w: nonce %v is already queued", errBadNonce, t.nonce)
+	}
 	if m.waiters.Len() >= limit {
 		victim, ok := m.waiters.VictimFor(t).Get()
 		if !ok {
@@ -227,10 +231,11 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 
 // InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
 // admitted by rank: senders of a shard this validator owns first, then higher CheckTx priority,
-// then arrival order. The calls of one EVM sender are admitted in nonce order. TryInsertTx calls
-// do not queue and may take freed capacity ahead of them. Once Config.MaxPendingInserts calls are
-// blocked, a call that outranks the lowest-ranked one evicts it; the evicted call, or a call that
-// outranks none, fails with errPendingFull.
+// then arrival order. The calls of one EVM sender are admitted in nonce order. A call that repeats
+// a nonce queued for its sender fails with errBadNonce; a queued call is never replaced. TryInsertTx
+// calls do not queue and may take freed capacity ahead of them. Once Config.MaxPendingInserts calls
+// are blocked, a call that keeps its sender's queued nonces contiguous and outranks the
+// lowest-ranked one evicts it; the evicted call, or a call that evicts none, fails with errPendingFull.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
