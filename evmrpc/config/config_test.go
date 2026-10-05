@@ -909,5 +909,12 @@ func TestReadConfigRateLimitingPreSwitchConfigRaisesBurst(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, cfg.RateLimitingEnabled)
 	require.Equal(t, config.DefaultConfig.BatchRequestLimit, cfg.BatchRequestLimit)
+	require.Equal(t, 400, cfg.IPRateLimitBurst)
+
+	// An explicit burst below the inherited batch limit is raised to it.
+	o.ipRateLimitBurst = 50
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.True(t, cfg.RateLimitingEnabled)
 	require.Equal(t, cfg.BatchRequestLimit, cfg.IPRateLimitBurst)
 }

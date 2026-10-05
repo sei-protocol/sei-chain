@@ -343,7 +343,7 @@ type Config struct {
 	RPCMethodTimeouts []string `mapstructure:"rpc_method_timeouts"`
 }
 
-const defaultBatchRequestLimit = 1000
+const defaultBatchRequestLimit = 100
 
 var DefaultConfig = Config{
 	HTTPEnabled:                  true,
@@ -399,7 +399,7 @@ var DefaultConfig = Config{
 	TraceBakeUseSnapshot:      false,
 	TraceBakeSnapshotWindow:   64,
 	IPRateLimitRPS:            200,
-	IPRateLimitBurst:          defaultBatchRequestLimit,
+	IPRateLimitBurst:          200,
 	RateLimitingEnabled:       true,
 	TrustedProxyCIDRs:         nil,
 	BatchRequestLimit:         defaultBatchRequestLimit,
