@@ -1,4 +1,6 @@
-# Running a memIAVL reserve node for the FlatKV migration
+# Running a memIAVL reserve node for the FlatKV migration on mainnet
+
+This guide is for mainnet, `pacific-1`. For testnet, `atlantic-2`, use the [testnet guide](memiavl_reserve_node.md).
 
 The FlatKV migration moves chain state out of memIAVL and into FlatKV in phases, starting with the EVM module (see the [migration README](https://github.com/sei-protocol/sei-chain/blob/main/sei-db/state_db/sc/migration/README.md)). It only runs forward: once a node has moved data into FlatKV, its memIAVL no longer has that data.
 
@@ -6,7 +8,7 @@ A reserve node is a full node that never migrates. It keeps all state in memIAVL
 
 Reserves run a special build of `seid`, compiled with the `mock_chain_validation` build tag from a `<release>-memiavl-reserve` branch. When the fleet starts migrating, the fleet's app hash changes and a reserve's no longer matches it. A normal binary would stop at the first mismatched block, but the reserve build counts the mismatch in a metric and keeps going.
 
-To run one, build the reserve branch with `BUILD_TAGS=mock_chain_validation`, run it as a non-validator with `sc-write-mode = "memiavl_only"` and `sc-write-mode-enable-auto = false`, and have it synced before governance starts the migration. After that, leave it alone apart from chain upgrades.
+To run one, build the reserve branch with `BUILD_TAGS=mock_chain_validation`, run it as a non-validator with `sc-write-mode = "memiavl_only"` and `sc-write-mode-enable-auto = false`, and have it synced before governance starts the migration. Mainnet gets the migration code with the `v6.7` chain upgrade, so a node you prepare before then runs the normal `v6.6` binary up to the upgrade height and the reserve build from there. After that, leave it alone apart from chain upgrades.
 
 Paths below assume the default home directory, `~/.sei`.
 
@@ -18,13 +20,15 @@ The migration starts when a governance proposal raises the `NumKeysToMigratePerB
 seid query params subspace migration NumKeysToMigratePerBlock
 ```
 
+The parameter arrives with the `v6.7` upgrade. Until then the query fails with `migration: unknown subspace`, and the migration can't have started.
+
 Your normal nodes also mark the start: they create their FlatKV directory, `~/.sei/data/state_commit/flatkv`, at that moment.
 
 Have your reserves running and synced before then. Once the migration is under way, reserves can no longer state-sync, because snapshots from migrated nodes contain FlatKV data that a reserve refuses to import. From that point, a new reserve has to be copied from an existing one.
 
 The reserve binary must match the release the network runs. Reserve branches are named `<release>-memiavl-reserve`, so for `v6.7.0` the branch is [`v6.7.0-memiavl-reserve`](https://github.com/sei-protocol/sei-chain/tree/v6.7.0-memiavl-reserve) (head `2bff7d5a9`). Its only code changes from `v6.7.0` are a startup guard and the reserve config defaults. If the network moves to a release that has no reserve branch yet, ask the Sei team.
 
-`atlantic-2` may still report `v6.7.0-rc4`. Use the `v6.7.0` reserve branch anyway: `v6.7.0` executes blocks exactly as rc4 does, and changes only metrics, the `seidb` tool and the version string. To see what a node runs, ask it with `curl -s localhost:26657/abci_info | jq -r .response.version`.
+`pacific-1` stays on `v6.6` (`v6.6.3` at the time of writing) until it takes the `v6.7` upgrade, which moves it to `v6.7.0`. There is no reserve branch for `v6.6`, and none is needed, because `v6.6` can't start the governance-driven migration. To see what a node runs, ask it with `curl -s localhost:26657/abci_info | jq -r .response.version`. `seid query upgrade plan` prints `no upgrade scheduled` until the upgrade proposal has passed, and the upgrade height after that.
 
 Size the machine like your current RPC nodes, since a reserve stores state the same way they do today.
 
@@ -65,7 +69,7 @@ sc-write-mode = "memiavl_only"
 sc-write-mode-enable-auto = false
 ```
 
-Running `seid init` with the reserve binary writes all three values for you. On an existing home directory, set them yourself. The reserve binary treats a missing `sc-write-mode-enable-auto` as `false`, but write the key out anyway so the file says what the node does.
+Running `seid init` with the reserve binary writes all three values for you. On an existing home directory, including a `v6.6` node's, set them yourself. `v6.6` already defaults to `sc-write-mode = "memiavl_only"` and ignores `sc-write-mode-enable-auto`, so the node can carry these settings before the upgrade. The reserve binary treats a missing `sc-write-mode-enable-auto` as `false`, but write the key out anyway so the file says what the node does.
 
 Also turn on Prometheus (`prometheus = true` under `[instrumentation]` in `config.toml`), because the checks below read a metric from `:26660/metrics`. Everything else can stay the way you run your normal RPC nodes.
 
@@ -73,14 +77,18 @@ The reserve binary refuses to start if the node is set up as a validator or has 
 
 ## 3. Load the data
 
-Before the migration starts, do one of these:
+Before the `v6.7` upgrade, start from a `pacific-1` full node on the normal `v6.6` binary: an existing RPC node, or a new one set up with a normal state sync. Apply step 2 to it. When it stops at the upgrade height with `UPGRADE "v6.7" NEEDED at height: <height>`, install the reserve build where the normal `v6.7.0` binary would go, and start it. With Cosmovisor, put the reserve build in `upgrades/v6.7/bin/` before the upgrade height.
 
-- Convert an existing RPC node that runs the same release. Stop it, install the reserve binary, and apply step 2.
-- Set up a new node with a normal state sync. The script in the [SeiDB migration guide](https://github.com/sei-protocol/sei-chain/blob/main/docs/migration/seidb_migration.md#step-3-state-sync) works, as long as the reserve binary and step 2 are in place before the first start.
+After the upgrade but before the migration starts, do one of these:
+
+- Convert an existing RPC node that runs `v6.7.0`. Stop it, install the reserve binary, and apply step 2.
+- Set up a new node with a normal state sync, with the reserve binary and step 2 in place before the first start. The snapshot it restores has to be from after the upgrade height. If the node logs `BINARY UPDATED BEFORE TRIGGER` after the sync, the snapshot was older: wipe the node and sync it again later.
+
+For a state sync at either point, the script in the [SeiDB migration guide](https://github.com/sei-protocol/sei-chain/blob/main/docs/migration/seidb_migration.md#step-3-state-sync) works with `CHAIN_ID="pacific-1"` and `PRIMARY_ENDPOINT` set to a `pacific-1` RPC node you trust. Sei's [state sync guide](https://docs.sei.io/node/statesync) lists public ones.
 
 After the migration has started, copy `~/.sei/data` and `~/.sei/wasm` from a stopped reserve instead. Never copy data from a normal node.
 
-In every case, confirm there is no FlatKV store before the first start:
+In every case, confirm there is no FlatKV store before the reserve build's first start:
 
 ```bash
 ls -d ~/.sei/data/state_commit/flatkv ~/.sei/data/flatkv
@@ -110,7 +118,7 @@ No validation failure has been swallowed yet:
 curl -s localhost:26660/metrics | grep unsafe_validation_skipped | grep -v '^#'
 ```
 
-Before the migration starts, this must print nothing, because the reserve should still agree with the network on every block. Any output means it already disagrees, most likely because the binary was built from the wrong release. Fix that before the migration starts.
+Before the migration starts, this must print nothing, because the reserve should still agree with the network on every block. Any output means it already disagrees, most likely because the binary was built from the wrong release or started before its upgrade height. Fix that before the migration starts.
 
 ## When the migration starts
 
@@ -142,11 +150,11 @@ Every chain upgrade needs a reserve build of the new release, made from that rel
 
 Let the node stop at the upgrade height with `UPGRADE "<name>" NEEDED at height: <height>` as usual (the reserve build still halts there), then install the new reserve build and start it again.
 
-Never install it early. A normal build of the new release panics if it starts before the upgrade height, but the reserve build only logs `BINARY UPDATED BEFORE TRIGGER` and carries on, so it executes blocks with the new code too soon.
+Never install it early. A normal build of the new release panics if it starts before the upgrade height, but the reserve build only logs `BINARY UPDATED BEFORE TRIGGER` and carries on, so it executes blocks with the new code too soon. Before the upgrade proposal has passed there is no upgrade plan on chain, and the reserve build doesn't even log that. On `pacific-1` that includes `v6.7` itself: don't start the `v6.7.0` reserve build before the `v6.7` upgrade height.
 
 With Cosmovisor, put the reserve build in `upgrades/<name>/bin/` yourself and leave `DAEMON_ALLOW_DOWNLOAD_BINARIES` off, so Cosmovisor doesn't fetch the normal release binary.
 
-Don't run the normal `seid` on a reserve at any point. It stops at the first block whose app hash doesn't match.
+Once a node runs the reserve build, don't run the normal `seid` on it again. It stops at the first block whose app hash doesn't match.
 
 ### Comparing EVM state with a migrated node (optional)
 
@@ -179,7 +187,7 @@ seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
   --memiavl-dir ~/.sei/data/state_commit/memiavl --height H
 ```
 
-`--memiavl-open-mode changelog` reads the newest memIAVL snapshot at or below `H` plus the changelog above it, so the normal node doesn't need a snapshot at `H`. It gives the same result as `--memiavl-open-mode replay`, much faster and with far less memory. Add it to the reserve's command too if you pick a height the reserve has no snapshot for.
+`--memiavl-open-mode changelog` reads the newest memIAVL snapshot at or below `H` plus the changelog above it, so the normal node doesn't need a snapshot at `H`. It gives the same result as `--memiavl-open-mode replay`, much faster and with far less memory: on a `pacific-1` memIAVL-only node 85,000 blocks past its snapshot, a digest took 405 seconds and peaked at 24 GB of memory this way, against 2,286 seconds and 142 GB with replay ([#4419](https://github.com/sei-protocol/sei-chain/pull/4419)). Add it to the reserve's command too if you pick a height the reserve has no snapshot for.
 
 Once the EVM phase has finished, use `--backend flatkv --db-dir ~/.sei/data/state_commit/flatkv --height H` on the normal node instead. The two `FINAL_DIGEST` lines must match. The tool reads the entire EVM state, so run it at a quiet time.
 
@@ -189,6 +197,7 @@ Once the EVM phase has finished, use `--backend flatkv --db-dir ~/.sei/data/stat
 - Don't state-sync a reserve, restore a snapshot into it, or copy data into it from a normal node once the migration has started.
 - Don't run it as a validator, because it would vote for blocks it disagrees with. The build refuses to start that way anyway.
 - Don't try to turn a reserve back into a normal node in place. To retire one, wipe it and state-sync it as a normal node with the normal binary.
+- Don't start the reserve build on `pacific-1` before the `v6.7` upgrade height. Until then the node runs the normal `v6.6` binary.
 
 ## If the migration fails
 
@@ -200,6 +209,7 @@ The Sei team coordinates recovery and will contact reserve operators. Until then
 |---|---|
 | `mock_chain_validation builds must not run as a validator ...` | `mode` in `config.toml` is `validator`. Set it to `full`. |
 | `mock_chain_validation builds must run "memiavl_only", got "auto" ...` | `app.toml` has `sc-write-mode-enable-auto = true` or `sc-write-mode = "auto"`. Apply step 2. |
+| `migration: unknown subspace` | The chain, or the node you queried, is still on `v6.6`. The migration can't have started. |
 | `snapshot contains a "flatkv" section but this store has no flatkv backend ...` | State sync picked a snapshot from a migrated node. It's too late to state-sync a reserve, so copy one instead (step 3). |
 | `migration requested (batch size > 0) but the SC write mode is pinned ...` | Expected once the migration has started. It repeats after a restart and when governance sets a new batch size. |
-| `BINARY UPDATED BEFORE TRIGGER! ...` | The next release was installed before its upgrade height. Stop the node, put the current reserve build back, and tell the Sei team. Blocks executed with the wrong binary may have left the reserve's state incorrect, and the app hash can't show it. |
+| `BINARY UPDATED BEFORE TRIGGER! ...` | A release was started before its upgrade height, or a state sync restored a snapshot from before it. On a node that was already a reserve, stop it, put the previous build back, and tell the Sei team: blocks executed with the wrong binary may have left the reserve's state incorrect, and the app hash can't show it. On a node that wasn't a reserve yet, wipe it and redo step 3. |
