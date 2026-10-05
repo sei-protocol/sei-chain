@@ -1224,3 +1224,14 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
 }
+
+func TestPreparedQueueReleasesAnEvictedBlock(t *testing.T) {
+	var q preparedQueue
+	for h := int64(1); h <= maxPreparedBlocks+1; h++ {
+		q.put(preparedBlock{height: h, txs: make([]evmonly.PreparedTx, 1)}, 1)
+	}
+	require.Len(t, q, maxPreparedBlocks)
+	for _, evicted := range q[len(q):cap(q)] {
+		require.Nil(t, evicted.txs, "an evicted block must not stay reachable through the queue's backing array")
+	}
+}
