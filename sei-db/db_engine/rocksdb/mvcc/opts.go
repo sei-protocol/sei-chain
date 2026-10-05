@@ -65,11 +65,11 @@ func NewRocksDBOpts(sstFileWriter bool) *grocksdb.Options {
 }
 
 // OpenRocksDB opens a RocksDB database connection for versioned reading and writing.
-// It also returns a column family handle for versioning using user-defined timestamps.
-// The default column family is used for metadata, specifically key/value pairs
-// that are stored on another column family named with "state_storage", which has
-// user-defined timestamp enabled.
-func OpenRocksDB(dataDir string) (*grocksdb.DB, *grocksdb.ColumnFamilyHandle, error) {
+// It returns every opened column family handle so the caller can destroy them
+// all at close: RocksDB requires the default column family to be opened too, so
+// the first handle is the unused default while the second is "state_storage",
+// the column family used for versioning with user-defined timestamps.
+func OpenRocksDB(dataDir string) (*grocksdb.DB, []*grocksdb.ColumnFamilyHandle, error) {
 	opts := grocksdb.NewDefaultOptions()
 	opts.SetCreateIfMissing(true)
 	opts.SetCreateIfMissingColumnFamilies(true)
@@ -90,13 +90,13 @@ func OpenRocksDB(dataDir string) (*grocksdb.DB, *grocksdb.ColumnFamilyHandle, er
 		return nil, nil, err
 	}
 
-	return db, cfHandles[1], nil
+	return db, cfHandles, nil
 }
 
 // OpenRocksDBAndTrimHistory opens a RocksDB handle similar to `OpenRocksDB`,
 // but it also trims the versions newer than target one, such that it can be used
 // for rollback.
-func OpenRocksDBAndTrimHistory(dataDir string, version int64) (*grocksdb.DB, *grocksdb.ColumnFamilyHandle, error) {
+func OpenRocksDBAndTrimHistory(dataDir string, version int64) (*grocksdb.DB, []*grocksdb.ColumnFamilyHandle, error) {
 	var ts [TimestampSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 
@@ -121,5 +121,5 @@ func OpenRocksDBAndTrimHistory(dataDir string, version int64) (*grocksdb.DB, *gr
 		return nil, nil, err
 	}
 
-	return db, cfHandles[1], nil
+	return db, cfHandles, nil
 }
