@@ -107,6 +107,11 @@ func TestBehaviorOpenEthDatabase(t *testing.T) {
 
 			k := &keeper.Keeper{EthReplayConfig: replay.Config{EthDataDir: dir}}
 			header := k.OpenEthDatabase()
+			t.Cleanup(func() {
+				tdb := k.CachingDB.TrieDB()
+				require.NoError(t, tdb.Close())
+				require.NoError(t, tdb.Disk().Close())
+			})
 			require.NotNil(t, header)
 			require.Equal(t, genesis.Hash(), header.Hash())
 			require.Equal(t, uint64(0), header.Number.Uint64())
