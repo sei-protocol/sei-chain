@@ -34,7 +34,7 @@ separators, or length prefixes, for a fixed total of 177 bytes.
 |      0 |    1 | `version`         | `u8`      | Defined                                  |
 |      1 |    8 | `chainID`         | `u64be`   | Defined                                  |
 |      9 |    8 | `blockHeight`     | `u64be`   | Defined                                  |
-|     17 |   32 | `blockHash`       | raw bytes | **PLACEHOLDER**                          |
+|     17 |   32 | `blockHash`       | raw bytes | Defined                                  |
 |     49 |   32 | `stateHash`       | raw bytes | Defined                                  |
 |     81 |   32 | `bud`             | raw bytes | **PLACEHOLDER**                          |
 |    113 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                          |
@@ -63,20 +63,28 @@ The EVM chain ID of the chain the block belongs to.
 
 The Autobahn global block number of the block.
 
-### `blockHash`: PLACEHOLDER
+### `blockHash`
 
-The hash that identifies the block. For now, this is the hash Autobahn assigns to the block's lane
-`BlockHeader`, which is SHA-256 over that header's canonical encoding and is the block hash execution already
-uses. The header contains:
+The hash Autobahn assigns to the block's lane `BlockHeader`. It is SHA-256 over that header's canonical
+encoding, and it is the block hash execution exposes to the EVM.
 
-- `lane_id`: the lane that produced the block.
-- `block_number`: the block's number within its lane, which is not `blockHeight`.
-- `parent_hash`: the hash of the previous header in the same lane.
-- `payload_hash`: SHA-256 over the canonical encoding of the block's payload, which holds the block's
-  transactions in block order, the time the block was created, and its total gas wanted and total gas estimated.
+```
+blockHash(N) = SHA-256(canonical encoding of header(N))
+```
 
-**Needs design.** Which header this commits to, which fields that header covers, and its exact byte encoding
-must be specified precisely and intentionally. This definition is owned by the consensus team.
+The header contains:
+
+- `lane_id`: the lane that produced the block, which is the Ed25519 public key of its validator and the epoch
+  in which that validator most recently joined the committee.
+- `block_number`: the block's number within its lane, from 0. It is not `blockHeight`, which is the global block number.
+- `parent_hash`: the hash of the previous header in the same lane, or 32 zero bytes when `block_number` is 0.
+- `payload_hash`: SHA-256 over the canonical encoding of the block's payload.
+
+The payload holds the block's transactions in block order, the time the producer created the block, the total
+gas the transactions want, and the total gas the producer estimated they would use.
+
+The canonical encoding is the one Autobahn uses to hash these messages. It is part of this definition, and a
+change to it is a change to `blockHash`.
 
 ### `stateHash`
 
@@ -147,7 +155,6 @@ block 0, since the chain already exists without this app hash.
 
 | Item                         | Needed                                                           | Owner          |
 |------------------------------|------------------------------------------------------------------|----------------|
-| `blockHash`                  | A precise, intentional definition of the header and its encoding | Consensus team |
 | `bud`                        | A Merkle tree schema over the block's changes, to support proofs | Storage team   |
 | `receiptHash`                | A full definition                                                | EVM team       |
 | `previousAppHash` activation | The height of the first block computed under this scheme         | TBD            |
