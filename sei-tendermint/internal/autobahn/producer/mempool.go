@@ -93,14 +93,18 @@ func (m *mempoolInner) signalBest() {
 }
 
 // enqueue queues t, first evicting the call t outranks when limit calls are already queued.
-// Returns errBadNonce when t repeats a nonce queued for its sender, and errPendingFull when the
-// queue is full and t evicts none of them.
-func (mp *mempool) enqueue(m *mempoolInner, t *insertTicket, limit uint64) error {
-	if m.waiters.Fit(t) == fitDuplicate {
+// expected is the sender's expected next nonce, None when unknown. Returns errBadNonce when t
+// repeats a nonce queued for its sender or is below expected, and errPendingFull when the queue
+// is full and t evicts none of them.
+func (mp *mempool) enqueue(m *mempoolInner, t *insertTicket, limit uint64, expected utils.Option[uint64]) error {
+	switch m.waiters.Fit(t, expected) {
+	case fitDuplicate:
 		return fmt.Errorf("%w: nonce %v is already queued", errBadNonce, t.nonce)
+	case fitStale:
+		return fmt.Errorf("%w: got %v, want at least %v", errBadNonce, t.nonce, expected.OrPanic("a stale nonce has an expected nonce"))
 	}
 	if m.waiters.Len() >= limit {
-		victim, ok := m.waiters.VictimFor(t).Get()
+		victim, ok := m.waiters.VictimFor(t, expected).Get()
 		if !ok {
 			return errPendingFull
 		}
@@ -232,10 +236,12 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 // InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
 // admitted by rank: senders of a shard this validator owns first, then higher CheckTx priority,
 // then arrival order. The calls of one EVM sender are admitted in nonce order. A call that repeats
-// a nonce queued for its sender fails with errBadNonce; a queued call is never replaced. TryInsertTx
-// calls do not queue and may take freed capacity ahead of them. Once Config.MaxPendingInserts calls
-// are blocked, a call that keeps its sender's queued nonces contiguous and outranks the
-// lowest-ranked one evicts it; the evicted call, or a call that evicts none, fails with errPendingFull.
+// a nonce queued for its sender, or is below the sender's next nonce when that is known, fails
+// with errBadNonce without queueing; a queued call is never replaced. TryInsertTx calls do not
+// queue and may take freed capacity ahead of them. Once Config.MaxPendingInserts calls are
+// blocked, a call that leaves its sender's queued nonces a gap-free run from the sender's next
+// nonce and outranks the lowest-ranked one evicts it; the evicted call, or a call that evicts
+// none, fails with errPendingFull. A call whose sender's next nonce is unknown never evicts.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
@@ -536,7 +542,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 					wakeups++
 					t.admitted.Store(false)
 				} else {
-					if err := mp.enqueue(m, candidate, s.cfg.maxPendingInserts()); err != nil {
+					if err := mp.enqueue(m, candidate, s.cfg.maxPendingInserts(), m.expectedNonce(candidate.sender, appNonce, first)); err != nil {
 						return nil, err
 					}
 					ticket = utils.Some(candidate)
@@ -555,6 +561,28 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	}
 }
 
+// expectedNonce returns the next nonce sender must use when it is known without calling the
+// app, and None otherwise or for a call without a sender. appNonce is the sender's app nonce
+// pre-read when the lane's first block was first; see preReadEvmNonce.
+func (m *mempoolInner) expectedNonce(sender utils.Option[common.Address], appNonce utils.Option[uint64], first types.BlockNumber) utils.Option[uint64] {
+	addr, ok := sender.Get()
+	if !ok {
+		return utils.None[uint64]()
+	}
+	// The tracked entry, when present, is authoritative: it covers txs already
+	// sequenced but not yet executed. The pre-read app nonce is used only when
+	// there is no entry and no block was pruned since it was taken (m.first
+	// unchanged), since pruning may delete this sender's entry and advance the
+	// app nonce.
+	if nonce, ok := m.evmNonces[addr]; ok {
+		return utils.Some(nonce)
+	}
+	if pre, ok := appNonce.Get(); ok && m.first == first {
+		return utils.Some(pre)
+	}
+	return utils.None[uint64]()
+}
+
 // appendTx adds an admitted tx to the next lane block, sealing the current one first when the
 // tx would exceed one of its limits. appNonce is the sender's app nonce pre-read outside the
 // lock, valid only while m.first is unchanged since the read; see preReadEvmNonce.
@@ -562,18 +590,9 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64, appNonce utils.Option[uint64], first types.BlockNumber) error {
 	if resp.IsEVM {
 		addr := resp.EVMSenderAddress
-		nonce, ok := m.evmNonces[addr]
+		nonce, ok := m.expectedNonce(utils.Some(addr), appNonce, first).Get()
 		if !ok {
-			// The tracked entry, when present, is authoritative: it covers txs already
-			// sequenced but not yet executed. The pre-read app nonce is used only when
-			// there is no entry and no block was pruned since it was taken (m.first
-			// unchanged), since pruning may delete this sender's entry and advance the
-			// app nonce.
-			if pre, ok := appNonce.Get(); ok && m.first == first {
-				nonce = pre
-			} else {
-				nonce = s.evmNonce(addr)
-			}
+			nonce = s.evmNonce(addr)
 		}
 		if nonce != resp.EVMNonce {
 			return fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)

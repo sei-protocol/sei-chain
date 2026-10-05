@@ -20,13 +20,14 @@ const eligibleDegree = 16
 const unqueuedSeq = math.MaxUint64
 
 const (
-	// fitContiguous keeps the sender's queued nonces contiguous: the sender has nothing queued,
-	// or the nonce directly follows its last queued call or directly precedes its first.
-	fitContiguous nonceFit = iota
-	// fitGap leaves a gap in the sender's queued nonces.
+	// fitRun leaves the sender's queued nonces a gap-free run from its expected next nonce.
+	fitRun nonceFit = iota
+	// fitGap leaves a gap in that run, or the sender's expected next nonce is unknown.
 	fitGap
 	// fitDuplicate repeats a nonce already queued for the sender.
 	fitDuplicate
+	// fitStale is below the sender's expected next nonce, so it can never be sequenced.
+	fitStale
 )
 
 // rank orders blocked InsertTx calls for admission: a sender of a shard this validator owns
@@ -177,25 +178,34 @@ func (q *admissionQueue) effectiveRank(t *insertTicket) rank {
 // nonceFit is how the nonce of an unqueued call relates to the queued calls of its sender.
 type nonceFit int
 
-// Fit returns how the nonce of unqueued t relates to the queued calls of its sender. A call
-// without a sender is contiguous.
-func (q *admissionQueue) Fit(t *insertTicket) nonceFit {
+// Fit returns how the nonce of unqueued t relates to its sender's expected next nonce and
+// queued calls. A call without a sender always forms a run.
+func (q *admissionQueue) Fit(t *insertTicket, expected utils.Option[uint64]) nonceFit {
 	addr, ok := t.sender.Get()
 	if !ok {
-		return fitContiguous
+		return fitRun
 	}
 	calls := q.senders[addr]
-	if len(calls) == 0 {
-		return fitContiguous
-	}
 	if _, found := slices.BinarySearchFunc(calls, t.nonce, func(c *insertTicket, nonce uint64) int {
 		return cmp.Compare(c.nonce, nonce)
 	}); found {
 		return fitDuplicate
 	}
-	first, last := calls[0].nonce, calls[len(calls)-1].nonce
-	if (last < math.MaxUint64 && t.nonce == last+1) || (first > 0 && t.nonce == first-1) {
-		return fitContiguous
+	next, ok := expected.Get()
+	if !ok {
+		return fitGap
+	}
+	if t.nonce < next {
+		return fitStale
+	}
+	// Queued nonces are unique, so they and t form a gap-free run from next exactly when the
+	// lowest is next and the span equals the count.
+	lowest, highest := t.nonce, t.nonce
+	if len(calls) > 0 {
+		lowest, highest = min(lowest, calls[0].nonce), max(highest, calls[len(calls)-1].nonce)
+	}
+	if lowest == next && highest-lowest == uint64(len(calls)) {
+		return fitRun
 	}
 	return fitGap
 }
@@ -212,9 +222,10 @@ func (q *admissionQueue) AdmitsNext(t *insertTicket) bool {
 
 // VictimFor returns the queued call that unqueued t evicts from a full queue: the last call of
 // the lowest-ranked eligible call's sender, so no sender is left with a nonce gap. None when t
-// does not keep its sender's queued nonces contiguous, or does not outrank that eligible call.
-func (q *admissionQueue) VictimFor(t *insertTicket) utils.Option[*insertTicket] {
-	if q.Fit(t) != fitContiguous {
+// does not leave its sender's queued nonces a gap-free run from expected, the sender's expected
+// next nonce, or does not outrank that eligible call.
+func (q *admissionQueue) VictimFor(t *insertTicket, expected utils.Option[uint64]) utils.Option[*insertTicket] {
+	if q.Fit(t, expected) != fitRun {
 		return utils.None[*insertTicket]()
 	}
 	w, ok := q.Worst().Get()

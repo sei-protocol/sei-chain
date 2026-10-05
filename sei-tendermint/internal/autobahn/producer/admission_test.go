@@ -444,6 +444,130 @@ func TestInsertTx_ContiguousNonceEvicts(t *testing.T) {
 	}
 }
 
+// At the bound, a call evicts only when it leaves its sender's queued nonces a gap-free run from
+// the sender's next nonce; any other call fails with errPendingFull and evicts nothing.
+func TestInsertTx_EvictsOnlyFromAGapFreeRun(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		queued    []uint64
+		newcomer  uint64
+		wantEvict bool
+	}{
+		{"next nonce with nothing queued", nil, 0, true},
+		{"future nonce with nothing queued", nil, 1, false},
+		{"extends a gap-free run", utils.Slice[uint64](0, 1), 2, true},
+		{"fills the only hole", utils.Slice[uint64](0, 2), 1, true},
+		{"extends a run with a hole", utils.Slice[uint64](0, 2), 3, false},
+		{"extends a run that starts past the next nonce", utils.Slice[uint64](1), 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			rng := utils.TestRng()
+			app := newPriorityApp()
+			cfg := app.Cfg()
+			cfg.MaxPendingInserts = uint64(len(tc.queued)) + 1
+			env := newTestEnv(rng, cfg, app.Proxy())
+			mp, err := env.fillMempool(ctx, rng, app.testApp)
+			require.NoError(t, err)
+
+			addr, nonce := app.NewAccount(rng)
+			var queued []*txSpec
+			for _, offset := range tc.queued {
+				queued = append(queued, env.senderTx(rng, app, addr, nonce+offset, 10))
+			}
+			low := env.rankedTx(rng, app, true, 1)
+			newcomer := env.senderTx(rng, app, addr, nonce+tc.newcomer, 10)
+			require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				if err := env.enqueueTxs(ctx, s, mp, queued, context.Canceled); err != nil {
+					return err
+				}
+				lowRes := env.insertAsync(ctx, s, low)
+				if _, err := mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got == cfg.MaxPendingInserts }); err != nil {
+					return err
+				}
+				if tc.wantEvict {
+					env.insertAsync(ctx, s, newcomer)
+					lowErr, err := waitResult(ctx, lowRes)
+					if err != nil {
+						return err
+					}
+					if insertResult(nil, lowErr) != metrics.ResultPendingFull {
+						return fmt.Errorf("evicted InsertTx: got %v, want errPendingFull", lowErr)
+					}
+				} else {
+					_, err := env.state.InsertTx(ctx, newcomer.encode())
+					if insertResult(nil, err) != metrics.ResultPendingFull {
+						return fmt.Errorf("newcomer InsertTx: got %v, want errPendingFull", err)
+					}
+					if lowRes.Load().IsPresent() {
+						return fmt.Errorf("the lowest-ranked call was evicted")
+					}
+				}
+				s.Cancel(context.Canceled)
+				return nil
+			})))
+		})
+	}
+}
+
+// A call below its sender's next nonce fails with errBadNonce without queueing, with room in
+// the queue and at the bound, and never evicts.
+func TestInsertTx_StaleNonceRejected(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newPriorityApp()
+	cfg := app.Cfg()
+	cfg.MaxPendingInserts = 1
+	env := newTestEnv(rng, cfg, app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+
+	addr, nonce := app.NewAccount(rng)
+	for nonce == 0 {
+		addr, nonce = app.NewAccount(rng)
+	}
+	low := env.rankedTx(rng, app, true, 1)
+	insertStale := func(ctx context.Context) error {
+		_, err := env.state.InsertTx(ctx, env.senderTx(rng, app, addr, nonce-1, 10).encode())
+		if insertResult(nil, err) != metrics.ResultBadNonce {
+			return fmt.Errorf("stale InsertTx: got %v, want errBadNonce", err)
+		}
+		return nil
+	}
+	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if err := insertStale(ctx); err != nil {
+			return err
+		}
+		if got := mp.pendingInserts.Load(); got != 0 {
+			return fmt.Errorf("pending after a stale call with room: got %d, want 0", got)
+		}
+		lowRes := env.insertAsync(ctx, s, low)
+		if _, err := mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got == 1 }); err != nil {
+			return err
+		}
+		if err := insertStale(ctx); err != nil {
+			return err
+		}
+		if lowRes.Load().IsPresent() {
+			return fmt.Errorf("the lowest-ranked call was evicted")
+		}
+		s.Cancel(context.Canceled)
+		return nil
+	})))
+}
+
+// A call whose sender's next nonce is unknown leaves a gap, so it never evicts; the same call
+// evicts once that nonce is known and the call starts the run.
+func TestAdmissionQueue_UnknownExpectedNonceNeverEvicts(t *testing.T) {
+	q := newAdmissionQueue()
+	q.Push(newInsertTicket(rank{owned: true, priority: 1, seq: unqueuedSeq}, utils.None[common.Address](), 0))
+	c := newInsertTicket(rank{owned: true, priority: 10, seq: unqueuedSeq}, utils.Some(common.Address{1}), 5)
+	require.Equal(t, fitGap, q.Fit(c, utils.None[uint64]()))
+	require.False(t, q.VictimFor(c, utils.None[uint64]()).IsPresent())
+	require.Equal(t, fitRun, q.Fit(c, utils.Some[uint64](5)))
+	require.True(t, q.VictimFor(c, utils.Some[uint64](5)).IsPresent())
+}
+
 // When the priority hint and the CheckTx priority disagree, the CheckTx priority decides.
 func TestInsertTx_CheckTxPriorityOverridesHint(t *testing.T) {
 	ctx := t.Context()
@@ -524,7 +648,7 @@ func TestInsertTx_ClosedReleasesSenderQueue(t *testing.T) {
 // Many inserters racing block frees, evictions and cancellations all finish, every sender's
 // txs are sequenced in nonce order, and the admission queue drains. Burst senders submit their
 // nonces concurrently, plus a duplicate of one of them, so gaps and repeated nonces race the
-// queue and may fail errBadNonce.
+// queue and may fail errBadNonce. Far-future nonces and gapped runs never land.
 func TestInsertTx_PriorityAdmissionStress(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -535,7 +659,7 @@ func TestInsertTx_PriorityAdmissionStress(t *testing.T) {
 	mp, err := env.fillMempool(ctx, rng, app.testApp)
 	require.NoError(t, err)
 
-	const senders, txsPerSender, cancellers, bursts, txsPerBurst = 24, 6, 8, 4, 4
+	const senders, txsPerSender, cancellers, bursts, txsPerBurst, farFuture, gappedSenders = 24, 6, 8, 4, 4, 4, 4
 	type account struct {
 		addr  common.Address
 		start uint64
@@ -565,6 +689,21 @@ func TestInsertTx_PriorityAdmissionStress(t *testing.T) {
 		app.setPriority(dup, txPriority{hint: 9, checked: 9})
 		burstTxs = append(burstTxs, dup)
 	}
+	// Far-future nonces and gapped runs can queue but never land or evict.
+	var unsequenceable []*txSpec
+	for range farFuture {
+		addr, start := app.NewAccount(rng)
+		unsequenceable = append(unsequenceable, env.senderTx(rng, app, addr, start+100, 9))
+	}
+	var gapped [][]*txSpec
+	for range gappedSenders {
+		addr, start := app.NewAccount(rng)
+		gapped = append(gapped, utils.Slice(
+			env.senderTx(rng, app, addr, start, rng.Int63n(10)),
+			env.senderTx(rng, app, addr, start+2, 9),
+			env.senderTx(rng, app, addr, start+3, 9),
+		))
+	}
 	cancelled := make([]*txSpec, cancellers)
 	for i := range cancelled {
 		cancelled[i] = env.rankedTx(rng, app, i%2 == 0, rng.Int63n(10))
@@ -590,6 +729,26 @@ func TestInsertTx_PriorityAdmissionStress(t *testing.T) {
 					_, err := env.state.InsertTx(ctx, tx.encode())
 					if err != nil && !errors.Is(err, errPendingFull) && !errors.Is(err, errBadNonce) {
 						return fmt.Errorf("burst InsertTx: %w", err)
+					}
+					return nil
+				})
+			}
+			for _, tx := range unsequenceable {
+				s.Spawn(func() error {
+					_, err := env.state.InsertTx(ctx, tx.encode())
+					if !errors.Is(err, errPendingFull) && !errors.Is(err, errBadNonce) {
+						return fmt.Errorf("far-future InsertTx: got %v, want errPendingFull or errBadNonce", err)
+					}
+					return nil
+				})
+			}
+			for _, txs := range gapped {
+				s.Spawn(func() error {
+					for _, tx := range txs {
+						_, err := env.state.InsertTx(ctx, tx.encode())
+						if err != nil && !errors.Is(err, errPendingFull) && !errors.Is(err, errBadNonce) {
+							return fmt.Errorf("gapped InsertTx: %w", err)
+						}
 					}
 					return nil
 				})
@@ -659,8 +818,9 @@ func insertRetryingPendingFull(ctx context.Context, env *testEnv, mp *mempool, t
 }
 
 // admissionQueue keeps Best and Worst equal to the best and worst eligible calls of a model
-// under random pushes and removals, classifies each new call's nonce as the model does, never
-// lets a gap or a duplicate evict, and VictimFor names the last call of the worst one's sender.
+// under random pushes and removals, classifies each new call's nonce against a random expected
+// next nonce as the model does, lets only a gap-free run from that nonce evict, never queues a
+// duplicate or stale nonce, and VictimFor names the last call of the worst one's sender.
 func TestAdmissionQueue_MatchesModel(t *testing.T) {
 	rng := utils.TestRng()
 	q := newAdmissionQueue()
@@ -693,37 +853,52 @@ func TestAdmissionQueue_MatchesModel(t *testing.T) {
 		}
 		return newInsertTicket(r, utils.Some(addrs[rng.Intn(len(addrs))]), uint64(rng.Intn(8))) //nolint:gosec // small test value
 	}
-	modelFit := func(c *insertTicket) nonceFit {
+	// modelFit lists the sender's queued nonces with c's and checks they count up from expected.
+	modelFit := func(c *insertTicket, expected utils.Option[uint64]) nonceFit {
 		addr, ok := c.sender.Get()
 		if !ok {
-			return fitContiguous
+			return fitRun
 		}
-		var nonces []uint64
+		nonces := []uint64{c.nonce}
 		for _, o := range queued {
 			if o.sender == utils.Some(addr) {
+				if o.nonce == c.nonce {
+					return fitDuplicate
+				}
 				nonces = append(nonces, o.nonce)
 			}
 		}
+		next, ok := expected.Get()
 		switch {
-		case len(nonces) == 0:
-			return fitContiguous
-		case slices.Contains(nonces, c.nonce):
-			return fitDuplicate
-		case c.nonce == slices.Max(nonces)+1 || c.nonce+1 == slices.Min(nonces):
-			return fitContiguous
-		default:
+		case !ok:
 			return fitGap
+		case c.nonce < next:
+			return fitStale
 		}
+		slices.Sort(nonces)
+		for i, nonce := range nonces {
+			if nonce != next+uint64(i) { //nolint:gosec // small test value
+				return fitGap
+			}
+		}
+		return fitRun
+	}
+	newExpected := func() utils.Option[uint64] {
+		if rng.Intn(5) == 0 {
+			return utils.None[uint64]()
+		}
+		return utils.Some(uint64(rng.Intn(4))) //nolint:gosec // small test value
 	}
 	for range 1000 {
 		if len(queued) == 0 || rng.Intn(2) == 0 {
 			c := newTicket()
-			fit := q.Fit(c)
-			require.Equal(t, modelFit(c), fit)
-			if fit != fitContiguous {
-				require.False(t, q.VictimFor(c).IsPresent())
+			expected := newExpected()
+			fit := q.Fit(c, expected)
+			require.Equal(t, modelFit(c, expected), fit)
+			if fit != fitRun {
+				require.False(t, q.VictimFor(c, expected).IsPresent())
 			}
-			if fit != fitDuplicate {
+			if fit == fitRun || fit == fitGap {
 				q.Push(c)
 				queued = append(queued, c)
 			}
@@ -749,7 +924,7 @@ func TestAdmissionQueue_MatchesModel(t *testing.T) {
 		require.Equal(t, want[0], q.Best().OrPanic("non-empty"))
 		worst := want[len(want)-1]
 		require.Equal(t, worst, q.Worst().OrPanic("non-empty"))
-		victim := q.VictimFor(newInsertTicket(rank{owned: true, priority: 100, seq: unqueuedSeq}, utils.None[common.Address](), 0)).OrPanic("outranks")
+		victim := q.VictimFor(newInsertTicket(rank{owned: true, priority: 100, seq: unqueuedSeq}, utils.None[common.Address](), 0), utils.None[uint64]()).OrPanic("outranks")
 		if addr, ok := worst.sender.Get(); ok {
 			calls := q.senders[addr]
 			require.Equal(t, calls[len(calls)-1], victim)
