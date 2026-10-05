@@ -339,7 +339,7 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 	if err != nil {
 		return nil, err
 	}
-	sstore := keeper.GetParams(ctx).SeiSstoreSetGasEip2200
+	sstore := keeper.GetSstoreSetGasEIP2200(ctx)
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
 	baseFee := keeper.GetBaseFee(ctx)
 	return &gigaBlockCache{
