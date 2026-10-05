@@ -295,12 +295,17 @@ type blockSTMValidationState struct {
 	writes            *stateAccessIndex
 	cumulativeGasUsed uint64
 	nextToValidate    int
+	// passLookahead is how many results the next parallel pass looks ahead over.
+	passLookahead int
+	// passCumulative is the parallel passes' cumulative-gas buffer, reused across the block.
+	passCumulative []uint64
 }
 
 func newBlockSTMValidationState(source StateReader) *blockSTMValidationState {
 	return &blockSTMValidationState{
-		prefix: newBlockSTMState(source),
-		writes: newStateAccessIndex(),
+		prefix:        newBlockSTMState(source),
+		writes:        newStateAccessIndex(),
+		passLookahead: occMinPassLookahead,
 	}
 }
 

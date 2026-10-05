@@ -66,11 +66,11 @@ func TestConflictsWithinSpanOnlyOverApproximates(t *testing.T) {
 func TestCumulativeGasFromStopsBeforeOverflow(t *testing.T) {
 	results := []occTxExecution{{gasUsed: 10}, {gasUsed: 20}, {gasUsed: math.MaxUint64}, {gasUsed: 1}}
 
-	cumulative, to := cumulativeGasFrom(results, 1, 100)
+	cumulative, to := cumulativeGasFrom(nil, results, 1, 100)
 	require.Equal(t, 2, to)
 	require.Equal(t, []uint64{100, 120}, cumulative)
 
-	cumulative, to = cumulativeGasFrom(results[:2], 0, 0)
+	cumulative, to = cumulativeGasFrom(cumulative, results[:2], 0, 0)
 	require.Equal(t, 2, to)
 	require.Equal(t, []uint64{0, 10, 30}, cumulative)
 }
@@ -83,7 +83,7 @@ func TestFirstUnacceptedResultReturnsTheLowestRejection(t *testing.T) {
 	for i := range results {
 		results[i] = occTxExecution{gasLimit: 1, gasUsed: 1}
 	}
-	cumulative, to := cumulativeGasFrom(results, 0, 0)
+	cumulative, to := cumulativeGasFrom(nil, results, 0, 0)
 	require.Equal(t, count, to)
 	writes := newStateAccessIndex()
 
@@ -142,7 +142,7 @@ func TestFirstUnacceptedResultRejectsGasAndConflicts(t *testing.T) {
 	results[150].readSet = map[stateAccessKey]struct{}{key: {}}
 	writes := newStateAccessIndex()
 	writes.addAllAt(20, map[stateAccessKey]struct{}{key: {}})
-	cumulative, to := cumulativeGasFrom(results, 0, 0)
+	cumulative, to := cumulativeGasFrom(nil, results, 0, 0)
 
 	stop, err := firstUnacceptedResult(context.Background(), pool, results, writes, math.MaxUint64, 0, to, cumulative)
 	require.NoError(t, err)
@@ -203,4 +203,33 @@ func TestReleaseOCCFragmentsClearsBlockData(t *testing.T) {
 		require.Nil(t, fragments[i].Balances[:1][0].Balance, "a released fragment must not keep a balance reachable")
 		require.Nil(t, fragments[i].Code[:1][0].Code, "a released fragment must not keep code reachable")
 	}
+}
+
+func TestParallelPassLooksAheadTwiceWhatItLastAccepted(t *testing.T) {
+	pool := newOCCWorkerPool(4)
+	defer pool.Close()
+	runner := occSpeculativeRunner{blockGasLimit: math.MaxUint64}
+	results := make([]occTxExecution, 3*occMinPassLookahead)
+	for i := range results {
+		results[i] = occTxExecution{gasLimit: 1, gasUsed: 1}
+	}
+	results[occMinPassLookahead+100].err = errOCCMaxIncarnation
+	state := newBlockSTMValidationState(NewMemoryState())
+	var validation occValidationResult
+	pass := func() int {
+		accepted, err := (&Executor{}).acceptValidatedPrefix(t.Context(), runner, pool, results, state, &validation)
+		require.NoError(t, err)
+		return accepted
+	}
+
+	require.Equal(t, occMinPassLookahead, pass(), "the first pass stops at its look-ahead")
+	require.Equal(t, 2*occMinPassLookahead, state.passLookahead)
+	require.Equal(t, 100, pass(), "a pass still stops at the first rejection")
+	require.Equal(t, occMinPassLookahead, state.passLookahead, "a short run resets the look-ahead")
+	require.Equal(t, uint64(occMinPassLookahead+100), state.cumulativeGasUsed)
+
+	state.nextToValidate++
+	buffer := &state.passCumulative[:1][0]
+	require.Equal(t, occMinPassLookahead, pass())
+	require.Same(t, buffer, &state.passCumulative[:1][0], "the cumulative-gas buffer is reused")
 }

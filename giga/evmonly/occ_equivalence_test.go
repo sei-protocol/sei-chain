@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -24,19 +25,26 @@ const (
 	occScenarioFundedWei    = 1_000_000_000_000_000_000
 )
 
-// occScenarioProfile sets a scenario's block size and how often a drawn transaction is an
-// independent transfer rather than one that may depend on another.
+// occScenarioProfile sets a scenario's block size, how many seeds a test runs it with, and how often
+// a drawn transaction is an independent transfer rather than one that may depend on another. A
+// non-zero conflictEvery instead makes every transaction independent except each conflictEvery-th,
+// which pays one hot address.
 type occScenarioProfile struct {
 	name               string
 	blockTxs           int
+	seeds              int
 	independentPercent int
+	conflictEvery      int
 }
 
-// occScenarioProfiles holds a dense profile, where most transactions may conflict, and a sparse one,
-// where conflicts are far enough apart that a parallel pass after a rerun accepts a long run again.
+// occScenarioProfiles holds a dense profile, where most transactions may conflict; a sparse one,
+// where a parallel pass after a rerun accepts a long run again; and two long ones, whose conflicts
+// land just past a pass's minimum run or past a pass's look-ahead.
 var occScenarioProfiles = []occScenarioProfile{
-	{name: "dense", blockTxs: 320, independentPercent: 0},
-	{name: "sparse", blockTxs: 640, independentPercent: 98},
+	{name: "dense", blockTxs: 320, seeds: 4, independentPercent: 0},
+	{name: "sparse", blockTxs: 640, seeds: 4, independentPercent: 98},
+	{name: "spaced", blockTxs: 3000, seeds: 1, conflictEvery: 65},
+	{name: "long_runs", blockTxs: 6000, seeds: 1, conflictEvery: 2500},
 }
 
 // occScenario generates seeded blocks whose transactions depend on each other: hot recipients,
@@ -127,7 +135,15 @@ func (s *occScenario) block(t testing.TB, number uint64) BlockRequest {
 	ctx := blockContext(s.chainID)
 	ctx.Number = number
 	ctx.Time = number
+	// A long block needs more than the default limit to fit its transfers.
+	ctx.GasLimit = max(ctx.GasLimit, uint64(s.profile.blockTxs)*2*params.TxGas) //nolint:gosec // the block size is positive.
 	txs := make([][]byte, 0, s.profile.blockTxs)
+	if s.profile.conflictEvery > 0 {
+		for len(txs) < s.profile.blockTxs {
+			txs = s.appendSpacedTx(t, txs)
+		}
+		return BlockRequest{Context: ctx, Txs: txs}
+	}
 	var deferred [][]byte
 	for len(txs) < s.profile.blockTxs {
 		if len(deferred) > 0 && s.rng.IntN(4) == 0 {
@@ -141,6 +157,20 @@ func (s *occScenario) block(t testing.TB, number uint64) BlockRequest {
 		}
 	}
 	return BlockRequest{Context: ctx, Txs: append(txs, deferred...)}
+}
+
+// appendSpacedTx appends an independent transfer, or a payment to the first hot address when the
+// block's length is a multiple of conflictEvery.
+func (s *occScenario) appendSpacedTx(t testing.TB, txs [][]byte) [][]byte {
+	sender := s.nextSender
+	s.nextSender = (s.nextSender + 1) % len(s.senders)
+	to := s.address(fmt.Sprintf("fresh-%d", sender), int(s.nonces[sender])) //nolint:gosec // nonce is small.
+	if len(txs)%s.profile.conflictEvery == 0 {
+		to = s.hot[0]
+	}
+	raw := signLegacyTxWithGas(t, s.senders[sender], s.chainID, s.nonces[sender], &to, big.NewInt(1), nil, occScenarioTxGas)
+	s.nonces[sender]++
+	return append(txs, raw)
 }
 
 // appendTx appends one drawn transaction, or a short run of them, and returns any transaction that
@@ -228,18 +258,26 @@ func counterRuntime(slot common.Hash) []byte {
 	return append(code, 0x00)
 }
 
-// occScenarioRun executes a scenario's blocks in order on one executor configuration, carrying the
-// state forward, and returns each block's result.
-func occScenarioRun(t *testing.T, profile occScenarioProfile, seed uint64, blocks int, workers int) []*BlockResult {
+// occScenarioBlocks returns a seeded scenario and its first blocks, numbered from 1.
+func occScenarioBlocks(t *testing.T, profile occScenarioProfile, seed uint64, blocks int) (*occScenario, []BlockRequest) {
 	scenario := newOCCScenario(t, profile, seed)
-	state := scenario.genesis()
-	results := make([]*BlockResult, 0, blocks)
+	reqs := make([]BlockRequest, 0, blocks)
 	for number := range uint64(blocks) { //nolint:gosec // blocks is small and positive.
-		req := scenario.block(t, number+1)
+		reqs = append(reqs, scenario.block(t, number+1))
+	}
+	return scenario, reqs
+}
+
+// occScenarioRun executes a scenario's blocks in order on one executor configuration, carrying the
+// state forward from genesis, and returns each block's result.
+func occScenarioRun(t *testing.T, scenario *occScenario, reqs []BlockRequest, workers int) []*BlockResult {
+	state := scenario.genesis()
+	results := make([]*BlockResult, 0, len(reqs))
+	for _, req := range reqs {
 		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: workers, RejectUnappliableTxs: true}, withTestState(state))
 		result, err := executor.ExecuteBlock(t.Context(), req)
 		executor.Close()
-		require.NoError(t, err, "%s seed %d block %d workers %d", profile.name, seed, number+1, workers)
+		require.NoError(t, err, "%s seed %d block %d workers %d", scenario.profile.name, scenario.seed, req.Context.Number, workers)
 		state.ApplyChangeSet(result.ChangeSet)
 		results = append(results, result)
 	}
@@ -271,7 +309,7 @@ func withCanonicalBalances(changes StateChangeSet) StateChangeSet {
 // sequential executor produces, for several worker counts, so the shard ownership each count implies
 // never shows in the output.
 func TestOCCRandomizedConflictingBlocksMatchSequential(t *testing.T) {
-	const seeds, blocks = 4, 3
+	const blocks = 3
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = t.TempDir()
 	store, err := openFlatKVTestStore(t.Context(), cfg)
@@ -280,10 +318,11 @@ func TestOCCRandomizedConflictingBlocksMatchSequential(t *testing.T) {
 
 	for _, profile := range occScenarioProfiles {
 		var reruns uint64
-		for seed := range uint64(seeds) {
-			sequential := occScenarioRun(t, profile, seed, blocks, 1)
+		for seed := range uint64(profile.seeds) { //nolint:gosec // seeds is small and positive.
+			scenario, reqs := occScenarioBlocks(t, profile, seed, blocks)
+			sequential := occScenarioRun(t, scenario, reqs, 1)
 			for _, workers := range []int{3, 8} {
-				occ := occScenarioRun(t, profile, seed, blocks, workers)
+				occ := occScenarioRun(t, scenario, reqs, workers)
 				for i := range blocks {
 					name := fmt.Sprintf("%s seed %d block %d workers %d", profile.name, seed, i+1, workers)
 					want, got := sequential[i], occ[i]

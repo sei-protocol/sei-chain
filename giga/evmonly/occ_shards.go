@@ -26,6 +26,10 @@ const occMinParallelMergeKeys = 256
 // occCancellationCheckInterval is how many items a worker handles between context checks.
 const occCancellationCheckInterval = 64
 
+// occMinPassLookahead is the fewest results a parallel validation pass looks ahead over. A pass looks
+// ahead at most twice as far as the previous pass accepted, and at least this far.
+const occMinPassLookahead = 2048
+
 // occAllShards is the set of every shard.
 const occAllShards = occShardSet(math.MaxUint64)
 
@@ -135,11 +139,14 @@ func (e *Executor) acceptValidatedPrefix(
 	if len(results)-from < occMinParallelValidation {
 		return 0, nil
 	}
-	cumulative, to := cumulativeGasFrom(results, from, state.cumulativeGasUsed)
+	end := min(len(results), from+state.passLookahead)
+	cumulative, to := cumulativeGasFrom(state.passCumulative, results[:end], from, state.cumulativeGasUsed)
+	state.passCumulative = cumulative
 	stop, err := firstUnacceptedResult(ctx, pool, results, state.writes, runner.blockGasLimit, from, to, cumulative)
 	if err != nil {
 		return 0, err
 	}
+	state.passLookahead = max(occMinPassLookahead, 2*(stop-from))
 	if stop == from {
 		return 0, nil
 	}
@@ -152,12 +159,14 @@ func (e *Executor) acceptValidatedPrefix(
 	return stop - from, nil
 }
 
-// cumulativeGasFrom returns, for each result at or after from, the block gas used before it, plus one
-// trailing entry for the gas used after the last. It stops at the first result whose gas would
-// overflow the counter and returns that index, or len(results) when none does.
-func cumulativeGasFrom(results []occTxExecution, from int, gasUsedBefore uint64) ([]uint64, int) {
-	cumulative := make([]uint64, 1, len(results)-from+1)
-	cumulative[0] = gasUsedBefore
+// cumulativeGasFrom fills cumulative, reusing its capacity, with the block gas used before each result
+// at or after from, plus one trailing entry for the gas used after the last. It stops at the first
+// result whose gas would overflow the counter and returns that index, or len(results) when none does.
+func cumulativeGasFrom(cumulative []uint64, results []occTxExecution, from int, gasUsedBefore uint64) ([]uint64, int) {
+	if size := len(results) - from + 1; cap(cumulative) < size {
+		cumulative = make([]uint64, 0, size)
+	}
+	cumulative = append(cumulative[:0], gasUsedBefore)
 	for i := from; i < len(results); i++ {
 		gasUsed := results[i].gasUsed
 		if gasUsed > math.MaxUint64-cumulative[i-from] {
