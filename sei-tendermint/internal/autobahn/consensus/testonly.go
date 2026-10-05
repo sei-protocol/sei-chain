@@ -40,7 +40,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 				})
 			}
 			s.Spawn(func() error {
-				return from.SubscribePrepareVote().Iter(ctx, func(_ context.Context, msg utils.Option[*types.ConsensusReqPrepareVote]) error {
+				return from.SubscribePrepareVote().Iter(ctx, func(_ context.Context, msg utils.Option[*types.ConsensusMsgPrepareVote]) error {
 					if vote, ok := msg.Get(); ok {
 						for _, to := range states {
 							if err := to.PushPrepareVote(vote.Signed); err != nil {
@@ -52,7 +52,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 				})
 			})
 			s.Spawn(func() error {
-				return from.SubscribeCommitVote().Iter(ctx, func(_ context.Context, msg utils.Option[*types.ConsensusReqCommitVote]) error {
+				return from.SubscribeCommitVote().Iter(ctx, func(_ context.Context, msg utils.Option[*types.ConsensusMsgCommitVote]) error {
 					vote, ok := msg.Get()
 					if !ok {
 						return nil

@@ -13,7 +13,10 @@ import (
 
 func TestDefaultConfigIsValid(t *testing.T) {
 	t.Parallel()
-	require.NoError(t, DefaultGigasimConfig().Validate())
+	config := DefaultGigasimConfig()
+	require.Equal(t, 2_000, config.TransactionsPerBlock)
+	require.Equal(t, 50, config.LaneBlocksPerSuperblock)
+	require.NoError(t, config.Validate())
 }
 
 // TestGenerationIsUnthrottledByDefault pins that a measured run is bounded by the stack rather than by
@@ -101,6 +104,13 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		mutate func(*GigasimConfig)
 	}{
 		{"a block with no transactions", func(c *GigasimConfig) { c.TransactionsPerBlock = 0 }},
+		{"a superblock with no lane blocks", func(c *GigasimConfig) { c.LaneBlocksPerSuperblock = 0 }},
+		// One byte per transaction keeps each lane block inside its budget, so only the bundle can reject it.
+		{"a superblock with more transactions than a block's hash space", func(c *GigasimConfig) {
+			c.TransactionsPerBlock = int(txIDBlockStride)/2 + 1
+			c.LaneBlocksPerSuperblock = 2
+			c.BytesPerTransaction = 1
+		}},
 		// One byte per transaction keeps the payload inside its budget, so only the count can reject it.
 		{"a block with more transactions than a block's hash space", func(c *GigasimConfig) {
 			c.TransactionsPerBlock = int(txIDBlockStride) + 1
