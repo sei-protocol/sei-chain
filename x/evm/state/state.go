@@ -199,7 +199,7 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 		if !bytes.Equal(status, AccountDeleted) {
 			continue
 		}
-		s.clearAccountState(common.HexToAddress(acc))
+		s.clearDestructedAccountState(common.HexToAddress(acc))
 	}
 }
 
@@ -215,6 +215,14 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 		s.clearAccountCodeAndNonce(acc)
 	}
+}
+
+// clearDestructedAccountState clears a self-destructed account's storage, code and nonce,
+// even if no code was ever stored (e.g. a constructor that self-destructs).
+func (s *DBImpl) clearDestructedAccountState(acc common.Address) {
+	s.clearAccountState(acc)
+	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
+	s.clearAccountCodeAndNonce(acc)
 }
 
 func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {
