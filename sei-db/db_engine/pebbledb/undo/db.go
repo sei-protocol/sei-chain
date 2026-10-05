@@ -125,8 +125,7 @@ type pendingBlock struct {
 	done    chan struct{}
 }
 
-// OpenDB opens the undo-log database in dataDir. A new database takes cfg.UndoBucketSize as its
-// bucket size; an existing one keeps the size it was created with.
+// OpenDB opens the undo-log database in dataDir.
 func OpenDB(dataDir string, cfg config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(cacheSize)
 	defer cache.Unref()
@@ -146,7 +145,8 @@ func newPebbleOptions(cache *pebble.Cache) *pebble.Options {
 		Cache:    cache,
 		Comparer: Comparer,
 		// Excise needs virtual SSTables. Pinned, as in the MVCC store, so a Pebble upgrade cannot
-		// silently move the on-disk format.
+		// silently move the on-disk format. The fixed-position Split also requires this format:
+		// synthetic prefixes, introduced in FormatSyntheticPrefixSuffix, are not supported.
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       6,
 		L0StopWritesThreshold:       1000,
@@ -156,13 +156,6 @@ func newPebbleOptions(cache *pebble.Cache) *pebble.Options {
 		CompactionConcurrencyRange: func() (int, int) {
 			return minConcurrentCompactions, maxConcurrentCompactions
 		},
-	}
-	// Pebble moves every value but the one with the smallest suffix of a prefix into value blocks,
-	// which suits MVCC keys, where that suffix is the latest version. Here the suffix is a height and
-	// a read wants the first record above one, so separating values would only add space and a block
-	// fetch to most reads.
-	opts.Experimental.SpanPolicyFunc = func([]byte) (pebble.SpanPolicy, []byte, error) {
-		return pebble.SpanPolicy{DisableValueSeparationBySuffix: true}, nil, nil
 	}
 	for i := range opts.Levels {
 		l := &opts.Levels[i]
@@ -224,8 +217,7 @@ func newDatabase(storage *pebble.DB, dataDir string, cfg config.StateStoreConfig
 	return db, nil
 }
 
-// loadBucketSize returns the bucket size the database was created with, recording configured on a
-// new one.
+// loadBucketSize returns the persisted bucket size, recording the default for a new database.
 func loadBucketSize(storage *pebble.DB) (uint64, error) {
 	stored, err := readMarker(storage, bucketSizeKey)
 	if err != nil {
@@ -241,7 +233,7 @@ func loadBucketSize(storage *pebble.DB) (uint64, error) {
 	if err := writeMarker(storage, bucketSizeKey, defaultBucketSize, pebble.Sync); err != nil {
 		return 0, fmt.Errorf("undo: record bucket size: %w", err)
 	}
-	return stored, nil
+	return defaultBucketSize, nil
 }
 
 // readMarker returns the value stored under key, 0 when there is none. Markers fit in an int64, the
@@ -320,9 +312,9 @@ func (db *Database) resume(version int64) (uint64, error) {
 	return height, nil
 }
 
-// ApplyBlock queues block version. prior holds, for every key the block changed, the value it held
-// before the block, with Delete marking a key that did not exist. current is a view of state after
-// the block; the store owns it from here and closes it once a later block replaces it.
+// ApplyBlock queues prior balance, nonce, code hash, storage and code values for version,
+// with Delete marking prior absence, and takes ownership of the post-block current view.
+// Unsupported key families and malformed records are fatal write errors.
 func (db *Database) ApplyBlock(version int64, prior []*proto.KVPair, current CurrentView) {
 	seidbmetrics.Send(db.queue, db.pending, pendingBlock{version: version, prior: prior, current: current})
 }
@@ -376,6 +368,9 @@ func (db *Database) writeBlock(version int64, prior []*proto.KVPair) (height uin
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
+	if err := validateRecords(prior); err != nil {
+		return 0, err
+	}
 	bucket := height / db.bucketSize
 
 	// Pebble inserts a batch into the memtable on one goroutine, and concurrent batches
@@ -391,6 +386,26 @@ func (db *Database) writeBlock(version int64, prior []*proto.KVPair) (height uin
 		return 0, fmt.Errorf("undo: record latest height %d: %w", height, err)
 	}
 	return height, nil
+}
+
+// validateRecords checks that every prior record has a supported EVM key and value length.
+func validateRecords(prior []*proto.KVPair) error {
+	for _, pair := range prior {
+		if pair == nil {
+			return errors.New("undo: nil prior record")
+		}
+		keyLen, valueLen := keyLayout(pair.Key)
+		if keyLen == 0 {
+			return fmt.Errorf("undo: unsupported EVM key %x", pair.Key)
+		}
+		if len(pair.Key) != keyLen {
+			return fmt.Errorf("undo: key %x has length %d, want %d", pair.Key, len(pair.Key), keyLen)
+		}
+		if !pair.Delete && valueLen >= 0 && len(pair.Value) != valueLen {
+			return fmt.Errorf("undo: value for key %x has length %d, want %d", pair.Key, len(pair.Value), valueLen)
+		}
+	}
+	return nil
 }
 
 // writeRecords commits the records of prior, all written by the block at height, as one batch.
@@ -509,8 +524,13 @@ func (v *View) Close() {
 	})
 }
 
-// Get returns key's value as of the view's height, nil when it did not exist then.
+// Get returns a supported EVM key's value at the view's height, nil when it did not exist.
+// Unsupported or malformed keys return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
+	keyLen, _ := keyLayout(key)
+	if keyLen == 0 || len(key) != keyLen {
+		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	}
 	start := time.Now()
 	probes := 0
 	defer func() {
