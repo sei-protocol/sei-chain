@@ -1,4 +1,6 @@
-# Running a memIAVL reserve node for the FlatKV migration
+# Running a memIAVL reserve node for the FlatKV migration on testnet
+
+This guide is for testnet, `atlantic-2`. For mainnet, `pacific-1`, use the [mainnet guide](memiavl_reserve_node_mainnet.md).
 
 The FlatKV migration moves chain state out of memIAVL and into FlatKV in phases, starting with the EVM module (see the [migration README](https://github.com/sei-protocol/sei-chain/blob/main/sei-db/state_db/sc/migration/README.md)). It only runs forward: once a node has moved data into FlatKV, its memIAVL no longer has that data.
 
@@ -22,7 +24,9 @@ Your normal nodes also mark the start: they create their FlatKV directory, `~/.s
 
 Have your reserves running and synced before then. Once the migration is under way, reserves can no longer state-sync, because snapshots from migrated nodes contain FlatKV data that a reserve refuses to import. From that point, a new reserve has to be copied from an existing one.
 
-The reserve binary must match the release the network runs. Reserve branches are named `<release>-memiavl-reserve`, so for `v6.7.0-rc3` the branch is [`v6.7.0-rc3-memiavl-reserve`](https://github.com/sei-protocol/sei-chain/tree/v6.7.0-rc3-memiavl-reserve) (head `235c2cf95`). Its only code changes from rc3 are a startup guard and the reserve config defaults. If the network moves to a release that has no reserve branch yet, ask the Sei team.
+The reserve binary must match the release the network runs. Reserve branches are named `<release>-memiavl-reserve`, so for `v6.7.0` the branch is [`v6.7.0-memiavl-reserve`](https://github.com/sei-protocol/sei-chain/tree/v6.7.0-memiavl-reserve) (head `2bff7d5a9`). Its only code changes from `v6.7.0` are a startup guard and the reserve config defaults. If the network moves to a release that has no reserve branch yet, ask the Sei team.
+
+`atlantic-2` may still report `v6.7.0-rc4`. Use the `v6.7.0` reserve branch anyway: `v6.7.0` executes blocks exactly as rc4 does, and changes only metrics, the `seidb` tool and the version string. To see what a node runs, ask it with `curl -s localhost:26657/abci_info | jq -r .response.version`.
 
 Size the machine like your current RPC nodes, since a reserve stores state the same way they do today.
 
@@ -31,7 +35,7 @@ Size the machine like your current RPC nodes, since a reserve stores state the s
 ```bash
 git clone https://github.com/sei-protocol/sei-chain.git
 cd sei-chain
-git checkout v6.7.0-rc3-memiavl-reserve
+git checkout v6.7.0-memiavl-reserve
 make install BUILD_TAGS=mock_chain_validation
 seid version --long | grep -E '^(version|commit|build_tags):'
 ```
@@ -39,10 +43,12 @@ seid version --long | grep -E '^(version|commit|build_tags):'
 `build_tags` must include `mock_chain_validation`:
 
 ```
-version: v6.7.0-rc3-7-g235c2cf95
-commit: 235c2cf95ba8489b16d124a7464f0b41c469cebb
-build_tags: netgo,ledger,mock_chain_validation
+version: v6.7.0-7-g2bff7d5a9
+commit: 2bff7d5a9a53f37277de7645c86a4caf9f64d9e1
+build_tags: netgo ledger mock_chain_validation,
 ```
+
+Some versions of `make` separate the tags with commas instead, as in `netgo,ledger,mock_chain_validation`.
 
 The branch needs Go 1.25.6 or newer. To build a container image instead, run `docker build --build-arg GO_BUILD_TAGS=mock_chain_validation -t seid-reserve .` from the same checkout.
 
@@ -110,7 +116,7 @@ Before the migration starts, this must print nothing, because the reserve should
 
 ## When the migration starts
 
-Every block now logs this at ERROR level:
+The node logs this at ERROR level when the migration starts, and again after a restart or when governance sets a new batch size:
 
 ```
 migration requested (batch size > 0) but the SC write mode is pinned to fixed memiavl_only by configuration; skipping migration kick-off.
@@ -136,7 +142,7 @@ Monitor the same things as in step 4: the node is at the tip, `app_hash` is the 
 
 Every chain upgrade needs a reserve build of the new release, made from that release's `-memiavl-reserve` branch with `BUILD_TAGS=mock_chain_validation`.
 
-Let the node stop at the upgrade height with `UPGRADE NEEDED` as usual (the reserve build still halts there), then install the new reserve build and start it again.
+Let the node stop at the upgrade height with `UPGRADE "<name>" NEEDED at height: <height>` as usual (the reserve build still halts there), then install the new reserve build and start it again.
 
 Never install it early. A normal build of the new release panics if it starts before the upgrade height, but the reserve build only logs `BINARY UPDATED BEFORE TRIGGER` and carries on, so it executes blocks with the new code too soon.
 
@@ -170,10 +176,12 @@ seidb evm-logical-digest --backend memiavl \
 On one of your normal nodes, while the EVM phase is still running:
 
 ```bash
-seidb evm-logical-digest --backend composite --memiavl-open-mode replay \
+seidb evm-logical-digest --backend composite --memiavl-open-mode changelog \
   --flatkv-dir ~/.sei/data/state_commit/flatkv \
   --memiavl-dir ~/.sei/data/state_commit/memiavl --height H
 ```
+
+`--memiavl-open-mode changelog` reads the newest memIAVL snapshot at or below `H` plus the changelog above it, so the normal node doesn't need a snapshot at `H`. It gives the same result as `--memiavl-open-mode replay`, much faster and with far less memory. Add it to the reserve's command too if you pick a height the reserve has no snapshot for.
 
 Once the EVM phase has finished, use `--backend flatkv --db-dir ~/.sei/data/state_commit/flatkv --height H` on the normal node instead. The two `FINAL_DIGEST` lines must match. The tool reads the entire EVM state, so run it at a quiet time.
 
@@ -195,5 +203,5 @@ The Sei team coordinates recovery and will contact reserve operators. Until then
 | `mock_chain_validation builds must not run as a validator ...` | `mode` in `config.toml` is `validator`. Set it to `full`. |
 | `mock_chain_validation builds must run "memiavl_only", got "auto" ...` | `app.toml` has `sc-write-mode-enable-auto = true` or `sc-write-mode = "auto"`. Apply step 2. |
 | `snapshot contains a "flatkv" section but this store has no flatkv backend ...` | State sync picked a snapshot from a migrated node. It's too late to state-sync a reserve, so copy one instead (step 3). |
-| `migration requested (batch size > 0) but the SC write mode is pinned ...` | Expected on every block once the migration has started. |
+| `migration requested (batch size > 0) but the SC write mode is pinned ...` | Expected once the migration has started. It repeats after a restart and when governance sets a new batch size. |
 | `BINARY UPDATED BEFORE TRIGGER! ...` | The next release was installed before its upgrade height. Stop the node, put the current reserve build back, and tell the Sei team. Blocks executed with the wrong binary may have left the reserve's state incorrect, and the app hash can't show it. |
