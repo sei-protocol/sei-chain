@@ -29,7 +29,9 @@ jobs:
         run: |
           bash .github/scripts/ci-drop-third-party-apt-sources.sh
           sudo apt-get update
-          sudo apt-get install -y librocksdb-dev
+          # 8.9.x is the RocksDB the grocksdb v1.8.x binding in go.mod targets;
+          # the glob takes Ubuntu's patch revisions but fails on a version change.
+          sudo apt-get install -y 'librocksdb-dev=8.9.1-*'
 
       - name: Run RocksDB Tests
         run: go test -v -mod=readonly -tags=rocksdbBackend ./sei-db/db_engine/rocksdb/... -covermode=atomic -coverprofile=./rdb-profile.out
