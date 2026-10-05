@@ -259,13 +259,6 @@ func (app *BaseApp) SetDeliverStateToCommit() {
 	app.stateToCommit = app.deliverState
 }
 
-// Commit implements the ABCI interface. It will commit all state that exists in
-// the deliver state's multi-store and includes the resulting commit ID in the
-// returned abci.ResponseCommit. Commit will set the check state based on the
-// latest header and reset the deliver state. Also, if a non-zero halt height is
-// defined in config, Commit will execute a deferred function call to check
-// against that height and gracefully halt if it matches the latest committed
-// height.
 // InitLastHeader sets checkState from the header of the last committed block,
 // as Commit does. It is for nodes that start without committing a block, such
 // as a frozen node after a restart.
@@ -273,6 +266,13 @@ func (app *BaseApp) InitLastHeader(lastHeader *tmproto.Header) {
 	app.setCheckState(*lastHeader)
 }
 
+// Commit implements the ABCI interface. It will commit all state that exists in
+// the deliver state's multi-store and includes the resulting commit ID in the
+// returned abci.ResponseCommit. Commit will set the check state based on the
+// latest header and reset the deliver state. Also, if a non-zero halt height is
+// defined in config, Commit will execute a deferred function call to check
+// against that height and gracefully halt if it matches the latest committed
+// height.
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	commitStart := time.Now()
 	defer func() {

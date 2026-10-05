@@ -1902,9 +1902,6 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
-// ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
-// those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
-// on the block context.
 // signalEVMServersStart lets the EVM HTTP and WS servers start. It only sends
 // each signal once.
 func (app *App) signalEVMServersStart() {
@@ -1926,6 +1923,9 @@ func (app *App) InitLastHeader(lastHeader *tmproto.Header) {
 	app.signalEVMServersStart()
 }
 
+// ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
+// those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
+// on the block context.
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool, preDecoded []sdk.Tx) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
