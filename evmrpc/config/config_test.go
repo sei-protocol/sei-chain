@@ -847,6 +847,9 @@ func TestReadConfigRateLimiting(t *testing.T) {
 	require.Equal(t, config.DefaultConfig.IPRateLimitRPS, cfg.IPRateLimitRPS)
 	require.Equal(t, config.DefaultConfig.IPRateLimitBurst, cfg.IPRateLimitBurst)
 	require.GreaterOrEqual(t, cfg.IPRateLimitBurst, cfg.BatchRequestLimit)
+	require.Equal(t, float64(200), cfg.IPRateLimitRPS)
+	require.Equal(t, 200, cfg.IPRateLimitBurst)
+	require.Equal(t, 100, cfg.BatchRequestLimit)
 
 	o := getDefaultOpts()
 	o.rateLimitingEnabled = false
