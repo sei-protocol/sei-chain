@@ -332,6 +332,18 @@ func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
 	return env.App.EvmNonce(address)
 }
 
+// EvmPendingTransactionCount returns the address nonce after the transactions
+// the local Autobahn mempool holds for it, or the committed nonce on a node
+// without a mempool.
+func (env *Environment) EvmPendingTransactionCount(address common.Address) uint64 {
+	if r, ok := env.gigaRouter().Get(); ok {
+		if mp, ok := r.Mempool().Get(); ok {
+			return mp.EvmNextPendingNonce(address)
+		}
+	}
+	return env.EvmTransactionCount(address)
+}
+
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *Environment) EvmBlockNumber() uint64 {
 	return utils.Clamp[uint64](env.App.LastBlockHeight())

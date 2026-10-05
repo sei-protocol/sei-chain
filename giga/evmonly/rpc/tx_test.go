@@ -37,7 +37,6 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber),
 	} {
 		got, err := api.GetTransactionCount(t.Context(), address, tag)
 		require.NoError(t, err)
@@ -124,19 +123,23 @@ func TestGetTransactionCountReadsCommittedTagsLocally(t *testing.T) {
 	require.Zero(t, remote.calls)
 }
 
-func TestGetTransactionCountPendingWithoutProxyReadsLocalState(t *testing.T) {
+func TestGetTransactionCountPendingWithoutProxyReadsLocalMempool(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
-		transactionCount: func(common.Address) uint64 { return 7 },
-		proxy:            utils.None[*ethrpc.Client](),
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("pending read skipped the local mempool")
+			return 0
+		},
+		pendingCount: func(common.Address) uint64 { return 9 },
+		proxy:        utils.None[*ethrpc.Client](),
 	}
 
 	// Test: a pending read on a node with no shard-owner proxy.
 	got, err := (&txAPI{backend: backend}).GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber))
 
-	// Verify: local state answers.
+	// Verify: the local mempool-aware nonce answers.
 	require.NoError(t, err)
-	require.Equal(t, hexutil.Uint64(7), *got)
+	require.Equal(t, hexutil.Uint64(9), *got)
 	require.Zero(t, backend.proxyCalls)
 }
 
