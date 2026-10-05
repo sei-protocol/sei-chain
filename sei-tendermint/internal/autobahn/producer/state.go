@@ -68,6 +68,8 @@ type State struct {
 	app       *proxy.Proxy
 	mempool   utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus *consensus.State
+	// nextCommitEpoch is the epoch whose committee assigns EVM sender shards.
+	nextCommitEpoch utils.AtomicRecv[*types.Epoch]
 	// checkTxSem bounds concurrent CheckTx calls on the insert path.
 	checkTxSem *utils.Semaphore
 	// tryInsertSem bounds TryInsertTx calls in flight, which are detached from
@@ -79,12 +81,13 @@ type State struct {
 // Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
 	return &State{
-		cfg:          cfg,
-		app:          app,
-		mempool:      utils.NewAtomicSend(utils.None[*mempool]()),
-		consensus:    consensus,
-		checkTxSem:   utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
-		tryInsertSem: utils.NewSemaphore(int(min(cfg.maxPendingInserts(), math.MaxInt32))),
+		cfg:             cfg,
+		app:             app,
+		mempool:         utils.NewAtomicSend(utils.None[*mempool]()),
+		consensus:       consensus,
+		nextCommitEpoch: consensus.Data().NextCommitEpoch(),
+		checkTxSem:      utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
+		tryInsertSem:    utils.NewSemaphore(int(min(cfg.maxPendingInserts(), math.MaxInt32))),
 	}
 }
 
@@ -92,7 +95,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
 	m := newMempoolInner(avail.BlocksPerLane, lane, n)
-	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
+	mp := &mempool{lane: lane, inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
 	s.mempool.Store(utils.Some(mp))
 	return mp, n
 }

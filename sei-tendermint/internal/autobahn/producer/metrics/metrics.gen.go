@@ -19,6 +19,7 @@ func init() {
 		Global.capacityWaitWakeups,
 		Global.inFlight,
 		Global.inserts,
+		Global.evictions,
 	)
 }
 
@@ -63,7 +64,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "capacity_wait_wakeups",
-			Help:      "Number of times a blocked insert woke up and found the mempool still full.",
+			Help:      "Number of times a blocked insert woke up and found the mempool still full or a higher-ranked insert ahead of it.",
 		}, nil),
 		inFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
@@ -77,6 +78,12 @@ func newMetrics() *metrics {
 			Name:      "inserts",
 			Help:      "Number of finished inserts by outcome.",
 		}, []string{"result"}),
+		evictions: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "evictions",
+			Help:      "Number of blocked inserts evicted from the full admission queue by a higher-ranked insert.",
+		}, nil),
 	}
 }
 
@@ -110,4 +117,8 @@ func (m *metrics) inFlightAt(phase string) *tmprometheus.GaugeInt {
 
 func (m *metrics) insertsAt(result string) *tmprometheus.CounterInt {
 	return m.inserts.WithLabelValues(result)
+}
+
+func (m *metrics) evictionsAt() *tmprometheus.CounterInt {
+	return m.evictions.WithLabelValues()
 }

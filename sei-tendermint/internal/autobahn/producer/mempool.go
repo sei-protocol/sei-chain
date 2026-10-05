@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+	"math"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -38,25 +38,11 @@ type blockSpec struct {
 
 // mempool is one produce session. State.mempool publishes it; nil means idle.
 type mempool struct {
+	// lane is the local lane the session produces.
+	lane  types.LaneID
 	inner utils.Watch[*mempoolInner]
 	// pendingInserts is the number of InsertTx calls blocked in the admission queue.
 	pendingInserts utils.AtomicSend[uint64]
-}
-
-// insertTicket is the place of one blocked InsertTx call in the admission queue.
-// admitted is signalled when the ticket is at the head of the queue and the
-// mempool has capacity, or when the mempool is closed.
-type insertTicket struct {
-	admitted utils.AtomicSend[bool]
-}
-
-func newInsertTicket() *insertTicket {
-	return &insertTicket{admitted: utils.NewAtomicSend(false)}
-}
-
-func (t *insertTicket) wait(ctx context.Context) error {
-	_, err := t.admitted.Wait(ctx, func(admitted bool) bool { return admitted })
-	return err
 }
 
 // mempoolInner is the lock-protected session state. The Watch value is fixed for
@@ -71,9 +57,9 @@ type mempoolInner struct {
 	nextBlock *blockSpec
 	evmNonces map[common.Address]uint64
 	evmTxs    map[common.Hash]tmtypes.Tx
-	// waiters is the FIFO admission queue of blocked InsertTx calls; only the head is
-	// ever signalled, so an update costs O(1) regardless of the queue length.
-	waiters []*insertTicket
+	// waiters is the admission queue of blocked InsertTx calls; only the best eligible
+	// call is ever signalled, so an update costs O(log n) in the queue length.
+	waiters *admissionQueue
 }
 
 func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempoolInner {
@@ -86,49 +72,51 @@ func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *m
 		nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
 		evmNonces: map[common.Address]uint64{},
 		evmTxs:    map[common.Hash]tmtypes.Tx{},
+		waiters:   newAdmissionQueue(),
 	}
 }
 
 // close ends the session and releases every blocked InsertTx call.
 func (m *mempoolInner) close(ctrl *utils.WatchCtrl) {
 	m.closed = true
-	for _, t := range m.waiters {
+	for t := range m.waiters.All() {
 		t.admitted.Store(true)
 	}
 	ctrl.Updated()
 }
 
-// isHead reports whether ticket is the next call to be admitted: a call without a
-// ticket is admitted only when nobody is queued ahead of it.
-func (m *mempoolInner) isHead(ticket utils.Option[*insertTicket]) bool {
-	t, ok := ticket.Get()
-	if !ok {
-		return len(m.waiters) == 0
-	}
-	return m.waiters[0] == t
-}
-
-// signalHead wakes the oldest blocked InsertTx call if the mempool has capacity.
-func (m *mempoolInner) signalHead() {
-	if len(m.waiters) > 0 && !m.IsFull() {
-		m.waiters[0].admitted.Store(true)
+// signalBest wakes the best eligible blocked InsertTx call if the mempool has capacity.
+func (m *mempoolInner) signalBest() {
+	if t, ok := m.waiters.Best().Get(); ok && !m.IsFull() {
+		t.admitted.Store(true)
 	}
 }
 
-func (mp *mempool) enqueue(m *mempoolInner) *insertTicket {
-	t := newInsertTicket()
-	m.waiters = append(m.waiters, t)
-	mp.pendingInserts.Store(uint64(len(m.waiters)))
-	return t
+// enqueue queues t, first evicting the call t outranks when limit calls are already queued.
+// Returns errPendingFull when the queue is full and t outranks none of them.
+func (mp *mempool) enqueue(m *mempoolInner, t *insertTicket, limit uint64) error {
+	if m.waiters.Len() >= limit {
+		victim, ok := m.waiters.VictimFor(t).Get()
+		if !ok {
+			return errPendingFull
+		}
+		m.waiters.Remove(victim)
+		victim.evicted = true
+		victim.admitted.Store(true)
+		metrics.ObserveEviction()
+	}
+	m.waiters.Push(t)
+	mp.pendingInserts.Store(m.waiters.Len())
+	m.signalBest()
+	return nil
 }
 
 // dequeue removes t from the admission queue and passes the turn to the next waiter.
 func (mp *mempool) dequeue(m *mempoolInner, t *insertTicket) {
-	if i := slices.Index(m.waiters, t); i >= 0 {
-		m.waiters = slices.Delete(m.waiters, i, i+1)
-		mp.pendingInserts.Store(uint64(len(m.waiters)))
+	if m.waiters.Remove(t) {
+		mp.pendingInserts.Store(m.waiters.Len())
 	}
-	m.signalHead()
+	m.signalBest()
 }
 
 func (m *mempoolInner) IsFull() bool {
@@ -227,7 +215,7 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 		// because local mempool is the only source of local lane blocks,
 		// but we handle it gracefully anyway.
 		m.next = max(m.next, n)
-		m.signalHead()
+		m.signalBest()
 	}
 }
 
@@ -238,12 +226,13 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 }
 
 // InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
-// admitted in arrival order relative to each other, but TryInsertTx calls do not queue and may
-// take freed capacity ahead of them. Returns errMempoolFull once Config.MaxPendingInserts calls are blocked.
+// admitted by rank: senders of a shard this validator owns first, then higher CheckTx priority,
+// then arrival order. The calls of one EVM sender are admitted in nonce order. TryInsertTx calls
+// do not queue and may take freed capacity ahead of them. Once Config.MaxPendingInserts calls are
+// blocked, a call that outranks the lowest-ranked one evicts it; the evicted call, or a call that
+// outranks none, fails with errMempoolFull.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
-// TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
-// than the lane throughput.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, true)
 }
@@ -294,19 +283,52 @@ func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[
 
 // poolCanAdmit returns nil when the pool would admit or queue an insert without a ticket right
 // now, and otherwise the error the admission loop would return, so such an insert skips CheckTx.
-// The admission loop rechecks after CheckTx.
-func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
+// On a full queue it ranks tx by hintRank. The admission loop rechecks after CheckTx.
+func (s *State) poolCanAdmit(ctx context.Context, mp *mempool, tx tmtypes.Tx, waitIfFull bool) error {
+	worst := utils.None[rank]()
 	for m := range mp.inner.Lock() {
 		switch {
 		case m.closed:
 			return ErrNotProducing
 		case !waitIfFull && m.IsFull():
 			return errMempoolFull
-		case waitIfFull && uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
-			return errPendingFull
+		case waitIfFull && m.waiters.Len() >= s.cfg.maxPendingInserts():
+			w := m.waiters.Worst().OrPanic("a non-empty admission queue has an eligible call")
+			worst = utils.Some(w.rank)
 		}
 	}
+	if w, ok := worst.Get(); ok && !s.hintRank(ctx, tx).outranks(w) {
+		return errPendingFull
+	}
 	return nil
+}
+
+// hintRank is the highest rank tx can get after CheckTx: its app priority hint, at an owned
+// shard since the sender is not known yet. A tx the app cannot rank gets the lowest rank.
+func (s *State) hintRank(ctx context.Context, tx tmtypes.Tx) rank {
+	hint, err := s.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
+	if err != nil {
+		return rank{owned: false, priority: math.MinInt64, seq: unqueuedSeq}
+	}
+	return rank{owned: true, priority: hint.Priority, seq: unqueuedSeq}
+}
+
+// checkedTicket returns the unqueued ticket of a tx that passed CheckTx, ranked by the
+// CheckTx priority and the shard ownership of its sender.
+func (s *State) checkedTicket(mp *mempool, resp *abci.ResponseCheckTxV2) *insertTicket {
+	r := rank{owned: true, priority: resp.Priority, seq: unqueuedSeq}
+	if !resp.IsEVM {
+		return newInsertTicket(r, utils.None[common.Address](), 0)
+	}
+	r.owned = s.ownsShard(mp.lane.Validator, resp.EVMSenderAddress)
+	return newInsertTicket(r, utils.Some(resp.EVMSenderAddress), resp.EVMNonce)
+}
+
+// ownsShard reports whether validator sequences sender in the epoch EvmProxy routes by. It
+// reports true when validator is not in that epoch's committee, so ownership is unknown.
+func (s *State) ownsShard(validator types.PublicKey, sender common.Address) bool {
+	committee := s.nextCommitEpoch.Load().Committee()
+	return !committee.HasReplica(validator) || committee.EvmShard(sender) == validator
 }
 
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
@@ -411,7 +433,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		}
 		mp = loaded
 	}
-	if err := s.poolCanAdmit(mp, waitIfFull); err != nil {
+	if err := s.poolCanAdmit(ctx, mp, tx, waitIfFull); err != nil {
 		return nil, err
 	}
 	resp, err := s.checkTx(ctx, tx)
@@ -434,6 +456,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 
+	candidate := s.checkedTicket(mp, resp)
 	appNonce := utils.None[uint64]()
 	var first types.BlockNumber
 	if resp.IsEVM {
@@ -449,11 +472,11 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
 	leaveAdmit := metrics.PhaseAdmit.Enter()
 	defer func() { leaveAdmit() }()
-	// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
+	// We do not delay insertions of large txs (going over cap)
 	// in favor of waiting for smaller txs. This simple algorithm allows us to cap
 	// pending txs to size of a single block. We can refine this rule later if needed.
-	// Blocked calls queue up in arrival order and only the head is woken when capacity
-	// frees up, so a mempool update costs O(1) regardless of the number of waiters.
+	// Blocked calls queue up by rank and only the best eligible one is woken when capacity
+	// frees up, so a mempool update costs O(log n) in the number of waiters.
 	ticket := utils.None[*insertTicket]()
 	defer func() {
 		if ticket.IsPresent() {
@@ -474,6 +497,9 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 			}
 		}
 		for m, ctrl := range mp.inner.Lock() {
+			if t, ok := ticket.Get(); ok && t.evicted {
+				return nil, errPendingFull
+			}
 			if m.closed {
 				if t, ok := ticket.Get(); ok {
 					mp.dequeue(m, t)
@@ -483,16 +509,17 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 			if m.IsFull() && !waitIfFull {
 				return nil, errMempoolFull
 			}
-			if m.IsFull() || (waitIfFull && !m.isHead(ticket)) {
+			if m.IsFull() || (waitIfFull && !m.waiters.AdmitsNext(candidate)) {
 				if t, ok := ticket.Get(); ok {
-					// A TryInsertTx may have filled the mempool since this ticket was signalled.
+					// A TryInsertTx may have filled the mempool, or a better call queued,
+					// since this ticket was signalled.
 					wakeups++
 					t.admitted.Store(false)
 				} else {
-					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
-						return nil, errPendingFull
+					if err := mp.enqueue(m, candidate, s.cfg.maxPendingInserts()); err != nil {
+						return nil, err
 					}
-					ticket = utils.Some(mp.enqueue(m))
+					ticket = utils.Some(candidate)
 				}
 				continue
 			}
