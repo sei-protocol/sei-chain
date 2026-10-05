@@ -337,8 +337,8 @@ func (imp *KVImporter) AddModule(_ string) error {
 	return nil
 }
 
-// AddNode queues node for import. It returns an error, and fails the import, when node is not a leaf with a
-// key, a non-empty value and the import's version. Once the import has failed, it returns that failure.
+// AddNode queues node for import. It fails the import and returns an error unless node is a leaf at the
+// import's version with a non-empty key and value. Once the import has failed, it returns that failure.
 func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
 	if err := imp.getErr(); err != nil {
 		return err
@@ -349,10 +349,11 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
 	}
 	select {
 	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
-		return nil
 	case <-imp.done:
-		return imp.getErr()
 	}
+	// A worker can fail while the send is pending, and select may still pick the send, so the failure is
+	// read again here rather than reporting the node as accepted.
+	return imp.getErr()
 }
 
 // checkNode returns an error unless node is a row this import can store.
@@ -360,8 +361,8 @@ func (imp *KVImporter) checkNode(node *types.SnapshotNode) error {
 	if node.Height != 0 {
 		return fmt.Errorf("flatkv import: node %x has height %d; only leaves can be imported", node.Key, node.Height)
 	}
-	if node.Key == nil {
-		return errors.New("flatkv import: node has no key")
+	if len(node.Key) == 0 {
+		return errors.New("flatkv import: node has an empty key")
 	}
 	if node.Version != imp.version {
 		return fmt.Errorf("flatkv import: node %x has version %d; the import is at version %d",

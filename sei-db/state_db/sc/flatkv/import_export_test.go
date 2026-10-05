@@ -616,31 +616,35 @@ func TestImporterHeightNonZeroRejected(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-func TestImporterNilKeyRejected(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+func TestImporterEmptyKeyRejected(t *testing.T) {
+	// A restore hands the importer an empty key where the snapshot carried none, so both forms must fail.
+	for name, key := range map[string][]byte{"nil": nil, "zero-length": {}} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := config.DefaultTestConfig(t)
+			cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
+			s, err := newCommitStoreWithWAL(t.Context(), cfg)
+			require.NoError(t, err)
+			err = s.LoadLatest()
+			require.NoError(t, err)
 
-	imp, err := s.Importer(1)
-	require.NoError(t, err)
+			imp, err := s.Importer(1)
+			require.NoError(t, err)
 
-	// Nodes with a nil key fail the import.
-	addErr := imp.AddNode(&types.SnapshotNode{
-		Key:     nil,
-		Value:   []byte{0xAA},
-		Version: 1,
-		Height:  0,
-	})
-	require.ErrorContains(t, addErr, "node has no key")
+			addErr := imp.AddNode(&types.SnapshotNode{
+				Key:     key,
+				Value:   []byte{0xAA},
+				Version: 1,
+				Height:  0,
+			})
+			require.ErrorContains(t, addErr, "node has an empty key")
 
-	require.ErrorIs(t, imp.Close(), addErr)
-	require.Zero(t, s.Version(), "a rejected import must not finalize")
-	require.NoError(t, s.Close())
+			require.ErrorIs(t, imp.Close(), addErr)
+			require.Zero(t, s.Version(), "a rejected import must not finalize")
+			require.NoError(t, s.Close())
+		})
+	}
 }
 
 func TestImporterEmptyStore(t *testing.T) {
