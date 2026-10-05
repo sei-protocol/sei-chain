@@ -66,6 +66,9 @@ type Backend interface {
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
 	EvmTransactionCount(common.Address) uint64
+	// EvmPendingTransactionCount returns the nonce after the transactions the
+	// local mempool holds for the address.
+	EvmPendingTransactionCount(common.Address) uint64
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

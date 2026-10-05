@@ -37,6 +37,7 @@ type testBackend struct {
 	proxyCalls       int
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
+	pendingCount     func(common.Address) uint64
 }
 
 func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
@@ -106,6 +107,10 @@ func (b *testBackend) EvmProxyEnabled() bool {
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
 	return b.transactionCount(address)
+}
+
+func (b *testBackend) EvmPendingTransactionCount(address common.Address) uint64 {
+	return b.pendingCount(address)
 }
 
 // stubReceiptStore overrides GetReceipt on an otherwise real store so tests can
