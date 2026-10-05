@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"math"
 	"math/big"
 	"runtime"
 	"slices"
@@ -364,6 +365,7 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 			Code:         abci.CodeTypeOK,
 			GasWanted:    gasWanted,
 			GasEstimated: gasWanted,
+			Priority:     txPriority(tx),
 		},
 		IsEVM:            true,
 		EVMNonce:         tx.Nonce(),
@@ -371,6 +373,25 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+// GetTxPriorityHint returns the priority CheckTx gives the transaction, decoding it without
+// recovering its sender.
+func (a *evmOnlyApplication) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(req.Tx); err != nil {
+		return nil, err
+	}
+	return &abci.ResponseGetTxPriorityHint{Priority: txPriority(tx)}, nil
+}
+
+// txPriority is the admission priority of tx: its effective gas price in wei, clamped to int64.
+func txPriority(tx *ethtypes.Transaction) int64 {
+	price := evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee())
+	if !price.IsInt64() {
+		return math.MaxInt64
+	}
+	return price.Int64()
 }
 
 func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {

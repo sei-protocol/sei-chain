@@ -988,3 +988,36 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
 }
+
+// CheckTx and GetTxPriorityHint give a tx the same priority, its effective gas price in wei,
+// so the producer can rank a tx before CheckTx exactly as it ranks it after.
+func TestEVMOnlyApplicationPriorityHintMatchesCheckTx(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	for _, tc := range []struct {
+		inner ethtypes.TxData
+		want  int64
+	}{
+		{&ethtypes.LegacyTx{Nonce: 0, GasPrice: big.NewInt(3 * evmOnlyMinGasPrice), Gas: 21_000, To: &recipient}, 3 * evmOnlyMinGasPrice},
+		// At a zero base fee the effective gas price of a dynamic-fee tx is its tip.
+		{&ethtypes.DynamicFeeTx{ChainID: chainID, Nonce: 1, GasTipCap: big.NewInt(2 * evmOnlyMinGasPrice), GasFeeCap: big.NewInt(100 * evmOnlyMinGasPrice), Gas: 21_000, To: &recipient}, 2 * evmOnlyMinGasPrice},
+	} {
+		signed, err := ethtypes.SignTx(ethtypes.NewTx(tc.inner), ethtypes.LatestSignerForChainID(chainID), key)
+		require.NoError(t, err)
+		raw, err := signed.MarshalBinary()
+		require.NoError(t, err)
+
+		check := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+		hint, err := app.GetTxPriorityHint(t.Context(), &abci.RequestGetTxPriorityHintV2{Tx: raw})
+
+		require.True(t, check.IsOK())
+		require.NoError(t, err)
+		require.Equal(t, tc.want, check.Priority)
+		require.Equal(t, tc.want, hint.Priority)
+	}
+	_, err = app.GetTxPriorityHint(t.Context(), &abci.RequestGetTxPriorityHintV2{Tx: []byte{0x01}})
+	require.Error(t, err)
+}
