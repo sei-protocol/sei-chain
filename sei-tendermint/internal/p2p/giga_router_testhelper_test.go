@@ -200,6 +200,67 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	}, nil
 }
 
+// preparingTestApp is a testApp that implements blockPreparer. It counts the
+// FinalizeBlock calls whose block PrepareBlock had already seen with the same
+// height and hash, and holds FinalizeBlock(h), for h below holdUntil, until
+// PrepareBlock(h+1) has been called.
+type preparingTestApp struct {
+	*testApp
+	holdUntil int64
+	log       utils.Watch[*prepareLog]
+}
+
+type prepareLog struct {
+	prepared map[int64][]byte
+	hits     int
+	misses   int
+}
+
+func newPreparingTestApp(holdUntil int64) *preparingTestApp {
+	return &preparingTestApp{
+		testApp:   newTestApp(),
+		holdUntil: holdUntil,
+		log:       utils.NewWatch(&prepareLog{prepared: map[int64][]byte{}}),
+	}
+}
+
+func (a *preparingTestApp) PrepareBlock(_ context.Context, req *abci.RequestFinalizeBlock) error {
+	for log, ctrl := range a.log.Lock() {
+		log.prepared[req.Header.Height] = slices.Clone(req.Hash)
+		ctrl.Updated()
+	}
+	return nil
+}
+
+func (a *preparingTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	height := req.Header.Height
+	for log, ctrl := range a.log.Lock() {
+		if height < a.holdUntil {
+			if err := ctrl.WaitUntil(ctx, func() bool {
+				_, ok := log.prepared[height+1]
+				return ok
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if hash, ok := log.prepared[height]; ok && bytes.Equal(hash, req.Hash) {
+			log.hits++
+		} else {
+			log.misses++
+		}
+		delete(log.prepared, height)
+	}
+	return a.testApp.FinalizeBlock(ctx, req)
+}
+
+// PreparedCounts returns how many finalized blocks PrepareBlock had seen, and how many it had not.
+func (a *preparingTestApp) PreparedCounts() (hits, misses int) {
+	for log := range a.log.Lock() {
+		return log.hits, log.misses
+	}
+	panic("unreachable")
+}
+
 func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 	h := sha256.Sum256(tx)
 	for state, ctrl := range a.state.Lock() {
