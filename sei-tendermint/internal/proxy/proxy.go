@@ -11,7 +11,14 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
+
+// lastHeaderInitializer is implemented by apps that can be initialized from
+// the last block header when they start without committing a block.
+type lastHeaderInitializer interface {
+	InitLastHeader(lastHeader *tmproto.Header)
+}
 
 // Proxy wraps an ABCI application and records ABCI method timings.
 type Proxy struct {
@@ -52,6 +59,14 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_balance", "type", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)
+}
+
+// InitLastHeader passes the last block header to the app if it implements
+// lastHeaderInitializer, and does nothing otherwise.
+func (app *Proxy) InitLastHeader(lastHeader *tmproto.Header) {
+	if initializer, ok := app.app.(lastHeaderInitializer); ok {
+		initializer.InitLastHeader(lastHeader)
+	}
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
