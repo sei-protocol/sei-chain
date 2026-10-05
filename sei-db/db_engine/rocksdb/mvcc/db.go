@@ -56,10 +56,10 @@ type Database struct {
 	config  config.StateStoreConfig
 	// cfHandle is the state_storage column family used for all reads and writes.
 	cfHandle *grocksdb.ColumnFamilyHandle
-	// cfHandles is every column family handle returned at open, including the
-	// default column family RocksDB requires be opened. Every handle must be
-	// destroyed before the DB closes or the ColumnFamilySet destructor asserts.
-	cfHandles []*grocksdb.ColumnFamilyHandle
+	// defaultCFHandle is the default column family, which RocksDB requires to be
+	// opened alongside the others. It is never used, but it must be destroyed
+	// before the DB closes or the ColumnFamilySet destructor asserts.
+	defaultCFHandle *grocksdb.ColumnFamilyHandle
 
 	// tsLow reflects the full_history_ts_low CF value. Since pruning is done in
 	// a lazy manner, we use this value to prevent reads for versions that will
@@ -114,7 +114,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		storage:         storage,
 		config:          config,
 		cfHandle:        cfHandles[1],
-		cfHandles:       cfHandles,
+		defaultCFHandle: cfHandles[0],
 		tsLow:           tsLow,
 		earliestVersion: earliestVersion,
 		latestVersion:   atomic.Int64{},
@@ -511,11 +511,14 @@ func (db *Database) Close() error {
 		// Only set to nil after background goroutine has finished
 		db.streamHandler = nil
 	}
-	for _, cfHandle := range db.cfHandles {
-		cfHandle.Destroy()
+	if db.cfHandle != nil {
+		db.cfHandle.Destroy()
+		db.cfHandle = nil
 	}
-	db.cfHandles = nil
-	db.cfHandle = nil
+	if db.defaultCFHandle != nil {
+		db.defaultCFHandle.Destroy()
+		db.defaultCFHandle = nil
+	}
 	if db.storage != nil {
 		db.storage.Close()
 		db.storage = nil
