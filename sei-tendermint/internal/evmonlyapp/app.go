@@ -143,8 +143,8 @@ type evmOnlyApplication struct {
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[*senderCache]
-	// prepared holds the block PrepareBlock decoded ahead of FinalizeBlock, if any.
-	prepared utils.Mutex[*utils.Option[preparedBlock]]
+	// prepared holds the blocks PrepareBlock decoded ahead of FinalizeBlock.
+	prepared utils.Mutex[*preparedQueue]
 	// preparedBlocks counts finalized blocks by whether prepared held them.
 	preparedBlocks otelmetric.Int64Counter
 	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
@@ -198,7 +198,7 @@ func NewEVMOnlyApplication(
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
-		prepared:         utils.NewMutex(new(utils.Option[preparedBlock])),
+		prepared:         utils.NewMutex(new(preparedQueue)),
 		preparedBlocks:   newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
 		preparePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName),
 	}
@@ -409,23 +409,23 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // raw transaction is the keccak of its bytes for every transaction type, so no
 // decoding is needed.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
-	return a.checkedSendersOf(txs, true)
-}
-
-// peekSenders is takeSenders without forgetting the entries.
-func (a *evmOnlyApplication) peekSenders(txs [][]byte) []utils.Option[common.Address] {
-	return a.checkedSendersOf(txs, false)
-}
-
-// forgetSenders drops the CheckTx-recovered senders of txs.
-func (a *evmOnlyApplication) forgetSenders(txs [][]byte) {
-	a.checkedSendersOf(txs, true)
-}
-
-func (a *evmOnlyApplication) checkedSendersOf(txs [][]byte, forget bool) []utils.Option[common.Address] {
-	out := make([]utils.Option[common.Address], len(txs))
 	// Hashed outside the lock; CheckTx writes this map constantly.
-	hashes := hashRawTxs(txs)
+	return a.checkedSendersOf(hashRawTxs(txs), true)
+}
+
+// peekSenders returns, aligned with txHashes, the sender CheckTx recovered for each
+// transaction hash, and keeps the entries.
+func (a *evmOnlyApplication) peekSenders(txHashes []common.Hash) []utils.Option[common.Address] {
+	return a.checkedSendersOf(txHashes, false)
+}
+
+// forgetSenders drops the CheckTx-recovered senders of the transaction hashes.
+func (a *evmOnlyApplication) forgetSenders(txHashes []common.Hash) {
+	a.checkedSendersOf(txHashes, true)
+}
+
+func (a *evmOnlyApplication) checkedSendersOf(hashes []common.Hash, forget bool) []utils.Option[common.Address] {
+	out := make([]utils.Option[common.Address], len(hashes))
 	for senders := range a.checkedSenders.Lock() {
 		for i, hash := range hashes {
 			if forget {
@@ -788,9 +788,9 @@ func (a *evmOnlyApplication) executeBlock(ctx context.Context, executor *evmonly
 			Senders: a.takeSenders(txs),
 		})
 	}
-	a.forgetSenders(txs)
+	a.forgetSenders(prepared.txHashes)
 	a.finalizePhases.SetPhase(finalizePhaseExecute)
-	return executor.ExecutePreparedBlock(ctx, evmonly.PreparedBlock{Context: blockCtx, Txs: prepared})
+	return executor.ExecutePreparedBlock(ctx, evmonly.PreparedBlock{Context: blockCtx, Txs: prepared.txs})
 }
 
 // executeBlockPipelined executes the block and returns once its state commit
