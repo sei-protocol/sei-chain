@@ -47,7 +47,9 @@ func (q *preparedQueue) put(b preparedBlock, next int64) {
 	kept := slices.DeleteFunc(*q, func(p preparedBlock) bool { return p.height < next || p.height == b.height })
 	kept = append(kept, b)
 	slices.SortFunc(kept, func(x, y preparedBlock) int { return cmp.Compare(x.height, y.height) })
-	*q = kept[:min(len(kept), maxPreparedBlocks)]
+	n := min(len(kept), maxPreparedBlocks)
+	clear(kept[n:])
+	*q = kept[:n]
 }
 
 // take removes and returns the block with this height and hash, and drops every
