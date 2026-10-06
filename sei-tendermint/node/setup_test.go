@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -479,4 +480,22 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
 		})
 	}
+}
+
+func TestApplyPprofProfileRates(t *testing.T) {
+	prevMutexFraction := runtime.SetMutexProfileFraction(-1)
+	t.Cleanup(func() {
+		runtime.SetMutexProfileFraction(prevMutexFraction)
+		runtime.SetBlockProfileRate(0)
+	})
+	runtime.SetMutexProfileFraction(0)
+
+	cfg := config.DefaultRPCConfig()
+	applyPprofProfileRates(cfg)
+	require.Zero(t, runtime.SetMutexProfileFraction(-1), "the default config must leave mutex profiling off")
+
+	cfg.PprofMutexProfileFraction = 100
+	cfg.PprofBlockProfileRate = 1_000_000
+	applyPprofProfileRates(cfg)
+	require.Equal(t, 100, runtime.SetMutexProfileFraction(-1))
 }

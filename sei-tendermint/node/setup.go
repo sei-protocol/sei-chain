@@ -9,6 +9,7 @@ import (
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -141,6 +142,21 @@ func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], mode
 			)
 		}
 	}
+}
+
+// applyPprofProfileRates sets the process-wide mutex and block profile rates that
+// the pprof server reports, from cfg. A rate of 0 leaves that profile off.
+func applyPprofProfileRates(cfg *config.RPCConfig) {
+	if cfg.PprofMutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(cfg.PprofMutexProfileFraction)
+	}
+	if cfg.PprofBlockProfileRate > 0 {
+		runtime.SetBlockProfileRate(cfg.PprofBlockProfileRate)
+	}
+	logger.Info("pprof profile rates",
+		"mutexProfileFraction", cfg.PprofMutexProfileFraction,
+		"blockProfileRate", cfg.PprofBlockProfileRate,
+	)
 }
 
 func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool {

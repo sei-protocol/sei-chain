@@ -44,6 +44,10 @@ func AddNodeFlags(cmd *cobra.Command, conf *cfg.Config) {
 	cmd.Flags().String("rpc.laddr", conf.RPC.ListenAddress, "RPC listen address. Port required")
 	cmd.Flags().Bool("rpc.unsafe", conf.RPC.Unsafe, "enabled unsafe rpc methods")
 	cmd.Flags().String("rpc.pprof-laddr", conf.RPC.PprofListenAddress, "pprof listen address (https://golang.org/pkg/net/http/pprof)")
+	cmd.Flags().Int("rpc.pprof-mutex-profile-fraction", conf.RPC.PprofMutexProfileFraction,
+		"report on average 1/n mutex contention events to pprof (0 disables)")
+	cmd.Flags().Int("rpc.pprof-block-profile-rate", conf.RPC.PprofBlockProfileRate,
+		"sample one blocking event per n nanoseconds blocked for pprof (0 disables)")
 
 	// p2p flags
 	cmd.Flags().String(
