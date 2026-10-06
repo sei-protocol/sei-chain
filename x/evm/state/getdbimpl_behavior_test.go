@@ -93,7 +93,7 @@ func TestBehaviorHookedDBImplWrapperHooksOnly(t *testing.T) {
 	require.Equal(t, 1, c.nonce)
 	require.Equal(t, tracing.NonceChangeEoACall, c.lastNonceReason)
 
-	sdb.SetCode(addr, []byte{0x60, 0x00})
+	sdb.SetCode(addr, []byte{0x60, 0x00}, tracing.CodeChangeUnspecified)
 	require.Equal(t, 1, c.code)
 
 	key, val := common.HexToHash("0x01"), common.HexToHash("0x02")
@@ -128,7 +128,7 @@ func TestBehaviorHookedDBImplWithDBImplLogger(t *testing.T) {
 	sdb.SetNonce(addr, 3, tracing.NonceChangeEoACall)
 	require.Equal(t, 2, c.nonce)
 
-	sdb.SetCode(addr, []byte{0x60, 0x00})
+	sdb.SetCode(addr, []byte{0x60, 0x00}, tracing.CodeChangeUnspecified)
 	require.Equal(t, 2, c.code)
 
 	sdb.SetState(addr, common.HexToHash("0x01"), common.HexToHash("0x02"))
@@ -139,7 +139,7 @@ func TestBehaviorHookedDBImplWithDBImplLogger(t *testing.T) {
 	db.SetLogger(c2.hooks())
 	db.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
 	db.SetNonce(addr, 4, tracing.NonceChangeEoACall)
-	db.SetCode(addr, []byte{0x60, 0x01})
+	db.SetCode(addr, []byte{0x60, 0x01}, tracing.CodeChangeUnspecified)
 	db.SetState(addr, common.HexToHash("0x01"), common.HexToHash("0x03"))
 	require.Equal(t, hookCounts{balance: 1, nonce: 1, code: 1, storage: 1,
 		lastBalancePrev: big.NewInt(20_000_000_000_000), lastBalanceNew: big.NewInt(21_000_000_000_000),
