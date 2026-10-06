@@ -332,10 +332,10 @@ func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
 	return env.App.EvmNonce(address)
 }
 
-// EvmPendingTransactionCount returns the address nonce after the transactions
+// EvmNextPendingNonce returns the address nonce after the transactions
 // the local Autobahn mempool holds for it, or the committed nonce on a node
 // without a mempool.
-func (env *Environment) EvmPendingTransactionCount(address common.Address) uint64 {
+func (env *Environment) EvmNextPendingNonce(address common.Address) uint64 {
 	if r, ok := env.gigaRouter().Get(); ok {
 		if mp, ok := r.Mempool().Get(); ok {
 			return mp.EvmNextPendingNonce(address)
