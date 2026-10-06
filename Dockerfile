@@ -37,6 +37,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X '${VERSION_PKG}.BuildTags=${BUILD_TAGS}'" && \
     go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
 
+# seidb is pure Go, so it builds without cgo and does not link libwasmvm.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -o /go/bin/seidb ./sei-db/tools/cmd/seidb
+
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
 
 RUN apt-get update && \
@@ -44,6 +49,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /go/bin/seid /usr/bin/
+COPY --from=builder /go/bin/seidb /usr/bin/
 COPY --from=seictl /usr/bin/seictl /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
 
