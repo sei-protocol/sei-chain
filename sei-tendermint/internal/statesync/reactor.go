@@ -656,6 +656,10 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*pb.M
 
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_SnapshotsRequest:
+		if !servesSnapshots {
+			logger.Debug("refusing snapshots request; this build does not serve snapshots")
+			return nil
+		}
 		snapshots, err := r.recentSnapshots(ctx, recentSnapshots)
 		if err != nil {
 			logger.Error("failed to fetch snapshots", "err", err)
@@ -724,6 +728,10 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mess
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_ChunkRequest:
 		req := msg.ChunkRequest
+		if !servesSnapshots {
+			logger.Debug("refusing chunk request; this build does not serve snapshots", "peer", m.From)
+			return nil
+		}
 		logger.Debug(
 			"received chunk request",
 			"height", req.GetHeight(),

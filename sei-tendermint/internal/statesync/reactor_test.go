@@ -215,6 +215,9 @@ func TestReactor_Sync(t *testing.T) {
 }
 
 func TestReactor_ChunkRequest(t *testing.T) {
+	if !servesSnapshots {
+		t.Skip("this build does not serve snapshots")
+	}
 	testcases := map[string]struct {
 		request        *pb.ChunkRequest
 		chunk          []byte
@@ -281,6 +284,9 @@ func abciToSSProtoSnapshot(snapshot *abci.Snapshot) *pb.SnapshotsResponse {
 }
 
 func TestReactor_SnapshotsRequest(t *testing.T) {
+	if !servesSnapshots {
+		t.Skip("this build does not serve snapshots")
+	}
 	testcases := map[string]struct {
 		snapshots []*abci.Snapshot
 	}{
