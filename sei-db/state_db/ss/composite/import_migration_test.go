@@ -105,7 +105,7 @@ func exportMidMigrationSnapshot(t *testing.T, pairs []*proto.KVPair) (int64, []t
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}}))
-	_, err = cs.Commit(cs.Version() + 1)
+	_, err = cs.Commit()
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -119,7 +119,7 @@ func exportMidMigrationSnapshot(t *testing.T, pairs []*proto.KVPair) (int64, []t
 	require.NoError(t, cs.Initialize(stores))
 	require.NoError(t, cs.LoadLatest())
 	require.NoError(t, cs.ApplyChangeSets(nil))
-	version, err := cs.Commit(cs.Version() + 1)
+	version, err := cs.Commit()
 	require.NoError(t, err)
 
 	exporter, err := cs.Exporter(version)
