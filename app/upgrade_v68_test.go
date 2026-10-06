@@ -619,8 +619,15 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		v68UseiBalance(t, chain, v68PostUpgradeBankReceiver.String()).String(),
 		"the bank send after v6.8 did not credit the receiver")
 
-	accounts := chain.MustSeid(t, "", "q", "auth", "accounts", "--output", "json")
+	accounts := chain.MustSeid(t, "", "q", "auth", "accounts", "--limit", "100000", "--output", "json")
 	chain.WriteDiagnostic(t, "v68-accounts.json", []byte(accounts))
+	var page struct {
+		Pagination struct {
+			NextKey string `json:"next_key"`
+		} `json:"pagination"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(accounts), &page), accounts)
+	require.Empty(t, page.Pagination.NextKey, "the account query did not return every account")
 	require.NotContains(t, accounts, "/cosmos.vesting.", "v6.8 still serves a vesting account")
 }
 

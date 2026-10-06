@@ -34,9 +34,6 @@ func InitGenesis(ctx sdk.Context, k *keeper.Keeper, genState types.GenesisState)
 	}
 }
 
-// TODO: move to better location
-var GENESIS_EXPORT_STREAM_SERIALIZED_LEN_MAX = 1000
-
 // GetGenesisStateFromAppState returns x/evm GenesisState given raw application
 // genesis state.
 func GetGenesisStateFromAppState(cdc codec.JSONCodec, appState map[string]json.RawMessage) *types.GenesisState {

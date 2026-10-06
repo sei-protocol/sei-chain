@@ -117,6 +117,55 @@ func TestInitGenesisRejectsFutureTallyElectorate(t *testing.T) {
 	})
 }
 
+func TestInitGenesisResumesFrozenTally(t *testing.T) {
+	proposal := votingPeriodProposal(t, time.Now().UTC())
+	genesisTime := proposal.VotingEndTime.Add(time.Second)
+	voter := sdk.AccAddress(make([]byte, 20))
+	validator := sdk.ValAddress(append(make([]byte, 19), 1))
+	power := sdk.NewInt(100)
+	genesis := types.DefaultGenesisState()
+	genesis.StartingProposalId = proposal.ProposalId + 1
+	genesis.Proposals = types.Proposals{proposal}
+	genesis.VoteDelegationBackfillCutoff = proposal.ProposalId + 1
+	genesis.Votes = types.Votes{types.NewVote(proposal.ProposalId, voter, types.NewNonSplitVoteOption(types.OptionYes))}
+	genesis.VoteDelegationSnapshots = []types.VoteDelegationSnapshot{{
+		ProposalId:  proposal.ProposalId,
+		Voter:       voter.String(),
+		Delegations: []types.VoteDelegation{{Validator: validator.String(), Shares: power.ToDec()}},
+	}}
+	genesis.TallyElectorates = []types.TallyElectorate{{
+		ProposalId:        proposal.ProposalId,
+		TotalBondedTokens: power,
+		TallyParams:       types.DefaultTallyParams(),
+		TallyValidators: []types.TallyValidator{{
+			Address:         validator.String(),
+			BondedTokens:    power,
+			DelegatorShares: power.ToDec(),
+		}},
+	}}
+
+	importedApp := seiapp.Setup(t, false, false, false)
+	importedCtx := importedApp.BaseApp.NewContext(false, tmproto.Header{Time: genesisTime})
+	gov.InitGenesis(importedCtx, importedApp.AccountKeeper, importedApp.BankKeeper, importedApp.GovKeeper, genesis)
+
+	require.False(t, importedApp.GovKeeper.VoteDelegationBackfillRequired(importedCtx, proposal.ProposalId))
+	require.True(t, importedApp.GovKeeper.IsTallying(importedCtx, proposal.ProposalId))
+	require.Len(t, importedApp.GovKeeper.GetVotes(importedCtx, proposal.ProposalId), 1)
+	require.Len(t, importedApp.GovKeeper.GetVoteDelegationSnapshots(importedCtx, proposal), 1)
+	require.ErrorIs(t, importedApp.GovKeeper.AddVote(
+		importedCtx,
+		proposal.ProposalId,
+		sdk.AccAddress(append(make([]byte, 19), 2)),
+		types.NewNonSplitVoteOption(types.OptionNo),
+	), types.ErrInactiveProposal)
+
+	complete, _, passes, burnDeposits, result := importedApp.GovKeeper.TallyIncremental(importedCtx, proposal, 10)
+	require.True(t, complete)
+	require.True(t, passes)
+	require.False(t, burnDeposits)
+	require.Equal(t, power, result.Yes)
+}
+
 // votingPeriodProposal returns proposal 1, submitted at submitTime and in its
 // voting period for the following hour.
 func votingPeriodProposal(t *testing.T, submitTime time.Time) types.Proposal {

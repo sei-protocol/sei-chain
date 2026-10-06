@@ -80,5 +80,3 @@ func InitGenesis(ctx sdk.Context, keeper *Keeper, data types.GenesisState, staki
 	}
 	return stakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
 }
-
-const GENSIS_STATE_STREAM_BUF_THRESHOLD = 50000
