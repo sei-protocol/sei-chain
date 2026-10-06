@@ -517,6 +517,9 @@ sei-chain
 
 ## v6.6
 sei-chain
+* [#4448](https://github.com/sei-protocol/sei-chain/pull/4448) Initialize app from last header on frozen restart for v6.6
+* [#4056](https://github.com/sei-protocol/sei-chain/pull/4056) Bump version to v6.6.3 in prep for patch release
+* [#4055](https://github.com/sei-protocol/sei-chain/pull/4055) Backport `release/v6.6`: Update v6.6 change log in prep to cut v6.6.3 patch
 * [#4053](https://github.com/sei-protocol/sei-chain/pull/4053) Backport `release/v6.6`: Validate snapshots before publication
 * [#4050](https://github.com/sei-protocol/sei-chain/pull/4050) Backport `release/v6.6`: Fix memiavl snapshot race condition
 * [#4048](https://github.com/sei-protocol/sei-chain/pull/4048) Backport `release/v6.6`: Bound frozen RPC router batch allocations
