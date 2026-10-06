@@ -8,10 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// testViewTimeout is the genesis view timeout. The accepted range is
-// [NextTimestamp(), NextTimestamp() + (view number + 1) * testViewTimeout].
-const testViewTimeout = 1500 * time.Millisecond
-
 // genFreshEpoch returns an epoch whose road range is OpenRoadRange (so road index 0
 // is always valid for a ViewSpec with no CommitQC) but whose epoch index and first
 // block are randomised to prevent tests from silently passing on zero-value defaults.
