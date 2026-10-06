@@ -182,7 +182,7 @@ func (vs *ViewSpec) NextTimestamp() time.Time {
 // for this view, inclusive. The width is viewTimeout * (view number + 1).
 func (vs *ViewSpec) TimestampRange(viewTimeout time.Duration) (earliest, latest time.Time) {
 	earliest = vs.NextTimestamp()
-	latest = earliest.Add(viewTimeout * time.Duration(vs.View().Number+1))
+	latest = earliest.Add(viewTimeout * time.Duration(vs.View().Number+1)) //nolint:gosec // view number stays far below 2^63
 	return earliest, latest
 }
 
