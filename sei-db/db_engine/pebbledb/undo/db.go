@@ -32,6 +32,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -110,7 +111,8 @@ type Database struct {
 	// earliestMu serializes the check, durable write, and publication of earliestHeight.
 	earliestMu sync.Mutex
 
-	// lifecycleMu excludes Resume and Close from queue submissions and pruning, and guards closed.
+	// lifecycleMu excludes Resume and Close from queue submissions, pruning and opening views,
+	// and guards closed.
 	lifecycleMu sync.RWMutex
 	closed      bool
 
@@ -122,7 +124,6 @@ type Database struct {
 	writerDone  chan struct{}
 	queue       *seidbmetrics.QueueMeter
 	stopMetrics func()
-	closeOnce   sync.Once
 }
 
 // pendingBlock is one entry of the write queue: a block, or, with done set, a barrier.
@@ -514,11 +515,19 @@ type View struct {
 	head      *head
 	height    uint64
 	closeOnce sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[View]
 }
 
-// OpenView returns a view of the state after block version, and false when the store does not
-// serve version.
+// OpenView returns a view of the state after block version, and false when the store is closed or
+// does not serve version. The caller must close the view before closing the database.
 func (db *Database) OpenView(version int64) (*View, bool) {
+	db.lifecycleMu.RLock()
+	defer db.lifecycleMu.RUnlock()
+	if db.closed {
+		return nil, false
+	}
 	height, err := heightOf(version)
 	if err != nil {
 		return nil, false
@@ -531,7 +540,9 @@ func (db *Database) OpenView(version int64) (*View, bool) {
 		h.release()
 		return nil, false
 	}
-	return &View{db: db, head: h, height: height}, true
+	v := &View{db: db, head: h, height: height}
+	v.closed = utils.MustClose(v, "undo view")
+	return v, true
 }
 
 // pinHeight registers a view at height, which the prune passes from here on keep readable, and
@@ -557,8 +568,10 @@ func (db *Database) unpinHeight(height uint64) {
 // Close releases the view's pins. Idempotent.
 func (v *View) Close() {
 	v.closeOnce.Do(func() {
-		v.db.unpinHeight(v.height)
+		v.closed.Close(v)
 		v.head.release()
+		// Keep the view registered until its live-state reference has been released.
+		v.db.unpinHeight(v.height)
 	})
 }
 
@@ -835,23 +848,28 @@ func (db *Database) deleteRecordsAbove(bucket uint64, height uint64) error {
 	return b.Commit(pebble.Sync)
 }
 
-// Close drains the write queue, releases the current-state view and closes Pebble. Views must be
-// closed first. Idempotent.
+// Close drains the write queue, releases the current-state view and closes Pebble. If views are
+// still open, it leaves the database open and returns an error; close the views and retry. Idempotent.
 func (db *Database) Close() error {
-	var err error
-	db.closeOnce.Do(func() {
-		db.lifecycleMu.Lock()
-		defer db.lifecycleMu.Unlock()
-		db.closed = true
-		close(db.pending)
-		<-db.writerDone
-		db.stopMetrics()
-		if h := db.head.Swap(nil); h != nil {
-			h.release()
-		}
-		err = db.storage.Close()
-	})
-	return err
+	db.lifecycleMu.Lock()
+	defer db.lifecycleMu.Unlock()
+	if db.closed {
+		return nil
+	}
+	db.mu.Lock()
+	hasOpenViews := len(db.openViews) != 0
+	db.mu.Unlock()
+	if hasOpenViews {
+		return errors.New("undo: cannot close with open views")
+	}
+	db.closed = true
+	close(db.pending)
+	<-db.writerDone
+	db.stopMetrics()
+	if h := db.head.Swap(nil); h != nil {
+		h.release()
+	}
+	return db.storage.Close()
 }
 
 func valueLen(pair *proto.KVPair) int {
