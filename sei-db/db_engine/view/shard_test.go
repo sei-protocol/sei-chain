@@ -9,7 +9,7 @@ import (
 func TestShardVersionedReads(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
-	require.Equal(t, uint64(2), s.Commit()) // seals v1, live -> v2
+	require.Equal(t, uint64(2), commitShard(t, s)) // seals v1, live -> v2
 	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
 
 	for _, tc := range []struct {
@@ -26,8 +26,8 @@ func TestShardVersionedReads(t *testing.T) {
 func TestShardGetMostRecentValueAtOrBelowVersion(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
-	_ = s.Commit() // v2
-	_ = s.Commit() // v3; no write at v2
+	commitShard(t, s) // v2
+	commitShard(t, s) // v3; no write at v2
 	require.NoError(t, s.Set([]byte("k"), []byte("v3")))
 
 	// Reading at v2 (no write there) returns v1 (highest version <= 2).
@@ -49,29 +49,56 @@ func TestShardValidateVersionOverflow(t *testing.T) {
 	require.ErrorContains(t, err, "current")
 }
 
-func TestShardGetDiffsForVersions(t *testing.T) {
+func TestShardSortedDiffCarriesEachSealedVersion(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
+	require.NoError(t, s.Set([]byte("b"), []byte("1")))
 	require.NoError(t, s.Set([]byte("a"), []byte("1")))
-	_ = s.Commit() // seals v1, live -> v2
-	require.NoError(t, s.Set([]byte("b"), []byte("2")))
-	_ = s.Commit() // seals v2, live -> v3 (GetDiffs only covers sealed versions)
+	commitShard(t, s) // seals v1, live -> v2
+	require.NoError(t, s.Set([]byte("c"), []byte("2")))
+	commitShard(t, s) // seals v2, live -> v3 (only sealed versions have an ordered diff)
 
-	diffs, err := s.GetDiffsForVersions(1, 3) // [1, 3) => versions 1 and 2
+	require.NoError(t, s.MaterializeSortedDiff(1))
+	require.NoError(t, s.MaterializeSortedDiff(2))
+
+	first, err := s.SortedDiff(1)
 	require.NoError(t, err)
-	require.Len(t, diffs, 2)
-	require.Equal(t, []byte("1"), diffs[0]["a"])
-	require.Equal(t, []byte("2"), diffs[1]["b"])
+	require.Equal(t, []Write{{Key: "a", Value: []byte("1")}, {Key: "b", Value: []byte("1")}}, first,
+		"a version's diff must be ordered by key")
+
+	second, err := s.SortedDiff(2)
+	require.NoError(t, err)
+	require.Equal(t, []Write{{Key: "c", Value: []byte("2")}}, second)
 }
 
-func TestShardGetDiffsForVersionsRejectsBadRange(t *testing.T) {
+// Materializing replaces the map the version was accumulated in, and says so: a second call has nothing
+// left to take and must not disturb the diff already published.
+func TestShardMaterializeIsIdempotentAndDropsTheMap(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	_ = s.Commit() // oldest=1, current=2
+	require.NoError(t, s.Set([]byte("k"), []byte("v")))
+	commitShard(t, s)
 
-	_, err := s.GetDiffsForVersions(3, 1)
-	require.Error(t, err, "firstVersion > lastVersion")
+	require.NoError(t, s.MaterializeSortedDiff(1))
 
-	_, err = s.GetDiffsForVersions(0, 2)
-	require.Error(t, err, "firstVersion below oldest")
+	s.lock.RLock()
+	_, mapStillThere := s.versionDiffs[1]
+	s.lock.RUnlock()
+	require.False(t, mapStillThere, "materializing must drop the version's diff map")
+
+	require.NoError(t, s.MaterializeSortedDiff(1))
+	entries, err := s.SortedDiff(1)
+	require.NoError(t, err)
+	require.Equal(t, []Write{{Key: "k", Value: []byte("v")}}, entries)
+}
+
+func TestShardSortedDiffRejectsUnsealedVersions(t *testing.T) {
+	s := newTestShard(t, 4096, newTestDB(nil))
+	commitShard(t, s) // oldest=1, current=2
+
+	_, err := s.SortedDiff(2)
+	require.Error(t, err, "the current version is not sealed")
+
+	require.Error(t, s.MaterializeSortedDiff(2), "the current version cannot be materialized")
+	require.Error(t, s.MaterializeSortedDiff(0), "a version below the oldest is not tracked")
 }
 
 func TestShardDeleteWritesTombstone(t *testing.T) {
@@ -89,9 +116,9 @@ func TestShardDeleteWritesTombstone(t *testing.T) {
 func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
-	_ = s.Commit() // v2
+	commitShard(t, s) // v2
 	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
-	_ = s.Commit() // v3
+	commitShard(t, s) // v3
 
 	// Drop versions [1, 3): their data collapses into the dbCache, latest value winning.
 	require.NoError(t, s.DropVersions(1, 3))
@@ -104,7 +131,7 @@ func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 
 func TestShardDropVersionsRejectsBadRange(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	_ = s.Commit()
+	commitShard(t, s)
 	require.Error(t, s.DropVersions(2, 1)) // first >= last
 	require.Error(t, s.DropVersions(2, 3)) // first != oldest
 }

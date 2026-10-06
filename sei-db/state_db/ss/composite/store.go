@@ -324,6 +324,16 @@ func (s *CompositeStateStore) GetLatestVersion() int64 {
 	return s.cosmosStore.GetLatestVersion()
 }
 
+// WaitForPendingWrites blocks until both underlying stores have applied every queued changeset.
+func (s *CompositeStateStore) WaitForPendingWrites() {
+	if w, ok := s.cosmosStore.(types.PendingWriteWaiter); ok {
+		w.WaitForPendingWrites()
+	}
+	if w, ok := s.evmStore.(types.PendingWriteWaiter); ok {
+		w.WaitForPendingWrites()
+	}
+}
+
 func (s *CompositeStateStore) GetEarliestVersion() int64 {
 	earliest := s.cosmosStore.GetEarliestVersion()
 	if s.evmStore != nil {
@@ -384,6 +394,21 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 	return nil
 }
 
+// CommitBlock records a committed block and offers its version to the snapshot cadence. It is the
+// commit path's entry point: the apply methods are raw writes and take no snapshot.
+func (s *CompositeStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	// A block that changed nothing writes no changelog entry, but its version marker still moves.
+	if len(changesets) == 0 {
+		if err := s.SetLatestVersion(version); err != nil {
+			return err
+		}
+	} else if err := s.ApplyChangesetAsync(version, changesets); err != nil {
+		return err
+	}
+	s.scheduleSnapshot(version)
+	return nil
+}
+
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
@@ -422,16 +447,13 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 	return nil
 }
 
-// ScheduleSnapshot asks the snapshot manager to capture version once the caller
-// has enqueued every state change for that version and nothing above it.
+// scheduleSnapshot offers version to the snapshot cadence, which decides whether that version is a
+// boundary. CommitBlock reaches it once every member holds that version and nothing above it, which
+// is what makes a snapshot's label exact.
 //
-// This is deliberately not called from ApplyChangesetAsync. That method is part
-// of the general StateStore interface and has callers outside the commit path,
-// such as the benchmark wrappers, which would inherit a snapshot trigger they
-// never asked for. The rootmulti commit path is the single choke point that
-// sees both the populated and the empty block, so it owns the trigger. Direct
-// writes such as import, recovery, and prune must not use this hook.
-func (s *CompositeStateStore) ScheduleSnapshot(version int64) {
+// Nothing else offers a version. The apply methods are shared with import, recovery, prune and the
+// benchmark harness, none of which commit blocks.
+func (s *CompositeStateStore) scheduleSnapshot(version int64) {
 	s.snapshotMgr.maybeSnapshot(version)
 }
 
@@ -456,9 +478,9 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 }
 
 // convertFlatKVNodes transforms a single FlatKV physical-key snapshot node
-// into one or more SS nodes by stripping the module prefix from the key,
-// deserializing the vtype metadata from the value, and (for merged account
-// rows) splitting into separate nonce and codeHash nodes.
+// into zero or more SS nodes by stripping the module prefix from the key and
+// deserializing the vtype metadata from the value. A merged account row splits
+// into separate nonce and codeHash nodes, omitting each one whose value is zero.
 //
 // For EVM-specific keys (account, storage, code) the output StoreKey is "evm".
 // For legacy keys the original module name is preserved so they route back to
@@ -501,7 +523,10 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 			return nil, fmt.Errorf("failed to DeserializeAccountData: %w", err)
 		}
 		var nodes []types.SnapshotNode
-		if nonce := acct.GetNonce(); !acct.IsDelete() {
+		// During the EVM migration an account row exists once its code hash
+		// migrates, before its nonce does. Its zero nonce must not overwrite the
+		// memIAVL nonce restored earlier in the stream; an absent nonce reads as zero.
+		if nonce := acct.GetNonce(); nonce != 0 {
 			nonceBuf := make([]byte, 8)
 			binary.BigEndian.PutUint64(nonceBuf, nonce)
 			nodes = append(nodes, types.SnapshotNode{

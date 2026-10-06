@@ -135,6 +135,48 @@ func TestDeposits(t *testing.T) {
 	}
 }
 
+func TestAddDepositRejectsBlocksAfterVotingEnd(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(time.Unix(100, 0))
+	depositor := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(100))[0]
+	depositAmount := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1))
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+	app.GovKeeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+
+	atVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime)
+	_, err = app.GovKeeper.AddDeposit(atVotingEnd, proposal.ProposalId, depositor, depositAmount)
+	require.NoError(t, err)
+
+	proposalAtVotingEnd, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	depositorBalanceAtVotingEnd := app.BankKeeper.GetAllBalances(ctx, depositor)
+	moduleBalanceAtVotingEnd := app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName))
+	app.GovKeeper.CaptureExactTallyBoundary(atVotingEnd)
+	_, err = app.GovKeeper.AddDeposit(atVotingEnd, proposal.ProposalId, depositor, depositAmount)
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	afterVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime.Add(time.Second))
+	_, err = app.GovKeeper.AddDeposit(afterVotingEnd, proposal.ProposalId, depositor, depositAmount)
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	proposalAfterVotingEnd, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, proposalAtVotingEnd.TotalDeposit, proposalAfterVotingEnd.TotalDeposit)
+	require.Equal(t, depositorBalanceAtVotingEnd, app.BankKeeper.GetAllBalances(ctx, depositor))
+	require.Equal(t, moduleBalanceAtVotingEnd, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
+
+	store := afterVotingEnd.KVStore(app.GetKey(types.StoreKey))
+	store.Delete(types.IncrementalTallyEnabledKey)
+	legacyCtx := afterVotingEnd.WithIsTracing(true).WithClosestUpgradeName("v6.7")
+	_, err = app.GovKeeper.AddDeposit(legacyCtx, proposal.ProposalId, depositor, depositAmount)
+	require.NoError(t, err)
+}
+
 func TestRefundDepositsLeavesInvalidRecipientPending(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})

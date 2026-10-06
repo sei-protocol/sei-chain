@@ -281,6 +281,15 @@ func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 	assert.Contains(t, err.Error(), "rocksdb")
 }
 
+func TestParseReceiptConfigs_RejectsLittIdxBackend(t *testing.T) {
+	_, err := config.ReadReceiptConfig(mapAppOpts{
+		receiptStoreBackendKey: "littidx",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be selected from app.toml")
+	assert.Contains(t, err.Error(), "littidx")
+}
+
 func TestReadReceiptStoreConfigUsesMinRetainBlocks(t *testing.T) {
 	homePath := t.TempDir()
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{

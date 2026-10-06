@@ -1,15 +1,122 @@
 package keeper_test
 
 import (
+	"encoding/hex"
 	"testing"
+	"time"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
+
+func TestMsgServerChargesDeferredVoteTallyGas(t *testing.T) {
+	tests := []struct {
+		name                    string
+		weighted                bool
+		revote                  bool
+		active                  bool
+		incrementalTallyEnabled bool
+		extraGas                sdk.Gas
+	}{
+		{
+			name:                    "vote",
+			active:                  true,
+			incrementalTallyEnabled: true,
+			extraGas:                types.DeferredVoteTallyGas,
+		},
+		{
+			name:                    "weighted vote",
+			weighted:                true,
+			active:                  true,
+			incrementalTallyEnabled: true,
+			extraGas:                types.DeferredVoteTallyGas,
+		},
+		{
+			name:                    "revote",
+			revote:                  true,
+			active:                  true,
+			incrementalTallyEnabled: true,
+			extraGas:                types.DeferredVoteTallyGas,
+		},
+		{
+			name:                    "inactive proposal",
+			incrementalTallyEnabled: true,
+		},
+		{
+			name:   "feature disabled",
+			active: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			directGas := voteGasConsumed(t, false, tc.weighted, tc.revote, tc.active, tc.incrementalTallyEnabled)
+			msgServerGas := voteGasConsumed(t, true, tc.weighted, tc.revote, tc.active, tc.incrementalTallyEnabled)
+
+			require.Equal(t, directGas+tc.extraGas, msgServerGas)
+		})
+	}
+}
+
+func voteGasConsumed(
+	t *testing.T,
+	throughMsgServer bool,
+	weighted bool,
+	revote bool,
+	active bool,
+	incrementalTallyEnabled bool,
+) sdk.Gas {
+	t.Helper()
+
+	app := seiapp.Setup(t, false, false, false)
+	t.Cleanup(func() { require.NoError(t, app.Close()) })
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	voter := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))[0]
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	if active {
+		proposal.Status = types.StatusVotingPeriod
+		app.GovKeeper.SetProposal(ctx, proposal)
+	}
+	if !incrementalTallyEnabled {
+		ctx.KVStore(app.GetKey(types.StoreKey)).Delete(types.IncrementalTallyEnabledKey)
+	}
+
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1_000_000, 1, 1))
+	castVote := func(option types.VoteOption) error {
+		options := types.NewNonSplitVoteOption(option)
+		if !throughMsgServer {
+			return app.GovKeeper.AddVote(ctx, proposal.ProposalId, voter, options)
+		}
+
+		msgServer := keeper.NewMsgServerImpl(app.GovKeeper)
+		if weighted {
+			_, err = msgServer.VoteWeighted(sdk.WrapSDKContext(ctx), types.NewMsgVoteWeighted(voter, proposal.ProposalId, options))
+		} else {
+			_, err = msgServer.Vote(sdk.WrapSDKContext(ctx), types.NewMsgVote(voter, proposal.ProposalId, option))
+		}
+		return err
+	}
+
+	gasBeforeVote := ctx.GasMeter().GasConsumed()
+	if active {
+		require.NoError(t, castVote(types.OptionYes))
+		if revote {
+			require.NoError(t, castVote(types.OptionNo))
+		}
+	} else {
+		require.Error(t, castVote(types.OptionYes))
+	}
+
+	return ctx.GasMeter().GasConsumed() - gasBeforeVote
+}
 
 func TestVotes(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
@@ -91,4 +198,153 @@ func TestVotes(t *testing.T) {
 	require.True(t, votes[1].Options[2].Weight.Equal(sdk.NewDecWithPrec(5, 2)))
 	require.True(t, votes[1].Options[3].Weight.Equal(sdk.NewDecWithPrec(5, 2)))
 	require.Equal(t, types.OptionEmpty, vote.Option)
+}
+
+func TestAddVoteRejectsBlocksAfterVotingEnd(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs := seiapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+	app.GovKeeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+
+	atVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime)
+	require.NoError(t, app.GovKeeper.AddVote(
+		atVotingEnd,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	app.GovKeeper.CaptureExactTallyBoundary(atVotingEnd)
+	require.ErrorIs(t, app.GovKeeper.AddVote(
+		atVotingEnd,
+		proposal.ProposalId,
+		addrs[1],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	), types.ErrInactiveProposal)
+
+	afterVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime.Add(time.Second))
+	require.ErrorIs(t, app.GovKeeper.AddVote(
+		afterVotingEnd,
+		proposal.ProposalId,
+		addrs[1],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	), types.ErrInactiveProposal)
+}
+
+func TestVoteDelegationTrackingPreservesHistoricalTraces(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(time.Unix(100, 0))
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime().Add(-time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	store.Delete(types.IncrementalTallyEnabledKey)
+	legacyCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.7")
+	require.NoError(t, app.GovKeeper.AddVote(
+		legacyCtx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	require.False(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
+	require.False(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
+	require.Len(t, app.GovKeeper.GetAllVotes(legacyCtx), 1)
+	require.NotPanics(t, func() {
+		_, _, _ = app.GovKeeper.Tally(legacyCtx, proposal)
+	})
+
+	gasBeforeHook := legacyCtx.GasMeter().GasConsumed()
+	app.GovKeeper.StakingHooks().AfterDelegationModified(legacyCtx, addrs[0], valAddrs[0])
+	require.Equal(t, gasBeforeHook, legacyCtx.GasMeter().GasConsumed())
+	tracer, ok := legacyCtx.StoreTracer().(interface{ Dump() sdk.StoreTraceDump })
+	require.True(t, ok)
+	trace := tracer.Dump()
+	require.NotContains(t, trace.Modules[types.ModuleName].Has, hex.EncodeToString(types.IncrementalTallyEnabledKey))
+
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+	app.GovKeeper.EnableIncrementalTally(ctx)
+	currentCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.6")
+	require.NoError(t, app.GovKeeper.AddVote(
+		currentCtx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	require.True(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
+	require.True(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
+
+	store.Delete(types.IncrementalTallyEnabledKey)
+	emptyProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	emptyProposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, emptyProposal)
+	complete, _, _, _, _ := app.GovKeeper.TallyIncremental(legacyCtx, emptyProposal, 1)
+	require.True(t, complete)
+	require.False(t, store.Has(types.ProposalTallyBoundaryKey(emptyProposal.ProposalId)))
+
+	initializedProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	initializedProposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, initializedProposal)
+	app.GovKeeper.InitializeTally(legacyCtx, initializedProposal)
+	require.False(t, store.Has(types.ProposalTallyBoundaryKey(initializedProposal.ProposalId)))
+
+	boundaryIterator := sdk.KVStorePrefixIterator(store, types.TallyBoundaryMetaKeyPrefix)
+	require.False(t, boundaryIterator.Valid())
+	require.NoError(t, boundaryIterator.Close())
+}
+
+func TestVoteDelegationSnapshotsFreezeAfterVotingEnd(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(time.Unix(100, 0))
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	expiredProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	expiredProposal.Status = types.StatusVotingPeriod
+	expiredProposal.VotingEndTime = ctx.BlockTime().Add(-time.Second)
+	app.GovKeeper.SetProposal(ctx, expiredProposal)
+
+	activeProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	activeProposal.Status = types.StatusVotingPeriod
+	activeProposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, activeProposal)
+
+	voteCtx := ctx.WithBlockTime(ctx.BlockTime().Add(-2 * time.Second))
+	for _, proposal := range []types.Proposal{expiredProposal, activeProposal} {
+		require.NoError(t, app.GovKeeper.AddVote(
+			voteCtx,
+			proposal.ProposalId,
+			addrs[3],
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+		require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	}
+
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	expiredSnapshotKey := types.VoteDelegationsKey(expiredProposal.ProposalId, addrs[3])
+	activeSnapshotKey := types.VoteDelegationsKey(activeProposal.ProposalId, addrs[3])
+	expiredSnapshot := append([]byte(nil), store.Get(expiredSnapshotKey)...)
+	activeSnapshot := append([]byte(nil), store.Get(activeSnapshotKey)...)
+
+	validator, found := app.StakingKeeper.GetValidator(ctx, valAddrs[0])
+	require.True(t, found)
+	delegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 20)
+	_, err = app.StakingKeeper.Delegate(ctx, addrs[3], delegatedTokens, stakingtypes.Unbonded, validator, true)
+	require.NoError(t, err)
+
+	require.Equal(t, expiredSnapshot, store.Get(expiredSnapshotKey))
+	require.NotEqual(t, activeSnapshot, store.Get(activeSnapshotKey))
 }

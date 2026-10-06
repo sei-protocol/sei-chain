@@ -34,14 +34,14 @@ func fullScanModuleLtHash(t *testing.T, db types.KeyValueDB) map[string]*lthash.
 	require.NoError(t, err)
 	defer iter.Close()
 
-	byModule := make(map[string][]lthash.KVPairWithLastValue)
+	byModule := make(map[string][]lthash.KeyMutation)
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
 		module, _, err := ktype.StripModulePrefix(iter.Key())
 		require.NoError(t, err)
-		byModule[module] = append(byModule[module], lthash.KVPairWithLastValue{
+		byModule[module] = append(byModule[module], lthash.KeyMutation{
 			Key:   bytes.Clone(iter.Key()),
 			Value: bytes.Clone(iter.Value()),
 		})
@@ -50,7 +50,7 @@ func fullScanModuleLtHash(t *testing.T, db types.KeyValueDB) map[string]*lthash.
 
 	out := make(map[string]*lthash.LtHash, len(byModule))
 	for module, pairs := range byModule {
-		h, _ := lthash.ComputeLtHash(nil, pairs)
+		h := lthash.ComputeLtHash(nil, pairs)
 		if h == nil {
 			h = lthash.New()
 		}
@@ -68,7 +68,7 @@ func verifyModuleLtHash(t *testing.T, s *CommitStore) {
 	for _, dir := range dataDBDirs {
 		db := s.rawDBFor(dir)
 		scanned := fullScanModuleLtHash(t, db)
-		working := s.perDBModuleWorkingLtHash[dir]
+		working := s.maintainedHashes().PerModule[dir]
 
 		// Every scanned module must have a matching working hash.
 		for module, scanHash := range scanned {
@@ -85,9 +85,9 @@ func verifyModuleLtHash(t *testing.T, s *CommitStore) {
 		for _, wh := range working {
 			sum.MixIn(wh)
 		}
-		require.True(t, s.perDBWorkingLtHash[dir].Equal(sum),
+		require.True(t, s.maintainedHashes().PerDB[dir].Equal(sum),
 			"sum of per-module hashes should equal per-DB root for %s:\n  root: %x\n  sum:  %x",
-			dir, s.perDBWorkingLtHash[dir].Checksum(), sum.Checksum())
+			dir, s.maintainedHashes().PerDB[dir].Checksum(), sum.Checksum())
 	}
 }
 
@@ -131,7 +131,7 @@ func TestPerModuleLtHashIncrementalEqualsFullScan(t *testing.T) {
 	verifyModuleLtHash(t, s)
 
 	// miscDB should now carry three modules: evm, gov, bank.
-	misc := s.perDBModuleWorkingLtHash[miscDBDir]
+	misc := s.maintainedHashes().PerModule[miscDBDir]
 	require.Contains(t, misc, keys.EVMStoreKey)
 	require.Contains(t, misc, "gov")
 	require.Contains(t, misc, "bank")
@@ -139,10 +139,10 @@ func TestPerModuleLtHashIncrementalEqualsFullScan(t *testing.T) {
 	// account/code/storage only ever carry the evm module, and that module's
 	// hash equals the per-DB root.
 	for _, dir := range []string{accountDBDir, codeDBDir, storageDBDir} {
-		mod := s.perDBModuleWorkingLtHash[dir]
+		mod := s.maintainedHashes().PerModule[dir]
 		require.Len(t, mod, 1, "%s should only track the evm module", dir)
 		require.Contains(t, mod, keys.EVMStoreKey)
-		require.True(t, mod[keys.EVMStoreKey].Equal(s.perDBWorkingLtHash[dir]),
+		require.True(t, mod[keys.EVMStoreKey].Equal(s.maintainedHashes().PerDB[dir]),
 			"%s evm module hash should equal per-DB root", dir)
 	}
 }
@@ -167,7 +167,7 @@ func TestPerModuleLtHashPersistenceAfterReopen(t *testing.T) {
 	verifyModuleLtHash(t, s1)
 
 	expected := make(map[string]map[string][32]byte)
-	for dir, mods := range s1.perDBModuleWorkingLtHash {
+	for dir, mods := range s1.maintainedHashes().PerModule {
 		expected[dir] = make(map[string][32]byte)
 		for module, h := range mods {
 			expected[dir][module] = h.Checksum()
@@ -189,7 +189,7 @@ func TestPerModuleLtHashPersistenceAfterReopen(t *testing.T) {
 	// Working per-module hashes rehydrated from disk must match pre-close.
 	for dir, mods := range expected {
 		for module, cs := range mods {
-			got := s2.perDBModuleWorkingLtHash[dir][module]
+			got := s2.maintainedHashes().PerModule[dir][module]
 			require.NotNil(t, got, "module %s/%s missing after reopen", dir, module)
 			require.Equal(t, cs, got.Checksum(),
 				"per-module hash mismatch after reopen for %s/%s", dir, module)
@@ -228,14 +228,14 @@ func TestPerModuleLtHashDeleteModuleZerosHash(t *testing.T) {
 	commitAndCheck(t, s)
 
 	zero := lthash.New().Checksum()
-	require.NotEqual(t, zero, s.perDBModuleWorkingLtHash[miscDBDir]["gov"].Checksum(),
+	require.NotEqual(t, zero, s.maintainedHashes().PerModule[miscDBDir]["gov"].Checksum(),
 		"gov module hash should be non-zero after write")
 
 	del := moduleCS("gov", &proto.KVPair{Key: govKey, Delete: true})
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{del}))
 	commitAndCheck(t, s)
 
-	require.Equal(t, zero, s.perDBModuleWorkingLtHash[miscDBDir]["gov"].Checksum(),
+	require.Equal(t, zero, s.maintainedHashes().PerModule[miscDBDir]["gov"].Checksum(),
 		"gov module hash should be zero after deleting all its keys")
 	verifyModuleLtHash(t, s)
 }
@@ -256,25 +256,35 @@ func TestPerModuleLtHashAfterImport(t *testing.T) {
 	imp, err := s.Importer(1)
 	require.NoError(t, err)
 
+	var nodes []*scTypes.SnapshotNode
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
 		storVal := vtype.NewStorageData().SetBlockHeight(1).SetValue(&[32]byte{i, 0xAA}).Serialize()
 		acctVal := vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 1})
-		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 1})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     storagePhysKey(addr, slot),
+			Value:   storVal,
+			Version: 1,
+		})
+		nodes = append(nodes, &scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 1})
 
 		// A non-EVM module row goes to miscDB under "gov/".
 		govVal := vtype.NewMiscData().SetBlockHeight(1).SetValue([]byte{i, 0xC0}).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: ktype.ModulePhysicalKey("gov", []byte{i}), Value: govVal, Version: 1})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Value:   govVal,
+			Version: 1,
+		})
 	}
+	addNodesInKeyOrder(imp, nodes)
 	require.NoError(t, imp.Close())
 
 	verifyModuleLtHash(t, s)
 
-	require.Contains(t, s.perDBModuleWorkingLtHash[miscDBDir], "gov")
-	require.Contains(t, s.perDBModuleWorkingLtHash[accountDBDir], keys.EVMStoreKey)
-	require.Contains(t, s.perDBModuleWorkingLtHash[storageDBDir], keys.EVMStoreKey)
+	require.Contains(t, s.maintainedHashes().PerModule[miscDBDir], "gov")
+	require.Contains(t, s.maintainedHashes().PerModule[accountDBDir], keys.EVMStoreKey)
+	require.Contains(t, s.maintainedHashes().PerModule[storageDBDir], keys.EVMStoreKey)
 	require.NoError(t, s.Close())
 }
 
@@ -298,24 +308,38 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 	imp, err := s1.Importer(7)
 	require.NoError(t, err)
 
+	var nodes []*scTypes.SnapshotNode
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
 		storVal := vtype.NewStorageData().SetBlockHeight(7).SetValue(&[32]byte{i, 0xAA}).Serialize()
 		acctVal := vtype.NewAccountData().SetBlockHeight(7).SetNonce(uint64(i)).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 7})
-		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 7})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     storagePhysKey(addr, slot),
+			Value:   storVal,
+			Version: 7,
+		})
+		nodes = append(nodes, &scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 7})
 
 		govVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xC0}).Serialize()
 		bankVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xD0}).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: ktype.ModulePhysicalKey("gov", []byte{i}), Value: govVal, Version: 7})
-		imp.AddNode(&scTypes.SnapshotNode{Key: ktype.ModulePhysicalKey("bank", []byte{i}), Value: bankVal, Version: 7})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Value:   govVal,
+			Version: 7,
+		})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     ktype.ModulePhysicalKey("bank", []byte{i}),
+			Value:   bankVal,
+			Version: 7,
+		})
 	}
+	addNodesInKeyOrder(imp, nodes)
 	require.NoError(t, imp.Close())
 	verifyModuleLtHash(t, s1)
 
 	expected := make(map[string]map[string][32]byte)
-	for dir, mods := range s1.perDBModuleWorkingLtHash {
+	for dir, mods := range s1.maintainedHashes().PerModule {
 		expected[dir] = make(map[string][32]byte)
 		for module, h := range mods {
 			expected[dir][module] = h.Checksum()
@@ -337,10 +361,10 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 	verifyModuleLtHash(t, s2)
 
 	for dir, mods := range expected {
-		require.Equal(t, len(mods), len(s2.perDBModuleWorkingLtHash[dir]),
+		require.Equal(t, len(mods), len(s2.maintainedHashes().PerModule[dir]),
 			"module count mismatch after restart for %s", dir)
 		for module, cs := range mods {
-			got := s2.perDBModuleWorkingLtHash[dir][module]
+			got := s2.maintainedHashes().PerModule[dir][module]
 			require.NotNil(t, got, "module %s/%s missing after restart", dir, module)
 			require.Equal(t, cs, got.Checksum(),
 				"per-module hash mismatch after restart for %s/%s", dir, module)
@@ -348,9 +372,9 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 	}
 
 	// miscDB must have persisted both cosmos modules across the restart.
-	require.Contains(t, s2.perDBModuleWorkingLtHash[miscDBDir], "gov")
-	require.Contains(t, s2.perDBModuleWorkingLtHash[miscDBDir], "bank")
+	require.Contains(t, s2.maintainedHashes().PerModule[miscDBDir], "gov")
+	require.Contains(t, s2.maintainedHashes().PerModule[miscDBDir], "bank")
 	// account/storage only ever carry the evm module.
-	require.Contains(t, s2.perDBModuleWorkingLtHash[accountDBDir], keys.EVMStoreKey)
-	require.Contains(t, s2.perDBModuleWorkingLtHash[storageDBDir], keys.EVMStoreKey)
+	require.Contains(t, s2.maintainedHashes().PerModule[accountDBDir], keys.EVMStoreKey)
+	require.Contains(t, s2.maintainedHashes().PerModule[storageDBDir], keys.EVMStoreKey)
 }

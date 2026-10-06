@@ -9,12 +9,11 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // TestDifferentialAgainstModel drives randomized operation sequences through both the real
 // ViewManager and a naive deep-copy oracle (modelManager), deep-comparing every observable read
-// (live + all held views: Get, BatchGet, GetDiff, Iterator) after each step. Any data-integrity
+// (live + all held views: Get, BatchGet, ForEachDiff, Iterator) after each step. Any data-integrity
 // divergence fails the test. Seeds are fixed for reproducibility.
 func TestDifferentialAgainstModel(t *testing.T) {
 	configs := []struct {
@@ -43,6 +42,7 @@ const (
 	opSet = iota
 	opDelete
 	opBatch
+	opUpdate
 	opView
 )
 
@@ -91,6 +91,13 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 			muts := randMuts(rng, keys)
 			require.NoError(t, manager.BatchSet(muts))
 			model.BatchSet(muts)
+		case opUpdate:
+			updated := randUpdateKeys(rng, keys)
+			require.NoError(t, manager.BatchUpdate(updated, foldUpdater{}))
+			for _, k := range updated {
+				prior, _ := model.GetLive([]byte(k))
+				model.Set([]byte(k), foldedValue(prior))
+			}
 		case opView:
 			if len(opens) >= maxOpen {
 				releaseOldest()
@@ -136,9 +143,7 @@ func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys []
 	compareReads(t, label, func(k []byte) ([]byte, bool, error) { return view.Get(k, false) }, lookup, keys)
 	compareBatchGet(t, label, view.BatchGet, lookup, keys)
 
-	gotDiff, err := view.GetDiff()
-	require.NoError(t, err, "%s GetDiff", label)
-	require.Equal(t, model.DiffAt(ver), gotDiff, "%s diff mismatch", label)
+	require.Equal(t, model.DiffAt(ver), collectDiff(t, view), "%s diff mismatch", label)
 }
 
 // checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator
@@ -193,11 +198,55 @@ func pickOp(rng *testutil.TestRandom) int {
 		return opSet
 	case r < 60:
 		return opDelete
-	case r < 80:
+	case r < 70:
 		return opBatch
+	case r < 80:
+		return opUpdate
 	default:
 		return opView
 	}
+}
+
+// randUpdateKeys picks the keys for one BatchUpdate, deduplicated because the contract forbids a
+// repeated key.
+func randUpdateKeys(rng *testutil.TestRandom, keys [][]byte) []string {
+	n := rng.IntRange(1, 9)
+	seen := make(map[string]struct{}, n)
+	picked := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		k := string(pick(rng, keys))
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		picked = append(picked, k)
+	}
+	return picked
+}
+
+// foldUpdater folds through foldedValue, so the oracle can reproduce the same writes from its own
+// state rather than carrying a second copy of the manager's logic.
+type foldUpdater struct{}
+
+var _ BatchUpdater = foldUpdater{}
+
+func (foldUpdater) NewValueFor(_ string, priorValue []byte) ([]byte, error) {
+	return foldedValue(priorValue), nil
+}
+
+// foldedValue is a pure function of the value a key already held. A key holding nothing gets one, a
+// value that has grown past the cap is deleted, and anything else is extended — between them the
+// create, modify and delete outcomes a fold can have. Bounded so a long run cannot grow values
+// without limit.
+func foldedValue(priorValue []byte) []byte {
+	if priorValue == nil {
+		return []byte("folded")
+	}
+	if len(priorValue) >= 12 {
+		return nil
+	}
+	// Copied rather than appended in place: priorValue aliases the manager's own stored value.
+	return append(append([]byte{}, priorValue...), '+')
 }
 
 func genKeys(rng *testutil.TestRandom, n int) [][]byte {
@@ -220,15 +269,15 @@ func pick(rng *testutil.TestRandom, keys [][]byte) []byte {
 	return keys[rng.IntRange(0, len(keys))]
 }
 
-func randMuts(rng *testutil.TestRandom, keys [][]byte) []*proto.KVPair {
+func randMuts(rng *testutil.TestRandom, keys [][]byte) []Write {
 	n := rng.IntRange(1, 9)
-	muts := make([]*proto.KVPair, n)
+	muts := make([]Write, n)
 	for i := range muts {
-		k := pick(rng, keys)
+		k := string(pick(rng, keys))
 		if rng.BoolWithProbability(0.25) {
-			muts[i] = &proto.KVPair{Key: k, Delete: true} // delete
+			muts[i] = Write{Key: k} // a nil value is a delete
 		} else {
-			muts[i] = &proto.KVPair{Key: k, Value: randVal(rng)}
+			muts[i] = Write{Key: k, Value: randVal(rng)}
 		}
 	}
 	return muts

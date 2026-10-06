@@ -80,7 +80,7 @@ describe('eth_getTransactionReceipt', function () {
                     cumulativeGasUsed: BigInt(rc.cumulativeGasUsed),
                 }))
                 .sort((a, b) => a.index - b.index);
-            assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), rich.cosmosShellGas);
+            assertCumulativeGasSeries(ordered, BigInt(block.gasUsed));
             for (const sent of rich.txs) {
                 const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
                 expect(BigInt(rc.gasUsed), `gasUsed for ${sent.kind}`).to.equal(sent.receipt.gasUsed);

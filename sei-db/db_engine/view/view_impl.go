@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -14,6 +15,9 @@ var _ View = (*viewImpl)(nil)
 type viewImpl struct {
 	version       uint64
 	parentManager *viewManager
+
+	// closed records whether the view's last reservation has been released, or the view abandoned.
+	closed utils.CloseMarker[viewImpl]
 }
 
 func (s *viewImpl) Name() string {
@@ -36,12 +40,11 @@ func (s *viewImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	return value, ok, nil
 }
 
-func (s *viewImpl) GetDiff() (map[string][]byte, error) {
-	diff, err := s.parentManager.GetDiffAtVersion(s.version)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get diff: %w", err)
+func (s *viewImpl) ForEachDiff(visit func(key string, value []byte) error) error {
+	if err := s.parentManager.ForEachDiffAtVersion(s.version, visit); err != nil {
+		return fmt.Errorf("failed to walk diff: %w", err)
 	}
-	return diff, nil
+	return nil
 }
 
 func (s *viewImpl) Reserve() error {
@@ -53,11 +56,21 @@ func (s *viewImpl) Reserve() error {
 }
 
 func (s *viewImpl) Release() error {
-	err := s.parentManager.DecrementReferenceCount(s.version)
+	lastReleased, err := s.parentManager.DecrementReferenceCount(s.version)
 	if err != nil {
+		// Every failure leaves the version already dropped or the manager bricked, so nothing more is
+		// released through this view.
+		s.closed.Close(s)
 		return fmt.Errorf("failed to decrement reference count: %w", err)
 	}
+	if lastReleased {
+		s.closed.Close(s)
+	}
 	return nil
+}
+
+func (s *viewImpl) Abandon() {
+	s.closed.Close(s)
 }
 
 func (s *viewImpl) Finalize(writes []*proto.KVPair) error {

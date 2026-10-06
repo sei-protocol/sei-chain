@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -75,16 +75,17 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	// Snapshotting every block (interval 1) combined with the default
-	// keep-recent of 1 would prune all but the two newest snapshots. FlatKV,
-	// which mirrors this cadence, needs a retained snapshot at-or-below the
-	// rollback target to reconstruct that version, so aggressive pruning would
-	// make the rollback/recovery tests unable to target older versions. In
-	// production (interval 10000) a small rollback always lands within a
-	// retained interval; here we retain all snapshots across the small test
-	// version ranges to model that guarantee. Tests that specifically exercise
-	// pruning override this explicitly.
+	// Snapshotting every block (interval 1) combined with a small keep-recent
+	// would prune all but the newest few snapshots. FlatKV, which mirrors this
+	// interval, needs a retained snapshot at-or-below the rollback target to
+	// reconstruct that version, so aggressive pruning would make the
+	// rollback/recovery tests unable to target older versions. In production
+	// (interval 10000) a small rollback always lands within a retained
+	// interval; here we retain all snapshots on both backends across the small
+	// test version ranges to model that guarantee. Tests that specifically
+	// exercise pruning override this explicitly.
 	cfg.MemIAVLConfig.SnapshotKeepRecent = 1000
+	cfg.FlatKVConfig.SnapshotKeepRecent = 1000
 	cfg.HistoricalProofRateLimit = 0
 	cfg.HistoricalProofMaxInFlight = 100
 	return cfg
@@ -391,7 +392,7 @@ func rollbackMemiavl(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig
 
 // openFlatKVReadOnly opens a readonly FlatKV store at the given rootmulti
 // home directory at the specified version. Caller must Close() when done.
-func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) giga.LiveStateStore {
+func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) gigatypes.LiveStateStore {
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)

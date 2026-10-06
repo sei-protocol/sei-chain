@@ -14,7 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -23,11 +23,16 @@ type pebbleDB struct {
 	db               *pebble.DB
 	metricsCancel    context.CancelFunc
 	operationMetrics *OperationMetrics
+	commitMetrics    *CommitMetrics
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[pebbleDB]
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
-// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB
+// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB.
+// ctx is unused: metrics collection is stopped by Close, not by cancellation.
 func Open(
 	ctx context.Context,
 	config *PebbleDBConfig,
@@ -37,8 +42,12 @@ func Open(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	pebbleCache := pebble.NewCache(int64(512 * unit.MB))
+	pebbleCache := pebble.NewCache(config.BlockCacheSize)
 	defer pebbleCache.Unref()
+
+	// Copied into a local because pebble calls CompactionConcurrencyRange for the DB's whole
+	// lifetime: closing over config would leave the bound reading the caller's struct.
+	maxCompactions := config.MaxConcurrentCompactions
 
 	popts := &pebble.Options{
 		Cache:    pebbleCache,
@@ -52,9 +61,13 @@ func Open(
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
-		MemTableSize:                64 << 20,
-		MemTableStopWritesThreshold: 4,
+		MemTableSize:                config.MemTableSize,
+		MemTableStopWritesThreshold: config.MemTableStopWritesThreshold,
 		DisableWAL:                  false,
+		// Pebble defaults this to a single compaction, which a sustained write load outruns: L0 gains
+		// sublevels faster than one compaction drains them, and every point lookup then pays to search
+		// all of them. See MaxConcurrentCompactions.
+		CompactionConcurrencyRange: func() (lower int, upper int) { return 1, maxCompactions },
 	}
 
 	// Configure L0 with explicit settings
@@ -85,16 +98,19 @@ func Open(
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	var metricsCancel func()
 	if config.EnableMetrics {
-		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
+		metricsCancel = NewPebbleMetrics(db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
-	return &pebbleDB{
+	p := &pebbleDB{
 		db:               db,
-		metricsCancel:    cancel,
+		metricsCancel:    metricsCancel,
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
-	}, nil
+		commitMetrics:    NewCommitMetrics(config.EnableMetrics, filepath.Base(config.DataDir)),
+	}
+	p.closed = utils.MustClose(p, "pebbledb")
+	return p, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
@@ -197,6 +213,7 @@ func (p *pebbleDB) Close() error {
 	if p.db == nil {
 		return nil
 	}
+	p.closed.Close(p)
 
 	if p.metricsCancel != nil {
 		p.metricsCancel()

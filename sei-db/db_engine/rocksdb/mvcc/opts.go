@@ -64,12 +64,19 @@ func NewRocksDBOpts(sstFileWriter bool) *grocksdb.Options {
 	return opts
 }
 
-// OpenRocksDB opens a RocksDB database connection for versioned reading and writing.
-// It also returns a column family handle for versioning using user-defined timestamps.
-// The default column family is used for metadata, specifically key/value pairs
-// that are stored on another column family named with "state_storage", which has
-// user-defined timestamp enabled.
-func OpenRocksDB(dataDir string) (*grocksdb.DB, *grocksdb.ColumnFamilyHandle, error) {
+// ColumnFamilies is the pair of column family handles opened alongside a
+// RocksDB database: the default column family, which RocksDB requires to be
+// opened but is never used, and state_storage, which holds versioned state
+// with user-defined timestamps. Every handle must be destroyed before the DB
+// closes or the ColumnFamilySet destructor asserts on the leftover reference.
+type ColumnFamilies struct {
+	Default      *grocksdb.ColumnFamilyHandle
+	StateStorage *grocksdb.ColumnFamilyHandle
+}
+
+// OpenRocksDB opens a RocksDB database connection for versioned reading and
+// writing along with handles to both column families.
+func OpenRocksDB(dataDir string) (*grocksdb.DB, ColumnFamilies, error) {
 	opts := grocksdb.NewDefaultOptions()
 	opts.SetCreateIfMissing(true)
 	opts.SetCreateIfMissingColumnFamilies(true)
@@ -87,16 +94,16 @@ func OpenRocksDB(dataDir string) (*grocksdb.DB, *grocksdb.ColumnFamilyHandle, er
 		},
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, ColumnFamilies{}, err
 	}
 
-	return db, cfHandles[1], nil
+	return db, ColumnFamilies{Default: cfHandles[0], StateStorage: cfHandles[1]}, nil
 }
 
 // OpenRocksDBAndTrimHistory opens a RocksDB handle similar to `OpenRocksDB`,
 // but it also trims the versions newer than target one, such that it can be used
 // for rollback.
-func OpenRocksDBAndTrimHistory(dataDir string, version int64) (*grocksdb.DB, *grocksdb.ColumnFamilyHandle, error) {
+func OpenRocksDBAndTrimHistory(dataDir string, version int64) (*grocksdb.DB, ColumnFamilies, error) {
 	var ts [TimestampSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 
@@ -118,8 +125,8 @@ func OpenRocksDBAndTrimHistory(dataDir string, version int64) (*grocksdb.DB, *gr
 		ts[:],
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, ColumnFamilies{}, err
 	}
 
-	return db, cfHandles[1], nil
+	return db, ColumnFamilies{Default: cfHandles[0], StateStorage: cfHandles[1]}, nil
 }

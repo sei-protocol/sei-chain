@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -34,17 +35,23 @@ const (
 	bytesPerMiB = 1 << 20
 )
 
+// The logical buckets that ClassifyFlatKVPhysicalKey sorts FlatKV physical keys into.
 const (
-	flatkvBucketAccount = "account"
-	flatkvBucketCode    = "code"
-	flatkvBucketStorage = "storage"
-	flatkvBucketMisc    = "misc"
+	FlatKVBucketAccount = "account"
+	FlatKVBucketCode    = "code"
+	FlatKVBucketStorage = "storage"
+	FlatKVBucketMisc    = "misc"
 )
 
 // flatkvBucketOrder lists the logical bucket names for dump output files.
 // RawGlobalIterator emits keys in global lex order; this order is used only
 // for CLI validation and per-bucket file allocation.
-var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketMisc}
+var flatkvBucketOrder = []string{FlatKVBucketAccount, FlatKVBucketCode, FlatKVBucketStorage, FlatKVBucketMisc}
+
+// FlatKVBuckets returns the logical bucket names in account, code, storage, misc order.
+func FlatKVBuckets() []string {
+	return slices.Clone(flatkvBucketOrder)
+}
 
 // DumpFlatKVCmd dumps every (physical key, value) pair of a FlatKV store into
 // per-bucket files, formatted to match dump-iavl so the same diff tooling works
@@ -143,7 +150,7 @@ func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 	if outputDir == "" && !lthashOnly {
 		panic("Must provide --output-dir")
 	}
-	if bucket != "" && !isFlatKVBucket(bucket) {
+	if bucket != "" && !IsFlatKVBucket(bucket) {
 		panic(fmt.Sprintf("Unknown --bucket %q. Valid: account, code, storage, misc", bucket))
 	}
 	if lthashOnly && !withLtHash {
@@ -161,13 +168,9 @@ func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 	}
 }
 
-func isFlatKVBucket(name string) bool {
-	for _, b := range flatkvBucketOrder {
-		if b == name {
-			return true
-		}
-	}
-	return false
+// IsFlatKVBucket reports whether name is one of the logical bucket names.
+func IsFlatKVBucket(name string) bool {
+	return slices.Contains(flatkvBucketOrder, name)
 }
 
 // DumpFlatKVData opens a read-only clone of a FlatKV store at the requested
@@ -200,7 +203,7 @@ func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLt
 // dumpFlatKVFromStore is the core scan+write path, split out so tests can
 // exercise it against an in-memory store without going through the
 // snapshot clone machinery used by the CLI.
-func dumpFlatKVFromStore(store giga.LiveStateStore, outputDir string, version int64, bucket string,
+func dumpFlatKVFromStore(store gigatypes.LiveStateStore, outputDir string, version int64, bucket string,
 	withLtHash bool, lthashOnly bool, readLimitMiBps float64,
 ) error {
 	limiter := newReadLimiter(readLimitMiBps)
@@ -265,7 +268,7 @@ func dumpFlatKVFromStore(store giga.LiveStateStore, outputDir string, version in
 				return fmt.Errorf("read rate limiter: %w", err)
 			}
 		}
-		bucketName := classifyFlatKVPhysicalKey(key)
+		bucketName := ClassifyFlatKVPhysicalKey(key)
 		if h := hashers[bucketName]; h != nil {
 			h.add(key, val)
 		}
@@ -337,21 +340,21 @@ const lthashBatchCap = 8192
 // committed LtHash.
 type bucketLtHasher struct {
 	acc   *lthash.LtHash
-	batch []lthash.KVPairWithLastValue
+	batch []lthash.KeyMutation
 	count uint64
 }
 
 func newBucketLtHasher() *bucketLtHasher {
 	return &bucketLtHasher{
 		acc:   lthash.New(),
-		batch: make([]lthash.KVPairWithLastValue, 0, lthashBatchCap),
+		batch: make([]lthash.KeyMutation, 0, lthashBatchCap),
 	}
 }
 
 // add buffers one (key, value) pair. The iterator may reuse the underlying
 // slices on Next(), so both are cloned before being retained in the batch.
 func (h *bucketLtHasher) add(key, val []byte) {
-	h.batch = append(h.batch, lthash.KVPairWithLastValue{
+	h.batch = append(h.batch, lthash.KeyMutation{
 		Key:   bytes.Clone(key),
 		Value: bytes.Clone(val),
 	})
@@ -365,7 +368,7 @@ func (h *bucketLtHasher) flush() {
 	if len(h.batch) == 0 {
 		return
 	}
-	delta, _ := lthash.ComputeLtHash(nil, h.batch)
+	delta := lthash.ComputeLtHash(nil, h.batch)
 	h.acc.MixIn(delta)
 	h.batch = h.batch[:0]
 }
@@ -388,8 +391,15 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 // verifyFlatKVLtHash cross-checks the freshly re-scanned total LtHash against the store's committed
 // root. A PASS means the physical bytes on disk hash to exactly the root the store reports at this
 // version. Returns an error on mismatch so the CLI exits non-zero.
-func verifyFlatKVLtHash(store giga.LiveStateStore, hashers map[string]*bucketLtHasher) error {
-	committedTotal, _ := store.RootHash()
+func verifyFlatKVLtHash(store gigatypes.LiveStateStore, hashers map[string]*bucketLtHasher) error {
+	// A dump reads a store at rest, so the height the store stands at already describes everything it
+	// holds. A nil listener asks for it without subscribing to anything.
+	published, err := store.RegisterHashListener(nil)
+	if err != nil {
+		return fmt.Errorf("read the flatkv hash: %w", err)
+	}
+	committedChecksum := published.Global.Checksum()
+	committedTotal := committedChecksum[:]
 
 	// A store holding no state reports the checksum of the zero LtHash. Treat that as "nothing to
 	// verify against" rather than a spurious failure.

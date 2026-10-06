@@ -3,7 +3,6 @@ package ante_test
 import (
 	"encoding/hex"
 	"fmt"
-	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -19,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
@@ -423,19 +421,13 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 func TestMigrateBalance(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
-	admin, _ := testkeeper.MockAddressPair()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
-	k.BankKeeper().AddCoins(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2))), false)
-	// set a vesting account of 1
-	k.AccountKeeper().SetAccount(ctx, vestingtypes.NewDelayedVestingAccountRaw(
-		vestingtypes.NewBaseVestingAccount(
-			k.AccountKeeper().NewAccountWithAddress(ctx, sdk.AccAddress(evmAddr[:])).(*authtypes.BaseAccount),
-			sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))), math.MaxInt64, admin),
-	))
+	castAddr := sdk.AccAddress(evmAddr[:])
+	k.AccountKeeper().SetAccount(ctx, k.AccountKeeper().NewAccountWithAddress(ctx, castAddr))
+	require.NoError(t, k.BankKeeper().AddCoins(ctx, castAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2))), false))
 	associateHelper := helpers.NewAssociationHelper(k, k.BankKeeper(), k.AccountKeeper())
 	require.Nil(t, associateHelper.MigrateBalance(ctx, evmAddr, seiAddr, false))
-	require.Equal(t, int64(1), k.BankKeeper().SpendableCoins(ctx, seiAddr).AmountOf("usei").Int64())
-	require.Equal(t, int64(0), k.BankKeeper().LockedCoins(ctx, seiAddr).AmountOf("usei").Int64())
-	require.Equal(t, int64(0), k.BankKeeper().SpendableCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
-	require.Equal(t, int64(1), k.BankKeeper().LockedCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
+	require.Equal(t, int64(2), k.BankKeeper().SpendableCoins(ctx, seiAddr).AmountOf("usei").Int64())
+	require.True(t, k.BankKeeper().GetAllBalances(ctx, castAddr).IsZero())
+	require.Nil(t, k.AccountKeeper().GetAccount(ctx, castAddr))
 }

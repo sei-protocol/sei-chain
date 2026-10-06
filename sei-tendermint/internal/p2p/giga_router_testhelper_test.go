@@ -200,7 +200,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
-		EVMRPC:   utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))),
+		EVMRPC:   *utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))),
 	}
 }
 

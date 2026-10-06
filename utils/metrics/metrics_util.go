@@ -79,18 +79,15 @@ func SetupOtelMetricsProvider(chainID string) error {
 	return nil
 }
 
-// RecordBankNewAccount dual-emits the legacy new-account counter and its OTel
-// counterpart (bank_new_account). Call from defer when creating an account.
-// Runs during precompile execution, so a telemetry fault here must not panic
-// into a consensus-critical path.
+// RecordBankNewAccount increments the bank_new_account counter. Call from
+// defer when creating an account. Runs during precompile execution, so a
+// telemetry fault here must not panic into a consensus-critical path.
 func RecordBankNewAccount(ctx context.Context) {
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	// TODO(PLT-353): remove once bank_new_account verified
-	telemetry.IncrCounter(1, "new", "account")
 	bankNewAccountCounter.Add(ctx, 1)
 }
 

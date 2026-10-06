@@ -14,8 +14,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -26,6 +28,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -44,8 +48,7 @@ import (
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
-	require.NoError(t, store.SetLatestVersion(latest))
-	require.NoError(t, store.SetEarliestVersion(1))
+	require.NoError(t, pinReceiptVersions(store, latest))
 }
 
 // bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).
@@ -603,6 +606,7 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
+	const maxConcurrentSimulationCalls = 2
 
 	type testEnv struct {
 		simAPI *evmrpc.SimulationAPI
@@ -629,7 +633,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		config := &evmrpc.SimulateConfig{
 			GasCap:                       1000000,
 			EVMTimeout:                   5 * time.Second,
-			MaxConcurrentSimulationCalls: 2, // Small limit to easily trigger rate limiting
+			MaxConcurrentSimulationCalls: maxConcurrentSimulationCalls,
 		}
 
 		// Use the existing test app from the global setup
@@ -675,9 +679,21 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			args:   args,
 		}
 	}
+	assertRateLimited := func(t *testing.T, tEnv *testEnv, expected string, invoke func() error) {
+		t.Helper()
+		release, err := tEnv.simAPI.HoldSimulationSlotsForTest(t.Context(), maxConcurrentSimulationCalls)
+		require.NoError(t, err)
+		defer release()
+		require.EqualError(t, invoke(), expected)
+	}
 
 	t.Run("TestEthCallRateLimiting", func(t *testing.T) {
 		tEnv := newTestEnv(t)
+		assertRateLimited(t, tEnv, "eth_call rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
+			return err
+		})
+
 		// Test eth_call rate limiting with concurrent requests
 		numRequests := 10 // Much more than the limit of 2
 		runBurst := func() []error {
@@ -718,8 +734,9 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			}
 		}
 
-		// With only 2 concurrent slots and 10 requests, we should have rejections
-		require.Greater(t, rejectedCount, 0, "Should have rejected requests due to rate limiting")
+		// Calls can serialize before another goroutine holds a slot. The saturated
+		// call above covers rejection deterministically; this burst covers the
+		// concurrent response outcomes.
 		require.Greater(t, successCount, 0, "Should have some successful requests")
 		require.Equal(t, numRequests, successCount+rejectedCount, "All requests should be accounted for")
 
@@ -890,122 +907,23 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
-		// Test that different simulation methods share the same rate limiter.
-		// A single burst can occasionally avoid contention on overloaded CI workers,
-		// so retry a synchronized burst a few times.
-		const (
-			numCallRequests     = 20
-			numEstimateRequests = 20
-			maxAttempts         = 5
-		)
-		totalRequests := numCallRequests + numEstimateRequests
-
-		runMixedBurst := func(tEnv *testEnv) (int, int) {
-			results := make(chan error, totalRequests)
-			start := make(chan struct{})
-			var wg sync.WaitGroup
-
-			// Start mixed requests and release them at once to maximize contention.
-			for range numCallRequests {
-				wg.Go(func() {
-					<-start
-					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
-					results <- err
-				})
-			}
-			for range numEstimateRequests {
-				wg.Go(func() {
-					<-start
-					_, err := tEnv.simAPI.EstimateGas(t.Context(), tEnv.args, nil, nil)
-					results <- err
-				})
-			}
-
-			close(start)
-			wg.Wait()
-			close(results)
-
-			successCount := 0
-			rejectedCount := 0
-			for err := range results {
-				if err == nil {
-					successCount++
-				} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
-					rejectedCount++
-				}
-			}
-			return successCount, rejectedCount
-		}
-
-		var (
-			lastSuccess       int
-			lastRejected      int
-			attemptsUsed      int
-			observedRejection bool
-		)
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			attemptsUsed = attempt
-			lastSuccess, lastRejected = runMixedBurst(newTestEnv(t))
-			require.Equalf(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for (attempt %d)", attempt)
-			if lastRejected > 0 {
-				observedRejection = true
-				break
-			}
-		}
-
-		require.Truef(
-			t,
-			observedRejection,
-			"Different methods should share the same rate limiter (last burst: %d successful, %d rejected)",
-			lastSuccess,
-			lastRejected,
-		)
-		t.Logf(
-			"Mixed methods rate limiting (attempt %d/%d): %d successful, %d rejected out of %d total",
-			attemptsUsed,
-			maxAttempts,
-			lastSuccess,
-			lastRejected,
-			totalRequests,
-		)
+		tEnv := newTestEnv(t)
+		assertRateLimited(t, tEnv, "eth_call rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
+			return err
+		})
+		assertRateLimited(t, tEnv, "eth_estimateGas rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.EstimateGas(t.Context(), tEnv.args, nil, nil)
+			return err
+		})
 	})
 
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
 		tEnv := newTestEnv(t)
-		// Test the error message format by overwhelming the rate limiter
-		const numRequests = 20
-		results := make(chan error, numRequests)
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-
-		// Release all requests at once to reliably saturate the limiter.
-		for range numRequests {
-			wg.Go(func() {
-				<-start
-				_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
-				results <- err
-			})
-		}
-		close(start)
-		wg.Wait()
-		close(results)
-
-		var rateLimitErrors []error
-		for err := range results {
-			if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
-				rateLimitErrors = append(rateLimitErrors, err)
-			}
-		}
-
-		require.Greater(t, len(rateLimitErrors), 0, "Should have at least one rate limit error")
-
-		// Verify error message format
-		for _, err := range rateLimitErrors {
-			require.Contains(t, err.Error(), "eth_call rejected due to rate limit: server busy")
-			require.Contains(t, err.Error(), "server busy")
-		}
-
-		t.Logf("Found %d rate limit errors with correct format", len(rateLimitErrors))
+		assertRateLimited(t, tEnv, "eth_createAccessList rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.CreateAccessList(t.Context(), tEnv.args, nil)
+			return err
+		})
 	})
 }
 
@@ -1056,6 +974,211 @@ func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, e
 			EarliestBlockHeight: 1,
 		},
 	}, nil
+}
+
+func (c *fixedBlockClient) Validators(context.Context, *int64, *int, *int) (*coretypes.ResultValidators, error) {
+	return &coretypes.ResultValidators{}, nil
+}
+
+func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.T) {
+	const (
+		v67UpgradeHeight = int64(200)
+		v68UpgradeHeight = int64(201)
+	)
+
+	testApp := app.Setup(t, false, false, false)
+	v67UpgradeTime := time.Now().UTC().Add(time.Minute)
+	v68UpgradeTime := v67UpgradeTime.Add(time.Second)
+	nextBlockTime := v68UpgradeTime.Add(10 * time.Second)
+	baseCtx := testApp.BaseApp.NewContext(false, tenderminttypes.Header{
+		Height: v67UpgradeHeight - 1,
+		Time:   v67UpgradeTime.Add(-time.Second),
+	}).WithIsTracing(true).WithClosestUpgradeName("v6.8")
+	govStore := baseCtx.KVStore(testApp.GetKey(govtypes.StoreKey))
+	govStore.Delete(govtypes.IncrementalTallyEnabledKey)
+	govStore.Delete(govtypes.VoteDelegationBackfillCutoffKey)
+	govStore.Delete(govtypes.DeadlineBoundaryBlockTimeKey)
+
+	latestCtx := baseCtx.WithIsTracing(false).WithBlockHeight(v68UpgradeHeight + 1).WithBlockTime(nextBlockTime)
+	testApp.UpgradeKeeper.SetDone(latestCtx.WithBlockHeight(v67UpgradeHeight), "v6.7")
+	testApp.UpgradeKeeper.SetDone(latestCtx.WithBlockHeight(v68UpgradeHeight), "v6.8")
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), v68UpgradeHeight+1)
+	parentCtx := baseCtx
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return latestCtx
+		}
+		return parentCtx.WithBlockHeight(height)
+	}
+
+	stateAtBlock := func(height int64, blockTime time.Time) *state.DBImpl {
+		tmClient := &fixedBlockClient{block: &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header:     tmtypes.Header{Height: height, Time: blockTime},
+				LastCommit: &tmtypes.Commit{Height: height - 1},
+			},
+		}}
+		watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+		backend := evmrpc.NewBackend(
+			ctxProvider,
+			&testApp.EvmKeeper,
+			testApp.BeginBlockKeepers,
+			func(int64) client.TxConfig { return TxConfig },
+			tmClient,
+			&SConfig,
+			testApp.BaseApp,
+			testApp.TracerAnteHandler,
+			evmrpc.NewBlockCache(3000),
+			&sync.Mutex{},
+			watermarks,
+		)
+		block := ethtypes.NewBlock(
+			&ethtypes.Header{Number: big.NewInt(height), Time: uint64(blockTime.Unix()), Difficulty: big.NewInt(0)}, //nolint:gosec
+			&ethtypes.Body{},
+			nil,
+			trie.NewStackTrie(nil),
+		)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		require.NoError(t, err)
+		t.Cleanup(release)
+		return stateDB.(*state.DBImpl)
+	}
+
+	v67State := stateAtBlock(v67UpgradeHeight, v67UpgradeTime)
+	require.False(t, testApp.GovKeeper.IncrementalTallyEnabled(v67State.Ctx()))
+
+	activationState := stateAtBlock(v68UpgradeHeight, v68UpgradeTime)
+	activationCtx := activationState.Ctx()
+	require.True(t, testApp.GovKeeper.IncrementalTallyEnabled(activationCtx))
+	require.Equal(t, sdk.FormatTimeBytes(v68UpgradeTime), activationCtx.KVStore(testApp.GetKey(govtypes.StoreKey)).Get(govtypes.DeadlineBoundaryBlockTimeKey))
+	cutoff, found := testApp.GovKeeper.GetVoteDelegationBackfillCutoff(activationCtx)
+	require.True(t, found)
+	require.Equal(t, uint64(1), cutoff)
+
+	proposal, err := testApp.GovKeeper.SubmitProposal(activationCtx, govtypes.NewTextProposal("trace", "gap", false))
+	require.NoError(t, err)
+	testApp.GovKeeper.RemoveFromInactiveProposalQueue(activationCtx, proposal.ProposalId, proposal.DepositEndTime)
+	proposal.Status = govtypes.StatusVotingPeriod
+	proposal.VotingStartTime = v68UpgradeTime
+	proposal.VotingEndTime = v68UpgradeTime.Add(5 * time.Second)
+	testApp.GovKeeper.SetProposal(activationCtx, proposal)
+	testApp.GovKeeper.InsertActiveProposalQueue(activationCtx, proposal.ProposalId, proposal.VotingEndTime)
+	parentCtx = activationCtx
+
+	nextState := stateAtBlock(v68UpgradeHeight+1, nextBlockTime)
+	nextStore := nextState.Ctx().KVStore(testApp.GetKey(govtypes.StoreKey))
+	require.True(t, nextStore.Has(govtypes.GapTallyBoundaryKey(nextBlockTime)))
+}
+
+// TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights re-traces
+// blocks around v6.7 and v6.8 upgrades, recorded at their heights, through the
+// app's RPCContextProvider, and requires bank's locked-coins lookup to read the
+// account only in blocks whose named upgrade precedes v6.8. Every binary before
+// v6.8 made that read. The provider names the first upgrade applied at or after
+// a block's parent, so v6.7 blocks from the second after that upgrade on are
+// named v6.8 and re-traced without it, as bank's RetracesLockedCoinsLookup
+// documents.
+func TestStateAtBlockRetracesLockedCoinsLookupFromRecordedUpgradeHeights(t *testing.T) {
+	const (
+		v67UpgradeHeight = int64(3)
+		v68UpgradeHeight = int64(7)
+		latestHeight     = v68UpgradeHeight + 1
+	)
+
+	testApp := app.Setup(t, false, false, false)
+	holder := sdk.AccAddress([]byte("locked_coins_holder_"))
+	genesisTime := time.Now().UTC()
+	blockTime := func(height int64) time.Time {
+		return genesisTime.Add(time.Duration(height) * time.Second)
+	}
+	for height := int64(1); height <= latestHeight; height++ {
+		_, err := testApp.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+			Header: &tenderminttypes.Header{ChainID: testApp.ChainID, Height: height, Time: blockTime(height)},
+		})
+		require.NoError(t, err)
+		blockCtx := testApp.GetContextForDeliverTx(nil)
+		switch height {
+		case 1:
+			testApp.AccountKeeper.SetAccount(blockCtx, testApp.AccountKeeper.NewAccountWithAddress(blockCtx, holder))
+		case v67UpgradeHeight:
+			testApp.UpgradeKeeper.SetDone(blockCtx, "v6.7")
+		case v68UpgradeHeight:
+			testApp.UpgradeKeeper.SetDone(blockCtx, "v6.8")
+		}
+		_, err = testApp.Commit(t.Context())
+		require.NoError(t, err)
+	}
+	if stateStore, ok := testApp.GetStateStore().(dbtypes.PendingWriteWaiter); ok {
+		stateStore.WaitForPendingWrites()
+	}
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), latestHeight)
+
+	stateAtBlock := func(height int64) *state.DBImpl {
+		tmClient := &fixedBlockClient{block: &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header:     tmtypes.Header{Height: height, Time: blockTime(height)},
+				LastCommit: &tmtypes.Commit{Height: height - 1},
+			},
+		}}
+		watermarks := evmrpc.NewWatermarkManager(tmClient, testApp.RPCContextProvider, nil, testApp.EvmKeeper.ReceiptStore())
+		backend := evmrpc.NewBackend(
+			testApp.RPCContextProvider,
+			&testApp.EvmKeeper,
+			testApp.BeginBlockKeepers,
+			func(int64) client.TxConfig { return TxConfig },
+			tmClient,
+			&SConfig,
+			testApp.BaseApp,
+			testApp.TracerAnteHandler,
+			evmrpc.NewBlockCache(3000),
+			&sync.Mutex{},
+			watermarks,
+		)
+		block := ethtypes.NewBlock(
+			&ethtypes.Header{Number: big.NewInt(height), Time: uint64(blockTime(height).Unix()), Difficulty: big.NewInt(0)}, //nolint:gosec
+			&ethtypes.Body{},
+			nil,
+			trie.NewStackTrie(nil),
+		)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		require.NoError(t, err)
+		t.Cleanup(release)
+		return stateDB.(*state.DBImpl)
+	}
+	gasConsumedBy := func(ctx sdk.Context, f func(sdk.Context)) sdk.Gas {
+		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+		f(ctx)
+		return ctx.GasMeter().GasConsumed()
+	}
+
+	for _, tc := range []struct {
+		name         string
+		height       int64
+		upgradeName  string
+		readsAccount bool
+	}{
+		{name: "a block before the v6.7 upgrade", height: v67UpgradeHeight - 1, upgradeName: "v6.7", readsAccount: true},
+		{name: "the v6.7 upgrade block", height: v67UpgradeHeight, upgradeName: "v6.7", readsAccount: true},
+		{name: "the first block after the v6.7 upgrade", height: v67UpgradeHeight + 1, upgradeName: "v6.7", readsAccount: true},
+		// v6.7 executed the next two blocks with the read their traces skip.
+		{name: "the second block after the v6.7 upgrade", height: v67UpgradeHeight + 2, upgradeName: "v6.8", readsAccount: false},
+		{name: "the last block before the v6.8 upgrade", height: v68UpgradeHeight - 1, upgradeName: "v6.8", readsAccount: false},
+		{name: "the v6.8 upgrade block", height: v68UpgradeHeight, upgradeName: "v6.8", readsAccount: false},
+		{name: "a block after the v6.8 upgrade", height: v68UpgradeHeight + 1, upgradeName: "v6.8", readsAccount: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := stateAtBlock(tc.height).Ctx()
+			require.Equal(t, tc.upgradeName, ctx.ClosestUpgradeName())
+
+			accountRead := gasConsumedBy(ctx, func(ctx sdk.Context) { testApp.AccountKeeper.GetAccount(ctx, holder) })
+			require.Positive(t, accountRead)
+			var want sdk.Gas
+			if tc.readsAccount {
+				want = accountRead
+			}
+			require.Equal(t, want, gasConsumedBy(ctx, func(ctx sdk.Context) { testApp.BankKeeper.LockedCoins(ctx, holder) }))
+		})
+	}
 }
 
 func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) {

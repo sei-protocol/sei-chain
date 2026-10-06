@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"math/big"
@@ -68,9 +69,7 @@ func nextKey(idx uint64) *ecdsa.PrivateKey {
 	seed := make([]byte, 32)
 	// use upper 8 bytes for the index so seed is never all-zero
 	seed[0] = 0x01
-	for i := 0; i < 8; i++ {
-		seed[1+i] = byte(idx >> (56 - 8*i))
-	}
+	binary.BigEndian.PutUint64(seed[1:9], idx)
 	key, err := crypto.ToECDSA(seed)
 	if err != nil {
 		panic(fmt.Sprintf("bad key seed %d: %v", idx, err))

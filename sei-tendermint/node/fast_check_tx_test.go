@@ -10,6 +10,7 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -60,13 +61,14 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
 		},
-	}, app)
+	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
 	_, ok := prepared.(*MockApp)
 	require.True(t, ok)
@@ -75,44 +77,43 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
-	}, app)
+	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
 	_, ok := prepared.(fastCheckTxApplication)
 	require.True(t, ok)
 }
 
-func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
+func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
-			EVMOnlyInMemory: true,
-			MockApp:         true,
-			FastCheckTx:     true,
+			MockApp:     true,
+			FastCheckTx: true,
 		},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app)
+	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	require.Equal(t, "evmonly-in-memory", prepared.Info().Data)
-	validators := prepared.GetValidators()
-	require.Len(t, validators, 1)
-	require.Equal(t, int64(1), validators[0].Power)
-	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
+	_, ok = prepared.(*MockApp)
+	require.True(t, ok)
 }
 
-func TestPrepareApplicationEVMOnlyInMemoryRequiresReadableAutobahnConfig(t *testing.T) {
-	_, err := prepareApplication(&config.Config{
-		BaseConfig:         config.BaseConfig{EVMOnlyInMemory: true},
+func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
+	_, _, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
-	}, abci.BaseApplication{})
+	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
 
 	require.Error(t, err)
 }
@@ -131,27 +132,6 @@ func TestValidateNodeSetupConfigAllowsMockAppWithAutobahn(t *testing.T) {
 	err := validateNodeSetupConfig(&config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp: true,
-		},
-		AutobahnConfigFile: "/tmp/autobahn.json",
-	})
-
-	require.NoError(t, err)
-}
-
-func TestValidateNodeSetupConfigRejectsEVMOnlyInMemoryWithoutAutobahn(t *testing.T) {
-	err := validateNodeSetupConfig(&config.Config{
-		BaseConfig: config.BaseConfig{
-			EVMOnlyInMemory: true,
-		},
-	})
-
-	require.Error(t, err)
-}
-
-func TestValidateNodeSetupConfigAllowsEVMOnlyInMemoryWithAutobahn(t *testing.T) {
-	err := validateNodeSetupConfig(&config.Config{
-		BaseConfig: config.BaseConfig{
-			EVMOnlyInMemory: true,
 		},
 		AutobahnConfigFile: "/tmp/autobahn.json",
 	})

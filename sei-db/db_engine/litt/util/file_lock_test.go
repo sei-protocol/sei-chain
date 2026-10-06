@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -160,11 +159,14 @@ func TestFileLockConcurrency(t *testing.T) {
 	lockPath := filepath.Join(tempDir, "concurrent.lock")
 
 	const numGoroutines = 10
-	const duration = 50 * time.Millisecond
 
 	var successCount int32
 	var wg sync.WaitGroup
 	results := make(chan bool, numGoroutines)
+
+	// The holder keeps the lock until every goroutine has made its attempt.
+	var attempted sync.WaitGroup
+	attempted.Add(numGoroutines)
 
 	logger := slog.Default()
 
@@ -175,14 +177,13 @@ func TestFileLockConcurrency(t *testing.T) {
 			defer wg.Done()
 
 			lock, err := NewFileLock(logger, lockPath, false)
+			attempted.Done()
 			if err != nil {
 				results <- false
 				return
 			}
 
-			// Hold the lock for a short time
-			time.Sleep(duration)
-
+			attempted.Wait()
 			lock.Release()
 
 			results <- true

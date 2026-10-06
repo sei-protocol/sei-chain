@@ -244,7 +244,6 @@ func (s *CommitStore) applyAndCommit(
 		return fmt.Errorf("commit v%d: %w", version, err)
 	}
 	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
 	s.clearPendingBlock()
 	return nil
 }

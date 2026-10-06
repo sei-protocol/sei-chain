@@ -11,6 +11,11 @@ func NewMultiStakingHooks(hooks ...StakingHooks) MultiStakingHooks {
 	return hooks
 }
 
+// AddHooks appends staking hooks to this ordered hook set.
+func (h *MultiStakingHooks) AddHooks(hooks ...StakingHooks) {
+	*h = append(*h, hooks...)
+}
+
 func (h MultiStakingHooks) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) {
 	for i := range h {
 		h[i].AfterValidatorCreated(ctx, valAddr)

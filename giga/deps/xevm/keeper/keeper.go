@@ -10,7 +10,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
@@ -80,9 +79,6 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
-
-	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
-	EvmoneVM *evmc.VM
 
 	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
 	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.
@@ -177,11 +173,17 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 	cp := make(map[common.Address]string, len(k.customPrecompiles))
 	for addr, versioned := range k.customPrecompiles {
 		mostRecentUpgradeHeight := int64(0)
+		earliestUpgradeHeight := int64(0)
+		earliestUpgrade := ""
 		noForkHistory := true
 		for upgrade := range versioned {
 			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
 			if upgradeHeight != 0 {
 				noForkHistory = false
+				if earliestUpgradeHeight == 0 || upgradeHeight < earliestUpgradeHeight {
+					earliestUpgradeHeight = upgradeHeight
+					earliestUpgrade = upgrade
+				}
 			}
 			if height < upgradeHeight {
 				// requested height hasn't seen this upgrade version yet.
@@ -194,6 +196,8 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 		}
 		if noForkHistory {
 			cp[addr] = k.latestUpgrade
+		} else if mostRecentUpgradeHeight == 0 {
+			cp[addr] = earliestUpgrade
 		}
 	}
 	return cp

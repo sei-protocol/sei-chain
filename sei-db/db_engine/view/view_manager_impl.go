@@ -11,6 +11,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -38,6 +39,9 @@ type viewManager struct {
 
 	// A pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool
+
+	// A pool for ordering each sealed version's writes by key, ahead of the flush that consumes them.
+	sortPool threading.Pool
 
 	// The underlying key-value database.
 	db types.KeyValueDB
@@ -161,6 +165,15 @@ func NewViewManager(
 	// readPool results, so sharing one fixed-size pool can deadlock under load. Pass distinct
 	// pools, or an elastic pool.
 	miscPool threading.Pool,
+	// A work pool for ordering each sealed version's writes by key.
+	//
+	// Must not be readPool or miscPool: a sort job blocks awaiting the folds that resolve on those
+	// pools. Its queue must be large enough never to fill in practice, because Commit submits to it,
+	// and backpressure on commits belongs to MaxUnflushedVersions alone. The count of outstanding jobs
+	// is not bounded by that setting either, because a version held by an outside reservation stops
+	// being counted as unflushed (see scanForFlushEligibilityLocked) while its successors keep being
+	// sealed.
+	sortPool threading.Pool,
 ) (ViewManager, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid view manager config: %w", err)
@@ -186,6 +199,7 @@ func NewViewManager(
 		shardManager: shardManager,
 		readPool:     readPool,
 		miscPool:     miscPool,
+		sortPool:     sortPool,
 		db:           db,
 		versionMap:   make(map[uint64]*viewReferenceCounter),
 		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
@@ -203,8 +217,8 @@ func NewViewManager(
 	// cancellation — see the Close contract on ViewManager.
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(
-			childCtx, config, db, readPool, sizePerShard, c.shutdownError, c.reportReadFailure)
+		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard,
+			c.shutdownError, c.reportReadFailure, c.reportFoldFailure)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create shard: %w", err)
@@ -214,10 +228,10 @@ func NewViewManager(
 
 	if config.MetricsEnabled {
 		metrics := newViewManagerMetrics(
-			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
-		for _, s := range c.shards {
-			s.metrics = metrics
-			s.cache.metrics = metrics
+			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo, config.ShardCount)
+		for i, s := range c.shards {
+			s.metrics = metrics.shard(i)
+			s.cache.metrics = s.metrics
 		}
 		c.metrics = metrics
 	}
@@ -229,36 +243,30 @@ func NewViewManager(
 
 func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	for _, s := range c.shards {
-		b, e := s.getSizeInfo()
+		b, e := s.GetSizeInfo()
 		bytes += b
 		entries += e
 	}
 	return bytes, entries
 }
 
-func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
-	// Sort entries by shard index so each shard is locked only once.
-	shardMap := make(map[uint64][]*proto.KVPair)
-	for i := range updates {
-		idx := c.shardManager.Shard(updates[i].Key)
-		shardMap[idx] = append(shardMap[idx], updates[i])
-	}
+func (c *viewManager) BatchSet(writes []Write) error {
+	buckets := c.bucketIndicesByShard(len(writes), func(i int) string { return writes[i].Key })
 
 	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed or
 	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
 	// the batch is not atomic across shards in that case. That is acceptable because the manager contract
 	// makes any error fatal.
 	var wg sync.WaitGroup
-	shardIndices := make([]uint64, 0, len(shardMap))
-	for shardIndex := range shardMap {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	errs := make([]error, len(shardIndices))
-	for i, shardIndex := range shardIndices {
+	errs := make([]error, len(buckets))
+	for shardIndex := range buckets {
+		if len(buckets[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			errs[i] = c.shards[shardIndex].BatchSet(shardMap[shardIndex])
+			errs[shardIndex] = c.shards[shardIndex].batchSetAt(writes, buckets[shardIndex])
 		})
 	}
 	wg.Wait()
@@ -269,6 +277,121 @@ func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
 		}
 	}
 	return nil
+}
+
+func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
+	work := c.bucketIndicesByShard(len(keys), func(i int) string { return keys[i] })
+	version := c.currentVersion
+
+	// Shards partition the keys, so they stage disjoint sets and run concurrently.
+	staged := make([][]stagedFold, len(c.shards))
+	errs := make([]error, len(c.shards))
+	var wg sync.WaitGroup
+	for shardIndex := range work {
+		if len(work[shardIndex]) == 0 {
+			continue
+		}
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			staged[shardIndex], errs[shardIndex] =
+				c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
+		})
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			// The shards that did stage are holding values nothing will ever fold, and a reader would
+			// park on one forever. Fail them before reporting. A shard whose own staging failed staged
+			// nothing, so its empty entry is skipped.
+			c.abandonStaged(staged, version, err)
+			return fmt.Errorf("failed to stage update in shard: %w", err)
+		}
+	}
+
+	// Folding happens here, off this thread, and nothing waits for it: whatever reads, hashes or
+	// flushes one of these keys is what waits.
+	for shardIndex, folds := range staged {
+		if len(folds) == 0 {
+			continue
+		}
+		shard := c.shards[shardIndex]
+		c.miscPool.Submit(func() {
+			shard.FoldStagedValues(folds, updater, version)
+		})
+	}
+	return nil
+}
+
+// abandonStaged fails every fold staged so far, for a BatchUpdate that could not finish staging.
+func (c *viewManager) abandonStaged(staged [][]stagedFold, version uint64, err error) {
+	for shardIndex, folds := range staged {
+		if len(folds) == 0 {
+			continue
+		}
+		c.shards[shardIndex].FailStagedFolds(folds, version, err)
+	}
+}
+
+// bucketIndicesByShard decides which shard each key of a batch belongs to.
+//
+// byShard is indexed by shard, and each entry lists the batch indices of that shard's keys:
+// byShard[X][Y] == Z means key Y of shard X is key Z of the batch, and len(byShard[X]) is the number
+// of keys belonging to shard X. Z increases with Y, so a shard's keys stay in batch order.
+func (c *viewManager) bucketIndicesByShard(
+	// The number of keys in the batch.
+	count int,
+	// Supplies the key at an index into the batch.
+	keyAt func(int) string,
+) (byShard [][]int) {
+	byShard = make([][]int, len(c.shards))
+
+	chunks := min(len(c.shards), count)
+	if chunks <= 1 {
+		for i := 0; i < count; i++ {
+			shardIndex := c.shardManager.ShardString(keyAt(i))
+			byShard[shardIndex] = append(byShard[shardIndex], i)
+		}
+		return byShard
+	}
+
+	// Every key must be placed before any shard can be locked, so this is a batch's longest serial
+	// stretch. Each chunk fills its own buckets, so no two writers touch the same slice.
+	chunkSize := (count + chunks - 1) / chunks
+	partial := make([][][]int, chunks)
+	var wg sync.WaitGroup
+	for chunk := range partial {
+		start := chunk * chunkSize
+		end := min(start+chunkSize, count)
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			local := make([][]int, len(c.shards))
+			for i := start; i < end; i++ {
+				shardIndex := c.shardManager.ShardString(keyAt(i))
+				local[shardIndex] = append(local[shardIndex], i)
+			}
+			partial[chunk] = local
+		})
+	}
+	wg.Wait()
+
+	// Concatenated in chunk order, which is batch order, since a chunk is a contiguous range.
+	for shardIndex := range byShard {
+		total := 0
+		for chunk := range partial {
+			total += len(partial[chunk][shardIndex])
+		}
+		if total == 0 {
+			continue
+		}
+		byShard[shardIndex] = make([]int, 0, total)
+		for chunk := range partial {
+			byShard[shardIndex] = append(byShard[shardIndex], partial[chunk][shardIndex]...)
+		}
+	}
+	return byShard
 }
 
 func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
@@ -352,48 +475,37 @@ func (c *viewManager) Set(key []byte, value []byte) error {
 }
 
 func (c *viewManager) Commit() (View, error) {
-	c.metrics.setViewPhase("acquire_version_lock")
 	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
 	defer c.metrics.setViewPhase("")
 
+	c.metrics.setViewPhase("acquire_version_lock")
 	c.versionLock.Lock()
-	defer c.versionLock.Unlock()
 
 	// A bricked manager does no more work. Free to check here: versionLock, which guards fatalErr,
 	// is already held.
 	if c.fatalErr != nil {
-		return nil, fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
-	}
-
-	// Every shard must still be in service. A shard taken out of service (the manager was closed or
-	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
-	// would discard it silently.
-	for i, s := range c.shards {
-		s.lock.Lock()
-		err := s.cache.outOfServiceLocked()
-		s.lock.Unlock()
-		if err != nil {
-			return nil, fmt.Errorf("cannot create view, shard %d: %w", i, err)
-		}
+		err := fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
+		c.versionLock.Unlock()
+		return nil, err
 	}
 
 	c.metrics.setViewPhase("lifecycle_backpressure")
 
-	err := c.lifecycleBackpressureLocked()
-	if err != nil {
+	if err := c.lifecycleBackpressureLocked(); err != nil {
+		c.versionLock.Unlock()
 		return nil, fmt.Errorf("cannot create view: %w", err)
 	}
 
-	currentVersionRefCounter := &viewReferenceCounter{
-		version:        c.currentVersion,
+	sealedVersion := c.currentVersion
+
+	c.versionMap[sealedVersion] = &viewReferenceCounter{
+		version:        sealedVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
 	}
 
-	c.versionMap[c.currentVersion] = currentVersionRefCounter
-
 	view := &viewImpl{
-		version:       c.currentVersion,
+		version:       sealedVersion,
 		parentManager: c,
 	}
 
@@ -401,20 +513,65 @@ func (c *viewManager) Commit() (View, error) {
 
 	c.metrics.setViewPhase("shards_view")
 
-	for _, shard := range c.shards {
-		shardVersion := shard.Commit()
-		if shardVersion != c.currentVersion {
-			// Should be impossible. The manager is now inconsistent (some shards committed, some
-			// not), so brick it: the failure must be latched and every subsequent call must fail,
-			// rather than leaving the manager callable after a fatal error.
-			err := fmt.Errorf("shard (%d) has a different version than the manager (%d)",
-				shardVersion, c.currentVersion)
-			c.brickLocked(err)
-			return nil, err
-		}
+	if err := c.sealShardsLocked(); err != nil {
+		// Any shard failing leaves the shards disagreeing about the current version, so the manager
+		// is bricked rather than left callable.
+		c.brickLocked(err)
+		c.versionLock.Unlock()
+		return nil, err
 	}
 
+	// Unlocked explicitly rather than deferred, because the sort submitted below must not hold the
+	// versionLock: it can block when the sort pool's queue is full, and the queue drains only as the
+	// flush consumes results — which needs the versionLock. Blocking there while holding it would
+	// deadlock against the very work that would unblock it.
+	c.versionLock.Unlock()
+
+	c.metrics.setViewPhase("submit_diff_sort")
+	c.materializeDiffAtVersion(sealedVersion)
+
+	view.closed = utils.MustClose(view, "view")
 	return view, nil
+}
+
+// sealShardsLocked seals on every shard the version the manager has just moved past, reporting what
+// went wrong on any of them.
+//
+// The Locked postfix indicates that the caller must hold the versionLock.
+func (c *viewManager) sealShardsLocked() error {
+	// Read once here rather than from the tasks, which do not hold the versionLock that guards it.
+	expectedVersion := c.currentVersion
+
+	errs := make([]error, len(c.shards))
+	var wg sync.WaitGroup
+	wg.Add(len(c.shards))
+	// One task per shard. Sealing a shard is almost entirely the wait to take its lock from the
+	// readers and folds holding it, and those waits are independent, so overlapping them costs one
+	// wait rather than eight. Holding every shard lock at once is safe because no shard lock holder
+	// reaches back for the versionLock (see the cache field on shard).
+	for i, shard := range c.shards {
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			shardVersion, err := shard.Commit()
+			if err != nil {
+				// Either the shard was out of service and sealed nothing, or it sealed and then could
+				// not maintain its read cache.
+				errs[i] = fmt.Errorf("seal shard %d: %w", i, err)
+				return
+			}
+			if shardVersion != expectedVersion {
+				// Should be impossible: the manager is now inconsistent, with some shards sealed and
+				// some not.
+				errs[i] = fmt.Errorf("shard %d is at version %d, but the manager is at %d",
+					i, shardVersion, expectedVersion)
+			}
+		})
+	}
+	// Awaited even once a failure is known: a shard still sealing would otherwise write its result
+	// after the caller had bricked the manager.
+	wg.Wait()
+
+	return errors.Join(errs...)
 }
 
 // This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
@@ -480,26 +637,27 @@ func (c *viewManager) IncrementReferenceCount(version uint64) error {
 	return nil
 }
 
-// Decrement the reference count for the given version.
-func (c *viewManager) DecrementReferenceCount(version uint64) error {
+// DecrementReferenceCount releases one reservation on version, reporting whether it was the last one.
+func (c *viewManager) DecrementReferenceCount(version uint64) (lastReleased bool, err error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
 	if version < c.oldestVersion {
-		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
+		return false, fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
 	}
 	if version >= c.currentVersion {
-		return fmt.Errorf("version (%d) must be less than the current version (%d)", version, c.currentVersion)
+		return false, fmt.Errorf("version (%d) must be less than the current version (%d)",
+			version, c.currentVersion)
 	}
 
 	counter, ok := c.versionMap[version]
 	if !ok {
 		// Should be impossible since version retirement never leaves gaps
-		return fmt.Errorf("version (%d) not found", version)
+		return false, fmt.Errorf("version (%d) not found", version)
 	}
 
 	if counter.referenceCount == 0 {
-		return fmt.Errorf("version (%d) has already been dropped", version)
+		return false, fmt.Errorf("version (%d) has already been dropped", version)
 	}
 
 	if counter.referenceCount == 1 && !counter.finalized {
@@ -514,14 +672,14 @@ func (c *viewManager) DecrementReferenceCount(version uint64) error {
 		// and leave manager state untouched, so that caller can retry with the right one.
 		err := fmt.Errorf("version (%d) was fully released without first being finalized", version)
 		c.brickLocked(err)
-		return err
+		return false, err
 	}
 
 	counter.referenceCount--
 
 	c.maybeWakeLifecycleLocked()
 
-	return nil
+	return counter.referenceCount == 0, nil
 }
 
 // Scans for new flush eligible versions. Returns true if there is a new flush eligible version discovered.
@@ -631,26 +789,23 @@ func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error
 	return nil
 }
 
-// Get the diff at a given version.
-func (c *viewManager) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
-	diff := make(map[string][]byte)
-
-	for _, shard := range c.shards {
-		shardDiff, err := shard.GetDiffsForVersions(version, version+1)
+// ForEachDiffAtVersion visits every write at a sealed version, waiting for it to be materialized if that
+// has not happened yet. Shard by shard, so the keys arrive ordered within a shard but not across them: no
+// consumer of a whole version's diff depends on a global order, and merging the shards to provide one
+// would cost the caller a comparison per key for nothing.
+func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string, value []byte) error) error {
+	for i, shard := range c.shards {
+		diff, err := shard.SortedDiff(version)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get diff from shard: %w", err)
+			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
 		}
-
-		if len(shardDiff) != 1 {
-			return nil, fmt.Errorf("expected 1 diff, got %d", len(shardDiff))
-		}
-
-		for key, value := range shardDiff[0] {
-			diff[key] = value
+		for _, entry := range diff {
+			if err := visit(entry.Key, entry.Value); err != nil {
+				return err
+			}
 		}
 	}
-
-	return diff, nil
+	return nil
 }
 
 func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
@@ -658,7 +813,7 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// that moved data out of versionedData and into the DB between the two steps would drop those
 	// keys entirely if the DB view were taken first. In this order the same race can only yield a
 	// key twice, which the merge resolves in favor of the override.
-	overrides, err := c.materializeCurrentOverrides(opts)
+	overrides, err := c.MaterializeCurrentOverrides(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to materialize current overrides: %w", err)
 	}
@@ -682,9 +837,11 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// Register the iterator only now that construction has fully succeeded, so a failed construction
 	// cannot leave a phantom entry behind.
 	for _, s := range c.shards {
-		s.iteratorOpened()
+		s.IteratorOpened()
 	}
-	return &trackedIterator{Iterator: iter, manager: c}, nil
+	tracked := &trackedIterator{Iterator: iter, manager: c}
+	tracked.closed = utils.MustClose(tracked, "view manager iterator")
+	return tracked, nil
 }
 
 // trackedIterator deregisters itself from every shard when closed, so Close can report the iterators
@@ -693,14 +850,18 @@ type trackedIterator struct {
 	dbm.Iterator
 	manager   *viewManager
 	closeOnce sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[trackedIterator]
 }
 
 func (w *trackedIterator) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
+		w.closed.Close(w)
 		errs := make([]error, 0, len(w.manager.shards)+1)
 		for _, s := range w.manager.shards {
-			errs = append(errs, s.iteratorClosed())
+			errs = append(errs, s.IteratorClosed())
 		}
 		errs = append(errs, w.Iterator.Close())
 		err = errors.Join(errs...)
@@ -708,12 +869,12 @@ func (w *trackedIterator) Close() error {
 	return err
 }
 
-// materializeCurrentOverrides gathers the in-memory overrides at the current version from every
+// MaterializeCurrentOverrides gathers the in-memory overrides at the current version from every
 // shard and returns them sorted ascending by key. Each shard is responsible for its own locking;
 // here we just stitch the results together, and the sort runs without any shard lock held.
 // The overrides are sorted into iteration order — ascending, or descending when reverse is set — so
 // the merge in viewIterator can walk them and the DB iterator in lockstep.
-func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
+func (c *viewManager) MaterializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
 	var lowerBound, upperBound []byte
 	reverse := false
 	if opts != nil {
@@ -722,7 +883,7 @@ func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kv
 
 	var all []kvPair
 	for i, s := range c.shards {
-		shardOverrides, err := s.materializeCurrentOverrides(lowerBound, upperBound)
+		shardOverrides, err := s.MaterializeCurrentOverrides(lowerBound, upperBound)
 		if err != nil {
 			return nil, fmt.Errorf("shard %d: %w", i, err)
 		}
@@ -787,6 +948,15 @@ func (c *viewManager) reportReadFailure(err error) {
 	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
 }
 
+// reportFoldFailure handles a fold that could not produce its value by bricking the manager. The
+// latched error names the fold rather than the read that may have fed it.
+//
+// Must be called without the shard lock held: it acquires versionLock, and the established order is
+// versionLock before any shard lock.
+func (c *viewManager) reportFoldFailure(err error) {
+	c.brick(fmt.Errorf("failed to fold a staged value: %w", err))
+}
+
 // brickLocked latches the fatal error, cancels the manager context, wakes backpressure waiters, and
 // takes every shard out of service, so callers observe the failure immediately rather than waiting
 // for Close.
@@ -807,7 +977,7 @@ func (c *viewManager) brickLocked(err error) {
 	// established order (see Commit), and nothing acquires versionLock while holding a shard lock
 	// (see the cache field on shard).
 	for _, s := range c.shards {
-		s.takeOutOfService(err)
+		s.TakeOutOfService(err)
 	}
 }
 
@@ -921,8 +1091,8 @@ func (c *viewManager) determineVersionsToRetireLocked() (
 	return firstVersion, lastVersion
 }
 
-// flushViews collects diffs for [firstVersion, lastVersion) from all shards,
-// writes them to the underlying DB in batches, then drops the versions from the shards.
+// flushViews writes the versions in [firstVersion, lastVersion) to the underlying DB in batches, each
+// version's own writes ordered by key and followed by its finalization writes, and marks them flushed.
 func (c *viewManager) flushViews(
 	// The first version to flush (inclusive).
 	firstVersion uint64,
@@ -931,43 +1101,6 @@ func (c *viewManager) flushViews(
 	// The finalization writes of each version to flush.
 	versionWrites map[uint64][]*proto.KVPair,
 ) error {
-
-	// Collect diffs from all shards.
-	diffsByVersion := make(map[uint64]map[string][]byte)
-	for version := firstVersion; version < lastVersion; version++ {
-		diffsByVersion[version] = make(map[string][]byte)
-	}
-	for _, shard := range c.shards {
-		shardDiffs, err := shard.GetDiffsForVersions(firstVersion, lastVersion)
-		if err != nil {
-			return fmt.Errorf("failed to get diffs for shard: %w", err)
-		}
-		for diffIndex, diff := range shardDiffs {
-			// diffIndex is bounded by the version count, so this conversion is safe.
-			version := firstVersion + uint64(diffIndex) //nolint:gosec
-			for key, value := range diff {
-				diffsByVersion[version][key] = value
-			}
-		}
-	}
-
-	// Fold each version's finalization writes into its diff, so that the caller's metadata is written
-	// to the DB atomically with its block's data. A nil value in the diff map is a tombstone, so a
-	// Delete pair maps to nil and a pair carrying an empty value is normalized to a non-nil empty
-	// slice to keep the two distinguishable.
-	for version := firstVersion; version < lastVersion; version++ {
-		for _, pair := range versionWrites[version] {
-			if pair.Delete {
-				diffsByVersion[version][string(pair.Key)] = nil
-				continue
-			}
-			value := pair.Value
-			if value == nil {
-				value = []byte{}
-			}
-			diffsByVersion[version][string(pair.Key)] = value
-		}
-	}
 
 	// Write diffs to the DB in batches, oldest version first.
 	var batch types.Batch
@@ -980,17 +1113,47 @@ func (c *viewManager) flushViews(
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
+			// Never sized up front: pebble hands back a pooled batch still carrying the buffer its last
+			// use grew, and asking for a capacity replaces that buffer with a fresh allocation instead.
 			batch = c.db.NewBatch()
 		}
-		for key, value := range diffsByVersion[version] {
+
+		// Ordered by key on the sort pool when the version was sealed, so this is a merge of finished
+		// runs rather than a sort. One version at a time and never merged across versions: pebble
+		// resolves two writes to one key by sequence number, which it assigns in batch order, so a key
+		// written in several of a batch's versions must reach it oldest first.
+		shardDiffs, err := c.materializeSortedDiffs(version)
+		if err != nil {
+			return err
+		}
+		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
+			if entry.Value == nil {
+				return batch.DeleteString(entry.Key)
+			}
+			return batch.SetString(entry.Key, entry.Value)
+		})
+		if err != nil {
+			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
+		}
+
+		// The caller's metadata goes in the same batch as its block's data, so the two land atomically,
+		// and last, so that a metadata key colliding with a data key still wins. It cannot be part of the
+		// merge above: that runs over diffs ordered when the version was sealed, and FinalizeView
+		// supplies these writes later. A Delete pair becomes a tombstone, and a pair carrying an empty
+		// value is normalized to a non-nil empty slice to keep the two distinguishable.
+		for _, pair := range versionWrites[version] {
+			if pair.Delete {
+				if err := batch.Delete(pair.Key); err != nil {
+					return fmt.Errorf("flush failed to delete metadata key: %w", err)
+				}
+				continue
+			}
+			value := pair.Value
 			if value == nil {
-				if err := batch.Delete([]byte(key)); err != nil {
-					return fmt.Errorf("flush failed to delete key: %w", err)
-				}
-			} else {
-				if err := batch.Set([]byte(key), value); err != nil {
-					return fmt.Errorf("flush failed to set key: %w", err)
-				}
+				value = []byte{}
+			}
+			if err := batch.Set(pair.Key, value); err != nil {
+				return fmt.Errorf("flush failed to set metadata key: %w", err)
 			}
 		}
 
@@ -1123,12 +1286,27 @@ func (c *viewManager) Close() error {
 	return c.closeErr
 }
 
+// awaitOutstandingFolds blocks until every fold staged by BatchUpdate has resolved in every shard.
+//
+// A fold is the manager's only background work that no caller waits for: it runs on a pool, reads
+// through to the database the manager owns, and submits that read to a pool the manager's owner
+// closes once Close returns. Close calls this before cancelling, so that a fold in flight resolves
+// against an open database instead of abandoning a read that would then race db.Close, and outside
+// versionLock, which a failing fold takes to brick the manager.
+func (c *viewManager) awaitOutstandingFolds() {
+	for _, s := range c.shards {
+		s.AwaitOutstandingFolds()
+	}
+}
+
 func (c *viewManager) closeInternal() error {
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
 	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
+
+	c.awaitOutstandingFolds()
 
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock
@@ -1142,7 +1320,7 @@ func (c *viewManager) closeInternal() error {
 	// write accepted from here on could never be flushed. First failure wins inside the shard, so a
 	// brick that already ran keeps reporting its own cause rather than ErrViewManagerClosed.
 	for _, s := range c.shards {
-		s.takeOutOfService(ErrViewManagerClosed)
+		s.TakeOutOfService(ErrViewManagerClosed)
 	}
 	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
@@ -1177,9 +1355,9 @@ func (c *viewManager) closeInternal() error {
 // is read under its own lock. The manager always has at least one shard (the config requires it).
 func (c *viewManager) assertNoLeakedIterators() error {
 	s := c.shards[0]
-	s.lock.Lock()
+	s.lock.RLock()
 	open := s.openIterators
-	s.lock.Unlock()
+	s.lock.RUnlock()
 
 	if open == 0 {
 		return nil

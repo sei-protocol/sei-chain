@@ -42,11 +42,17 @@ type testDB struct {
 	commitBlock   chan struct{}
 	getGate       chan struct{}
 	closed        atomic.Bool
+	// Incremented when a Get reaches the store after Close. Lets tests assert that nothing read the
+	// database once it was released.
+	getsAfterClose atomic.Int64
 	// Batch lifecycle counters: batchesCreated increments in NewBatch, batchesClosed on a
 	// batch's first Close. Lets tests assert every created batch is released (types.Batch
 	// requires Close even after a successful Commit).
 	batchesCreated atomic.Int64
 	batchesClosed  atomic.Int64
+	// The ops of every committed batch, oldest batch first, in the order the flush appended them.
+	// Recorded because the store is a map and cannot show the order keys arrived in. Guarded by mu.
+	committedOps [][]testBatchOp
 }
 
 func newTestDB(seed map[string][]byte) *testDB {
@@ -61,6 +67,9 @@ func (d *testDB) Get(key []byte) ([]byte, error) {
 	d.getCalls.Add(1)
 	if d.getGate != nil {
 		<-d.getGate
+	}
+	if d.closed.Load() {
+		d.getsAfterClose.Add(1)
 	}
 	if d.getErr != nil {
 		return nil, d.getErr
@@ -159,6 +168,13 @@ func (d *testDB) Close() error {
 
 func (d *testDB) isClosed() bool { return d.closed.Load() }
 
+// committedBatches returns the ops of every batch committed so far, oldest batch first.
+func (d *testDB) committedBatches() [][]testBatchOp {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return append([][]testBatchOp(nil), d.committedOps...)
+}
+
 func (d *testDB) has(key string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -212,6 +228,14 @@ func (b *testBatch) Delete(key []byte) error {
 	return nil
 }
 
+func (b *testBatch) SetString(key string, value []byte) error {
+	return b.Set([]byte(key), value)
+}
+
+func (b *testBatch) DeleteString(key string) error {
+	return b.Delete([]byte(key))
+}
+
 func (b *testBatch) Commit(_ types.WriteOptions) error {
 	b.db.commitEntered.Add(1)
 	if b.db.commitBlock != nil {
@@ -223,6 +247,7 @@ func (b *testBatch) Commit(_ types.WriteOptions) error {
 	b.db.commitCount.Add(1)
 	b.db.mu.Lock()
 	defer b.db.mu.Unlock()
+	b.db.committedOps = append(b.db.committedOps, append([]testBatchOp(nil), b.ops...))
 	for _, op := range b.ops {
 		if op.delete {
 			delete(b.db.store, string(op.key))
@@ -296,7 +321,7 @@ func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) 
 func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	manager, err := NewViewManager(config, db, pool, pool)
+	manager, err := NewViewManager(config, db, pool, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = manager.Close()
@@ -313,9 +338,10 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	config := DefaultTestViewManagerConfig()
 	config.EstimatedOverheadPerEntry = 0
 	// A standalone shard has no manager to brick, and it takes itself out of service on a failed read
-	// without help, so reporting is a no-op here.
+	// or fold without help, so both reports are no-ops here.
 	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
 		func() error { return ErrViewManagerClosed },
+		func(error) {},
 		func(error) {})
 	require.NoError(t, err)
 	return s
@@ -333,6 +359,18 @@ const testHashKey = "_meta/hash"
 // what a real consumer emits.
 func hashWrites(hash []byte) []*proto.KVPair {
 	return []*proto.KVPair{{Key: []byte(testHashKey), Value: hash}}
+}
+
+// collectDiff gathers a view's writes into a map, for tests that assert on the whole set rather than on
+// the order it arrives in.
+func collectDiff(t *testing.T, view View) map[string][]byte {
+	t.Helper()
+	diff := make(map[string][]byte)
+	require.NoError(t, view.ForEachDiff(func(key string, value []byte) error {
+		diff[key] = value
+		return nil
+	}))
+	return diff
 }
 
 func finalizeAndRelease(t *testing.T, view View) {
@@ -377,6 +415,15 @@ func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
 		_, tracked := e.versionMap[version]
 		return !tracked
 	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
+}
+
+// commitShard seals the shard's current version, failing the test if its once-per-block cache
+// maintenance reported a failure. Returns the new version number.
+func commitShard(t *testing.T, s *shard) uint64 {
+	t.Helper()
+	version, err := s.Commit()
+	require.NoError(t, err)
+	return version
 }
 
 // openIteratorCount reports how many iterators are currently open on the manager. Every iterator

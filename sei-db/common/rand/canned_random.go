@@ -80,6 +80,15 @@ func (cr *CannedRandom) Clone(randomizeOffset bool) *CannedRandom {
 	}
 }
 
+// SeekTo moves the read position to one derived from key, so the sequence that follows is a function of
+// key alone rather than of everything read before it.
+//
+// Use this to make a unit of work's randomness depend on which unit it is: the same key replays the same
+// sequence however the work was divided up, and two keys that differ read from unrelated positions.
+func (cr *CannedRandom) SeekTo(key int64) {
+	cr.index = utils.PositiveHash64(key) % int64(len(cr.buffer))
+}
+
 // Reset the index of the CannedRandom to the beginning of the buffer.
 func (cr *CannedRandom) Reset() {
 	cr.index = 0

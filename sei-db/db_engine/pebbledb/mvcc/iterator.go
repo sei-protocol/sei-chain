@@ -11,10 +11,10 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -42,6 +42,9 @@ type iterator struct {
 	err                error
 
 	closeSync sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[iterator]
 }
 
 func abortIfCancelled(ctx context.Context) error {
@@ -76,7 +79,7 @@ func newPebbleDBIterator(
 ) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &iterator{
+		itr := &iterator{
 			source:             src,
 			prefix:             prefix,
 			start:              mvccStart,
@@ -90,6 +93,8 @@ func newPebbleDBIterator(
 			dbName:             dbName,
 			ctx:                ctx,
 		}
+		itr.closed = utils.MustClose(itr, "mvcc iterator")
+		return itr
 	}
 
 	// move the underlying PebbleDB iterator to the first key
@@ -114,6 +119,7 @@ func newPebbleDBIterator(
 		dbName:             dbName,
 		ctx:                ctx,
 	}
+	itr.closed = utils.MustClose(itr, "mvcc iterator")
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -270,7 +276,7 @@ func (itr *iterator) Key() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	keyCopy := slices.Clone(key)
+	keyCopy := bytes.Clone(key)
 	return keyCopy[len(itr.prefix):]
 }
 
@@ -284,7 +290,7 @@ func (itr *iterator) Value() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Key()))
 	}
 
-	return slices.Clone(val)
+	return bytes.Clone(val)
 }
 
 func (itr *iterator) nextForward() {
@@ -384,6 +390,7 @@ func (itr *iterator) Error() error {
 
 func (itr *iterator) Close() error {
 	itr.closeSync.Do(func() {
+		itr.closed.Close(itr)
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false

@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/benchmark"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/cmd/seidb/operations/evmlogical"
 	"github.com/spf13/cobra"
 )
 
@@ -31,10 +32,13 @@ func main() {
 		operations.ReplayChangelogCmd(),
 		operations.TraceProfileReportCmd(),
 		operations.MigrateEvmStatusCmd(),
-		operations.EvmLogicalDigestCmd(),
+		evmlogical.EvmLogicalDigestCmd(),
+		evmlogical.KVRepairExportCmd(),
 		operations.HashLogCmd())
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		// Subcommands with a --json mode make stdout a machine-readable channel, so a
+		// bare error line there would corrupt the report a caller is parsing.
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }

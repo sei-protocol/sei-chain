@@ -392,6 +392,98 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 	require.NoError(t, shortFP.Verify(vs))
 }
 
+func TestLaneRangeVerifyRejectsHashAtHeightZero(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _ := GenCommittee(rng, 4)
+	lane := committee.Lanes().At(0)
+
+	require.Error(t, (&LaneRange{lane: lane, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)}).Verify(committee))
+	require.NoError(t, (&LaneRange{lane: lane, first: 0, next: 0}).Verify(committee))
+	// Past height 0 an empty range may carry a tip. FullProposal.Verify checks that it matches.
+	require.NoError(t, (&LaneRange{
+		lane: lane, first: 1, next: 1, lastHash: GenBlockHeaderHash(rng),
+	}).Verify(committee))
+}
+
+func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+	proposerKey := leaderKey(committee, keys, vs.View())
+
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs)))
+	require.NoError(t, fp.Verify(vs))
+	var idle LaneID
+	for lane := range committee.Lanes().All() {
+		r := fp.Proposal().Msg().LaneRange(lane)
+		if r.Len() == 0 {
+			require.Equal(t, BlockNumber(0), r.Next())
+			require.Equal(t, BlockHeaderHash{}, r.LastHash())
+			idle = lane
+		}
+	}
+	require.NotEqual(t, LaneID{}, idle)
+
+	// A lane that has not started must not name a tip. There is no previous
+	// CommitQC to copy, and a non-zero hash would become the required parent.
+	var ranges []*LaneRange
+	for _, r := range fp.Proposal().Msg().laneRanges {
+		if r.Lane() == idle {
+			ranges = append(ranges, &LaneRange{lane: idle, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)})
+			continue
+		}
+		ranges = append(ranges, r)
+	}
+	invented := &FullProposal{
+		proposal: Sign(proposerKey, newProposal(
+			fp.Proposal().Msg().view, fp.Proposal().Msg().timestamp, ranges, fp.Proposal().Msg().GlobalRange().First)),
+		laneQCs: fp.laneQCs,
+	}
+	require.Error(t, invented.Verify(vs))
+}
+
+func TestProposalCopiesEmptyLaneLastHash(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+	lane0 := committee.Lanes().At(0)
+	lane1 := committee.Lanes().At(1)
+
+	fp0 := utils.OrPanic1(NewProposal(
+		leaderKey(committee, keys, vs0.View()), vs0, time.Now(), oneLaneQCMap(rng, committee, keys, vs0)))
+	require.NoError(t, fp0.Verify(vs0))
+	tip := fp0.Proposal().Msg().LaneRange(lane0).LastHash()
+	require.NotEqual(t, BlockHeaderHash{}, tip)
+
+	cqc := makeCommitQCFromProposal(keys, fp0)
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(cqc), Epoch: ep}}
+	// Extend a different lane so lane0's range is empty and must carry tip.
+	qc1 := makeLaneQC(rng, committee, keys, lane1, 0, BlockHeaderHash{})
+	fp1 := utils.OrPanic1(NewProposal(
+		leaderKey(committee, keys, vs1.View()), vs1, time.Now(), map[LaneID]*LaneQC{lane1: qc1}))
+	require.NoError(t, fp1.Verify(vs1))
+	empty := fp1.Proposal().Msg().LaneRange(lane0)
+	require.Equal(t, uint64(0), empty.Len())
+	require.Equal(t, tip, empty.LastHash())
+
+	var ranges []*LaneRange
+	for _, r := range fp1.Proposal().Msg().laneRanges {
+		if r.Lane() == lane0 {
+			ranges = append(ranges, &LaneRange{lane: lane0, first: r.First(), next: r.First(), lastHash: BlockHeaderHash{}})
+			continue
+		}
+		ranges = append(ranges, r)
+	}
+	stripped := &FullProposal{
+		proposal: Sign(leaderKey(committee, keys, vs1.View()), newProposal(
+			fp1.Proposal().Msg().view, fp1.Proposal().Msg().timestamp, ranges, fp1.Proposal().Msg().GlobalRange().First)),
+		laneQCs: fp1.laneQCs,
+	}
+	require.Error(t, stripped.Verify(vs1))
+}
+
 func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -581,6 +673,24 @@ func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	}
 	err := tamperedFP.Verify(vs)
 	require.Error(t, err)
+}
+
+func TestProposalAtView(t *testing.T) {
+	rng := utils.TestRng()
+	view := GenView(rng)
+	timestamp := utils.GenTimestamp(rng)
+	laneRanges := utils.GenSlice(rng, GenLaneRange)
+	globalFirst := GlobalBlockNumber(rng.Uint64())
+	p := newProposal(view, timestamp, laneRanges, globalFirst)
+
+	next := GenView(rng)
+	got := p.atView(next)
+	if err := utils.TestDiff(newProposal(next, timestamp, laneRanges, globalFirst), got); err != nil {
+		t.Fatal(err)
+	}
+	if err := utils.TestDiff(newProposal(view, timestamp, laneRanges, globalFirst), p); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestProposalVerifyValidReproposal(t *testing.T) {

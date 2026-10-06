@@ -18,11 +18,13 @@ import (
 	"github.com/cockroachdb/pebble/v2/sstable"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/seilog"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -32,6 +34,8 @@ import (
 )
 
 var _ types.ContextIteratorStore = (*Database)(nil)
+
+var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "mvcc")
 
 const (
 	VersionSize = 8
@@ -103,6 +107,13 @@ type Database struct {
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
 
+	// Guards the one close of pendingChanges, so Close stays idempotent.
+	drainOnce sync.Once
+
+	// Reports pendingChanges from the writer's side: how full it was when a write needed room, and how
+	// long writes waited when it had none.
+	pendingChangesQueue *seidbmetrics.QueueMeter
+
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
 
@@ -145,7 +156,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               64 << 20, // 64 MB
+		LBaseMaxBytes:               64 << 20, // 64 MiB
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
@@ -225,6 +236,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		pendingChanges:   make(chan VersionedChangesets, config.AsyncWriteBuffer),
 		dbName:           dbName,
 		operationMetrics: pebbledbmetrics.NewOperationMetrics(config.EnableReadWriteMetrics, dbName),
+		pendingChangesQueue: seidbmetrics.NewQueueMeter(
+			meter, "pebble_pending_changes", attribute.String("db", dbName)),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
@@ -233,34 +246,47 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	walKeepRecent := changelogKeepRecent(config)
-	// Snapshot rollback replays the changelog forward from the oldest retained
-	// snapshot, so count-based pruning must not cut inside that span. The
-	// snapshot manager prunes this changelog by snapshot version after every
-	// retention pass and is what actually holds it down; the count below is the
-	// ceiling for the states that pass does not cover — external snapshot
-	// pruning, and the stretch before enough snapshots exist to prune. Raising
-	// the ceiling is what a rollback window costs on disk: roughly one snapshot
-	// interval of changelog per retained snapshot.
-	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    walKeepRecent,
-		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
-	})
-	if err != nil {
-		return nil, err
+	// An owner that logs every block replays it into this store, leaving the changelog here written
+	// and never read.
+	if !config.DisableInternalWAL {
+		walKeepRecent := changelogKeepRecent(config)
+		// Snapshot rollback replays the changelog forward from the oldest retained
+		// snapshot, so count-based pruning must not cut inside that span. The
+		// snapshot manager prunes this changelog by snapshot version after every
+		// retention pass and is what actually holds it down; the count below is the
+		// ceiling for the states that pass does not cover — external snapshot
+		// pruning, and the stretch before enough snapshots exist to prune. Raising
+		// the ceiling is what a rollback window costs on disk: roughly one snapshot
+		// interval of changelog per retained snapshot.
+		streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
+			KeepRecent:    walKeepRecent,
+			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		})
+		if err != nil {
+			return nil, err
+		}
+		database.streamHandler = streamHandler
 	}
-	database.streamHandler = streamHandler
 	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
 
-	// Start background metrics collection for Pebble-internal stats
-	// (compaction, flush, sstable, memtable, WAL, cache).
-	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-	database.metricsCancel = metricsCancel
-	pebbledbmetrics.NewPebbleMetrics(metricsCtx, db, dbName, 10*time.Second)
+	// Refresh Pebble-internal stats (compaction, flush, sstable, memtable, WAL, cache).
+	stopPebbleStats := pebbledbmetrics.NewPebbleMetrics(db, dbName, metricsRefreshInterval)
+
+	samplingCtx, stopSampling := context.WithCancel(context.Background())
+	database.pendingChangesQueue.SampleDepth(samplingCtx, int(metricsRefreshInterval.Seconds()),
+		func() int { return len(database.pendingChanges) })
+	database.metricsCancel = func() {
+		stopPebbleStats()
+		stopSampling()
+	}
 
 	return database, nil
 }
+
+// metricsRefreshInterval is how often the background collectors resample, covering both Pebble's own
+// stats and the write queue's depth.
+const metricsRefreshInterval = 10 * time.Second
 
 func changelogKeepRecent(cfg config.StateStoreConfig) uint64 {
 	keepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(cfg.AsyncWriteBuffer+1)))
@@ -380,12 +406,15 @@ func (db *Database) Close() error {
 		db.metricsCancel()
 	}
 
-	if db.streamHandler != nil {
+	// Owed whether or not a changelog is kept, the queued blocks being only in memory. The channel
+	// is left in place so a send after close still panics rather than blocking on a nil one.
+	db.drainOnce.Do(func() {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
 		// Wait for the async writes to finish
 		db.asyncWriteWG.Wait()
-		// Now close the WAL stream
+	})
+	if db.streamHandler != nil {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
@@ -673,10 +702,11 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+	b, err := NewBatch(db.storage, version, changesetBatchSize(changeset, version), db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return err
 	}
+	defer func() { _err = errors.Join(_err, b.Close()) }()
 
 	for _, cs := range changeset {
 		for _, kvPair := range cs.Changeset.Pairs {
@@ -713,14 +743,9 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 				attribute.String("db", db.dbName),
 			),
 		)
-		// Record pending queue depth
-		otelMetrics.pendingChangesQueueDepth.Record(
-			context.Background(),
-			int64(len(db.pendingChanges)),
-			metric.WithAttributes(attribute.String("db", db.dbName)),
-		)
 	}()
-	// Write to WAL
+	// Write to WAL. This is synchronous, unlike the queueing below, so an "async" apply that is slow is
+	// usually slow here rather than behind a full queue.
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
 			Version: version,
@@ -732,11 +757,11 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
+
+	seidbmetrics.Send(db.pendingChangesQueue, db.pendingChanges, VersionedChangesets{
 		Version:    version,
 		Changesets: changesets,
-	}
+	})
 	return nil
 }
 
@@ -803,7 +828,7 @@ func (db *Database) compactPrunedRange(first, last []byte) error {
 	// start < end. Appending a zero byte extends the user-key portion of last,
 	// yielding a key strictly greater than it under both the MVCC and default
 	// comparers, so the entire deleted span is covered.
-	end := append(slices.Clone(last), 0)
+	end := append(bytes.Clone(last), 0)
 	return db.storage.Compact(context.Background(), first, end, true)
 }
 
@@ -933,7 +958,22 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = itr.Close() }()
+	// itr pins Pebble's readState for as long as it's open, which blocks Pebble
+	// from deleting any sstable that readState might still need to serve reads
+	// from — including ones a concurrent or subsequent compaction (see
+	// compactPrunedRange below) has already superseded. itrOpen guards against
+	// closing it twice: the scan closes it explicitly as soon as it's done
+	// reading, right before compaction, and this defer only still applies if an
+	// error returned from inside the loop below.
+	itrOpen := true
+	closeItr := func() error {
+		if !itrOpen {
+			return nil
+		}
+		itrOpen = false
+		return itr.Close()
+	}
+	defer func() { _ = closeItr() }()
 
 	batch := db.storage.NewBatch()
 	defer func() { _ = batch.Close() }()
@@ -949,7 +989,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 	for itr.First(); itr.Valid(); {
 		scanReads++
-		currKeyEncoded := slices.Clone(itr.Key())
+		currKeyEncoded := bytes.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
 		if isMetadataKey(currKeyEncoded) {
@@ -988,7 +1028,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 		// Reset per-logical-key state when the logical key changes.
 		if !bytes.Equal(prevKey, currKey) {
-			prevKey = slices.Clone(currKey)
+			prevKey = bytes.Clone(currKey)
 			keptBelowPrune = false
 
 			// Fast path: under descending encoding, versions of a key are stored
@@ -1035,6 +1075,15 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		itr.Next()
 	}
 
+	// Close the scan iterator now rather than leaving it to the deferred close
+	// at function return: compactPrunedRange below runs a compaction that can
+	// take a long time on a large deleted span, and every obsolete sstable it
+	// produces stays undeletable for as long as this iterator's readState is
+	// still pinning them.
+	if err := closeItr(); err != nil {
+		return err
+	}
+
 	// Commit any leftover delete ops in batch
 	if counter > 0 {
 		writeCount := int64(batch.Count())
@@ -1046,7 +1095,10 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
+	compactStart := time.Now()
+	err = db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
+	logger.Info("pruneDescending: compacted pruned range", "version", version, "elapsed", time.Since(compactStart), "err", err)
+	return err
 }
 
 func (db *Database) iteratorDescending(
@@ -1178,7 +1230,7 @@ func decodeMVCCEntryDescending(rawIterKey, rawIterValue, prefixedKey []byte, ver
 	if keyVersion > version {
 		return nil, errorutils.ErrRecordNotFound
 	}
-	return slices.Clone(rawIterValue), nil
+	return bytes.Clone(rawIterValue), nil
 }
 
 func visibleValueAtVersionDescending(prefixedVal []byte, targetVersion int64) ([]byte, error) {
@@ -1248,10 +1300,12 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+		batch, err := NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
 		if err != nil {
 			panic(err)
 		}
+		// Releases a trailing batch left empty; a no-op once Write has run.
+		defer func() { _ = batch.Close() }()
 
 		var counter int
 		for entry := range ch {
@@ -1269,7 +1323,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					panic(err)
 				}
@@ -1352,39 +1406,46 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	return false, nil
 }
 
-func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
-
-	batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+// DeleteKeysAtVersion physically deletes every key of module written at version.
+func (db *Database) DeleteKeysAtVersion(module string, version int64) (_err error) {
+	batch, err := NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
+	defer func() { _err = errors.Join(_err, batch.Close()) }()
 
 	deleteCounter := 0
-
+	var deleteErr error
 	_, err = db.RawIterate(module, func(key, value []byte, ver int64) bool {
-		if ver == version {
-			if err := batch.HardDelete(module, key); err != nil {
-				fmt.Printf("Error physically deleting key %q in module %q: %v\n", key, module, err)
-				return true // stop iteration on error
-			}
-			deleteCounter++
-			if deleteCounter >= DeleteCommitBatchSize {
-				if err := batch.Write(); err != nil {
-					fmt.Printf("Error writing deletion batch for module %q: %v\n", module, err)
-					return true
-				}
-				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
-				if err != nil {
-					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
-					return true
-				}
-			}
+		if ver != version {
+			return false
 		}
+		if deleteErr = batch.HardDelete(module, key); deleteErr != nil {
+			deleteErr = fmt.Errorf("failed to physically delete key %q in module %q: %w", key, module, deleteErr)
+			return true
+		}
+		deleteCounter++
+		if deleteCounter < DeleteCommitBatchSize {
+			return false
+		}
+		if deleteErr = batch.Write(); deleteErr != nil {
+			deleteErr = fmt.Errorf("failed to write deletion batch for module %q: %w", module, deleteErr)
+			return true
+		}
+		deleteCounter = 0
+		next, err := NewBatch(db.storage, version, 0, db.descending, db.dbName, db.operationMetrics)
+		if err != nil {
+			deleteErr = fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
+			return true
+		}
+		batch = next
 		return false
 	})
 	if err != nil {
 		return fmt.Errorf("error iterating module %q for deletion: %w", module, err)
+	}
+	if deleteErr != nil {
+		return deleteErr
 	}
 
 	// Commit any remaining deletions.
@@ -1400,15 +1461,25 @@ func isMetadataKey(key []byte) bool {
 	return bytes.HasPrefix(key, []byte("s/_"))
 }
 
+// storePrefix returns the "s/k:<storeKey>/" prefix every key in a store carries.
 func storePrefix(storeKey string) []byte {
-	return []byte(fmt.Sprintf(StorePrefixTpl, storeKey))
+	dst := make([]byte, 0, len(PrefixStore)+len(storeKey)+1)
+	dst = append(dst, PrefixStore...)
+	dst = append(dst, storeKey...)
+	return append(dst, '/')
 }
 
+// prependStoreKey returns key behind its store's prefix, sized so the whole
+// result is one allocation. An empty storeKey returns key untouched.
 func prependStoreKey(storeKey string, key []byte) []byte {
 	if storeKey == "" {
 		return key
 	}
-	return append(storePrefix(storeKey), key...)
+	dst := make([]byte, 0, len(PrefixStore)+len(storeKey)+1+len(key))
+	dst = append(dst, PrefixStore...)
+	dst = append(dst, storeKey...)
+	dst = append(dst, '/')
+	return append(dst, key...)
 }
 
 // Parses store from key with format "s/k:{store}/..."

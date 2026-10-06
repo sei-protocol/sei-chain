@@ -59,7 +59,7 @@ func selectedLinkFiles(t *testing.T, dir string, tags []string) []string {
 }
 
 // ldflagLibrary returns the -l<name> argument from the cgo LDFLAGS directive in the file
-// at path, for example "wasmvm155_muslc.aarch64".
+// at path, for example "wasmvm_muslc.aarch64".
 func ldflagLibrary(t *testing.T, path string) string {
 	t.Helper()
 

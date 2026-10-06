@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 )
 
 type IStoreTracer interface {
@@ -99,8 +98,6 @@ func (gs *Store) Has(key []byte) bool {
 	opStart := time.Now()
 	defer func() {
 		gaskvMetrics.hasDuration.Record(context.Background(), time.Since(opStart).Seconds())
-		// TODO(PLT-353): remove once store_gaskv_has_duration verified
-		telemetry.MeasureSince(opStart, "store", "gaskv", "has")
 	}()
 	gs.gasMeter.ConsumeGas(gs.gasConfig.HasCost, types.GasHasDesc)
 	start := traceStart(gs.tracer)
@@ -116,8 +113,6 @@ func (gs *Store) Delete(key []byte) {
 	opStart := time.Now()
 	defer func() {
 		gaskvMetrics.deleteDuration.Record(context.Background(), time.Since(opStart).Seconds())
-		// TODO(PLT-353): remove once store_gaskv_delete_duration verified
-		telemetry.MeasureSince(opStart, "store", "gaskv", "delete")
 	}()
 	// charge gas to prevent certain attack vectors even though space is being freed
 	gs.gasMeter.ConsumeGas(gs.gasConfig.DeleteCost, types.GasDeleteDesc)

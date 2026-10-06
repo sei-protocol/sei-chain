@@ -3,6 +3,7 @@ package disktable
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
@@ -20,8 +21,11 @@ var _ litt.Iterator = (*forwardIterator)(nil)
 // segments, so their files remain on disk until Close releases them — even if garbage collection collects those
 // segments meanwhile. Close is therefore mandatory: a leaked iterator pins its segments' files indefinitely.
 type forwardIterator struct {
-	// table is the owning disk table, used to issue the close request.
-	table *DiskTable
+	// onClose is called once, by Close, after the buffered reader is closed. It performs whatever
+	// cleanup this iterator's owner requires: for a live table, releasing the reservation on each
+	// snapshot segment and notifying the control loop; for an offline iterator, releasing a directory
+	// lock instead.
+	onClose func() error
 
 	// segs is the ordered (lowest-to-highest index) snapshot of sealed segments in scope.
 	segs []*segment.Segment
@@ -48,8 +52,8 @@ type forwardIterator struct {
 	// readerSeg is the segment that reader was created for, so we can detect when to recreate it.
 	readerSeg *segment.Segment
 
-	// closed is true once Close has been called.
-	closed bool
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[forwardIterator]
 
 	// groupValid is true once a primary key in the current group has been visited, meaning groupAddr and
 	// groupValue describe that group's primary value.
@@ -63,13 +67,16 @@ type forwardIterator struct {
 	groupValue []byte
 }
 
-// newForwardIterator creates a forward iterator over the given snapshot of sealed segments.
+// newForwardIterator creates a forward iterator over the given snapshot of sealed segments, owned by a
+// live table.
 func newForwardIterator(table *DiskTable, segs []*segment.Segment) *forwardIterator {
-	return &forwardIterator{
-		table:  table,
-		segs:   segs,
-		segPos: 0,
+	it := &forwardIterator{
+		onClose: closeLiveIterator(table, segs),
+		segs:    segs,
+		segPos:  0,
 	}
+	it.closed = utils.MustClose(it, "littdb forward iterator")
+	return it
 }
 
 // newForwardIteratorAt creates a forward iterator over the given snapshot positioned so that the first
@@ -83,18 +90,36 @@ func newForwardIteratorAt(
 	keys []*types.ScopedKey,
 	keyPos int,
 ) *forwardIterator {
-	return &forwardIterator{
-		table:  table,
-		segs:   segs,
-		segPos: segPos,
-		keys:   keys,
-		keyPos: keyPos,
+	it := &forwardIterator{
+		onClose: closeLiveIterator(table, segs),
+		segs:    segs,
+		segPos:  segPos,
+		keys:    keys,
+		keyPos:  keyPos,
 	}
+	it.closed = utils.MustClose(it, "littdb forward iterator")
+	return it
+}
+
+// NewOfflineForwardIterator creates a forward iterator over the given snapshot of segments, gathered
+// directly from disk rather than from a live table. release is called once, by Close, in place of the
+// live path's segment-reservation release and control-loop notification.
+func NewOfflineForwardIterator(segs []*segment.Segment, release func()) litt.Iterator {
+	it := &forwardIterator{
+		onClose: func() error {
+			release()
+			return nil
+		},
+		segs:   segs,
+		segPos: 0,
+	}
+	it.closed = utils.MustClose(it, "littdb forward iterator")
+	return it
 }
 
 // Next advances the iterator to the next key in insertion order.
 func (it *forwardIterator) Next() (bool, error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return false, fmt.Errorf("iterator is closed")
 	}
 
@@ -141,7 +166,7 @@ func (it *forwardIterator) Next() (bool, error) {
 
 // GetKey returns the current key and whether it is a primary key.
 func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil, false, fmt.Errorf("iterator is closed")
 	}
 	if it.current == nil {
@@ -152,7 +177,7 @@ func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
 
 // GetValue reads and returns the value associated with the current key.
 func (it *forwardIterator) GetValue() (value []byte, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		// Close released the snapshot's segment reservations, so reading now would open a new
 		// reader on segments GC is free to have deleted.
 		return nil, fmt.Errorf("iterator is closed")
@@ -236,13 +261,12 @@ func (it *forwardIterator) secondaryWithinGroup(addr types.Address) bool {
 		uint64(addr.Offset())+uint64(addr.ValueSize()) <= end
 }
 
-// Close releases the resources held by the iterator, including the reservations on its snapshot segments
-// (allowing any segment GC collected while it was open to finally be deleted from disk).
+// Close releases the resources held by the iterator, via onClose.
 func (it *forwardIterator) Close() error {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil
 	}
-	it.closed = true
+	it.closed.Close(it)
 
 	// Close the buffered reader.
 	var readerErr error
@@ -251,27 +275,37 @@ func (it *forwardIterator) Close() error {
 		it.reader = nil
 	}
 
-	// Release the reservation on each snapshot segment. This must happen even on the error paths below: a missed
-	// release pins those segments' files on disk indefinitely.
-	for _, seg := range it.segs {
-		seg.Release()
-	}
+	closeErr := it.onClose()
 	it.segs = nil
 
-	// Notify the control loop so the open-iterator metric is updated.
-	request := &controlLoopCloseIteratorRequest{
-		completionChan: make(chan struct{}, 1),
-	}
-	err := it.table.controlLoop.enqueue(request)
-	if err != nil {
-		return fmt.Errorf("failed to send close iterator request: %w", err)
-	}
-	_, err = util.Await(it.table.errorMonitor, request.completionChan)
-	if err != nil {
-		return fmt.Errorf("failed to await iterator close: %w", err)
-	}
 	if readerErr != nil {
 		return fmt.Errorf("failed to close segment reader: %w", readerErr)
 	}
-	return nil
+	return closeErr
+}
+
+// closeLiveIterator returns the onClose function for an iterator owned by a live table: it releases the
+// reservation on each snapshot segment (allowing any segment GC collected while the iterator was open to
+// finally be deleted from disk), then notifies the control loop so the open-iterator metric is updated.
+func closeLiveIterator(table *DiskTable, segs []*segment.Segment) func() error {
+	return func() error {
+		// This must happen even if the notification below fails: a missed release pins those segments'
+		// files on disk indefinitely.
+		for _, seg := range segs {
+			seg.Release()
+		}
+
+		request := &controlLoopCloseIteratorRequest{
+			completionChan: make(chan struct{}, 1),
+		}
+		err := table.controlLoop.enqueue(request)
+		if err != nil {
+			return fmt.Errorf("failed to send close iterator request: %w", err)
+		}
+		_, err = util.Await(table.errorMonitor, request.completionChan)
+		if err != nil {
+			return fmt.Errorf("failed to await iterator close: %w", err)
+		}
+		return nil
+	}
 }

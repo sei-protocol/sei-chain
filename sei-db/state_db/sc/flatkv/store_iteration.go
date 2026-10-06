@@ -96,20 +96,20 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 	return iterators.NewDomainIterator(iter, start, end)
 }
 
-// buildEvmIterator merges the five EVM lanes — code, storage, misc under the evm/ module, account
-// nonce and account codehash — into one iterator over logical memiavl keys. Balance is not among them:
-// FlatKV does not store it yet.
+// buildEvmIterator merges the six EVM lanes — code, storage, misc under the evm/ module, account
+// nonce, account codehash and account balance — into one iterator over logical memiavl keys.
 func (s *CommitStore) buildEvmIterator(
 	start []byte,
 	end []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	lanes := make([]dbm.Iterator, 0, 5)
+	lanes := make([]dbm.Iterator, 0, 6)
 
 	// Each optimized lane scans its own physical keyspace and re-labels rows to
-	// a logical key. The codehash lane is the only one whose logical type byte
-	// (0x08) differs from the physical byte it scans (account rows live under
-	// 0x0a), so its bounds must be translated against the account keyspace.
+	// a logical key. The codehash and balance lanes have logical type bytes
+	// (0x08, 0x21) that differ from the physical byte they scan (account rows
+	// live under 0x0a), so their bounds must be translated against the account
+	// keyspace.
 	for _, laneSpec := range s.evmLaneSpecs() {
 		lower, upper, empty, err := laneSpec.bounds(start, end)
 		if err != nil {
@@ -137,8 +137,6 @@ func (s *CommitStore) buildEvmIterator(
 	}
 	lanes = append(lanes, miscLane)
 
-	// TODO: once we move account balances to FlatKV, we need to add a lane for them here.
-
 	// NewMergingIterator takes ownership of the lanes and closes all of them if
 	// construction fails, so we must not close them again here (Pebble's Close is
 	// not idempotent and a double close could corrupt its iterator pool).
@@ -154,8 +152,8 @@ type evmLaneSpec struct {
 	// logical is the type byte callers query with.
 	logical keys.EVMKeyKind
 	// physical is the type byte the lane's rows are stored under; equal to
-	// logical for every lane except codehash, whose rows live in the account DB
-	// under 0x0a.
+	// logical for every lane except codehash and balance, whose rows live in the
+	// account DB under 0x0a.
 	physical keys.EVMKeyKind
 	// build constructs the iterator that scans the lane's physical keyspace.
 	build func(lower []byte, upper []byte, ascending bool) (dbm.Iterator, error)
@@ -190,6 +188,7 @@ func (s *CommitStore) evmLaneSpecs() []evmLaneSpec {
 		{keys.EVMKeyCode, keys.EVMKeyCode, s.buildCodeLane},
 		{keys.EVMKeyCodeHash, ktype.EVMKeyAccount, s.buildAccountCodehashLane},
 		{keys.EVMKeyNonce, ktype.EVMKeyAccount, s.buildAccountNonceLane},
+		{keys.EVMKeyBalance, ktype.EVMKeyAccount, s.buildAccountBalanceLane},
 	}
 }
 
@@ -206,7 +205,7 @@ func evmLaneBounds(
 	// logicalPrefix is the lane's logical type byte (the prefix callers use, e.g. 0x08 for codehash).
 	logicalPrefix byte,
 	// physByte is the physical type byte the rows are stored under. It equals logicalPrefix for every
-	// lane except codehash, whose rows live in the account DB under 0x0a.
+	// lane except codehash and balance, whose rows live in the account DB under 0x0a.
 	physByte byte,
 ) (
 	// lower is the physical inclusive lower bound for the lane.
@@ -410,6 +409,34 @@ func (s *CommitStore) buildAccountCodehashLane(
 			return nil, nil, true, nil
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCodeHash, addrBytes), codeHash[:], false, nil
+	}
+	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
+}
+
+// buildAccountBalanceLane iterates the account store, emitting the EVM balance key and the 32-byte
+// balance. It walks the same values as buildAccountNonceLane and projects a different field. An account
+// whose balance is zero holds nothing, so it is skipped rather than emitted as a zero balance.
+func (s *CommitStore) buildAccountBalanceLane(
+	lowerBound, upperBound []byte,
+	ascending bool,
+) (dbm.Iterator, error) {
+	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		if len(value) == 0 {
+			return nil, nil, true, nil
+		}
+		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		ad, err := vtype.DeserializeAccountData(value)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		balance := ad.GetBalance()
+		if *balance == (vtype.Balance{}) {
+			return nil, nil, true, nil
+		}
+		return keys.BuildEVMKey(keys.EVMKeyBalance, addrBytes), balance[:], false, nil
 	}
 	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
 }

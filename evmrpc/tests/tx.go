@@ -12,7 +12,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
-	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -105,21 +104,6 @@ func mixedLogTesterTransfer(nonce uint64, recipient common.Address) ethtypes.TxD
 		Gas:       500000,
 		To:        &mixedLogTesterAddr,
 		Data:      bz,
-		ChainID:   chainId,
-	}
-}
-
-func registerCW20Pointer(nonce uint64, cw20Addr string) ethtypes.TxData {
-	pInfo := precompiles.GetPrecompileInfo(pointer.PrecompileName)
-	input, _ := pInfo.ABI.Pack("addCW20Pointer", cw20Addr)
-	pointer := common.HexToAddress(pointer.PointerAddress)
-	return &ethtypes.DynamicFeeTx{
-		Nonce:     nonce,
-		GasFeeCap: big.NewInt(1000000000),
-		Gas:       4000000,
-		To:        &pointer,
-		Value:     big.NewInt(0),
-		Data:      input,
 		ChainID:   chainId,
 	}
 }

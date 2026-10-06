@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -30,8 +29,6 @@ import (
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 	authzmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/module"
@@ -65,7 +62,6 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -74,7 +70,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
-	"github.com/sei-protocol/sei-chain/app/retiredibc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -93,8 +88,6 @@ import (
 const (
 	appName              = "WasmApp"
 	feegrantStoreKeyName = "feegrant"
-	retiredIBCStoreName  = storekeys.IBCStoreKey
-	retiredTransferName  = storekeys.IBCTransferStoreKey
 )
 
 // We pull these out so we can set them with LDFLAGS in the Makefile
@@ -176,7 +169,6 @@ var (
 		authzmodule.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
-		vesting.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 	)
 
@@ -188,9 +180,13 @@ var (
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		retiredTransferName:            {authtypes.Minter, authtypes.Burner},
 		wasm.ModuleName:                {authtypes.Burner},
 	}
+
+	// retiredModuleAccounts are module accounts whose modules no longer exist
+	// but whose deterministic addresses stay blocked so funds cannot be sent
+	// to an account nothing can sign for.
+	retiredModuleAccounts = []string{"transfer"}
 )
 
 var (
@@ -232,14 +228,6 @@ type WasmApp struct {
 	txDecoder sdk.TxDecoder
 }
 
-// Query handles ABCI queries without exposing retired IBC stores.
-func (app *WasmApp) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
-	if response := retiredibc.QueryResponse(req.Path); response != nil {
-		return response, nil
-	}
-	return app.BaseApp.Query(ctx, req)
-}
-
 // NewWasmApp returns a reference to an initialized WasmApp.
 func NewWasmApp(
 	db dbm.DB,
@@ -265,8 +253,8 @@ func NewWasmApp(
 	keys := sdk.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, retiredIBCStoreName, upgradetypes.StoreKey,
-		evidencetypes.StoreKey, retiredTransferName,
+		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
+		evidencetypes.StoreKey,
 		feegrantStoreKeyName, authzkeeper.StoreKey, wasm.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
@@ -351,9 +339,8 @@ func NewWasmApp(
 
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
-	app.stakingKeeper = *stakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(app.distrKeeper.Hooks(), app.slashingKeeper.Hooks()),
-	)
+	stakingHooks := stakingtypes.NewMultiStakingHooks(app.distrKeeper.Hooks(), app.slashingKeeper.Hooks())
+	app.stakingKeeper = *stakingKeeper.SetHooks(&stakingHooks)
 
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
@@ -413,6 +400,7 @@ func NewWasmApp(
 		app.paramsKeeper,
 		govRouter,
 	)
+	stakingHooks.AddHooks(app.govKeeper.StakingHooks())
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 	app.mm = module.NewManager(
@@ -422,8 +410,7 @@ func NewWasmApp(
 			app.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		auth.NewAppModule(appCodec, app.accountKeeper, nil),
-		vesting.NewAppModule(app.accountKeeper, app.bankKeeper, app.upgradeKeeper),
+		auth.NewAppModule(appCodec, app.accountKeeper),
 		bank.NewAppModule(appCodec, app.bankKeeper, app.accountKeeper),
 		gov.NewAppModule(appCodec, app.govKeeper, app.accountKeeper, app.bankKeeper),
 		mint.NewAppModule(appCodec, app.mintKeeper, app.accountKeeper),
@@ -431,7 +418,7 @@ func NewWasmApp(
 		distr.NewAppModule(appCodec, app.distrKeeper, app.accountKeeper, app.bankKeeper, app.stakingKeeper),
 		staking.NewAppModule(appCodec, app.stakingKeeper, app.accountKeeper, app.bankKeeper),
 		upgrade.NewAppModule(app.upgradeKeeper),
-		wasm.NewAppModule(appCodec, &app.wasmKeeper, app.stakingKeeper, app.accountKeeper, app.bankKeeper),
+		wasm.NewAppModule(appCodec, &app.wasmKeeper, app.stakingKeeper),
 		evidence.NewAppModule(app.evidenceKeeper),
 		authzmodule.NewAppModule(appCodec, app.authzKeeper, app.accountKeeper, app.bankKeeper, app.interfaceRegistry),
 		params.NewAppModule(app.paramsKeeper),
@@ -454,7 +441,6 @@ func NewWasmApp(
 		authz.ModuleName,
 		paramstypes.ModuleName,
 		upgradetypes.ModuleName,
-		vestingtypes.ModuleName,
 		// additional non simd modules
 		wasm.ModuleName,
 	)
@@ -531,6 +517,7 @@ func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestPro
 }
 
 func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	gov.BeginBlocker(ctx, app.govKeeper)
 	distr.BeginBlocker(ctx, []abci.VoteInfo{}, app.distrKeeper)
 	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, app.slashingKeeper)
 	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.evidenceKeeper)
@@ -609,14 +596,7 @@ func (app *WasmApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci
 
 	app.upgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 
-	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
-	app.initializeRetiredTransferModuleAccount(ctx)
-	return response
-}
-
-// initializeRetiredTransferModuleAccount preserves the account identity and permissions created by the retired transfer module.
-func (app *WasmApp) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
-	app.accountKeeper.GetModuleAccount(ctx, retiredTransferName)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
 }
 
 func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
@@ -624,15 +604,13 @@ func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
 	return staking.EndBlocker(ctx, app.stakingKeeper)
 }
 
-// LoadHeight loads a particular height
-func (app *WasmApp) LoadHeight(height int64) error {
-	return app.LoadVersion(height)
-}
-
 // ModuleAccountAddrs returns all the app's module account addresses.
 func (app *WasmApp) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)
 	for acc := range maccPerms {
+		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
+	}
+	for _, acc := range retiredModuleAccounts {
 		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
 	}
 

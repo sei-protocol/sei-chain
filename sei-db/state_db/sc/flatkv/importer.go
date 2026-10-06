@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -39,13 +41,13 @@ var flushHookForTest atomic.Pointer[func(string)]
 // and flushes (commit + LtHash update) when the buffer is full or the
 // channel is closed.
 type dbWorker struct {
-	ctx     context.Context
-	dir     string
-	db      seidbtypes.KeyValueDB
-	ch      chan rawKVPair
-	batch   seidbtypes.Batch
-	ltPairs []lthash.KVPairWithLastValue
-	ltHash  *lthash.LtHash
+	ctx         context.Context
+	dir         string
+	db          seidbtypes.KeyValueDB
+	ch          chan rawKVPair
+	batch       seidbtypes.Batch
+	ltMutations []lthash.KeyMutation
+	ltHash      *lthash.LtHash
 	// moduleLtHash tracks the per-module decomposition of ltHash, keyed by the
 	// "<module>/" physical-key prefix. Its homomorphic sum equals ltHash.
 	moduleLtHash map[string]*lthash.LtHash
@@ -53,26 +55,41 @@ type dbWorker struct {
 	// alongside moduleLtHash, keyed the same way. Mirrors the live commit path
 	// so an imported store carries identical per-module stats metadata.
 	moduleStats map[string]lthash.ModuleStats
-	// calc is the shared lattice-hash calculator. Its worker pool is used to
-	// distribute this worker's flushed pairs and compute per-module deltas —
-	// the same path the live commit uses (see HashCalculator.ComputeModuleHashInfos).
-	calc    *lthash.HashCalculator
-	flushes int64
-	pairs   int64
+	// pool distributes this worker's flushed mutations across every core to compute per-module deltas —
+	// the same path the live commit uses (see lthash.ComputeModuleHashInfos).
+	pool threading.Pool
+	// moduleOf names the module a physical key belongs to, for bucketing this worker's mutations.
+	moduleOf lthash.ModuleParser
+	// chunkSize is how many KV pairs each leaf-hash task carries.
+	chunkSize uint32
+	flushes   int64
+	pairs     int64
 }
 
-func newDBWorker(ctx context.Context, dir string, db seidbtypes.KeyValueDB, calc *lthash.HashCalculator, ltHash *lthash.LtHash, moduleLtHash map[string]*lthash.LtHash, moduleStats map[string]lthash.ModuleStats) *dbWorker {
+func newDBWorker(
+	ctx context.Context,
+	dir string,
+	db seidbtypes.KeyValueDB,
+	pool threading.Pool,
+	moduleOf lthash.ModuleParser,
+	ltHash *lthash.LtHash,
+	moduleLtHash map[string]*lthash.LtHash,
+	moduleStats map[string]lthash.ModuleStats,
+	chunkSize uint32,
+) *dbWorker {
 	return &dbWorker{
 		ctx:          ctx,
 		dir:          dir,
 		db:           db,
 		ch:           make(chan rawKVPair, workerChanSize),
 		batch:        db.NewBatch(),
-		ltPairs:      make([]lthash.KVPairWithLastValue, 0, importBatchSize),
+		ltMutations:  make([]lthash.KeyMutation, 0, importBatchSize),
 		ltHash:       ltHash,
 		moduleLtHash: moduleLtHash,
 		moduleStats:  moduleStats,
-		calc:         calc,
+		pool:         pool,
+		moduleOf:     moduleOf,
+		chunkSize:    chunkSize,
 	}
 }
 
@@ -94,11 +111,11 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 			if err := w.batch.Set(kv.Key, kv.Value); err != nil {
 				return fmt.Errorf("%s set: %w", w.dir, err)
 			}
-			w.ltPairs = append(w.ltPairs, lthash.KVPairWithLastValue{
+			w.ltMutations = append(w.ltMutations, lthash.KeyMutation{
 				Key:   kv.Key,
 				Value: kv.Value,
 			})
-			if len(w.ltPairs) >= importBatchSize {
+			if len(w.ltMutations) >= importBatchSize {
 				if err := w.flush(); err != nil {
 					return err
 				}
@@ -111,14 +128,14 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 
 // flush commits the current PebbleDB batch and updates the running LtHash.
 func (w *dbWorker) flush() (err error) {
-	if len(w.ltPairs) == 0 {
+	if len(w.ltMutations) == 0 {
 		return nil
 	}
 	if hook := flushHookForTest.Load(); hook != nil {
 		(*hook)(w.dir)
 	}
 	start := time.Now()
-	pairCount := len(w.ltPairs)
+	pairCount := len(w.ltMutations)
 	defer func() {
 		otelMetrics.ImportWorkerFlushLatency.Record(w.ctx, secondsSince(start),
 			metric.WithAttributes(dbAttr(w.dir), successAttr(err)))
@@ -132,7 +149,8 @@ func (w *dbWorker) flush() (err error) {
 	// per-module metadata and identical per-DB root a natively-committed store
 	// would — and it lets a single large DB's batch fan out across every core
 	// instead of being pinned to one import worker goroutine.
-	deltas, err := w.calc.ComputeModuleHashInfos([]lthash.DBPairs{{Dir: w.dir, Pairs: w.ltPairs}})
+	deltas, err := lthash.ComputeModuleHashInfos(
+		w.pool, w.moduleOf, []lthash.DatabaseMutations{{DBName: w.dir, Mutations: w.ltMutations}}, w.chunkSize)
 	if err != nil {
 		return fmt.Errorf("%s compute module deltas: %w", w.dir, err)
 	}
@@ -156,8 +174,14 @@ func (w *dbWorker) flush() (err error) {
 	addImportKVPairs(w.ctx, w.dir, pairCount)
 	w.flushes++
 	w.pairs += int64(pairCount)
+	closeErr := w.batch.Close()
+	// Cleared before the error check, so run() does not close the batch a second time.
+	w.batch = nil
+	if closeErr != nil {
+		return fmt.Errorf("%s close batch: %w", w.dir, closeErr)
+	}
 	w.batch = w.db.NewBatch()
-	w.ltPairs = w.ltPairs[:0]
+	w.ltMutations = w.ltMutations[:0]
 	return nil
 }
 
@@ -168,6 +192,8 @@ func (w *dbWorker) flush() (err error) {
 type KVImporter struct {
 	store   *CommitStore
 	version int64
+	// requireAscendingKeys rejects the import unless physical keys arrive in strictly ascending order.
+	requireAscendingKeys bool
 
 	ingestCh chan rawKVPair
 	// workers is keyed by database directory name, which is what routePhysicalKey answers with. Keying by
@@ -186,14 +212,16 @@ type KVImporter struct {
 
 // NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
 // are passed in rather than fetched off store, because an import writes beneath the view managers and so
-// must be handed the databases explicitly by whoever opened them.
-func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer {
+// must be handed the databases explicitly by whoever opened them. When requireAscendingKeys is set, the
+// import fails unless every physical key is strictly greater than the one before it.
+func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
 	imp := &KVImporter{
-		store:    store,
-		version:  version,
-		ingestCh: make(chan rawKVPair, ingestChanSize),
-		workers:  make(map[string]*dbWorker, len(dataDBDirs)),
-		done:     make(chan struct{}),
+		store:                store,
+		version:              version,
+		requireAscendingKeys: requireAscendingKeys,
+		ingestCh:             make(chan rawKVPair, ingestChanSize),
+		workers:              make(map[string]*dbWorker, len(dataDBDirs)),
+		done:                 make(chan struct{}),
 	}
 
 	for _, dir := range dataDBDirs {
@@ -201,10 +229,12 @@ func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer
 			store.ctx,
 			dir,
 			dbs.forDir(dir),
-			store.ltCalc,
-			store.perDBWorkingLtHash[dir],
-			cloneModuleHashes(store.perDBModuleWorkingLtHash[dir]),
-			cloneModuleStats(store.perDBModuleWorkingStats[dir]),
+			store.ltHashPool,
+			store.moduleOf,
+			store.loadedHashes.PerDB[dir],
+			cloneModuleHashes(store.loadedHashes.PerModule[dir]),
+			cloneModuleStats(store.loadedHashes.PerModuleStats[dir]),
+			store.config.HashEngineConfig.ChunkSize,
 		)
 		imp.workers[dir] = w
 	}
@@ -238,11 +268,19 @@ func (imp *KVImporter) dispatch() {
 		}
 	}()
 
+	var prevKey []byte
 	for {
 		select {
 		case kv, ok := <-imp.ingestCh:
 			if !ok {
 				return
+			}
+			if imp.requireAscendingKeys {
+				if err := checkAscending(prevKey, kv.Key); err != nil {
+					imp.setErr(err)
+					return
+				}
+				prevKey = kv.Key
 			}
 			dir, err := routePhysicalKey(kv.Key)
 			if err != nil {
@@ -258,6 +296,23 @@ func (imp *KVImporter) dispatch() {
 			return
 		}
 	}
+}
+
+// checkAscending returns an error unless key is strictly greater than prevKey. A nil prevKey means key is
+// the first of the import.
+func checkAscending(prevKey []byte, key []byte) error {
+	if prevKey == nil {
+		return nil
+	}
+	switch cmp := bytes.Compare(prevKey, key); {
+	case cmp == 0:
+		return fmt.Errorf("flatkv import: duplicate physical key %x", key)
+	case cmp > 0:
+		return fmt.Errorf(
+			"flatkv import: physical key %x is below preceding key %x; keys must be in ascending order",
+			key, prevKey)
+	}
+	return nil
 }
 
 func (imp *KVImporter) setErr(err error) {
@@ -282,22 +337,45 @@ func (imp *KVImporter) AddModule(_ string) error {
 	return nil
 }
 
-func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
-	if node.Height != 0 || node.Key == nil || node.Version != imp.version {
-		return
+// AddNode queues node for import. It fails the import and returns an error unless node is a leaf at the
+// import's version with a non-empty key and value. Once the import has failed, it returns that failure.
+func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
+	if err := imp.getErr(); err != nil {
+		return err
+	}
+	if err := imp.checkNode(node); err != nil {
+		imp.setErr(err)
+		return err
+	}
+	select {
+	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
+	case <-imp.done:
+	}
+	// A worker can fail while the send is pending, and select may still pick the send, so the failure is
+	// read again here rather than reporting the node as accepted.
+	return imp.getErr()
+}
+
+// checkNode returns an error unless node is a row this import can store.
+func (imp *KVImporter) checkNode(node *types.SnapshotNode) error {
+	if node.Height != 0 {
+		return fmt.Errorf("flatkv import: node %x has height %d; only leaves can be imported", node.Key, node.Height)
+	}
+	if len(node.Key) == 0 {
+		return errors.New("flatkv import: node has an empty key")
+	}
+	if node.Version != imp.version {
+		return fmt.Errorf("flatkv import: node %x has version %d; the import is at version %d",
+			node.Key, node.Version, imp.version)
 	}
 	// FlatKV import nodes carry already-serialized physical values. Even an
 	// empty logical misc value has a non-empty serialized header, so a
 	// zero-length physical value is malformed. Reject it instead of writing a
 	// Pebble row that LtHash and verification would both skip.
 	if len(node.Value) == 0 {
-		imp.setErr(fmt.Errorf("flatkv import: empty physical value for key %x", node.Key))
-		return
+		return fmt.Errorf("flatkv import: empty physical value for key %x", node.Key)
 	}
-	select {
-	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
-	case <-imp.done:
-	}
+	return nil
 }
 
 // Abort tears down the worker pipeline without finalizing the import.
@@ -362,9 +440,9 @@ func (imp *KVImporter) Close() error {
 		}
 
 		for _, w := range imp.workers {
-			imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
-			imp.store.perDBModuleWorkingLtHash[w.dir] = w.moduleLtHash
-			imp.store.perDBModuleWorkingStats[w.dir] = w.moduleStats
+			imp.store.loadedHashes.PerDB[w.dir] = w.ltHash
+			imp.store.loadedHashes.PerModule[w.dir] = w.moduleLtHash
+			imp.store.loadedHashes.PerModuleStats[w.dir] = w.moduleStats
 		}
 
 		if err = imp.store.FinalizeImport(imp.version); err != nil {

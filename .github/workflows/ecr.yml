@@ -37,6 +37,15 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+      - name: Compute the ordered main tag
+        # main-<UTC committer timestamp>-<sha7>, which Flux image policies can
+        # order numerically. Only a push to main gets one.
+        id: ordered
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          TS=$(TZ=UTC0 git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
+          echo "tag=main-${TS}-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
         # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
@@ -48,7 +57,9 @@ jobs:
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref || github.sha }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref || github.sha }}
+            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:mock-{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_balances
@@ -84,6 +95,8 @@ jobs:
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}
+            ${{ steps.ordered.outputs.tag && format('{0}/sei/sei-chain:{1}', steps.login-ecr.outputs.registry, steps.ordered.outputs.tag) || '' }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}

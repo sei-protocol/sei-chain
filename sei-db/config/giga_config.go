@@ -31,10 +31,10 @@ const gigaReceiptBackend = "littidx"
 //	data/ledger/block
 //
 // SS is opened at EVMDBDirectory. Every store sets ExternalPruning so PruningConfig owns retention.
-func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
+func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
-		return GigaStorageConfig{}, fmt.Errorf("failed to build block db config: %w", err)
+		return nil, fmt.Errorf("failed to build block db config: %w", err)
 	}
 
 	flatKV := flatkvConfig.DefaultConfig()
@@ -44,13 +44,14 @@ func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	ssConfig := DefaultStateStoreConfig()
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 	ssConfig.ExternalPruning = true
+	ssConfig.DisableInternalWAL = true
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
 	receiptConfig.ExternalPruning = true
 
-	return GigaStorageConfig{
+	return &GigaStorageConfig{
 		HomePath:         homePath,
 		FlatKVConfig:     flatKV,
 		SSConfig:         ssConfig,
@@ -61,9 +62,51 @@ func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	}, nil
 }
 
+func (c *GigaStorageConfig) WithValidatorMode() *GigaStorageConfig {
+	c.ReceiptDBConfig.Enable = false
+	c.SSConfig.Enable = false
+	return c
+}
+
+func (c *GigaStorageConfig) WithFullNodeMode() *GigaStorageConfig {
+	c.ReceiptDBConfig.Enable = true
+	c.SSConfig.Enable = true
+	return c
+}
+
+// AutobahnStorageConfig is the disk-backed Giga layout Autobahn opens: FlatKV,
+// receipts, and BlockDB. SS stays off.
+func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
+	storageConfig, err := DefaultGigaStorageConfig(homePath)
+	if err != nil {
+		return nil, err
+	}
+	storageConfig.WithValidatorMode()
+	storageConfig.ReceiptDBConfig.Enable = true
+	return storageConfig, nil
+}
+
+func (c *GigaStorageConfig) WithAccountDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
+	c.FlatKVConfig.AccountStoreConfig.MaxSize = sizeInBytes
+	return c
+}
+
+func (c *GigaStorageConfig) WithStorageDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
+	c.FlatKVConfig.StorageStoreConfig.MaxSize = sizeInBytes
+	return c
+}
+
+func (c *GigaStorageConfig) WithCodeDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
+	c.FlatKVConfig.CodeStoreConfig.MaxSize = sizeInBytes
+	return c
+}
+
 // Validate checks fields no store checks for itself. Stores still validate as they open;
 // this fails first so a bad config does not leave databases half-open.
-func (c GigaStorageConfig) Validate() error {
+func (c *GigaStorageConfig) Validate() error {
+	if c == nil {
+		return fmt.Errorf("giga storage config is required")
+	}
 	if c.FlatKVConfig == nil {
 		return fmt.Errorf("flatkv config is required")
 	}

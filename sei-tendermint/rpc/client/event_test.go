@@ -2,10 +2,8 @@ package client_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,39 +15,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-const (
-	waitForEventTimeout        = 10 * time.Second
-	waitForEventAttemptTimeout = 2 * time.Second
-	waitForEventPollInterval   = 200 * time.Millisecond
-)
-
-func waitForOneEventEventually(
+// waitForOneEvent returns the first event matching query, waiting as long as ctx allows. The block
+// carrying a transaction is however long consensus takes to produce, so the test deadline is the only
+// bound.
+func waitForOneEvent(
 	ctx context.Context,
 	t *testing.T,
 	c client.EventsClient,
 	query string,
 ) types.EventData {
 	t.Helper()
-
-	var evt types.EventData
-	require.Eventually(t, func() bool {
-		attemptCtx, cancel := context.WithTimeout(ctx, waitForEventAttemptTimeout)
-		defer cancel()
-
-		e, err := client.WaitForOneEvent(attemptCtx, c, query)
-		if err != nil {
-			// During polling, these are expected until the tx is committed and indexed.
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-				return false
-			}
-			require.NoError(t, err)
-			return false
-		}
-
-		evt = e
-		return true
-	}, waitForEventTimeout, waitForEventPollInterval)
-
+	evt, err := client.WaitForOneEvent(ctx, c, query)
+	require.NoError(t, err)
 	return evt
 }
 
@@ -90,7 +67,7 @@ func testTxEventsSent(ctx context.Context, t *testing.T, broadcastMethod string,
 	query := fmt.Sprintf(`tm.event = '%s' AND tx.hash = '%X'`,
 		types.EventTxValue, types.Tx(tx).Hash())
 
-	evt := waitForOneEventEventually(ctx, t, c, query)
+	evt := waitForOneEvent(ctx, t, c, query)
 	// and make sure it has the proper info
 	txe, ok := evt.(types.EventDataTx)
 	require.True(t, ok)

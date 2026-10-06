@@ -93,6 +93,13 @@ type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
 
+	// SetString sets the value for the given key, which the implementation must not retain: a
+	// string key lets the caller pass a map key straight through without converting it to bytes.
+	SetString(key string, value []byte) error
+
+	// DeleteString deletes the value for the given key, which the implementation must not retain.
+	DeleteString(key string) error
+
 	// Commit applies the batch atomically: after a crash it is either fully present or fully absent.
 	// Sequential commits on the same DB become durable in commit order — a crash may lose a suffix of
 	// commits, never an earlier commit while retaining a later one.
@@ -208,6 +215,13 @@ type StateStore interface {
 	io.Closer
 }
 
+// BlockCommitter is the live commit path's entry into a state store: one call per committed block,
+// a block that changed nothing included. A store that checkpoints takes its heights from these
+// calls, so every committed version has to arrive here.
+type BlockCommitter interface {
+	CommitBlock(version int64, changesets []*proto.NamedChangeSet) error
+}
+
 // ContextIteratorStore is implemented by StateStores whose iterators can observe
 // a deadline while skipping MVCC versions. Historical traces attach the RPC
 // timeout here so a skip loop does not run for minutes after the caller gave up.
@@ -234,11 +248,4 @@ type SnapshotNode struct {
 	StoreKey string
 	Key      []byte
 	Value    []byte
-}
-
-type RawSnapshotNode struct {
-	StoreKey string
-	Key      []byte
-	Value    []byte
-	Version  int64
 }

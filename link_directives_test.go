@@ -12,8 +12,6 @@ import (
 // linkDirs are the directories whose link_*.go cgo directives must
 // point at real on-disk library artifacts vendored next to them.
 var linkDirs = []string{
-	"sei-wasmd/x/wasm/artifacts/v152/api",
-	"sei-wasmd/x/wasm/artifacts/v155/api",
 	"sei-wasmvm/internal/api",
 }
 

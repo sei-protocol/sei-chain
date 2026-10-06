@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -50,6 +51,24 @@ func TestGetCommitKVStore_ReaderRespectsWriteLock(t *testing.T) {
 func TestLastCommitID(t *testing.T) {
 	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
+}
+
+func TestQueryUnknownStore(t *testing.T) {
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	store.MountStoreWithDB(types.NewKVStoreKey("bank"), types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	response := store.Query(context.Background(), abci.RequestQuery{
+		Path: "/doesnotexist/key",
+	})
+	require.Equal(t, uint32(sdkerrors.ErrUnknownRequest.ABCICode()), response.Code)
+	require.Contains(t, response.Log, "no such store: doesnotexist")
 }
 
 // waitUntilSSVersion waits until the SS latest version reaches at least target or times out.
@@ -152,10 +171,8 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	require.NotEqualValues(t, 0, resp.Code)
 }
 
-// flush owns the SS snapshot trigger for every block, so a boundary must be
-// scheduled whether or not the block carried changesets. The composite package
-// cannot pin this: its tests call ScheduleSnapshot themselves, so a regression
-// in either branch of flush is invisible there.
+// A boundary produces an SS snapshot whether or not the block carried changesets, which is what
+// routing every committed block through CommitBlock buys.
 func TestFlushSchedulesSSSnapshotAtABoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -179,7 +196,7 @@ func TestFlushSchedulesSSSnapshotAtABoundary(t *testing.T) {
 
 			store := NewStore(home, scCfg, ssCfg, []string{})
 			defer func() { _ = store.Close() }()
-			require.NotNil(t, store.ssSnapshots, "SS snapshot capability was not resolved")
+			require.NotNil(t, store.ssCommitter, "SS commit capability was not resolved")
 
 			key := types.NewKVStoreKey("bank")
 			store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)

@@ -16,9 +16,10 @@ var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 
 // CheckpointScheduler picks the heights every store on a node checkpoints at.
 //
-// Stores ask ShouldCheckpoint at each live commit and call MarkCheckpointComplete when that
-// checkpoint finishes, success or failure. Replay, WAL catch-up, and state-sync must not ask.
-// ShouldCheckpoint will register the store.
+// Stores ask ShouldCheckpoint from their own commit path and call MarkCheckpointComplete when that
+// checkpoint finishes, success or failure. A WAL catch-up driving that commit path asks like any other
+// block; the paths that apply blocks around it — a store's internal replay, an import, a state-sync
+// forward-fill — do not ask. ShouldCheckpoint will register the store.
 //
 // The goal is that every registered store either checkpoints on the exact same height, or none of them do.
 // That is achieved by holding a yes until every registered store has taken the checkpoint on the same height.
@@ -62,8 +63,9 @@ func NewCheckpointScheduler(cfg config.CheckpointConfig) *CheckpointScheduler {
 }
 
 // ShouldCheckpoint reports whether version is a height for store to checkpoint at, registering
-// store with the schedule when this is its first ask. Call it only from the live commit path,
-// never during replay, WAL catch-up, or state-sync forward-fill.
+// store with the schedule when this is its first ask. Call it from the store's commit path, whether
+// version is a live block or one a catch-up is replaying through it, and never from a path that
+// applies blocks around that one.
 func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool {
 	if !s.checkpointEnabled() || version <= 0 {
 		return false

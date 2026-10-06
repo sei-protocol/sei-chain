@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	"github.com/holiman/uint256"
@@ -17,7 +16,6 @@ import (
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
@@ -88,6 +86,10 @@ func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
 
 func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) uint256.Int {
 	return uint256.Int{}
+}
+
+func (app *BaseApp) EvmChainID() uint64 {
+	return 0
 }
 
 // BaseApp reflects the ABCI application implementation.
@@ -485,14 +487,6 @@ func (app *BaseApp) LoadVersion(version int64) error {
 	return app.init()
 }
 
-// LoadVersionWithoutInit loads the BaseApp application version, it doesn't call app.init any more,
-// specifically used by export genesis command.
-func (app *BaseApp) LoadVersionWithoutInit(version int64) error {
-	err := app.cms.LoadVersion(version)
-	app.setCheckState(tmproto.Header{})
-	return err
-}
-
 // LastCommitID returns the last CommitID of the multistore.
 func (app *BaseApp) LastCommitID() sdk.CommitID {
 	return app.cms.LastCommitID()
@@ -882,14 +876,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	runTxStart := time.Now()
 	defer func() {
 		baseappMetrics.runTxDuration.Record(ctx.Context(), time.Since(runTxStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", modeKeyToString[mode])))
-		// TODO(PLT-353): remove once baseapp_run_tx_duration verified
-		telemetry.MeasureThroughputSinceWithLabels(
-			telemetry.TxCount,
-			[]metrics.Label{
-				telemetry.NewLabel("mode", modeKeyToString[mode]),
-			},
-			runTxStart,
-		)
 	}()
 
 	// check for existing parent tracer, and if applicable, use it
@@ -1041,14 +1027,6 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 	runMsgsStart := time.Now()
 	defer func() {
 		baseappMetrics.runMsgsDuration.Record(ctx.Context(), time.Since(runMsgsStart).Seconds())
-		// TODO(PLT-353): remove once baseapp_run_msgs_duration verified
-		telemetry.MeasureThroughputSinceWithLabels(
-			telemetry.MessageCount,
-			[]metrics.Label{
-				telemetry.NewLabel("mode", "deliver"),
-			},
-			runMsgsStart,
-		)
 	}()
 
 	defer func() {
@@ -1075,6 +1053,12 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 			err          error
 		)
 
+		if ctx.IsSimulation() {
+			if err := ctx.Context().Err(); err != nil {
+				return nil, err
+			}
+		}
+
 		msgCtx, msgMsCache := app.CacheTxContext(ctx, [32]byte{})
 		msgCtx = msgCtx.WithMessageIndex(i)
 
@@ -1084,12 +1068,6 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 			msgResult, err = handler(msgCtx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)
 			baseappMetrics.runMsgLatency.Record(ctx.Context(), time.Since(startTime).Seconds(), otelmetric.WithAttributes(attribute.String("type", eventMsgName)))
-			// TODO(PLT-353): remove once baseapp_run_msg_latency verified
-			metrics.MeasureSinceWithLabels(
-				[]string{"sei", "cosmos", "run", "msg", "latency"},
-				startTime,
-				[]metrics.Label{{Name: "type", Value: eventMsgName}},
-			)
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
 			// legacy sdk.Msg routing
 			// Assuming that the app developer has migrated all their Msgs to
@@ -1104,12 +1082,6 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 			}
 			msgResult, err = handler(msgCtx, msg)
 			baseappMetrics.runMsgLatency.Record(ctx.Context(), time.Since(startTime).Seconds(), otelmetric.WithAttributes(attribute.String("type", eventMsgName)))
-			// TODO(PLT-353): remove once baseapp_run_msg_latency verified
-			metrics.MeasureSinceWithLabels(
-				[]string{"cosmos", "run", "msg", "latency"},
-				startTime,
-				[]metrics.Label{{Name: "type", Value: eventMsgName}},
-			)
 		} else {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
 		}

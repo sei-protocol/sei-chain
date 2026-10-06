@@ -59,13 +59,14 @@ var envAllowlist = map[string]bool{
 // seilog does not otherwise expose.
 const logProbeName = "configtest"
 
-// logDefaultLevel reports seilog's current default level.
+// LogDefaultLevel reports seilog's current default level, which is the level every logger in
+// the process runs at.
 //
 // seilog has SetDefaultLevel and no matching getter, so the value is read through a probe
 // logger. NewLogger returns the existing registry entry for a name it has seen before, and
 // SetDefaultLevel(_, true) writes every registered entry, so this one name follows the
 // default rather than freezing at whatever it was when first created.
-func logDefaultLevel() slog.Level {
+func LogDefaultLevel() slog.Level {
 	seilog.NewLogger(logProbeName, "isolate")
 	level, _ := seilog.GetLevel(logProbeName + "/isolate")
 	return level
@@ -86,9 +87,9 @@ func logDefaultLevel() slog.Level {
 // The seilog default level IS restored, because this suite writes it constantly.
 // InterceptConfigsPreRunHandler calls seilog.SetDefaultLevel whenever a log level
 // resolves, so every applyLegacy call in cmd/seid/cmd moves a process global, and
-// TestSeiLogLevelEnvSuppressesTheConfigFileValue moves it on purpose. Nothing asserts
-// on log level today, so the leak was inert, but leaving it would make the first row
-// that does assert on it depend on execution order.
+// TestSeiLogLevelEnvSuppressesTheConfigFileValue moves it on purpose. A target that
+// reads the level back through LogDefaultLevel depends on that restore for its result
+// to be the same in any execution order.
 //
 // Reading it back needs a detour: seilog exports SetDefaultLevel but no getter. A
 // single probe logger stands in. SetDefaultLevel(_, true) updates every registered
@@ -137,7 +138,7 @@ func Isolate(t testing.TB) string {
 	// faithful alternative, because seilog exposes no way to enumerate the registry and the
 	// code under test already clobbers per-logger levels the same way on every applyLegacy.
 	// Restoring with the subject's own semantics is the closest reachable approximation.
-	savedLevel := logDefaultLevel()
+	savedLevel := LogDefaultLevel()
 	t.Cleanup(func() { seilog.SetDefaultLevel(savedLevel, true) })
 
 	for _, kv := range saved {

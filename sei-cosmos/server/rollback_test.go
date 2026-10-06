@@ -90,6 +90,10 @@ func (m *mockApplication) EvmBalance(common.Address, []byte) uint256.Int {
 	return uint256.Int{}
 }
 
+func (m *mockApplication) EvmChainID() uint64 {
+	return 0
+}
+
 func (m *mockApplication) BeginBlock(ctx context.Context, req *abci.RequestBeginBlock) (*abci.ResponseBeginBlock, error) {
 	return &abci.ResponseBeginBlock{}, nil
 }

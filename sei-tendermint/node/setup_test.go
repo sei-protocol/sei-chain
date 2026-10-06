@@ -13,7 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -63,8 +66,7 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 		MaxTxsPerSecond:    utils.None[uint64](),
 		AllowEmptyBlocks:   false,
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
-		ViewTimeout:        utils.Duration(1500 * time.Millisecond),
-		PersistentStateDir: utils.Some(t.TempDir()),
+		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
 	}
 }
@@ -82,28 +84,28 @@ func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
 		ConsensusParams: &types.ConsensusParams{
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
+		Autobahn: types.DefaultAutobahnParams(),
 	}
 	return app, genDoc
 }
 
-func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
+func TestBuildGigaConfig_MissingPersistentStateDir(t *testing.T) {
 	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
-	fc.PersistentStateDir = utils.None[string]()
+	fc.PersistentStateDir = ""
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
-	require.NoError(t, err)
-	assert.False(t, result.PersistentStateDir.IsPresent())
+	_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+	require.ErrorContains(t, err, "persistent_state_dir must not be empty")
 }
 
 func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
-	fc.PersistentStateDir = utils.Some("data/autobahn")
+	fc.PersistentStateDir = "data/autobahn"
 	fc.BlockDB = config.AutobahnBlockDBConfig{
 		Retention: utils.Some(utils.Duration(30 * time.Second)),
 		GCPeriod:  utils.Some(utils.Duration(5 * time.Second)),
@@ -115,9 +117,8 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
-	require.NoError(t, preparePersistentStateDir(t.TempDir(), &result.GigaRouterCommonConfig))
-	dir, ok := result.PersistentStateDir.Get()
-	require.True(t, ok)
+	dir, err := resolvePersistentStateDir(t.TempDir(), result.PersistentStateDir)
+	require.NoError(t, err)
 	littCfg, err := fc.BlockDB.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	require.NotNil(t, littCfg.Litt)
@@ -129,7 +130,7 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 func TestBuildGigaConfig_BlockDBOmittedKeepsDefaults(t *testing.T) {
 	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
-	fc.PersistentStateDir = utils.Some("data/autobahn")
+	fc.PersistentStateDir = "data/autobahn"
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))
@@ -137,9 +138,8 @@ func TestBuildGigaConfig_BlockDBOmittedKeepsDefaults(t *testing.T) {
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
-	require.NoError(t, preparePersistentStateDir(t.TempDir(), &result.GigaRouterCommonConfig))
-	dir, ok := result.PersistentStateDir.Get()
-	require.True(t, ok)
+	dir, err := resolvePersistentStateDir(t.TempDir(), result.PersistentStateDir)
+	require.NoError(t, err)
 	littCfg, err := config.AutobahnBlockDBConfig{}.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	require.NotNil(t, littCfg.Litt)
@@ -167,8 +167,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
 		AllowEmptyBlocks:   true,
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
-		ViewTimeout:        utils.Duration(3 * time.Second),
-		PersistentStateDir: utils.Some("/tmp/autobahn-state"),
+		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
 	}
 	cfgFile := writeAutobahnConfig(t, fc)
@@ -176,6 +175,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("node1-seed"))
 	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
+	genDoc.Autobahn.ViewTimeout = 3 * time.Second
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	assert.Equal(t, 5*time.Second, result.DialInterval)
 
 	assert.Equal(t, 3*time.Second, result.ViewTimeout(atypes.View{}))
-	assert.Equal(t, utils.Some("/tmp/autobahn-state"), result.PersistentStateDir)
+	assert.Equal(t, "/tmp/autobahn-state", result.PersistentStateDir)
 
 	// Verify the validator key is derived from the validator-key seed, not the node key.
 	expectedValPub := makeTestValidatorKey([]byte("val1-seed")).Public()
@@ -339,13 +339,76 @@ func TestMakeCloser_NoErrorsReturnsNil(t *testing.T) {
 	require.NoError(t, cl())
 }
 
-func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
-	cfg := &p2p.GigaRouterCommonConfig{
-		PersistentStateDir: utils.Some(""),
-	}
-	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg))
-	_, ok := cfg.PersistentStateDir.Get()
-	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
+func TestResolvePersistentStateDir_EmptyErrors(t *testing.T) {
+	_, err := resolvePersistentStateDir(t.TempDir(), "")
+	require.ErrorContains(t, err, "requires persistent_state_dir")
+}
+
+func TestResolvePersistentStateDir_RootifiesAndCreates(t *testing.T) {
+	root := t.TempDir()
+	dir, err := resolvePersistentStateDir(root, "data/autobahn")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "data/autobahn"), dir)
+	require.DirExists(t, dir)
+}
+
+func TestValidateNodeSetupConfigRejectsAutobahnSeed(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			Mode: config.ModeSeed,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
+	})
+
+	require.ErrorIs(t, err, errAutobahnSeed)
+}
+
+func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
+	app := abci.BaseApplication{}
+	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
+	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
+
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig:         config.BaseConfig{FastCheckTx: true},
+		AutobahnConfigFile: autobahnConfigFile,
+	}, app, gigaconfig.DefaultConfig)
+	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NotNil(t, manager.BlockStore())
+	require.NotNil(t, manager.StateDB())
+	require.NotNil(t, manager.SC())
+	require.Nil(t, manager.SS())
+	require.NotNil(t, manager.ReceiptDB())
+	require.Equal(t, "evmonly", prepared.Info().Data)
+	validators := prepared.GetValidators()
+	require.Len(t, validators, 1)
+	require.Equal(t, int64(1), validators[0].Power)
+	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
+}
+
+func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
+	_, err := wrapApplication(
+		&config.Config{
+			BaseConfig:         config.BaseConfig{FastCheckTx: true},
+			AutobahnConfigFile: "/tmp/autobahn.json",
+		},
+		abci.BaseApplication{},
+		utils.None[*bootstrap.GigaStorageManager](),
+		nil,
+		gigaconfig.DefaultConfig.Execution,
+	)
+	require.Error(t, err)
+}
+
+func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
+	app := abci.BaseApplication{}
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig)
+	require.NoError(t, err)
+	_, ok := storage.Get()
+	require.False(t, ok)
+	require.Equal(t, app, prepared)
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this

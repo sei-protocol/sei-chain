@@ -20,10 +20,9 @@ func openWALForGC(t *testing.T, cfg *Config) (StateWAL, controller.PrunableStore
 	return w, store
 }
 
-// The head is the last block ended by SignalEndOfBlock. A block that has been written but not ended
-// is still buffered rather than a record, so counting it would put this store's head — and with it
-// the floor it reports — one block above what the WAL can replay.
-func TestGCLatestBlockCountsOnlyCompletedBlocks(t *testing.T) {
+// The head is the last block written, and it is what the floor this store reports is measured from.
+// A head that lagged the blocks the WAL actually holds would report a floor below what needs keeping.
+func TestGCLatestBlockFollowsWrittenBlocks(t *testing.T) {
 	w, store := openWALForGC(t, testConfig(t.TempDir()))
 
 	latest, err := store.GetLatestBlock()
@@ -36,13 +35,7 @@ func TestGCLatestBlockCountsOnlyCompletedBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
 
-	// Block 3 is written but not ended, so it is not yet in the WAL.
 	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{makeChangeSet("evm", []byte{3}, []byte{3})}))
-	latest, err = store.GetLatestBlock()
-	require.NoError(t, err)
-	require.Equal(t, uint64(2), latest, "a block in progress must not count as the head")
-
-	require.NoError(t, w.SignalEndOfBlock())
 	latest, err = store.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
@@ -173,9 +166,6 @@ func TestGCConcurrentWithWriter(t *testing.T) {
 			// Assertions are not allowed off the main test goroutine; fail loudly instead.
 			cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
 			if err := w.Write(block, cs); err != nil {
-				panic(err)
-			}
-			if err := w.SignalEndOfBlock(); err != nil {
 				panic(err)
 			}
 		}

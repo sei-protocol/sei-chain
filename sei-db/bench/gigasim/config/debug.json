@@ -1,0 +1,18 @@
+{
+  "Comment": "Configuration for local smoke testing and debugging: a small account population, a short run, and a block rate held well below what the machine can do.",
+  "Seed": 1337,
+  "DataDir": "~/gigasim/debug/data",
+  "TransactionType": "erc20",
+  "TransactionsPerBlock": 100,
+  "LaneBlocksPerSuperblock": 1,
+  "MaxTps": 1000,
+  "MinimumNumberOfColdAccounts": 2000,
+  "MinimumNumberOfDormantAccounts": 2000,
+  "MinimumNumberOfErc20Contracts": 100,
+  "RollbackWindow": 100,
+  "PruneIntervalSeconds": 10,
+  "CheckpointIntervalSeconds": 30,
+  "CheckpointBlockInterval": 0,
+  "CleanDataOnStart": true,
+  "CleanDataOnExit": true
+}

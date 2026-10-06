@@ -10,10 +10,11 @@ import (
 
 // TestTheDeclaredKeysAreTheKeysThisReaderResolves holds the declaration against the reader.
 //
-// Six keys, which is every key this section offers in app.toml. Three fields declare nothing:
+// Seven keys, which is every key this section offers in app.toml. Three fields declare nothing:
 // KeepRecent and ExternalPruning are assigned after this reader returns, and EnableReadWriteMetrics
 // is honored by the reader but not written into the generated file. The reader also resolves the
-// retired spelling of the backend, only to refuse to start.
+// retired spelling of the backend, only to refuse to start. RewardPercentiles is the block-stats
+// reward-percentile set the littidx backend computes and stores per block.
 func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 	for _, defect := range registry.Defects() {
 		if defect.Section == ReceiptStoreSectionName {
@@ -34,6 +35,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		flagRSLogFilterParallelism,
 		flagRSPruneIntervalSeconds,
 		flagRSBackend,
+		flagRSRewardPercentiles,
 	}
 	sort.Strings(want)
 	if got := section.Keys; !reflect.DeepEqual(got, want) {

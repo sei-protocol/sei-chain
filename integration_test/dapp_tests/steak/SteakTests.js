@@ -1,7 +1,5 @@
 const {
   storeWasm,
-  deployErc20PointerForCw20,
-  ABI,
   getEvmAddress,
   fundSeiAddress,
   associateKey,
@@ -23,7 +21,7 @@ const {
 const { expect } = require("chai");
 const { v4: uuidv4 } = require("uuid");
 const hre = require("hardhat");
-const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
+const {chainIds, rpcUrls} = require("../constants");
 const path = require("path");
 
 const testChain = process.env.DAPP_TEST_ENV;
@@ -32,7 +30,6 @@ describe("Steak", async function () {
   let owner;
   let hubAddress;
   let tokenAddress;
-  let tokenPointer;
   let originalSeidConfig;
 
   async function setupAccount(baseName, associate = true, amount="100000000000", denom="usei", funder='admin') {
@@ -75,25 +72,9 @@ describe("Steak", async function () {
       "steakhub"
     );
 
-    // Deploy pointer for token contract
-    const pointerAddr = await deployErc20PointerForCw20(
-      hre.ethers.provider,
-      contractAddresses.tokenContract,
-        10,
-      ownerAddress,
-      evmRpcUrls[testChain]
-    );
-
-    const tokenPointer = new hre.ethers.Contract(
-      pointerAddr,
-      ABI.ERC20,
-      hre.ethers.provider
-    );
-
     return {
       hubAddress: contractAddresses.hubContract,
       tokenAddress: contractAddresses.tokenContract,
-      tokenPointer,
     };
   }
 
@@ -141,9 +122,7 @@ describe("Steak", async function () {
     await execute(`seid config keyring-backend test`);
 
     // Store and deploy contracts
-    ({ hubAddress, tokenAddress, tokenPointer } = await deployContracts(
-      owner.address
-    ));
+    ({ hubAddress, tokenAddress } = await deployContracts(owner.address));
   });
 
   describe("Bonding and unbonding", async function () {
@@ -154,10 +133,6 @@ describe("Steak", async function () {
       // Verify that address is associated
       const evmAddress = await getEvmAddress(owner.address);
       expect(evmAddress).to.not.be.empty;
-
-      // Check pointer balance
-      const pointerBalance = await tokenPointer.balanceOf(evmAddress);
-      expect(pointerBalance).to.equal(`${amount}`);
 
       await testUnbonding(owner.address, 500000);
     });

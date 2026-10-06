@@ -1,12 +1,15 @@
 package evmrpc_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/cosmos/go-bip39"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
@@ -131,6 +134,19 @@ func TestFeeHistory(t *testing.T) {
 	}
 
 	Ctx = Ctx.WithBlockHeight(8) // Reset context to a new block height
+}
+
+func TestFeeHistoryReturnsExpiredContext(t *testing.T) {
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	api := newInfoAPIWithWatermarks(func(height int64) sdk.Context {
+		return Ctx.WithBlockHeight(height)
+	})
+	result, err := api.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{50})
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, result)
 }
 
 func TestCalculatePercentiles(t *testing.T) {

@@ -21,7 +21,6 @@ type PrecompileKeepers struct {
 	putils.AuthQuerier
 	putils.AuthzMsgServer
 	putils.AuthzQuerier
-	putils.OracleKeeper
 	putils.WasmdKeeper
 	putils.WasmdViewKeeper
 	putils.StakingKeeper
@@ -51,7 +50,6 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		AuthQuerier:         a.AccountKeeper,
 		AuthzMsgServer:      a.AuthzKeeper,
 		AuthzQuerier:        a.AuthzKeeper,
-		OracleKeeper:        a.OracleKeeper,
 		WasmdKeeper:         wasmkeeper.NewDefaultPermissionKeeper(a.WasmKeeper),
 		WasmdViewKeeper:     a.WasmKeeper,
 		StakingKeeper:       stakingkeeper.NewMsgServerImpl(a.StakingKeeper),
@@ -80,7 +78,6 @@ func (pk *PrecompileKeepers) AccountK() putils.AccountKeeper           { return 
 func (pk *PrecompileKeepers) AuthQ() putils.AuthQuerier                { return pk.AuthQuerier }
 func (pk *PrecompileKeepers) AuthzMS() putils.AuthzMsgServer           { return pk.AuthzMsgServer }
 func (pk *PrecompileKeepers) AuthzQ() putils.AuthzQuerier              { return pk.AuthzQuerier }
-func (pk *PrecompileKeepers) OracleK() putils.OracleKeeper             { return pk.OracleKeeper }
 func (pk *PrecompileKeepers) WasmdK() putils.WasmdKeeper               { return pk.WasmdKeeper }
 func (pk *PrecompileKeepers) WasmdVK() putils.WasmdViewKeeper          { return pk.WasmdViewKeeper }
 func (pk *PrecompileKeepers) StakingK() putils.StakingKeeper           { return pk.StakingKeeper }

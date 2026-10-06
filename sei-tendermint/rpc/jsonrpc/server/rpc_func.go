@@ -192,7 +192,7 @@ func newRPCFunc(f interface{}) (*RPCFunc, error) {
 		return nil, errors.New("first parameter is not context.Context")
 	} else if np == 2 {
 		ptype = ft.In(1)
-		if ptype.Kind() != reflect.Ptr {
+		if ptype.Kind() != reflect.Pointer {
 			return nil, errors.New("parameter type is not a pointer")
 		}
 		ptype = ptype.Elem()

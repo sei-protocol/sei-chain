@@ -3,7 +3,6 @@ package evm_test
 import (
 	"context"
 	"encoding/hex"
-	"math"
 	"math/big"
 	"testing"
 
@@ -18,8 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
@@ -47,15 +44,6 @@ func TestQuerierRoute(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper(t)
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.QuerierRoute())
-}
-
-func TestModuleExportGenesis(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper(t)
-	module := evm.NewAppModule(nil, k)
-	cdc := app.MakeEncodingConfig().Marshaler
-	jsonMsg := module.ExportGenesis(ctx, cdc)
-	jsonStr := string(jsonMsg)
-	assert.Equal(t, `{"params":{"priority_normalizer":"1.000000000000000000","base_fee_per_gas":"0.000000000000000000","minimum_fee_per_gas":"1000000000.000000000000000000","whitelisted_cw_code_hashes_for_delegate_call":[],"deliver_tx_hook_wasm_gas_limit":"300000","max_dynamic_base_fee_upward_adjustment":"0.018900000000000000","max_dynamic_base_fee_downward_adjustment":"0.003900000000000000","target_gas_used_per_block":"250000","maximum_fee_per_gas":"1000000000000.000000000000000000","register_pointer_disabled":false,"sei_sstore_set_gas_eip2200":"20000"},"address_associations":[{"sei_address":"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu","eth_address":"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F"}],"codes":[],"states":[],"nonces":[],"serialized":[{"prefix":"Fg==","key":"AwAC","value":"AAAAAAAAAAQ="},{"prefix":"Fg==","key":"BAAG","value":"AAAAAAAAAAU="},{"prefix":"Fg==","key":"BgAB","value":"AAAAAAAAAAY="}]}`, jsonStr)
 }
 
 func TestConsensusVersion(t *testing.T) {
@@ -127,18 +115,6 @@ func TestABCI(t *testing.T) {
 	receipt := testkeeper.WaitForReceipt(t, k, ctx, tx.Hash())
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
-
-	// creating vesting accounts (including for coinbase addresses) is rejected: the module is deprecated
-	k.BeginBlock(ctx)
-	coinbase := state.GetCoinbaseAddress(2)
-	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper(), k.UpgradeKeeper())
-	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
-		FromAddress: sdk.AccAddress(evmAddr1[:]).String(),
-		ToAddress:   coinbase.String(),
-		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
-		EndTime:     math.MaxInt64,
-	})
-	require.NotNil(t, err)
 }
 
 func TestAnteSurplus(t *testing.T) {

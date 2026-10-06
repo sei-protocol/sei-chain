@@ -47,16 +47,7 @@ func (l *LtHash) MixIn(other *LtHash) {
 	if other == nil {
 		return
 	}
-	for i := 0; i < LtHashSize; i += 8 {
-		l.limbs[i] += other.limbs[i]
-		l.limbs[i+1] += other.limbs[i+1]
-		l.limbs[i+2] += other.limbs[i+2]
-		l.limbs[i+3] += other.limbs[i+3]
-		l.limbs[i+4] += other.limbs[i+4]
-		l.limbs[i+5] += other.limbs[i+5]
-		l.limbs[i+6] += other.limbs[i+6]
-		l.limbs[i+7] += other.limbs[i+7]
-	}
+	active.add(l, other)
 }
 
 // MixOut subtracts other from this LtHash (element-wise mod 2^16). Nil is a no-op.
@@ -64,16 +55,7 @@ func (l *LtHash) MixOut(other *LtHash) {
 	if other == nil {
 		return
 	}
-	for i := 0; i < LtHashSize; i += 8 {
-		l.limbs[i] -= other.limbs[i]
-		l.limbs[i+1] -= other.limbs[i+1]
-		l.limbs[i+2] -= other.limbs[i+2]
-		l.limbs[i+3] -= other.limbs[i+3]
-		l.limbs[i+4] -= other.limbs[i+4]
-		l.limbs[i+5] -= other.limbs[i+5]
-		l.limbs[i+6] -= other.limbs[i+6]
-		l.limbs[i+7] -= other.limbs[i+7]
-	}
+	active.sub(l, other)
 }
 
 // Equal returns true if both LtHash vectors are identical.
@@ -137,22 +119,8 @@ func hash(data []byte) *LtHash {
 	if len(data) == 0 {
 		return New()
 	}
-
-	hasher := blake3HasherPool.Get().(*blake3.Hasher)
-	hasher.Reset()
-	_, _ = hasher.Write(data)
-	digest := hasher.Digest()
-
-	bufPtr := xofBufferPool.Get().(*[]byte)
-	output := *bufPtr
-	_, _ = digest.Read(output) // Blake3 XOF never errors and always fills buffer
-	blake3HasherPool.Put(hasher)
-
 	lth := ltHashPool.Get().(*LtHash)
-	for i := 0; i < LtHashSize; i++ {
-		lth.limbs[i] = binary.LittleEndian.Uint16(output[i*2 : (i+1)*2])
-	}
-	xofBufferPool.Put(bufPtr)
+	active.expand(data, lth)
 	return lth
 }
 
@@ -182,19 +150,6 @@ func serializeKV(key, value []byte) []byte {
 }
 
 // --- internal pools ---
-
-var xofBufferPool = sync.Pool{
-	New: func() interface{} {
-		buf := make([]byte, LtHashBytes)
-		return &buf
-	},
-}
-
-var blake3HasherPool = sync.Pool{
-	New: func() interface{} {
-		return blake3.New()
-	},
-}
 
 var checksumBufferPool = sync.Pool{
 	New: func() interface{} {

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -215,7 +215,7 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
 			HostPort: entry.Address,
-			EVMRPC:   entry.EVMRPC.URL,
+			EVMRPC:   *entry.EVMRPC.URL,
 		}
 	}
 	return fc, validatorAddrs, nil
@@ -259,7 +259,7 @@ func buildValidatorGigaConfig(
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
-			return time.Duration(fc.ViewTimeout)
+			return genDoc.Autobahn.ViewTimeout
 		},
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
@@ -268,6 +268,8 @@ func buildValidatorGigaConfig(
 			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
 			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
 			BlockInterval:           time.Duration(fc.BlockInterval),
+			MaxConcurrentCheckTx:    fc.MaxConcurrentCheckTx,
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nil
 }
@@ -275,148 +277,167 @@ func buildValidatorGigaConfig(
 // buildGigaRouter picks validator-vs-fullnode by cfg.Mode:
 // "validator" runs the validator path, any other mode runs as a fullnode.
 // Mode is the operator's explicit role declaration, kept separate from
-// committee membership so a newly-joined committee member can finish
+// live committee membership so a newly-joined committee member can finish
 // catch-up as a fullnode before the operator flips to mode = "validator".
-// A warning is logged if mode and committee membership disagree so an
+// A warning is logged if mode and address-book membership disagree so an
 // operator misconfiguration is visible at startup.
 //
-// The returned BlockStore is owned by the caller (nodeImpl): open happens here
-// before the transport starts, so inbound giga connections see a fully
-// replayed data.State. Close after giga.Run returns (or immediately if this
-// function / subsequent construction fails).
+// blockStore backs the returned router for its lifetime. The caller closes it.
 func buildGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
-) (p2p.GigaRouter, atypes.BlockStore, error) {
-	fc, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
+	blockStore atypes.BlockStore,
+) (p2p.GigaRouter, error) {
+	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if valKey, ok := validatorKey.Get(); ok {
-		_, inCommittee := validatorAddrs[valKey.Public()]
+		_, inAddressBook := validatorAddrs[valKey.Public()]
 		switch {
-		case cfg.Mode == config.ModeValidator && !inCommittee:
-			logger.Warn("Autobahn: mode is \"validator\" but local validator key is not in the committee", "valKey", valKey.Public())
-		case cfg.Mode != config.ModeValidator && inCommittee:
-			logger.Warn("Autobahn: local validator key is in the committee but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
+		case cfg.Mode == config.ModeValidator && !inAddressBook:
+			logger.Warn("Autobahn: mode is \"validator\" but local validator key is not in the address book", "valKey", valKey.Public())
+		case cfg.Mode != config.ModeValidator && inAddressBook:
+			logger.Warn("Autobahn: local validator key is in the address book but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
 		}
 	}
 	if cfg.Mode == config.ModeValidator {
 		valKey, ok := validatorKey.Get()
 		if !ok {
-			return nil, nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
+			return nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
 		}
 		// Remote signers aren't supported on the validator path —
 		// autobahn signs in-process. Fullnodes don't sign and aren't
 		// penalised for having priv-validator.laddr set.
 		if cfg.PrivValidator.ListenAddr != "" {
-			return nil, nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+			return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 		}
 		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
-			return nil, nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
-		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig); err != nil {
-			return nil, nil, err
+		stateDir, err := resolvePersistentStateDir(cfg.RootDir, valCfg.PersistentStateDir)
+		if err != nil {
+			return nil, err
 		}
+		valCfg.PersistentStateDir = stateDir
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		blockStore, err := openBlockStore(&valCfg.GigaRouterCommonConfig, fc.BlockDB)
-		if err != nil {
-			return nil, nil, err
-		}
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
-			_ = blockStore.Close()
-			return nil, nil, err
+			return nil, err
 		}
 		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
 		if err != nil {
-			_ = blockStore.Close()
-			return nil, nil, err
+			return nil, err
 		}
-		return giga, blockStore, nil
+		return giga, nil
 	}
 	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
-		return nil, nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
+		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
-	if err := preparePersistentStateDir(cfg.RootDir, fnCfg); err != nil {
-		return nil, nil, err
+	stateDir, err := resolvePersistentStateDir(cfg.RootDir, fnCfg.PersistentStateDir)
+	if err != nil {
+		return nil, err
 	}
+	fnCfg.PersistentStateDir = stateDir
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	blockStore, err := openBlockStore(fnCfg, fc.BlockDB)
-	if err != nil {
-		return nil, nil, err
-	}
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
-		_ = blockStore.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
 	if err != nil {
-		_ = blockStore.Close()
-		return nil, nil, err
+		return nil, err
 	}
-	return giga, blockStore, nil
+	return giga, nil
 }
 
-// preparePersistentStateDir resolves a relative PersistentStateDir against
-// the node's --home dir (mirrors config.go's rootify) and creates it if absent.
-// Some("") is treated as None (in-memory / disabled): JSON unmarshals a literal
-// empty string as present, which would otherwise Join to rootDir and silently
-// enable durable BlockStore + HashVault.
-func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
-	dir, ok := c.PersistentStateDir.Get()
-	if !ok || dir == "" {
-		c.PersistentStateDir = utils.None[string]()
-		return nil
+// resolvePersistentStateDir resolves a relative persistent state dir against the
+// node's --home dir (mirrors config.go's rootify) and creates it if absent. An
+// empty dir is an error: Autobahn has no in-memory storage mode.
+func resolvePersistentStateDir(rootDir, dir string) (string, error) {
+	if dir == "" {
+		return "", errors.New("autobahn requires persistent_state_dir")
 	}
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(rootDir, dir)
-		c.PersistentStateDir = utils.Some(dir)
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating persistent state dir %q: %w", dir, err)
+		return "", fmt.Errorf("creating persistent state dir %q: %w", dir, err)
 	}
-	return nil
+	return dir, nil
 }
 
-// openBlockStore opens littblock when PersistentStateDir is set, memblock otherwise.
-// preparePersistentStateDir must have run first so dir is rootified and created.
-func openBlockStore(c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlockDBConfig) (atypes.BlockStore, error) {
-	dir, ok := c.PersistentStateDir.Get()
-	if !ok {
-		store, err := blockstore.New(memblock.NewBlockDB())
-		if err != nil {
-			return nil, fmt.Errorf("open BlockStore: %w", err)
-		}
-		return store, nil
-	}
-	littCfg, err := blockDBCfg.LittBlockConfig(filepath.Join(dir, "blockdb"))
+// openAutobahnStorageManager opens the Giga storage set in Autobahn's
+// persistent-state directory, laid out for nodeMode unless storage pins a mode.
+func openAutobahnStorageManager(
+	ctx context.Context,
+	rootDir string,
+	nodeMode string,
+	fc *config.AutobahnFileConfig,
+	storage gigaconfig.StorageConfig,
+) (*bootstrap.GigaStorageManager, error) {
+	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
 	if err != nil {
-		return nil, fmt.Errorf("block_db: %w", err)
+		return nil, err
 	}
-	db, err := littblock.NewBlockDB(&littCfg)
+	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage)
 	if err != nil {
-		return nil, fmt.Errorf("open BlockDB: %w", err)
+		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
 	}
-	blockStore, err := blockstore.New(db)
+	blockConfig, err := fc.BlockDB.LittBlockConfig(filepath.Join(directory, "blockdb"))
 	if err != nil {
-		// The store takes ownership of db only once it is built, so a failure here leaves db ours.
-		_ = db.Close()
-		return nil, fmt.Errorf("open BlockStore: %w", err)
+		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
-	return blockStore, nil
+	storageConfig.BlockDBConfig = &blockConfig
+	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
+// settings applied over the Autobahn defaults.
+func buildGigaStorageConfig(
+	directory string,
+	nodeMode string,
+	storage gigaconfig.StorageConfig,
+) (*seidbconfig.GigaStorageConfig, error) {
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(directory)
+	if err != nil {
+		return nil, err
+	}
+	storageConfig.PruningConfig.RollbackWindow = storage.RollbackWindow
+	storageConfig.PruningConfig.LookbackWindow = storage.LookbackWindow
+	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
+	storageConfig.CheckpointConfig.TimeInterval = storage.CheckpointTimeInterval
+	storageConfig.CheckpointConfig.BlockInterval = storage.CheckpointBlockInterval
+	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
+		storageConfig.WithFullNodeMode()
+	}
+	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
+	return storageConfig, nil
+}
+
+// resolveGigaStorageMode returns the storage mode a node runs: the pinned one when set,
+// otherwise the one matching its node mode.
+func resolveGigaStorageMode(nodeMode string, pinned string) string {
+	if pinned != gigaconfig.StorageModeAuto {
+		return pinned
+	}
+	if nodeMode == config.ModeFull {
+		return gigaconfig.StorageModeFull
+	}
+	return gigaconfig.StorageModeValidator
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,
@@ -535,10 +556,10 @@ func createRouter(
 	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
+	storageManager utils.Option[*bootstrap.GigaStorageManager],
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
-	gigaBlockStore := noneDB
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, closer, noneDB, err
@@ -596,19 +617,22 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires app")
 		}
-		giga, blockStore, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
+		manager, ok := storageManager.Get()
+		if !ok {
+			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
+		}
+		giga, err := buildGigaRouter(
+			cfg, nodeKey, validatorKey, proxyApp, genDoc,
+			manager.BlockStore(),
+		)
 		if err != nil {
 			return nil, closer, noneDB, err
 		}
 		options.Giga = utils.Some(giga)
-		gigaBlockStore = utils.Some(blockStore)
 	}
 
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
-		if db, ok := gigaBlockStore.Get(); ok {
-			_ = db.Close()
-		}
 		return nil, closer, noneDB, fmt.Errorf("unable to initialize peer store: %w", err)
 	}
 	closer = peerDB.Close
@@ -619,12 +643,9 @@ func createRouter(
 		options,
 	)
 	if err != nil {
-		if db, ok := gigaBlockStore.Get(); ok {
-			_ = db.Close()
-		}
 		return nil, closer, noneDB, fmt.Errorf("p2p.NewRouter(): %w", err)
 	}
-	return router, closer, gigaBlockStore, nil
+	return router, closer, noneDB, nil
 }
 
 func makeNodeInfo(

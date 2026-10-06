@@ -9,12 +9,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/linxGnu/grocksdb"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -52,9 +52,13 @@ type VersionedChangesets struct {
 }
 
 type Database struct {
-	storage  *grocksdb.DB
-	config   config.StateStoreConfig
+	storage *grocksdb.DB
+	config  config.StateStoreConfig
+	// cfHandle is the state_storage column family used for all reads and writes.
 	cfHandle *grocksdb.ColumnFamilyHandle
+	// defaultCFHandle is the unused default column family, held only so Close
+	// can destroy it.
+	defaultCFHandle *grocksdb.ColumnFamilyHandle
 
 	// tsLow reflects the full_history_ts_low CF value. Since pruning is done in
 	// a lazy manner, we use this value to prevent reads for versions that will
@@ -78,12 +82,12 @@ type Database struct {
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
-	storage, cfHandle, err := OpenRocksDB(dataDir)
+	storage, cf, err := OpenRocksDB(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open RocksDB: %w", err)
 	}
 
-	slice, err := storage.GetFullHistoryTsLow(cfHandle)
+	slice, err := storage.GetFullHistoryTsLow(cf.StateStorage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get full_history_ts_low: %w", err)
 	}
@@ -108,7 +112,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	database := &Database{
 		storage:         storage,
 		config:          config,
-		cfHandle:        cfHandle,
+		cfHandle:        cf.StateStorage,
+		defaultCFHandle: cf.Default,
 		tsLow:           tsLow,
 		earliestVersion: earliestVersion,
 		latestVersion:   atomic.Int64{},
@@ -505,7 +510,14 @@ func (db *Database) Close() error {
 		// Only set to nil after background goroutine has finished
 		db.streamHandler = nil
 	}
-	db.cfHandle = nil
+	if db.cfHandle != nil {
+		db.cfHandle.Destroy()
+		db.cfHandle = nil
+	}
+	if db.defaultCFHandle != nil {
+		db.defaultCFHandle.Destroy()
+		db.defaultCFHandle = nil
+	}
 	if db.storage != nil {
 		db.storage.Close()
 		db.storage = nil

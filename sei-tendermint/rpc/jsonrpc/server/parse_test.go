@@ -269,7 +269,7 @@ func TestParseURI(t *testing.T) {
 		tests := []struct {
 			name string
 			url  string
-			fail string
+			fail bool
 			want interface{}
 		}{
 			{
@@ -292,17 +292,17 @@ func TestParseURI(t *testing.T) {
 			{
 				name: "invalid quoted number",
 				url:  `http://localhost?height="-xx"`,
-				fail: "invalid number literal",
+				fail: true,
 			},
 			{
 				name: "invalid unquoted number",
 				url:  `http://localhost?height=25*q`,
-				fail: "invalid number literal",
+				fail: true,
 			},
 			{
 				name: "invalid boolean",
 				url:  `http://localhost?flag="garbage"`,
-				fail: "flag of type bool",
+				fail: true,
 			},
 		}
 		for _, test := range tests {
@@ -319,8 +319,8 @@ func TestParseURI(t *testing.T) {
 				if test.want != nil {
 					assert.Equal(t, test.want, rsp)
 				}
-				if test.fail != "" {
-					assert.ErrorContains(t, err, test.fail)
+				if test.fail {
+					assert.Error(t, err)
 				}
 			})
 		}

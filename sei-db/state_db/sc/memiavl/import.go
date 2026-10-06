@@ -74,8 +74,7 @@ func (mti *MultiTreeImporter) tmpDir() string {
 func (mti *MultiTreeImporter) Add(item interface{}) error {
 	switch item := item.(type) {
 	case *types.SnapshotNode:
-		mti.AddNode(item)
-		return nil
+		return mti.AddNode(item)
 	case string:
 		return mti.AddModule(item)
 	default:
@@ -83,7 +82,12 @@ func (mti *MultiTreeImporter) Add(item interface{}) error {
 	}
 }
 
+// AddModule starts importing the tree called name into its own directory under
+// the import temp dir. name must be a plain directory name.
 func (mti *MultiTreeImporter) AddModule(name string) error {
+	if err := validateModuleName(name); err != nil {
+		return err
+	}
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
@@ -93,8 +97,16 @@ func (mti *MultiTreeImporter) AddModule(name string) error {
 	return nil
 }
 
-func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) {
+func validateModuleName(name string) error {
+	if name == "." || !filepath.IsLocal(name) || filepath.Base(name) != name {
+		return fmt.Errorf("invalid snapshot module name %q", name)
+	}
+	return nil
+}
+
+func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) error {
 	mti.importer.Add(node)
+	return nil
 }
 
 func (mti *MultiTreeImporter) Close() (err error) {
@@ -103,6 +115,12 @@ func (mti *MultiTreeImporter) Close() (err error) {
 	defer func() {
 		if unlockErr := mti.fileLock.Unlock(); unlockErr != nil && err == nil {
 			err = unlockErr
+		}
+	}()
+	// A failed import leaves nothing behind.
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(mti.tmpDir())
 		}
 	}()
 
@@ -148,36 +166,58 @@ func (mti *MultiTreeImporter) Close() (err error) {
 	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
 }
 
+// Abort stops the open tree import and removes the temp directory. It publishes no snapshot and leaves
+// current where it was.
+func (mti *MultiTreeImporter) Abort(error) (err error) {
+	defer func() {
+		if unlockErr := mti.fileLock.Unlock(); unlockErr != nil && err == nil {
+			err = unlockErr
+		}
+	}()
+
+	if mti.importer != nil {
+		// The import is being discarded, so the tree's own error does not matter.
+		_ = mti.importer.Close()
+		mti.importer = nil
+	}
+	return os.RemoveAll(mti.tmpDir())
+}
+
 // TreeImporter import a single memiavl tree from state-sync snapshot
 type TreeImporter struct {
 	nodesChan chan *types.SnapshotNode
-	quitChan  chan error
+	// done is closed once the import goroutine has returned; err holds its result.
+	done chan struct{}
+	err  error
 }
 
 func NewTreeImporter(ctx context.Context, dir string, version int64) *TreeImporter {
-	nodesChan := make(chan *types.SnapshotNode, nodeChanSize)
-	quitChan := make(chan error)
+	nodes := make(chan *types.SnapshotNode, nodeChanSize)
+	ai := &TreeImporter{nodesChan: nodes, done: make(chan struct{})}
 	go func() {
-		defer close(quitChan)
-		quitChan <- doImport(ctx, dir, version, nodesChan)
+		defer close(ai.done)
+		ai.err = doImport(ctx, dir, version, nodes)
 	}()
-	return &TreeImporter{nodesChan, quitChan}
+	return ai
 }
 
+// Add queues node for import. It drops node once the import has stopped; Close reports why.
 func (ai *TreeImporter) Add(node *types.SnapshotNode) {
-	ai.nodesChan <- node
+	select {
+	case ai.nodesChan <- node:
+	case <-ai.done:
+	}
 }
 
 func (ai *TreeImporter) Close() error {
-	var err error
 	// tolerate double close
-	if ai.nodesChan != nil {
-		close(ai.nodesChan)
-		err = <-ai.quitChan
+	if ai.nodesChan == nil {
+		return nil
 	}
+	close(ai.nodesChan)
 	ai.nodesChan = nil
-	ai.quitChan = nil
-	return err
+	<-ai.done
+	return ai.err
 }
 
 // doImport a stream of `types.SnapshotNode`s into a new snapshot.
@@ -272,6 +312,9 @@ func (i *importer) Add(n *types.SnapshotNode) error {
 	}
 
 	// branch node
+	if len(i.nodeStack) < 2 {
+		return fmt.Errorf("branch node at height %d has %d pending children, want 2", n.Height, len(i.nodeStack))
+	}
 	keyLeaf := i.leavesStack[len(i.leavesStack)-2]
 	leftNode := i.nodeStack[len(i.nodeStack)-2]
 	rightNode := i.nodeStack[len(i.nodeStack)-1]

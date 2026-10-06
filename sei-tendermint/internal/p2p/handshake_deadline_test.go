@@ -59,7 +59,7 @@ func TestRouter_InboundNodeInfoBoundedByHandshakeDeadline(t *testing.T) {
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 
 		// Complete the handshake, which authenticates us, then send no node info.
-		if _, err := handshake(ctx, tcpConn, NodeSecretKey(ed25519.GenerateSecretKey()), handshakeSpec{}); err != nil {
+		if _, err := handshake(ctx, tcpConn, NodeSecretKey(ed25519.GenerateSecretKey()), handshakeSpec{}, utils.None[handshakeOffer]()); err != nil {
 			return err
 		}
 

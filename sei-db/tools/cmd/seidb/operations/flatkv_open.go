@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -44,7 +44,7 @@ var errSourceChurning = errors.New("flatkv source kept churning during clone")
 // The tools intentionally operate on a temp clone of the selected snapshot +
 // WAL so they do not compete with a live node for the FlatKV writer lock.
 type openedFlatKV struct {
-	giga.LiveStateStore
+	gigatypes.LiveStateStore
 	tempDir string
 }
 
@@ -124,6 +124,12 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 		LiveStateStore: view,
 		tempDir:        tempDir,
 	}, nil
+}
+
+// OpenFlatKVReadOnly opens an isolated read-only FlatKV view for a seidb
+// operation. The caller must close the returned store.
+func OpenFlatKVReadOnly(dbDir string, height int64) (gigatypes.LiveStateStore, error) {
+	return openFlatKVReadOnly(dbDir, height)
 }
 
 func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {

@@ -11,7 +11,7 @@ linters:
     - bodyclose
     - dogsled
     - errcheck
-    - goconst
+    # goconst is deliberately not enabled: it is more noise than it is worth.
     - gosec
     - govet
     - ineffassign
@@ -19,14 +19,21 @@ linters:
     - prealloc
     - staticcheck
     - unconvert
-    - misspell
   exclusions:
     paths:
       - ".*\\.pb\\.go$"
+      # Frozen, versioned copies of consensus-critical code are never edited for lint.
+      - "^(precompiles/[^/]+|utils/helpers)/legacy/"
     rules:
       - linters:
           - gosec
         text: "Use of weak random number generator"
+      # Any edit to precompiles/p256/ makes scripts/bump_version archive a new legacy copy,
+      # so the deprecated elliptic/ecdsa coordinate use is silenced here rather than in source.
+      - linters:
+          - staticcheck
+        path: "^precompiles/p256/verifier\\.go$"
+        text: "SA1019"
 
 formatters:
   enable:

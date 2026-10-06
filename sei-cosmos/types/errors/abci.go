@@ -166,7 +166,7 @@ func errIsNil(err error) bool {
 	if err == nil {
 		return true
 	}
-	if val := reflect.ValueOf(err); val.Kind() == reflect.Ptr {
+	if val := reflect.ValueOf(err); val.Kind() == reflect.Pointer {
 		return val.IsNil()
 	}
 	return false

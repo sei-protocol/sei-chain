@@ -31,9 +31,6 @@ export const SEID_ENV = 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin';
 /** Password for the in-container `admin`/test keyring (docker devnet only). */
 export const DOCKER_KEY_PASSWORD = '12345678';
 
-/** In-container EVM RPC the `seid` CLI targets when registering CW20 pointers. */
-export const DOCKER_EVM_RPC = 'http://localhost:8545';
-
 /**
  * cw20_base wasm bundled with the suite, instantiated as the dual-VM fixture token.
  *

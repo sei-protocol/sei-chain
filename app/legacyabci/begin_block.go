@@ -3,7 +3,6 @@ package legacyabci
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
@@ -12,6 +11,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
 	evidencekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
+	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing"
 	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
 
@@ -30,6 +31,7 @@ type BeginBlockKeepers struct {
 	DistrKeeper    *distrkeeper.Keeper
 	SlashingKeeper *slashingkeeper.Keeper
 	EvidenceKeeper *evidencekeeper.Keeper
+	GovKeeper      *govkeeper.Keeper
 	StakingKeeper  *stakingkeeper.Keeper
 	EvmKeeper      *evmkeeper.Keeper
 }
@@ -44,10 +46,11 @@ func BeginBlock(
 	start := time.Now()
 	defer func() {
 		legacyAbciMetrics.totalBeginBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
-		// TODO(PLT-343): remove once begin_blocker_duration verified
-		telemetry.MeasureSince(start, "module", "total_begin_block")
 	}()
 
+	if keepers.GovKeeper != nil {
+		gov.BeginBlocker(ctx, *keepers.GovKeeper)
+	}
 	keepers.EpochKeeper.BeginBlock(ctx)
 	upgrade.BeginBlocker(*keepers.UpgradeKeeper, ctx)
 	distribution.BeginBlocker(ctx, votes, *keepers.DistrKeeper)

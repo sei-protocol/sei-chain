@@ -2,11 +2,16 @@ package evmrpc
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestMapWSAdmissionRejectReason(t *testing.T) {
@@ -36,6 +41,57 @@ func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	recordRPCLatency(ctx, endpoint, "http", true, nil, false, time.Now().Add(-2*time.Millisecond))
 	recordWebsocketConnect(ctx)
 	recordRedirectedRequest(ctx, endpoint, "http")
+}
+
+func TestWSConnectionHandlerRecordsActiveConnections(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	previousActiveConnectionCount := metrics.wsActiveConnectionCount
+	metrics.wsActiveConnectionCount = must(provider.Meter("evmrpc").Int64UpDownCounter(
+		"evmrpc_websocket_connections",
+	))
+	t.Cleanup(func() {
+		metrics.wsActiveConnectionCount = previousActiveConnectionCount
+		require.NoError(t, provider.Shutdown(t.Context()))
+	})
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	handler := NewWSConnectionHandler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(started)
+		<-release
+	}))
+	go func() {
+		defer close(finished)
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	}()
+
+	<-started
+	require.Equal(t, int64(1), collectActiveWSConnections(t, reader))
+
+	close(release)
+	<-finished
+	require.Equal(t, int64(0), collectActiveWSConnections(t, reader))
+}
+
+func collectActiveWSConnections(t *testing.T, reader *metric.ManualReader) int64 {
+	t.Helper()
+
+	var resourceMetrics metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &resourceMetrics))
+	for _, scopeMetrics := range resourceMetrics.ScopeMetrics {
+		for _, m := range scopeMetrics.Metrics {
+			if m.Name != "evmrpc_websocket_connections" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Len(t, sum.DataPoints, 1)
+			return sum.DataPoints[0].Value
+		}
+	}
+	t.Fatal("evmrpc_websocket_connections metric not found")
+	return 0
 }
 
 func TestClassifyRPCMetricError(t *testing.T) {

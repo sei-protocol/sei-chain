@@ -3,10 +3,10 @@ package disktable
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ litt.Iterator = (*reverseIterator)(nil)
@@ -20,8 +20,10 @@ var _ litt.Iterator = (*reverseIterator)(nil)
 // segments, so their files remain on disk until Close releases them — even if garbage collection collects those
 // segments meanwhile. Close is therefore mandatory: a leaked iterator pins its segments' files indefinitely.
 type reverseIterator struct {
-	// table is the owning disk table, used to issue the close request.
-	table *DiskTable
+	// onClose is called once, by Close. It performs whatever cleanup this iterator's owner requires:
+	// for a live table, releasing the reservation on each snapshot segment and notifying the control
+	// loop; for an offline iterator, releasing a directory lock instead.
+	onClose func() error
 
 	// segs is the ordered (lowest-to-highest index) snapshot of sealed segments in scope.
 	segs []*segment.Segment
@@ -41,17 +43,20 @@ type reverseIterator struct {
 	// currentSeg is the segment that current was read from.
 	currentSeg *segment.Segment
 
-	// closed is true once Close has been called.
-	closed bool
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[reverseIterator]
 }
 
-// newReverseIterator creates a reverse iterator over the given snapshot of sealed segments.
+// newReverseIterator creates a reverse iterator over the given snapshot of sealed segments, owned by a
+// live table.
 func newReverseIterator(table *DiskTable, segs []*segment.Segment) *reverseIterator {
-	return &reverseIterator{
-		table:  table,
-		segs:   segs,
-		segPos: len(segs) - 1,
+	it := &reverseIterator{
+		onClose: closeLiveIterator(table, segs),
+		segs:    segs,
+		segPos:  len(segs) - 1,
 	}
+	it.closed = utils.MustClose(it, "littdb reverse iterator")
+	return it
 }
 
 // newReverseIteratorAt creates a reverse iterator over the given snapshot positioned so that the first
@@ -65,18 +70,36 @@ func newReverseIteratorAt(
 	keys []*types.ScopedKey,
 	keyPos int,
 ) *reverseIterator {
-	return &reverseIterator{
-		table:  table,
-		segs:   segs,
-		segPos: segPos,
-		keys:   keys,
-		keyPos: keyPos,
+	it := &reverseIterator{
+		onClose: closeLiveIterator(table, segs),
+		segs:    segs,
+		segPos:  segPos,
+		keys:    keys,
+		keyPos:  keyPos,
 	}
+	it.closed = utils.MustClose(it, "littdb reverse iterator")
+	return it
+}
+
+// NewOfflineReverseIterator creates a reverse iterator over the given snapshot of segments, gathered
+// directly from disk rather than from a live table. release is called once, by Close, in place of the
+// live path's segment-reservation release and control-loop notification.
+func NewOfflineReverseIterator(segs []*segment.Segment, release func()) litt.Iterator {
+	it := &reverseIterator{
+		onClose: func() error {
+			release()
+			return nil
+		},
+		segs:   segs,
+		segPos: len(segs) - 1,
+	}
+	it.closed = utils.MustClose(it, "littdb reverse iterator")
+	return it
 }
 
 // Next advances the iterator to the next key in reverse insertion order.
 func (it *reverseIterator) Next() (bool, error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return false, fmt.Errorf("iterator is closed")
 	}
 
@@ -115,7 +138,7 @@ func (it *reverseIterator) Next() (bool, error) {
 
 // GetKey returns the current key and whether it is a primary key.
 func (it *reverseIterator) GetKey() (key []byte, isPrimary bool, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil, false, fmt.Errorf("iterator is closed")
 	}
 	if it.current == nil {
@@ -128,7 +151,7 @@ func (it *reverseIterator) GetKey() (key []byte, isPrimary bool, err error) {
 // directly from the value file (the forward secondary-key optimization does not apply because a
 // secondary is reached before its primary).
 func (it *reverseIterator) GetValue() (value []byte, err error) {
-	if it.closed {
+	if it.closed.IsClosed() {
 		// Close released the snapshot's segment reservations, so reading now would touch segments
 		// GC is free to have deleted.
 		return nil, fmt.Errorf("iterator is closed")
@@ -143,32 +166,14 @@ func (it *reverseIterator) GetValue() (value []byte, err error) {
 	return value, nil
 }
 
-// Close releases the resources held by the iterator, including the reservations on its snapshot segments
-// (allowing any segment GC collected while it was open to finally be deleted from disk).
+// Close releases the resources held by the iterator, via onClose.
 func (it *reverseIterator) Close() error {
-	if it.closed {
+	if it.closed.IsClosed() {
 		return nil
 	}
-	it.closed = true
+	it.closed.Close(it)
 
-	// Release the reservation on each snapshot segment. This must happen even on the error paths below: a missed
-	// release pins those segments' files on disk indefinitely.
-	for _, seg := range it.segs {
-		seg.Release()
-	}
+	closeErr := it.onClose()
 	it.segs = nil
-
-	// Notify the control loop so the open-iterator metric is updated.
-	request := &controlLoopCloseIteratorRequest{
-		completionChan: make(chan struct{}, 1),
-	}
-	err := it.table.controlLoop.enqueue(request)
-	if err != nil {
-		return fmt.Errorf("failed to send close iterator request: %w", err)
-	}
-	_, err = util.Await(it.table.errorMonitor, request.completionChan)
-	if err != nil {
-		return fmt.Errorf("failed to await iterator close: %w", err)
-	}
-	return nil
+	return closeErr
 }

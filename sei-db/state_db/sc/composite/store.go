@@ -16,8 +16,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -41,21 +42,29 @@ type CompositeCommitStore struct {
 	// The memIAVL backend. Will be nil after all data is migrated to flatkv.
 	memIAVL *memiavl.CommitStore
 
-	// The flatKV backend. Will be nil if migration to flatKV has not yet started.
-	flatKV giga.LiveStateStore
+	// The flatKV backend, nil until migration to flatKV starts. SetWriteMode
+	// installs it while views from GetChildStoreByName may be reading it, so
+	// access it only through loadFlatKV and storeFlatKV.
+	flatKV atomic.Pointer[gigatypes.LiveStateStore]
+
+	// flatKVHash is the last hash flatKV handed over, written by the listener registered on it and
+	// read on the commit path once per block.
+	flatKVHash atomic.Pointer[lthash.BlockHash]
 
 	// Manages routing of traffic between the memiavl and flatkv backends.
 	// Built (and rebuilt) inside LoadVersion against the just-opened
 	// backends so that lazily-eager constructors like
-	// NewMemiavlMigrationIterator see a non-nil memiavl DB.
-	router migration.Router
+	// NewMemiavlMigrationIterator see a non-nil memiavl DB. SetWriteMode
+	// replaces it while views from GetChildStoreByName may be reading it, so
+	// access it only through loadRouter and storeRouter.
+	router atomic.Pointer[migration.Router]
 
 	// ctx is the constructor's context. Each invocation of buildRouter
 	// derives a per-router child context from it and stores the
 	// corresponding cancel function in routerCancel; cancelling that
-	// child stops any background goroutines owned by the current
-	// router (today: the MigrationMetrics boundary-snapshot loop)
-	// without affecting any unrelated work that shares cs.ctx.
+	// child stops any background work owned by the current router
+	// (today: the MigrationMetrics boundary snapshot gauge) without
+	// affecting any unrelated work that shares cs.ctx.
 	ctx context.Context
 
 	// routerCancel cancels the child context handed to the current
@@ -74,10 +83,10 @@ type CompositeCommitStore struct {
 	// configured mode is types.Auto, in which case it is derived from
 	// the migration metadata persisted in flatkv (see
 	// migration.DeriveWriteMode) during LoadVersion and advanced at
-	// runtime by SetWriteMode. Written only between blocks (LoadVersion /
-	// SetWriteMode); read unsynchronized on the commit path, matching the
-	// pre-existing config-read contract.
-	currentWriteMode types.WriteMode
+	// runtime by SetWriteMode. Views from GetChildStoreByName and latest-height
+	// queries read it concurrently with SetWriteMode, so access it only through
+	// loadWriteMode and storeWriteMode.
+	currentWriteMode atomic.Pointer[types.WriteMode]
 
 	// latticeAppendLatched is a sticky one-way flag: once it transitions
 	// to true, LastCommitInfo and WorkingCommitInfo unconditionally
@@ -158,7 +167,6 @@ func NewCompositeCommitStore(
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
-
 	alignFlatKVSnapshotWithMemIAVL(&cfg)
 
 	var memIAVL *memiavl.CommitStore
@@ -180,7 +188,7 @@ func NewCompositeCommitStore(
 		openFlatKV = false
 	}
 
-	var flatKV giga.LiveStateStore
+	var flatKV gigatypes.LiveStateStore
 	if openFlatKV {
 		stateWAL, err := flatkv.OpenStateWAL(&cfg.FlatKVConfig)
 		if err != nil {
@@ -194,48 +202,54 @@ func NewCompositeCommitStore(
 		flatKV = fkv
 	}
 
-	return &CompositeCommitStore{
-		memIAVL:          memIAVL,
-		flatKV:           flatKV,
-		homeDir:          homeDir,
-		config:           cfg,
-		currentWriteMode: cfg.WriteMode,
-		ctx:              ctx,
-	}, nil
+	store := &CompositeCommitStore{
+		memIAVL: memIAVL,
+		homeDir: homeDir,
+		config:  cfg,
+		ctx:     ctx,
+	}
+	store.storeWriteMode(cfg.WriteMode)
+	if flatKV != nil {
+		if err := store.adoptFlatKV(flatKV); err != nil {
+			return nil, err
+		}
+	}
+	return store, nil
 }
 
-// alignFlatKVSnapshotWithMemIAVL keeps the two backends' snapshot cadence in
-// sync. FlatKV has no independently-exposed snapshot knobs in app.toml, so it
-// derives its snapshot-interval / keep-recent from memIAVL's sc-* keys. This is
-// the single place both backends are constructed from the same config, so it is
-// where the alignment is enforced.
-//
-// This derivation is intentionally unconditional across write modes, including
-// FlatKVOnly — where NewCompositeCommitStore never constructs a memIAVL store.
-// The sc-* keys are the only operator-visible snapshot-cadence knobs now that
-// the flatkv.* keys are hidden from the app.toml template, so they must govern
-// FlatKV's cadence in every mode; otherwise FlatKVOnly would have no
-// template-visible way to tune it. It is harmless when memIAVL is absent: the
-// sc-* defaults match FlatKV's own in-code defaults, and only cfg.FlatKVConfig
-// is read when building the FlatKVOnly store.
-//
-// FlatKV mirrors memIAVL's *effective* cadence: a zero memIAVL value is first
-// resolved to the same default Options.FillDefaults would apply at OpenDB
-// (interval 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent),
-// then assigned to FlatKV unconditionally. Resolving-then-assigning (rather than
-// skipping on a zero and letting FlatKV keep its own in-code default) keeps the
-// two backends in true lockstep without relying on FlatKV's default happening to
-// equal memIAVL's healed default. That reliance is fragile — the defaults are
-// only kept equal by hand — and it breaks for an upgrading node whose old
-// app.toml still carries an explicit state-commit.flatkv.snapshot-keep-recent
-// (rendered by the old template) alongside sc-keep-recent = 0: skipping would
-// leave FlatKV pinned to the stale explicit value while memIAVL healed to a
-// different default. Note that mirroring a raw 0 is never correct here (0 means
-// "disable auto-snapshots" for FlatKV), which is why the zero is resolved first.
+// adoptFlatKV installs store as this composite's flatKV backend and starts tracking the hash it
+// publishes for each block.
+func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) error {
+	cs.storeFlatKV(store)
+
+	mostRecent, err := store.RegisterHashListener(cs.recordFlatKVHash)
+	if err != nil {
+		return fmt.Errorf("failed to register the flatkv hash listener: %w", err)
+	}
+	cs.flatKVHash.Store(&mostRecent)
+	return nil
+}
+
+// recordFlatKVHash keeps flatKVHash current. It is the listener registered on every flatKV instance
+// this store adopts.
+func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+	cs.flatKVHash.Store(hash)
+	return nil
+}
+
+// alignFlatKVSnapshotWithMemIAVL sets FlatKV's snapshot interval to memIAVL's effective interval
+// in every write mode, including FlatKVOnly. FlatKV's keep-recent is left as configured.
 func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
-	interval, keepRecent := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
+	// sc-snapshot-interval is the only operator-visible cadence key, so it must govern FlatKV even
+	// where no memIAVL store is built. The effective value is mirrored, not the raw one: a raw 0
+	// means "unset" to memIAVL but "disable auto-snapshots" to FlatKV, and assigning it
+	// unconditionally also overrides a stale state-commit.flatkv.snapshot-interval that an older
+	// app.toml template rendered.
+	//
+	// Keep-recent is not mirrored. FlatKV must still hold a version when memIAVL publishes it,
+	// which needs deeper retention than memIAVL keeps for itself.
+	interval, _ := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
 	cfg.FlatKVConfig.SnapshotInterval = interval
-	cfg.FlatKVConfig.SnapshotKeepRecent = keepRecent
 }
 
 // Initialize records the set of child store names that should exist on
@@ -294,10 +308,10 @@ func validateInitialStores(mode types.WriteMode, initialStores []string) error {
 // are created. Any writer lock acquired during cleanup is retained for
 // the subsequent LoadLatest call.
 func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		return nil
 	}
-	return cs.flatKV.CleanupOrphanedReadOnlyDirs()
+	return cs.loadFlatKV().CleanupOrphanedReadOnlyDirs()
 }
 
 // SetInitialVersion seeds every active backend so that the next Commit
@@ -309,8 +323,8 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 			return fmt.Errorf("memiavl SetInitialVersion: %w", err)
 		}
 	}
-	if cs.flatKV != nil {
-		if err := cs.flatKV.SetInitialVersion(initialVersion); err != nil {
+	if cs.loadFlatKV() != nil {
+		if err := cs.loadFlatKV().SetInitialVersion(initialVersion); err != nil {
 			return fmt.Errorf("flatkv SetInitialVersion: %w", err)
 		}
 	}
@@ -318,8 +332,7 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	// does. No commit info observed here actually changes — memiavl reports its pre-commit version either
 	// way and a seeded flatkv still hashes to the identity — so this is the rule holding uniformly rather
 	// than a case with a test behind it.
-	cs.refreshLastCommitInfo()
-	return nil
+	return cs.refreshLastCommitInfo()
 }
 
 // LoadVersion implements types.Committer.
@@ -364,21 +377,21 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 		cs.memIAVL = mem
 	}
 
-	if cs.flatKV != nil {
-		if err := cs.flatKV.LoadLatest(); err != nil {
+	if cs.loadFlatKV() != nil {
+		if err := cs.loadFlatKV().LoadLatest(); err != nil {
 			return fmt.Errorf("failed to load FlatKV: %w", err)
 		}
 	}
 
-	if cs.memIAVL != nil && cs.flatKV != nil {
+	if cs.memIAVL != nil && cs.loadFlatKV() != nil {
 		// Migration-entry seeding: turning on a non-MemiavlOnly mode on a chain that has been running on
 		// MemiavlOnly leaves memiavl at version N while flatkv starts fresh at version 0. Bring flatkv into
 		// lockstep so the next composite commit produces matching versions on both backends.
-		if cs.memIAVL.Version() > 0 && cs.flatKV.Version() == 0 {
+		if cs.memIAVL.Version() > 0 && cs.loadFlatKV().Version() == 0 {
 			seedTo := cs.memIAVL.Version() + 1
 			logger.Info("seeding flatkv initial version to match memiavl",
 				"memiavlVersion", cs.memIAVL.Version(), "flatkvInitialVersion", seedTo)
-			if err := cs.flatKV.SetInitialVersion(seedTo); err != nil {
+			if err := cs.loadFlatKV().SetInitialVersion(seedTo); err != nil {
 				return fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
 					cs.memIAVL.Version(), err)
 			}
@@ -391,16 +404,12 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 		}
 	}
 
-	if err := cs.resolveCurrentWriteMode(true); err != nil {
-		return fmt.Errorf("failed to resolve write mode: %w", err)
-	}
-	if err := cs.buildRouter(); err != nil {
+	if err := cs.adoptPersistedWriteMode(); err != nil {
 		return err
 	}
 	// After the router, because the gating this reads gets its answer from migration metadata through
 	// the backends the router was just built against.
-	cs.refreshLastCommitInfo()
-	return nil
+	return cs.refreshLastCommitInfo()
 }
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
@@ -411,7 +420,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	}
 
 	var memIAVLCommitter *memiavl.CommitStore
-	var flatKVStore giga.LiveStateStore
+	var flatKVStore gigatypes.LiveStateStore
 
 	defer func() {
 		if retErr == nil {
@@ -443,8 +452,8 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		}
 	}
 
-	if cs.flatKV != nil {
-		fkv, err := cs.flatKV.LoadVersionReadOnly(targetVersion)
+	if cs.loadFlatKV() != nil {
+		fkv, err := cs.loadFlatKV().LoadVersionReadOnly(targetVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
@@ -452,16 +461,20 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	}
 
 	// Build a per-handle composite with its own router. Without this the read-only handle has
-	// cs.router == nil and every read-side method nil-dereferences on first call. The new composite
+	// a nil router and every read-side method nil-dereferences on first call. The new composite
 	// inherits cs.ctx so cancellation of the parent context cascades, but buildRouter installs its own
 	// child cancel so closing this handle does not affect the parent.
 	ro := &CompositeCommitStore{
 		memIAVL: memIAVLCommitter,
-		flatKV:  flatKVStore,
 		homeDir: cs.homeDir,
 		config:  cs.config,
 		ctx:     cs.ctx,
 		derived: true,
+	}
+	if flatKVStore != nil {
+		if err := ro.adoptFlatKV(flatKVStore); err != nil {
+			return nil, err
+		}
 	}
 	if err := ro.resolveCurrentWriteMode(false); err != nil {
 		return nil, fmt.Errorf("failed to resolve effective write mode for read-only handle: %w", err)
@@ -469,8 +482,19 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	if err := ro.buildRouter(); err != nil {
 		return nil, fmt.Errorf("failed to build router for read-only handle: %w", err)
 	}
-	ro.refreshLastCommitInfo()
+	if err := ro.refreshLastCommitInfo(); err != nil {
+		return nil, fmt.Errorf("failed to build commit info for read-only handle: %w", err)
+	}
 	return ro, nil
+}
+
+// adoptPersistedWriteMode sets the effective write mode from the opened backends' persisted state and
+// installs a router for it.
+func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
+	if err := cs.resolveCurrentWriteMode(true); err != nil {
+		return fmt.Errorf("failed to resolve write mode: %w", err)
+	}
+	return cs.buildRouter()
 }
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been
@@ -492,38 +516,89 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 // anyway.
 func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) error {
 	if cs.config.WriteMode != types.Auto {
-		cs.currentWriteMode = cs.config.WriteMode
+		cs.storeWriteMode(cs.config.WriteMode)
 		return nil
 	}
-	if cs.flatKV == nil {
-		cs.currentWriteMode = types.MemiavlOnly
+	if cs.loadFlatKV() == nil {
+		cs.storeWriteMode(types.MemiavlOnly)
 		return nil
 	}
-	derived, err := migration.DeriveWriteMode(cs.flatKV)
+	derived, err := migration.DeriveWriteMode(cs.loadFlatKV())
 	if err != nil {
 		return fmt.Errorf("failed to derive write mode: %w", err)
 	}
 	if derived == types.MemiavlOnly && closeIdleFlatKV {
 		logger.Info("flatkv directory exists but no migration has started; " +
 			"closing flatkv until a MigrateEVM transition materializes it")
-		if err := cs.flatKV.Close(); err != nil {
+		if err := cs.loadFlatKV().Close(); err != nil {
 			return fmt.Errorf("failed to close non-participating flatkv: %w", err)
 		}
-		cs.flatKV = nil
+		cs.storeFlatKV(nil)
 	}
 	logger.Debug("derived effective write mode from migration metadata", "mode", derived)
-	cs.currentWriteMode = derived
+	cs.storeWriteMode(derived)
 	return nil
 }
 
+// loadFlatKV returns the flatKV backend, or nil when none is open.
+func (cs *CompositeCommitStore) loadFlatKV() gigatypes.LiveStateStore {
+	if store := cs.flatKV.Load(); store != nil {
+		return *store
+	}
+	return nil
+}
+
+func (cs *CompositeCommitStore) storeFlatKV(store gigatypes.LiveStateStore) {
+	if store == nil {
+		cs.flatKV.Store(nil)
+		return
+	}
+	cs.flatKV.Store(&store)
+}
+
+// loadWriteMode returns the effective write mode.
+func (cs *CompositeCommitStore) loadWriteMode() types.WriteMode {
+	if mode := cs.currentWriteMode.Load(); mode != nil {
+		return *mode
+	}
+	return ""
+}
+
+func (cs *CompositeCommitStore) storeWriteMode(mode types.WriteMode) {
+	cs.currentWriteMode.Store(&mode)
+}
+
+// loadRouter returns the installed router, or nil before LoadVersion and
+// after Close.
+func (cs *CompositeCommitStore) loadRouter() migration.Router {
+	if router := cs.router.Load(); router != nil {
+		return *router
+	}
+	return nil
+}
+
+func (cs *CompositeCommitStore) storeRouter(router migration.Router) {
+	if router == nil {
+		cs.router.Store(nil)
+		return
+	}
+	cs.router.Store(&router)
+}
+
 // buildRouter constructs the migration router against the currently-opened
-// backends and assigns it to cs.router. Must be called after memIAVL and
+// backends and installs it with storeRouter. Must be called after memIAVL and
 // flatKV (if any) have been opened via LoadVersion and after the effective
 // mode has been resolved.
 func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
+	var options []migration.RouterOption
+	if cs.derived {
+		// A derived store sees the migration state at its own height; publishing it would overwrite the
+		// live store's gauges.
+		options = append(options, migration.WithoutTelemetry())
+	}
 	router, err := migration.BuildRouter(
-		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, int(cs.migrationBatchSize.Load()))
+		routerCtx, cs.loadWriteMode(), cs.memIAVL, cs.loadFlatKV(), int(cs.migrationBatchSize.Load()), options...)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to build router: %w", err)
@@ -531,7 +606,7 @@ func (cs *CompositeCommitStore) buildRouter() error {
 	if cs.routerCancel != nil {
 		cs.routerCancel()
 	}
-	cs.router = router
+	cs.storeRouter(router)
 	cs.routerCancel = cancel
 	return nil
 }
@@ -554,8 +629,8 @@ func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
 		batchSize = 0
 	}
 	cs.migrationBatchSize.Store(int64(batchSize))
-	if cs.router != nil {
-		cs.router.SetMigrationBatchSize(batchSize)
+	if router := cs.loadRouter(); router != nil {
+		router.SetMigrationBatchSize(batchSize)
 	}
 	return nil
 }
@@ -573,7 +648,7 @@ func (cs *CompositeCommitStore) GetMigrationBatchSize() int {
 // configured mode. Callers that gate consensus-relevant transitions on it
 // must observe it between blocks for the same reasons SetWriteMode documents.
 func (cs *CompositeCommitStore) GetWriteMode() types.WriteMode {
-	return cs.currentWriteMode
+	return cs.loadWriteMode()
 }
 
 // ConfiguredWriteMode reports the write mode set by configuration, before any
@@ -631,25 +706,26 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 			"write mode is fixed at %q by configuration; runtime switching requires write mode %q",
 			cs.config.WriteMode, types.Auto)
 	}
-	if cs.router == nil {
+	if cs.loadRouter() == nil {
 		return errors.New("SetWriteMode called before LoadVersion")
 	}
-	if targetWriteMode == cs.currentWriteMode {
+	prev := cs.loadWriteMode()
+	if targetWriteMode == prev {
 		return nil
 	}
 
-	if err := types.ValidateTransition(cs.currentWriteMode, targetWriteMode); err != nil {
+	if err := types.ValidateTransition(prev, targetWriteMode); err != nil {
 		return fmt.Errorf("write mode transition rejected: %w", err)
 	}
 
 	// The current mode's work must be finished before stepping forward.
-	complete, err := migration.IsModeComplete(cs.flatKV, cs.currentWriteMode)
+	complete, err := migration.IsModeComplete(cs.loadFlatKV(), prev)
 	if err != nil {
-		return fmt.Errorf("failed to check completion of write mode %q: %w", cs.currentWriteMode, err)
+		return fmt.Errorf("failed to check completion of write mode %q: %w", prev, err)
 	}
 	if !complete {
 		return fmt.Errorf("cannot transition %q -> %q: the %q migration is not complete",
-			cs.currentWriteMode, targetWriteMode, cs.currentWriteMode)
+			prev, targetWriteMode, prev)
 	}
 
 	// The MemiavlOnly -> MigrateEVM edge is where flatkv comes into
@@ -657,27 +733,26 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 	// directory is absent). Materialize it before the router that routes
 	// to it is built.
 	materialized := false
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		if err := cs.materializeFlatKV(); err != nil {
 			return fmt.Errorf("failed to materialize flatkv for write mode %q: %w", targetWriteMode, err)
 		}
 		materialized = true
 	}
 
-	prev := cs.currentWriteMode
-	cs.currentWriteMode = targetWriteMode
+	cs.storeWriteMode(targetWriteMode)
 	if err := cs.buildRouter(); err != nil {
 		// buildRouter leaves the previous router installed on failure.
-		cs.currentWriteMode = prev
+		cs.storeWriteMode(prev)
 		if materialized {
 			// Restore the lazy-flatkv invariant (flatKV open iff the
 			// effective mode is past MemiavlOnly). The on-disk directory
 			// remains; the re-fired transition re-opens it idempotently.
-			if closeErr := cs.flatKV.Close(); closeErr != nil {
+			if closeErr := cs.loadFlatKV().Close(); closeErr != nil {
 				logger.Error("failed to close flatkv while rolling back write mode transition",
 					"err", closeErr)
 			}
-			cs.flatKV = nil
+			cs.storeFlatKV(nil)
 		}
 		return fmt.Errorf("failed to build router for write mode %q: %w", targetWriteMode, err)
 	}
@@ -696,7 +771,7 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 // newFlatKVInstance constructs (but does not open) a flatkv commit store
 // rooted at this store's home directory, mirroring the constructor's
 // configuration.
-func (cs *CompositeCommitStore) newFlatKVInstance() (giga.LiveStateStore, error) {
+func (cs *CompositeCommitStore) newFlatKVInstance() (gigatypes.LiveStateStore, error) {
 	flatKVConfig := cs.config.FlatKVConfig
 	flatKVConfig.DataDir = utils.GetFlatKVPath(cs.homeDir)
 	stateWAL, err := flatkv.OpenStateWAL(&flatKVConfig)
@@ -737,8 +812,7 @@ func (cs *CompositeCommitStore) materializeFlatKV() error {
 				cs.memIAVL.Version(), err)
 		}
 	}
-	cs.flatKV = loaded
-	return nil
+	return cs.adoptFlatKV(loaded)
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
@@ -751,9 +825,9 @@ func (cs *CompositeCommitStore) materializeFlatKV() error {
 //     call may advance the boundary; second and later flushes in the same
 //     commit cycle forward writes only.
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	if cs.currentWriteMode.IsMigrationMode() {
+	if cs.loadWriteMode().IsMigrationMode() {
 		firstBatchInBlock := !cs.migrationAdvancedThisCommit
-		if err := cs.router.ApplyChangeSets(changesets, firstBatchInBlock); err != nil {
+		if err := cs.loadRouter().ApplyChangeSets(changesets, firstBatchInBlock); err != nil {
 			return fmt.Errorf("failed to apply changesets: %w", err)
 		}
 		cs.migrationAdvancedThisCommit = true
@@ -762,7 +836,7 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 		return nil
 	}
 
-	err := cs.router.ApplyChangeSets(changesets, false)
+	err := cs.loadRouter().ApplyChangeSets(changesets, false)
 	if err != nil {
 		return fmt.Errorf("failed to apply changesets: %w", err)
 	}
@@ -784,7 +858,7 @@ func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade)
 // building.
 //
 // The height comes from the caller rather than from a backend. Taking a block's hash seals it on
-// flatkv — see flatKVWorkingHash — so by the time this runs flatkv may already sit at version, and a
+// flatkv — see latticeHash — so by the time this runs flatkv may already sit at version, and a
 // height derived from its own state would land on the next block and commit one that never existed.
 // Handing it the height the caller means lets flatkv recognise the block it already committed.
 func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
@@ -802,11 +876,17 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 	}
 
 	var flatkvVersion int64 = -1
-	if cs.flatKV != nil {
+	if cs.loadFlatKV() != nil {
 		var err error
-		flatkvVersion, err = cs.flatKV.Commit(version)
+		flatkvVersion, err = cs.loadFlatKV().Commit(version)
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
+		}
+		// Taken whether or not this block's hash reaches the AppHash: shouldAppendLatticeHash answers a
+		// consensus question, while this refreshes the hash that both the AppHash below and the hash log
+		// read. It is done here because this is the one place every flatKV block commit passes through.
+		if _, err := cs.latticeHash(flatkvVersion); err != nil {
+			return 0, fmt.Errorf("failed to obtain flatkv hash for block %d: %w", flatkvVersion, err)
 		}
 	}
 
@@ -827,7 +907,9 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 
 	// Every active backend has committed this block and they agree on its height, which is the only
 	// moment their combined commit info describes one block.
-	cs.refreshLastCommitInfo()
+	if err := cs.refreshLastCommitInfo(); err != nil {
+		return 0, fmt.Errorf("failed to refresh commit info after committing block %d: %w", version, err)
+	}
 
 	committed := cosmosVersion
 	if committed < 0 {
@@ -859,13 +941,13 @@ func requireCommittedHeight(committed int64, requested int64, neverCommitted boo
 // so the correction survives subsequent restarts.
 func (cs *CompositeCommitStore) reconcileVersions() error {
 
-	if cs.memIAVL == nil || cs.flatKV == nil {
+	if cs.memIAVL == nil || cs.loadFlatKV() == nil {
 		// Nothing to reconcile if one of the backends is not present.
 		return nil
 	}
 
 	cosmosVer := cs.memIAVL.Version()
-	evmVer := cs.flatKV.Version()
+	evmVer := cs.loadFlatKV().Version()
 	if cosmosVer == evmVer {
 		return nil
 	}
@@ -890,7 +972,7 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 		}
 	}
 	if evmVer > minVer {
-		if err := cs.flatKV.Rollback(minVer); err != nil {
+		if err := cs.loadFlatKV().Rollback(minVer); err != nil {
 			return fmt.Errorf("failed to rollback EVM to reconciled version %d: %w", minVer, err)
 		}
 	}
@@ -902,8 +984,8 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 func (cs *CompositeCommitStore) Version() int64 {
 	if cs.memIAVL != nil {
 		return cs.memIAVL.Version()
-	} else if cs.flatKV != nil {
-		return cs.flatKV.Version()
+	} else if flatKV := cs.loadFlatKV(); flatKV != nil {
+		return flatKV.Version()
 	}
 	return 0
 }
@@ -912,8 +994,8 @@ func (cs *CompositeCommitStore) Version() int64 {
 func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 	if cs.memIAVL != nil {
 		return cs.memIAVL.GetLatestVersion()
-	} else if cs.flatKV != nil {
-		return cs.flatKV.GetLatestVersion()
+	} else if flatKV := cs.loadFlatKV(); flatKV != nil {
+		return flatKV.GetLatestVersion()
 	} else {
 		return 0, errors.New("no backend configured")
 	}
@@ -969,13 +1051,15 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 // consistent answer across the completion block on which the on-disk
 // signal hops from MigrationBoundaryKey to MigrationVersionKey.
 func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
-	if cs.flatKV == nil {
+	flatKV := cs.loadFlatKV()
+	if flatKV == nil {
 		return false
 	}
 	if cs.latticeAppendLatched.Load() {
 		return true
 	}
-	if cs.currentWriteMode == types.MemiavlOnly {
+	mode := cs.loadWriteMode()
+	if mode == types.MemiavlOnly {
 		// Defensive: writable stores close a non-participating flatkv in
 		// resolveCurrentWriteMode, so this is reachable only on read-only
 		// handles opened during an interrupted MemiavlOnly -> MigrateEVM
@@ -983,11 +1067,11 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 		// is open but not part of the AppHash; never latch.
 		return false
 	}
-	if cs.currentWriteMode != types.MigrateEVM {
+	if mode != types.MigrateEVM {
 		cs.latticeAppendLatched.Store(true)
 		return true
 	}
-	started, err := migrationStarted(cs.flatKV)
+	started, err := migrationStarted(flatKV)
 	if err != nil {
 		// Consensus-critical: a corrupt boundary record means we
 		// cannot tell whether the lattice should be in the AppHash.
@@ -1010,7 +1094,7 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 // version key). This is the moment flatkv joins the AppHash. Works
 // against both live stores (latest + pending writes) and read-only clones
 // (metadata as-of their loaded version).
-func migrationStarted(flatKV giga.LiveStateStore) (bool, error) {
+func migrationStarted(flatKV gigatypes.LiveStateStore) (bool, error) {
 	if boundaryBytes, ok := flatKV.Get(
 		migration.MigrationStore, []byte(migration.MigrationBoundaryKey),
 	); ok {
@@ -1076,23 +1160,25 @@ func (cs *CompositeCommitStore) shouldIncludeMemiavlInfos() bool {
 	if cs.memIAVL == nil {
 		return false
 	}
-	if cs.flatKV == nil {
+	flatKV := cs.loadFlatKV()
+	if flatKV == nil {
 		return true
 	}
 	if cs.memiavlHashExcluded.Load() {
 		return false
 	}
-	if cs.currentWriteMode != types.MigrateBank && cs.currentWriteMode != types.FlatKVOnly {
+	mode := cs.loadWriteMode()
+	if mode != types.MigrateBank && mode != types.FlatKVOnly {
 		return true
 	}
-	if cs.currentWriteMode == types.FlatKVOnly {
+	if mode == types.FlatKVOnly {
 		// Reachable only with memiavl open, i.e. types.Auto after the
 		// runtime FlatKVOnly transition, whose gate requires the bank
 		// migration complete.
 		cs.memiavlHashExcluded.Store(true)
 		return false
 	}
-	complete, err := migration.IsModeComplete(cs.flatKV, types.MigrateBank)
+	complete, err := migration.IsModeComplete(flatKV, types.MigrateBank)
 	if err != nil {
 		// Consensus-critical: if the migration version cannot be read we
 		// cannot tell whether memiavl belongs in the AppHash. Failing
@@ -1120,45 +1206,65 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		return cs.appendEvmLatticeHash(ci, cs.flatKVWorkingHash(version))
+		hash, err := cs.latticeHash(version)
+		if err != nil {
+			// types.Committer pins this signature, so this is the one lattice-hash caller with nowhere
+			// to return to. A store that cannot produce a hash cannot produce a trustworthy one either,
+			// and letting the chain proceed on a stale hash is the worse failure.
+			panic(fmt.Sprintf("composite: failed to obtain flatkv hash for block %d: %v", version, err))
+		}
+		return cs.appendEvmLatticeHash(ci, hash)
 	}
 
 	return ci
 }
 
-// flatKVWorkingHash seals the pending block and returns its root hash.
+// latticeHash returns flatKV's lattice hash for the height the chain is building, sealing that block
+// first if it is still being applied. It returns nil when no flatKV backend is configured.
 //
-// Cosmos asks for a block's hash before it calls Commit, and FlatKV has a hash only once the block is
-// sealed, so the seal happens here. The Commit that follows finds the block already committed and does
-// nothing.
+// Cosmos asks for a block's hash before it calls Commit, and flatKV has a hash only once the block is
+// committed, so the commit happens here; the Commit that follows finds the block already committed and
+// does nothing. Hashing is asynchronous, so the answer is then waited for on the hash stream — and
+// these reads are also what keeps that stream drained.
 //
 // Sealing early requires that every one of the block's writes has already arrived. rootmulti's
 // GetWorkingHash flushes every buffered changeset into the store before reading the hash, and nothing
-// writes to the multistore after that point. A changeset arriving later is not caught: the FlatKV
+// writes to the multistore after that point. A changeset arriving later is not caught: the flatKV
 // writer stamps it at the sealed height plus one, which is a valid stamp for the next block, so it
 // silently becomes part of that block instead.
 //
-// version is the height the caller is building. Sealing that height rather than one FlatKV derives for
-// itself is what keeps FlatKV in step: a block whose writes all miss FlatKV leaves it with nothing
-// staged, and a store left to its own devices would stay a height behind with a hash that happens to
-// be right — an empty block does not move the LtHash — but describes the wrong block.
-//
 // Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
 // commit them, and nothing will ask for a hash mid-block.
-func (cs *CompositeCommitStore) flatKVWorkingHash(version int64) []byte {
-	if _, err := cs.flatKV.Commit(version); err != nil {
-		// Consensus-critical: nothing in the Cosmos hash path can carry an error, and a store that
-		// cannot commit cannot produce a trustworthy hash either. Returning a stale one would let the
-		// chain proceed on it.
-		panic(fmt.Sprintf("composite: failed to seal flatkv block %d before hashing: %v", version, err))
+func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
+	flatKV := cs.loadFlatKV()
+	if flatKV == nil {
+		return nil, nil
+	}
+	// A block that has not been committed has no hash, so asking for one is asking for the commit.
+	if err := flatKV.CommitPendingBlock(); err != nil {
+		return nil, fmt.Errorf("seal flatkv block %d before hashing: %w", version, err)
 	}
 
-	hash, hashed := cs.flatKV.RootHash()
-	if hashed != version {
-		panic(fmt.Sprintf(
-			"composite: flatkv hashed block %d but the chain is building block %d", hashed, version))
+	// A block none of whose writes reached flatKV leaves it a height behind. Its hash has not moved —
+	// an empty block does not shift the lattice — so the height it did reach is the right answer.
+	if committed := flatKV.Version(); committed < version {
+		version = committed
 	}
-	return hash
+
+	// Hashing is asynchronous, so this is where the answer is waited for.
+	if err := flatKV.FlushHashes(); err != nil {
+		return nil, fmt.Errorf("wait for the flatkv hash of block %d: %w", version, err)
+	}
+
+	hash := cs.flatKVHash.Load()
+	if hash.BlockNumber != version {
+		// Block version+1 has not been handed to flatKV yet, so the hash just flushed is version's.
+		// Asserted rather than assumed: this value reaches the AppHash, where a hash for the wrong
+		// height is indistinguishable from the right one.
+		return nil, fmt.Errorf("flatkv last published block %d, not block %d", hash.BlockNumber, version)
+	}
+	checksum := hash.Global.Checksum()
+	return checksum[:], nil
 }
 
 // LastCommitInfo returns the commit info for the block the backends last committed, or nil before the
@@ -1172,7 +1278,9 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 // Every point that moves the committed height must call this: Commit, the two load paths, Rollback and
 // SetInitialVersion. The stored value is the only thing LastCommitInfo reports, so a mutation that
 // skips the call serves a stale block until the next one that does not.
-func (cs *CompositeCommitStore) refreshLastCommitInfo() {
+//
+// It reports the failure to obtain flatKV's hash, which leaves the stored commit info untouched.
+func (cs *CompositeCommitStore) refreshLastCommitInfo() error {
 	var ci *proto.CommitInfo
 	if cs.shouldIncludeMemiavlInfos() {
 		ci = cs.memIAVL.LastCommitInfo()
@@ -1183,12 +1291,16 @@ func (cs *CompositeCommitStore) refreshLastCommitInfo() {
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		hash, _ := cs.flatKV.RootHash()
+		hash, err := cs.latticeHash(ci.Version)
+		if err != nil {
+			return fmt.Errorf("obtain flatkv hash for block %d: %w", ci.Version, err)
+		}
 		ci = cs.appendEvmLatticeHash(ci, hash)
 	}
 	// Cloned because this is held until the next refresh, and memiavl's hashes point into a snapshot
 	// mapping it is free to drop before then.
 	cs.lastCommitInfo = cloneCommitInfo(ci)
+	return nil
 }
 
 // cloneCommitInfo deep-copies ci, hashes included, so the result survives a commit or a reopen of the
@@ -1220,12 +1332,13 @@ func cloneCommitInfo(ci *proto.CommitInfo) *proto.CommitInfo {
 // The reserved migration.MigrationStore tree is always rejected,
 // regardless of mode: it is owned by the migration workflow.
 func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVStore {
+	mode := cs.loadWriteMode()
 	if name == migration.MigrationStore {
 		panic(fmt.Errorf(
 			"CompositeCommitStore.GetChildStoreByName: store %q is reserved",
 			name,
 		))
-	} else if cs.currentWriteMode == types.MemiavlOnly {
+	} else if mode == types.MemiavlOnly {
 		// In MemiavlOnly mode, check to see if the tree exists. Required to support legacy test apps
 		// that use non-standard store names.
 		if cs.memIAVL.GetChildStoreByName(name) == nil {
@@ -1234,7 +1347,7 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 				name,
 			))
 		}
-	} else if cs.currentWriteMode != types.FlatKVOnly {
+	} else if mode != types.FlatKVOnly {
 		// FlatKV only mode can support arbitrary store names. Otherwise, require the store to be in the canonical list.
 		if !keys.IsMemIAVLStoreKey(name) {
 			panic(fmt.Errorf(
@@ -1244,11 +1357,11 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 		}
 	}
 
-	// The provider resolves cs.router at call time: SetWriteMode replaces
+	// The provider resolves the router at call time: SetWriteMode replaces
 	// the router while views vended here stay cached by rootmulti, and a
 	// captured router value would keep serving the pre-transition mode.
 	return migration.NewRouterCommitKVStore(
-		func() migration.Router { return cs.router },
+		cs.loadRouter,
 		name,
 		cs.Version,
 		func(start, end []byte, ascending bool) (db.Iterator, error) {
@@ -1260,7 +1373,7 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 // Copy returns an in-memory snapshot, or nil when flatkv is engaged
 // (no in-memory primitive; a partial snapshot would miss EVM state).
 func (cs *CompositeCommitStore) Copy() types.Committer {
-	if cs == nil || cs.memIAVL == nil || cs.flatKV != nil {
+	if cs == nil || cs.memIAVL == nil || cs.loadFlatKV() != nil {
 		return nil
 	}
 	cosmosCopy, ok := cs.memIAVL.Copy().(*memiavl.CommitStore)
@@ -1268,13 +1381,13 @@ func (cs *CompositeCommitStore) Copy() types.Committer {
 		return nil
 	}
 	snap := &CompositeCommitStore{
-		memIAVL:          cosmosCopy,
-		homeDir:          cs.homeDir,
-		config:           cs.config,
-		currentWriteMode: cs.currentWriteMode,
-		ctx:              cs.ctx,
-		derived:          true,
+		memIAVL: cosmosCopy,
+		homeDir: cs.homeDir,
+		config:  cs.config,
+		ctx:     cs.ctx,
+		derived: true,
 	}
+	snap.storeWriteMode(cs.loadWriteMode())
 	if err := snap.buildRouter(); err != nil {
 		if releaseErr := cosmosCopy.ReleaseSnapshotRefs(); releaseErr != nil {
 			logger.Warn("failed to release memiavl snapshot refs after router build error",
@@ -1296,7 +1409,7 @@ func (cs *CompositeCommitStore) ReleaseSnapshotRefs() error {
 		cs.routerCancel()
 		cs.routerCancel = nil
 	}
-	cs.router = nil
+	cs.storeRouter(nil)
 	if cs.memIAVL == nil {
 		return nil
 	}
@@ -1313,8 +1426,8 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 		}
 	}
 
-	if cs.flatKV != nil {
-		if err := cs.flatKV.Rollback(targetVersion); err != nil {
+	if cs.loadFlatKV() != nil {
+		if err := cs.loadFlatKV().Rollback(targetVersion); err != nil {
 			return fmt.Errorf("failed to rollback evm commit store: %w", err)
 		}
 	}
@@ -1333,24 +1446,23 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	// `seid rollback` prints and rootmulti caches in rs.lastCommitInfo)
 	// diverges from the canonical AppHash for the target height. The gates
 	// re-latch correctly on the next call against the rolled-back metadata.
-	//
-	// Note: currentWriteMode is not re-derived here. It only matters when a
-	// rollback crosses a seam whose latest-derived mode differs from the
-	// target's (e.g. a rollback all the way across a completed migration);
-	// that in-process view self-heals on the next `seid start`, which
-	// re-derives the mode from the rolled-back metadata.
 	cs.latticeAppendLatched.Store(false)
 	cs.memiavlHashExcluded.Store(false)
+
+	// The effective mode and its router were derived at the pre-rollback height. A rollback across a
+	// migration seam (back below bank completion, or to before activation) leaves them describing state
+	// the store no longer holds, so derive both again from the rolled-back metadata, as a restart would.
+	if err := cs.adoptPersistedWriteMode(); err != nil {
+		return err
+	}
 
 	// Rollback is offline (no commit cycle in flight); clear the per-block
 	// migration-advance gate defensively.
 	cs.migrationAdvancedThisCommit = false
 
-	// After the latch resets above, so the rebuilt info reflects the rolled-back metadata rather than
-	// the gating that was latched at the pre-rollback height.
-	cs.refreshLastCommitInfo()
-
-	return nil
+	// After the latch resets and the re-derived mode above, so the rebuilt info reflects the rolled-back
+	// metadata rather than the gating that was latched at the pre-rollback height.
+	return cs.refreshLastCommitInfo()
 }
 
 // exportNeedsMetadataGating reports whether the configured mode allows
@@ -1388,14 +1500,15 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	}
 
 	includeMemiavl := cs.memIAVL != nil
-	includeFlatKV := cs.flatKV != nil
+	flatKV := cs.loadFlatKV()
+	includeFlatKV := flatKV != nil
 
 	if includeFlatKV && exportNeedsMetadataGating(cs.config.WriteMode) {
 		// Evaluate the hash predicates against metadata as-of the exported
 		// version: flatkv read-only clones replay the WAL to the target
 		// version, so the boundary/version keys reflect historical state, not
 		// the live store's.
-		ro, err := cs.flatKV.LoadVersionReadOnly(version)
+		ro, err := flatKV.LoadVersionReadOnly(version)
 		if err != nil {
 			// Silently omitting flatkv here would produce a consensus-incomplete
 			// snapshot, byte-indistinguishable from a legitimate memiavl-only
@@ -1436,7 +1549,7 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	var flatkvExporter types.Exporter
 	if includeFlatKV {
 		var err error
-		flatkvExporter, err = cs.flatKV.Exporter(version)
+		flatkvExporter, err = flatKV.Exporter(version)
 		if err != nil {
 			if memIAVLExporter != nil {
 				_ = memIAVLExporter.Close()
@@ -1480,9 +1593,9 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	}
 
 	var flatKVImporter types.Importer
-	if cs.flatKV != nil {
+	if cs.loadFlatKV() != nil {
 		var err error
-		flatKVImporter, err = cs.flatKV.Importer(version)
+		flatKVImporter, err = cs.loadFlatKV().Importer(version)
 		if err != nil {
 			if memIAVLImporter != nil {
 				_ = memIAVLImporter.Close()
@@ -1492,7 +1605,7 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	}
 
 	var flatKVFactory func() (types.Importer, error)
-	if cs.flatKV == nil && cs.config.WriteMode == types.Auto {
+	if cs.loadFlatKV() == nil && cs.config.WriteMode == types.Auto {
 		flatKVFactory = func() (types.Importer, error) {
 			created, err := cs.newFlatKVInstance()
 			if err != nil {
@@ -1503,7 +1616,10 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 				_ = created.Close()
 				return nil, fmt.Errorf("failed to create flatkv importer: %w", err)
 			}
-			cs.flatKV = created
+			if err := cs.adoptFlatKV(created); err != nil {
+				_ = created.Close()
+				return nil, err
+			}
 			return imp, nil
 		}
 	}
@@ -1523,6 +1639,21 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	return NewImporter(memIAVLImporter, flatKVImporter, flatKVFactory), nil
 }
 
+// Flush blocks until every committed version has been written to each backend's log.
+func (cs *CompositeCommitStore) Flush() error {
+	if cs.memIAVL != nil {
+		if err := cs.memIAVL.Flush(); err != nil {
+			return fmt.Errorf("failed to flush cosmos: %w", err)
+		}
+	}
+	if cs.loadFlatKV() != nil {
+		if err := cs.loadFlatKV().Flush(); err != nil {
+			return fmt.Errorf("failed to flush evm: %w", err)
+		}
+	}
+	return nil
+}
+
 // Close closes all backends
 func (cs *CompositeCommitStore) Close() error {
 	var errs []error
@@ -1531,7 +1662,7 @@ func (cs *CompositeCommitStore) Close() error {
 		cs.routerCancel()
 		cs.routerCancel = nil
 	}
-	cs.router = nil
+	cs.storeRouter(nil)
 
 	if cs.memIAVL != nil {
 		if err := cs.memIAVL.Close(); err != nil {
@@ -1539,8 +1670,8 @@ func (cs *CompositeCommitStore) Close() error {
 		}
 	}
 
-	if cs.flatKV != nil {
-		if err := cs.flatKV.Close(); err != nil {
+	if cs.loadFlatKV() != nil {
+		if err := cs.loadFlatKV().Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close FlatKV: %w", err))
 		}
 	}
@@ -1556,7 +1687,7 @@ func (cs *CompositeCommitStore) Get(store string, key []byte) (value []byte, ok 
 		return nil, false, fmt.Errorf("key cannot be nil")
 	}
 
-	value, ok, err = cs.router.Read(store, key)
+	value, ok, err = cs.loadRouter().Read(store, key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to read value: %w", err)
 	}
@@ -1571,7 +1702,7 @@ func (cs *CompositeCommitStore) GetProof(store string, key []byte) (*ics23.Commi
 		return nil, fmt.Errorf("key cannot be nil")
 	}
 
-	proof, err := cs.router.GetProof(store, key)
+	proof, err := cs.loadRouter().GetProof(store, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get proof: %w", err)
 	}
@@ -1632,8 +1763,8 @@ func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, 
 			children = append(children, memIter)
 		}
 	}
-	if cs.flatKV != nil {
-		flatIter, err := cs.flatKV.Iterator(store, start, end, ascending)
+	if flatKV := cs.loadFlatKV(); flatKV != nil {
+		flatIter, err := flatKV.Iterator(store, start, end, ascending)
 		if err != nil {
 			closeIterators(children)
 			return nil, fmt.Errorf("failed to build flatkv iterator: %w", err)

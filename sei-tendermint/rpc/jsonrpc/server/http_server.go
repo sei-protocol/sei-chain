@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/net/netutil"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -78,7 +80,7 @@ func Serve(ctx context.Context, listener net.Listener, handler http.Handler, con
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_ = s.Shutdown(sctx)
 		case <-sig:
@@ -113,7 +115,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_ = s.Shutdown(sctx)
 		case <-sig:
@@ -134,7 +136,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(statusCode)
-	_, _ = fmt.Fprintln(w, err.Error())
+	_, _ = fmt.Fprintln(w, err.Error()) //nolint:gosec // the response is explicitly text/plain, so error text is not interpreted as HTML.
 }
 
 // writeHTTPResponse writes a JSON-RPC response to w. If rsp encodes an error,
@@ -324,7 +326,13 @@ func Listen(addr string, maxOpenConnections int) (listener net.Listener, err err
 		)
 	}
 	proto, addr := parts[0], parts[1]
-	listener, err = net.Listen(proto, addr)
+	// Literal TCP addresses go through tcp.Listen so that tests can adopt a
+	// port reserved with tcp.TestReserveAddr.
+	if ap, perr := netip.ParseAddrPort(addr); proto == "tcp" && perr == nil && ap.Port() != 0 {
+		listener, err = tcp.Listen(ap)
+	} else {
+		listener, err = net.Listen(proto, addr)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %v: %v", addr, err)
 	}

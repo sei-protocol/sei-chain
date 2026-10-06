@@ -73,8 +73,12 @@ func (r *varintReader) ReadMsg(msg proto.Message) (int, error) {
 
 	// Make sure length doesn't overflow the native int size (e.g. 32-bit),
 	// and that the returned sum of n+length doesn't overflow either.
-	length := int(l)
-	if l >= uint64(^uint(0)>>1) || length < 0 || n+length < 0 {
+	maxInt := int(^uint(0) >> 1)
+	if l > uint64(maxInt) {
+		return n, fmt.Errorf("invalid out-of-range message length %v", l)
+	}
+	length := int(l) //nolint:gosec // l was checked against the platform maximum int immediately above.
+	if n > maxInt-length {
 		return n, fmt.Errorf("invalid out-of-range message length %v", l)
 	}
 	if length > r.maxSize {

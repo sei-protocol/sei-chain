@@ -1,0 +1,722 @@
+package gigasim
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/stretchr/testify/require"
+)
+
+// blocksToProcess is how far a test run is taken past setup. It is small enough to stay quick and
+// large enough to cross the checkpoint and hash-lag boundaries the test config sets.
+const blocksToProcess = 20
+
+// testConfig returns a configuration sized for a test: a tiny account population, no metrics server,
+// and a checkpoint schedule tight enough that a short run crosses it.
+func testConfig(t *testing.T) *GigasimConfig {
+	t.Helper()
+
+	config := DefaultGigasimConfig()
+	config.DataDir = filepath.Join(t.TempDir(), "data")
+
+	config.TransactionsPerBlock = 10
+	// One lane block per commit, so a test's height is the same in every store.
+	config.LaneBlocksPerSuperblock = 1
+	config.BytesPerTransaction = 64
+	config.NumberOfHotAccounts = 5
+	config.MinimumNumberOfColdAccounts = 20
+	config.MinimumNumberOfDormantAccounts = 10
+	config.MinimumNumberOfErc20Contracts = 20
+	config.HotErc20ContractSetSize = 5
+	config.CannedRandomSize = 1 << 20
+
+	config.ThreadsPerCore = 0
+	config.ConstantThreadCount = 2
+	config.MaxHashLagBlocks = 4
+	config.CheckpointBlockInterval = 5
+	config.PruneIntervalSeconds = 1
+	config.FlushIntervalBlocks = 5
+
+	config.MetricsAddr = ""
+	config.BackgroundMetricsScrapeInterval = 0
+	config.EnableSuspension = false
+	config.ConsoleUpdateIntervalSeconds = 3600
+
+	require.NoError(t, config.Validate())
+	return config
+}
+
+// runBlocks runs a benchmark until it has taken blocksToProcess blocks through the whole stack, then
+// shuts it down. It returns the newest height completed, read after the run loop has stopped so that
+// it is the height the run actually finished on rather than one sampled while it was still moving.
+func runBlocks(t *testing.T, config *GigasimConfig) int64 {
+	t.Helper()
+
+	benchmark, err := NewGigaSim(t.Context(), config, NewGigasimMetrics())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return benchmark.BlocksProcessed() >= blocksToProcess
+	}, time.Minute, 10*time.Millisecond, "the benchmark did not process %d blocks", blocksToProcess)
+
+	require.NoError(t, benchmark.Close())
+	return benchmark.HighestBlock()
+}
+
+func TestEveryStoreAdvancesTogether(t *testing.T) {
+	config := testConfig(t)
+	highest := runBlocks(t, config)
+	require.Positive(t, highest)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+
+	// Reopening runs recovery, which refuses a set of stores it cannot bring onto one height. That it
+	// opens at all is the assertion that the pipeline left them consistent.
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	// A block is counted only once it has cleared every store, so the ledger holding exactly the
+	// heights the run counted is what says no block was left half-written across the stack.
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest), blockStoreHead, //nolint:gosec // test heights are small
+		"the block store should hold every block the benchmark completed, and no more")
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight(),
+		"the state DB should be committed to the same height as the block store")
+
+	require.NotNil(t, manager.ReceiptDB(), "receipts were enabled, so the receipt store should be open")
+	require.NotNil(t, manager.SS(), "the state store was enabled, so it should be open")
+	require.True(t, dirHasContents(t, storageConfig.ReceiptDBConfig.DBDirectory),
+		"receipts were enabled, so the receipt store should hold data")
+}
+
+// TestBlocksLargerThanALedgerBlockAreStoredAndReopened pins that a block carrying more transactions than a
+// ledger block has entries still reaches the ledger, and that the ledger can read it back: the store
+// decodes its newest blocks on every open, and its decoder refuses a payload over the entry limit.
+func TestBlocksLargerThanALedgerBlockAreStoredAndReopened(t *testing.T) {
+	config := testConfig(t)
+	config.TransactionsPerBlock = maxLedgerEntries + 500
+	config.BytesPerTransaction = 16
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight())
+
+	stored, err := manager.BlockStore().ReadBlockByNumber(autobahn.GlobalBlockNumber(highest)) //nolint:gosec // test heights are small
+	require.NoError(t, err)
+	block, ok := stored.Get()
+	require.True(t, ok, "the newest block should be in the ledger")
+	require.Len(t, block.Payload().Txs(), maxLedgerEntries, "the transactions are packed into the ledger's entries")
+	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Payload().Txs()))
+}
+
+// TestSuperblockWritesEveryLaneBlockAndCommitsOnce pins that a superblock stores each lane block and
+// commits the bundle once. The block store's height is the lane-block count; the state DB and the
+// receipt store sit at the superblock count. A second run appends on that same alignment.
+func TestSuperblockWritesEveryLaneBlockAndCommitsOnce(t *testing.T) {
+	config := testConfig(t)
+	config.LaneBlocksPerSuperblock = 3
+	config.TransactionsPerBlock = 4
+	config.BytesPerTransaction = 32
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+	assertSuperblockAlignment(t, config, highest)
+
+	resumed := runBlocks(t, config)
+	require.Greater(t, resumed, highest, "a second run should append to the first rather than restart it")
+	assertSuperblockAlignment(t, config, resumed)
+}
+
+// assertSuperblockAlignment checks that the stores of a superblock run reopen at the heights the
+// pipeline commits: one state and receipt version per superblock, and that many lane blocks each.
+func assertSuperblockAlignment(t *testing.T, config *GigasimConfig, highest int64) {
+	t.Helper()
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	lanes := uint64(config.LaneBlocksPerSuperblock) //nolint:gosec // the test's lane count is small
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest)*lanes, blockStoreHead, //nolint:gosec // test heights are small
+		"the block store should hold every lane block of every superblock")
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight(),
+		"the state DB should commit once per superblock")
+	require.Equal(t, highest, manager.ReceiptDB().LatestVersion(),
+		"the receipt store should commit once per superblock")
+
+	stored, err := manager.BlockStore().ReadBlockByNumber(autobahn.GlobalBlockNumber(blockStoreHead))
+	require.NoError(t, err)
+	block, ok := stored.Get()
+	require.True(t, ok, "the newest lane block should be in the ledger")
+	require.Equal(t, int64(config.blockPayloadBytes()), payloadBytes(block.Payload().Txs()),
+		"each lane block carries one lane block's payload")
+}
+
+// TestResumeRefusesADifferentSuperblockSize pins both refusals of a directory whose lane blocks and
+// superblocks were written at a different LaneBlocksPerSuperblock: one lane block per commit, and a
+// different superblock size. The next lane block is not where the next superblock starts.
+func TestResumeRefusesADifferentSuperblockSize(t *testing.T) {
+	config := testConfig(t)
+	config.LaneBlocksPerSuperblock = 3
+	config.TransactionsPerBlock = 4
+	config.BytesPerTransaction = 32
+	require.NoError(t, config.Validate())
+
+	highest := runBlocks(t, config)
+	require.Positive(t, highest)
+	nextLane := highest*int64(config.LaneBlocksPerSuperblock) + 1
+	nextSuperblock := highest + 1
+
+	oneLane := *config
+	oneLane.LaneBlocksPerSuperblock = 1
+	_, err := NewGigaSim(t.Context(), &oneLane, NewGigasimMetrics())
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"the block store resumes at block %d but the state DB resumes at block %d",
+		nextLane, nextSuperblock))
+
+	other := *config
+	other.LaneBlocksPerSuperblock = 2
+	_, err = NewGigaSim(t.Context(), &other, NewGigasimMetrics())
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"the block store resumes at lane block %d but superblock %d starts at lane block %d",
+		nextLane, nextSuperblock, other.firstLaneBlock(nextSuperblock)))
+}
+
+// TestNativeTransfersRunThroughTheWholeStack pins that the native transfer workload drives every store
+// and leaves them on one height, as the ERC20 one does.
+func TestNativeTransfersRunThroughTheWholeStack(t *testing.T) {
+	config := testConfig(t)
+	config.TransactionType = transactionTypeTransfer
+	highest := runBlocks(t, config)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight())
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest), blockStoreHead) //nolint:gosec // test heights are small
+}
+
+func TestDisabledStoresAreNeverWritten(t *testing.T) {
+	config := testConfig(t)
+	config.EnableSS = false
+	config.EnableReceiptStore = false
+
+	require.Positive(t, runBlocks(t, config))
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+
+	// A store that is never opened leaves no directory behind, which is the durable evidence that
+	// nothing was written to it.
+	require.NoDirExists(t, storageConfig.ReceiptDBConfig.DBDirectory)
+	require.NoDirExists(t, storageConfig.SSConfig.EVMDBDirectory)
+
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	require.Nil(t, manager.ReceiptDB(), "receipts were disabled, so no receipt store should be open")
+	require.Nil(t, manager.SS(), "the state store was disabled, so it should not be open")
+}
+
+// TestGenerationRunsAheadOfExecution pins the shape of the pipeline: the generator writes a block to
+// the ledger and hands it on, so the ledger leads the state DB by the blocks still in flight.
+func TestGenerationRunsAheadOfExecution(t *testing.T) {
+	config := testConfig(t)
+	config.MaxPendingExecutionQueueSize = 8
+
+	benchmark, err := NewGigaSim(t.Context(), config, NewGigasimMetrics())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, benchmark.Close()) }()
+
+	// Execution is the slower side, so the ledger is normally ahead. Sampling until it is caught in that
+	// state avoids depending on the exact moment the two are level.
+	require.Eventually(t, func() bool {
+		ledger, err := benchmark.storage.BlockStore().GetLatestBlock()
+		require.NoError(t, err)
+		return int64(ledger) > benchmark.HighestBlock() //nolint:gosec // test heights are small
+	}, time.Minute, time.Millisecond, "the ledger never led the state DB, so generation is not running ahead")
+}
+
+// TestAnInterruptedRunLeavesTheStoresConsistent pins what Ctrl-C has to do: the command hands its
+// signal context to NewGigaSim, and cancelling it must stop generation while still draining the blocks
+// already staged, so the ledger and the state DB come to rest on one height.
+//
+// The databases are therefore opened under a scope of their own. Opening them under the caller's
+// context instead cancels them at the same instant, which fails the very writes the drain is made of.
+func TestAnInterruptedRunLeavesTheStoresConsistent(t *testing.T) {
+	config := testConfig(t)
+
+	ctx, interrupt := context.WithCancel(t.Context())
+	benchmark, err := NewGigaSim(ctx, config, NewGigasimMetrics())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return benchmark.BlocksProcessed() >= blocksToProcess
+	}, time.Minute, 10*time.Millisecond, "the benchmark did not process %d blocks", blocksToProcess)
+
+	interrupt()
+	benchmark.BlockUntilHalted()
+	require.NoError(t, benchmark.Close(), "an interrupted run should drain rather than fail")
+
+	highest := benchmark.HighestBlock()
+	require.Positive(t, highest)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest), blockStoreHead, //nolint:gosec // test heights are small
+		"the ledger should hold exactly the blocks the drain completed")
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight(),
+		"the state DB should have drained up onto the ledger's height")
+}
+
+// TestARunResumesAfterAnInterrupt is the consequence of draining: a directory an interrupted run left
+// behind is one the next run can pick up, rather than the torn height that has to be cleaned.
+func TestARunResumesAfterAnInterrupt(t *testing.T) {
+	config := testConfig(t)
+
+	ctx, interrupt := context.WithCancel(t.Context())
+	benchmark, err := NewGigaSim(ctx, config, NewGigasimMetrics())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return benchmark.BlocksProcessed() >= blocksToProcess
+	}, time.Minute, 10*time.Millisecond, "the benchmark did not process %d blocks", blocksToProcess)
+
+	interrupt()
+	benchmark.BlockUntilHalted()
+	require.NoError(t, benchmark.Close())
+	interrupted := benchmark.HighestBlock()
+
+	require.Greater(t, runBlocks(t, config), interrupted,
+		"a run following an interrupted one should resume rather than refuse the directory")
+}
+
+// TestColdAccountsExistWhenEveryNewAccountIsDormant pins the account split against its degenerate case.
+// A dormancy probability of 1 makes every account minted during the run dormant, so the cold accounts
+// transactions select from can only be the ones setup created. Classifying each account by a draw
+// rather than by its identifier left none of them, and the first cold selection aborted the run.
+func TestColdAccountsExistWhenEveryNewAccountIsDormant(t *testing.T) {
+	config := testConfig(t)
+	config.NewAccountHotProbability = 0
+	config.NewAccountDormantProbability = 1
+
+	require.Positive(t, runBlocks(t, config))
+}
+
+// TestGenerationKeepsTheFirstFailure pins that the error reaching the exit code is the one that
+// stopped generation, not the teardown write that followed it.
+//
+// finalFlush aborts on failure so a lost final flush cannot exit 0, and it runs after whatever
+// stopped the generator. Overwriting there would report the flush as the cause and bury the write
+// error that actually ended the run.
+func TestGenerationKeepsTheFirstFailure(t *testing.T) {
+	t.Parallel()
+
+	generator := &blockGenerator{cancel: func() {}}
+	cause := errors.New("the write that stopped generation")
+
+	generator.abort(cause)
+	generator.abort(errors.New("the final flush failing in its wake"))
+
+	require.Equal(t, cause, generator.failure)
+}
+
+// TestGenerationRecordsAFailureAtAll pins the other half: an abort has to leave something behind for
+// the consumer to find, or the run exits 0 having lost blocks.
+func TestGenerationRecordsAFailureAtAll(t *testing.T) {
+	t.Parallel()
+
+	generator := &blockGenerator{cancel: func() {}}
+	require.NoError(t, generator.failure)
+
+	generator.abort(errors.New("the final flush failed"))
+	require.Error(t, generator.failure)
+}
+
+// TestCloseReportsTheFirstFailure pins how a died run is reported: Close returns the error, which is
+// what gives the command a non-zero exit code. Later errors are dropped because they are usually
+// consequences of the first.
+func TestCloseReportsTheFirstFailure(t *testing.T) {
+	t.Parallel()
+
+	benchmark := &GigaSim{cancel: func() {}, closeChan: make(chan struct{}, 1)}
+	benchmark.recordFailure(errors.New("the failure that stopped the run"))
+	benchmark.recordFailure(errors.New("a later failure"))
+	benchmark.closeChan <- struct{}{}
+
+	require.EqualError(t, benchmark.Close(), "the failure that stopped the run")
+}
+
+// TestTheColdAccountsTakeTheHighestIdentifiers pins the layout the cold selection window depends on:
+// RandomAccount draws from the identifiers just below the newest account, so setup has to create the
+// dormant accounts before the cold ones.
+func TestTheColdAccountsTakeTheHighestIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NumberOfHotAccounts = 5
+	config.MinimumNumberOfDormantAccounts = 10
+	config.MinimumNumberOfColdAccounts = 20
+
+	population := plannedAccountPopulation(config)
+	require.Equal(t, int64(36), population.total,
+		"the fee collection account plus the hot, dormant and cold populations")
+	require.Equal(t, int64(16), population.firstCold,
+		"the cold accounts should be the last ones created")
+}
+
+// classOf reports which population an identifier belongs to, derived independently of the selection
+// code so that a test disagreeing with it is a real disagreement rather than a shared mistake.
+func classOf(p accountPopulation, accountID int64) string {
+	switch {
+	case accountID == 0:
+		return "fee"
+	case accountID < 1+p.hot:
+		return "hot"
+	case accountID < p.firstCold:
+		return "dormant"
+	case accountID < p.total:
+		return "cold"
+	}
+	switch slot := (accountID - p.total) % mintCycle; {
+	case slot < p.mintedHot:
+		return "hot"
+	case slot < p.mintedHot+p.mintedDormant:
+		return "dormant"
+	default:
+		return "cold"
+	}
+}
+
+// TestDormantAccountsAreNeverSelected pins the promise the dormant population exists to keep. The
+// selection window used to slide over accounts minted during a run, so once minting began roughly the
+// dormant share of what the cold path returned was an account documented as never chosen.
+func TestDormantAccountsAreNeverSelected(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NumberOfHotAccounts = 10
+	config.MinimumNumberOfDormantAccounts = 50
+	config.MinimumNumberOfColdAccounts = 20
+	config.NewAccountHotProbability = 0.2
+	config.NewAccountDormantProbability = 0.5
+
+	population := plannedAccountPopulation(config)
+	accounts := &accountModel{
+		config:     config,
+		rand:       crand.NewCannedRandom(1<<20, 1337),
+		population: population,
+	}
+	// A population well past setup, so selection has to reach minted accounts of every class.
+	accounts.nextAccountID = population.total + 5*mintCycle
+	accounts.highestSafeAccountID = accounts.nextAccountID - 1
+
+	seen := map[string]int{}
+	for range 20_000 {
+		_, accountID, err := accounts.RandomAccount()
+		require.NoError(t, err)
+		class := classOf(population, accountID)
+		require.NotEqual(t, "dormant", class, "account %d is dormant", accountID)
+		require.NotEqual(t, "fee", class, "the fee account is never a counterparty")
+		require.LessOrEqual(t, accountID, accounts.nextAccountID, "account %d does not exist", accountID)
+		seen[class]++
+	}
+	require.Positive(t, seen["hot"], "hot accounts should be selected")
+	require.Positive(t, seen["cold"], "cold accounts should be selected")
+}
+
+// TestMintedAccountsFollowTheConfiguredSplit pins that the shares a config asks for are the shares the
+// identifiers actually carry, which is what lets selection address a class instead of tracking it.
+func TestMintedAccountsFollowTheConfiguredSplit(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NewAccountHotProbability = 0.25
+	config.NewAccountDormantProbability = 0.4
+
+	population := plannedAccountPopulation(config)
+	counts := map[string]int64{}
+	const minted = 10 * mintCycle
+	for offset := range int64(minted) {
+		counts[classOf(population, population.total+offset)]++
+	}
+
+	require.Equal(t, int64(0.25*minted), counts["hot"])
+	require.Equal(t, int64(0.40*minted), counts["dormant"])
+	require.Equal(t, int64(0.35*minted), counts["cold"])
+
+	// The sizes selection addresses must agree with the identifiers themselves.
+	require.Equal(t, counts["hot"], mintedClassSize(minted, 0, population.mintedHot))
+	require.Equal(t, counts["cold"], mintedClassSize(
+		minted, population.mintedHot+population.mintedDormant, population.mintedCold()))
+}
+
+// TestPopulationSizesSurviveARestart pins that a resumed run sees the population the run that wrote
+// the data saw. The sizes were recomputed from the identifier counter on open, counting every minted
+// account as cold, so a restart widened the cold set by everything the previous run had made dormant.
+func TestPopulationSizesSurviveARestart(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NewAccountHotProbability = 0.1
+	config.NewAccountDormantProbability = 0.6
+
+	population := plannedAccountPopulation(config)
+	nextAccountID := population.total + 7*mintCycle + 321
+
+	hot, cold, dormant := population.counts(nextAccountID)
+	reopened := plannedAccountPopulation(config)
+	reopenedHot, reopenedCold, reopenedDormant := reopened.counts(nextAccountID)
+
+	require.Equal(t, hot, reopenedHot)
+	require.Equal(t, cold, reopenedCold)
+	require.Equal(t, dormant, reopenedDormant)
+	require.Equal(t, nextAccountID-1, hot+cold+dormant,
+		"every account but the fee collection one belongs to exactly one class")
+}
+
+// newTokenTestAccounts returns an account model past setup, with the default contract population. Token
+// selection reads only the config, the random buffer and the population sizes, so no store is opened.
+func newTokenTestAccounts() *accountModel {
+	config := DefaultGigasimConfig()
+	return &accountModel{
+		config:              config,
+		rand:                crand.NewCannedRandom(1<<20, config.Seed),
+		nextAccountID:       100_000,
+		nextErc20ContractID: int64(config.MinimumNumberOfErc20Contracts),
+	}
+}
+
+// TestAnAccountSendsFromItsOwnHoldings pins that an account's transfers move a fixed handful of tokens.
+// Drawing the token independently of the sender would give every account a slot in every token, and the
+// storage store would take close to two new keys per transfer for as long as the run lasts.
+func TestAnAccountSendsFromItsOwnHoldings(t *testing.T) {
+	t.Parallel()
+
+	accounts := newTokenTestAccounts()
+	holdings := accounts.config.Erc20InteractionsPerAccount
+	for _, accountID := range []int64{1, 7, 4096} {
+		tokens, slots := map[string]bool{}, map[string]bool{}
+		for range 500 {
+			contract, err := accounts.HeldErc20Contract(accountID)
+			require.NoError(t, err)
+			tokens[string(contract)] = true
+			slots[string(accounts.Erc20BalanceSlot(contract, accountID))] = true
+		}
+		require.LessOrEqual(t, len(tokens), holdings, "account %d must send only the tokens it holds", accountID)
+		require.Greater(t, len(tokens), 1, "the draw should still vary within the account's holdings")
+		require.Len(t, slots, len(tokens), "an account has exactly one balance slot per token")
+	}
+}
+
+// TestBalanceSlotsLiveUnderTheirToken pins the key layout a token's balances take in state: the token
+// contract's address, then a slot that follows the holder alone. The storage store orders keys by that
+// address, so this is what makes a hot token a hot key range.
+func TestBalanceSlotsLiveUnderTheirToken(t *testing.T) {
+	t.Parallel()
+
+	accounts := newTokenTestAccounts()
+	tokenA, tokenB := accounts.contractAddress(1), accounts.contractAddress(500)
+
+	slot := accounts.Erc20BalanceSlot(tokenA, 42)
+	require.Len(t, slot, 1+storageKeyLen)
+	require.Equal(t, tokenA, addressFromKey(slot), "a balance slot lives under its token's address")
+
+	sameHolderOtherToken := accounts.Erc20BalanceSlot(tokenB, 42)
+	require.Equal(t, tokenB, addressFromKey(sameHolderOtherToken))
+	require.Equal(t, slot[1+keys.AddressLen:], sameHolderOtherToken[1+keys.AddressLen:],
+		"a holder's slot is the same in every token")
+
+	otherHolder := accounts.Erc20BalanceSlot(tokenA, 43)
+	require.NotEqual(t, slot, otherHolder, "distinct holders must not share a balance slot")
+}
+
+// TestHotTokensTakeTheConfiguredShareOfTransfers pins that holding tokens per account keeps the share
+// of transfers that move a hot token at HotErc20ContractProbability.
+func TestHotTokensTakeTheConfiguredShareOfTransfers(t *testing.T) {
+	t.Parallel()
+
+	accounts := newTokenTestAccounts()
+	hot := map[string]bool{}
+	for id := range int64(accounts.config.HotErc20ContractSetSize) {
+		hot[string(accounts.contractAddress(id))] = true
+	}
+
+	const transfers = 20_000
+	hotTransfers := 0
+	for accountID := range int64(transfers) {
+		contract, err := accounts.HeldErc20Contract(1 + accountID)
+		require.NoError(t, err)
+		if hot[string(contract)] {
+			hotTransfers++
+		}
+	}
+	require.InDelta(t, accounts.config.HotErc20ContractProbability, float64(hotTransfers)/transfers, 0.02)
+}
+
+func TestARunResumesWhereTheLastOneStopped(t *testing.T) {
+	config := testConfig(t)
+	first := runBlocks(t, config)
+
+	second := runBlocks(t, config)
+	require.Greater(t, second, first, "a second run should append to the first rather than restart it")
+}
+
+// TestCleaningRefusesADirectoryTheBenchmarkDoesNotOwn pins the guard standing between an
+// operator-written DataDir and an unrecoverable delete. A path naming a home or source directory
+// would otherwise be emptied on the word of a typo.
+func TestCleaningRefusesADirectoryTheBenchmarkDoesNotOwn(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	precious := filepath.Join(dir, "precious.txt")
+	require.NoError(t, os.WriteFile(precious, []byte("not the benchmark's"), 0o600))
+
+	require.ErrorContains(t, removeContents(dir), "refusing to clean")
+	require.FileExists(t, precious, "a refused clean must leave every file in place")
+}
+
+// TestCleaningEmptiesADirectoryTheBenchmarkClaimed pins the other half: a directory the benchmark
+// created is cleaned, and stays claimed so the next run can clean it too.
+func TestCleaningEmptiesADirectoryTheBenchmarkClaimed(t *testing.T) {
+	t.Parallel()
+
+	config := &GigasimConfig{DataDir: filepath.Join(t.TempDir(), "data")}
+	require.NoError(t, resolveDirectories(config))
+	require.DirExists(t, config.LogDir(), "the log directory lives under the data directory")
+
+	written := filepath.Join(config.DataDir, "block.db")
+	require.NoError(t, os.WriteFile(written, []byte("run output"), 0o600))
+	earlierLog := filepath.Join(config.LogDir(), "gigasim.log.1")
+	require.NoError(t, os.WriteFile(earlierLog, []byte("an earlier run"), 0o600))
+	require.NoError(t, os.WriteFile(config.LogFile(), []byte("log output"), 0o600))
+
+	require.NoError(t, removeContents(config.DataDir))
+	require.NoFileExists(t, written)
+	require.NoFileExists(t, earlierLog, "the logs are cleaned with the rest of the data directory")
+	require.FileExists(t, filepath.Join(config.DataDir, dirMarkerName),
+		"the marker must survive a clean, or the next one is refused")
+}
+
+// TestCleaningKeepsTheOpenLogFile pins that a clean empties the log seilog is writing to rather than
+// deleting it. seilog opens it when the process starts, before CleanDataOnStart runs, and a deleted file
+// would take the rest of the run's output with it.
+func TestCleaningKeepsTheOpenLogFile(t *testing.T) {
+	t.Parallel()
+
+	config := &GigasimConfig{DataDir: filepath.Join(t.TempDir(), "data")}
+	require.NoError(t, resolveDirectories(config))
+
+	logFile, err := os.OpenFile(config.LogFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, logFile.Close()) }()
+	_, err = logFile.WriteString("before the clean\n")
+	require.NoError(t, err)
+
+	require.NoError(t, removeContents(config.DataDir))
+	_, err = logFile.WriteString("after the clean\n")
+	require.NoError(t, err)
+
+	contents, err := os.ReadFile(config.LogFile())
+	require.NoError(t, err)
+	require.Equal(t, "after the clean\n", string(contents))
+}
+
+// TestADataDirHoldingOnlyItsLogIsClaimed pins that configuring the logger first does not cost the
+// benchmark its claim: the launch script creates the log file under DataDir before the benchmark runs,
+// and a data directory left unclaimed is one CleanDataOnStart refuses to empty.
+func TestADataDirHoldingOnlyItsLogIsClaimed(t *testing.T) {
+	t.Parallel()
+
+	config := &GigasimConfig{DataDir: t.TempDir(), CleanDataOnStart: true}
+	require.NoError(t, os.MkdirAll(config.LogDir(), 0o750))
+	require.NoError(t, os.WriteFile(config.LogFile(), []byte("launch output"), 0o600))
+
+	require.NoError(t, resolveDirectories(config))
+	require.FileExists(t, filepath.Join(config.DataDir, dirMarkerName))
+	require.DirExists(t, config.LogDir(), "the clean must leave a log directory for seilog to write to")
+}
+
+// TestADataDirHoldingMoreThanItsLogIsNotClaimed pins the limit of that allowance: anything beside the
+// benchmark's own log means the directory was not created by the benchmark.
+func TestADataDirHoldingMoreThanItsLogIsNotClaimed(t *testing.T) {
+	t.Parallel()
+
+	for name, foreign := range map[string]func(config *GigasimConfig) string{
+		"a file beside the logs": func(c *GigasimConfig) string { return filepath.Join(c.DataDir, "notes.txt") },
+		"a file among the logs":  func(c *GigasimConfig) string { return filepath.Join(c.LogDir(), "other.log") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			config := &GigasimConfig{DataDir: t.TempDir()}
+			require.NoError(t, os.MkdirAll(config.LogDir(), 0o750))
+			precious := foreign(config)
+			require.NoError(t, os.WriteFile(precious, []byte("not the benchmark's"), 0o600))
+
+			require.NoError(t, resolveDirectories(config))
+			require.NoFileExists(t, filepath.Join(config.DataDir, dirMarkerName))
+			require.ErrorContains(t, removeContents(config.DataDir), "refusing to clean")
+			require.FileExists(t, precious)
+		})
+	}
+}
+
+// dirHasContents reports whether a directory exists and holds at least one entry.
+func dirHasContents(t *testing.T, dir string) bool {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return false
+	}
+	require.NoError(t, err)
+	return len(entries) > 0
+}

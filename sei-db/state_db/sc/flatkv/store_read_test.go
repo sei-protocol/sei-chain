@@ -235,6 +235,7 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	storageVal := []byte{0x42}
 	miscKey := append([]byte{0x09}, addr[:]...)
 	miscVal := []byte{0x99, 0x88}
+	balance := balanceN(0x33)
 
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(
@@ -242,6 +243,7 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 			noncePair(addr, 7),
 			codeHashPair(addr, ch),
 			codePair(addr, bytecode),
+			balancePair(addr, balance),
 		),
 		makeChangeSet(miscKey, miscVal, false),
 	}))
@@ -267,6 +269,11 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	require.True(t, found, "code should be found")
 	require.Equal(t, bytecode, got)
 
+	// Balance
+	got, found = s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]))
+	require.True(t, found, "balance should be found")
+	require.Equal(t, balance[:], got)
+
 	// Misc
 	got, found = s.Get(keys.EVMStoreKey, miscKey)
 	require.True(t, found, "misc should be found")
@@ -280,6 +287,8 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	found = s.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
 	require.True(t, found)
 	found = s.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
+	require.True(t, found)
+	found = s.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]))
 	require.True(t, found)
 	found = s.Has(keys.EVMStoreKey, miscKey)
 	require.True(t, found)
@@ -589,6 +598,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	slot := slotN(0x01)
 	ch := codeHashN(0xAA)
 	bytecode := []byte{0x60, 0x80}
+	balance := balanceN(0xC7)
 	miscKey := append([]byte{0x09}, addr[:]...)
 
 	// Phase 1: write everything and close
@@ -606,6 +616,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 			codeHashPair(addr, ch),
 			codePair(addr, bytecode),
 			storagePair(addr, slot, []byte{0x42}),
+			balancePair(addr, balance),
 		),
 		makeChangeSet(miscKey, []byte{0x77}, false),
 	}))
@@ -637,6 +648,10 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	got, found = s2.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 	require.True(t, found, "code should survive reopen")
 	require.Equal(t, bytecode, got)
+
+	got, found = s2.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]))
+	require.True(t, found, "balance should survive reopen")
+	require.Equal(t, balance[:], got)
 
 	got, found = s2.Get(keys.EVMStoreKey, miscKey)
 	require.True(t, found, "misc should survive reopen")

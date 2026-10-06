@@ -6,13 +6,11 @@ import (
 	"io"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"cosmossdk.io/errors"
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -28,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -38,7 +35,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -50,24 +46,11 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
-// stateStoreSnapshotScheduler is the commit path's half of the SS snapshot
-// contract: flush tells the state store which version it has just finished
-// enqueueing, and the store decides whether that version is a boundary.
-type stateStoreSnapshotScheduler interface {
-	ScheduleSnapshot(version int64)
-}
-
-// ss.NewStateStore returns the interface, so the capability is resolved by type
-// assertion at startup. This pins the only implementation, so wrapping the state
-// store without carrying the method through fails the build here rather than
-// silently ending SS snapshots at runtime.
-var _ stateStoreSnapshotScheduler = (*sscomposite.CompositeStateStore)(nil)
-
 type Store struct {
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
-	ssSnapshots    stateStoreSnapshotScheduler
+	ssCommitter    seidbtypes.BlockCommitter
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -84,6 +67,10 @@ type Store struct {
 	subspaceLimits   query.Limits
 
 	snapshotSCStoreWarnOnce sync.Once
+
+	// migrationSkipLoggedBatchSize is the batch size whose skipped migration kick-off was last
+	// logged. SetMigrationBatchSize runs every block, so the skip is logged once per batch size.
+	migrationSkipLoggedBatchSize int
 
 	// Hash logger state (per-block hash logging; a debugging/forensics tool). See hashlog.go.
 	hashLoggerConfig   config.HashLoggerConfig
@@ -143,6 +130,18 @@ func NewStore(
 	if scConfig.HistoricalProofRateLimit > 0 {
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
+	hashLoggingOn := scConfig.HashLogger.Enable
+	var hashLogger hashlog.HashLogger
+	if hashLoggingOn {
+		hl, err := openHashLogger(scDir, scConfig.HashLogger)
+		if err != nil {
+			logger.Error("failed to open hash logger; disabling hash logging", "err", err)
+			hashLoggingOn = false
+		} else {
+			hashLogger = hl
+		}
+	}
+
 	ctx := context.Background()
 	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
 	if err != nil {
@@ -169,7 +168,8 @@ func NewStore(
 			MaxBytes: scConfig.SubspaceMaxBytes,
 		},
 		hashLoggerConfig:   scConfig.HashLogger,
-		hashLoggerDisabled: !scConfig.HashLogger.Enable,
+		hashLogger:         hashLogger,
+		hashLoggerDisabled: !hashLoggingOn,
 		scDir:              scDir,
 		// No height has been flushed yet, and the first block is 1, so -1 cannot collide with it.
 		flushedVersion: -1,
@@ -190,16 +190,13 @@ func NewStore(
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
-		scheduler, ok := ssStore.(stateStoreSnapshotScheduler)
+		committer, ok := ssStore.(seidbtypes.BlockCommitter)
 		if !ok {
-			// Unreachable while CompositeStateStore is the only implementation,
-			// which the assertion above pins. Log rather than drop silently, so
-			// a wrapper that loses the method is visible as a boot line instead
-			// of as snapshots that never appear.
-			logger.Error("state store does not schedule snapshots; SS snapshots are disabled",
-				"type", fmt.Sprintf("%T", ssStore))
+			// Unreachable: ss.NewStateStore pins the capability at compile time. Refused here rather
+			// than tolerated, because a state store the commit path cannot reach receives no blocks.
+			panic(fmt.Sprintf("state store %T cannot commit blocks", ssStore))
 		}
-		store.ssSnapshots = scheduler
+		store.ssCommitter = committer
 	}
 	return store
 
@@ -213,8 +210,6 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	commitStartTime := time.Now()
 	defer func() {
 		storev2Metrics.scCommitLatency.Record(context.Background(), time.Since(commitStartTime).Seconds())
-		// TODO(PLT-353): remove once storev2_sc_commit_latency verified
-		telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
 	}()
 	if err := rs.flush(); err != nil {
 		panic(err)
@@ -317,35 +312,22 @@ func (rs *Store) flush() error {
 		}
 		rs.changesetCapturedVersion = currentVersion
 	}
-	if len(changeSets) > 0 {
-		if rs.ssStore != nil {
-			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
-				return err
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
+	// The state store takes the block whether or not it carries writes: an empty one still advances
+	// its version marker, and the store decides for itself whether the height is a snapshot boundary.
+	if rs.ssCommitter != nil {
+		if err := rs.ssCommitter.CommitBlock(currentVersion, changeSets); err != nil {
+			return err
 		}
-	} else {
-		// ensure the state store watermark advances even for empty blocks
-		if rs.ssStore != nil {
-			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
-				panic(err)
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
-		}
-	}
-	// Both branches above have finished handing currentVersion to SS and have
-	// enqueued nothing above it, which is what makes an SS snapshot label exact.
-	// Triggering here rather than inside either branch keeps populated and empty
-	// blocks on one path. A repeat within the same block (flush runs twice, and
-	// the second pass sees an empty changeset) is ignored by the state store.
-	if rs.ssSnapshots != nil {
-		rs.ssSnapshots.ScheduleSnapshot(currentVersion)
+		storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
+}
+
+// Flush blocks until every committed version has been written to the commit
+// store's logs. Unrelated to flush, which pushes pending changesets into the
+// commit store.
+func (rs *Store) Flush() error {
+	return rs.scStore.Flush()
 }
 
 func (rs *Store) Close() error {
@@ -696,8 +678,8 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
 	// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
 	// wrong, because that lock is what stops another process from deleting the view's working directory, and
-	// holding a second reference purely to close it is deferred to a follow-up. Only `seid export --height N`
-	// reaches this, a one-shot command that exits immediately and is itself slated for removal.
+	// holding a second reference purely to close it is deferred to a follow-up. No seid command loads a
+	// non-zero version through here.
 	sc, err := rs.scStore.LoadVersion(version, false)
 	if err != nil {
 		return err
@@ -833,6 +815,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
 	if batchSize <= 0 {
+		rs.migrationSkipLoggedBatchSize = 0
 		return nil
 	}
 	mode, ok := rs.GetWriteMode()
@@ -847,6 +830,9 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		// cannot tell whether this is an auto store. Don't assume a deliberate
 		// opt-out — skip with a distinct message so it isn't mistaken for the
 		// pinned-memiavl_only case below during debugging.
+		if !rs.shouldLogMigrationSkip(batchSize) {
+			return nil
+		}
 		logger.Info(
 			"migration requested (batch size > 0) but the SC store does not expose a "+
 				"configured write mode; skipping migration kick-off",
@@ -854,6 +840,9 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return nil
 	}
 	if configured != sctypes.Auto {
+		if !rs.shouldLogMigrationSkip(batchSize) {
+			return nil
+		}
 		logger.Error(
 			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
 				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
@@ -867,6 +856,16 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	}
 
 	return nil
+}
+
+// shouldLogMigrationSkip reports whether a skipped kick-off at batchSize has
+// not been logged yet, and records it as logged.
+func (rs *Store) shouldLogMigrationSkip(batchSize int) bool {
+	if rs.migrationSkipLoggedBatchSize == batchSize {
+		return false
+	}
+	rs.migrationSkipLoggedBatchSize = batchSize
+	return true
 }
 
 // GetWriteMode returns the SC store's effective write mode. The bool is
@@ -1000,6 +999,9 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	if err != nil {
 		return sdkerrors.QueryResult(err)
 	}
+	if rs.GetStoreByName(storeName) == nil {
+		return sdkerrors.QueryResult(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "no such store: %s", storeName))
+	}
 	req.Path = subPath
 	req.Height = version // keep downstream store.Query height consistent
 
@@ -1041,26 +1043,12 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 				attribute.Bool("success", false),
 				attribute.Bool("proof", needProof),
 			))
-			// TODO(PLT-353): remove once storev2_historical_abci_query verified
-			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("success", "false"),
-					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
-				})
 			return sdkerrors.QueryResult(err)
 		} else {
 			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
 				attribute.Bool("success", true),
 				attribute.Bool("proof", needProof),
 			))
-			// TODO(PLT-353): remove once storev2_historical_abci_query verified
-			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("success", "true"),
-					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
-				})
 		}
 		defer rs.releaseHistProofPermit()
 
@@ -1257,7 +1245,7 @@ func (rs *Store) Restore(
 
 func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	var (
-		ssImporter   chan seidbtypes.SnapshotNode
+		ssImport     *stateStoreImport
 		snapshotItem snapshottypes.SnapshotItem
 		storeKey     string
 		restoreErr   error
@@ -1267,13 +1255,7 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 		return snapshottypes.SnapshotItem{}, err
 	}
 	if rs.ssStore != nil {
-		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
-		go func() {
-			err := rs.ssStore.Import(height, ssImporter)
-			if err != nil {
-				panic(err)
-			}
-		}()
+		ssImport = startStateStoreImport(rs.ssStore, height)
 	}
 loop:
 	for {
@@ -1295,6 +1277,12 @@ loop:
 			}
 			logger.Info("Start restoring store", "key", storeKey)
 		case *snapshottypes.SnapshotItem_IAVL:
+			// Importers route each node to the store opened by the last store item, so a node with no
+			// named store before it has nowhere to go.
+			if storeKey == "" {
+				restoreErr = errors.Wrap(sdkerrors.ErrLogic, "snapshot node appears outside a named store section")
+				break loop
+			}
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
 					item.IAVL.Height, math.MaxInt8)
@@ -1314,14 +1302,20 @@ loop:
 			if node.Height == 0 && node.Value == nil {
 				node.Value = []byte{}
 			}
-			scImporter.AddNode(node)
+			if err = scImporter.AddNode(node); err != nil {
+				restoreErr = err
+				break loop
+			}
 
-			// Check if we should also import to SS store
-			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- seidbtypes.SnapshotNode{
+			// Only leaves the SC importer accepted reach the state store.
+			if ssImport != nil && node.Height == 0 {
+				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,
+				}); err != nil {
+					restoreErr = err
+					break loop
 				}
 			}
 		default:
@@ -1330,18 +1324,17 @@ loop:
 		}
 	}
 
-	if err = scImporter.Close(); err != nil {
-		if restoreErr == nil {
+	if ssImport != nil {
+		if err = ssImport.finish(); err != nil && restoreErr == nil {
 			restoreErr = err
 		}
 	}
-	if ssImporter != nil {
-		close(ssImporter)
-	}
+	restoreErr = finishSCImport(scImporter, restoreErr)
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any
-	// caller that reads it in that window.
-	if rs.ssStore != nil {
+	// caller that reads it in that window. A failed restore may have imported only
+	// part of the snapshot, so it must not claim the height.
+	if rs.ssStore != nil && restoreErr == nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
 			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
@@ -1351,6 +1344,65 @@ loop:
 	}
 
 	return snapshotItem, restoreErr
+}
+
+// finishSCImport publishes the SC import when the restore has succeeded, and discards it otherwise, so a
+// failed restore leaves no snapshot behind. It returns the restore's final error.
+func finishSCImport(imp sctypes.Importer, restoreErr error) error {
+	if restoreErr != nil {
+		if err := imp.Abort(restoreErr); err != nil && !errors.IsOf(err, restoreErr) {
+			logger.Error("Failed to discard the SC import of a failed restore", "err", err)
+		}
+		return restoreErr
+	}
+	return imp.Close()
+}
+
+// stateStoreImport feeds restored leaves to a state store's Import running on its own goroutine.
+type stateStoreImport struct {
+	nodes chan seidbtypes.SnapshotNode
+	// done is closed once Import has returned; err holds its result.
+	done chan struct{}
+	err  error
+}
+
+func startStateStoreImport(ss seidbtypes.StateStore, height int64) *stateStoreImport {
+	imp := &stateStoreImport{
+		nodes: make(chan seidbtypes.SnapshotNode, 10000),
+		done:  make(chan struct{}),
+	}
+	go func() {
+		defer close(imp.done)
+		imp.err = ss.Import(height, imp.nodes)
+	}()
+	return imp
+}
+
+// send queues node for import. It returns an error when Import has already returned.
+func (imp *stateStoreImport) send(node seidbtypes.SnapshotNode) error {
+	select {
+	case imp.nodes <- node:
+		return nil
+	case <-imp.done:
+		return imp.stoppedErr()
+	}
+}
+
+// finish closes the input and waits for Import to return, returning its error.
+func (imp *stateStoreImport) finish() error {
+	close(imp.nodes)
+	<-imp.done
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return nil
+}
+
+func (imp *stateStoreImport) stoppedErr() error {
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return fmt.Errorf("state store import returned before the snapshot stream ended")
 }
 
 // Snapshot Implements the interface from Snapshotter
@@ -1374,30 +1426,12 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			if err == commonerrors.ErrorExportDone {
 				for k, v := range keySizePerStore {
 					storev2Metrics.iavlTotalKeyBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_key_bytes verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_key_bytes"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				for k, v := range valueSizePerStore {
 					storev2Metrics.iavlTotalValueBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_value_bytes verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_value_bytes"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				for k, v := range numKeysPerStore {
 					storev2Metrics.iavlTotalNumKeys.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_num_keys verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_num_keys"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				break
 			}
@@ -1421,8 +1455,6 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
 			storev2Metrics.stateSyncKeysExported.Add(context.Background(), 1)
-			// TODO(PLT-353): remove once storev2_state_sync_keys_exported verified
-			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{
@@ -1434,6 +1466,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 				return err
 			}
 			currentStoreName = item
+			keySizePerStore[item] = 0
+			valueSizePerStore[item] = 0
+			numKeysPerStore[item] = 0
 		default:
 			return fmt.Errorf("unknown item type %T", item)
 		}

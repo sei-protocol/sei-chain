@@ -93,6 +93,7 @@ func TestSetReceiptsAndGet(t *testing.T) {
 		{TxHash: txHash},
 	})
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return store.LatestVersion() >= 1 }, 5*time.Second, time.Millisecond)
 
 	got, err := store.GetReceipt(ctx, txHash)
 	require.NoError(t, err)
@@ -106,9 +107,10 @@ func TestSetReceiptsAndGet(t *testing.T) {
 	require.Error(t, err)
 
 	require.GreaterOrEqual(t, store.LatestVersion(), int64(1))
-	require.NoError(t, store.SetLatestVersion(10))
+
+	// The version markers ride SetReceipts, so they are off the store's interface.
+	require.NoError(t, receipt.PinVersions(store, 1, 10))
 	require.Equal(t, int64(10), store.LatestVersion())
-	require.NoError(t, store.SetEarliestVersion(1))
 	require.Equal(t, int64(1), store.EarliestVersion())
 }
 

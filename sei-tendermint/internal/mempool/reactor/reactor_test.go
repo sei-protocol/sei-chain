@@ -40,12 +40,25 @@ type reactorTestSuite struct {
 }
 
 func setupMempool(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFetcher mempool.TxConstraintsFetcher) *mempool.TxMempool {
+	return setupMempoolTweaked(t, app, cacheSize, txConstraintsFetcher, nil)
+}
+
+func setupMempoolTweaked(
+	t testing.TB,
+	app *proxy.Proxy,
+	cacheSize int,
+	txConstraintsFetcher mempool.TxConstraintsFetcher,
+	tweak func(*config.MempoolConfig),
+) *mempool.TxMempool {
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
 	require.NoError(t, err)
 	cfg.Mempool.CacheSize = cacheSize
 	cfg.Mempool.DropUtilisationThreshold = 0.0
+	if tweak != nil {
+		tweak(cfg.Mempool)
+	}
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
@@ -88,6 +101,17 @@ func setupReactorsWithConfig(
 	cfg *config.MempoolConfig,
 	txConstraintsFetcher mempool.TxConstraintsFetcher,
 ) *reactorTestSuite {
+	return setupReactorsWithNodeMempool(ctx, t, numNodes, cfg, txConstraintsFetcher, nil)
+}
+
+func setupReactorsWithNodeMempool(
+	ctx context.Context,
+	t *testing.T,
+	numNodes int,
+	cfg *config.MempoolConfig,
+	txConstraintsFetcher mempool.TxConstraintsFetcher,
+	tweakNodeMempool func(int, *config.MempoolConfig),
+) *reactorTestSuite {
 	t.Helper()
 
 	rts := &reactorTestSuite{
@@ -97,16 +121,21 @@ func setupReactorsWithConfig(
 		kvstores: make(map[types.NodeID]*kvstore.Application, numNodes),
 	}
 
-	for _, node := range rts.network.Nodes() {
+	for i, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		app := rts.kvstores[nodeID]
 		proxyApp := proxy.New(app)
-		txmp := setupMempool(t, proxyApp, 0, txConstraintsFetcher)
+		var tweak func(*config.MempoolConfig)
+		if tweakNodeMempool != nil {
+			tweak = func(mc *config.MempoolConfig) { tweakNodeMempool(i, mc) }
+		}
+		txmp := setupMempoolTweaked(t, proxyApp, 0, txConstraintsFetcher, tweak)
 		rts.mempools[nodeID] = txmp
 
-		reactor, err := NewReactor(cfg, txmp, node.Router)
+		nodeCfg := *cfg
+		reactor, err := NewReactor(&nodeCfg, txmp, node.Router)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
 		}
@@ -190,6 +219,12 @@ func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[
 	panic("unreachable")
 }
 
+func txConstraintsWithMaxDataBytes(maxDataBytes int64) mempool.TxConstraintsFetcher {
+	return func() (mempool.TxConstraints, error) {
+		return mempool.TxConstraints{MaxDataBytes: maxDataBytes, MaxGas: -1}, nil
+	}
+}
+
 func TestReactorBroadcastTxs(t *testing.T) {
 	numTxs := 512
 	numNodes := 4
@@ -220,12 +255,16 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 			cfg.CheckTxErrorBlacklistEnabled = true
 			cfg.CheckTxErrorThreshold = 2
 
-			rts := setupReactorsWithConfig(ctx, t, 2, cfg, func() (mempool.TxConstraints, error) {
-				return mempool.TxConstraints{
-					MaxDataBytes: 10,
-					MaxGas:       -1,
-				}, nil
-			})
+			good1 := []byte("good-1")
+			good2 := []byte("good-2")
+			maxDataBytes := types.ComputeProtoSizeForTxs([]types.Tx{good1})
+			if n := types.ComputeProtoSizeForTxs([]types.Tx{good2}); n > maxDataBytes {
+				maxDataBytes = n
+			}
+			badTx := []byte("bad=" + strings.Repeat("x", 64))
+			require.Greater(t, types.ComputeProtoSizeForTxs([]types.Tx{badTx}), maxDataBytes)
+
+			rts := setupReactorsWithConfig(ctx, t, 2, cfg, txConstraintsWithMaxDataBytes(maxDataBytes))
 			t.Cleanup(leaktest.Check(t))
 
 			sender := rts.nodes[0]
@@ -249,14 +288,13 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 				return peerFailedCheckTxCount(receiverReactor, sender) == utils.Some(0)
 			}, time.Second, 50*time.Millisecond)
 
-			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(good1)))
 			require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
 
-			badTx := []byte("bad-transaction")
 			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
 			require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
 
-			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-2"))))
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(good2)))
 			require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
 
 			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
@@ -269,15 +307,7 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 }
 
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
-	reactor, _ := setupReactorForTest(
-		t,
-		func() (mempool.TxConstraints, error) {
-			return mempool.TxConstraints{
-				MaxDataBytes: 10,
-				MaxGas:       -1,
-			}, nil
-		},
-	)
+	reactor, _ := setupReactorForTest(t, txConstraintsWithMaxDataBytes(1))
 	for counts := range reactor.failedCheckTxCounts.Lock() {
 		counts["other"] = 1
 	}
@@ -285,7 +315,7 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 		From: "sender",
 		Message: &pb.Message{
 			Sum: &pb.Message_Txs{
-				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad-transaction")}},
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("x")}},
 			},
 		},
 	}
@@ -308,20 +338,12 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 }
 
 func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
-	reactor, _ := setupReactorForTest(
-		t,
-		func() (mempool.TxConstraints, error) {
-			return mempool.TxConstraints{
-				MaxDataBytes: 10,
-				MaxGas:       -1,
-			}, nil
-		},
-	)
+	reactor, _ := setupReactorForTest(t, txConstraintsWithMaxDataBytes(1))
 	msg := p2p.RecvMsg[*pb.Message]{
 		From: "sender",
 		Message: &pb.Message{
 			Sum: &pb.Message_Txs{
-				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad-transaction")}},
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("x")}},
 			},
 		},
 	}
@@ -393,7 +415,6 @@ func TestReactorConcurrency(t *testing.T) {
 
 func TestReactor_MaxTxBytes(t *testing.T) {
 	numNodes := 2
-	cfg := config.TestConfig()
 	ctx := t.Context()
 
 	rts := setupReactors(ctx, t, numNodes)
@@ -402,7 +423,7 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
 
-	tx1 := tmrand.Bytes(cfg.Mempool.MaxTxBytes)
+	tx1 := tmrand.Bytes(types.MaxGossipTxBytes)
 	_, err := rts.reactors[primary].mempool.CheckTx(
 		ctx,
 		tx1,
@@ -414,9 +435,113 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	rts.reactors[primary].mempool.Flush()
 	rts.reactors[secondary].mempool.Flush()
 
-	tx2 := tmrand.Bytes(cfg.Mempool.MaxTxBytes + 1)
+	tx2 := tmrand.Bytes(types.MaxGossipTxBytes + 1)
 	_, err = rts.mempools[primary].CheckTx(ctx, tx2)
 	require.Error(t, err)
+}
+
+func TestGetChannelDescriptorProtocolRecvCapacity(t *testing.T) {
+	// Setup: mempool channel descriptor used by every node.
+	desc := GetChannelDescriptor()
+
+	// Test: receive capacity is the protocol gossip envelope, not local max-tx-bytes.
+	// Verify: capacity covers MaxGossipTxBytes and oversized messages are discarded.
+	require.Equal(t, mempoolRecvMessageCapacity(), desc.RecvMessageCapacity)
+	require.GreaterOrEqual(t, desc.RecvMessageCapacity, types.MaxGossipTxBytes)
+	require.True(t, desc.DiscardOversized)
+}
+
+func TestReactorMismatchedMaxTxBytesKeepsConnection(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: nodes with different max-tx-bytes toml; admission is the protocol cap.
+	senderMaxTxBytes := 512
+	receiverMaxTxBytes := 64
+	limits := []int{senderMaxTxBytes, receiverMaxTxBytes}
+	rts := setupReactorsWithNodeMempool(ctx, t, 2, config.TestMempoolConfig(), mempool.NopTxConstraintsFetcher,
+		func(i int, mempoolCfg *config.MempoolConfig) {
+			mempoolCfg.MaxTxBytes = limits[i]
+		})
+	t.Cleanup(leaktest.Check(t))
+
+	sender := rts.nodes[0]
+	receiver := rts.nodes[1]
+	rts.start(t)
+	rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+	require.Eventually(t, func() bool {
+		return peerFailedCheckTxCount(rts.reactors[receiver], sender) == utils.Some(0)
+	}, time.Second, 50*time.Millisecond)
+
+	tx := []byte("large=" + strings.Repeat("x", 200))
+	require.Greater(t, len(tx), receiverMaxTxBytes)
+	require.LessOrEqual(t, len(tx), senderMaxTxBytes)
+	require.LessOrEqual(t, len(tx), types.MaxGossipTxBytes)
+
+	// Test: gossip a tx above the receiver's toml max-tx-bytes and below the protocol cap.
+	_, err := rts.mempools[sender].CheckTx(ctx, tx)
+	require.NoError(t, err)
+
+	// Verify: the receiver admits it, the connection survived, and the sender is not blacklisted.
+	rts.waitForTxns(t, []types.Tx{tx}, receiver)
+	require.Equal(t, 1, rts.mempools[receiver].Size())
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(rts.reactors[receiver], sender))
+}
+
+func TestBroadcastSkipsProtocolOversizedTx(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: two connected reactors. CheckTx will not admit a protocol-oversized
+	// tx, so the oversized bytes are placed on the gossip list directly.
+	rts := setupReactors(ctx, t, 2)
+	t.Cleanup(leaktest.Check(t))
+
+	sender := rts.nodes[0]
+	receiver := rts.nodes[1]
+	rts.reactors[receiver].cfg.Broadcast = false
+	rts.start(t)
+	rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+	sentBefore := p2p.ChannelOutMsgs(MempoolChannel)
+
+	oversized := types.Tx(make([]byte, types.MaxGossipTxBytes+1))
+	require.NoError(t, rts.mempools[sender].InsertReadyTxForTest(oversized))
+
+	okTx := types.Tx("gossip-ok=1")
+	_, err := rts.mempools[sender].CheckTx(ctx, okTx)
+	require.NoError(t, err)
+
+	// Test: broadcast walks an oversized tx then a gossip-legal tx.
+	// Verify: only the legal tx is sent.
+	require.Eventually(t, func() bool {
+		found, missing := rts.mempools[receiver].SafeGetTxsForHashes([]types.TxHash{okTx.Hash()})
+		return len(missing) == 0 && len(found) == 1
+	}, time.Minute, 50*time.Millisecond)
+	require.Equal(t, sentBefore+1, p2p.ChannelOutMsgs(MempoolChannel))
+	require.Equal(t, 1, rts.mempools[receiver].Size())
+	_, missing := rts.mempools[receiver].SafeGetTxsForHashes([]types.TxHash{oversized.Hash()})
+	require.Equal(t, []types.TxHash{oversized.Hash()}, missing)
+}
+
+func TestReactorProtocolOversizedTxIsCounted(t *testing.T) {
+	// Setup: peer is already tracked so protocol oversize can increment the blacklist.
+	reactor, _ := setupReactorForTest(t, mempool.NopTxConstraintsFetcher)
+	reactor.cfg.CheckTxErrorBlacklistEnabled = true
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		counts["sender"] = 0
+	}
+
+	tx := make([]byte, types.MaxGossipTxBytes+1)
+	msg := p2p.RecvMsg[*pb.Message]{
+		From: "sender",
+		Message: &pb.Message{
+			Sum: &pb.Message_Txs{Txs: &pb.Txs{Txs: [][]byte{tx}}},
+		},
+	}
+
+	// Test: a tx above the protocol gossip size is skipped and counted.
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
+
+	// Verify: the sender is charged one protocol violation and the tx is not in the mempool.
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
 }
 
 func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -227,8 +228,14 @@ func filterTransactions(
 	startOfBlockNonce := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
-	ctx := ctxProvider(block.Block.Height)
-	prevCtx := ctxProvider(block.Block.Height - 1)
+	ctx, err := ctxAtHeight(ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	prevCtx, err := ctxAtHeight(ctxProvider, block.Block.Height-1)
+	if err != nil {
+		return nil, err
+	}
 	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -317,10 +324,10 @@ func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
 }
 
 func shouldIncludeSynthetic(namespace string) bool {
-	if namespace != "eth" && namespace != "sei" {
+	if namespace != EthNamespace && namespace != SeiNamespace {
 		panic(fmt.Sprintf("unknown namespace %s", namespace))
 	}
-	return namespace == "sei"
+	return namespace == SeiNamespace
 }
 
 type typedTxHash struct {
@@ -370,6 +377,7 @@ type ParallelRunner struct {
 
 var panicHook atomic.Value
 
+// SetPanicHook sets a handler that replaces default recovered-panic logging.
 func SetPanicHook(h func(interface{})) {
 	panicHook.Store(h)
 }
@@ -399,14 +407,32 @@ func runWithRecovery(f func()) {
 
 func recoverAndLog() {
 	if e := recover(); e != nil {
-		fmt.Printf("Panic recovered: %s\n", e)
-		debug.PrintStack()
 		if v := panicHook.Load(); v != nil {
 			if hook, ok := v.(func(interface{})); ok && hook != nil {
 				hook(e)
+				return
 			}
 		}
+		fmt.Printf("Panic recovered: %s\n", e)
+		debug.PrintStack()
 	}
+}
+
+// ctxAtHeight returns the context ctxProvider builds for height, or the error it
+// panics with when it cannot, e.g. historical state the node does not retain.
+// Non-error panics and runtime errors are re-raised.
+func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			e, ok := r.(error)
+			var runtimeErr runtime.Error
+			if !ok || errors.As(e, &runtimeErr) {
+				panic(r)
+			}
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+		}
+	}()
+	return ctxProvider(height), nil
 }
 
 func must[V any](v V, err error) V {

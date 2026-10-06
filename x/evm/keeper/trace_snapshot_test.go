@@ -28,6 +28,7 @@ func (f *fakeCommitter) Version() int64                           { return f.id 
 func (f *fakeCommitter) Initialize(_ []string) error              { panic("unused") }
 func (f *fakeCommitter) Commit(int64) (int64, error)              { panic("unused") }
 func (f *fakeCommitter) GetLatestVersion() (int64, error)         { panic("unused") }
+func (f *fakeCommitter) Flush() error                             { panic("unused") }
 func (f *fakeCommitter) Get(string, []byte) ([]byte, bool, error) { panic("unused") }
 func (f *fakeCommitter) SetWriteMode(sctypes.WriteMode) error     { panic("unused") }
 func (f *fakeCommitter) SetMigrationBatchSize(int) error          { panic("unused") }

@@ -64,6 +64,12 @@ func TestParseEVMKey(t *testing.T) {
 			wantKind:  EVMKeyStorage,
 			wantBytes: concat(addr, slot),
 		},
+		{
+			name:      "Balance",
+			key:       concat(balanceKeyPrefix, addr),
+			wantKind:  EVMKeyBalance,
+			wantBytes: addr,
+		},
 		// Legacy keys - keep full key (address mappings, unknown prefix, malformed, etc.)
 		{
 			name:      "EVMAddressToSeiAddress goes to Legacy",
@@ -118,6 +124,18 @@ func TestParseEVMKey(t *testing.T) {
 			key:       concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
 			wantKind:  EVMKeyMisc,
 			wantBytes: concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
+		},
+		{
+			name:      "BalanceTooShort goes to Legacy",
+			key:       balanceKeyPrefix,
+			wantKind:  EVMKeyMisc,
+			wantBytes: balanceKeyPrefix,
+		},
+		{
+			name:      "BalanceWrongLenLong goes to Legacy",
+			key:       concat(balanceKeyPrefix, concat(addr, []byte{0x00})),
+			wantKind:  EVMKeyMisc,
+			wantBytes: concat(balanceKeyPrefix, concat(addr, []byte{0x00})),
 		},
 	}
 
@@ -177,6 +195,12 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 			keyBytes: concat(addr, slot),
 			want:     concat(stateKeyPrefix, concat(addr, slot)),
 		},
+		{
+			name:     "Balance",
+			kind:     EVMKeyBalance,
+			keyBytes: addr,
+			want:     concat(balanceKeyPrefix, addr),
+		},
 	}
 
 	for _, tc := range tests {
@@ -187,9 +211,98 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 	}
 }
 
+func TestPutEVMKey(t *testing.T) {
+	addr := make([]byte, AddressLen)
+	for i := range addr {
+		addr[i] = 0xAA
+	}
+	slot := make([]byte, slotLen)
+	for i := range slot {
+		slot[i] = 0xBB
+	}
+	concat := func(parts ...[]byte) []byte {
+		var out []byte
+		for _, part := range parts {
+			out = append(out, part...)
+		}
+		return out
+	}
+
+	for _, tc := range []struct {
+		name  string
+		kind  EVMKeyKind
+		parts [][]byte
+		want  []byte
+	}{
+		{
+			name:  "Balance",
+			kind:  EVMKeyBalance,
+			parts: [][]byte{addr},
+			want:  concat(balanceKeyPrefix, addr),
+		},
+		{
+			name:  "Storage",
+			kind:  EVMKeyStorage,
+			parts: [][]byte{addr, slot},
+			want:  concat(stateKeyPrefix, addr, slot),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := make([]byte, len(tc.want))
+			require.True(t, PutEVMKey(dst, tc.kind, tc.parts...))
+			require.Equal(t, tc.want, dst)
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		kind EVMKeyKind
+		dst  []byte
+	}{
+		{
+			name: "kind without prefix",
+			kind: EVMKeyKind(255),
+			dst:  make([]byte, 1+AddressLen),
+		},
+		{
+			name: "destination too long",
+			kind: EVMKeyBalance,
+			dst:  make([]byte, 2+AddressLen),
+		},
+		{
+			name: "destination too short",
+			kind: EVMKeyBalance,
+			dst:  make([]byte, AddressLen),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := range tc.dst {
+				tc.dst[i] = 0xCC
+			}
+			before := append([]byte(nil), tc.dst...)
+			require.False(t, PutEVMKey(tc.dst, tc.kind, addr))
+			require.Equal(t, before, tc.dst)
+		})
+	}
+}
+
 func TestInternalKeyLen(t *testing.T) {
 	require.Equal(t, AddressLen+slotLen, InternalKeyLen(EVMKeyStorage))
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyNonce))
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCodeHash))
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCode))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyBalance))
+}
+
+// The prefix bytes this package mirrors from x/evm/types must stay distinct: ParseEVMKey classifies on
+// the first byte alone, so two families sharing one would silently reparse each other's rows.
+func TestEVMKeyPrefixesAreDistinct(t *testing.T) {
+	seen := map[byte]EVMKeyKind{}
+	for _, kind := range []EVMKeyKind{EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode, EVMKeyStorage, EVMKeyBalance} {
+		prefix, ok := EVMKeyPrefixByte(kind)
+		require.True(t, ok, "kind %v has no prefix byte", kind)
+		previous, duplicate := seen[prefix]
+		require.False(t, duplicate, "kinds %v and %v both use prefix 0x%02x", previous, kind, prefix)
+		seen[prefix] = kind
+	}
 }

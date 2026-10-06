@@ -22,9 +22,9 @@ type SignerServer struct {
 
 	endpoint *SignerDialerEndpoint
 	chainID  string
-	privVal  types.PrivValidator
 
 	handlerMtx               sync.Mutex
+	privVal                  types.PrivValidator
 	validationRequestHandler ValidationRequestHandlerFunc
 }
 
@@ -58,6 +58,13 @@ func (ss *SignerServer) SetRequestHandler(validationRequestHandler ValidationReq
 	ss.handlerMtx.Lock()
 	defer ss.handlerMtx.Unlock()
 	ss.validationRequestHandler = validationRequestHandler
+}
+
+// SetPrivValidator replaces the validator that services signing requests.
+func (ss *SignerServer) SetPrivValidator(privVal types.PrivValidator) {
+	ss.handlerMtx.Lock()
+	defer ss.handlerMtx.Unlock()
+	ss.privVal = privVal
 }
 
 func (ss *SignerServer) servicePendingRequest(ctx context.Context) {

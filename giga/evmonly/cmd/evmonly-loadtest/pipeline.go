@@ -11,9 +11,11 @@ import (
 	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -26,7 +28,21 @@ func run(cfg config) (err error) {
 	if err != nil {
 		return err
 	}
-	registry := prometheus.NewRegistry()
+	// The storage stack this load test drives records its phase timers on the global OTel meter, so
+	// the registry serving /metrics has to be the one an OTel exporter writes into. A bare registry
+	// collects this command's own counters and silently drops everything giga, FlatKV and the view
+	// cache publish, which is where a slow block is diagnosed.
+	registry, shutdownMetrics, err := seidbmetrics.SetupOtelPrometheus()
+	if err != nil {
+		return fmt.Errorf("set up metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if shutdownErr := shutdownMetrics(shutdownCtx); shutdownErr != nil && err == nil {
+			err = fmt.Errorf("flush metrics: %w", shutdownErr)
+		}
+	}()
 	metrics := newLoadMetrics(registry)
 	sinks, err := newResultSinks(cfg, metrics)
 	if err != nil {
@@ -96,14 +112,57 @@ func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
 }
 
 func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) (err error) {
+	// Every sender has to be in state before genesis is committed below: the pool's up front, and a
+	// prebuilt run's as its blocks are built.
 	prebuildStartedAt := time.Now()
-	prebuilt, err := prebuildBlockRequests(ctx, cfg, workload)
-	if err != nil {
-		return err
+	if cfg.accounts > 0 {
+		if err := seedAccountPool(ctx, cfg, workload); err != nil {
+			return err
+		}
+	}
+	var prebuilt []blockEnvelope
+	if cfg.blocks > 0 {
+		prebuilt, err = prebuildBlockRequests(ctx, cfg, workload)
+		if err != nil {
+			return err
+		}
 	}
 	state.Freeze()
 	prebuildElapsed := time.Since(prebuildStartedAt)
-	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
+	if cfg.blocks > 0 {
+		printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
+	} else {
+		fmt.Printf("account pool seeded elapsed=%s accounts=%d (building blocks as the run goes)\n",
+			prebuildElapsed.Round(time.Millisecond), cfg.accounts)
+	}
+
+	storageDirectory, cleanupStorage, err := openStorageDirectory(cfg.storageDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, cleanupStorage())
+	}()
+	fmt.Printf("storage directory: %s\n", storageDirectory)
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(storageDirectory)
+	if err != nil {
+		return fmt.Errorf("configure storage manager: %w", err)
+	}
+	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	if err != nil {
+		return fmt.Errorf("open storage manager: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, storage.Close())
+	}()
+	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
+	genesisChanges, err := changeSetEncoder(state.changeSet())
+	if err != nil {
+		return fmt.Errorf("encode generated genesis state: %w", err)
+	}
+	if err := storage.StateDB().CommitStateChanges(1, genesisChanges); err != nil {
+		return fmt.Errorf("commit generated genesis state: %w", err)
+	}
 
 	profiles, err := startProfiles(cfg)
 	if err != nil {
@@ -121,16 +180,18 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
-	store := evmonly.NewMemoryStore(state)
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
-		evmonly.WithStore(store, store.EncodeChangeSet),
+		evmonly.WithStorageManager(storage, changeSetEncoder),
 		evmonly.WithResultSink(sinks),
 	)
 	defer executor.Close()
 	metrics.recordResultPoolStats(executor.ResultPoolStats())
 	group.Go(func() error {
 		defer close(blocks)
+		if cfg.blocks == 0 {
+			return streamBlocks(groupCtx, cfg, workload, blocks, metrics)
+		}
 		return feedPrebuiltBlocks(groupCtx, prebuilt, blocks, metrics)
 	})
 	group.Go(func() error {
@@ -152,11 +213,32 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	if errors.Is(err, context.Canceled) {
 		err = nil
 	}
+	// The last block's commit is still running when its execution returns, so without this a run
+	// whose final commit failed would print its report and exit 0.
+	if commitErr := executor.AwaitCommits(); commitErr != nil && err == nil {
+		err = commitErr
+	}
 	printFinalReport(startedAt, metrics.snapshot())
 	// Drop raw block retention before heap profiling forces a GC.
 	prebuilt = nil
 	finishProfiles(profiles, &err)
 	return err
+}
+
+// openStorageDirectory returns the GigaStorageManager home. An empty path uses a
+// temporary directory that cleanup removes.
+func openStorageDirectory(path string) (dir string, cleanup func() error, err error) {
+	if path != "" {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			return "", nil, fmt.Errorf("create storage directory: %w", err)
+		}
+		return path, func() error { return nil }, nil
+	}
+	dir, err = os.MkdirTemp("", "evmonly-loadtest-storage-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create storage directory: %w", err)
+	}
+	return dir, func() error { return os.RemoveAll(dir) }, nil
 }
 
 func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorkload) ([]blockEnvelope, error) {
@@ -174,7 +256,7 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 				if number > cfg.blocks {
 					return nil
 				}
-				request, err := workload.BuildBlock(groupCtx, number)
+				request, err := workload.BuildBlock(groupCtx, number+1)
 				if err != nil {
 					if groupCtx.Err() != nil {
 						return nil
@@ -193,6 +275,117 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 		return nil, err
 	}
 	return prebuilt, nil
+}
+
+// seedAccountPool puts the --accounts sender pool into state, for the workload to draw both senders
+// and recipients from.
+func seedAccountPool(ctx context.Context, cfg config, workload blockWorkload) error {
+	seeder, ok := workload.(scenarios.PoolSeeder)
+	if !ok {
+		return fmt.Errorf("workload %q does not support --accounts: it mints a sender per transaction", cfg.workload)
+	}
+	return seeder.SeedAccountPool(ctx)
+}
+
+// streamBlocks builds blocks for as long as ctx runs, rather than materializing the whole run up
+// front. Memory is then the queue rather than the run, so a run's length stops being bounded by it.
+//
+// Builders work in parallel and finish out of order, so a reorder buffer releases a height only
+// once every lower one has gone: the executor commits in block order. At most 2*builders heights
+// are claimed but not yet sent, which bounds the buffer behind a slow builder.
+//
+// The cost is that signing lands in the measured window, which prebuilding exists to avoid.
+func streamBlocks(
+	ctx context.Context,
+	cfg config,
+	workload blockWorkload,
+	out chan<- blockEnvelope,
+	metrics *loadMetrics,
+) error {
+	built := make(chan blockEnvelope, cfg.builders)
+	// A builder takes a slot before claiming a height and the slot frees once that height is sent,
+	// so the missing height always holds a slot and the buffer cannot deadlock.
+	slots := make(chan struct{}, 2*cfg.builders)
+	group, groupCtx := errgroup.WithContext(ctx)
+
+	phases := newPipelinePhases()
+	var nextToBuild atomic.Uint64
+	for builderID := 0; builderID < cfg.builders; builderID++ {
+		group.Go(func() error {
+			timer := phases.Build()
+			defer timer.Reset()
+			for groupCtx.Err() == nil {
+				timer.SetPhase(phaseWaitingForWork)
+				select {
+				case slots <- struct{}{}:
+				case <-groupCtx.Done():
+					return nil
+				}
+				number := nextToBuild.Add(1)
+				timer.SetPhase(phaseBuildBlock)
+				request, err := workload.BuildBlock(groupCtx, number+1)
+				if err != nil {
+					if groupCtx.Err() != nil {
+						return nil
+					}
+					return err
+				}
+				timer.SetPhase(phaseWaitingForWork)
+				select {
+				case built <- blockEnvelope{number: number, request: request}:
+				case <-groupCtx.Done():
+					return nil
+				}
+			}
+			return nil
+		})
+	}
+
+	group.Go(func() error {
+		next := uint64(1)
+		pending := make(map[uint64]blockEnvelope, cfg.builders)
+		for {
+			for block, ok := pending[next]; ok; block, ok = pending[next] {
+				if err := sendBlock(groupCtx, out, block, metrics); err != nil {
+					return err
+				}
+				<-slots
+				delete(pending, next)
+				next++
+			}
+			metrics.recordReorderPending(len(pending))
+			select {
+			case <-groupCtx.Done():
+				return nil
+			case block := <-built:
+				if block.number == next {
+					if err := sendBlock(groupCtx, out, block, metrics); err != nil {
+						return err
+					}
+					<-slots
+					next++
+					continue
+				}
+				pending[block.number] = block
+			}
+		}
+	})
+
+	err := group.Wait()
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
+func sendBlock(ctx context.Context, out chan<- blockEnvelope, block blockEnvelope, metrics *loadMetrics) error {
+	select {
+	case out <- block:
+		metrics.recordInput()
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func feedPrebuiltBlocks(ctx context.Context, prebuilt []blockEnvelope, out chan<- blockEnvelope, metrics *loadMetrics) error {
@@ -219,10 +412,14 @@ func prepareBlocks(
 	workerCtx, cancelWorkers := context.WithCancel(ctx)
 	defer cancelWorkers()
 	group, groupCtx := errgroup.WithContext(workerCtx)
+	phases := newPipelinePhases()
 	for workerID := 0; workerID < cfg.prepareWorkers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
+			timer := phases.Build()
+			defer timer.Reset()
 			for groupCtx.Err() == nil {
+				timer.SetPhase(phaseWaitingForWork)
 				select {
 				case <-groupCtx.Done():
 					return nil
@@ -230,6 +427,7 @@ func prepareBlocks(
 					if !ok {
 						return nil
 					}
+					timer.SetPhase(phaseRecoverSenders)
 					prepared, err := executor.PrepareBlock(groupCtx, block.request)
 					if err != nil {
 						if groupCtx.Err() != nil {
@@ -238,6 +436,7 @@ func prepareBlocks(
 						metrics.recordPrepareError()
 						return fmt.Errorf("prepare worker %d prepare block %d: %w", workerID, block.number, err)
 					}
+					timer.SetPhase(phaseWaitingForWork)
 					select {
 					case unordered <- preparedBlockEnvelope{number: block.number, block: prepared}:
 						metrics.recordPrepared(len(prepared.Txs))
@@ -371,6 +570,7 @@ func executeBlocks(
 	metrics *loadMetrics,
 ) error {
 	for ctx.Err() == nil {
+		executor.MarkWaitingForBlock()
 		select {
 		case <-ctx.Done():
 			return nil

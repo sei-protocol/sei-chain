@@ -138,16 +138,18 @@ func importerErr(importer sctypes.Importer) error {
 
 // emitPairs forwards translator output to the FlatKV importer, returning the
 // number of pairs written.
-func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height int64) int64 {
+func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height int64) (int64, error) {
 	for _, p := range pairs {
-		importer.AddNode(&sctypes.SnapshotNode{
+		if err := importer.AddNode(&sctypes.SnapshotNode{
 			Key:     p.Key,
 			Value:   p.Value,
 			Version: height,
 			Height:  0,
-		})
+		}); err != nil {
+			return 0, err
+		}
 	}
-	return int64(len(pairs))
+	return int64(len(pairs)), nil
 }
 
 func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules []string, height int64, force bool) (err error) {
@@ -227,7 +229,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	}
 	defer func() { _ = exporter.Close() }()
 
-	importer, err := store.Importer(height)
+	importer, err := store.TrustedImporter(height)
 	if err != nil {
 		return fmt.Errorf("failed to create FlatKV importer at height %d: %w", height, err)
 	}
@@ -265,7 +267,11 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		if err != nil {
 			return fmt.Errorf("translate batch (module=%s): %w", batch.Name, err)
 		}
-		written += emitPairs(importer, pairs, height)
+		n, err := emitPairs(importer, pairs, height)
+		if err != nil {
+			return fmt.Errorf("FlatKV import failed: %w", err)
+		}
+		written += n
 		batch.Changeset.Pairs = batch.Changeset.Pairs[:0]
 		return nil
 	}
@@ -352,7 +358,11 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		return fmt.Errorf("FlatKV import failed: %w", err)
 	}
 
-	written += emitPairs(importer, translator.Finalize(), height)
+	n, err := emitPairs(importer, translator.Finalize(), height)
+	if err != nil {
+		return fmt.Errorf("FlatKV import failed: %w", err)
+	}
+	written += n
 
 	if err := importer.Close(); err != nil {
 		return fmt.Errorf("failed to finalize FlatKV import: %w", err)

@@ -1,7 +1,6 @@
 const {v4: uuidv4} = require("uuid");
 const hre = require("hardhat");
-const { ABI, deployErc20PointerForCw20, deployErc721PointerForCw721, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
-const path = require('path')
+const { getSeiAddress, execute, delay, isDocker } = require("../../contracts/test/lib.js");
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
   const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
@@ -58,37 +57,6 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
     token1 = {address: firstTokenAddr, amount: firstTokenAmount};
   }
   return [token0, token1]
-}
-
-async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
-  const CW20_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/uniswap/cw20_base.wasm' : path.resolve(__dirname, '../dapp_tests/uniswap/cw20_base.wasm')
-  const cw20Address = await deployWasm(CW20_BASE_PATH, deployerSeiAddr, "cw20", {
-    name: `testCw20${time}`,
-    symbol: "TEST",
-    decimals: 6,
-    initial_balances: [
-      { address: deployerSeiAddr, amount: hre.ethers.utils.parseEther("1000000").toString() }
-    ],
-    mint: {
-      "minter": deployerSeiAddr, "cap": hre.ethers.utils.parseEther("10000000").toString()
-    }
-  }, deployerSeiAddr);
-  const pointerAddr = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address, 10, deployerSeiAddr, evmRpc);
-  const pointerContract = new hre.ethers.Contract(pointerAddr, ABI.ERC20, signer);
-  return {"pointerContract": pointerContract, "cw20Address": cw20Address}
-}
-
-async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
-  const CW721_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/nftMarketplace/cw721_base.wasm' : path.resolve(__dirname, '../dapp_tests/nftMarketplace/cw721_base.wasm')
-  const cw721Address = await deployWasm(CW721_BASE_PATH, deployerSeiAddr, "cw721", {
-    "name": `testCw721${time}`,
-    "symbol": "TESTNFT",
-    "minter": deployerSeiAddr,
-    "withdraw_address": deployerSeiAddr,
-  }, deployerSeiAddr);
-  const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address, deployerSeiAddr, evmRpc);
-  const pointerContract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, signer);
-  return {"pointerContract": pointerContract, "cw721Address": cw721Address}
 }
 
 async function deployEthersContract(name, abi, bytecode, deployer, deployParams=[]) {
@@ -159,24 +127,6 @@ async function estimateAndCall(contract, method, args=[], value=0) {
   await output.wait();
   return output;
 }
-
-const mintCw721 = async (contractAddress, address, id) => {
-  const msg = {
-    mint: {
-      token_id: `${id}`,
-      owner: `${address}`,
-      token_uri:""
-    },
-  };
-  const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
-  if (response.code !== 0) {
-    throw new Error(response.raw_log);
-  }
-  return response;
-};
 
 async function pollBalance(erc20Contract, address, criteria, maxAttempts=3) {
   let bal = 0;
@@ -380,11 +330,8 @@ module.exports = {
   transferTokens,
   deployTokenPool,
   supplyLiquidity,
-  deployCw20WithPointer,
-  deployCw721WithPointer,
   deployEthersContract,
   doesTokenFactoryDenomExist,
   pollBalance,
-  sendFunds,
-  mintCw721
+  sendFunds
 };

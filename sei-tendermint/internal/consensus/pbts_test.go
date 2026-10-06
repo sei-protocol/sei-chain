@@ -313,13 +313,12 @@ func (p *pbtsTestHarness) advanceToHeight(ctx context.Context, t *testing.T, tar
 	}
 }
 
-func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t *testing.T, previousBlockTime time.Time) (heightResult, time.Time) {
+func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t *testing.T) (heightResult, time.Time) {
 	p.validatorClock.On("Now").Return(p.genesisTime.Add(p.height2ProposedBlockOffset)).Times(6)
 
 	ensureNewRound(t, p.roundCh, p.currentHeight, p.currentRound)
 
-	timeout := time.Until(previousBlockTime.Add(ensureTimeout))
-	ensureProposalWithTimeout(t, p.ensureProposalCh, p.currentHeight, p.currentRound, nil, timeout)
+	ensureProposalWithTimeout(t, p.ensureProposalCh, p.currentHeight, p.currentRound, nil, ensureTimeout)
 
 	rs := p.observedState.GetRoundState()
 	bid := types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()}
@@ -370,7 +369,7 @@ func (p *pbtsTestHarness) intermediateHeights(ctx context.Context, t *testing.T)
 
 func (p *pbtsTestHarness) height5(ctx context.Context, t *testing.T) (heightResult, time.Time) {
 	require.Equal(t, p.patternStartHeight+3, p.currentHeight, "expected current height to be the matched observed proposer height")
-	return p.observedValidatorProposerHeight(ctx, t, p.firstBlockTime.Add(p.height4ProposedBlockOffset))
+	return p.observedValidatorProposerHeight(ctx, t)
 }
 
 func (p *pbtsTestHarness) nextHeight(
@@ -531,7 +530,7 @@ type timestampedEvent struct {
 func (p *pbtsTestHarness) run(ctx context.Context, t *testing.T) resultSet {
 	p.observedState.startTestRound(ctx, p.currentHeight, p.currentRound)
 
-	r1, proposalBlockTime := p.observedValidatorProposerHeight(ctx, t, p.genesisTime)
+	r1, proposalBlockTime := p.observedValidatorProposerHeight(ctx, t)
 	p.firstBlockTime = proposalBlockTime
 	r2 := p.height2(ctx, t)
 	p.intermediateHeights(ctx, t)

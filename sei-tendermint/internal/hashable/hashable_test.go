@@ -266,3 +266,11 @@ func randomNested(r *rand.Rand) *pb.TestonlyNested {
 	}
 	return nested
 }
+
+func BenchmarkMarshalCanonical(b *testing.B) {
+	msg := msgFromSeed(0x79)
+	b.ReportAllocs()
+	for b.Loop() {
+		MarshalCanonical(msg)
+	}
+}

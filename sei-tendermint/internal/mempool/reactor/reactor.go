@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
@@ -22,6 +23,15 @@ var (
 	logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
 	_ service.Service = (*Reactor)(nil)
+
+	// mempoolRecvMessageCapacity is the encoded size of one MaxGossipTxBytes transaction.
+	mempoolRecvMessageCapacity = sync.OnceValue(func() int {
+		return (&pb.Message{
+			Sum: &pb.Message_Txs{
+				Txs: &pb.Txs{Txs: [][]byte{make([]byte, types.MaxGossipTxBytes)}},
+			},
+		}).Size()
+	})
 )
 
 const MempoolChannel p2p.ChannelID = 0x30
@@ -45,7 +55,7 @@ type Reactor struct {
 
 // NewReactor returns a reference to a new reactor.
 func NewReactor(cfg *config.MempoolConfig, txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(cfg))
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
@@ -65,19 +75,13 @@ func (r *Reactor) MarkReadyToStart() { r.readyToStart <- struct{}{} }
 
 // GetChannelDescriptor produces an instance of a descriptor for this package's
 // required channels.
-func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor[*pb.Message] {
-	largestTx := make([]byte, cfg.MaxTxBytes)
-	batchMsg := &pb.Message{
-		Sum: &pb.Message_Txs{
-			Txs: &pb.Txs{Txs: [][]byte{largestTx}},
-		},
-	}
-
+func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  MempoolChannel,
 		MessageType:         new(pb.Message),
 		Priority:            5,
-		RecvMessageCapacity: batchMsg.Size(),
+		RecvMessageCapacity: mempoolRecvMessageCapacity(),
+		DiscardOversized:    true,
 		RecvBufferCapacity:  128,
 		Name:                "mempool",
 	}
@@ -239,11 +243,18 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		}
 		for {
 			tx := next.Value()
-			r.channel.Send(&pb.Message{
-				Sum: &pb.Message_Txs{
-					Txs: &pb.Txs{Txs: [][]byte{tx}},
-				},
-			}, peerID)
+			if len(tx) > types.MaxGossipTxBytes {
+				logger.Debug("skipping gossip of tx above protocol size",
+					"tx", tx.Hash(),
+					"size", len(tx),
+					"peer", peerID)
+			} else {
+				r.channel.Send(&pb.Message{
+					Sum: &pb.Message_Txs{
+						Txs: &pb.Txs{Txs: [][]byte{tx}},
+					},
+				}, peerID)
+			}
 
 			next, err = next.NextWait(ctx)
 			if err != nil {

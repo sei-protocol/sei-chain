@@ -84,7 +84,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
-				PersistentStateDir: utils.Some(dir),
+				PersistentStateDir: dir,
 				App:                proxyApp,
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
@@ -102,6 +102,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
+					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
@@ -158,6 +159,15 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
+			// Covers GigaRouter.ExecutedBlocks — the watch behind
+			// eth_subscribe("newHeads"). It must reach the committed height,
+			// and the block it names must be readable via BlockByNumber.
+			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+				return int64(w.Latest().Number) >= committed
+			})
+			require.NoError(t, err, "router[%v].ExecutedBlocks().Wait()", i)
+			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
+			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed.Latest().Number)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries
@@ -219,14 +229,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	_, validatorKeys := atypes.GenCommittee(rng, 10)
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
-	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	urlByValidator := map[atypes.PublicKey]url.URL{}
 	// NewGigaRouter requires EVMRPC on every committee member in both
 	// validator and fullnode modes.
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-		require.NoError(t, err)
+		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
@@ -255,7 +264,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(dir),
+		PersistentStateDir: dir,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
@@ -273,6 +282,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)
@@ -295,11 +305,10 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		for validator := range connectedRemote {
-			key := addrs[validator].Key
 			ready := make(chan struct{})
-			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", key), func() error {
+			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", validator), func() error {
 				var client rpc.Client[giga.API]
-				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, validator, client, func(ctx context.Context) error {
 					close(ready)
 					<-ctx.Done()
 					return ctx.Err()
@@ -339,4 +348,37 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 1)
+	self := &testNodeCfg{
+		validatorKey: validatorKeys[0],
+		nodeKey:      makeKey(rng),
+		addr:         tcp.TestReserveAddr(),
+	}
+	for _, tc := range []struct {
+		name     string
+		hostPort tcp.HostPort
+		want     string
+	}{
+		{"zero port", tcp.HostPort{Hostname: "validator1.example.com"}, "missing port"},
+		{"empty hostname", tcp.HostPort{Port: 26656}, "missing hostname"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := self.GigaNodeAddr()
+			addr.HostPort = tc.hostPort
+			_, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: GigaRouterCommonConfig{
+					ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+						self.validatorKey.Public(): addr,
+					},
+				},
+				ValidatorKey: self.validatorKey,
+			}, self.nodeKey, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
 }

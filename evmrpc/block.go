@@ -25,7 +25,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const EthNamespace = "eth"
+const (
+	EthNamespace = "eth"
+	SeiNamespace = "sei"
+)
 
 // maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
 // eth_getBlockReceipts will fan out to when fetching per-tx receipts.
@@ -342,10 +345,17 @@ func EncodeTmBlock(
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
-	ctx := ctxProvider(block.Block.Height)
+	ctx, err := ctxAtHeight(ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
 	var baseFeePerGas *big.Int
 	if block.Block.Height > 1 {
-		baseFeePerGas = k.GetNextBaseFeePerGas(ctxProvider(block.Block.Height - 1)).TruncateInt().BigInt()
+		prevCtx, err := ctxAtHeight(ctxProvider, block.Block.Height-1)
+		if err != nil {
+			return nil, err
+		}
+		baseFeePerGas = k.GetNextBaseFeePerGas(prevCtx).TruncateInt().BigInt()
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}

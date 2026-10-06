@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/time/rate"
@@ -24,7 +24,7 @@ const (
 
 	// lruSize bounds memory to ~8 MB at 50k entries (~160 bytes each).
 	lruSize = 50_000
-	// lruTTL evicts IP entries that have been idle for 1 hour.
+	// lruTTL is how long an IP may stay idle before it gets a fresh limiter.
 	lruTTL = time.Hour
 )
 
@@ -56,6 +56,10 @@ type Config struct {
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted.
 	// Empty means trust no proxy; use RemoteAddr / peer address directly.
 	TrustedProxyCIDRs []string
+	// MaxInFlightPerIP is the number of RPCs one IP may have in flight at once.
+	// Zero disables the concurrency limit (AcquireInFlight always returns true),
+	// leaving the token bucket as the only admission control.
+	MaxInFlightPerIP int
 }
 
 // DefaultConfig uses no trusted proxies. If your node is behind a reverse proxy or
@@ -66,14 +70,15 @@ var DefaultConfig = Config{
 	Burst: DefaultBurst,
 }
 
-// Registry is a per-IP token-bucket rate limiter backed by an expirable LRU.
+// Registry is a per-IP token-bucket rate limiter backed by a size-bounded LRU.
 // It is safe for concurrent use.
 type Registry struct {
 	cfg            Config
 	trustedProxies []*net.IPNet
-	lru            *expirable.LRU[string, *rate.Limiter]
+	lru            *simplelru.LRU[string, *limiterEntry]
 	mu             sync.Mutex
 	grpcMethods    atomic.Pointer[map[string]struct{}]
+	inflight       *inflightCounter
 }
 
 // SetKnownGRPCMethods bounds the method label recorded for PlaneGRPC rejections
@@ -82,7 +87,7 @@ type Registry struct {
 func (r *Registry) SetKnownGRPCMethods(methods []string) {
 	known := make(map[string]struct{}, len(methods))
 	for _, m := range methods {
-		known[strings.TrimPrefix(m, "/")] = struct{}{}
+		known[trimLeadingSlash(m)] = struct{}{}
 	}
 	r.grpcMethods.Store(&known)
 }
@@ -100,10 +105,19 @@ func New(cfg Config) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+	var inflight *inflightCounter
+	if cfg.MaxInFlightPerIP > 0 {
+		inflight = newInflightCounter(cfg.MaxInFlightPerIP)
+	}
+	lru, err := simplelru.NewLRU[string, *limiterEntry](lruSize, nil)
+	if err != nil {
+		return nil, err
+	}
 	return &Registry{
 		cfg:            cfg,
 		trustedProxies: proxies,
-		lru:            expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
+		lru:            lru,
+		inflight:       inflight,
 	}, nil
 }
 
@@ -198,20 +212,27 @@ func (r *Registry) rightmostUntrustedIP(xff string) string {
 	return ""
 }
 
+// limiterEntry is the limiter for one LRU key and when it was last used.
+type limiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
-// Add is called on every hit to refresh the TTL, ensuring only truly idle IPs expire.
-// mu serializes the get-then-add so concurrent first requests for the same IP
-// cannot each install a separate limiter.
+// Every hit refreshes lastSeen, so only an IP idle for longer than lruTTL gets
+// a fresh limiter. mu serializes the get-then-add so concurrent first requests
+// for the same IP cannot each install a separate limiter.
 func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 	key := bucketKey(ip)
+	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if l, ok := r.lru.Get(key); ok {
-		r.lru.Add(key, l)
-		return l
+	if e, ok := r.lru.Get(key); ok && now.Sub(e.lastSeen) <= lruTTL {
+		e.lastSeen = now
+		return e.limiter
 	}
 	l := rate.NewLimiter(rate.Limit(r.cfg.RPS), r.cfg.Burst)
-	r.lru.Add(key, l)
+	r.lru.Add(key, &limiterEntry{limiter: l, lastSeen: now})
 	return l
 }
 
@@ -255,6 +276,11 @@ func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 		out = append(out, network)
 	}
 	return out, nil
+}
+
+// trimLeadingSlash returns the gRPC "service/Method" name of a full method name.
+func trimLeadingSlash(fullMethod string) string {
+	return strings.TrimPrefix(fullMethod, "/")
 }
 
 func stripPort(addr string) string {

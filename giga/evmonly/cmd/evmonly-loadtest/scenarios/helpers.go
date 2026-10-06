@@ -1,23 +1,32 @@
 package scenarios
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
 
-func workloadRecipient(cfg Config, conflictParticipants int, uniquePrefix string, conflictPrefix string, blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
+func workloadRecipient(cfg Config, pool []common.Address, conflictParticipants int, uniquePrefix string, conflictPrefix string, blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
 	if cfg.FixedRecipient != nil {
 		return *cfg.FixedRecipient
 	}
 	if txIndex < conflictParticipants {
 		return blockScopedAddressFromSeed(conflictPrefix, blockNumber, uint64FromNonNegativeInt(txIndex/2))
+	}
+	// A pooled run pays a recipient out of the pool rather than to a fresh address, so state stops
+	// growing with the run. The recipient is taken half a pool away so it falls outside the block's
+	// own contiguous range of senders: paying a neighbour instead would make every transaction
+	// depend on the one before it, and speculative execution would conflict on all of them.
+	if len(pool) > 0 {
+		return pool[(accountIndex+uint64(len(pool)/2))%uint64(len(pool))]
 	}
 	return addressFromSeed(uniquePrefix, accountIndex)
 }
@@ -115,4 +124,47 @@ func hashFromSeed(prefix string, index uint64) common.Hash {
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], index)
 	return crypto.Keccak256Hash([]byte(prefix), buf[:])
+}
+
+// SeedAccountPool seeds every sender a bounded pool will draw from. A streaming run commits genesis
+// once before any block is built, so the pool has to be in state before that point.
+func seedAccountPool(ctx context.Context, cfg Config, seed func(common.Address)) ([]common.Address, error) {
+	pool := make([]common.Address, 0, cfg.Accounts)
+	for account := uint64(0); account < cfg.Accounts; account++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		key, err := DeterministicPrivateKey(account)
+		if err != nil {
+			return nil, fmt.Errorf("derive pool account %d: %w", account, err)
+		}
+		addr := crypto.PubkeyToAddress(key.PublicKey)
+		seed(addr)
+		pool = append(pool, addr)
+	}
+	return pool, nil
+}
+
+// senderRangeBase is the first run-wide transaction index a block owns, which is a contiguous range
+// so that a block's senders are distinct.
+//
+// A pooled run takes the range from the block's height, counted from the run's first block. A
+// counter cannot serve there: builders finish out of order, so it would hand a later height a lower
+// range and its senders would carry nonces the earlier height has not spent. Counting from the
+// first block rather than from height zero matters for the same reason, a skipped range leaving the
+// accounts in it starting above the nonce their state holds.
+func senderRangeBase(cfg Config, number uint64, cursor *atomic.Uint64) uint64 {
+	if cfg.Accounts == 0 {
+		// No pool, so every sender is used once and indices only have to be unique. A counter gives
+		// that without assuming anything about the heights a caller builds.
+		return cursor.Add(uint64(cfg.TxsPerBlock)) - uint64(cfg.TxsPerBlock) + 1 //nolint:gosec // txsPerBlock is validated positive
+	}
+	first := cfg.FirstBlockHeight
+	if first == 0 {
+		first = 1
+	}
+	if number < first {
+		return 0
+	}
+	return (number - first) * uint64(cfg.TxsPerBlock) //nolint:gosec // txsPerBlock is validated positive
 }

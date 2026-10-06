@@ -458,8 +458,8 @@ func (d Dec) String() string {
 		bzStr[1] = byte('.')
 
 		// set relevant digits to 0
-		for i := 0; i < Precision-inputSize; i++ {
-			bzStr[i+2] = byte('0')
+		for i := 2; i < len(bzStr)-inputSize; i++ {
+			bzStr[i] = byte('0')
 		}
 
 		// set final digits

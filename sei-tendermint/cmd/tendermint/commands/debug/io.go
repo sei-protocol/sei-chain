@@ -58,7 +58,7 @@ func zipDir(src, dest string) error {
 			return nil
 		}
 
-		file, err := os.Open(filepath.Clean(path))
+		file, err := os.Open(filepath.Clean(path)) //nolint:gosec // path is supplied by filepath.Walk under the explicitly selected diagnostic source tree.
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func copyFile(src, dest string) error {
 	}
 	defer func() { _ = srcFile.Close() }()
 
-	destFile, err := os.Create(dest)
+	destFile, err := os.Create(dest) //nolint:gosec // destination is an explicit local CLI output path.
 	if err != nil {
 		return err
 	}

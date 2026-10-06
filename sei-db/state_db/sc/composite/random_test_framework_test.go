@@ -15,6 +15,7 @@ package composite
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"sort"
@@ -244,6 +245,10 @@ func randomCodeHashValue(rng *testutil.TestRandom) []byte {
 	return ensureNonZero(randomTestBytes(rng, vtype.CodeHashLen))
 }
 
+func randomBalanceValue(rng *testutil.TestRandom) []byte {
+	return ensureNonZero(randomTestBytes(rng, vtype.BalanceLen))
+}
+
 func randomStorageValue(rng *testutil.TestRandom) []byte {
 	return ensureNonZero(randomTestBytes(rng, vtype.SlotLen))
 }
@@ -284,16 +289,17 @@ func randomLegacyEVMKey(rng *testutil.TestRandom) []byte {
 //   - storage: one storageDB row  (0x03 || addr || slot)
 //   - code:    one codeDB row      (0x07 || addr)
 //   - account: one accountDB row   (0x0a || addr) — a nonce is always written
-//     (a zero nonce reads back as absent), and with ~50% probability a code
-//     hash is written for the SAME address. That second case is the account-map
-//     "collision": the nonce and code hash merge into one physical account row,
-//     exercising the merged-account read / iterate / migrate paths.
+//     (a zero nonce reads back as absent), and with ~50% probability each, a code
+//     hash and a balance are written for the SAME address. Those cases are the
+//     account-map "collision": the nonce, code hash and balance merge into one
+//     physical account row, exercising the merged-account read / iterate /
+//     migrate paths.
 //   - legacy:  one legacyDB row     (0x01 || suffix) — a non-optimized EVM key
 //     (address mappings, codesize, etc.) with a variable-length, occasionally
 //     empty value, populating flatkv's EVM legacy lane.
 //
 // Returning a slice (rather than one pair) is what lets a single logical
-// account own both a nonce and a code hash within one block.
+// account own a nonce, a code hash and a balance within one block.
 func newRandomEVMEntry(rng *testutil.TestRandom) []*proto.KVPair {
 	switch rng.Intn(4) {
 	case 0:
@@ -305,6 +311,12 @@ func newRandomEVMEntry(rng *testutil.TestRandom) []*proto.KVPair {
 			pairs = append(pairs, &proto.KVPair{
 				Key:   keys.BuildEVMKey(keys.EVMKeyCodeHash, addr),
 				Value: randomCodeHashValue(rng),
+			})
+		}
+		if rng.Intn(2) == 0 {
+			pairs = append(pairs, &proto.KVPair{
+				Key:   keys.BuildEVMKey(keys.EVMKeyBalance, addr),
+				Value: randomBalanceValue(rng),
 			})
 		}
 		return pairs
@@ -329,6 +341,8 @@ func freshEVMValue(rng *testutil.TestRandom, key []byte) []byte {
 		return randomNonceValue(rng)
 	case keys.EVMKeyCodeHash:
 		return randomCodeHashValue(rng)
+	case keys.EVMKeyBalance:
+		return randomBalanceValue(rng)
 	case keys.EVMKeyCode:
 		return randomCodeValue(rng)
 	case keys.EVMKeyStorage:
@@ -494,12 +508,11 @@ func simulateBlocks(
 				&proto.KVPair{Key: []byte(kp.key), Value: value})
 		}
 
-		// Delete existing keys. Deleting an account's nonce must also delete
-		// that address's code hash in the same block: flatkv merges both into a
-		// single physical account row, so dropping only the nonce would leave a
-		// live (now nonce-zero) row whose nonce reads back via the phantom-nonce
-		// path — present in flatkv but absent from the oracle. Expanding the
-		// delete set deterministically (in sample order, deduped) keeps the
+		// Delete existing keys. Deleting an account's nonce must also delete that address's other
+		// merged fields — code hash and balance — in the same block: flatkv merges all three into a
+		// single physical account row, so dropping only the nonce would leave a live (now nonce-zero)
+		// row whose nonce reads back via the phantom-nonce path — present in flatkv but absent from
+		// the oracle. Expanding the delete set deterministically (in sample order, deduped) keeps the
 		// generated changeset byte-identical for a given seed.
 		toDelete := make([]keyPair, 0, p.deletesPerBlock)
 		inDelete := make(map[keyPair]struct{}, p.deletesPerBlock)
@@ -515,8 +528,13 @@ func simulateBlocks(
 			if kp.store != keys.EVMStoreKey {
 				continue
 			}
-			if kind, stripped := keys.ParseEVMKey([]byte(kp.key)); kind == keys.EVMKeyNonce {
-				sibling := keyPair{store: kp.store, key: string(keys.BuildEVMKey(keys.EVMKeyCodeHash, stripped))}
+			kind, stripped := keys.ParseEVMKey([]byte(kp.key))
+			if kind != keys.EVMKeyNonce {
+				continue
+			}
+			for _, siblingKind := range []keys.EVMKeyKind{keys.EVMKeyCodeHash, keys.EVMKeyBalance} {
+				siblingKey := keys.BuildEVMKey(siblingKind, stripped)
+				sibling := keyPair{store: kp.store, key: string(siblingKey)}
 				if keysInUse.Contains(sibling) {
 					addDelete(sibling)
 				}
@@ -639,10 +657,10 @@ func memiavlGetForTest(cs *CompositeCommitStore, store string, key []byte) ([]by
 // flatKVGetForTest reads (store, key) directly from the flatkv backend, or
 // reports not-found when flatkv is absent (e.g. MemiavlOnly mode).
 func flatKVGetForTest(cs *CompositeCommitStore, store string, key []byte) ([]byte, bool) {
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		return nil, false
 	}
-	return cs.flatKV.Get(store, key)
+	return cs.loadFlatKV().Get(store, key)
 }
 
 // getMemIAVLKeyCount returns the total number of keys across every tree in the
@@ -669,8 +687,8 @@ func getMemIAVLKeyCount(t *testing.T, cs *CompositeCommitStore) int64 {
 // equals the logical key count).
 func getFlatKVKeyCount(t *testing.T, cs *CompositeCommitStore) int64 {
 	t.Helper()
-	require.NotNil(t, cs.flatKV)
-	iter, err := cs.flatKV.RawGlobalIterator()
+	require.NotNil(t, cs.loadFlatKV())
+	iter, err := cs.loadFlatKV().RawGlobalIterator()
 	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 	var count int64
@@ -975,7 +993,7 @@ func verifyKeyCounts(
 		}
 		require.Equal(t, memExpected, getMemIAVLKeyCount(t, cs), "memiavl physical key count")
 	}
-	if cs.flatKV != nil {
+	if cs.loadFlatKV() != nil {
 		require.Equal(t, int64(len(oracleToFlatKVRows(oracle, placement))), getFlatKVKeyCount(t, cs),
 			"flatkv physical key count")
 	}
@@ -1002,21 +1020,23 @@ type flatKVExpectedRow struct {
 	storageValue [32]byte // rowStorage
 	nonce        uint64   // rowAccount
 	codeHash     [32]byte // rowAccount
+	balance      [32]byte // rowAccount
 	code         []byte   // rowCode
 	legacyValue  []byte   // rowLegacy
 }
 
 // oracleToFlatKVRows projects the oracle into the physical row layout flatkv
 // uses internally, keyed by the physical (module-prefixed) key. Only stores the
-// placement model routes to flatkv are included. The EVM nonce and code hash
-// for a single address are merged into one account row, exactly as flatkv's
-// accountDB stores them — this is what makes the row-by-row check sensitive to
-// the account-merge logic. Valid only for steady-state placement.
+// placement model routes to flatkv are included. The EVM nonce, code hash and
+// balance for a single address are merged into one account row, exactly as
+// flatkv's accountDB stores them — this is what makes the row-by-row check
+// sensitive to the account-merge logic. Valid only for steady-state placement.
 func oracleToFlatKVRows(
 	oracle *storeOracle, placement func(store string) backendPlacement) map[string]flatKVExpectedRow {
 	type acct struct {
 		nonce    uint64
 		codeHash [32]byte
+		balance  [32]byte
 	}
 	accounts := map[string]*acct{}
 	getAcct := func(addr string) *acct {
@@ -1057,6 +1077,8 @@ func oracleToFlatKVRows(
 				getAcct(string(stripped)).nonce = binary.BigEndian.Uint64(v)
 			case keys.EVMKeyCodeHash:
 				copy(getAcct(string(stripped)).codeHash[:], v)
+			case keys.EVMKeyBalance:
+				copy(getAcct(string(stripped)).balance[:], v)
 			default: // EVMKeyMisc: identity-mapped under the "evm/" prefix
 				rows[string(ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte(k)))] =
 					flatKVExpectedRow{kind: rowLegacy, legacyValue: append([]byte(nil), v...)}
@@ -1066,7 +1088,7 @@ func oracleToFlatKVRows(
 
 	for addr, a := range accounts {
 		rows[string(ktype.EVMPhysicalKey(ktype.EVMKeyAccount, []byte(addr)))] =
-			flatKVExpectedRow{kind: rowAccount, nonce: a.nonce, codeHash: a.codeHash}
+			flatKVExpectedRow{kind: rowAccount, nonce: a.nonce, codeHash: a.codeHash, balance: a.balance}
 	}
 	return rows
 }
@@ -1086,12 +1108,12 @@ func verifyFlatKVRows(
 	placement func(store string) backendPlacement,
 ) {
 	t.Helper()
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		return
 	}
 	expected := oracleToFlatKVRows(oracle, placement)
 
-	iter, err := cs.flatKV.RawGlobalIterator()
+	iter, err := cs.loadFlatKV().RawGlobalIterator()
 	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 
@@ -1134,9 +1156,7 @@ func assertFlatKVRowMatches(t *testing.T, physKey, rawVal []byte, exp flatKVExpe
 		require.NoError(t, err, "decode account row %x", physKey)
 		require.Equal(t, exp.nonce, ad.GetNonce(), "account nonce mismatch for %x", physKey)
 		require.Equal(t, exp.codeHash[:], ad.GetCodeHash()[:], "account code hash mismatch for %x", physKey)
-		var zeroBalance vtype.Balance
-		require.Equal(t, zeroBalance[:], ad.GetBalance()[:],
-			"account balance must be zero (balances are not stored in flatkv yet) for %x", physKey)
+		require.Equal(t, exp.balance[:], ad.GetBalance()[:], "account balance mismatch for %x", physKey)
 	case rowLegacy:
 		ld, err := vtype.DeserializeMiscData(rawVal)
 		require.NoError(t, err, "decode legacy row %x", physKey)
@@ -1153,7 +1173,11 @@ func assertFlatKVRowMatches(t *testing.T, physKey, rawVal []byte, exp flatKVExpe
 func assertFlatKVMapsExercised(t *testing.T, oracle *storeOracle, placement func(store string) backendPlacement) {
 	t.Helper()
 	var storageRows, codeRows, legacyRows int
-	type acctFlags struct{ nonce, codeHash bool }
+	type acctFlags struct {
+		nonce    bool
+		codeHash bool
+		balance  bool
+	}
 	accounts := map[string]*acctFlags{}
 	flag := func(addr string) *acctFlags {
 		a, ok := accounts[addr]
@@ -1185,17 +1209,22 @@ func assertFlatKVMapsExercised(t *testing.T, oracle *storeOracle, placement func
 				flag(string(stripped)).nonce = true
 			case keys.EVMKeyCodeHash:
 				flag(string(stripped)).codeHash = true
+			case keys.EVMKeyBalance:
+				flag(string(stripped)).balance = true
 			default:
 				legacyRows++
 			}
 		}
 	}
 
-	var accountRows, collisions int
+	var accountRows, collisions, balanceAccounts int
 	for _, af := range accounts {
 		accountRows++
 		if af.nonce && af.codeHash {
 			collisions++
+		}
+		if af.balance {
+			balanceAccounts++
 		}
 	}
 
@@ -1206,6 +1235,7 @@ func assertFlatKVMapsExercised(t *testing.T, oracle *storeOracle, placement func
 		require.Positive(t, accountRows, "expected account-map rows in flatkv")
 		require.Positive(t, collisions,
 			"expected at least one account with both a nonce and a code hash (account-map collision)")
+		require.Positive(t, balanceAccounts, "expected at least one account holding a balance")
 	}
 
 	legacyExpected := false
@@ -1226,13 +1256,13 @@ func assertFlatKVMapsExercised(t *testing.T, oracle *storeOracle, placement func
 // version and boundary keys in flatkv's reserved MigrationStore.
 func verifyMigrationMetadata(t *testing.T, cs *CompositeCommitStore, wantVersion, wantBoundary bool) {
 	t.Helper()
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		require.False(t, wantVersion, "no flatkv backend: version key cannot be present")
 		require.False(t, wantBoundary, "no flatkv backend: boundary key cannot be present")
 		return
 	}
-	_, versionPresent := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
-	_, boundaryPresent := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	_, versionPresent := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
+	_, boundaryPresent := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.Equal(t, wantVersion, versionPresent, "migration version key presence")
 	require.Equal(t, wantBoundary, boundaryPresent, "migration boundary key presence")
 }
@@ -1503,7 +1533,9 @@ func applyTestMigrationBatchSize(t *testing.T, cs *CompositeCommitStore) {
 
 func openComposite(t *testing.T, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	cs, err := NewCompositeCommitStore(context.Background(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize(keys.MemIAVLStoreKeys))
 	err = cs.LoadLatest()
@@ -1550,7 +1582,9 @@ func stateSyncClone(
 	require.NoError(t, exporter.Close())
 
 	dstDir := t.TempDir()
-	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	dst, err := NewCompositeCommitStore(context.Background(), dstDir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, dst.Initialize(keys.MemIAVLStoreKeys))
 	// Open then close the writable handle so the importer takes over a

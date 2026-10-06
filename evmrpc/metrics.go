@@ -55,6 +55,7 @@ var (
 	metrics = struct {
 		requestLatencySeconds            metric.Float64Histogram
 		wsConnectionCount                metric.Int64Counter
+		wsActiveConnectionCount          metric.Int64UpDownCounter
 		redirectedRequestCount           metric.Int64Counter
 		historicalDebugTraceAttemptCount metric.Int64Counter
 		requestRejectedCount             metric.Int64Counter
@@ -71,6 +72,11 @@ var (
 		wsConnectionCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_websocket_connects_total",
 			metric.WithDescription("Number of new websocket connections"),
+			metric.WithUnit("{count}"),
+		)),
+		wsActiveConnectionCount: must(rpcTelemetryMeter.Int64UpDownCounter(
+			"evmrpc_websocket_connections",
+			metric.WithDescription("Number of currently connected websocket clients"),
 			metric.WithUnit("{count}"),
 		)),
 		redirectedRequestCount: must(rpcTelemetryMeter.Int64Counter(
@@ -155,6 +161,11 @@ func recordRPCLatency(ctx context.Context, endpoint, connection string, success 
 
 func recordWebsocketConnect(ctx context.Context) {
 	metrics.wsConnectionCount.Add(ctx, 1)
+	metrics.wsActiveConnectionCount.Add(ctx, 1)
+}
+
+func recordWebsocketDisconnect(ctx context.Context) {
+	metrics.wsActiveConnectionCount.Add(ctx, -1)
 }
 
 func recordRedirectedRequest(ctx context.Context, endpoint, connection string) {

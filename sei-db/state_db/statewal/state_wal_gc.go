@@ -55,8 +55,7 @@ func (w *stateWALImpl) GetRollbackFloor(rollbackWindow uint64) uint64 {
 	return head - rollbackWindow
 }
 
-// GetLatestBlock returns the highest block ended by SignalEndOfBlock, or 0 when none has been. A
-// block written but not yet ended is excluded: it is still buffered rather than a record.
+// GetLatestBlock returns the highest block written, or 0 when none has been.
 func (w *stateWALImpl) GetLatestBlock() (uint64, error) {
-	return w.lastCompletedBlock.Load(), nil
+	return w.lastBlock.Load(), nil
 }

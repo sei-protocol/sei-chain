@@ -858,6 +858,116 @@ func TestNewMigrationManager_AcceptsZeroBatchSize(t *testing.T) {
 	require.NotNil(t, m)
 }
 
+// Until the first batch moves the boundary, caller writes of new keys stay in the old DB, and nothing is
+// written to the new DB.
+func TestApplyChangeSets_NotStartedKeepsWritesInOldDB(t *testing.T) {
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMockMigrationIterator(copyData(data), false)
+
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 0,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "bank",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("a"), Value: []byte("2")},
+			{Key: []byte("new"), Value: []byte("n")},
+		}},
+	}}, true))
+
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryNotStarted))
+	val, ok := oldDB.get("bank", "new")
+	require.True(t, ok, "a new key must stay in the old DB before the migration starts")
+	require.Equal(t, []byte("n"), val)
+	val, ok = oldDB.get("bank", "a")
+	require.True(t, ok)
+	require.Equal(t, []byte("2"), val)
+	require.Empty(t, newDB.data, "nothing may reach the new DB before the migration starts")
+}
+
+// The first batch moves the boundary before caller writes are routed, so a new key written in the block
+// that starts the migration goes to the new DB.
+func TestApplyChangeSets_FirstBatchMovesBoundaryBeforeRouting(t *testing.T) {
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMockMigrationIterator(copyData(data), false)
+
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 1,
+	)
+	require.NoError(t, err)
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryNotStarted))
+
+	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "bank",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("new"), Value: []byte("n")},
+		}},
+	}}, true))
+
+	require.Equal(t, MigrationInProgress, mgr.boundary.Status())
+	val, ok := newDB.get("bank", "new")
+	require.True(t, ok, "a new key in the block that starts the migration must go to the new DB")
+	require.Equal(t, []byte("n"), val)
+	_, ok = oldDB.get("bank", "new")
+	require.False(t, ok)
+}
+
+// Lowering the batch size to 0 after the boundary has moved holds the boundary where it is, and caller
+// writes keep the started routing: new keys go to the new DB, unmigrated keys stay in the old DB.
+func TestApplyChangeSets_PauseMidMigrationKeepsStartedRouting(t *testing.T) {
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2"), "c": []byte("3")}}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMockMigrationIterator(copyData(data), false)
+
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 1,
+	)
+	require.NoError(t, err)
+	require.NoError(t, mgr.ApplyChangeSets(nil, true))
+	started := mgr.boundary
+	require.Equal(t, MigrationInProgress, started.Status())
+	persisted, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
+	require.True(t, ok)
+
+	mgr.SetMigrationBatchSize(0)
+	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "bank",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("c"), Value: []byte("3b")},
+			{Key: []byte("new"), Value: []byte("n")},
+		}},
+	}}, true))
+
+	require.True(t, mgr.boundary.Equals(started), "a paused migration must hold its boundary")
+	stillPersisted, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
+	require.True(t, ok)
+	require.Equal(t, persisted, stillPersisted)
+	val, ok := newDB.get("bank", "new")
+	require.True(t, ok, "a new key must go to the new DB once the migration has started")
+	require.Equal(t, []byte("n"), val)
+	val, ok = oldDB.get("bank", "c")
+	require.True(t, ok, "an unmigrated key must stay in the old DB")
+	require.Equal(t, []byte("3b"), val)
+	_, ok = newDB.get("bank", "c")
+	require.False(t, ok)
+}
+
 func TestNewMigrationManager_NilDependencies(t *testing.T) {
 	iter := NewMockMigrationIterator(nil, false)
 	oldDB := newMockDB()

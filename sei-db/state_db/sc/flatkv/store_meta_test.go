@@ -62,12 +62,12 @@ func TestLoadLocalMeta(t *testing.T) {
 // bookkeeping) are rejected; both would otherwise silently corrupt the
 // per-DB root — and thus the global store hash / AppHash — on the first write.
 func TestValidatePerModuleMetadata(t *testing.T) {
-	nonZero, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
+	nonZero := lthash.ComputeLtHash(nil, []lthash.KeyMutation{
 		{Key: []byte("k"), Value: []byte("v")},
 	})
 	require.False(t, nonZero.IsZero(), "precondition: crafted root must be non-identity")
 
-	other, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
+	other := lthash.ComputeLtHash(nil, []lthash.KeyMutation{
 		{Key: []byte("other"), Value: []byte("w")},
 	})
 	require.False(t, other.IsZero())
@@ -79,20 +79,20 @@ func TestValidatePerModuleMetadata(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		meta       *ktype.LocalMeta
+		meta       *LocalMeta
 		wantErrSub string // empty => expect success
 	}{
 		{"nil meta", nil, ""},
-		{"nil root", &ktype.LocalMeta{}, ""},
-		{"identity root, no modules", &ktype.LocalMeta{LtHash: lthash.New()}, ""},
+		{"nil root", &LocalMeta{}, ""},
+		{"identity root, no modules", &LocalMeta{LtHash: lthash.New()}, ""},
 		{
 			"non-identity root with matching modules",
-			&ktype.LocalMeta{LtHash: nonZero.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			&LocalMeta{LtHash: nonZero.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
 			"",
 		},
 		{
 			"multi-module root with matching modules",
-			&ktype.LocalMeta{
+			&LocalMeta{
 				LtHash: combined.Clone(),
 				ModuleLtHashes: map[string]*lthash.LtHash{
 					"EVM":  nonZero.Clone(),
@@ -101,15 +101,15 @@ func TestValidatePerModuleMetadata(t *testing.T) {
 			},
 			"",
 		},
-		{"non-identity root without modules", &ktype.LocalMeta{LtHash: nonZero.Clone()}, "predates per-module hashing"},
+		{"non-identity root without modules", &LocalMeta{LtHash: nonZero.Clone()}, "predates per-module hashing"},
 		{
 			"modules do not sum to root",
-			&ktype.LocalMeta{LtHash: combined.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			&LocalMeta{LtHash: combined.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
 			"do not sum to per-DB root",
 		},
 		{
 			"identity root with non-zero modules",
-			&ktype.LocalMeta{LtHash: lthash.New(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			&LocalMeta{LtHash: lthash.New(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
 			"do not sum to per-DB root",
 		},
 	}
@@ -189,7 +189,9 @@ func TestStoreSealBlockUpdatesLocalMeta(t *testing.T) {
 	v := commitAndCheck(t, s)
 	require.Equal(t, int64(1), v)
 
-	// LocalMeta should be updated
+	// LocalMeta should be updated. Read it back: the finalizer writes it, so the store's in-memory copy
+	// is only what load saw.
+	require.NoError(t, s.reloadLocalMeta())
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
@@ -371,9 +373,9 @@ func TestDerivedGlobalStatePersistence(t *testing.T) {
 		require.Equal(t, int64(2), meta.CommittedVersion, "%s version record", ndb.dir)
 		derived.MixIn(meta.LtHash)
 	}
-	require.Equal(t, s.committedLtHash.Checksum(), derived.Checksum())
+	require.Equal(t, s.maintainedHashes().Global.Checksum(), derived.Checksum())
 
-	expectedHash := s.committedLtHash.Checksum()
+	expectedHash := s.maintainedHashes().Global.Checksum()
 	require.NoError(t, s.Close())
 
 	cfg2 := config.DefaultConfig()
@@ -385,7 +387,7 @@ func TestDerivedGlobalStatePersistence(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.committedVersion)
-	require.Equal(t, expectedHash, s2.committedLtHash.Checksum(),
+	require.Equal(t, expectedHash, s2.maintainedHashes().Global.Checksum(),
 		"global LtHash should survive reopen")
 }
 

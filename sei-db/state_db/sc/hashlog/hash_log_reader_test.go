@@ -64,7 +64,7 @@ func TestCompareHashesFindsDeviations(t *testing.T) {
 		log(3, map[string][]byte{"root": {0x03}}),
 	})
 
-	diffs, err := CompareHashes(dirA, dirB, -1)
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
 	require.Equal(t, uint64(2), diffs[0].HashesFromA[0].BlockNumber)
@@ -83,7 +83,7 @@ func TestCompareHashesIdentical(t *testing.T) {
 	writeArchive(t, dirA, 0, "v1", hashTypes, logs)
 	writeArchive(t, dirB, 0, "v1", hashTypes, logs)
 
-	diffs, err := CompareHashes(dirA, dirB, -1)
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Empty(t, diffs)
 }
@@ -104,7 +104,7 @@ func TestCompareHashesRespectsMaxDiffCount(t *testing.T) {
 		log(3, map[string][]byte{"root": {0xA3}}),
 	})
 
-	diffs, err := CompareHashes(dirA, dirB, 2)
+	diffs, err := CompareHashes(dirA, dirB, 2, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 2, "should stop at maxDiffCount")
 	// Returned lowest-first.
@@ -130,7 +130,7 @@ func TestCompareHashesStreamsAcrossManyFiles(t *testing.T) {
 			[]*HashLog{log(block, map[string][]byte{"root": valueB})})
 	}
 
-	diffs, err := CompareHashes(dirA, dirB, -1)
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
 	require.Equal(t, uint64(17), diffs[0].HashesFromA[0].BlockNumber)
@@ -163,7 +163,7 @@ func TestCompareHashesOverlappingRollbackFile(t *testing.T) {
 		log(6, map[string][]byte{"root": {0x66}}),
 	})
 
-	diffs, err := CompareHashes(dirA, dirB, -1)
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
 	require.Equal(t, uint64(5), diffs[0].HashesFromA[0].BlockNumber)
@@ -190,13 +190,13 @@ func TestCompareHashesInRangeRestrictsToWindow(t *testing.T) {
 	}
 
 	// Zooming into [10, 20] must surface only the block-17 deviation.
-	diffs, err := CompareHashesInRange(dirA, dirB, 10, 20, -1)
+	diffs, err := CompareHashesInRange(dirA, dirB, 10, 20, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
 	require.Equal(t, uint64(17), diffs[0].HashesFromA[0].BlockNumber)
 
 	// The full comparison still finds all three, confirming the window is what narrowed the result.
-	all, err := CompareHashes(dirA, dirB, -1)
+	all, err := CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Len(t, all, 3)
 }
@@ -215,18 +215,18 @@ func TestCompareHashesInRangeClampsAndValidates(t *testing.T) {
 	})
 
 	// A window wider than the data is clamped to what's present and still finds the deviation.
-	diffs, err := CompareHashesInRange(dirA, dirB, 0, 1_000_000, -1)
+	diffs, err := CompareHashesInRange(dirA, dirB, 0, 1_000_000, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
 	require.Equal(t, uint64(6), diffs[0].HashesFromA[0].BlockNumber)
 
 	// A window entirely outside the data yields nothing.
-	none, err := CompareHashesInRange(dirA, dirB, 100, 200, -1)
+	none, err := CompareHashesInRange(dirA, dirB, 100, 200, -1, false)
 	require.NoError(t, err)
 	require.Empty(t, none)
 
 	// An inverted range is rejected.
-	_, err = CompareHashesInRange(dirA, dirB, 10, 5, -1)
+	_, err = CompareHashesInRange(dirA, dirB, 10, 5, -1, false)
 	require.Error(t, err)
 }
 
@@ -271,7 +271,97 @@ func TestCompareHashesDifferentTypeSets(t *testing.T) {
 	})
 
 	// The extra "flatKV" hash on side B (absent on A) counts as a deviation.
-	diffs, err := CompareHashes(dirA, dirB, -1)
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
+}
+
+// The three cases below are the ways a comparison can report agreement while having compared nothing.
+// Each is the intended behaviour with requireEveryBlock clear, and an error with it set. A caller
+// asserting that two archives match — a golden-hash regression test, say — depends on the second half
+// of each: without it a run that produced no blocks at all is indistinguishable from a run that
+// produced matching ones.
+
+func TestCompareHashesEmptyArchives(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
+	require.NoError(t, err)
+	require.Empty(t, diffs)
+
+	_, err = CompareHashes(dirA, dirB, -1, true)
+	require.ErrorContains(t, err, "neither archive holds any blocks")
+
+	_, err = CompareHashesInRange(dirA, dirB, 1, 10, -1, true)
+	require.ErrorContains(t, err, "neither archive holds any blocks")
+}
+
+func TestCompareHashesBlockMissingFromBothArchives(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	hashTypes := []string{"root"}
+	// Both archives skip block 2, so it is absent on each side and compares as agreement.
+	logs := []*HashLog{
+		log(1, map[string][]byte{"root": {0x01}}),
+		log(3, map[string][]byte{"root": {0x03}}),
+	}
+	writeArchive(t, dirA, 0, "v1", hashTypes, logs)
+	writeArchive(t, dirB, 0, "v1", hashTypes, logs)
+
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
+	require.NoError(t, err)
+	require.Empty(t, diffs)
+
+	_, err = CompareHashes(dirA, dirB, -1, true)
+	require.ErrorContains(t, err, "block 2 is missing from both archives")
+}
+
+func TestCompareHashesInRangeWindowPastArchives(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	hashTypes := []string{"root"}
+	logs := []*HashLog{
+		log(1, map[string][]byte{"root": {0x01}}),
+		log(2, map[string][]byte{"root": {0x02}}),
+	}
+	writeArchive(t, dirA, 0, "v1", hashTypes, logs)
+	writeArchive(t, dirB, 0, "v1", hashTypes, logs)
+
+	// Asking for 1..12 against archives holding 1..2 is clamped to 1..2 and reports agreement.
+	diffs, err := CompareHashesInRange(dirA, dirB, 1, 12, -1, false)
+	require.NoError(t, err)
+	require.Empty(t, diffs)
+
+	_, err = CompareHashesInRange(dirA, dirB, 1, 12, -1, true)
+	require.ErrorContains(t, err, "block 3 is missing from both archives")
+
+	// The window the archives do cover passes under either setting.
+	diffs, err = CompareHashesInRange(dirA, dirB, 1, 2, -1, true)
+	require.NoError(t, err)
+	require.Empty(t, diffs)
+}
+
+func TestCompareHashesRequireEveryBlockNamesTheShortArchive(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	hashTypes := []string{"root"}
+	writeArchive(t, dirA, 0, "v1", hashTypes, []*HashLog{
+		log(1, map[string][]byte{"root": {0x01}}),
+		log(2, map[string][]byte{"root": {0x02}}),
+	})
+	writeArchive(t, dirB, 0, "v1", hashTypes, []*HashLog{
+		log(1, map[string][]byte{"root": {0x01}}),
+	})
+
+	// A block only one side reached is a diff when coverage is not required, since that is the more
+	// useful report for an operator comparing two nodes.
+	diffs, err := CompareHashes(dirA, dirB, -1, false)
+	require.NoError(t, err)
+	require.Len(t, diffs, 1)
+	require.Equal(t, uint64(2), diffs[0].HashesFromA[0].BlockNumber)
+	require.Empty(t, diffs[0].HashesFromB)
+
+	_, err = CompareHashes(dirA, dirB, -1, true)
+	require.ErrorContains(t, err, "block 2 is missing from archive B")
 }

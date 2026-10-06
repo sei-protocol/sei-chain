@@ -34,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -57,7 +58,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config, nodeOptions ..
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
-	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
+	cfg.RPC.ListenAddress = "tcp://" + tcp.TestReserveAddr().String()
 
 	ctx := t.Context()
 
@@ -102,7 +103,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_restart_event_test")
 	require.NoError(t, err)
 	cfg.Mode = config.ModeFull
-	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
+	cfg.RPC.ListenAddress = "tcp://" + tcp.TestReserveAddr().String()
 
 	ctx := t.Context()
 
@@ -133,7 +134,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config) *nodeImpl {
 	t.Helper()
-	conf.RPC.ListenAddress = fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
+	conf.RPC.ListenAddress = "tcp://" + tcp.TestReserveAddr().String()
 
 	ns, err := newLocalNodeService(ctx, conf)
 	require.NoError(t, err)

@@ -121,9 +121,8 @@ export async function bankSupplyOf(denom = 'usei'): Promise<bigint> {
 /**
  * Create a tokenfactory denom from `mnemonic` and wait until its bank metadata
  * is visible. x/tokenfactory sets denom metadata automatically on creation
- * (name/symbol = the full `factory/<creator>/<subdenom>` string, exponent 0),
- * which is exactly the precondition the pointer precompile's addNativePointer
- * checks. Returns the full denom.
+ * (name/symbol = the full `factory/<creator>/<subdenom>` string, exponent 0).
+ * Returns the full denom.
  */
 export async function createTokenfactoryDenom(
     mnemonic: string,

@@ -11,7 +11,6 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +29,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/admin"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -52,11 +52,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	authrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/rest"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
-	authsims "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/simulation"
 	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting"
-	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 	authzmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/module"
@@ -91,29 +88,25 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/app/retiredibc"
-	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
+	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepair"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	gigaprecompiles "github.com/sei-protocol/sei-chain/giga/executor/precompiles"
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -146,9 +139,6 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -162,8 +152,6 @@ import (
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
-	// unnamed import of statik for openapi/swagger UI support
-	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
@@ -215,8 +203,6 @@ var (
 		slashing.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
-		vesting.AppModuleBasic{},
-		oraclemodule.AppModuleBasic{},
 		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
@@ -232,17 +218,18 @@ var (
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		transferModuleName:             {authtypes.Minter, authtypes.Burner},
-		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
-	allowedReceivingModAcc = map[string]bool{
-		oracletypes.ModuleName: true,
-	}
+	allowedReceivingModAcc = map[string]bool{}
+
+	// retiredModuleAccounts are module accounts whose modules no longer exist
+	// but whose deterministic addresses stay blocked so funds cannot be sent
+	// to an account nothing can sign for.
+	retiredModuleAccounts = []string{"transfer"}
 
 	// kvStoreKeyNames is the canonical, in-order list of module KV store
 	// names mounted on the SeiDB / memiavl backend. It is the single source
@@ -253,8 +240,8 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, storekeys.IBCStoreKey, upgradetypes.StoreKey, feegrantModuleName,
-		evidencetypes.StoreKey, transferModuleName, capabilityModuleName, oracletypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
+		evidencetypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
@@ -289,10 +276,9 @@ var (
 )
 
 const (
-	MinGasEVMTx          = 21000
-	capabilityModuleName = "capability"
-	feegrantModuleName   = "feegrant"
-	transferModuleName   = "transfer"
+	MinGasEVMTx        = 21000
+	feegrantModuleName = "feegrant"
+	vestingModuleName  = "vesting"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -353,7 +339,7 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 	if err != nil {
 		return nil, err
 	}
-	sstore := keeper.GetParams(ctx).SeiSstoreSetGasEip2200
+	sstore := keeper.GetSstoreSetGasEIP2200(ctx)
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
 	baseFee := keeper.GetBaseFee(ctx)
 	return &gigaBlockCache{
@@ -390,7 +376,6 @@ type App struct {
 	ParamsKeeper   paramskeeper.Keeper
 	EvidenceKeeper evidencekeeper.Keeper
 	WasmKeeper     wasm.Keeper
-	OracleKeeper   oraclekeeper.Keeper
 	EvmKeeper      evmkeeper.Keeper
 	GigaEvmKeeper  gigaevmkeeper.Keeper
 
@@ -405,9 +390,6 @@ type App struct {
 
 	// mm is the module manager
 	mm *module.Manager
-
-	// sm is the simulation manager
-	sm *module.SimulationManager
 
 	configurator module.Configurator
 
@@ -442,6 +424,7 @@ type App struct {
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
+	cosmosMetrics         *cosmosmetrics.Reporter
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -468,14 +451,6 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
-}
-
-// Query handles ABCI queries without exposing retired IBC stores.
-func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
-	if response := retiredibc.QueryResponse(req.Path); response != nil {
-		return response, nil
-	}
-	return app.BaseApp.Query(ctx, req)
 }
 
 type AppOption func(*App)
@@ -515,7 +490,7 @@ func New(
 
 	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey)
 
 	app := &App{
 		BaseApp:              bApp,
@@ -583,9 +558,8 @@ func New(
 
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
-	app.StakingKeeper = *stakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks()),
-	)
+	stakingHooks := stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks())
+	app.StakingKeeper = *stakingKeeper.SetHooks(&stakingHooks)
 
 	// ... other modules keepers
 
@@ -594,11 +568,6 @@ func New(
 	)
 	// If evidence needs to be handled for the app, set routes in router here and seal
 	app.EvidenceKeeper = *evidenceKeeper
-
-	app.OracleKeeper = oraclekeeper.NewKeeper(
-		appCodec, keys[oracletypes.StoreKey], memKeys[oracletypes.MemStoreKey], app.GetSubspace(oracletypes.ModuleName),
-		app.AccountKeeper, app.BankKeeper, app.DistrKeeper, &stakingKeeper, distrtypes.ModuleName,
-	)
 
 	wasmDir := filepath.Join(homePath, "wasm")
 	wasmConfig, err := wasm.ReadWasmConfig(appOpts)
@@ -628,7 +597,6 @@ func New(
 	supportedFeatures := "iterator,staking,stargate,sei"
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
-			&app.OracleKeeper,
 			&app.EpochKeeper,
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
@@ -719,6 +687,22 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
 	}
+	cosmosMetricsConfig, err := cosmosmetrics.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading cosmos metrics config due to %s", err))
+	}
+	if cosmosMetricsConfig.Enabled {
+		app.cosmosMetrics, err = cosmosmetrics.NewReporter(cosmosMetricsConfig, cosmosmetrics.Keepers{
+			Staking:      app.StakingKeeper,
+			Slashing:     app.SlashingKeeper,
+			Distribution: app.DistrKeeper,
+			Bank:         app.BankKeeper,
+			EVM:          &app.EvmKeeper,
+		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) })
+		if err != nil {
+			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))
+		}
+	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading evm query config due to %s", err))
@@ -758,12 +742,6 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		// evmone is loaded best-effort
-		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
-			app.GigaEvmKeeper.EvmoneVM = evmoneVM
-		} else {
-			logger.Debug("failed to load evmone VM", "error", err)
-		}
 		// evm_giga_mixed_tests.sh matches these ENABLED/DISABLED strings to guard node roles; keep them in sync.
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
@@ -791,13 +769,11 @@ func New(
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
-		AddRoute(retiredibcgov.RouterKey, retiredibcgov.ProposalHandler).
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
-		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
+		AddRoute(evmtypes.RouterKey, evm.ProposalHandler)
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
@@ -806,6 +782,7 @@ func New(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
 		&stakingKeeper, app.ParamsKeeper, govRouter,
 	)
+	stakingHooks.AddHooks(app.GovKeeper.StakingHooks())
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
 
@@ -822,8 +799,7 @@ func New(
 			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
-		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper, app.UpgradeKeeper),
+		auth.NewAppModule(appCodec, app.AccountKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
@@ -833,8 +809,7 @@ func New(
 		upgrade.NewAppModule(app.UpgradeKeeper),
 		evidence.NewAppModule(app.EvidenceKeeper),
 		params.NewAppModule(app.ParamsKeeper),
-		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
@@ -848,13 +823,13 @@ func New(
 		DistrKeeper:    &app.DistrKeeper,
 		SlashingKeeper: &app.SlashingKeeper,
 		EvidenceKeeper: &app.EvidenceKeeper,
+		GovKeeper:      &app.GovKeeper,
 		StakingKeeper:  &app.StakingKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
 		GovKeeper:     &app.GovKeeper,
 		StakingKeeper: &app.StakingKeeper,
-		OracleKeeper:  &app.OracleKeeper,
 		EvmKeeper:     &app.EvmKeeper,
 	}
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
@@ -872,10 +847,6 @@ func New(
 		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 
-	app.mm.SetOrderMidBlockers(
-		oracletypes.ModuleName,
-	)
-
 	// NOTE: The genutils module must occur after staking so that pools are
 	// properly initialized with tokens from genesis accounts.
 	app.mm.SetOrderInitGenesis(
@@ -888,11 +859,9 @@ func New(
 		slashingtypes.ModuleName,
 		govtypes.ModuleName,
 		minttypes.ModuleName,
-		vestingtypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
 		authz.ModuleName,
-		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
@@ -903,25 +872,6 @@ func New(
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
 	app.mm.RegisterServices(app.configurator)
-
-	// create the simulation manager and define the order of the modules for deterministic simulations
-	app.sm = module.NewSimulationManager(
-		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
-		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
-		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		params.NewAppModule(app.ParamsKeeper),
-		evidence.NewAppModule(app.EvidenceKeeper),
-		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
-		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		epochModule,
-		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		// this line is used by starport scaffolding # stargate/app/appModule
-	)
-	app.sm.RegisterStoreDecoders()
 
 	app.RegisterUpgradeHandlers()
 	app.SetStoreUpgradeHandlers()
@@ -1005,12 +955,19 @@ func New(
 		panic(err)
 	}
 
+	if app.cosmosMetrics != nil {
+		if err := app.cosmosMetrics.Start(); err != nil {
+			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))
+		}
+	}
+
 	// Create hard fork manager and register all hard fork upgrade handlers. Note,
 	// when creating the manager, BaseApp must already be instantiated.
 	//
 	// example: app.HardForkManager.RegisterHandler(myHandler)
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
+	kvrepair.Register(app.HardForkManager, keys)
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
@@ -1025,7 +982,15 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 	return app.EvmKeeper.FlushTransientReceipts(ctx)
 }
 
-// Close closes all items that needs closing (called by baseapp)
+// Close stops readers of committed state before baseapp closes the stores.
+func (app *App) Close() error {
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.Stop()
+	}
+	return app.BaseApp.Close()
+}
+
+// HandleClose closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
 
@@ -1073,7 +1038,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{oracletypes.StoreKey},
+			Added: []string{retiredoracle.ModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -1141,6 +1106,13 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
+
+	if upgradeInfo.Name == "v6.8" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Deleted: v68DeletedStores,
+		}
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 }
 
 // AppName returns the name of the App
@@ -1166,14 +1138,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
-	app.initializeRetiredTransferModuleAccount(ctx)
-	return response
-}
-
-// initializeRetiredTransferModuleAccount materializes the retained transfer module account during genesis.
-func (app *App) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
-	app.AccountKeeper.GetModuleAccount(ctx, transferModuleName)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
@@ -1327,7 +1292,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
+			resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1357,7 +1322,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
+	resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -1769,6 +1734,14 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
+// flushCommittedStateForUpgradeExit waits for the last committed block to reach
+// every backend's log before the process exits for an upgrade.
+func (app *App) flushCommittedStateForUpgradeExit() {
+	if err := app.rootStore.Flush(); err != nil {
+		logger.Error("failed to flush commit store before upgrade exit", "err", err)
+	}
+}
+
 // ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
@@ -1780,6 +1753,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
 			if upgradePanicRe.MatchString(panicMsg) {
 				logger.Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				app.flushCommittedStateForUpgradeExit()
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
 			stack := string(debug.Stack())
@@ -2318,6 +2292,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 }
 
 func (app *App) getFinalizeBlockResponse(
+	ctx context.Context,
 	appHash []byte,
 	events []abci.Event,
 	txResults []*abci.ExecTxResult,
@@ -2326,6 +2301,9 @@ func (app *App) getFinalizeBlockResponse(
 ) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
+	}
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.ObserveTxResults(ctx, txResults)
 	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
@@ -2406,15 +2384,13 @@ func cloneDuration(duration *time.Duration) *time.Duration {
 	return &cloned
 }
 
-// LoadHeight loads a particular height
-func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersionWithoutInit(height)
-}
-
 // ModuleAccountAddrs returns all the app's module account addresses.
 func (app *App) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)
 	for acc := range maccPerms {
+		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
+	}
+	for _, acc := range retiredModuleAccounts {
 		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
 	}
 
@@ -2490,11 +2466,6 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
-
-	// register swagger API from root so that other applications can override easily
-	if apiConfig.Swagger {
-		RegisterSwaggerAPI(apiSvr.Router)
-	}
 
 }
 
@@ -2583,7 +2554,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	headNotifier, _ := app.blockHeaderNotifier.Get()
-	if app.evmRPCConfig.HTTPEnabled {
+	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
+	// the same 8545 once Initialized fires (mock-app forwards InitChain).
+	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
 		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
@@ -2597,7 +2570,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}()
 	}
 
-	if app.evmRPCConfig.WSEnabled {
+	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
 		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
@@ -2620,17 +2593,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	} else {
 		logger.Debug("Admin gRPC server is disabled")
 	}
-}
-
-// RegisterSwaggerAPI registers swagger route with API Server
-func RegisterSwaggerAPI(rtr *mux.Router) {
-	statikFS, err := fs.NewWithNamespace("swagger")
-	if err != nil {
-		panic(err)
-	}
-
-	staticServer := http.FileServer(statikFS)
-	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
@@ -2736,7 +2698,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
@@ -2745,11 +2706,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
-}
-
-// SimulationManager implements the SimulationApp interface
-func (app *App) SimulationManager() *module.SimulationManager {
-	return app.sm
 }
 
 func (app *App) BlacklistedAccAddrs() map[string]bool {

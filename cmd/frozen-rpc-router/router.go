@@ -585,7 +585,7 @@ func (r *router) proxy(w http.ResponseWriter, request *http.Request, target *ups
 	if err != nil {
 		return err
 	}
-	response, err := r.client.Do(upstreamRequest)
+	response, err := r.client.Do(upstreamRequest) //nolint:gosec // upstream URLs come from operator configuration; request data only supplies the proxied path and query.
 	if err != nil {
 		return err
 	}
@@ -610,7 +610,7 @@ func (r *router) callUpstream(request *http.Request, target *upstream, body []by
 	if err != nil {
 		return nil, err
 	}
-	response, err := r.client.Do(upstreamRequest)
+	response, err := r.client.Do(upstreamRequest) //nolint:gosec // upstream URLs come from operator configuration; request data only supplies the proxied path and query.
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +627,7 @@ func (r *router) callUpstream(request *http.Request, target *upstream, body []by
 
 func (r *router) newUpstreamRequest(request *http.Request, target *upstream, body []byte) (*http.Request, error) {
 	endpoint := joinedURL(target.endpoint, request.URL)
-	upstreamRequest, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), bytes.NewReader(body))
+	upstreamRequest, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), bytes.NewReader(body)) //nolint:gosec // endpoint is rooted at an operator-configured upstream URL.
 	if err != nil {
 		return nil, err
 	}

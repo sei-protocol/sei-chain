@@ -20,6 +20,7 @@ func storedInfoConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cfg.MemIAVLConfig.SnapshotKeepRecent = 1000
+	cfg.FlatKVConfig.SnapshotKeepRecent = 1000
 	return cfg
 }
 
@@ -83,7 +84,7 @@ func TestLastCommitInfoUnmovedByWorkingHash(t *testing.T) {
 	require.NoError(t, cs.ApplyChangeSets(storedInfoChangeset(2)))
 	require.NotNil(t, cs.WorkingCommitInfo(cs.Version()+1))
 
-	_, flatKVVersion := cs.flatKV.RootHash()
+	flatKVVersion := cs.loadFlatKV().Version()
 	require.Equal(t, committed+1, flatKVVersion, "flatkv should be a block ahead for this test to mean anything")
 
 	after := cs.LastCommitInfo()

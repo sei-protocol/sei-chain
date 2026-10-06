@@ -37,27 +37,9 @@ func NewHandler(k *keeper.Keeper) sdk.Handler {
 	}
 }
 
-func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
-	return func(ctx sdk.Context, content govtypes.Content) error {
-		switch c := content.(type) {
-		case *types.AddERCNativePointerProposal:
-			return HandleAddERCNativePointerProposal(ctx, &k, c)
-		case *types.AddERCCW20PointerProposal:
-			return HandleAddERCCW20PointerProposal(ctx, &k, c)
-		case *types.AddERCCW721PointerProposal:
-			return HandleAddERCCW721PointerProposal(ctx, &k, c)
-		case *types.AddERCCW1155PointerProposal:
-			return HandleAddERCCW1155PointerProposal(ctx, &k, c)
-		case *types.AddCWERC20PointerProposal:
-			return HandleAddCWERC20PointerProposal(ctx, &k, c)
-		case *types.AddCWERC721PointerProposal:
-			return HandleAddCWERC721PointerProposal(ctx, &k, c)
-		case *types.AddCWERC1155PointerProposal:
-			return HandleAddCWERC1155PointerProposal(ctx, &k, c)
-		case *types.AddERCNativePointerProposalV2:
-			return HandleAddERCNativePointerProposalV2(ctx, &k, c)
-		default:
-			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized evm proposal content type: %T", c)
-		}
-	}
+// ProposalHandler fails execution of a retired pointer proposal. The route stays
+// registered because gov panics on a proposal whose route it cannot resolve, which a
+// pointer proposal still in the voting queue would reach at the end of its period.
+func ProposalHandler(sdk.Context, govtypes.Content) error {
+	return types.ErrPointerProposalDeprecated
 }

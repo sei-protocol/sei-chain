@@ -25,14 +25,20 @@ func openPrunableTestStore(t *testing.T) *EVMStateStore {
 	return store
 }
 
+// evmChangeset returns a changeset holding one account key, which routes to this store in either
+// sub-DB mode.
+func evmChangeset() []*proto.NamedChangeSet {
+	key := append([]byte{0x0a}, make([]byte, 20)...)
+	return []*proto.NamedChangeSet{{
+		Name:      EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: []byte{0x01}}}},
+	}}
+}
+
 // applyVersion writes one key at version so the store has a head to measure against.
 func applyVersion(t *testing.T, store *EVMStateStore, version int64) {
 	t.Helper()
-	key := append([]byte{0x0a}, make([]byte, 20)...)
-	require.NoError(t, store.ApplyChangesetSync(version, []*proto.NamedChangeSet{{
-		Name:      EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: []byte{0x01}}}},
-	}}))
+	require.NoError(t, store.ApplyChangesetSync(version, evmChangeset()))
 }
 
 // The collector prunes this store only when it says so, and it says so from the config it was opened
@@ -90,8 +96,8 @@ func TestRollbackFloorNamesThePublishedSnapshot(t *testing.T) {
 	store.SetCheckpointScheduler(controller.NewCheckpointScheduler(dbconfig.CheckpointConfig{BlockInterval: 1}))
 
 	applyVersion(t, store, 10)
-	store.ScheduleSnapshot(10)
-	// ScheduleSnapshot returns once the checkpoint is queued, so the publication it will be followed by
+	store.scheduleSnapshot(10)
+	// scheduleSnapshot returns once the checkpoint is queued, so the publication it will be followed by
 	// is already registered and waiting here cannot miss it.
 	store.checkpoint.publishing.Wait()
 	require.Equal(t, int64(10), store.Snapshots().Newest())
@@ -109,7 +115,7 @@ func TestNoSnapshotWithoutASchedule(t *testing.T) {
 	store := openPrunableTestStore(t)
 
 	applyVersion(t, store, 10)
-	store.ScheduleSnapshot(10)
+	store.scheduleSnapshot(10)
 	store.WaitForPendingWrites()
 
 	require.Zero(t, store.Snapshots().Newest())

@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -55,6 +54,4 @@ func recordQueryError(ctx context.Context, scenario string, err error) {
 			attribute.String("codespace", codespace),
 		))
 	}
-	// TODO(PLT-343): remove once wasm_query_association_error and wasm_query_sdk_error verified
-	metrics.IncrementErrorMetrics(scenario, err)
 }
