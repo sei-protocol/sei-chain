@@ -269,22 +269,10 @@ func (r *Reactor) GetRemainingSyncTime() time.Duration {
 	return 0
 }
 
-// respondToPeer loads a block and sends it to the requesting peer, if we have it.
-// Otherwise, it responds saying we do not have it.
+// respondToPeer rejects a peer's block request.
 func (r *Reactor) respondToPeer(msg *pb.BlockRequest, peerID types.NodeID) error {
-	block := r.store.LoadBlock(msg.GetHeight())
-	if block == nil {
-		logger.Info("peer requesting a block we do not have", "peer", peerID, "height", msg.GetHeight())
-		r.channel.Send(wrap(&pb.NoBlockResponse{Height: msg.GetHeight()}), peerID)
-		return nil
-	}
-
-	blockProto, err := block.ToProto()
-	if err != nil {
-		return fmt.Errorf("failed to convert block to protobuf: %w", err)
-	}
-
-	r.channel.Send(wrap(&pb.BlockResponse{Block: blockProto}), peerID)
+	logger.Debug("rejecting block request", "peer", peerID, "height", msg.GetHeight())
+	r.channel.Send(wrap(&pb.NoBlockResponse{Height: msg.GetHeight()}), peerID)
 	return nil
 }
 

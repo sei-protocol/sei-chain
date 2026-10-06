@@ -652,32 +652,11 @@ func (r *Reactor) backfill(
 func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer r.recoverToErr(&err)
 	logger := logger.With("peer", m.From)
-	snapshotCh := r.snapshotChannel
 
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_SnapshotsRequest:
-		snapshots, err := r.recentSnapshots(ctx, recentSnapshots)
-		if err != nil {
-			logger.Error("failed to fetch snapshots", "err", err)
-			return nil
-		}
-
-		for _, snapshot := range snapshots {
-			logger.Info(
-				"advertising snapshot",
-				"height", snapshot.Height,
-				"format", snapshot.Format,
-				"peer", m.From,
-			)
-
-			snapshotCh.Send(wrap(&pb.SnapshotsResponse{
-				Height:   snapshot.Height,
-				Format:   snapshot.Format,
-				Chunks:   snapshot.Chunks,
-				Hash:     snapshot.Hash,
-				Metadata: snapshot.Metadata,
-			}), m.From)
-		}
+		logger.Debug("rejecting snapshot request")
+		return nil
 
 	case *pb.Message_SnapshotsResponse:
 		resp := msg.SnapshotsResponse
@@ -725,31 +704,7 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mess
 	case *pb.Message_ChunkRequest:
 		req := msg.ChunkRequest
 		logger.Debug(
-			"received chunk request",
-			"height", req.GetHeight(),
-			"format", req.GetFormat(),
-			"chunk", req.GetIndex(),
-			"peer", m.From,
-		)
-		resp, err := r.conn.LoadSnapshotChunk(ctx, &abci.RequestLoadSnapshotChunk{
-			Height: req.GetHeight(),
-			Format: req.GetFormat(),
-			Chunk:  req.GetIndex(),
-		})
-		if err != nil {
-			logger.Error(
-				"failed to load chunk",
-				"height", req.GetHeight(),
-				"format", req.GetFormat(),
-				"chunk", req.GetIndex(),
-				"err", err,
-				"peer", m.From,
-			)
-			return nil
-		}
-
-		logger.Debug(
-			"sending chunk",
+			"rejecting chunk request",
 			"height", req.GetHeight(),
 			"format", req.GetFormat(),
 			"chunk", req.GetIndex(),
@@ -759,8 +714,7 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mess
 			Height:  req.GetHeight(),
 			Format:  req.GetFormat(),
 			Index:   req.GetIndex(),
-			Chunk:   resp.Chunk,
-			Missing: resp.Chunk == nil,
+			Missing: true,
 		}), m.From)
 
 	case *pb.Message_ChunkResponse:
