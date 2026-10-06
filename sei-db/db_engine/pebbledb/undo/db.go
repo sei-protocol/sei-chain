@@ -5,7 +5,7 @@
 //	bucket(h) | key | h        with bucket(h) = h / bucketSize
 //
 // and nothing else: the value after the latest block lives in the state commit store, which this
-// store reads through a CurrentView. The state after block T is the first record above T, or the
+// store reads through a LiveStateView. The state after block T is the first record above T, or the
 // current value when there is none. Buckets are contiguous key ranges, so dropping history is one
 // Excise per expired bucket rather than a scan and a tombstone per version.
 package undo
@@ -81,9 +81,9 @@ var (
 	bucketSizeKey      = metadataKey("bucket_size")
 )
 
-// CurrentView reads current state as of one committed block. The state commit store's views are
-// CurrentViews.
-type CurrentView interface {
+// LiveStateView is a read-only view of the live state store at one committed block.
+// It remains unchanged as the store advances.
+type LiveStateView interface {
 	Get(module string, key []byte) (value []byte, found bool)
 	Close()
 }
@@ -129,7 +129,7 @@ type Database struct {
 type pendingBlock struct {
 	version int64
 	prior   []*proto.KVPair
-	current CurrentView
+	current LiveStateView
 	done    chan struct{}
 }
 
@@ -284,7 +284,7 @@ func heightOf(version int64) (uint64, error) {
 //
 // A log behind version is missing the records of the blocks in between, which only their execution
 // could supply, so history below version stops being served.
-func (db *Database) Resume(version int64, current CurrentView) error {
+func (db *Database) Resume(version int64, current LiveStateView) error {
 	db.lifecycleMu.Lock()
 	defer db.lifecycleMu.Unlock()
 	if db.closed {
@@ -333,7 +333,7 @@ func (db *Database) resume(version int64) (uint64, error) {
 // with Delete marking prior absence, and takes ownership of the post-block current view.
 // It panics before a successful Resume or after Close. Unsupported key families and malformed
 // records are fatal write errors.
-func (db *Database) ApplyBlock(version int64, prior []*proto.KVPair, current CurrentView) {
+func (db *Database) ApplyBlock(version int64, prior []*proto.KVPair, current LiveStateView) {
 	if err := db.enqueue(pendingBlock{version: version, prior: prior, current: current}); err != nil {
 		current.Close()
 		panic(err)
@@ -379,7 +379,7 @@ func (db *Database) writeInBackground() {
 }
 
 // applyBlock writes block version and makes current the view reads fall back to.
-func (db *Database) applyBlock(version int64, prior []*proto.KVPair, current CurrentView) error {
+func (db *Database) applyBlock(version int64, prior []*proto.KVPair, current LiveStateView) error {
 	height, err := db.writeBlock(version, prior)
 	if err != nil {
 		current.Close()
@@ -468,7 +468,7 @@ func (db *Database) writeRecords(prior []*proto.KVPair, bucket, height uint64) e
 // every view pinning it holds another; the last one released closes the view.
 type head struct {
 	height uint64
-	view   CurrentView
+	view   LiveStateView
 	refs   atomic.Int64
 }
 
@@ -479,7 +479,7 @@ func (h *head) release() {
 }
 
 // publishHead makes current, as of height, the view reads fall back to.
-func (db *Database) publishHead(height uint64, current CurrentView) {
+func (db *Database) publishHead(height uint64, current LiveStateView) {
 	next := &head{height: height, view: current}
 	next.refs.Store(1)
 	if prev := db.head.Swap(next); prev != nil {

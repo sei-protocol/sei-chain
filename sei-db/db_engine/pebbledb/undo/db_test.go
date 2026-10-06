@@ -127,7 +127,7 @@ func TestUndoLogByHand(t *testing.T) {
 	}
 }
 
-// mapView is a CurrentView over an immutable map, counting how often it is closed.
+// mapView is a LiveStateView over an immutable map, counting how often it is closed.
 type mapView struct {
 	values map[string][]byte
 	closes *atomic.Int64
@@ -182,7 +182,7 @@ func newChain(t testing.TB, dir string, bucketSize uint64, base int64) *chain {
 	return c
 }
 
-func (c *chain) view(values map[string][]byte) CurrentView {
+func (c *chain) view(values map[string][]byte) LiveStateView {
 	c.created.Add(1)
 	return &mapView{values: values, closes: &c.closes}
 }
