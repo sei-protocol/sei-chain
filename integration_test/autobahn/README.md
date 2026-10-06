@@ -385,7 +385,11 @@ The public EVM JSON-RPC surface intentionally contains only:
   against current committed state;
 - `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
   height (including any height still within the node's retention window) or
-  by hash.
+  by hash;
+- `eth_getBlockTransactionCountByNumber` and
+  `eth_getBlockTransactionCountByHash`, for the number of transactions in a
+  finalized block, resolved the same way as `eth_getBlockByNumber` and
+  `eth_getBlockByHash`.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -575,7 +579,7 @@ transactions.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no
-by-block-and-index transaction lookups or block-transaction-count methods.
+by-block-and-index transaction lookups.
 There are also no fee-estimation, log, or WebSocket subscription methods.
 Commands that depend on those queries cannot operate normally; raw
 transactions must still provide gas price offline as in the example above.

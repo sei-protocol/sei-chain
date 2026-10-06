@@ -82,13 +82,25 @@ func (mti *MultiTreeImporter) Add(item interface{}) error {
 	}
 }
 
+// AddModule starts importing the tree called name into its own directory under
+// the import temp dir. name must be a plain directory name.
 func (mti *MultiTreeImporter) AddModule(name string) error {
+	if err := validateModuleName(name); err != nil {
+		return err
+	}
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
 		}
 	}
 	mti.importer = NewTreeImporter(mti.ctx, filepath.Join(mti.tmpDir(), name), mti.height)
+	return nil
+}
+
+func validateModuleName(name string) error {
+	if name == "." || !filepath.IsLocal(name) || filepath.Base(name) != name {
+		return fmt.Errorf("invalid snapshot module name %q", name)
+	}
 	return nil
 }
 

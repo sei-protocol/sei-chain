@@ -17,7 +17,7 @@ func (cs *CompositeCommitStore) HashCategories() []string {
 	if cs.memIAVL != nil {
 		categories = append(categories, cs.memIAVL.HashCategories()...)
 	}
-	if cs.flatKV != nil {
+	if cs.loadFlatKV() != nil {
 		categories = append(categories, flatkv.HashTypes()...)
 	}
 	return categories
@@ -30,7 +30,7 @@ func (cs *CompositeCommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber 
 			return err
 		}
 	}
-	if cs.flatKV != nil {
+	if cs.loadFlatKV() != nil {
 		// Keyed on the block cosmos committed rather than the hash's own height, which is what keeps
 		// this row complete: a block whose writes never reached flatKV leaves its hash on the height
 		// before, and the AppHash reports that same hash for this block.

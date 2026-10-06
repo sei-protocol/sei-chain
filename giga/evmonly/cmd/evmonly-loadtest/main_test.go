@@ -951,6 +951,10 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			name: "same_sender_nonce_chain",
 			args: []string{"--same-sender"},
 		},
+		{
+			name: "erc20_single_contract",
+			args: []string{"--workload=" + workloadERC20Transfer},
+		},
 	}
 	for _, tc := range tests {
 		b.Run(tc.name, func(b *testing.B) {
@@ -965,7 +969,7 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			require.NoError(b, err)
 
 			state := newGeneratedState()
-			workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			workload, err := scenarios.NewWorkload(cfg.workload, scenarioConfig(cfg), state)
 			require.NoError(b, err)
 			request, err := workload.BuildBlock(b.Context(), 1)
 			require.NoError(b, err)
