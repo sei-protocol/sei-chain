@@ -166,6 +166,10 @@ type Reactor struct {
 	// snapshots to other nodes.
 	needsStateSync bool
 
+	// serveSnapshotsAndBlocks answers peers' snapshot and chunk requests.
+	// False rejects both. Fetching snapshots from peers is unaffected.
+	serveSnapshotsAndBlocks bool
+
 	// Dispatcher is used to multiplex light block requests and responses over multiple
 	// peers used by the p2p state provider and in reverse sync.
 	dispatcher *Dispatcher
@@ -264,6 +268,12 @@ func NewReactor(
 
 	r.BaseService = *service.NewBaseService("StateSync", r)
 	return r, nil
+}
+
+// SetServeSnapshotsAndBlocks sets whether this node answers peers' state
+// sync snapshot requests. The same switch in config also covers block sync.
+func (r *Reactor) SetServeSnapshotsAndBlocks(serve bool) {
+	r.serveSnapshotsAndBlocks = serve
 }
 
 func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initialHeight int64) error {
@@ -655,8 +665,30 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg[*pb.M
 
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_SnapshotsRequest:
-		logger.Debug("rejecting snapshot request")
-		return nil
+		if !r.serveSnapshotsAndBlocks {
+			logger.Debug("rejecting snapshot request")
+			return nil
+		}
+		snapshots, err := r.recentSnapshots(ctx, recentSnapshots)
+		if err != nil {
+			logger.Error("failed to fetch snapshots", "err", err)
+			return nil
+		}
+		for _, snapshot := range snapshots {
+			logger.Info(
+				"advertising snapshot",
+				"height", snapshot.Height,
+				"format", snapshot.Format,
+				"peer", m.From,
+			)
+			r.snapshotChannel.Send(wrap(&pb.SnapshotsResponse{
+				Height:   snapshot.Height,
+				Format:   snapshot.Format,
+				Chunks:   snapshot.Chunks,
+				Hash:     snapshot.Hash,
+				Metadata: snapshot.Metadata,
+			}), m.From)
+		}
 
 	case *pb.Message_SnapshotsResponse:
 		resp := msg.SnapshotsResponse
@@ -703,8 +735,47 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mess
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_ChunkRequest:
 		req := msg.ChunkRequest
+		if !r.serveSnapshotsAndBlocks {
+			logger.Debug(
+				"rejecting chunk request",
+				"height", req.GetHeight(),
+				"format", req.GetFormat(),
+				"chunk", req.GetIndex(),
+				"peer", m.From,
+			)
+			chunkCh.Send(wrap(&pb.ChunkResponse{
+				Height:  req.GetHeight(),
+				Format:  req.GetFormat(),
+				Index:   req.GetIndex(),
+				Missing: true,
+			}), m.From)
+			break
+		}
 		logger.Debug(
-			"rejecting chunk request",
+			"received chunk request",
+			"height", req.GetHeight(),
+			"format", req.GetFormat(),
+			"chunk", req.GetIndex(),
+			"peer", m.From,
+		)
+		resp, err := r.conn.LoadSnapshotChunk(ctx, &abci.RequestLoadSnapshotChunk{
+			Height: req.GetHeight(),
+			Format: req.GetFormat(),
+			Chunk:  req.GetIndex(),
+		})
+		if err != nil {
+			logger.Error(
+				"failed to load chunk",
+				"height", req.GetHeight(),
+				"format", req.GetFormat(),
+				"chunk", req.GetIndex(),
+				"err", err,
+				"peer", m.From,
+			)
+			return nil
+		}
+		logger.Debug(
+			"sending chunk",
 			"height", req.GetHeight(),
 			"format", req.GetFormat(),
 			"chunk", req.GetIndex(),
@@ -714,7 +785,8 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mess
 			Height:  req.GetHeight(),
 			Format:  req.GetFormat(),
 			Index:   req.GetIndex(),
-			Missing: true,
+			Chunk:   resp.Chunk,
+			Missing: resp.Chunk == nil,
 		}), m.From)
 
 	case *pb.Message_ChunkResponse:

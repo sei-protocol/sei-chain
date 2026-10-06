@@ -157,6 +157,8 @@ func (rts *reactorTestSuite) addNode(
 		func() {},
 		remediationConfig,
 	)
+	// Peers in this suite serve each other. Production defaults to off.
+	reactor.SetServeSnapshotsAndBlocks(true)
 	lastCommit := &types.Commit{}
 
 	state, err := reactor.stateStore.Load()

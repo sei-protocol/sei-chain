@@ -234,6 +234,26 @@ func TestReactor_ChunkRequest(t *testing.T) {
 	require.False(t, called)
 }
 
+func TestReactor_ChunkRequestServedWhenEnabled(t *testing.T) {
+	ctx := t.Context()
+
+	conn := newTestStatesyncApp()
+	conn.loadSnapshotChunk.Set(func(context.Context, *abci.RequestLoadSnapshotChunk) (*abci.ResponseLoadSnapshotChunk, error) {
+		return &abci.ResponseLoadSnapshotChunk{Chunk: []byte{1, 2, 3}}, nil
+	})
+
+	rts := setup(t, conn, nil, false)
+	rts.reactor.SetServeSnapshotsAndBlocks(true)
+	n := utils.OrPanic1(rts.AddPeer(ctx, t))
+	n.chunkCh.Broadcast(wrap(&pb.ChunkRequest{Height: 1, Format: 1, Index: 1}))
+	m, err := n.chunkCh.Recv(ctx)
+	require.NoError(t, err)
+	got := m.Message.Sum.(*pb.Message_ChunkResponse).ChunkResponse
+	if err := utils.TestDiff(&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{1, 2, 3}}, got); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReactor_SnapshotsRequest(t *testing.T) {
 	ctx := t.Context()
 
@@ -250,6 +270,30 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, called)
+}
+
+func TestReactor_SnapshotsRequestServedWhenEnabled(t *testing.T) {
+	ctx := t.Context()
+
+	conn := newTestStatesyncApp()
+	conn.listSnapshots.Set(mkHandler(&abci.RequestListSnapshots{}, &abci.ResponseListSnapshots{
+		Snapshots: []*abci.Snapshot{{
+			Height: 3, Format: 1, Chunks: 1, Hash: []byte{1}, Metadata: []byte{2},
+		}},
+	}))
+
+	rts := setup(t, conn, nil, false)
+	rts.reactor.SetServeSnapshotsAndBlocks(true)
+	n := utils.OrPanic1(rts.AddPeer(ctx, t))
+	n.snapshotCh.Broadcast(wrap(&pb.SnapshotsRequest{}))
+	m, err := n.snapshotCh.Recv(ctx)
+	require.NoError(t, err)
+	got := m.Message.Sum.(*pb.Message_SnapshotsResponse).SnapshotsResponse
+	if err := utils.TestDiff(&pb.SnapshotsResponse{
+		Height: 3, Format: 1, Chunks: 1, Hash: []byte{1}, Metadata: []byte{2},
+	}, got); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestReactor_LightBlockResponse(t *testing.T) {
