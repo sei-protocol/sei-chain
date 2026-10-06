@@ -37,6 +37,45 @@ func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNu
 // GetBlockByHash returns the block with the given hash, or nil if hash is
 // unknown.
 func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (map[string]any, error) {
+	block, err := api.resolveBlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil, err
+	}
+	return api.encodeBlock(ctx, block, fullTx)
+}
+
+// GetBlockTransactionCountByNumber returns the number of transactions in the
+// block for number, nil for a zero/negative or future height, or an error for a
+// pruned height.
+func (api *blockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number ethrpc.BlockNumber) (*hexutil.Uint, error) {
+	block, err := api.resolveBlockByNumber(ctx, number)
+	if err != nil || block == nil {
+		return nil, err
+	}
+	return transactionCount(block), nil
+}
+
+// GetBlockTransactionCountByHash returns the number of transactions in the
+// block with the given hash, or nil if hash is unknown.
+func (api *blockAPI) GetBlockTransactionCountByHash(ctx context.Context, hash common.Hash) (*hexutil.Uint, error) {
+	block, err := api.resolveBlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil, err
+	}
+	return transactionCount(block), nil
+}
+
+// transactionCount returns the number of transactions in block, counting every
+// transaction its body carries, as the transactions list of eth_getBlockBy*
+// does.
+func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
+	count := hexutil.Uint(len(block.Block.Txs)) //nolint:gosec // G115: a slice length is non-negative.
+	return &count
+}
+
+// resolveBlockByHash returns the block with the given hash, or a nil block if
+// hash is unknown.
+func (api *blockAPI) resolveBlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
 	block, err := api.backend.BlockByHash(ctx, &coretypes.RequestBlockByHash{Hash: tmbytes.HexBytes(hash.Bytes())})
 	if err != nil {
 		return nil, err
@@ -44,7 +83,7 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 	if block == nil || block.Block == nil {
 		return nil, nil
 	}
-	return api.encodeBlock(ctx, block, fullTx)
+	return block, nil
 }
 
 // resolveBlockByNumber returns a nil block for a zero/negative or future
