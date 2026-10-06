@@ -35,8 +35,6 @@ var (
 	DefaultParams      = types.DefaultParams
 
 	InitGenesis            = keeper.InitGenesis
-	ExportGenesis          = keeper.ExportGenesis
-	ExportGenesisStream    = keeper.ExportGenesisStream
 	NewKeeper              = keeper.NewKeeper
 	CreateTestInput        = keeper.CreateTestInput
 	NewWasmProposalHandler = keeper.NewWasmProposalHandler
