@@ -660,7 +660,7 @@ func TestComposite_Auto_ChildStoreReadsDuringWriteModeSwitch(t *testing.T) {
 			{Key: key, Value: value},
 		}}},
 	}))
-	_, err := cs.Commit(cs.Version() + 1)
+	_, err := cs.Commit()
 	require.NoError(t, err)
 
 	view := cs.GetChildStoreByName(keys.BankStoreKey)
