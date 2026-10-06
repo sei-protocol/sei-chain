@@ -639,10 +639,10 @@ func memiavlGetForTest(cs *CompositeCommitStore, store string, key []byte) ([]by
 // flatKVGetForTest reads (store, key) directly from the flatkv backend, or
 // reports not-found when flatkv is absent (e.g. MemiavlOnly mode).
 func flatKVGetForTest(cs *CompositeCommitStore, store string, key []byte) ([]byte, bool) {
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		return nil, false
 	}
-	return cs.flatKV.Get(store, key)
+	return cs.loadFlatKV().Get(store, key)
 }
 
 // getMemIAVLKeyCount returns the total number of keys across every tree in the
@@ -669,8 +669,8 @@ func getMemIAVLKeyCount(t *testing.T, cs *CompositeCommitStore) int64 {
 // equals the logical key count).
 func getFlatKVKeyCount(t *testing.T, cs *CompositeCommitStore) int64 {
 	t.Helper()
-	require.NotNil(t, cs.flatKV)
-	iter, err := cs.flatKV.RawGlobalIterator()
+	require.NotNil(t, cs.loadFlatKV())
+	iter, err := cs.loadFlatKV().RawGlobalIterator()
 	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 	var count int64
@@ -975,7 +975,7 @@ func verifyKeyCounts(
 		}
 		require.Equal(t, memExpected, getMemIAVLKeyCount(t, cs), "memiavl physical key count")
 	}
-	if cs.flatKV != nil {
+	if cs.loadFlatKV() != nil {
 		require.Equal(t, int64(len(oracleToFlatKVRows(oracle, placement))), getFlatKVKeyCount(t, cs),
 			"flatkv physical key count")
 	}
@@ -1086,12 +1086,12 @@ func verifyFlatKVRows(
 	placement func(store string) backendPlacement,
 ) {
 	t.Helper()
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		return
 	}
 	expected := oracleToFlatKVRows(oracle, placement)
 
-	iter, err := cs.flatKV.RawGlobalIterator()
+	iter, err := cs.loadFlatKV().RawGlobalIterator()
 	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 
@@ -1226,13 +1226,13 @@ func assertFlatKVMapsExercised(t *testing.T, oracle *storeOracle, placement func
 // version and boundary keys in flatkv's reserved MigrationStore.
 func verifyMigrationMetadata(t *testing.T, cs *CompositeCommitStore, wantVersion, wantBoundary bool) {
 	t.Helper()
-	if cs.flatKV == nil {
+	if cs.loadFlatKV() == nil {
 		require.False(t, wantVersion, "no flatkv backend: version key cannot be present")
 		require.False(t, wantBoundary, "no flatkv backend: boundary key cannot be present")
 		return
 	}
-	_, versionPresent := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
-	_, boundaryPresent := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	_, versionPresent := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
+	_, boundaryPresent := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.Equal(t, wantVersion, versionPresent, "migration version key presence")
 	require.Equal(t, wantBoundary, boundaryPresent, "migration boundary key presence")
 }

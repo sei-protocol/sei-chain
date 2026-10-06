@@ -208,7 +208,7 @@ func (w *migrationWorkload) snapshotOracle() map[migKeyPair][]byte {
 // reach into the migration package's private readVersionFromDB helper.
 func flatKVReaderFor(cs *CompositeCommitStore) migration.DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
-		v, ok := cs.flatKV.Get(store, key)
+		v, ok := cs.loadFlatKV().Get(store, key)
 		return v, ok, nil
 	}
 }
@@ -252,7 +252,7 @@ func driveMigrationWorkload(
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(phase1Blocks), cs.Version())
-	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate flatkv")
+	require.Nil(t, cs.loadFlatKV(), "MemiavlOnly must not allocate flatkv")
 	// Snapshot the oracle right at the mode boundary so the
 	// post-reopen verification below sees pre-migration data only.
 	// Phase 2 will then mutate the workload further; callers that
@@ -339,14 +339,14 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 		}}},
 	}))
 
-	boundaryBytes, ok := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	boundaryBytes, ok := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.True(t, ok)
 	boundary, err := migration.DeserializeMigrationBoundary(boundaryBytes)
 	require.NoError(t, err)
 	require.True(t, boundary.Equals(migration.NewMigrationBoundary(keys.EVMStoreKey, key1)),
 		"second non-empty ApplyChangeSets in the same block must not migrate key2")
 
-	_, ok = cs.flatKV.Get(keys.EVMStoreKey, key2)
+	_, ok = cs.loadFlatKV().Get(keys.EVMStoreKey, key2)
 	require.False(t, ok, "key2 should remain unmigrated until the next block")
 }
 
@@ -497,10 +497,10 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.True(t, found)
 	require.Equal(t, evmStorageTestValue(0x22), value)
 	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 
 	preFlipVersion := cs.Version()
-	preFlipHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	preFlipHash := append([]byte(nil), cs.loadFlatKV().CommittedRootHash()...)
 	require.NoError(t, cs.Close())
 
 	finalCfg := evmMigratedConfig()
@@ -513,7 +513,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	defer func() { _ = cs.Close() }()
 
 	require.Equal(t, preFlipVersion, cs.Version())
-	require.Equal(t, preFlipHash, cs.flatKV.CommittedRootHash())
+	require.Equal(t, preFlipHash, cs.loadFlatKV().CommittedRootHash())
 	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
 		value, found, err := cs.Get(keys.EVMStoreKey, key)
 		require.NoError(t, err)
@@ -525,7 +525,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.True(t, found)
 	require.Equal(t, evmStorageTestValue(0x22), value)
 	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 }
 
 // runUntilMigrationComplete drives the workload through commits until
@@ -670,7 +670,7 @@ func TestComposite_MigrateEVM_HappyPath(t *testing.T) {
 	// I4: full-scan lattice hash must agree with the stored committed
 	// hash; this is the offline equivalent of the cross-validator
 	// digest check the Docker tests run.
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()),
 		"post-migration flatkv must pass full-scan LtHash verification")
 }
 
@@ -743,7 +743,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		}
 
 		finalVersion = cs.Version()
-		flatkvHash = append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+		flatkvHash = append([]byte(nil), cs.loadFlatKV().CommittedRootHash()...)
 		oracle = workload.snapshotOracle()
 		require.NoError(t, cs.Close())
 		return
@@ -808,7 +808,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
 			_, err := cs.Commit()
 			require.NoError(t, err)
-			perBlockHashes = append(perBlockHashes, append([]byte(nil), cs.flatKV.CommittedRootHash()...))
+			perBlockHashes = append(perBlockHashes, append([]byte(nil), cs.loadFlatKV().CommittedRootHash()...))
 		}
 		finalVersion = cs.Version()
 		return
@@ -850,7 +850,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	preFlipVersion := cs.Version()
 	preFlipOracle := workload.snapshotOracle()
-	preFlipFlatkvHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	preFlipFlatkvHash := append([]byte(nil), cs.loadFlatKV().CommittedRootHash()...)
 	require.NoError(t, cs.Close())
 
 	// --- Mode flip: reopen as EVMMigrated. ---
@@ -865,7 +865,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	require.Equal(t, preFlipVersion, cs.Version(),
 		"EVMMigrated reopen must report the same version as the completed MigrateEVM run")
-	require.Equal(t, preFlipFlatkvHash, cs.flatKV.CommittedRootHash(),
+	require.Equal(t, preFlipFlatkvHash, cs.loadFlatKV().CommittedRootHash(),
 		"flatkv committed root hash must be invariant across the MigrateEVM -> EVMMigrated mode flip")
 	requireOracleMatches(t, cs, preFlipOracle)
 
@@ -879,7 +879,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	_, err = cs.Commit()
 	require.NoError(t, err)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 
 	// EVMMigrated has no migration manager, so memiavl's evm tree must
 	// still be empty after a post-flip block (writes went to flatkv).
@@ -1201,7 +1201,7 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	runBlocks(t, cs, workload, 2)
 
 	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
-	require.Equal(t, types.MigrateBank, cs.currentWriteMode)
+	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
 
 	// One migrate_bank block that does not complete the migration: memiavl
 	// is still part of the AppHash here. Capture it as the rollback target.
