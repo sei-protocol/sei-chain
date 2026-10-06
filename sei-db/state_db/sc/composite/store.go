@@ -52,8 +52,10 @@ type CompositeCommitStore struct {
 	// Manages routing of traffic between the memiavl and flatkv backends.
 	// Built (and rebuilt) inside LoadVersion against the just-opened
 	// backends so that lazily-eager constructors like
-	// NewMemiavlMigrationIterator see a non-nil memiavl DB.
-	router migration.Router
+	// NewMemiavlMigrationIterator see a non-nil memiavl DB. SetWriteMode
+	// replaces it while views from GetChildStoreByName may be reading it, so
+	// access it only through loadRouter and storeRouter.
+	router atomic.Pointer[migration.Router]
 
 	// ctx is the constructor's context. Each invocation of buildRouter
 	// derives a per-router child context from it and stores the
@@ -460,7 +462,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	}
 
 	// Build a per-handle composite with its own router. Without this the read-only handle has
-	// cs.router == nil and every read-side method nil-dereferences on first call. The new composite
+	// a nil router and every read-side method nil-dereferences on first call. The new composite
 	// inherits cs.ctx so cancellation of the parent context cascades, but buildRouter installs its own
 	// child cancel so closing this handle does not affect the parent.
 	ro := &CompositeCommitStore{
@@ -530,8 +532,25 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 	return nil
 }
 
+// loadRouter returns the installed router, or nil before LoadVersion and
+// after Close.
+func (cs *CompositeCommitStore) loadRouter() migration.Router {
+	if router := cs.router.Load(); router != nil {
+		return *router
+	}
+	return nil
+}
+
+func (cs *CompositeCommitStore) storeRouter(router migration.Router) {
+	if router == nil {
+		cs.router.Store(nil)
+		return
+	}
+	cs.router.Store(&router)
+}
+
 // buildRouter constructs the migration router against the currently-opened
-// backends and assigns it to cs.router. Must be called after memIAVL and
+// backends and installs it with storeRouter. Must be called after memIAVL and
 // flatKV (if any) have been opened via LoadVersion and after the effective
 // mode has been resolved.
 func (cs *CompositeCommitStore) buildRouter() error {
@@ -551,7 +570,7 @@ func (cs *CompositeCommitStore) buildRouter() error {
 	if cs.routerCancel != nil {
 		cs.routerCancel()
 	}
-	cs.router = router
+	cs.storeRouter(router)
 	cs.routerCancel = cancel
 	return nil
 }
@@ -574,8 +593,8 @@ func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
 		batchSize = 0
 	}
 	cs.migrationBatchSize.Store(int64(batchSize))
-	if cs.router != nil {
-		cs.router.SetMigrationBatchSize(batchSize)
+	if router := cs.loadRouter(); router != nil {
+		router.SetMigrationBatchSize(batchSize)
 	}
 	return nil
 }
@@ -651,7 +670,7 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 			"write mode is fixed at %q by configuration; runtime switching requires write mode %q",
 			cs.config.WriteMode, types.Auto)
 	}
-	if cs.router == nil {
+	if cs.loadRouter() == nil {
 		return errors.New("SetWriteMode called before LoadVersion")
 	}
 	if targetWriteMode == cs.currentWriteMode {
@@ -772,7 +791,7 @@ func (cs *CompositeCommitStore) materializeFlatKV() error {
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	if cs.currentWriteMode.IsMigrationMode() {
 		firstBatchInBlock := !cs.migrationAdvancedThisCommit
-		if err := cs.router.ApplyChangeSets(changesets, firstBatchInBlock); err != nil {
+		if err := cs.loadRouter().ApplyChangeSets(changesets, firstBatchInBlock); err != nil {
 			return fmt.Errorf("failed to apply changesets: %w", err)
 		}
 		cs.migrationAdvancedThisCommit = true
@@ -781,7 +800,7 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 		return nil
 	}
 
-	err := cs.router.ApplyChangeSets(changesets, false)
+	err := cs.loadRouter().ApplyChangeSets(changesets, false)
 	if err != nil {
 		return fmt.Errorf("failed to apply changesets: %w", err)
 	}
@@ -1296,11 +1315,11 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 		}
 	}
 
-	// The provider resolves cs.router at call time: SetWriteMode replaces
+	// The provider resolves the router at call time: SetWriteMode replaces
 	// the router while views vended here stay cached by rootmulti, and a
 	// captured router value would keep serving the pre-transition mode.
 	return migration.NewRouterCommitKVStore(
-		func() migration.Router { return cs.router },
+		cs.loadRouter,
 		name,
 		cs.Version,
 		func(start, end []byte, ascending bool) (db.Iterator, error) {
@@ -1348,7 +1367,7 @@ func (cs *CompositeCommitStore) ReleaseSnapshotRefs() error {
 		cs.routerCancel()
 		cs.routerCancel = nil
 	}
-	cs.router = nil
+	cs.storeRouter(nil)
 	if cs.memIAVL == nil {
 		return nil
 	}
@@ -1599,7 +1618,7 @@ func (cs *CompositeCommitStore) Close() error {
 		cs.routerCancel()
 		cs.routerCancel = nil
 	}
-	cs.router = nil
+	cs.storeRouter(nil)
 
 	if cs.memIAVL != nil {
 		if err := cs.memIAVL.Close(); err != nil {
@@ -1624,7 +1643,7 @@ func (cs *CompositeCommitStore) Get(store string, key []byte) (value []byte, ok 
 		return nil, false, fmt.Errorf("key cannot be nil")
 	}
 
-	value, ok, err = cs.router.Read(store, key)
+	value, ok, err = cs.loadRouter().Read(store, key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to read value: %w", err)
 	}
@@ -1639,7 +1658,7 @@ func (cs *CompositeCommitStore) GetProof(store string, key []byte) (*ics23.Commi
 		return nil, fmt.Errorf("key cannot be nil")
 	}
 
-	proof, err := cs.router.GetProof(store, key)
+	proof, err := cs.loadRouter().GetProof(store, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get proof: %w", err)
 	}
