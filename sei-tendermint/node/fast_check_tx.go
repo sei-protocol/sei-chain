@@ -34,7 +34,21 @@ func (app fastCheckTxApplication) CheckTx(_ context.Context, req *abci.RequestCh
 	return res
 }
 
+// parseFastCheckTx accepts a Cosmos-wrapped EVM transaction or, as the EVM-only
+// Autobahn path submits it, a raw Ethereum transaction.
 func parseFastCheckTx(txBytes []byte) (*abci.ResponseCheckTxV2, error) {
+	res, err := parseWrappedFastCheckTx(txBytes)
+	if err == nil {
+		return res, nil
+	}
+	ethTx := new(ethtypes.Transaction)
+	if ethTx.UnmarshalBinary(txBytes) != nil {
+		return nil, err
+	}
+	return fastCheckEthTx(ethTx)
+}
+
+func parseWrappedFastCheckTx(txBytes []byte) (*abci.ResponseCheckTxV2, error) {
 	var rawTx tx.TxRaw
 	if err := gogoproto.Unmarshal(txBytes, &rawTx); err != nil {
 		return nil, err
@@ -61,6 +75,10 @@ func parseFastCheckTx(txBytes []byte) (*abci.ResponseCheckTxV2, error) {
 	if ethTx == nil {
 		return nil, fmt.Errorf("failed to unpack EVM transaction")
 	}
+	return fastCheckEthTx(ethTx)
+}
+
+func fastCheckEthTx(ethTx *ethtypes.Transaction) (*abci.ResponseCheckTxV2, error) {
 	gas, ok := utils.SafeCast[int64](ethTx.Gas())
 	if !ok {
 		return nil, fmt.Errorf("EVM gas wanted exceeds int64 max")

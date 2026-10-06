@@ -35,6 +35,25 @@ func TestParseFastCheckTxEVMTransaction(t *testing.T) {
 	require.NotEmpty(t, res.SeiSenderAddress)
 }
 
+func TestParseFastCheckTxRawEthereumTransaction(t *testing.T) {
+	_, ethTx := buildFastCheckTxBytes(t)
+	raw, err := ethTx.MarshalBinary()
+	require.NoError(t, err)
+
+	res, err := parseFastCheckTx(raw)
+	require.NoError(t, err)
+	require.True(t, res.ResponseCheckTx.IsOK())
+	require.True(t, res.IsEVM)
+	require.Equal(t, uint64(7), res.EVMNonce)
+	require.Equal(t, ethTx.Hash(), res.EVMHash)
+	require.NotEqual(t, common.Address{}, res.EVMSenderAddress)
+}
+
+func TestParseFastCheckTxRejectsGarbage(t *testing.T) {
+	_, err := parseFastCheckTx([]byte{0xff, 0x01, 0x02})
+	require.Error(t, err)
+}
+
 func TestFastCheckTxApplicationRejectsNonEVMTransaction(t *testing.T) {
 	wrapped := fastCheckTxApplication{Application: abci.BaseApplication{}}
 	nonEVMTx := buildTxRawBytes(t, []*codectypes.Any{{
