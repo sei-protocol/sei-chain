@@ -123,6 +123,99 @@ func TestPruneRemovesDataOnDisk(t *testing.T) {
 		"only the prune-boundary block should remain after Prune")
 }
 
+// diskHeights returns every height stored in the closed vault at dir.
+func diskHeights(t *testing.T, dir string) []uint64 {
+	t.Helper()
+	var heights []uint64
+	directWritePebble(t, dir, func(db *pebble.DB) {
+		iter, err := db.NewIter(&pebble.IterOptions{
+			LowerBound: hashKey(0),
+			UpperBound: hashKeyUpperBound(),
+		})
+		require.NoError(t, err)
+		defer func() { _ = iter.Close() }()
+		for iter.First(); iter.Valid(); iter.Next() {
+			h, err := decodeHashKey(iter.Key())
+			require.NoError(t, err)
+			heights = append(heights, h)
+		}
+	})
+	return heights
+}
+
+func TestSlidingPruneRemovesDataOnDisk(t *testing.T) {
+	// The execute loop prunes once per block to a boundary that trails the tip by a fixed window.
+	ctx := context.Background()
+	const total, retain = uint64(200), uint64(10)
+
+	v := newTestPebbleVault(t)
+	for h := uint64(1); h <= total; h++ {
+		require.NoError(t, v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32)))
+		if h > retain {
+			require.NoError(t, v.Prune(ctx, h-retain))
+		}
+	}
+	dir := v.config.DataDir
+	require.NoError(t, v.Close(ctx))
+
+	var want []uint64
+	for h := total - retain; h <= total; h++ {
+		want = append(want, h)
+	}
+	require.Equal(t, want, diskHeights(t, dir))
+}
+
+func TestPruneAfterBoundaryResetRemovesDataOnDisk(t *testing.T) {
+	// A hard rollback deletes the stored boundary, so the reopened vault starts the next Prune
+	// scan at height 0 and still removes every stored height below the new boundary.
+	ctx := context.Background()
+	v := newTestPebbleVault(t)
+	for h := uint64(1); h <= 20; h++ {
+		require.NoError(t, v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32)))
+	}
+	require.NoError(t, v.Prune(ctx, 5))
+	dir := v.config.DataDir
+	require.NoError(t, v.Close(ctx))
+	directWritePebble(t, dir, func(db *pebble.DB) {
+		require.NoError(t, db.Delete(pruneBoundaryKey, pebble.Sync))
+	})
+
+	cfg := v.config
+	v2, err := NewUnsafePebbleHashVault(ctx, cfg)
+	require.NoError(t, err)
+	require.NoError(t, v2.Prune(ctx, 15))
+	require.NoError(t, v2.Close(ctx))
+
+	require.Equal(t, []uint64{15, 16, 17, 18, 19, 20}, diskHeights(t, dir))
+}
+
+// BenchmarkCommitToHashUnderSlidingPrune measures CommitToHash while the vault prunes once per
+// height, as the execute loop does. Its cost per height stays flat as the pruned history grows.
+func BenchmarkCommitToHashUnderSlidingPrune(b *testing.B) {
+	ctx := context.Background()
+	cfg := DefaultHashVaultConfig()
+	cfg.DataDir = filepath.Join(b.TempDir(), "vault")
+	cfg.Fsync = false
+	v, err := NewUnsafePebbleHashVault(ctx, cfg)
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = v.Close(ctx) })
+
+	const retain = 1000
+	hash := bytesOfLen(0xAB, 32)
+	b.ResetTimer()
+	for i := range b.N {
+		h := uint64(i) + 1
+		if err := v.CommitToHash(ctx, h, hash); err != nil {
+			b.Fatal(err)
+		}
+		if h > retain {
+			if err := v.Prune(ctx, h-retain); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
 func TestKeyEncodingRoundtrip(t *testing.T) {
 	cases := []uint64{0, 1, 7, 1 << 30, 1<<63 - 1, ^uint64(0)}
 	for _, h := range cases {
