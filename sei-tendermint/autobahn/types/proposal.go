@@ -391,10 +391,10 @@ func buildProposal(
 	return proposal, nil
 }
 
-// NewProposalForTesting builds a FullProposal with sig instead of a signature from a secret key.
-// timestamp is limited to TimestampRange(testViewTimeout).
-// FOR TESTS/BENCHMARKS ONLY: the resulting proposal will NOT verify.
-// It does not support the reproposal path, so viewSpec.TimeoutQC must be None.
+// NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the
+// provided (typically fake) signature instead of signing with a secret key. FOR
+// TESTS/BENCHMARKS ONLY: the resulting proposal will NOT verify. Unlike NewProposal it
+// does not support the reproposal path, so viewSpec.TimeoutQC must be None.
 func NewProposalForTesting(
 	committee *Committee,
 	viewSpec ViewSpec,
@@ -402,7 +402,6 @@ func NewProposalForTesting(
 	laneQCs map[LaneID]*LaneQC,
 	sig *Signature,
 ) (*FullProposal, error) {
-	timestamp = viewSpec.ClampTimestamp(timestamp, testViewTimeout)
 	proposal, err := buildProposal(committee, viewSpec, timestamp, laneQCs)
 	if err != nil {
 		return nil, err
