@@ -351,3 +351,10 @@ func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint
 	addr := ethcrypto.PubkeyToAddress(key.PublicKey)
 	return txBytes, signedTx, addr
 }
+
+func TestMockAppAnswersEvmFeeQueries(t *testing.T) {
+	app := NewMockApp(abci.BaseApplication{})
+	require.Equal(t, int64(mockAppMinGasPrice), app.EvmMinGasPrice().Int64())
+	require.Equal(t, int64(mockAppMinGasPrice), app.EvmBaseFee().Int64())
+	require.Equal(t, uint64(mockAppGasLimit), app.EvmGasLimit())
+}

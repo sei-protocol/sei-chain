@@ -31,6 +31,13 @@ type mockAppTransition int
 
 const blocksToRetain = 10_000
 
+// Constant EVM fee and gas answers, in wei and gas units, so EVM-only load
+// generators can price transactions against the mock app.
+const (
+	mockAppMinGasPrice = 1_000_000_000
+	mockAppGasLimit    = 10_000_000_000
+)
+
 const (
 	mockAppTransitionInitialize mockAppTransition = iota
 	mockAppTransitionFinalize
@@ -145,6 +152,15 @@ func (app *MockApp) EvmNonce(addr common.Address) uint64 {
 }
 
 func (app *MockApp) EvmBalance(common.Address, []byte) uint256.Int { return baseBalance }
+
+// EvmMinGasPrice returns a constant floor, since the mock app does not price transactions.
+func (app *MockApp) EvmMinGasPrice() *big.Int { return big.NewInt(mockAppMinGasPrice) }
+
+// EvmBaseFee returns the same constant as EvmMinGasPrice.
+func (app *MockApp) EvmBaseFee() *big.Int { return big.NewInt(mockAppMinGasPrice) }
+
+// EvmGasLimit returns a constant block gas limit, since the mock app does not meter gas.
+func (app *MockApp) EvmGasLimit() uint64 { return mockAppGasLimit }
 
 func (app *MockApp) EvmChainID() uint64 {
 	return app.app.EvmChainID()
