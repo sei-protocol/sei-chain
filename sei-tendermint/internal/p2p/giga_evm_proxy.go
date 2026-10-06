@@ -21,7 +21,7 @@ import (
 
 // DefaultEvmProxyMaxConnsPerOwner is the connection cap per shard owner when
 // GigaRouterCommonConfig.EvmProxyMaxConnsPerOwner is absent.
-const DefaultEvmProxyMaxConnsPerOwner = 64
+const DefaultEvmProxyMaxConnsPerOwner = 512
 
 // maxEvmProxyConnsPerOwner caps GigaRouterCommonConfig.EvmProxyMaxConnsPerOwner.
 const maxEvmProxyConnsPerOwner = 4096
