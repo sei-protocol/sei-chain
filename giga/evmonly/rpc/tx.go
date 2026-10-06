@@ -26,24 +26,22 @@ type txAPI struct {
 }
 
 // GetTransactionCount returns the address nonce from the current committed EVM
-// state. A "pending" read counts the transactions the mempool of the shard
-// owner of address holds: it goes to the owner when the owner's proxy client is
-// available, and to the local mempool otherwise.
+// state, or the next pending nonce for a "pending" read.
 func (api *txAPI) GetTransactionCount(ctx context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}
 	if number, ok := block.Number(); ok && number == ethrpc.PendingBlockNumber {
-		return api.pendingTransactionCount(ctx, address)
+		return api.nextPendingNonce(ctx, address)
 	}
 	nonce := hexutil.Uint64(api.backend.EvmTransactionCount(address))
 	return &nonce, nil
 }
 
-// pendingTransactionCount returns the pending nonce of address from its shard
+// nextPendingNonce returns the next pending nonce of address from its shard
 // owner when the owner's proxy client is available, and from the local
 // mempool otherwise.
-func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Address) (*hexutil.Uint64, error) {
+func (api *txAPI) nextPendingNonce(ctx context.Context, address common.Address) (*hexutil.Uint64, error) {
 	if api.backend.EvmProxyEnabled() {
 		if client, ok := api.backend.EvmProxy(address).Get(); ok {
 			var nonce hexutil.Uint64
@@ -53,7 +51,7 @@ func (api *txAPI) pendingTransactionCount(ctx context.Context, address common.Ad
 			return &nonce, nil
 		}
 	}
-	nonce := hexutil.Uint64(api.backend.EvmPendingTransactionCount(address))
+	nonce := hexutil.Uint64(api.backend.EvmNextPendingNonce(address))
 	return &nonce, nil
 }
 

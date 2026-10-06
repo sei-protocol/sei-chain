@@ -43,7 +43,7 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 
 	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
 	nonce := env.EvmTransactionCount(address)
-	pendingNonce := env.EvmPendingTransactionCount(address)
+	pendingNonce := env.EvmNextPendingNonce(address)
 	height := env.EvmBlockNumber()
 	chainID := env.EvmChainID()
 	_, chainConfigErr := env.EvmChainConfig()

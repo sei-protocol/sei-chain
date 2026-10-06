@@ -130,8 +130,8 @@ func TestGetTransactionCountPendingWithoutProxyReadsLocalMempool(t *testing.T) {
 			t.Fatal("pending read skipped the local mempool")
 			return 0
 		},
-		pendingCount: func(common.Address) uint64 { return 9 },
-		proxy:        utils.None[*ethrpc.Client](),
+		nextPendingNonce: func(common.Address) uint64 { return 9 },
+		proxy:            utils.None[*ethrpc.Client](),
 	}
 
 	// Test: a pending read on a node with no shard-owner proxy.
