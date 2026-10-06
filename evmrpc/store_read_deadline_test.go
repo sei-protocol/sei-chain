@@ -10,11 +10,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -175,6 +177,32 @@ func TestTransactionCountReturnsDeadlineExceededAfterPointRead(t *testing.T) {
 	<-requestCtx.Done()
 	close(release)
 	require.ErrorIs(t, <-result, context.DeadlineExceeded)
+}
+
+func TestSimulationStateAtResolvedHeightCarriesRequestContext(t *testing.T) {
+	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
+	tmClient := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	backend := evmrpc.NewBackend(
+		ctxProvider,
+		EVMKeeper,
+		legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig },
+		tmClient,
+		&evmrpc.SimulateConfig{},
+		nil,
+		nil,
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+		watermarks,
+	)
+
+	requestCtx, cancel := context.WithCancel(t.Context())
+	stateDB, _, err := backend.StateAndHeaderByNumberOrHash(requestCtx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	require.NoError(t, err)
+
+	cancel()
+	require.ErrorIs(t, evmstate.GetDBImpl(stateDB).Ctx().Context().Err(), context.Canceled)
 }
 
 type blockingReceiptStore struct {
@@ -379,6 +407,32 @@ func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T)
 			require.ErrorIs(t, <-store.ctxErr, context.DeadlineExceeded)
 		})
 	}
+}
+
+func TestLogFilteringDoesNotReturnNonRequestWorkerErrors(t *testing.T) {
+	cause := errors.New("historical state unavailable")
+	ctxProvider := func(height int64) sdk.Context {
+		if height != evmrpc.LatestCtxHeight {
+			panic(cause)
+		}
+		return Ctx
+	}
+	tmClient := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	fetcher := evmrpc.NewLogFetcherForTest(evmrpc.LogFetcherTestDeps{
+		TmClient:         tmClient,
+		K:                EVMKeeper,
+		TxConfigProvider: func(int64) client.TxConfig { return TxConfig },
+		CtxProvider:      ctxProvider,
+		FilterConfig:     evmrpc.NewFilterConfigForTest(evmrpc.FilterConfigTest{}),
+		Watermarks:       watermarks,
+	})
+	blockHash := common.Hash{31: 1}
+
+	logs, _, err := fetcher.GetLogsByFilters(t.Context(), filters.FilterCriteria{BlockHash: &blockHash}, 0)
+
+	require.NoError(t, err)
+	require.Empty(t, logs)
 }
 
 func TestTransactionReceiptReturnsDeadlineExceededDuringNormalizationRead(t *testing.T) {

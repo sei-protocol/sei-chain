@@ -359,7 +359,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
-		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
+		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 				return nil, nil, err

@@ -963,7 +963,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 				break
 			}
 			if err := f.GetLogsForBlockPooled(ctx, block, crit, &localLogs, budget); err != nil {
-				processErrorOnce.Do(func() { processError = err })
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					processErrorOnce.Do(func() { processError = ctxErr })
+				}
 				break
 			}
 		}
