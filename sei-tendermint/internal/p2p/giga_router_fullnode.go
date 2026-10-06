@@ -50,6 +50,10 @@ func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
 // Run block-syncs from every committee member at once and executes the
 // finalized blocks. The fullnode service has no consensus state, so each
 // connection carries only the QC streams, ping, and GetBlock.
+//
+// TODO(autobahn-fullnode): allow configuring a subset of committee members to
+// block-sync from, so each validator's inbound fullnode cap does not bound the
+// fullnode fleet. The EVM proxy still needs every shard owner.
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("committeeMembers", func() error {
