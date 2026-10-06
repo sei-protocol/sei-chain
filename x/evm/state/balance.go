@@ -61,6 +61,8 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	return *ZeroInt
 }
 
+// TODO(shemnon): AddBalance/SubBalance return 0, not the prior balance as vm.StateDB requires;
+// go-ethereum's hooked StateDB uses it for OnBalanceChange. Functional change; check storage.
 func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	amt := amtUint256.ToBig()
