@@ -76,6 +76,17 @@ type GenesisDoc struct {
 	Validators      []GenesisValidator `json:"validators,omitempty"`
 	AppHash         tmbytes.HexBytes   `json:"app_hash"`
 	AppState        json.RawMessage    `json:"app_state,omitempty"`
+	Autobahn        *AutobahnParams    `json:"autobahn,omitempty"`
+}
+
+// AutobahnParams is the Autobahn section of a genesis doc.
+type AutobahnParams struct {
+	ViewTimeout time.Duration `json:"view_timeout,string"`
+}
+
+// DefaultAutobahnParams returns AutobahnParams with a 1500ms view timeout.
+func DefaultAutobahnParams() *AutobahnParams {
+	return &AutobahnParams{ViewTimeout: 1500 * time.Millisecond}
 }
 
 func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
@@ -139,6 +150,12 @@ func (genDoc *GenesisDoc) ValidateAndComplete() error {
 		genDoc.ConsensusParams = DefaultConsensusParams()
 	}
 	genDoc.ConsensusParams.Complete()
+
+	if genDoc.Autobahn == nil {
+		genDoc.Autobahn = DefaultAutobahnParams()
+	} else if genDoc.Autobahn.ViewTimeout <= 0 {
+		return fmt.Errorf("autobahn.view_timeout must be greater than 0, got %v", genDoc.Autobahn.ViewTimeout)
+	}
 
 	if err := genDoc.ConsensusParams.ValidateConsensusParams(); err != nil {
 		return err

@@ -184,6 +184,7 @@ The operational EVM-only configuration is:
 | Consensus block gas limit | `35,000,000` |
 | Autobahn transaction limit | `2,000` transactions per block |
 | Block interval | `400ms` |
+| View timeout | `1500ms` (`"1500000000"` nanoseconds in genesis) |
 | Empty blocks | disabled |
 | Persistent state directory | `data/autobahn` under each node home |
 | BlockDB minimum retention age | `30s` |
@@ -220,6 +221,7 @@ jq '{
   initial_height,
   chain_id,
   max_gas: .consensus_params.block.max_gas,
+  view_timeout: .autobahn.view_timeout,
   validators: (.validators | length),
   gentxs: (.app_state.genutil.gen_txs | length)
 }' build/generated/genesis.json
@@ -230,7 +232,6 @@ docker exec sei-node-0 jq '{
   max_txs_per_second,
   allow_empty_blocks,
   block_interval,
-  view_timeout,
   persistent_state_dir,
   block_db
 }' /root/.sei/config/autobahn.json
