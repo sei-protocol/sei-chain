@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -530,6 +531,58 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.Equal(t, evmStorageTestValue(0x22), value)
 	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
 	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
+}
+
+// TestComposite_MigrateEVM_IteratorAgreesWithGetForSplitAccount pins iteration to the routed read for
+// an account whose code hash has migrated while its nonce has not. FlatKV then holds an account row
+// for the address, and projects a nonce from it that memiavl still owns.
+func TestComposite_MigrateEVM_IteratorAgreesWithGetForSplitAccount(t *testing.T) {
+	dir := t.TempDir()
+	addr := bytes.Repeat([]byte{0x01}, keys.AddressLen)
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr)
+	codeHash := bytes.Repeat([]byte{0xab}, 32)
+	nonce := []byte{0, 0, 0, 0, 0, 0, 0, 7}
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = types.MemiavlOnly
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	require.NoError(t, cs.LoadLatest())
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: codeHashKey, Value: codeHash},
+			{Key: nonceKey, Value: nonce},
+		}},
+	}}))
+	_, err = cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
+	require.NoError(t, cs.Close())
+
+	cs = reopenInMigrateEVM(t, dir, 1)
+	defer func() { _ = cs.Close() }()
+	require.NoError(t, cs.ApplyChangeSets(nil))
+	_, err = cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
+
+	_, migrated := cs.loadFlatKV().Get(keys.EVMStoreKey, codeHashKey)
+	require.True(t, migrated, "the code hash must have migrated")
+	projected, ok := cs.loadFlatKV().Get(keys.EVMStoreKey, nonceKey)
+	require.True(t, ok, "flatkv must project a nonce from the migrated account row")
+	require.NotEqual(t, nonce, projected, "the projected nonce must differ from the unmigrated one")
+
+	got, ok, err := cs.Get(keys.EVMStoreKey, nonceKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, nonce, got)
+
+	requireEVMIteratorMatchesOracle(t, cs, map[migKeyPair][]byte{
+		{keys.EVMStoreKey, string(codeHashKey)}: codeHash,
+		{keys.EVMStoreKey, string(nonceKey)}:    nonce,
+	})
 }
 
 // runUntilMigrationComplete drives the workload through commits until
