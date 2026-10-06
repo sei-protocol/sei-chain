@@ -1159,7 +1159,11 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 
 		// Use a context at the window's toBlock height for the query
 		// #nosec G115 -- windowTo is a block height which fits in int64
-		sdkCtx := f.ctxProvider(int64(windowTo)).WithContext(ctx)
+		sdkCtx, err := ctxAtHeight(f.ctxProvider, int64(windowTo))
+		if err != nil {
+			return nil, err
+		}
+		sdkCtx = sdkCtx.WithContext(ctx)
 
 		candidates, err := store.FilterLogs(sdkCtx, windowFrom, windowTo, crit, f.storeCandidateBudget())
 		if err != nil {
@@ -1316,7 +1320,10 @@ func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit fi
 
 // Unified log collection logic - fallback path that fetches receipts individually
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) error {
-	ctx := f.ctxProvider(block.Block.Height)
+	ctx, err := ctxAtHeight(f.ctxProvider, block.Block.Height)
+	if err != nil {
+		return err
+	}
 
 	txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
 	if err != nil {
@@ -1554,7 +1561,10 @@ func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit f
 	var blockBloom ethtypes.Bloom
 	if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 		// Bloom cache miss - read from database
-		providerCtx := f.ctxProvider(height)
+		providerCtx, err := ctxAtHeight(f.ctxProvider, height)
+		if err != nil {
+			return nil, false, err
+		}
 		if f.includeSyntheticReceipts {
 			blockBloom = f.k.GetBlockBloom(providerCtx)
 		} else {

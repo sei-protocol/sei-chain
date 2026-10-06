@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"crypto/sha256"
+	"errors"
 	"math/big"
 	"sync"
 	"testing"
@@ -44,6 +45,30 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
 	require.Equal(t, ethtypes.EmptyTxsHash, result["transactionsRoot"])
+}
+
+func TestEncodeTmBlockReturnsErrorWhenParentStateUnavailable(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	block := &coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header:     mockBlockHeader(MockHeight8),
+			Data:       tmtypes.Data{},
+			LastCommit: &tmtypes.Commit{Height: MockHeight8 - 1},
+		},
+	}
+	cause := errors.New("unable to load historical state with SS disabled")
+	ctxProvider := func(h int64) sdk.Context {
+		if h == MockHeight8-1 {
+			panic(cause)
+		}
+		return ctx
+	}
+
+	result, err := evmrpc.EncodeTmBlock(ctxProvider, func(int64) client.TxConfig { return TxConfig }, block, k, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	require.ErrorIs(t, err, cause)
+	require.Nil(t, result)
 }
 
 // Sei commits blocks more often than once a second, so the seconds-only
