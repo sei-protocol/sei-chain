@@ -6,9 +6,14 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -141,4 +146,62 @@ func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
 	if slices.Contains(node.NodeInfo().Channels, byte(mempoolreactor.MempoolChannel)) {
 		t.Fatal("mempool channel is advertised in freeze mode")
 	}
+}
+
+type lastHeaderRecordingApp struct {
+	*kvstore.Application
+	lastHeaders []*tmproto.Header
+}
+
+func (app *lastHeaderRecordingApp) InitLastHeader(lastHeader *tmproto.Header) {
+	app.lastHeaders = append(app.lastHeaders, lastHeader)
+}
+
+// A frozen node commits no further blocks after a restart, so the node must
+// initialize the app from the last stored header instead.
+func TestFreezeModeRestartInitializesAppFromLastHeader(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), "freeze_restart_test")
+	require.NoError(t, err)
+	cfg.RPC.ListenAddress = ""
+	// The frozen node must reopen the validator's stores.
+	cfg.DBBackend = "goleveldb"
+
+	validator, err := newLocalNodeService(t.Context(), cfg)
+	require.NoError(t, err)
+	blocks, err := validator.(*nodeImpl).EventBus().SubscribeWithArgs(t.Context(), pubsub.SubscribeArgs{
+		ClientID: "freeze_restart_test",
+		Query:    types.EventQueryNewBlock,
+		Limit:    10,
+	})
+	require.NoError(t, err)
+	require.NoError(t, validator.Start(t.Context()))
+	for range 2 {
+		_, err := blocks.Next(t.Context())
+		require.NoError(t, err)
+	}
+	validator.Stop()
+	validator.Wait()
+
+	cfg.Mode = config.ModeFull
+	app := &lastHeaderRecordingApp{Application: kvstore.NewApplication()}
+	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
+	frozenService, err := New(t.Context(), cfg, func() {}, app, nil, nil, types.DefaultConsensusPolicy(), WithFreezeHeight(1000))
+	require.NoError(t, err)
+	frozen := frozenService.(*nodeImpl)
+	lastHeight := frozen.blockStore.Height()
+	require.GreaterOrEqual(t, lastHeight, int64(2))
+	want := frozen.blockStore.LoadBlockMeta(lastHeight).Header
+
+	require.NoError(t, frozen.Start(t.Context()))
+	t.Cleanup(func() {
+		frozen.Stop()
+		frozen.Wait()
+	})
+
+	require.Equal(t, 1, len(app.lastHeaders))
+	got, err := types.HeaderFromProto(app.lastHeaders[0])
+	require.NoError(t, err)
+	require.Equal(t, want.Hash(), got.Hash())
+	require.Equal(t, lastHeight, got.Height)
+	require.Equal(t, frozen.genesisDoc.ChainID, got.ChainID)
 }

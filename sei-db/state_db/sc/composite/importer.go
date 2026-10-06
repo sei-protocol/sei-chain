@@ -61,16 +61,17 @@ func (si *SnapshotImporter) AddModule(name string) error {
 	return nil
 }
 
-func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) {
+func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) error {
 	if si.currentModule == keys.FlatKVStoreKey {
 		if si.flatkvImporter != nil {
-			si.flatkvImporter.AddNode(node)
+			return si.flatkvImporter.AddNode(node)
 		}
-		return
+		return nil
 	}
 	if si.cosmosImporter != nil {
-		si.cosmosImporter.AddNode(node)
+		return si.cosmosImporter.AddNode(node)
 	}
+	return nil
 }
 
 // Close publishes both backends' imports. When the cosmos import fails, the flatkv import is discarded

@@ -556,3 +556,189 @@ func TestEncodeBlockMissingReceiptLeavesGasUsedZero(t *testing.T) {
 	require.NotNil(t, got)
 	require.Equal(t, hexutil.Uint64(0), got["gasUsed"])
 }
+
+func TestGetBlockTransactionCountByNumber(t *testing.T) {
+	twoTxBlock, _, _, _ := multiTxBlock(t, 9, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
+	emptyBlock := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
+	}
+	backendErr := errors.New("block store unavailable")
+	heightOf := func(h int64) *coretypes.Int64 {
+		height := coretypes.Int64(h)
+		return &height
+	}
+	countOf := func(n uint) *hexutil.Uint {
+		count := hexutil.Uint(n)
+		return &count
+	}
+
+	for _, tc := range []struct {
+		name       string
+		number     ethrpc.BlockNumber
+		wantHeight *coretypes.Int64
+		block      *coretypes.ResultBlock
+		blockErr   error
+		want       *hexutil.Uint
+		wantErr    error
+	}{
+		// Current-state tags all resolve to the committed block, requested with a nil height.
+		{name: "latest", number: ethrpc.LatestBlockNumber, block: twoTxBlock, want: countOf(2)},
+		{name: "safe", number: ethrpc.SafeBlockNumber, block: twoTxBlock, want: countOf(2)},
+		{name: "finalized", number: ethrpc.FinalizedBlockNumber, block: twoTxBlock, want: countOf(2)},
+		{name: "pending", number: ethrpc.PendingBlockNumber, block: twoTxBlock, want: countOf(2)},
+		{name: "explicit historical height", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), block: twoTxBlock, want: countOf(2)},
+		{name: "empty block is zero, not null", number: ethrpc.LatestBlockNumber, block: emptyBlock, want: countOf(0)},
+		// Heights with no block answer null, not an error.
+		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
+		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(0), blockErr: fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)},
+		{name: "nil block", number: ethrpc.LatestBlockNumber},
+		// A pruned height and any other backend failure are errors.
+		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
+		{name: "unexpected backend error", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), blockErr: backendErr, wantErr: backendErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &testBackend{
+				block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					require.Equal(t, tc.wantHeight, req.Height)
+					return tc.block, tc.blockErr
+				},
+			}
+
+			got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockTransactionCountByNumber(t.Context(), tc.number)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestGetBlockTransactionCountByHash(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	twoTxBlock, _, _, _ := multiTxBlock(t, 5, blockHash, time.Unix(1_700_000_000, 0))
+	backendErr := errors.New("hash index unavailable")
+	two := hexutil.Uint(2)
+
+	for _, tc := range []struct {
+		name     string
+		block    *coretypes.ResultBlock
+		blockErr error
+		want     *hexutil.Uint
+		wantErr  error
+	}{
+		{name: "known hash", block: twoTxBlock, want: &two},
+		// An unknown hash answers null, whether the backend returns an empty or a nil result.
+		{name: "unknown hash, empty result", block: &coretypes.ResultBlock{}},
+		{name: "unknown hash, nil result"},
+		{name: "backend error", blockErr: backendErr, wantErr: backendErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &testBackend{
+				blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+					require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
+					return tc.block, tc.blockErr
+				},
+			}
+
+			got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockTransactionCountByHash(t.Context(), blockHash)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestGetBlockTransactionCountMatchesGetBlockTransactions pins that both count
+// methods equal the length of eth_getBlockByNumber's transactions list, which
+// covers every transaction in the block body, including one whose receipt is
+// not stored in this block.
+func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	twoTxBlock, _, _, twoTxStore := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
+	_, raw := testSignedTransaction(t)
+	noReceiptBlock := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
+		Block: &tmtypes.Block{
+			Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
+			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+		},
+	}
+
+	for _, tc := range []struct {
+		name  string
+		block *coretypes.ResultBlock
+		store receipt.ReceiptStore
+		want  hexutil.Uint
+	}{
+		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore, want: 2},
+		{name: "transaction without a receipt", block: noReceiptBlock, store: evmonly.NewMemoryReceiptStore(), want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return tc.block, nil
+			})
+			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+				return tc.block, nil
+			}
+			api := &blockAPI{backend: backend, store: tc.store}
+
+			byNumber, err := api.GetBlockTransactionCountByNumber(t.Context(), ethrpc.LatestBlockNumber)
+			require.NoError(t, err)
+			byHash, err := api.GetBlockTransactionCountByHash(t.Context(), blockHash)
+			require.NoError(t, err)
+			encoded, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+			require.NoError(t, err)
+
+			require.NotNil(t, byNumber)
+			require.NotNil(t, byHash)
+			require.Equal(t, tc.want, *byNumber)
+			require.Equal(t, tc.want, *byHash)
+			require.Len(t, encoded["transactions"], int(tc.want))
+		})
+	}
+}
+
+func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	block, _, _, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
+	backend := &testBackend{
+		block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+			return block, nil
+		},
+		blockByHash: func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			if common.BytesToHash(req.Hash) != blockHash {
+				return &coretypes.ResultBlock{}, nil
+			}
+			return block, nil
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+	handler, err := newHandler(backend, store)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var byNumber string
+	require.NoError(t, client.CallContext(t.Context(), &byNumber, "eth_getBlockTransactionCountByNumber", "latest"))
+	require.Equal(t, "0x2", byNumber)
+
+	var byHash string
+	require.NoError(t, client.CallContext(t.Context(), &byHash, "eth_getBlockTransactionCountByHash", blockHash))
+	require.Equal(t, "0x2", byHash)
+
+	var missing *hexutil.Uint
+	require.NoError(t, client.CallContext(t.Context(), &missing, "eth_getBlockTransactionCountByHash", common.Hash{9}))
+	require.Nil(t, missing)
+}

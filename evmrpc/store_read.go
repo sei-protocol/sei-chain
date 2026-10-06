@@ -38,6 +38,11 @@ func readStoreAtHeight[T any](
 	read func(sdk.Context) (T, error),
 ) (T, error) {
 	return readStores(ctx, ctxProvider, func(ctxProvider func(int64) sdk.Context) (T, error) {
-		return read(ctxProvider(height))
+		sdkCtx, err := ctxAtHeight(ctxProvider, height)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		return read(sdkCtx)
 	})
 }
