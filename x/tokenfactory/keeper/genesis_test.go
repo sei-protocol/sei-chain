@@ -41,7 +41,18 @@ func (suite *KeeperTestSuite) TestGenesis() {
 	}
 
 	app.TokenFactoryKeeper.InitGenesis(suite.Ctx, genesisState)
-	exportedGenesis := app.TokenFactoryKeeper.ExportGenesis(suite.Ctx)
-	suite.Require().NotNil(exportedGenesis)
-	suite.Require().Equal(genesisState, *exportedGenesis)
+	var denoms []string
+	iterator := app.TokenFactoryKeeper.GetAllDenomsIterator(suite.Ctx)
+	for ; iterator.Valid(); iterator.Next() {
+		denoms = append(denoms, string(iterator.Value()))
+	}
+	suite.Require().NoError(iterator.Close())
+	suite.Require().Len(denoms, len(genesisState.FactoryDenoms))
+	for i, denom := range genesisState.FactoryDenoms {
+		suite.Require().Equal(denom.Denom, denoms[i])
+		metadata, err := app.TokenFactoryKeeper.GetAuthorityMetadata(suite.Ctx, denom.Denom)
+		suite.Require().NoError(err)
+		suite.Require().Equal(denom.AuthorityMetadata, metadata)
+	}
+	suite.Require().Equal(genesisState.Params, app.TokenFactoryKeeper.GetParams(suite.Ctx))
 }

@@ -217,23 +217,6 @@ func (k Keeper) IterateGrants(ctx sdk.Context,
 	}
 }
 
-// ExportGenesis returns a GenesisState for a given context.
-func (k Keeper) ExportGenesis(ctx sdk.Context) *authz.GenesisState {
-	var entries []authz.GrantAuthorization
-	k.IterateGrants(ctx, func(granter, grantee sdk.AccAddress, grant authz.Grant) bool {
-		exp := grant.Expiration
-		entries = append(entries, authz.GrantAuthorization{
-			Granter:       granter.String(),
-			Grantee:       grantee.String(),
-			Expiration:    exp,
-			Authorization: grant.Authorization,
-		})
-		return false
-	})
-
-	return authz.NewGenesisState(entries)
-}
-
 // InitGenesis new authz genesis
 func (k Keeper) InitGenesis(ctx sdk.Context, data *authz.GenesisState) {
 	for _, entry := range data.Authorization {

@@ -57,8 +57,6 @@ const (
 	// runs the gov 3 to 4 migration.
 	v68GovVersion uint64 = 4
 
-	v68BaseAccountTypeURL    = "/cosmos.auth.v1beta1.BaseAccount"
-	v68RunningSeid           = "/root/go/bin/seid"
 	v68KeyringPassword       = "12345678\n"
 	v68PostUpgradeSendAmount = "6868usei"
 )
@@ -495,50 +493,26 @@ func TestV68PrunesUpgradedIBCState(t *testing.T) {
 	require.Equal(t, v68UpgradeName, name)
 }
 
-func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
-	app := newV68Chain(t)
-	applyV68(t, app)
-	exported, err := app.ExportAppStateAndValidators(false, nil)
-	require.NoError(t, err)
-	var state map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(exported.AppState, &state))
-	_, found := state["bank"]
-	require.True(t, found)
-	_, found = state["oracle"]
-	require.False(t, found)
-}
-
-// TestV68ExportsNoVestingState exports genesis after v6.8. Export decodes every
-// stored account, so it succeeds only if no account is left under a type v6.8
-// no longer registers; the document has no vesting section and lists every
-// converted account as a base account.
-func TestV68ExportsNoVestingState(t *testing.T) {
+// TestV68DecodesEveryAccount reads every stored account after v6.8, which
+// panics on an account left under a type v6.8 no longer registers, and requires
+// each converted account to be a base account.
+func TestV68DecodesEveryAccount(t *testing.T) {
 	a := newV68Chain(t)
 	fixtures := seedV67VestingState(t, a)
 	a.RunBlock([]signing.Tx{})
 	applyV68ToCommitStore(t, a)
 	a.RunBlock([]signing.Tx{})
 
-	exported, err := a.ExportAppStateAndValidators(false, nil)
-	require.NoError(t, err)
-	var genesis map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(exported.AppState, &genesis))
-	require.NotContains(t, genesis, v68VestingModule)
-
-	var auth struct {
-		Accounts []struct {
-			Type    string `json:"@type"`
-			Address string `json:"address"`
-		} `json:"accounts"`
-	}
-	require.NoError(t, json.Unmarshal(genesis[authtypes.ModuleName], &auth))
-	exportedTypes := make(map[string]string, len(auth.Accounts))
-	for _, account := range auth.Accounts {
-		exportedTypes[account.Address] = account.Type
-	}
+	accounts := map[string]authtypes.AccountI{}
+	require.NotPanics(t, func() {
+		a.AccountKeeper.IterateAccounts(a.Ctx(), func(account authtypes.AccountI) bool {
+			accounts[account.GetAddress().String()] = account
+			return false
+		})
+	})
 	for _, fixture := range fixtures {
-		require.Equal(t, v68BaseAccountTypeURL, exportedTypes[fixture.account.Base.Address],
-			"the exported %s is not a base account", fixture.account.TypeURL)
+		require.IsType(t, &authtypes.BaseAccount{}, accounts[fixture.account.Base.Address],
+			"the stored %s is not a base account", fixture.account.TypeURL)
 	}
 }
 
@@ -645,11 +619,9 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		v68UseiBalance(t, chain, v68PostUpgradeBankReceiver.String()).String(),
 		"the bank send after v6.8 did not credit the receiver")
 
-	chain.StopNode(t)
-
-	currentGenesis := chain.Export(t, v68RunningSeid, "v68-export")
-	require.NotContains(t, currentGenesis.AppState, v68VestingModule,
-		"v6.8 export still carries a vesting section")
+	accounts := chain.MustSeid(t, "", "q", "auth", "accounts", "--output", "json")
+	chain.WriteDiagnostic(t, "v68-accounts.json", []byte(accounts))
+	require.NotContains(t, accounts, "/cosmos.vesting.", "v6.8 still serves a vesting account")
 }
 
 // v68ModuleVersions returns the on-chain module version map by module name.

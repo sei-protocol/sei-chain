@@ -639,7 +639,8 @@ func (c *CrossVersion) waitForSeidState(t *testing.T, node, want string, timeout
 	t.Fatalf("seid in %s did not become %s within %s; last state %s", node, want, timeout, lastState)
 }
 
-// Export runs a binary against the stopped validator and returns its app state.
+// Export runs binary's export command against the stopped validator and returns
+// its app state. The binary must be a release that still ships the command.
 func (c *CrossVersion) Export(t *testing.T, binary, label string) ExportedGenesis {
 	t.Helper()
 	var last CommandResult
