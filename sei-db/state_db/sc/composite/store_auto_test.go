@@ -3,6 +3,7 @@ package composite
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -678,24 +679,39 @@ func TestComposite_Auto_ChildStoreReadsDuringWriteModeSwitch(t *testing.T) {
 
 	view := cs.GetChildStoreByName(keys.BankStoreKey)
 	stop := make(chan struct{})
-	done := make(chan error)
+	reading := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		for {
+		for i := 0; ; i++ {
+			if got := view.Get(key); !bytes.Equal(got, value) {
+				done <- fmt.Errorf("Get(%q) = %x during the write mode switch, want %x", key, got, value)
+				return
+			}
+			if i == 0 {
+				close(reading)
+			}
 			select {
 			case <-stop:
 				return
 			default:
 			}
-			if got := view.Get(key); !bytes.Equal(got, value) {
-				done <- fmt.Errorf("Get(%q) = %x during the write mode switch, want %x", key, got, value)
-				return
-			}
 		}
 	}()
+	var stopOnce sync.Once
+	stopReader := func() error {
+		stopOnce.Do(func() { close(stop) })
+		return <-done
+	}
+	defer func() { _ = stopReader() }()
 
+	// Switch only once the reader is running so the reads overlap the switch.
+	select {
+	case <-reading:
+	case err := <-done:
+		require.NoError(t, err)
+	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.Equal(t, value, view.Get(key))
-	close(stop)
-	require.NoError(t, <-done)
+	require.NoError(t, stopReader())
 }
