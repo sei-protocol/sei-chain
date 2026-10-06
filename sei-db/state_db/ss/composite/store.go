@@ -456,9 +456,9 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 }
 
 // convertFlatKVNodes transforms a single FlatKV physical-key snapshot node
-// into one or more SS nodes by stripping the module prefix from the key,
-// deserializing the vtype metadata from the value, and (for merged account
-// rows) splitting into separate nonce and codeHash nodes.
+// into zero or more SS nodes by stripping the module prefix from the key and
+// deserializing the vtype metadata from the value. A merged account row splits
+// into separate nonce and codeHash nodes, omitting each one whose value is zero.
 //
 // For EVM-specific keys (account, storage, code) the output StoreKey is "evm".
 // For legacy keys the original module name is preserved so they route back to
@@ -501,7 +501,10 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 			return nil, fmt.Errorf("failed to DeserializeAccountData: %w", err)
 		}
 		var nodes []types.SnapshotNode
-		if nonce := acct.GetNonce(); !acct.IsDelete() {
+		// During the EVM migration an account row exists once its code hash
+		// migrates, before its nonce does. Its zero nonce must not overwrite the
+		// memIAVL nonce restored earlier in the stream; an absent nonce reads as zero.
+		if nonce := acct.GetNonce(); nonce != 0 {
 			nonceBuf := make([]byte, 8)
 			binary.BigEndian.PutUint64(nonceBuf, nonce)
 			nodes = append(nodes, types.SnapshotNode{
