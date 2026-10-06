@@ -29,7 +29,6 @@ type Keeper interface {
 	SendKeeper
 
 	InitGenesis(sdk.Context, *types.GenesisState)
-	ExportGenesis(sdk.Context) *types.GenesisState
 
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin
 	HasSupply(ctx sdk.Context, denom string) bool
@@ -341,17 +340,6 @@ func (k BaseKeeper) GetDenomMetaData(ctx sdk.Context, denom string) (types.Metad
 	k.cdc.MustUnmarshal(bz, &metadata)
 
 	return metadata, true
-}
-
-// GetAllDenomMetaData retrieves all denominations metadata
-func (k BaseKeeper) GetAllDenomMetaData(ctx sdk.Context) []types.Metadata {
-	denomMetaData := make([]types.Metadata, 0)
-	k.IterateAllDenomMetaData(ctx, func(metadata types.Metadata) bool {
-		denomMetaData = append(denomMetaData, metadata)
-		return false
-	})
-
-	return denomMetaData
 }
 
 // IterateAllDenomMetaData iterates over all the denominations metadata and

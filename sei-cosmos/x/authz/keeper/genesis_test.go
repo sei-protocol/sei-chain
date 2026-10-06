@@ -8,8 +8,10 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 	bank "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
@@ -36,21 +38,23 @@ var (
 	granterAddr = sdk.AccAddress(granterPub.Address())
 )
 
-func (suite *GenesisTestSuite) TestImportExportGenesis() {
+func (suite *GenesisTestSuite) TestInitGenesis() {
 	coins := sdk.NewCoins(sdk.NewCoin("foo", sdk.NewInt(1_000)))
-
-	now := suite.ctx.BlockHeader().Time
+	expiration := suite.ctx.BlockHeader().Time.Add(time.Hour)
 	grant := &bank.SendAuthorization{SpendLimit: coins}
-	err := suite.keeper.SaveGrant(suite.ctx, granteeAddr, granterAddr, grant, now.Add(time.Hour))
+	authorization, err := codectypes.NewAnyWithValue(grant)
 	suite.Require().NoError(err)
-	genesis := suite.keeper.ExportGenesis(suite.ctx)
 
-	// Clear keeper
-	suite.keeper.DeleteGrant(suite.ctx, granteeAddr, granterAddr, grant.MsgTypeURL())
+	suite.keeper.InitGenesis(suite.ctx, authz.NewGenesisState([]authz.GrantAuthorization{{
+		Granter:       granterAddr.String(),
+		Grantee:       granteeAddr.String(),
+		Authorization: authorization,
+		Expiration:    expiration,
+	}}))
 
-	suite.keeper.InitGenesis(suite.ctx, genesis)
-	newGenesis := suite.keeper.ExportGenesis(suite.ctx)
-	suite.Require().Equal(genesis, newGenesis)
+	got, gotExpiration := suite.keeper.GetCleanAuthorization(suite.ctx, granteeAddr, granterAddr, grant.MsgTypeURL())
+	suite.Require().Equal(grant, got)
+	suite.Require().Equal(expiration, gotExpiration)
 }
 
 func TestGenesisTestSuite(t *testing.T) {

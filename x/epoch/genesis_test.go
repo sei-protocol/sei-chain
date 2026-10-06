@@ -5,7 +5,6 @@ import (
 	"time"
 
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/testutil/nullify"
 	"github.com/sei-protocol/sei-chain/x/epoch"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
@@ -26,10 +25,6 @@ func TestGenesis(t *testing.T) {
 
 	k, ctx := keepertest.EpochKeeper(t)
 	epoch.InitGenesis(ctx, *k, genesisState)
-	got := epoch.ExportGenesis(ctx, *k)
-	require.NotNil(t, got)
-	require.Equal(t, got.Epoch.CurrentEpoch, genesisState.Epoch.CurrentEpoch)
-
-	nullify.Fill(&genesisState)
-	nullify.Fill(got)
+	require.Equal(t, genesisState.Params, k.GetParams(ctx))
+	require.Equal(t, genesisState.Epoch.CurrentEpoch, k.GetEpoch(ctx).CurrentEpoch)
 }
