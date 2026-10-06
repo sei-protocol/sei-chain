@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -293,6 +294,89 @@ func TestReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T) {
 			close(store.release)
 			require.ErrorIs(t, <-result, context.DeadlineExceeded)
 			require.True(t, errors.Is(<-store.ctxErr, context.DeadlineExceeded), "receipt store did not receive the request deadline")
+		})
+	}
+}
+
+func TestAdditionalReceiptHandlersReturnDeadlineExceededDuringRead(t *testing.T) {
+	tests := []struct {
+		name string
+		read func(context.Context, func(int64) sdk.Context, *evmrpc.WatermarkManager) error
+	}{
+		{
+			name: "Cosmos transaction",
+			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, watermarks *evmrpc.WatermarkManager) error {
+				api := evmrpc.NewAssociationAPI(&MockClient{}, EVMKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
+				_, err := api.GetCosmosTx(ctx, common.Hash{})
+				return err
+			},
+		},
+		{
+			name: "block by number",
+			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, watermarks *evmrpc.WatermarkManager) error {
+				api := evmrpc.NewBlockAPI(&MockClient{}, EVMKeeper, ctxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{})
+				_, err := api.GetBlockByNumber(ctx, rpc.BlockNumber(MockHeight8), false)
+				return err
+			},
+		},
+		{
+			name: "block receipts",
+			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, watermarks *evmrpc.WatermarkManager) error {
+				api := evmrpc.NewBlockAPI(&MockClient{}, EVMKeeper, ctxProvider, func(int64) client.TxConfig { return TxConfig }, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(1), &sync.Mutex{})
+				_, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(MockHeight8)))
+				return err
+			},
+		},
+		{
+			name: "trace backend transaction",
+			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, _ *evmrpc.WatermarkManager) error {
+				backend := evmrpc.NewTraceBackendForTest(EVMKeeper, ctxProvider)
+				_, _, _, _, _, err := backend.GetTransaction(ctx, common.Hash{})
+				return err
+			},
+		},
+		{
+			name: "log filtering",
+			read: func(ctx context.Context, ctxProvider func(int64) sdk.Context, watermarks *evmrpc.WatermarkManager) error {
+				fetcher := evmrpc.NewLogFetcherForTest(evmrpc.LogFetcherTestDeps{
+					TmClient:         &MockClient{},
+					K:                EVMKeeper,
+					TxConfigProvider: func(int64) client.TxConfig { return TxConfig },
+					CtxProvider:      ctxProvider,
+					FilterConfig:     evmrpc.NewFilterConfigForTest(evmrpc.FilterConfigTest{}),
+					Watermarks:       watermarks,
+				})
+				blockHash := common.Hash{31: 1}
+				_, _, err := fetcher.GetLogsByFilters(ctx, filters.FilterCriteria{BlockHash: &blockHash}, 0)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalStore := EVMKeeper.ReceiptStore()
+			store := &blockingReceiptStore{
+				ReceiptStore: originalStore,
+				entered:      make(chan struct{}),
+				release:      make(chan struct{}),
+				ctxErr:       make(chan error, 1),
+			}
+			EVMKeeper.SetReceiptStoreForTesting(store)
+			defer EVMKeeper.SetReceiptStoreForTesting(originalStore)
+
+			ctxProvider := func(int64) sdk.Context { return Ctx }
+			watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, store)
+			requestCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			result := make(chan error, 1)
+			go func() { result <- tt.read(requestCtx, ctxProvider, watermarks) }()
+
+			requireReadStarted(t, store.entered)
+			<-requestCtx.Done()
+			close(store.release)
+			require.ErrorIs(t, <-result, context.DeadlineExceeded)
+			require.ErrorIs(t, <-store.ctxErr, context.DeadlineExceeded)
 		})
 	}
 }

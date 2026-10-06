@@ -336,7 +336,8 @@ func (b *Backend) isLatest(ctx context.Context, x rpc.BlockNumberOrHash) (bool, 
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, b.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	zeroExcessBlobGas := uint64(0)
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
@@ -374,8 +375,9 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
-	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return b.keeper.GetReceipt(sdkCtx, txHash)
+	})
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
@@ -439,11 +441,12 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	if err != nil {
 		return nil, nil, err
 	}
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, b.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	traceTxConfigProvider := traceCompatTxConfigProvider(b.txConfigProvider, b.isV65ActiveAtHeight, b.isV67ActiveAtHeight)
-	msgs, err := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	msgs, err := filterTransactions(b.keeper, ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -510,6 +513,9 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		Txs:     txs,
 	}
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
+	}
 	return block, metadata, nil
 }
 

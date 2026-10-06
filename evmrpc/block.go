@@ -118,7 +118,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block)
+	return a.getEvmTxCount(ctx, block)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
@@ -140,7 +140,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block)
+	return a.getEvmTxCount(ctx, block)
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
@@ -179,7 +179,9 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (map[string]any, error) {
+		return EncodeTmBlock(ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+	})
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
@@ -223,7 +225,9 @@ func (a *BlockAPI) getBlockByNumber(
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (map[string]any, error) {
+		return EncodeTmBlock(ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
+	})
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]any, returnErr error) {
@@ -270,60 +274,63 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	// Get all tx hashes for the block
-	height := block.Block.Height
+	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) ([]map[string]any, error) {
+		// Get all tx hashes for the block
+		height := block.Block.Height
 
-	txHashes, err := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, false, a.cacheCreationMutex, a.globalBlockCache)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get tx receipts for all hashes in parallel, with a hard cap on the
-	// goroutine fan-out, so a block with a very large number of txs
-	// cannot spawn an unbounded number of goroutines. errgroup.SetLimit blocks
-	// Go() until a slot frees, bounding the number of live goroutines rather
-	// than just the number doing concurrent work.
-	allReceipts := make([]map[string]any, len(txHashes))
-	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(maxBlockReceiptsConcurrency)
-	for i, hash := range txHashes {
-		g.Go(func() error {
-			defer recoverAndLog()
-			// Bail early if a sibling goroutine already errored or the caller
-			// cancelled; no point doing work the group is about to discard.
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
-			if err != nil {
-				// A missing receipt is expected for some hashes and is not an
-				// error; skip it and leave allReceipts[i] empty.
-				if strings.Contains(err.Error(), "not found") {
-					return nil
-				}
-				return err
-			}
-			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, false, a.globalBlockCache, a.cacheCreationMutex)
-			if err != nil {
-				return err
-			}
-			allReceipts[i] = encodedReceipt
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-	compactReceipts := make([]map[string]any, 0)
-	for _, r := range allReceipts {
-		if len(r) > 0 {
-			compactReceipts = append(compactReceipts, r)
+		txHashes, err := getTxHashesFromBlock(ctxProvider, a.txConfigProvider, a.keeper, block, false, a.cacheCreationMutex, a.globalBlockCache)
+		if err != nil {
+			return nil, err
 		}
-	}
-	for i, cr := range compactReceipts {
-		cr["transactionIndex"] = hexutil.Uint64(i) //nolint:gosec
-	}
-	return compactReceipts, nil
+
+		// Get tx receipts for all hashes in parallel, with a hard cap on the
+		// goroutine fan-out, so a block with a very large number of txs
+		// cannot spawn an unbounded number of goroutines. errgroup.SetLimit blocks
+		// Go() until a slot frees, bounding the number of live goroutines rather
+		// than just the number doing concurrent work.
+		allReceipts := make([]map[string]any, len(txHashes))
+		g, groupCtx := errgroup.WithContext(ctx)
+		groupCtxProvider := withRequestContext(groupCtx, a.ctxProvider)
+		g.SetLimit(maxBlockReceiptsConcurrency)
+		for i, hash := range txHashes {
+			g.Go(func() error {
+				defer recoverAndLog()
+				// Bail early if a sibling goroutine already errored or the caller
+				// cancelled; no point doing work the group is about to discard.
+				if err := groupCtx.Err(); err != nil {
+					return err
+				}
+				receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, groupCtxProvider(height), a.keeper, block, hash.hash)
+				if err != nil {
+					// A missing receipt is expected for some hashes and is not an
+					// error; skip it and leave allReceipts[i] empty.
+					if strings.Contains(err.Error(), "not found") {
+						return nil
+					}
+					return err
+				}
+				encodedReceipt, err := encodeReceipt(groupCtxProvider, a.txConfigProvider, receipt, a.keeper, block, false, a.globalBlockCache, a.cacheCreationMutex)
+				if err != nil {
+					return err
+				}
+				allReceipts[i] = encodedReceipt
+				return nil
+			})
+		}
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+		compactReceipts := make([]map[string]any, 0)
+		for _, r := range allReceipts {
+			if len(r) > 0 {
+				compactReceipts = append(compactReceipts, r)
+			}
+		}
+		for i, cr := range compactReceipts {
+			cr["transactionIndex"] = hexutil.Uint64(i) //nolint:gosec
+		}
+		return compactReceipts, nil
+	})
 }
 
 // EncodeTmBlock renders a Tendermint block as an eth_getBlockBy* response.
@@ -472,20 +479,22 @@ func FullBloom() ethtypes.Bloom {
 
 // getEvmTxCount returns the same transaction count as EncodeTmBlock exposes: filterTransactions
 // plus the same per-msg rules as EncodeTmBlock (EVM messages need GetReceipt to succeed).
-func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) (*hexutil.Uint, error) {
-	n, err := countBlockTxsLikeEncodeTmBlock(
-		a.ctxProvider,
-		a.txConfigProvider,
-		block,
-		a.keeper,
-		a.cacheCreationMutex,
-		a.globalBlockCache,
-	)
-	if err != nil {
-		return nil, err
-	}
-	cntHex := hexutil.Uint(n) //nolint:gosec
-	return &cntHex, nil
+func (a *BlockAPI) getEvmTxCount(ctx context.Context, block *coretypes.ResultBlock) (*hexutil.Uint, error) {
+	return readStores(ctx, a.ctxProvider, func(ctxProvider func(int64) sdk.Context) (*hexutil.Uint, error) {
+		n, err := countBlockTxsLikeEncodeTmBlock(
+			ctxProvider,
+			a.txConfigProvider,
+			block,
+			a.keeper,
+			a.cacheCreationMutex,
+			a.globalBlockCache,
+		)
+		if err != nil {
+			return nil, err
+		}
+		cntHex := hexutil.Uint(n) //nolint:gosec
+		return &cntHex, nil
+	})
 }
 
 func countBlockTxsLikeEncodeTmBlock(

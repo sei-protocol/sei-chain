@@ -12,6 +12,23 @@ func withRequestContext(ctx context.Context, ctxProvider func(int64) sdk.Context
 	}
 }
 
+func readStores[T any](
+	ctx context.Context,
+	ctxProvider func(int64) sdk.Context,
+	read func(func(int64) sdk.Context) (T, error),
+) (T, error) {
+	var zero T
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+
+	result, err := read(withRequestContext(ctx, ctxProvider))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return zero, ctxErr
+	}
+	return result, err
+}
+
 // readStoreAtHeight runs a store read in a height-specific SDK context carrying
 // the request's cancellation and deadline.
 func readStoreAtHeight[T any](
@@ -20,14 +37,7 @@ func readStoreAtHeight[T any](
 	ctxProvider func(int64) sdk.Context,
 	read func(sdk.Context) (T, error),
 ) (T, error) {
-	var zero T
-	if err := ctx.Err(); err != nil {
-		return zero, err
-	}
-
-	result, err := read(ctxProvider(height).WithContext(ctx))
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return zero, ctxErr
-	}
-	return result, err
+	return readStores(ctx, ctxProvider, func(ctxProvider func(int64) sdk.Context) (T, error) {
+		return read(ctxProvider(height))
+	})
 }

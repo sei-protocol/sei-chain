@@ -57,7 +57,7 @@ RPC responses for historical heights should never change as the blockchain progr
 
 ## Store-read cancellation
 
-RPC request contexts must be attached to height-specific `sdk.Context` values before store reads. Context-aware storage implementations may stop work when the request expires. Current point-read APIs such as Cosmos `KVStore.Get`, StateDB, Pebble, and Litt do not accept a request context, so an in-progress point read finishes before the RPC returns the request context error; do not move those reads to abandoned goroutines.
+Deadline-aware store reads attach the RPC request context to height-specific `sdk.Context` values through `readStoreAtHeight` or `readStores`. Receipt-store enforcement lives in `Keeper.GetReceipt`, while cached receipt reads enforce the same rule in `getOrSetCachedReceiptErr`; callers propagate those errors rather than adding their own guards. Current point-read APIs such as Cosmos `KVStore.Get`, StateDB, Pebble, and Litt do not accept a request context, so an in-progress point read finishes before the RPC returns the request context error; do not move those reads to abandoned goroutines.
 
 ## Exported receivers are RPC surface — treat every export as a new endpoint
 
