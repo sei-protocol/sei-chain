@@ -119,3 +119,21 @@ func TestSurplus(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(3), surplus)
 }
+
+func TestBalanceChangesReturnPriorBalance(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	db := state.NewDBImpl(ctx, k, false)
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(db.Ctx(), seiAddr, evmAddr)
+
+	prev := db.AddBalance(evmAddr, uint256.NewInt(10_000_000_000_000), tracing.BalanceChangeUnspecified)
+	require.Nil(t, db.Err())
+	require.Equal(t, uint256.NewInt(0), &prev)
+	prev = db.AddBalance(evmAddr, uint256.NewInt(5_000_000_000_000), tracing.BalanceChangeUnspecified)
+	require.Equal(t, uint256.NewInt(10_000_000_000_000), &prev)
+	prev = db.SubBalance(evmAddr, uint256.NewInt(3_000_000_000_000), tracing.BalanceChangeUnspecified)
+	require.Nil(t, db.Err())
+	require.Equal(t, uint256.NewInt(15_000_000_000_000), &prev)
+	require.Equal(t, uint256.NewInt(12_000_000_000_000), db.GetBalance(evmAddr))
+}

@@ -116,16 +116,16 @@ func TestBehaviorHookedDBImplWithDBImplLogger(t *testing.T) {
 	db.SetLogger(hooks)
 	sdb := newHookedDBImpl(db, hooks)
 
-	// TODO(shemnon): DBImpl.AddBalance/SubBalance return 0 instead of the prior balance, so the
-	// wrapper's OnBalanceChange reports prev=0 (and new wraps on Sub). Functional change; check storage.
-	sdb.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
+	prev := sdb.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
+	require.Equal(t, "20000000000000", prev.String())
 	require.Equal(t, 2, c.balance)
-	require.Equal(t, "0", c.lastBalancePrev.String())
-	require.Equal(t, "1000000000000", c.lastBalanceNew.String())
-	sdb.SubBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
+	require.Equal(t, "20000000000000", c.lastBalancePrev.String())
+	require.Equal(t, "21000000000000", c.lastBalanceNew.String())
+	prev = sdb.SubBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
+	require.Equal(t, "21000000000000", prev.String())
 	require.Equal(t, 4, c.balance)
-	require.Equal(t, "0", c.lastBalancePrev.String())
-	require.Equal(t, new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1_000_000_000_000)).String(), c.lastBalanceNew.String())
+	require.Equal(t, "21000000000000", c.lastBalancePrev.String())
+	require.Equal(t, "20000000000000", c.lastBalanceNew.String())
 
 	sdb.SetNonce(addr, 3, tracing.NonceChangeEoACall)
 	require.Equal(t, 2, c.nonce)
