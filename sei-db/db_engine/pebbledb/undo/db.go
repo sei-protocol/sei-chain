@@ -107,6 +107,13 @@ type Database struct {
 	earliestHeight atomic.Uint64
 	openViews      map[uint64]int
 
+	// earliestMu serializes the check, durable write, and publication of earliestHeight.
+	earliestMu sync.Mutex
+
+	// lifecycleMu excludes Resume and Close from queue submissions and pruning, and guards closed.
+	lifecycleMu sync.RWMutex
+	closed      bool
+
 	// pruneMu serializes prune passes and guards prunedBucket, the lowest bucket not yet excised.
 	pruneMu      sync.Mutex
 	prunedBucket uint64
@@ -272,13 +279,22 @@ func heightOf(version int64) (uint64, error) {
 	return uint64(version), nil
 }
 
-// Resume binds current state as of version as the view reads fall back to, and must be called once,
-// before the first block is applied. version is where the state commit store stands, at or above
-// the log's latest block.
+// Resume binds current state as of version and enables block writes. It must succeed once before
+// ApplyBlock is called. version must be at or above the log's latest block.
 //
 // A log behind version is missing the records of the blocks in between, which only their execution
 // could supply, so history below version stops being served.
 func (db *Database) Resume(version int64, current CurrentView) error {
+	db.lifecycleMu.Lock()
+	defer db.lifecycleMu.Unlock()
+	if db.closed {
+		current.Close()
+		return errors.New("undo: resume on a closed store")
+	}
+	if db.head.Load() != nil {
+		current.Close()
+		return errors.New("undo: store already resumed")
+	}
 	height, err := db.resume(version)
 	if err != nil {
 		current.Close()
@@ -315,16 +331,37 @@ func (db *Database) resume(version int64) (uint64, error) {
 
 // ApplyBlock queues prior balance, nonce, code hash, storage and code values for version,
 // with Delete marking prior absence, and takes ownership of the post-block current view.
-// Unsupported key families and malformed records are fatal write errors.
+// It panics before a successful Resume or after Close. Unsupported key families and malformed
+// records are fatal write errors.
 func (db *Database) ApplyBlock(version int64, prior []*proto.KVPair, current CurrentView) {
-	seidbmetrics.Send(db.queue, db.pending, pendingBlock{version: version, prior: prior, current: current})
+	if err := db.enqueue(pendingBlock{version: version, prior: prior, current: current}); err != nil {
+		current.Close()
+		panic(err)
+	}
 }
 
-// WaitForPendingWrites blocks until every block queued so far is applied.
+// WaitForPendingWrites blocks until every block queued so far is applied, including during Close.
 func (db *Database) WaitForPendingWrites() {
 	done := make(chan struct{})
-	db.pending <- pendingBlock{done: done}
+	if err := db.enqueue(pendingBlock{done: done}); err != nil {
+		<-db.writerDone
+		return
+	}
 	<-done
+}
+
+// enqueue submits a block or a write barrier to an open store.
+func (db *Database) enqueue(block pendingBlock) error {
+	db.lifecycleMu.RLock()
+	defer db.lifecycleMu.RUnlock()
+	if db.closed {
+		return errors.New("undo: write queue is closed")
+	}
+	if block.done == nil && db.head.Load() == nil {
+		return errors.New("undo: store is not resumed")
+	}
+	seidbmetrics.Send(db.queue, db.pending, block)
+	return nil
 }
 
 func (db *Database) writeInBackground() {
@@ -588,18 +625,36 @@ func (db *Database) GetEarliestVersion() int64 {
 	return int64(db.earliestHeight.Load()) //nolint:gosec // heights enter the store as int64
 }
 
-// raiseEarliest makes height the lowest served height, durably before it takes effect, so a
-// restart never serves history already excised. A lower height is ignored.
+// raiseEarliest makes height the lowest served height when it is above the current one.
 func (db *Database) raiseEarliest(height uint64) error {
+	db.earliestMu.Lock()
+	defer db.earliestMu.Unlock()
 	if height <= db.earliestHeight.Load() {
 		return nil
 	}
+	return db.setEarliestLocked(height)
+}
+
+// lowerEarliest makes height the lowest served height when it is below the current one. A rollback
+// below the earliest height leaves no record above height, and a read at height needs none.
+func (db *Database) lowerEarliest(height uint64) error {
+	db.earliestMu.Lock()
+	defer db.earliestMu.Unlock()
+	if height >= db.earliestHeight.Load() {
+		return nil
+	}
+	return db.setEarliestLocked(height)
+}
+
+// setEarliestLocked durably records height as the lowest served height, then publishes it.
+// The caller must hold earliestMu.
+func (db *Database) setEarliestLocked(height uint64) error {
 	if err := writeMarker(db.storage, earliestVersionKey, height, pebble.Sync); err != nil {
 		return fmt.Errorf("undo: record earliest height %d: %w", height, err)
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	db.earliestHeight.Store(max(height, db.earliestHeight.Load()))
+	db.earliestHeight.Store(height)
 	return nil
 }
 
@@ -622,8 +677,13 @@ func (db *Database) Name() string {
 
 // PruneHistory drops the history below blockNumber, clamped to the head, keeping blockNumber
 // readable. It excises every bucket no read from there on needs, except those an open view still
-// reads, which a later call excises.
+// reads, which a later call excises. It fails once the store is closed.
 func (db *Database) PruneHistory(blockNumber uint64) error {
+	db.lifecycleMu.RLock()
+	defer db.lifecycleMu.RUnlock()
+	if db.closed {
+		return errors.New("undo: prune on a closed store")
+	}
 	head := db.latestHeight.Load()
 	if blockNumber == 0 || head == 0 {
 		return nil
@@ -738,19 +798,6 @@ func (db *Database) exciseBucketsAbove(bucket uint64) error {
 	return nil
 }
 
-// lowerEarliest makes height the earliest served height when the earliest is above it. A rollback
-// below the earliest height leaves no record above height, and a read at height needs none.
-func (db *Database) lowerEarliest(height uint64) error {
-	if db.earliestHeight.Load() <= height {
-		return nil
-	}
-	if err := writeMarker(db.storage, earliestVersionKey, height, pebble.Sync); err != nil {
-		return fmt.Errorf("undo: record earliest height %d: %w", height, err)
-	}
-	db.earliestHeight.Store(height)
-	return nil
-}
-
 // deleteRecordsAbove deletes the records of bucket written above height, committing every
 // deleteBatchBytes.
 func (db *Database) deleteRecordsAbove(bucket uint64, height uint64) error {
@@ -793,6 +840,9 @@ func (db *Database) deleteRecordsAbove(bucket uint64, height uint64) error {
 func (db *Database) Close() error {
 	var err error
 	db.closeOnce.Do(func() {
+		db.lifecycleMu.Lock()
+		defer db.lifecycleMu.Unlock()
+		db.closed = true
 		close(db.pending)
 		<-db.writerDone
 		db.stopMetrics()

@@ -716,6 +716,210 @@ func TestRollbackBelowTheEarliestHeightServesTheTarget(t *testing.T) {
 	require.False(t, ok, "history below the target stays pruned")
 }
 
+func TestConcurrentEarliestChangesKeepDiskAndMemoryConsistent(t *testing.T) {
+	for _, direction := range []string{"raise", "lower"} {
+		t.Run(direction, func(t *testing.T) {
+			db := openTestDB(t, t.TempDir(), 10)
+			defer func() { require.NoError(t, db.Close()) }()
+			for round := uint64(1); round <= 50; round++ {
+				base := round * 100
+				update := db.raiseEarliest
+				want := base + 7
+				if direction == "lower" {
+					require.NoError(t, db.raiseEarliest(base+8))
+					update = db.lowerEarliest
+					want = base
+				}
+				start := make(chan struct{})
+				var wg sync.WaitGroup
+				for worker := range uint64(8) {
+					wg.Go(func() {
+						<-start
+						if err := update(base + worker); err != nil {
+							t.Error(err)
+						}
+					})
+				}
+				close(start)
+				wg.Wait()
+				onDisk, err := readMarker(db.storage, earliestVersionKey)
+				require.NoError(t, err)
+				require.Equal(t, want, onDisk, "round %d", round)
+				require.Equal(t, onDisk, db.earliestHeight.Load(), "round %d", round)
+			}
+		})
+	}
+}
+
+func TestResumeAndPruningKeepEarliestOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	c := newChain(t, dir, 10, 0)
+	for range 10 {
+		c.apply(nil, false)
+	}
+	require.NoError(t, c.db.Close())
+	db := openTestDB(t, dir, 10)
+	defer func() { require.NoError(t, db.Close()) }()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		<-start
+		if err := db.Resume(20, liveState{}); err != nil {
+			t.Error(err)
+		}
+	})
+	for height := uint64(1); height <= 10; height++ {
+		wg.Go(func() {
+			<-start
+			if err := db.PruneHistory(height); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	onDisk, err := readMarker(db.storage, earliestVersionKey)
+	require.NoError(t, err)
+	require.Equal(t, uint64(20), onDisk)
+	require.Equal(t, onDisk, db.earliestHeight.Load())
+}
+
+func TestBlocksRequireSuccessfulResume(t *testing.T) {
+	db := openTestDB(t, t.TempDir(), 10)
+	defer func() { require.NoError(t, db.Close()) }()
+	var closes atomic.Int64
+	rejectBlock := func() {
+		require.PanicsWithError(t, "undo: store is not resumed", func() {
+			db.ApplyBlock(1, nil, &mapView{closes: &closes})
+		})
+		db.WaitForPendingWrites()
+		require.Zero(t, db.GetLatestVersion())
+	}
+	rejectBlock()
+	require.Equal(t, int64(1), closes.Load())
+	require.ErrorContains(t, db.Resume(-1, &mapView{closes: &closes}), "negative")
+	rejectBlock()
+	require.Equal(t, int64(3), closes.Load())
+
+	key := nonceKey(alice)
+	require.NoError(t, db.Resume(5, liveState{key: nonce(1)}))
+	db.ApplyBlock(6, []*proto.KVPair{{Key: []byte(key), Value: nonce(1)}}, liveState{key: nonce(2)})
+	db.WaitForPendingWrites()
+	require.Equal(t, int64(6), db.GetLatestVersion())
+	require.Equal(t, nonce(1), read(t, db, 5, key))
+	require.Equal(t, nonce(2), read(t, db, 6, key))
+}
+
+func TestResumeIsAcceptedOnce(t *testing.T) {
+	c := newChain(t, t.TempDir(), 10, 0)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	var closes atomic.Int64
+	require.ErrorContains(t, c.db.Resume(0, &mapView{closes: &closes}), "already resumed")
+	require.Equal(t, int64(1), closes.Load(), "a refused view is closed")
+}
+
+func TestCloseWithoutResume(t *testing.T) {
+	dir := t.TempDir()
+	db := openTestDB(t, dir, 10)
+	db.WaitForPendingWrites()
+	require.NoError(t, db.Close())
+	db.WaitForPendingWrites()
+	var closes atomic.Int64
+	require.ErrorContains(t, db.Resume(0, &mapView{closes: &closes}), "closed")
+	require.PanicsWithError(t, "undo: write queue is closed", func() {
+		db.ApplyBlock(1, nil, &mapView{closes: &closes})
+	})
+	require.Equal(t, int64(2), closes.Load(), "rejected views are closed")
+
+	reopened := openTestDB(t, dir, 10)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.Zero(t, reopened.GetLatestVersion())
+}
+
+func TestPruneAfterCloseFails(t *testing.T) {
+	for _, head := range []int64{0, 1} {
+		c := newChain(t, t.TempDir(), 10, head)
+		require.NoError(t, c.db.Close())
+		require.ErrorContains(t, c.db.PruneHistory(0), "closed")
+		require.ErrorContains(t, c.db.PruneHistory(1), "closed")
+	}
+}
+
+func TestCloseRacesWithQueueAndPruning(t *testing.T) {
+	for round := range 10 {
+		t.Run(fmt.Sprint(round), func(t *testing.T) {
+			c := newChain(t, t.TempDir(), 10, 0)
+			defer func() { require.NoError(t, c.db.Close()) }()
+			for version := int64(1); version <= 32; version++ {
+				c.db.ApplyBlock(version, nil, c.view(nil))
+			}
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			var applied atomic.Bool
+			wg.Go(func() {
+				<-start
+				defer func() {
+					if r := recover(); r != nil && fmt.Sprint(r) != "undo: write queue is closed" {
+						t.Errorf("unexpected panic: %v", r)
+					}
+				}()
+				c.db.ApplyBlock(33, nil, c.view(nil))
+				applied.Store(true)
+			})
+			wg.Go(func() {
+				<-start
+				c.db.WaitForPendingWrites()
+			})
+			wg.Go(func() {
+				<-start
+				if err := c.db.PruneHistory(20); err != nil && err.Error() != "undo: prune on a closed store" {
+					t.Error(err)
+				}
+			})
+			wg.Go(func() {
+				<-start
+				if err := c.db.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			close(start)
+			wg.Wait()
+			want := int64(32)
+			if applied.Load() {
+				want++
+			}
+			require.Equal(t, want, c.db.GetLatestVersion(), "accepted blocks are drained")
+			require.Equal(t, c.created.Load(), c.closes.Load(), "every submitted view is closed")
+		})
+	}
+}
+
+func TestResumeRacesWithClose(t *testing.T) {
+	for range 10 {
+		db := openTestDB(t, t.TempDir(), 10)
+		var closes atomic.Int64
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			<-start
+			if err := db.Resume(1, &mapView{closes: &closes}); err != nil && err.Error() != "undo: resume on a closed store" {
+				t.Error(err)
+			}
+		})
+		wg.Go(func() {
+			<-start
+			if err := db.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+		close(start)
+		wg.Wait()
+		require.Equal(t, int64(1), closes.Load())
+		_, ok := db.OpenView(1)
+		require.False(t, ok, "Resume cannot publish a head after Close")
+	}
+}
+
 func TestLargeBlocksLandWhole(t *testing.T) {
 	c := newChain(t, t.TempDir(), 4, 0)
 	defer func() { require.NoError(t, c.db.Close()) }()
