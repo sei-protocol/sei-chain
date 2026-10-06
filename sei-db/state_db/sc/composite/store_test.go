@@ -882,7 +882,7 @@ func TestLoadVersionFlatKVOnlyReadWrite(t *testing.T) {
 	err = cs.LoadLatest()
 	require.NoError(t, err, "LoadLatest must not nil-deref memIAVL in FlatKVOnly")
 	defer func() { _ = cs.Close() }()
-	require.NotNil(t, cs.router, "router must be built after LoadLatest")
+	require.NotNil(t, cs.loadRouter(), "router must be built after LoadLatest")
 
 	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -926,7 +926,7 @@ func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
 	roComposite, ok := ro.(*CompositeCommitStore)
 	require.True(t, ok)
 	require.Nil(t, roComposite.memIAVL, "FlatKVOnly read-only must not have memIAVL")
-	require.NotNil(t, roComposite.router, "read-only handle must have its own router")
+	require.NotNil(t, roComposite.loadRouter(), "read-only handle must have its own router")
 
 	got, ok, err := roComposite.Get(keys.EVMStoreKey, []byte("k1"))
 	require.NoError(t, err, "read-only handle must serve reads without nil-dereferencing router")
@@ -951,20 +951,20 @@ func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 
 	err = cs.LoadLatest()
 	require.NoError(t, err)
-	firstRouter := cs.router
+	firstRouter := cs.loadRouter()
 	firstCancel := cs.routerCancel
 	require.NotNil(t, firstRouter)
 	require.NotNil(t, firstCancel)
 
 	err = cs.LoadLatest()
 	require.NoError(t, err)
-	require.NotNil(t, cs.router)
-	require.NotSame(t, firstRouter, cs.router, "LoadVersion must rebuild the router")
+	require.NotNil(t, cs.loadRouter())
+	require.NotSame(t, firstRouter, cs.loadRouter(), "LoadVersion must rebuild the router")
 	require.NotNil(t, cs.routerCancel)
 
 	require.NoError(t, cs.Close())
 	require.Nil(t, cs.routerCancel, "Close must clear routerCancel")
-	require.Nil(t, cs.router, "Close must clear router")
+	require.Nil(t, cs.loadRouter(), "Close must clear router")
 }
 
 // TestLoadVersionDoesNotMountMigrationStoreInMigrationMode pins the
@@ -2593,7 +2593,7 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	roComposite, ok := ro.(*CompositeCommitStore)
 	require.True(t, ok)
 	require.NotSame(t, cs2, roComposite, "read-only LoadVersion returns an isolated handle")
-	require.NotNil(t, roComposite.router, "read-only handle must have its own router")
+	require.NotNil(t, roComposite.loadRouter(), "read-only handle must have its own router")
 
 	// The read-only memiavl also must not have a migration tree.
 	require.Nil(t, roComposite.memIAVL.GetChildStoreByName(migration.MigrationStore),
