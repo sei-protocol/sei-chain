@@ -1165,24 +1165,7 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	const batch = 8
 
 	cs := openAutoStore(t, dir, batch)
-
-	// Bootstrap bank+evm state under MemiavlOnly (bank-heavy so migrate_bank
-	// later spans several blocks), then walk the ladder to migrate_bank.
-	for i := 0; i < 12; i++ {
-		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
-		_, err := cs.Commit(cs.Version() + 1)
-		require.NoError(t, err)
-	}
-	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
-	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
-	runBlocks(t, cs, workload, 2)
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	runBlocks(t, cs, workload, 2)
-
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	walkToMigrateBank(t, cs, workload)
 	require.Equal(t, types.MigrateBank, cs.currentWriteMode)
 
 	// One migrate_bank block that does not complete the migration: memiavl
@@ -1230,20 +1213,7 @@ func TestComposite_Auto_RollbackAcrossBankCompletionAfterRestart(t *testing.T) {
 	const batch = 8
 
 	cs := openAutoStore(t, dir, batch)
-	for i := 0; i < 12; i++ {
-		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
-		_, err := cs.Commit(cs.Version() + 1)
-		require.NoError(t, err)
-	}
-	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
-	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
-	runBlocks(t, cs, workload, 2)
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	runBlocks(t, cs, workload, 2)
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	walkToMigrateBank(t, cs, workload)
 
 	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
 	require.Greater(t, len(target.info.StoreInfos), 1,
@@ -1312,6 +1282,26 @@ func TestComposite_Auto_RollbackToActivationAfterEVMMigration(t *testing.T) {
 	requireRolledBackToActivation(cs, "post-rollback (after restart)")
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	replayRecorded(t, cs, rolledBack, "replay after rollback (after restart)")
+}
+
+// walkToMigrateBank bootstraps bank-heavy state under MemiavlOnly, so the bank migration spans several
+// blocks, then walks cs through the migration ladder and leaves it in MigrateBank.
+func walkToMigrateBank(t *testing.T, cs *CompositeCommitStore, workload *migrationWorkload) {
+	t.Helper()
+	for i := 0; i < 12; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
+		_, err := cs.Commit(cs.Version() + 1)
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
+	runBlocks(t, cs, workload, 2)
+	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
+	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
+	runBlocks(t, cs, workload, 2)
+	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
 }
 
 // recordedBlock is a committed block's change sets and the commit info committing them produced.
