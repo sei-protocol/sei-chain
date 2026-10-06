@@ -496,7 +496,8 @@ func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
 }
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been
-// opened. For a fixed configured mode this is a copy; for types.Auto the
+// opened. For a fixed configured mode this is a copy once
+// requirePinnedModeMatchesMigration accepts it; for types.Auto the
 // mode is derived from the migration metadata persisted in flatkv. A nil
 // flatkv under types.Auto means the backend was never materialized
 // (lazy-open found no directory), which is definitionally MemiavlOnly.
@@ -514,6 +515,9 @@ func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
 // anyway.
 func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) error {
 	if cs.config.WriteMode != types.Auto {
+		if err := cs.requirePinnedModeMatchesMigration(); err != nil {
+			return err
+		}
 		cs.currentWriteMode = cs.config.WriteMode
 		return nil
 	}
@@ -536,6 +540,33 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 	logger.Debug("derived effective write mode from migration metadata", "mode", derived)
 	cs.currentWriteMode = derived
 	return nil
+}
+
+// requirePinnedModeMatchesMigration returns an error when the configured
+// steady-state write mode disagrees with the migration state persisted in
+// flatkv. A store whose history began in flatkv carries no migration
+// metadata and derives MemiavlOnly, so that state is accepted for any pin.
+func (cs *CompositeCommitStore) requirePinnedModeMatchesMigration() error {
+	pinned := cs.config.WriteMode
+	switch pinned {
+	case types.EVMMigrated, types.AllMigratedButBank, types.FlatKVOnly:
+	default:
+		return nil
+	}
+	if cs.flatKV == nil {
+		return nil
+	}
+	persisted, err := migration.DeriveWriteMode(cs.flatKV)
+	if err != nil {
+		return fmt.Errorf("failed to derive persisted write mode: %w", err)
+	}
+	if persisted == pinned || persisted == types.MemiavlOnly {
+		return nil
+	}
+	return fmt.Errorf(
+		"write mode is pinned to %q but the persisted migration state is %q; "+
+			"set state-commit.sc-write-mode-enable-auto = true to follow the migration",
+		pinned, persisted)
 }
 
 // loadRouter returns the installed router, or nil before LoadVersion and
