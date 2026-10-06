@@ -25,28 +25,6 @@ func (suite *GenesisTestSuite) SetupTest() {
 	suite.keeper = app.ParamsKeeper
 }
 
-func (suite *GenesisTestSuite) TestImportExportGenesis() {
-	feesParams := &types.FeesParams{
-		GlobalMinimumGasPrices: sdk.DecCoins{sdk.NewDecCoinFromDec(sdk.DefaultBondDenom, sdk.NewDecWithPrec(1, 3))},
-	}
-	cosmosGasParams := &types.CosmosGasParams{
-		CosmosGasMultiplierNumerator:   1,
-		CosmosGasMultiplierDenominator: 2,
-	}
-
-	suite.keeper.SetFeesParams(suite.ctx, *feesParams)
-	suite.keeper.SetCosmosGasParams(suite.ctx, *cosmosGasParams)
-
-	genesis := suite.keeper.ExportGenesis(suite.ctx)
-	suite.Require().Equal(
-		&types.GenesisState{
-			FeesParams:      *feesParams,
-			CosmosGasParams: *cosmosGasParams,
-		},
-		genesis,
-	)
-}
-
 func (suite *GenesisTestSuite) TestInitGenesis() {
 	validGenesis := &types.GenesisState{
 		FeesParams: types.FeesParams{

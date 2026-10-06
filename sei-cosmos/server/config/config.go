@@ -379,7 +379,7 @@ type StateSyncConfig struct {
 	SnapshotDirectory string `mapstructure:"snapshot-directory"`
 }
 
-// GenesisConfig defines the genesis export, validation, and import configuration
+// GenesisConfig defines the genesis import configuration
 type GenesisConfig struct {
 	// StreamImport defines if the genesis.json is in stream form or not.
 	StreamImport bool `mapstructure:"stream-import"`

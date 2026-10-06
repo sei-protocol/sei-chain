@@ -208,7 +208,7 @@ func (w *migrationWorkload) snapshotOracle() map[migKeyPair][]byte {
 // reach into the migration package's private readVersionFromDB helper.
 func flatKVReaderFor(cs *CompositeCommitStore) migration.DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
-		v, ok := cs.flatKV.Get(store, key)
+		v, ok := cs.loadFlatKV().Get(store, key)
 		return v, ok, nil
 	}
 }
@@ -252,7 +252,7 @@ func driveMigrationWorkload(
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(phase1Blocks), cs.Version())
-	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate flatkv")
+	require.Nil(t, cs.loadFlatKV(), "MemiavlOnly must not allocate flatkv")
 	// Snapshot the oracle right at the mode boundary so the
 	// post-reopen verification below sees pre-migration data only.
 	// Phase 2 will then mutate the workload further; callers that
@@ -339,14 +339,14 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 		}}},
 	}))
 
-	boundaryBytes, ok := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	boundaryBytes, ok := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.True(t, ok)
 	boundary, err := migration.DeserializeMigrationBoundary(boundaryBytes)
 	require.NoError(t, err)
 	require.True(t, boundary.Equals(migration.NewMigrationBoundary(keys.EVMStoreKey, key1)),
 		"second non-empty ApplyChangeSets in the same block must not migrate key2")
 
-	_, ok = cs.flatKV.Get(keys.EVMStoreKey, key2)
+	_, ok = cs.loadFlatKV().Get(keys.EVMStoreKey, key2)
 	require.False(t, ok, "key2 should remain unmigrated until the next block")
 }
 
@@ -501,7 +501,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.True(t, found)
 	require.Equal(t, evmStorageTestValue(0x22), value)
 	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 
 	preFlipVersion := cs.Version()
 	preFlipHash := append([]byte(nil), flatKVRootHash(cs)...)
@@ -529,7 +529,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.True(t, found)
 	require.Equal(t, evmStorageTestValue(0x22), value)
 	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 }
 
 // runUntilMigrationComplete drives the workload through commits until
@@ -674,7 +674,7 @@ func TestComposite_MigrateEVM_HappyPath(t *testing.T) {
 	// I4: full-scan lattice hash must agree with the stored committed
 	// hash; this is the offline equivalent of the cross-validator
 	// digest check the Docker tests run.
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()),
 		"post-migration flatkv must pass full-scan LtHash verification")
 }
 
@@ -883,7 +883,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 
 	// EVMMigrated has no migration manager, so memiavl's evm tree must
 	// still be empty after a post-flip block (writes went to flatkv).
@@ -1165,25 +1165,8 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	const batch = 8
 
 	cs := openAutoStore(t, dir, batch)
-
-	// Bootstrap bank+evm state under MemiavlOnly (bank-heavy so migrate_bank
-	// later spans several blocks), then walk the ladder to migrate_bank.
-	for i := 0; i < 12; i++ {
-		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
-		_, err := cs.Commit(cs.Version() + 1)
-		require.NoError(t, err)
-	}
-	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
-	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
-	runBlocks(t, cs, workload, 2)
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	runBlocks(t, cs, workload, 2)
-
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
-	require.Equal(t, types.MigrateBank, cs.currentWriteMode)
+	walkToMigrateBank(t, cs, workload)
+	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
 
 	// One migrate_bank block that does not complete the migration: memiavl
 	// is still part of the AppHash here. Capture it as the rollback target.
@@ -1220,6 +1203,170 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 		"post-restart commit info across the bank-completion boundary must re-include memiavl")
 }
 
+// TestComposite_Auto_RollbackAcrossBankCompletionAfterRestart rolls an Auto store that was reopened
+// after the bank migration completed, so its mode was derived as FlatKVOnly, back below completion. The
+// rolled-back store must report the canonical commit info and recommit the rolled-back blocks exactly,
+// both in the same process and after a restart.
+func TestComposite_Auto_RollbackAcrossBankCompletionAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xB0A7)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+	walkToMigrateBank(t, cs, workload)
+
+	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
+	require.Greater(t, len(target.info.StoreInfos), 1,
+		"sanity: an in-progress bank migration still carries memiavl's store infos")
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+	require.NoError(t, cs.Close())
+
+	cs = openAutoStore(t, dir, batch)
+	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode(), "sanity: a reopened store derives FlatKVOnly")
+	require.NoError(t, cs.Rollback(target.info.Version))
+	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	requireCommitInfoEqual(t, target.info, cs.LastCommitInfo(), "post-rollback commit info (same process)")
+	replayRecorded(t, cs, rolledBack, "replay after rollback (same process)")
+	require.NoError(t, cs.Close())
+
+	cs = openAutoStore(t, dir, batch)
+	require.NoError(t, cs.Rollback(target.info.Version))
+	require.NoError(t, cs.Close())
+	cs = openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	requireCommitInfoEqual(t, target.info, cs.LastCommitInfo(), "post-rollback commit info (after restart)")
+	replayRecorded(t, cs, rolledBack, "replay after rollback (after restart)")
+}
+
+// TestComposite_Auto_RollbackToActivationAfterEVMMigration rolls an Auto store that was reopened after
+// the EVM migration completed back to the last height before activation. The rolled-back store must be
+// MemiavlOnly with flatkv closed, report the canonical commit info, and reproduce activation and the
+// whole migration when the blocks are recommitted, both in the same process and after a restart.
+func TestComposite_Auto_RollbackToActivationAfterEVMMigration(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xE7E7)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+	var preActivation recordedBlock
+	for i := 0; i < 12; i++ {
+		preActivation = commitRecorded(t, cs, workload.generateBlock(6, 0, 0, 4, 0))
+	}
+	require.False(t, hasLattice(preActivation.info), "sanity: pre-activation commit info has no evm_lattice")
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+	require.NoError(t, cs.Close())
+
+	requireRolledBackToActivation := func(cs *CompositeCommitStore, msg string) {
+		t.Helper()
+		require.Equal(t, preActivation.info.Version, cs.Version(), msg)
+		require.Equal(t, types.MemiavlOnly, cs.loadWriteMode(), msg)
+		require.Nil(t, cs.loadFlatKV(), "%s: flatkv must be closed before activation", msg)
+		requireCommitInfoEqual(t, preActivation.info, cs.LastCommitInfo(), msg)
+	}
+
+	cs = openAutoStore(t, dir, batch)
+	require.Equal(t, types.EVMMigrated, cs.loadWriteMode(), "sanity: a reopened store derives EVMMigrated")
+	require.NoError(t, cs.Rollback(preActivation.info.Version))
+	requireRolledBackToActivation(cs, "post-rollback (same process)")
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	replayRecorded(t, cs, rolledBack, "replay after rollback (same process)")
+	require.NoError(t, cs.Close())
+
+	cs = openAutoStore(t, dir, batch)
+	require.NoError(t, cs.Rollback(preActivation.info.Version))
+	require.NoError(t, cs.Close())
+	cs = openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	requireRolledBackToActivation(cs, "post-rollback (after restart)")
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	replayRecorded(t, cs, rolledBack, "replay after rollback (after restart)")
+}
+
+// walkToMigrateBank bootstraps bank-heavy state under MemiavlOnly, so the bank migration spans several
+// blocks, then walks cs through the migration ladder and leaves it in MigrateBank.
+func walkToMigrateBank(t *testing.T, cs *CompositeCommitStore, workload *migrationWorkload) {
+	t.Helper()
+	for i := 0; i < 12; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
+		_, err := cs.Commit(cs.Version() + 1)
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
+	runBlocks(t, cs, workload, 2)
+	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
+	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
+	runBlocks(t, cs, workload, 2)
+	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+}
+
+// recordedBlock is a committed block's change sets and the commit info committing them produced.
+type recordedBlock struct {
+	changes []*proto.NamedChangeSet
+	info    *proto.CommitInfo
+}
+
+// commitRecorded commits changes as the next block and returns its record.
+func commitRecorded(t *testing.T, cs *CompositeCommitStore, changes []*proto.NamedChangeSet) recordedBlock {
+	t.Helper()
+	recorded := cloneChangeSets(t, changes)
+	require.NoError(t, cs.ApplyChangeSets(changes))
+	_, err := cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
+	return recordedBlock{changes: recorded, info: cloneCommitInfo(cs.LastCommitInfo())}
+}
+
+// commitUntilAtMigrationVersion is runUntilAtMigrationVersion that returns the record of every block it
+// committed.
+func commitUntilAtMigrationVersion(
+	t *testing.T,
+	cs *CompositeCommitStore,
+	workload *migrationWorkload,
+	version uint64,
+	maxBlocks int,
+) []recordedBlock {
+	t.Helper()
+	var blocks []recordedBlock
+	for i := 0; i < maxBlocks; i++ {
+		blocks = append(blocks, commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 1, 1)))
+		done, err := migration.IsAtVersion(flatKVReaderFor(cs), version)
+		require.NoError(t, err)
+		if done {
+			return blocks
+		}
+	}
+	t.Fatalf("migration did not reach version %d within %d blocks", version, maxBlocks)
+	return nil
+}
+
+// replayRecorded recommits blocks and requires each to reproduce its recorded commit info.
+func replayRecorded(t *testing.T, cs *CompositeCommitStore, blocks []recordedBlock, msg string) {
+	t.Helper()
+	for _, block := range blocks {
+		require.NoError(t, cs.ApplyChangeSets(cloneChangeSets(t, block.changes)))
+		_, err := cs.Commit(cs.Version() + 1)
+		require.NoError(t, err)
+		requireCommitInfoEqual(t, block.info, cs.LastCommitInfo(), fmt.Sprintf("%s: block %d", msg, block.info.Version))
+	}
+}
+
+// cloneChangeSets returns a deep copy of changes.
+func cloneChangeSets(t *testing.T, changes []*proto.NamedChangeSet) []*proto.NamedChangeSet {
+	t.Helper()
+	clones := make([]*proto.NamedChangeSet, len(changes))
+	for i, changeSet := range changes {
+		bz, err := changeSet.Marshal()
+		require.NoError(t, err)
+		clones[i] = &proto.NamedChangeSet{}
+		require.NoError(t, clones[i].Unmarshal(bz))
+	}
+	return clones
+}
+
 // TestMigrateEVMBeforeTheBoundaryDrainsTheHashStream pins the drain a committing flatkv needs while it
 // is still outside the AppHash.
 //
@@ -1243,7 +1390,7 @@ func TestMigrateEVMBeforeTheBoundaryDrainsTheHashStream(t *testing.T) {
 	require.NoError(t, cs.LoadLatest())
 	defer cs.Close()
 
-	require.NotNil(t, cs.flatKV, "MigrateEVM must allocate a flatkv store")
+	require.NotNil(t, cs.loadFlatKV(), "MigrateEVM must allocate a flatkv store")
 
 	const blocks = 16
 	for i := 0; i < blocks; i++ {

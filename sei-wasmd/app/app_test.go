@@ -1,39 +1,16 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	db "github.com/tendermint/tm-db"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
 var emptyWasmOpts []wasm.Option = nil
-
-func TestWasmdExport(t *testing.T) {
-	db := db.NewMemDB()
-	gapp := NewWasmApp(db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, nil, MakeEncodingConfig(), wasm.EnableAllProposals, EmptyBaseAppOptions{}, emptyWasmOpts)
-
-	genesisState := NewDefaultGenesisState()
-	stateBytes, err := json.Marshal(genesisState)
-	require.NoError(t, err)
-
-	// Initialize the chain
-	gapp.InitChain(&abci.RequestInitChain{AppStateBytes: stateBytes})
-	gapp.SetDeliverStateToCommit()
-	gapp.Commit(context.Background())
-
-	// Making a new app object with the db, so that initchain hasn't been called
-	newGapp := NewWasmApp(db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, nil, MakeEncodingConfig(), wasm.EnableAllProposals, EmptyBaseAppOptions{}, emptyWasmOpts)
-	_, err = newGapp.ExportAppStateAndValidators(false, []string{})
-	require.NoError(t, err, "ExportAppStateAndValidators should not have an error")
-}
 
 // ensure that blocked addresses are properly set in bank keeper
 func TestBlockedAddrs(t *testing.T) {

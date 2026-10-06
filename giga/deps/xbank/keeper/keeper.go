@@ -28,7 +28,6 @@ type Keeper interface {
 	SendKeeper
 
 	InitGenesis(sdk.Context, *types.GenesisState)
-	ExportGenesis(sdk.Context) *types.GenesisState
 
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin
 	HasSupply(ctx sdk.Context, denom string) bool
