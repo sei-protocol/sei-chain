@@ -1,6 +1,8 @@
 package composite
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -656,4 +658,44 @@ func TestComposite_Auto_CopyAvailability(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.Nil(t, cs.Copy(),
 		"Copy is unavailable once flatkv is open")
+}
+
+// TestComposite_Auto_ChildStoreReadsDuringWriteModeSwitch reads through a
+// cached child-store view while SetWriteMode replaces the router, as happens
+// when queries run during the migration kickoff block. Run with -race.
+func TestComposite_Auto_ChildStoreReadsDuringWriteModeSwitch(t *testing.T) {
+	cs := openAutoStore(t, t.TempDir(), 25)
+	defer func() { _ = cs.Close() }()
+
+	key, value := []byte("k"), []byte("v")
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: key, Value: value},
+		}}},
+	}))
+	_, err := cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
+
+	view := cs.GetChildStoreByName(keys.BankStoreKey)
+	stop := make(chan struct{})
+	done := make(chan error)
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if got := view.Get(key); !bytes.Equal(got, value) {
+				done <- fmt.Errorf("Get(%q) = %x during the write mode switch, want %x", key, got, value)
+				return
+			}
+		}
+	}()
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	require.Equal(t, value, view.Get(key))
+	close(stop)
+	require.NoError(t, <-done)
 }
