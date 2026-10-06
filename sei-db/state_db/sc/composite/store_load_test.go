@@ -64,7 +64,7 @@ func TestDerivedStoreRefusesLoads(t *testing.T) {
 		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
-	require.Nil(t, cs.flatKV, "fixture precondition: flatkv must not be materialized")
+	require.Nil(t, cs.loadFlatKV(), "fixture precondition: flatkv must not be materialized")
 	require.NoError(t, cs.Close())
 
 	fresh, err := NewCompositeCommitStore(t.Context(), dir, cfg)
