@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
-	gov "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
@@ -109,10 +108,13 @@ func TestMigrate3to4SchedulesBoundedVoteDelegationBackfill(t *testing.T) {
 	require.NotPanics(t, func() {
 		_, _, _ = app.GovKeeper.Tally(ctx, proposal)
 	})
-	genesis := gov.ExportGenesis(ctx, app.GovKeeper)
-	require.Len(t, genesis.Votes, 3)
-	require.Len(t, genesis.VoteDelegationSnapshots, 3)
-	require.Equal(t, cutoff, genesis.VoteDelegationBackfillCutoff)
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 2)
+	require.Len(t, app.GovKeeper.GetVotes(ctx, newProposal.ProposalId), 1)
+	require.Len(t, app.GovKeeper.GetVoteDelegationSnapshots(ctx, proposal), 2)
+	require.Len(t, app.GovKeeper.GetVoteDelegationSnapshots(ctx, newProposal), 1)
+	storedCutoff, found := app.GovKeeper.GetVoteDelegationBackfillCutoff(ctx)
+	require.True(t, found)
+	require.Equal(t, cutoff, storedCutoff)
 
 	lateDelegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 10)
 	validator, found = app.StakingKeeper.GetValidator(ctx, valAddrs[0])

@@ -2384,11 +2384,6 @@ func cloneDuration(duration *time.Duration) *time.Duration {
 	return &cloned
 }
 
-// LoadHeight loads a particular height
-func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersionWithoutInit(height)
-}
-
 // ModuleAccountAddrs returns all the app's module account addresses.
 func (app *App) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)

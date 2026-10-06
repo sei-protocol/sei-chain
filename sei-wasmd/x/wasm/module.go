@@ -117,8 +117,6 @@ func (b AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) 
 	types.RegisterInterfaces(registry)
 }
 
-// ____________________________________________________________________________
-
 // AppModule implements an application module for the wasm module.
 type AppModule struct {
 	AppModuleBasic
@@ -180,28 +178,6 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.
 	}
 	return validators
 }
-
-// ExportGenesis returns the exported genesis state as raw bytes for the wasm
-// module.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
-	gs := ExportGenesis(ctx, am.keeper)
-	marshalled := cdc.MustMarshalJSON(gs)
-	return marshalled
-}
-
-func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	ch := ExportGenesisStream(ctx, am.keeper)
-	chRaw := make(chan json.RawMessage)
-	go func() {
-		for genState := range ch {
-			chRaw <- cdc.MustMarshalJSON(genState)
-		}
-		close(chRaw)
-	}()
-	return chRaw
-}
-
-// ____________________________________________________________________________
 
 // ____________________________________________________________________________
 // AddModuleInitFlags implements servertypes.ModuleInitFlags interface.
