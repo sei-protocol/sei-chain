@@ -98,7 +98,7 @@ func TestRestoreRejectsMalformedStream(t *testing.T) {
 		},
 		"node after an unnamed store item": {
 			items:   []snapshottypes.SnapshotItem{storeItem(""), nodeItem(0, "k")},
-			wantErr: "outside a named store section",
+			wantErr: "invalid snapshot module name",
 		},
 		"branch node before its leaves": {
 			items:   []snapshottypes.SnapshotItem{storeItem("bank"), nodeItem(1, "k")},
