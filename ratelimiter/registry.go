@@ -22,10 +22,10 @@ const (
 	DefaultRPS   = 200.0
 	DefaultBurst = 400
 
-	// lruSize bounds memory to ~8 MB at 50k entries (~160 bytes each). The least
-	// recently seen IP is evicted first; an evicted IP starts again with a full
-	// bucket, which is what an idle bucket would have refilled to anyway.
+	// lruSize bounds memory to ~8 MB at 50k entries (~160 bytes each).
 	lruSize = 50_000
+	// lruTTL is how long an IP may stay idle before it gets a fresh limiter.
+	lruTTL = time.Hour
 )
 
 // DefaultTrustedProxyCIDRs is the full set of RFC-1918 private ranges and loopback.
@@ -75,7 +75,7 @@ var DefaultConfig = Config{
 type Registry struct {
 	cfg            Config
 	trustedProxies []*net.IPNet
-	lru            *simplelru.LRU[string, *rate.Limiter]
+	lru            *simplelru.LRU[string, *limiterEntry]
 	mu             sync.Mutex
 	grpcMethods    atomic.Pointer[map[string]struct{}]
 	inflight       *inflightCounter
@@ -105,18 +105,18 @@ func New(cfg Config) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	cache, err := simplelru.NewLRU[string, *rate.Limiter](lruSize, nil)
-	if err != nil {
-		return nil, err
-	}
 	var inflight *inflightCounter
 	if cfg.MaxInFlightPerIP > 0 {
 		inflight = newInflightCounter(cfg.MaxInFlightPerIP)
 	}
+	lru, err := simplelru.NewLRU[string, *limiterEntry](lruSize, nil)
+	if err != nil {
+		return nil, err
+	}
 	return &Registry{
 		cfg:            cfg,
 		trustedProxies: proxies,
-		lru:            cache,
+		lru:            lru,
 		inflight:       inflight,
 	}, nil
 }
@@ -212,18 +212,27 @@ func (r *Registry) rightmostUntrustedIP(xff string) string {
 	return ""
 }
 
+// limiterEntry is the limiter for one LRU key and when it was last used.
+type limiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
-// mu serializes the get-then-add so concurrent first requests for the same IP
-// cannot each install a separate limiter.
+// Every hit refreshes lastSeen, so only an IP idle for longer than lruTTL gets
+// a fresh limiter. mu serializes the get-then-add so concurrent first requests
+// for the same IP cannot each install a separate limiter.
 func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 	key := bucketKey(ip)
+	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if l, ok := r.lru.Get(key); ok {
-		return l
+	if e, ok := r.lru.Get(key); ok && now.Sub(e.lastSeen) <= lruTTL {
+		e.lastSeen = now
+		return e.limiter
 	}
 	l := rate.NewLimiter(rate.Limit(r.cfg.RPS), r.cfg.Burst)
-	r.lru.Add(key, l)
+	r.lru.Add(key, &limiterEntry{limiter: l, lastSeen: now})
 	return l
 }
 
