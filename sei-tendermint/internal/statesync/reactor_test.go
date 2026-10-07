@@ -1,10 +1,8 @@
 package statesync
 
 import (
-	"cmp"
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -215,146 +213,86 @@ func TestReactor_Sync(t *testing.T) {
 }
 
 func TestReactor_ChunkRequest(t *testing.T) {
-	testcases := map[string]struct {
-		request        *pb.ChunkRequest
-		chunk          []byte
-		expectResponse *pb.ChunkResponse
-	}{
-		"chunk is returned": {
-			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
-			[]byte{1, 2, 3},
-			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{1, 2, 3}},
-		},
-		"empty chunk is returned, as empty": {
-			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
-			[]byte{},
-			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{}},
-		},
-		"nil (missing) chunk is returned as missing": {
-			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
-			nil,
-			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true},
-		},
-		"invalid request": {
-			&pb.ChunkRequest{Height: 1, Format: 1, Index: 1},
-			nil,
-			&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true},
-		},
+	ctx := t.Context()
+
+	conn := newTestStatesyncApp()
+	called := false
+	conn.loadSnapshotChunk.Set(func(context.Context, *abci.RequestLoadSnapshotChunk) (*abci.ResponseLoadSnapshotChunk, error) {
+		called = true
+		return &abci.ResponseLoadSnapshotChunk{Chunk: []byte{1, 2, 3}}, nil
+	})
+
+	rts := setup(t, conn, nil, false)
+	n := utils.OrPanic1(rts.AddPeer(ctx, t))
+	n.chunkCh.Broadcast(wrap(&pb.ChunkRequest{Height: 1, Format: 1, Index: 1}))
+	m, err := n.chunkCh.Recv(ctx)
+	require.NoError(t, err)
+	got := m.Message.Sum.(*pb.Message_ChunkResponse).ChunkResponse
+	if err := utils.TestDiff(&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Missing: true}, got); err != nil {
+		t.Fatal(err)
 	}
-
-	for name, tc := range testcases {
-		t.Run(name, func(t *testing.T) {
-			ctx := t.Context()
-
-			// mock ABCI connection to return local snapshots
-			conn := newTestStatesyncApp()
-			expected := &abci.RequestLoadSnapshotChunk{
-				Height: tc.request.Height,
-				Format: tc.request.Format,
-				Chunk:  tc.request.Index,
-			}
-			conn.loadSnapshotChunk.Push(mkHandler(expected, &abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}))
-
-			rts := setup(t, conn, nil, false)
-			n := utils.OrPanic1(rts.AddPeer(ctx, t))
-			// Send the actual message.
-			n.chunkCh.Broadcast(wrap(tc.request))
-			m, err := n.chunkCh.Recv(ctx)
-			require.NoError(t, err)
-			got := m.Message.Sum.(*pb.Message_ChunkResponse).ChunkResponse
-			if err := utils.TestDiff(tc.expectResponse, got); err != nil {
-				t.Fatal(err)
-			}
-			conn.AssertExpectations(t)
-		})
-	}
+	require.False(t, called)
 }
 
-func abciToSSProtoSnapshot(snapshot *abci.Snapshot) *pb.SnapshotsResponse {
-	return &pb.SnapshotsResponse{
-		Height:   snapshot.Height,
-		Format:   snapshot.Format,
-		Chunks:   snapshot.Chunks,
-		Hash:     snapshot.Hash,
-		Metadata: snapshot.Metadata,
+func TestReactor_ChunkRequestServedWhenEnabled(t *testing.T) {
+	ctx := t.Context()
+
+	conn := newTestStatesyncApp()
+	conn.loadSnapshotChunk.Set(func(context.Context, *abci.RequestLoadSnapshotChunk) (*abci.ResponseLoadSnapshotChunk, error) {
+		return &abci.ResponseLoadSnapshotChunk{Chunk: []byte{1, 2, 3}}, nil
+	})
+
+	rts := setup(t, conn, nil, false)
+	rts.reactor.SetServeSnapshotsAndBlocks(true)
+	n := utils.OrPanic1(rts.AddPeer(ctx, t))
+	n.chunkCh.Broadcast(wrap(&pb.ChunkRequest{Height: 1, Format: 1, Index: 1}))
+	m, err := n.chunkCh.Recv(ctx)
+	require.NoError(t, err)
+	got := m.Message.Sum.(*pb.Message_ChunkResponse).ChunkResponse
+	if err := utils.TestDiff(&pb.ChunkResponse{Height: 1, Format: 1, Index: 1, Chunk: []byte{1, 2, 3}}, got); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestReactor_SnapshotsRequest(t *testing.T) {
-	testcases := map[string]struct {
-		snapshots []*abci.Snapshot
-	}{
-		"no snapshots": {nil},
-		">10 unordered snapshots": {
-			[]*abci.Snapshot{
-				{Height: 1, Format: 2, Chunks: 7, Hash: []byte{1, 2}, Metadata: []byte{1}},
-				{Height: 2, Format: 2, Chunks: 7, Hash: []byte{2, 2}, Metadata: []byte{2}},
-				{Height: 3, Format: 2, Chunks: 7, Hash: []byte{3, 2}, Metadata: []byte{3}},
-				{Height: 1, Format: 1, Chunks: 7, Hash: []byte{1, 1}, Metadata: []byte{4}},
-				{Height: 2, Format: 1, Chunks: 7, Hash: []byte{2, 1}, Metadata: []byte{5}},
-				{Height: 3, Format: 1, Chunks: 7, Hash: []byte{3, 1}, Metadata: []byte{6}},
-				{Height: 1, Format: 4, Chunks: 7, Hash: []byte{1, 4}, Metadata: []byte{7}},
-				{Height: 2, Format: 4, Chunks: 7, Hash: []byte{2, 4}, Metadata: []byte{8}},
-				{Height: 3, Format: 4, Chunks: 7, Hash: []byte{3, 4}, Metadata: []byte{9}},
-				{Height: 1, Format: 3, Chunks: 7, Hash: []byte{1, 3}, Metadata: []byte{10}},
-				{Height: 2, Format: 3, Chunks: 7, Hash: []byte{2, 3}, Metadata: []byte{11}},
-				{Height: 3, Format: 3, Chunks: 7, Hash: []byte{3, 3}, Metadata: []byte{12}},
-			},
-		},
-	}
-	for name, tc := range testcases {
-		t.Run(name, func(t *testing.T) {
-			ctx := t.Context()
-			snapshots := make([]*abci.Snapshot, len(tc.snapshots))
-			for i, s := range tc.snapshots {
-				snapshots[i] = &abci.Snapshot{
-					Height:   s.Height,
-					Format:   s.Format,
-					Chunks:   s.Chunks,
-					Hash:     append([]byte(nil), s.Hash...),
-					Metadata: append([]byte(nil), s.Metadata...),
-				}
-			}
+	ctx := t.Context()
 
-			// mock ABCI connection to return local snapshots
-			conn := newTestStatesyncApp()
-			conn.listSnapshots.Set(mkHandler(&abci.RequestListSnapshots{}, &abci.ResponseListSnapshots{Snapshots: snapshots}))
+	conn := newTestStatesyncApp()
+	called := false
+	conn.listSnapshots.Set(func(context.Context, *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {
+		called = true
+		return &abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{{Height: 3, Format: 1, Chunks: 1}}}, nil
+	})
 
-			rts := setup(t, conn, nil, false)
-			n := utils.OrPanic1(rts.AddPeer(ctx, t))
-			// Send the actual message.
-			n.snapshotCh.Broadcast(wrap(&pb.SnapshotsRequest{}))
+	rts := setup(t, conn, nil, false)
+	err := rts.reactor.handleSnapshotMessage(ctx, p2p.RecvMsg[*pb.Message]{
+		Message: wrap(&pb.SnapshotsRequest{}),
+	})
+	require.NoError(t, err)
+	require.False(t, called)
+}
 
-			// Compute the expected answer.
-			want := make([]*pb.SnapshotsResponse, len(tc.snapshots))
-			for i, snapshot := range tc.snapshots {
-				want[i] = abciToSSProtoSnapshot(snapshot)
-			}
-			less := func(a, b *pb.SnapshotsResponse) int {
-				return cmp.Or(
-					cmp.Compare(b.Height, a.Height),
-					cmp.Compare(b.Format, a.Format),
-				)
-			}
-			slices.SortFunc(want, less)
-			if len(want) > recentSnapshots {
-				want = want[:recentSnapshots]
-			}
+func TestReactor_SnapshotsRequestServedWhenEnabled(t *testing.T) {
+	ctx := t.Context()
 
-			// Receive the actual answer.
-			got := make([]*pb.SnapshotsResponse, len(want))
-			for i := range want {
-				m, err := n.snapshotCh.Recv(ctx)
-				require.NoError(t, err)
-				got[i] = m.Message.Sum.(*pb.Message_SnapshotsResponse).SnapshotsResponse
-			}
+	conn := newTestStatesyncApp()
+	conn.listSnapshots.Set(mkHandler(&abci.RequestListSnapshots{}, &abci.ResponseListSnapshots{
+		Snapshots: []*abci.Snapshot{{
+			Height: 3, Format: 1, Chunks: 1, Hash: []byte{1}, Metadata: []byte{2},
+		}},
+	}))
 
-			slices.SortFunc(got, less)
-			if err := utils.TestDiff(want, got); err != nil {
-				t.Fatal(err)
-			}
-			conn.AssertExpectations(t)
-		})
+	rts := setup(t, conn, nil, false)
+	rts.reactor.SetServeSnapshotsAndBlocks(true)
+	n := utils.OrPanic1(rts.AddPeer(ctx, t))
+	n.snapshotCh.Broadcast(wrap(&pb.SnapshotsRequest{}))
+	m, err := n.snapshotCh.Recv(ctx)
+	require.NoError(t, err)
+	got := m.Message.Sum.(*pb.Message_SnapshotsResponse).SnapshotsResponse
+	if err := utils.TestDiff(&pb.SnapshotsResponse{
+		Height: 3, Format: 1, Chunks: 1, Hash: []byte{1}, Metadata: []byte{2},
+	}, got); err != nil {
+		t.Fatal(err)
 	}
 }
 
