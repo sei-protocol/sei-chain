@@ -12,6 +12,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -29,7 +30,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	// Independent ground truth means reading the databases directly, which only agrees with the
 	// maintained hashes once the committed block has actually been flushed there.
 	requireFlushedToDisk(t, s)
-	var pairs []lthash.KeyMutation
+	var pairs []view.Mutation
 
 	scanDB := func(db types.KeyValueDB) {
 		iter, err := db.NewIter(&types.IterOptions{})
@@ -39,12 +40,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}
-			key := bytes.Clone(iter.Key())
-			value := bytes.Clone(iter.Value())
-			pairs = append(pairs, lthash.KeyMutation{
-				Key:   key,
-				Value: value,
-			})
+			pairs = append(pairs, view.NewMutation(string(iter.Key()), bytes.Clone(iter.Value()), nil))
 		}
 		require.NoError(t, iter.Error())
 	}

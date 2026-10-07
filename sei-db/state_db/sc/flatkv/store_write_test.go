@@ -1944,7 +1944,7 @@ func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	require.NoError(t, s.FlushHashes())
 	require.Equal(t, int64(1), <-dispatched, "the good block hashes normally")
 
-	s.moduleOf = func([]byte) (string, error) {
+	s.moduleOf = func(string) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
 	}
 

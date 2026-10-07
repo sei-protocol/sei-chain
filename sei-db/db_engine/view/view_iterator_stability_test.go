@@ -59,7 +59,7 @@ func sealFlushRetire(t *testing.T, manager ViewManager) {
 	require.NoError(t, view.Finalize(nil))
 	awaitFlushed(t, view, 2*time.Second)
 	require.NoError(t, view.Release())
-	awaitRetired(t, manager, version)
+	retire(t, manager, version)
 }
 
 // Every write path must be accepted while an iterator is open, and none of them may be visible

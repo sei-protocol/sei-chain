@@ -335,13 +335,13 @@ func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, 
 	return result.value, result.value != nil, nil
 }
 
-// ResolveBatchUnlocked completes the pending reads of a batch classified via LookupWLocked, writing
-// found values into results. It schedules the not-yet-scheduled reads and blocks until every pending
+// ResolveBatchUnlocked completes the pending reads of a batch classified via LookupWLocked, recording
+// each read's result in its pendingRead. It schedules the not-yet-scheduled reads and blocks until every pending
 // read completes, then applies the terminal cache states asynchronously (bulkInjectValuesUnlocked).
 //
 // A non-nil return means the whole batch failed. The first read error is returned after the full
 // drain, unless the manager shuts down first.
-func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[string][]byte) error {
+func (c *readCache) ResolveBatchUnlocked(pending []pendingRead) error {
 	if len(pending) == 0 {
 		return nil
 	}
@@ -377,14 +377,8 @@ func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[stri
 		pending[i].valueChan <- result
 		pending[i].result = result
 
-		if result.err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("failed to read key from database: %w", result.err)
-			}
-			continue
-		}
-		if result.value != nil {
-			results[pending[i].key] = result.value
+		if result.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("failed to read key from database: %w", result.err)
 		}
 	}
 
@@ -503,14 +497,15 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 // that a key several of them wrote is left holding the newest value. A nil value marks the key as
 // known-deleted (the manager-wide tombstone convention); any other value is cached as available.
 // Inserts everything, then evicts overflow once at the end.
-func (c *readCache) PutRetiredWLocked(diffs [][]Write) error {
+func (c *readCache) PutRetiredWLocked(diffs []shardMutations) error {
 	// Replayed in the order given, so that where diffs overlap on a key the last one wins.
 	for _, diff := range diffs {
-		for _, entry := range diff {
-			if entry.Value == nil {
-				c.deleteRetiredWLocked([]byte(entry.Key))
+		for _, position := range diff.positions {
+			mutation := diff.mutations[position]
+			if mutation.value == nil {
+				c.deleteRetiredWLocked([]byte(mutation.key))
 			} else {
-				c.setRetiredWLocked([]byte(entry.Key), entry.Value)
+				c.setRetiredWLocked([]byte(mutation.key), mutation.value)
 			}
 		}
 	}

@@ -362,14 +362,15 @@ func hashWrites(hash []byte) []*proto.KVPair {
 }
 
 // collectDiff gathers a view's writes into a map, for tests that assert on the whole set rather than on
-// the order it arrives in.
+// its order.
 func collectDiff(t *testing.T, view View) map[string][]byte {
 	t.Helper()
-	diff := make(map[string][]byte)
-	require.NoError(t, view.ForEachDiff(func(key string, value []byte) error {
-		diff[key] = value
-		return nil
-	}))
+	mutations, err := view.Mutations()
+	require.NoError(t, err)
+	diff := make(map[string][]byte, len(mutations))
+	for _, mutation := range mutations {
+		diff[mutation.Key()] = mutation.Value()
+	}
 	return diff
 }
 
@@ -415,6 +416,17 @@ func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
 		_, tracked := e.versionMap[version]
 		return !tracked
 	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
+}
+
+// retire seals an empty successor of the newest sealed version, then waits for version to retire. A
+// version cannot retire until its successor is materialized. The successor is never finalized, so it
+// never flushes, and it is abandoned at cleanup.
+func retire(t *testing.T, manager ViewManager, version uint64) {
+	t.Helper()
+	successor, err := manager.Commit()
+	require.NoError(t, err)
+	t.Cleanup(successor.Abandon)
+	awaitRetired(t, manager, version)
 }
 
 // commitShard seals the shard's current version, failing the test if its once-per-block cache

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
@@ -69,9 +70,9 @@ func (c *cachedTable) PutBatch(batch []*types.PutRequest) error {
 		return err
 	}
 	for _, req := range batch {
-		c.writeCache.Put(util.UnsafeBytesToString(req.Key), req.Value)
+		c.writeCache.Put(utils.UnsafeBytesToString(req.Key), req.Value)
 		for _, sk := range req.SecondaryKeys {
-			c.writeCache.Put(util.UnsafeBytesToString(sk.Key), req.Value[sk.Offset:sk.Offset+sk.Length])
+			c.writeCache.Put(utils.UnsafeBytesToString(sk.Key), req.Value[sk.Offset:sk.Offset+sk.Length])
 		}
 	}
 	return nil
@@ -89,7 +90,7 @@ func (c *cachedTable) Get(key []byte) (value []byte, exists bool, err error) {
 		}()
 	}
 
-	stringKey := util.UnsafeBytesToString(key)
+	stringKey := utils.UnsafeBytesToString(key)
 
 	if value, exists = c.writeCache.Get(stringKey); exists {
 		// The value was recently written.
@@ -114,12 +115,12 @@ func (c *cachedTable) Get(key []byte) (value []byte, exists bool, err error) {
 }
 
 func (c *cachedTable) Exists(key []byte) (exists bool, err error) {
-	_, exists = c.writeCache.Get(util.UnsafeBytesToString(key))
+	_, exists = c.writeCache.Get(utils.UnsafeBytesToString(key))
 	if exists {
 		return true, nil
 	}
 
-	_, exists = c.readCache.Get(util.UnsafeBytesToString(key))
+	_, exists = c.readCache.Get(utils.UnsafeBytesToString(key))
 	if exists {
 		return true, nil
 	}

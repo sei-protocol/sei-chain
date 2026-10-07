@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"go.opentelemetry.io/otel/metric"
@@ -46,7 +48,7 @@ type dbWorker struct {
 	db          seidbtypes.KeyValueDB
 	ch          chan rawKVPair
 	batch       seidbtypes.Batch
-	ltMutations []lthash.KeyMutation
+	ltMutations []view.Mutation
 	ltHash      *lthash.LtHash
 	// moduleLtHash tracks the per-module decomposition of ltHash, keyed by the
 	// "<module>/" physical-key prefix. Its homomorphic sum equals ltHash.
@@ -83,7 +85,7 @@ func newDBWorker(
 		db:           db,
 		ch:           make(chan rawKVPair, workerChanSize),
 		batch:        db.NewBatch(),
-		ltMutations:  make([]lthash.KeyMutation, 0, importBatchSize),
+		ltMutations:  make([]view.Mutation, 0, importBatchSize),
 		ltHash:       ltHash,
 		moduleLtHash: moduleLtHash,
 		moduleStats:  moduleStats,
@@ -111,10 +113,9 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 			if err := w.batch.Set(kv.Key, kv.Value); err != nil {
 				return fmt.Errorf("%s set: %w", w.dir, err)
 			}
-			w.ltMutations = append(w.ltMutations, lthash.KeyMutation{
-				Key:   kv.Key,
-				Value: kv.Value,
-			})
+			// The pair is this worker's to keep, so its key is viewed as a string rather than copied.
+			w.ltMutations = append(w.ltMutations,
+				view.NewMutation(utils.UnsafeBytesToString(kv.Key), kv.Value, nil))
 			if len(w.ltMutations) >= importBatchSize {
 				if err := w.flush(); err != nil {
 					return err

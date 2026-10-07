@@ -1,25 +1,19 @@
 package lthash
 
+import "github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+
 // The vocabulary shared by everything that hashes a block: the engine's inputs, its per-module
 // intermediates, and the state it produces.
-
-// KeyMutation holds a KV change for LtHash computation.
-type KeyMutation struct {
-	Key       []byte
-	Value     []byte
-	LastValue []byte // Previous value (nil for new keys)
-	Delete    bool   // If true, only remove last value
-}
 
 // DatabaseMutations is everything one database changed in a block.
 type DatabaseMutations struct {
 	DBName    string
-	Mutations []KeyMutation
+	Mutations []view.Mutation
 }
 
 // ModuleParser extracts the owning module name from a physical key. Injected by
 // the caller so that hashing stays decoupled from the key-encoding package.
-type ModuleParser func(physicalKey []byte) (module string, err error)
+type ModuleParser func(physicalKey string) (module string, err error)
 
 // ModuleKey identifies a single (database, module) accumulator.
 type ModuleKey struct {

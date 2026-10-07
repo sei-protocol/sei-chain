@@ -125,15 +125,16 @@ func TestMaintenanceEvictsBackToBudget(t *testing.T) {
 	shard := newTestShard(t, maxSize, newTestDB(nil))
 
 	// Twice the budget, inserted as a retirement so every entry lands in a terminal state.
-	retired := make([]Write, 0, 2*maxSize/entrySize)
+	retired := shardMutations{}
 	for i := 0; i < 2*maxSize/entrySize; i++ {
-		retired = append(retired, Write{
-			Key:   fmt.Sprintf("key%05d", i),
-			Value: []byte(fmt.Sprintf("val%05d", i)),
+		retired.mutations = append(retired.mutations, Mutation{
+			key:   fmt.Sprintf("key%05d", i),
+			value: []byte(fmt.Sprintf("val%05d", i)),
 		})
+		retired.positions = append(retired.positions, uint32(i)) //nolint:gosec // small test index
 	}
 	shard.lock.Lock()
-	_ = shard.cache.PutRetiredWLocked([][]Write{retired})
+	_ = shard.cache.PutRetiredWLocked([]shardMutations{retired})
 	overBudget, _ := shard.cache.SizeInfoRLocked()
 	hardCap := shard.cache.hardCap()
 	shard.lock.Unlock()

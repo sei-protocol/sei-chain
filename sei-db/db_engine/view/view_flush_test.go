@@ -140,7 +140,7 @@ func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 		"newer version must not retire while an older held version blocks it")
 
 	require.NoError(t, view1.Release())
-	awaitRetired(t, manager, 2)
+	retire(t, manager, 2)
 }
 
 func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
@@ -170,7 +170,7 @@ func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	require.Equal(t, int64(0), db.commitCount.Load(), "nothing should flush while the oldest is unfinalized")
 
 	finalizeAndRelease(t, views[0])
-	awaitRetired(t, manager, versions) // last version retired => everything flushed
+	retire(t, manager, versions) // last version retired => everything flushed
 
 	require.Greater(t, db.commitCount.Load(), int64(1),
 		"a multi-version flush should split into multiple commits at the TargetBytesPerFlush boundary")
@@ -191,7 +191,7 @@ func TestFlushClosesEveryBatch(t *testing.T) {
 		require.NoError(t, manager.Set([]byte{byte('a' + i)}, []byte("v")))
 		commitFinalizeRelease(t, manager)
 	}
-	awaitRetired(t, manager, versions) // last version retired => everything flushed
+	retire(t, manager, versions) // last version retired => everything flushed
 
 	require.Greater(t, db.batchesCreated.Load(), int64(1), "expected the flush to span multiple batches")
 	require.Equal(t, db.batchesCreated.Load(), db.batchesClosed.Load(),
@@ -205,7 +205,7 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	retire(t, manager, ver)
 
 	require.Error(t, view.Reserve(), "reserving a retired view must fail")
 }
@@ -217,7 +217,7 @@ func TestFinalizeAfterRetirementFails(t *testing.T) {
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	retire(t, manager, ver)
 
 	require.Error(t, view.Finalize(hashWrites(testHash)), "finalizing a retired view must fail")
 }
@@ -229,7 +229,7 @@ func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	retire(t, manager, ver)
 
 	require.Error(t, view.AwaitFlush(context.Background()), "AwaitFlush on a retired view must fail")
 }

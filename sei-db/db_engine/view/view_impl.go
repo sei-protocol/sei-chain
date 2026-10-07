@@ -40,11 +40,12 @@ func (s *viewImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	return value, ok, nil
 }
 
-func (s *viewImpl) ForEachDiff(visit func(key string, value []byte) error) error {
-	if err := s.parentManager.ForEachDiffAtVersion(s.version, visit); err != nil {
-		return fmt.Errorf("failed to walk diff: %w", err)
+func (s *viewImpl) Mutations() ([]Mutation, error) {
+	mutations, err := s.parentManager.MutationsAtVersion(s.version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mutations: %w", err)
 	}
-	return nil
+	return mutations, nil
 }
 
 func (s *viewImpl) Reserve() error {

@@ -70,7 +70,7 @@ func TestFlushOrdersWithinEachVersionNotAcrossThem(t *testing.T) {
 	// TestTargetBytesPerFlushSplitsIntoMultipleCommits).
 	finalizeAndRelease(t, view2)
 	finalizeAndRelease(t, view1)
-	awaitRetired(t, manager, 2)
+	retire(t, manager, 2)
 
 	// Flattened across batches: where the flush split them does not change the order the writes were
 	// appended in, and that order is what pebble numbers.

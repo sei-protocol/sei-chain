@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -967,7 +968,7 @@ func (d *DiskTable) Get(key []byte) (value []byte, exists bool, err error) {
 
 	// First, check if the key is in the unflushed data map.
 	// If so, return it from there.
-	if value, ok := d.unflushedDataCache.Load(util.UnsafeBytesToString(key)); ok {
+	if value, ok := d.unflushedDataCache.Load(utils.UnsafeBytesToString(key)); ok {
 		bytes := value.([]byte)
 		return bytes, true, nil
 	}
@@ -1031,7 +1032,7 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 		// secondary, secondary vs secondary) within the request. Cross-request collisions remain
 		// the caller's responsibility, matching existing semantics for primary keys.
 		seen := make(map[string]struct{}, 1+len(kv.SecondaryKeys))
-		seen[util.UnsafeBytesToString(kv.Key)] = struct{}{}
+		seen[utils.UnsafeBytesToString(kv.Key)] = struct{}{}
 		for _, sk := range kv.SecondaryKeys {
 			if sk == nil {
 				return fmt.Errorf("nil secondary key is not supported")
@@ -1058,7 +1059,7 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 						"not supported on a compressed table; secondary keys must alias the entire value",
 					sk.Offset, end, len(kv.Value))
 			}
-			skKey := util.UnsafeBytesToString(sk.Key)
+			skKey := utils.UnsafeBytesToString(sk.Key)
 			if _, dup := seen[skKey]; dup {
 				return fmt.Errorf("duplicate key %x within PutRequest", sk.Key)
 			}
@@ -1083,10 +1084,10 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 	// value. This makes Get/Exists/CacheAwareGet treat secondaries identically to primaries before
 	// the data is durable.
 	for _, kv := range batch {
-		d.unflushedDataCache.Store(util.UnsafeBytesToString(kv.Key), kv.Value)
+		d.unflushedDataCache.Store(utils.UnsafeBytesToString(kv.Key), kv.Value)
 		for _, sk := range kv.SecondaryKeys {
 			d.unflushedDataCache.Store(
-				util.UnsafeBytesToString(sk.Key),
+				utils.UnsafeBytesToString(sk.Key),
 				kv.Value[sk.Offset:sk.Offset+sk.Length])
 		}
 	}
@@ -1105,7 +1106,7 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 }
 
 func (d *DiskTable) Exists(key []byte) (bool, error) {
-	_, ok := d.unflushedDataCache.Load(util.UnsafeBytesToString(key))
+	_, ok := d.unflushedDataCache.Load(utils.UnsafeBytesToString(key))
 	if ok {
 		return true, nil
 	}
@@ -1263,7 +1264,7 @@ func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, e
 	// keeps the not-found case cheap: no segment is sealed and no barrier is paid for a key that was
 	// never written. A key present in the keymap has a live entry, so its segment cannot be garbage
 	// collected out from under the snapshot opened below.
-	_, inCache := d.unflushedDataCache.Load(util.UnsafeBytesToString(key))
+	_, inCache := d.unflushedDataCache.Load(utils.UnsafeBytesToString(key))
 	address, inKeymap, err := d.keymap.Get(key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to look up key address: %w", err)

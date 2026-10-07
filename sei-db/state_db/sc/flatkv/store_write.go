@@ -154,12 +154,10 @@ func (s *CommitStore) sealBlock(
 	alreadyHave map[string]int64,
 ) (err error) {
 	var blockView *sview.StoreView
-	var previous *sview.StoreView
 	defer func() {
 		if err != nil {
-			// Error is fatal; the reservations are given up rather than released.
+			// Error is fatal; the reservation is given up rather than released.
 			blockView.Abandon()
-			previous.Abandon()
 		}
 	}()
 
@@ -168,11 +166,6 @@ func (s *CommitStore) sealBlock(
 	blockView, err = s.commitStores(version)
 	if err != nil {
 		return err
-	}
-
-	previous, err = s.lastSealed.Get()
-	if err != nil {
-		return fmt.Errorf("read previous block's view: %w", err)
 	}
 
 	if err := s.lastSealed.Set(blockView); err != nil {
@@ -185,13 +178,10 @@ func (s *CommitStore) sealBlock(
 	}
 
 	s.phaseTimer.SetPhase("commit_schedule_hash")
-	if err := s.hashEngine.ScheduleHash(blockView, previous); err != nil {
+	if err := s.hashEngine.ScheduleHash(blockView); err != nil {
 		return err
 	}
 
-	if err := previous.Release(); err != nil {
-		return fmt.Errorf("release previous block's view: %w", err)
-	}
 	if err := blockView.Release(); err != nil {
 		return fmt.Errorf("release block %d's view: %w", version, err)
 	}

@@ -370,10 +370,10 @@ func (s *CommitStore) writeAccountStore(
 // moduleOfKey extracts the owning module from a physical key. Injected into the
 // lthash HashCalculator so it can bucket pairs by module without importing ktype
 // (ktype already imports lthash).
-func moduleOfKey(physicalKey []byte) (string, error) {
-	module, _, err := ktype.StripModulePrefix(physicalKey)
+func moduleOfKey(physicalKey string) (string, error) {
+	module, err := ktype.ModuleName(physicalKey)
 	if err != nil {
-		return "", fmt.Errorf("strip the module prefix from key %x: %w", physicalKey, err)
+		return "", fmt.Errorf("find the module of key %x: %w", physicalKey, err)
 	}
 	return module, nil
 }

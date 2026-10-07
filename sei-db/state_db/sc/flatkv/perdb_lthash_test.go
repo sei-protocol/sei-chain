@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -26,15 +27,12 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	var pairs []lthash.KeyMutation
+	var pairs []view.Mutation
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
-		pairs = append(pairs, lthash.KeyMutation{
-			Key:   bytes.Clone(iter.Key()),
-			Value: bytes.Clone(iter.Value()),
-		})
+		pairs = append(pairs, view.NewMutation(string(iter.Key()), bytes.Clone(iter.Value()), nil))
 	}
 	require.NoError(t, iter.Error())
 	result := lthash.ComputeLtHash(nil, pairs)

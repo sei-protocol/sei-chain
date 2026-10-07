@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
@@ -489,7 +490,7 @@ func (m *keymapManager) writeBatch(keys []*types.ScopedKey) error {
 	// The keys are now durable in both the segment and the keymap, so it is safe to drop them from the
 	// unflushed data cache.
 	for _, key := range keys {
-		m.unflushedDataCache.Delete(util.UnsafeBytesToString(key.Key))
+		m.unflushedDataCache.Delete(utils.UnsafeBytesToString(key.Key))
 	}
 
 	return nil

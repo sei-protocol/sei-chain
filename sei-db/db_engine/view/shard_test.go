@@ -49,56 +49,89 @@ func TestShardValidateVersionOverflow(t *testing.T) {
 	require.ErrorContains(t, err, "current")
 }
 
-func TestShardSortedDiffCarriesEachSealedVersion(t *testing.T) {
+func TestShardExtractMaterializedWritesReturnsEachSealedVersion(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	require.NoError(t, s.Set([]byte("b"), []byte("1")))
 	require.NoError(t, s.Set([]byte("a"), []byte("1")))
 	commitShard(t, s) // seals v1, live -> v2
 	require.NoError(t, s.Set([]byte("c"), []byte("2")))
-	commitShard(t, s) // seals v2, live -> v3 (only sealed versions have an ordered diff)
+	commitShard(t, s) // seals v2, live -> v3
 
-	require.NoError(t, s.MaterializeSortedDiff(1))
-	require.NoError(t, s.MaterializeSortedDiff(2))
-
-	first, err := s.SortedDiff(1)
+	first, err := s.ExtractMaterializedWrites(1)
 	require.NoError(t, err)
-	require.Equal(t, []Write{{Key: "a", Value: []byte("1")}, {Key: "b", Value: []byte("1")}}, first,
-		"a version's diff must be ordered by key")
+	require.Equal(t, map[string][]byte{"a": []byte("1"), "b": []byte("1")}, first)
 
-	second, err := s.SortedDiff(2)
+	second, err := s.ExtractMaterializedWrites(2)
 	require.NoError(t, err)
-	require.Equal(t, []Write{{Key: "c", Value: []byte("2")}}, second)
+	require.Equal(t, map[string][]byte{"c": []byte("2")}, second)
 }
 
-// Materializing replaces the map the version was accumulated in, and says so: a second call has nothing
-// left to take and must not disturb the diff already published.
-func TestShardMaterializeIsIdempotentAndDropsTheMap(t *testing.T) {
+// Extracting removes the version's writes from the shard, so a second extraction finds none.
+func TestShardExtractMaterializedWritesRemovesThem(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	require.NoError(t, s.Set([]byte("k"), []byte("v")))
 	commitShard(t, s)
 
-	require.NoError(t, s.MaterializeSortedDiff(1))
+	_, err := s.ExtractMaterializedWrites(1)
+	require.NoError(t, err)
 
 	s.lock.RLock()
 	_, mapStillThere := s.versionDiffs[1]
 	s.lock.RUnlock()
-	require.False(t, mapStillThere, "materializing must drop the version's diff map")
+	require.False(t, mapStillThere, "extracting must remove the version's writes")
 
-	require.NoError(t, s.MaterializeSortedDiff(1))
-	entries, err := s.SortedDiff(1)
-	require.NoError(t, err)
-	require.Equal(t, []Write{{Key: "k", Value: []byte("v")}}, entries)
+	_, err = s.ExtractMaterializedWrites(1)
+	require.Error(t, err, "the writes are already extracted")
 }
 
-func TestShardSortedDiffRejectsUnsealedVersions(t *testing.T) {
+func TestShardExtractMaterializedWritesRejectsUnsealedVersions(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	commitShard(t, s) // oldest=1, current=2
 
-	_, err := s.SortedDiff(2)
+	_, err := s.ExtractMaterializedWrites(2)
 	require.Error(t, err, "the current version is not sealed")
+	_, err = s.ExtractMaterializedWrites(0)
+	require.Error(t, err, "a version that was never sealed has no diff")
+}
 
-	require.Error(t, s.MaterializeSortedDiff(2), "the current version cannot be materialized")
-	require.Error(t, s.MaterializeSortedDiff(0), "a version below the oldest is not tracked")
+// The previous value of a version-1 write comes from the database, and that of a later write from the
+// shard's own versioned data, deletions included.
+func TestShardReadPriorValuesReadsTheVersionBefore(t *testing.T) {
+	s := newTestShard(t, 4096, newTestDB(map[string][]byte{"seeded": []byte("db")}))
+	require.NoError(t, s.Set([]byte("seeded"), []byte("v1")))
+	require.NoError(t, s.Set([]byte("fresh"), []byte("v1")))
+	commitShard(t, s) // seals v1
+	require.NoError(t, s.Set([]byte("seeded"), []byte("v2")))
+	require.NoError(t, s.Delete([]byte("fresh")))
+	commitShard(t, s) // seals v2
+
+	first := []Mutation{
+		{key: "fresh", value: []byte("v1")},
+		{key: "seeded", value: []byte("v1")},
+	}
+	require.NoError(t, s.ReadPriorValues(1, first, []uint32{0, 1}))
+	require.Nil(t, first[0].Previous(), "a key absent from the database has no previous value")
+	require.Equal(t, []byte("db"), first[1].Previous())
+
+	second := []Mutation{
+		{key: "fresh"},
+		{key: "seeded", value: []byte("v2")},
+	}
+	require.NoError(t, s.ReadPriorValues(2, second, []uint32{0, 1}))
+	require.Equal(t, []byte("v1"), second[0].Previous())
+	require.Equal(t, []byte("v1"), second[1].Previous())
+}
+
+// Only the listed positions are touched, which is what lets every shard fill its own keys in one shared
+// slice.
+func TestShardReadPriorValuesTouchesOnlyItsPositions(t *testing.T) {
+	s := newTestShard(t, 4096, newTestDB(map[string][]byte{"a": []byte("x"), "b": []byte("y")}))
+	commitShard(t, s)
+
+	mutations := []Mutation{{key: "a"}, {key: "b"}}
+	require.NoError(t, s.ReadPriorValues(1, mutations, []uint32{1}))
+	require.Nil(t, mutations[0].Previous())
+	require.Equal(t, []byte("y"), mutations[1].Previous())
 }
 
 func TestShardDeleteWritesTombstone(t *testing.T) {
@@ -121,7 +154,8 @@ func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	commitShard(t, s) // v3
 
 	// Drop versions [1, 3): their data collapses into the dbCache, latest value winning.
-	require.NoError(t, s.DropVersions(1, 3))
+	diffs := []shardMutations{extractShardMutations(t, s, 1), extractShardMutations(t, s, 2)}
+	require.NoError(t, s.DropVersions(1, 3, diffs))
 
 	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
 	require.NoError(t, err)
@@ -132,8 +166,23 @@ func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 func TestShardDropVersionsRejectsBadRange(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	commitShard(t, s)
-	require.Error(t, s.DropVersions(2, 1)) // first >= last
-	require.Error(t, s.DropVersions(2, 3)) // first != oldest
+	require.Error(t, s.DropVersions(2, 1, nil))                         // first >= last
+	require.Error(t, s.DropVersions(2, 3, []shardMutations{{}}))        // first != oldest
+	require.Error(t, s.DropVersions(1, 2, nil), "one diff per version") // missing diffs
+}
+
+// extractShardMutations extracts a sealed version of a single shard as the manager would, as one diff holding
+// every write.
+func extractShardMutations(t *testing.T, s *shard, version uint64) shardMutations {
+	t.Helper()
+	writes, err := s.ExtractMaterializedWrites(version)
+	require.NoError(t, err)
+	diff := shardMutations{}
+	for key, value := range writes {
+		diff.positions = append(diff.positions, uint32(len(diff.mutations))) //nolint:gosec // small test index
+		diff.mutations = append(diff.mutations, Mutation{key: key, value: value})
+	}
+	return diff
 }
 
 // TestShardConcurrentReadsCollapseToOneDBRead verifies that two concurrent Gets for the same

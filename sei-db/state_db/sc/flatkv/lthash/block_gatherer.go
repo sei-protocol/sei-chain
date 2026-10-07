@@ -2,13 +2,9 @@ package lthash
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
 
@@ -117,10 +113,11 @@ func (g *blockGatherer) discardQueued() {
 
 // Deal with one block from the gatherer's queue, reporting whether the gatherer may carry on.
 func (g *blockGatherer) gather(request *hashRequest) bool {
-	changed, err := gatherChangesFromAllStores(request.current, request.previous)
+	changed, err := gatherChangesFromAllStores(request.current)
 
 	// Released even when the read failed: a reservation left held stalls its database's flushes
-	// indefinitely, and the read's own failure is reported either way.
+	// indefinitely, and the read's own failure is reported either way. The mutations stay valid after
+	// the release.
 	releaseErr := request.release()
 	if err == nil {
 		err = releaseErr
@@ -128,9 +125,8 @@ func (g *blockGatherer) gather(request *hashRequest) bool {
 
 	var hashes leafHashes
 	if err == nil {
-		hashes, err = g.hasher.submit(changed)
-	}
-	if err != nil {
+		hashes = g.hasher.submit(changed)
+	} else {
 		err = fmt.Errorf("gather block %d: %w", request.blockNumber, err)
 	}
 
@@ -151,61 +147,16 @@ func (g *blockGatherer) forward(message any) bool {
 	}
 }
 
-// Gather changes from all stores.
-func gatherChangesFromAllStores(current *sview.StoreView, previous *sview.StoreView) ([]DatabaseMutations, error) {
-	out := make([]DatabaseMutations, 4)
-	errs := make([]error, 4)
-
-	var wg sync.WaitGroup
-	wg.Go(func() { out[0], errs[0] = gatherChangesFromStore(current.AccountView(), previous.AccountView()) })
-	wg.Go(func() { out[1], errs[1] = gatherChangesFromStore(current.CodeView(), previous.CodeView()) })
-	wg.Go(func() { out[2], errs[2] = gatherChangesFromStore(current.StorageView(), previous.StorageView()) })
-	wg.Go(func() { out[3], errs[3] = gatherChangesFromStore(current.MiscView(), previous.MiscView()) })
-	wg.Wait()
-
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
+// gatherChangesFromAllStores returns every store's mutations in the block.
+func gatherChangesFromAllStores(current *sview.StoreView) ([]DatabaseMutations, error) {
+	views := current.Views()
+	out := make([]DatabaseMutations, len(views))
+	for i, dbView := range views {
+		mutations, err := dbView.Mutations()
+		if err != nil {
+			return nil, fmt.Errorf("%s read mutations: %w", dbView.Name(), err)
+		}
+		out[i] = DatabaseMutations{DBName: dbView.Name(), Mutations: mutations}
 	}
 	return out, nil
-}
-
-// Gather the changes from a specific store.
-func gatherChangesFromStore(current view.View, previous view.View) (DatabaseMutations, error) {
-	// One pass over the view's writes. The key is copied because a mutation outlives the walk, while
-	// the value is the view's own and stays valid until the view retires, which is after hashing.
-	var mutations []KeyMutation
-	err := current.ForEachDiff(func(key string, value []byte) error {
-		if strings.HasPrefix(key, ktype.MetaKeyPrefix) {
-			return nil
-		}
-		mutations = append(mutations, KeyMutation{
-			Key:    []byte(key),
-			Value:  value,
-			Delete: value == nil,
-		})
-		return nil
-	})
-	if err != nil {
-		return DatabaseMutations{}, fmt.Errorf("%s read diff: %w", current.Name(), err)
-	}
-	if len(mutations) == 0 {
-		return DatabaseMutations{DBName: current.Name()}, nil
-	}
-	if previous == nil {
-		return DatabaseMutations{DBName: current.Name(), Mutations: mutations}, nil
-	}
-
-	// Aliases the keys already held by the mutations rather than copying them again.
-	changedKeys := make([][]byte, 0, len(mutations))
-	for i := range mutations {
-		changedKeys = append(changedKeys, mutations[i].Key)
-	}
-	old, err := previous.BatchGet(changedKeys)
-	if err != nil {
-		return DatabaseMutations{}, fmt.Errorf("%s read previous values: %w", current.Name(), err)
-	}
-	for i := range mutations {
-		mutations[i].LastValue = old[string(mutations[i].Key)]
-	}
-	return DatabaseMutations{DBName: current.Name(), Mutations: mutations}, nil
 }

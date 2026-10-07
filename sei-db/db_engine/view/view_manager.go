@@ -215,8 +215,11 @@ type View interface {
 	// recoverable.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// ForEachDiff visits every key-value mutation contained in this view.
-	ForEachDiff(visit func(key string, value []byte) error) error
+	// Mutations returns every key this view's version changed, in ascending lexicographical (bytewise)
+	// order of key, each with its new and previous value, blocking until they are available. The caller
+	// must hold a reservation across the call. The returned slice stays valid after the view is
+	// released, and neither it nor anything it references may be mutated.
+	Mutations() ([]Mutation, error)
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,
 	// the view is safe to read and its internal data is protected from cleanup. Each Reserve

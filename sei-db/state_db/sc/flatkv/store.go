@@ -1198,7 +1198,7 @@ func (s *CommitStore) deriveGlobalState() {
 func (s *CommitStore) startHashing() error {
 	// Called through a closure rather than passed directly, so the field stays the live source of truth
 	// and a test can swap it on an open store.
-	moduleParser := func(key []byte) (string, error) { return s.moduleOf(key) }
+	moduleParser := func(key string) (string, error) { return s.moduleOf(key) }
 
 	engine, err := lthash.NewHashEngine(
 		s.ctx, &s.config.HashEngineConfig, s.ltHashPool, dataDBDirs, moduleParser, s.loadedHashes)

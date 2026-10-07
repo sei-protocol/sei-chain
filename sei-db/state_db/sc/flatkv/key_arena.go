@@ -1,7 +1,7 @@
 package flatkv
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 // keyArena hands out immutable strings carved from one buffer of fixed capacity.
@@ -28,5 +28,5 @@ func (a *keyArena) intern(key []byte) string {
 	// The append stays within capacity, so it never moves the bytes earlier strings alias.
 	start := len(a.buf)
 	a.buf = append(a.buf, key...)
-	return util.UnsafeBytesToString(a.buf[start:])
+	return utils.UnsafeBytesToString(a.buf[start:])
 }

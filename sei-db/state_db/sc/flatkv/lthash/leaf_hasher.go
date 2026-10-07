@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 // The hash phase: turning a block's changed key-value pairs into one homomorphic delta per (database,
@@ -14,7 +15,7 @@ type leafHasher struct {
 	// Computes the leaf hashes. Owned by the caller, and must stay open at least as long as this.
 	pool threading.Pool
 
-	// Derives the module a raw key belongs to, which is how a block's mutations are bucketed.
+	// Derives the module a raw key belongs to, which is how a block's deltas are split by module.
 	moduleParser ModuleParser
 
 	// How many KV pairs each task carries.
@@ -37,25 +38,22 @@ func newLeafHasher(pool threading.Pool, moduleParser ModuleParser, chunkSize uin
 }
 
 // Submits one block's leaf hashing, returning the results still to arrive.
-func (h *leafHasher) submit(mutations []DatabaseMutations) (leafHashes, error) {
-	tasks, err := buildTasks(h.moduleParser, mutations, h.chunkSize)
-	if err != nil {
-		return leafHashes{}, err
-	}
+func (h *leafHasher) submit(mutations []DatabaseMutations) leafHashes {
+	tasks := buildTasks(mutations, h.chunkSize)
 
 	pending := leafHashes{count: len(tasks), resultChan: make(chan *chunkResult, len(tasks))}
 	for i := range tasks {
 		task := tasks[i]
 		h.pool.Submit(func() {
-			pending.resultChan <- &chunkResult{key: task.key, info: hashChunk(task.mutations)}
+			pending.resultChan <- hashChunk(h.moduleParser, task)
 		})
 	}
-	return pending, nil
+	return pending
 }
 
-// ComputeModuleHashInfos buckets each database's mutations by module, splits every bucket into fixed-size
-// and distributes those chunks across pool to compute the per-(database, module) homomorphic hash delta and
-// the accompanying key-count / byte deltas.
+// ComputeModuleHashInfos splits each database's mutations into fixed-size chunks and distributes those
+// chunks across pool to compute the per-(database, module) homomorphic hash delta and the accompanying
+// key-count / byte deltas.
 //
 // Each chunk is an independent, self-terminating task, so this is safe to call concurrently from
 // several goroutines sharing one pool — the state-sync importer runs a goroutine per DB. It never holds
@@ -67,98 +65,124 @@ func ComputeModuleHashInfos(
 	// How many KV pairs each task carries.
 	chunkSize uint32,
 ) (map[ModuleKey]*ModuleHashInfo, error) {
-	tasks, err := buildTasks(moduleOf, mutations, chunkSize)
-	if err != nil {
-		return nil, err
-	}
+	tasks := buildTasks(mutations, chunkSize)
 	if len(tasks) == 0 {
 		return nil, nil
 	}
-	return hashChunks(pool, tasks), nil
+	return hashChunks(pool, moduleOf, tasks)
 }
 
-// lthashTask is one unit of parallel work: a chunk of pairs that all belong to
-// a single (database, module) bucket.
+// lthashTask is one unit of parallel work: a chunk of one database's mutations, which may span several
+// modules.
 type lthashTask struct {
-	key       ModuleKey
-	mutations []KeyMutation
+	dbName    string
+	mutations []view.Mutation
 }
 
-// buildTasks buckets each database's mutations by module and splits every bucket into fixed-size
-// tasks.
-func buildTasks(moduleOf ModuleParser, mutations []DatabaseMutations, chunkSize uint32) ([]lthashTask, error) {
+// buildTasks splits each database's mutations into tasks of at most chunkSize, as sub-slices.
+func buildTasks(mutations []DatabaseMutations, chunkSize uint32) []lthashTask {
 	size := int(chunkSize)
 	var tasks []lthashTask
 	for _, dbMutations := range mutations {
-		if len(dbMutations.Mutations) == 0 {
-			continue
-		}
-		byModule, err := BucketByModule(dbMutations.Mutations, moduleOf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to bucket %s mutations by module: %w", dbMutations.DBName, err)
-		}
-		for module, moduleMutations := range byModule {
-			for start := 0; start < len(moduleMutations); start += size {
-				end := start + size
-				if end > len(moduleMutations) {
-					end = len(moduleMutations)
-				}
-				tasks = append(tasks, lthashTask{
-					key:       ModuleKey{DBName: dbMutations.DBName, Module: module},
-					mutations: moduleMutations[start:end],
-				})
-			}
+		for start := 0; start < len(dbMutations.Mutations); start += size {
+			end := min(start+size, len(dbMutations.Mutations))
+			tasks = append(tasks, lthashTask{
+				dbName:    dbMutations.DBName,
+				mutations: dbMutations.Mutations[start:end],
+			})
 		}
 	}
-	return tasks, nil
+	return tasks
 }
 
 // ComputeLtHash applies mutations to prev and returns the result. A nil prev starts from zero.
-func ComputeLtHash(prev *LtHash, mutations []KeyMutation) *LtHash {
+func ComputeLtHash(prev *LtHash, mutations []view.Mutation) *LtHash {
 	result := New()
 	if prev != nil {
 		result = prev.Clone()
 	}
-	result.MixIn(hashChunk(mutations).Hash)
+	result.MixIn(hashMutations(mutations).Hash)
 	return result
 }
 
-// hashChunk computes the homomorphic hash delta and the net key-count / byte
-// deltas for one chunk of pairs. Key presence is defined exactly as the hash
-// defines it: a prior value exists iff LastValue is non-empty (an unmix), and a
-// new value exists iff the entry is not a delete and Value is non-empty (a mix).
+// hashChunk folds one task into a delta per module. Keys of one module are contiguous in a database's
+// sorted mutations, so each run of one module is hashed as a unit; a module that reappears later in the
+// chunk is merged into its earlier delta.
+func hashChunk(moduleOf ModuleParser, task lthashTask) *chunkResult {
+	result := &chunkResult{dbName: task.dbName}
+	runStart := 0
+	runModule := ""
+	for i := range task.mutations {
+		module, err := moduleOf(task.mutations[i].Key())
+		if err != nil {
+			return &chunkResult{
+				dbName: task.dbName,
+				err:    fmt.Errorf("find the module of a %s key: %w", task.dbName, err),
+			}
+		}
+		if i > 0 && module != runModule {
+			result.add(runModule, hashMutations(task.mutations[runStart:i]))
+			runStart = i
+		}
+		runModule = module
+	}
+	if len(task.mutations) > 0 {
+		result.add(runModule, hashMutations(task.mutations[runStart:]))
+	}
+	return result
+}
+
+// add merges info into the chunk's delta for module.
+func (r *chunkResult) add(module string, info *ModuleHashInfo) {
+	for i := range r.modules {
+		if r.modules[i].module == module {
+			mergeDelta(r.modules[i].info, info)
+			return
+		}
+	}
+	r.modules = append(r.modules, moduleDelta{module: module, info: info})
+}
+
+// hashMutations computes the homomorphic hash delta and the net key-count / byte
+// deltas for a run of pairs. Key presence is defined exactly as the hash
+// defines it: a prior value exists iff Previous is non-empty (an unmix), and a
+// new value exists iff Value is non-empty (a mix). A deletion has a nil Value.
 //   - add    (!old,  new): +1 key, + (len(key)+len(newVal)) bytes
 //   - update ( old,  new):  0 keys, + (len(newVal)-len(oldVal)) bytes
 //   - delete ( old, !new): -1 key, - (len(key)+len(oldVal)) bytes
 //   - no-op  (!old, !new): unchanged (delete of an absent key)
-func hashChunk(mutations []KeyMutation) *ModuleHashInfo {
+func hashMutations(mutations []view.Mutation) *ModuleHashInfo {
 	d := &ModuleHashInfo{Hash: New()}
-	for _, mutation := range mutations {
+	for i := range mutations {
+		key := mutations[i].Key()
+		value := mutations[i].Value()
+		previous := mutations[i].Previous()
+
 		// A member exists iff serializeKV would produce a non-nil buffer, i.e.
 		// key and value are both non-empty. Keeping these predicates identical
 		// to the mix conditions guarantees the stats track exactly the set the
 		// hash represents.
-		hadOld := len(mutation.Key) > 0 && len(mutation.LastValue) > 0
-		hasNew := len(mutation.Key) > 0 && !mutation.Delete && len(mutation.Value) > 0
+		hadOld := len(key) > 0 && len(previous) > 0
+		hasNew := len(key) > 0 && len(value) > 0
 		if hadOld {
-			h := hash(serializeKV(mutation.Key, mutation.LastValue))
+			h := hash(serializeKV(key, previous))
 			d.Hash.MixOut(h)
 			putLtHashToPool(h)
 		}
 		if hasNew {
-			h := hash(serializeKV(mutation.Key, mutation.Value))
+			h := hash(serializeKV(key, value))
 			d.Hash.MixIn(h)
 			putLtHashToPool(h)
 		}
 		switch {
 		case !hadOld && hasNew:
 			d.KeyCount++
-			d.Bytes += int64(len(mutation.Key)) + int64(len(mutation.Value))
+			d.Bytes += int64(len(key)) + int64(len(value))
 		case hadOld && hasNew:
-			d.Bytes += int64(len(mutation.Value)) - int64(len(mutation.LastValue))
+			d.Bytes += int64(len(value)) - int64(len(previous))
 		case hadOld && !hasNew:
 			d.KeyCount--
-			d.Bytes -= int64(len(mutation.Key)) + int64(len(mutation.LastValue))
+			d.Bytes -= int64(len(key)) + int64(len(previous))
 		}
 	}
 	return d
@@ -171,6 +195,18 @@ func mergeDelta(dst, src *ModuleHashInfo) {
 	dst.Bytes += src.Bytes
 }
 
+// mergeChunkResult folds one chunk's per-module deltas into merged.
+func mergeChunkResult(merged map[ModuleKey]*ModuleHashInfo, result *chunkResult) {
+	for _, delta := range result.modules {
+		key := ModuleKey{DBName: result.dbName, Module: delta.module}
+		if acc := merged[key]; acc != nil {
+			mergeDelta(acc, delta.info)
+		} else {
+			merged[key] = delta.info
+		}
+	}
+}
+
 // hashChunks distributes tasks across pool as independent, self-terminating
 // units — one fold per chunk — then merges results as they arrive. A buffered
 // result channel (capacity = task count) ensures workers never block on send, so
@@ -178,49 +214,38 @@ func mergeDelta(dst, src *ModuleHashInfo) {
 // drain. This is safe when several goroutines share one pool (the importer's
 // per-DB workers all call through here). MixIn/addition are commutative, so merge
 // order does not matter.
-func hashChunks(pool threading.Pool, tasks []lthashTask) map[ModuleKey]*ModuleHashInfo {
-	type result struct {
-		key  ModuleKey
-		info *ModuleHashInfo
-	}
+func hashChunks(
+	pool threading.Pool,
+	moduleOf ModuleParser,
+	tasks []lthashTask,
+) (map[ModuleKey]*ModuleHashInfo, error) {
 	// Buffer must be large enough for every task: we submit all work before
 	// draining results, and Submit can block when the pool queue is full. If a
 	// finished worker then blocked on an unbuffered send here, nothing would
 	// free a queue slot and we'd deadlock.
-	resultChan := make(chan result, len(tasks))
+	resultChan := make(chan *chunkResult, len(tasks))
 	for i := range tasks {
 		task := tasks[i]
 		pool.Submit(func() {
-			resultChan <- result{key: task.key, info: hashChunk(task.mutations)}
+			resultChan <- hashChunk(moduleOf, task)
 		})
 	}
 
 	merged := make(map[ModuleKey]*ModuleHashInfo)
+	var firstErr error
+	// Every result is drained even after a failure, so that no worker outlives this call.
 	for range tasks {
-		r := <-resultChan
-		if acc := merged[r.key]; acc != nil {
-			mergeDelta(acc, r.info)
-		} else {
-			merged[r.key] = r.info
+		result := <-resultChan
+		if result.err != nil {
+			if firstErr == nil {
+				firstErr = result.err
+			}
+			continue
 		}
+		mergeChunkResult(merged, result)
 	}
-	return merged
-}
-
-// BucketByModule groups mutations by their owning module, derived from each
-// physical key via moduleOf. Used to decompose a per-DB root into additive
-// per-module hashes without changing the root.
-func BucketByModule(
-	mutations []KeyMutation,
-	moduleOf ModuleParser,
-) (map[string][]KeyMutation, error) {
-	byModule := make(map[string][]KeyMutation)
-	for _, mutation := range mutations {
-		module, err := moduleOf(mutation.Key)
-		if err != nil {
-			return nil, err
-		}
-		byModule[module] = append(byModule[module], mutation)
+	if firstErr != nil {
+		return nil, firstErr
 	}
-	return byModule, nil
+	return merged, nil
 }

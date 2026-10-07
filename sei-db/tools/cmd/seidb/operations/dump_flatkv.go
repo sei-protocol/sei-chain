@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
@@ -340,24 +341,21 @@ const lthashBatchCap = 8192
 // committed LtHash.
 type bucketLtHasher struct {
 	acc   *lthash.LtHash
-	batch []lthash.KeyMutation
+	batch []view.Mutation
 	count uint64
 }
 
 func newBucketLtHasher() *bucketLtHasher {
 	return &bucketLtHasher{
 		acc:   lthash.New(),
-		batch: make([]lthash.KeyMutation, 0, lthashBatchCap),
+		batch: make([]view.Mutation, 0, lthashBatchCap),
 	}
 }
 
 // add buffers one (key, value) pair. The iterator may reuse the underlying
 // slices on Next(), so both are cloned before being retained in the batch.
 func (h *bucketLtHasher) add(key, val []byte) {
-	h.batch = append(h.batch, lthash.KeyMutation{
-		Key:   bytes.Clone(key),
-		Value: bytes.Clone(val),
-	})
+	h.batch = append(h.batch, view.NewMutation(string(key), bytes.Clone(val), nil))
 	h.count++
 	if len(h.batch) >= lthashBatchCap {
 		h.flush()

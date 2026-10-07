@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -38,14 +38,10 @@ type shard struct {
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
 	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
 
-	// The values set in each version not yet materialized: the current version, and any sealed version
-	// whose folds are still resolving. A key set more than once in a version keeps only its last value.
+	// The values set in each version not yet extracted: the current version, and any sealed version the
+	// manager has not yet materialized. A key set more than once in a version keeps only its last value.
 	// Reading one key at a version through versionedData is far cheaper than scanning this map for it.
 	versionDiffs map[uint64] /* version */ map[string] /* key */ []byte /* value */
-
-	// One handle per sealed version, carrying that version's writes once they are ordered by key.
-	// Registered at the seal, and empty until the version is materialized.
-	sealedDiffs map[uint64] /* version */ *sealedDiff
 
 	// The read-through DB cache backing this shard. A passive component sharing this shard's
 	// lock: its RLocked and WLocked methods require the lock held, while its Resolve methods and background
@@ -88,28 +84,6 @@ type shard struct {
 	// initialVersionsPerKey sizes the value list a key gets when first written. See
 	// ViewManagerConfig.InitialVersionsPerKey.
 	initialVersionsPerKey int
-}
-
-// Write is one key's change: a value to store, or a deletion.
-//
-// A nil Value is a deletion. That is the manager's tombstone convention throughout — BatchUpdater
-// returns nil from NewValueFor to delete, and the version diff maps hold nil for a deleted key — so a
-// caller with a genuinely empty value passes a non-nil, zero-length slice.
-//
-// Key may be carved from a shared buffer; see setWLocked for what the manager retains.
-type Write struct {
-	// Key is the key to write.
-	Key string
-
-	// Value is the value to store, or nil to delete the key.
-	Value []byte
-}
-
-// sealedDiff is a sealed version's writes ordered by key. entries is valid only once done is closed;
-// before that the version's writes are still in versionDiffs.
-type sealedDiff struct {
-	entries []Write
-	done    chan struct{}
 }
 
 // A single value at a specific version.
@@ -182,7 +156,6 @@ func NewShard(
 	s := &shard{
 		versionedData:  make(map[string]*structures.Deque[versionedValue]),
 		versionDiffs:   versionDiffs,
-		sealedDiffs:    make(map[uint64]*sealedDiff),
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
 		versionLatches: make(map[uint64]*versionLatch),
@@ -365,9 +338,14 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 		s.metrics.reportCacheHits(hits)
 	}
 
-	if err := s.cache.ResolveBatchUnlocked(pending, results); err != nil {
+	if err := s.cache.ResolveBatchUnlocked(pending); err != nil {
 		// DB errors are fatal; fail the whole batch.
 		return nil, fmt.Errorf("complete %d database reads for a batch get: %w", len(pending), err)
+	}
+	for i := range pending {
+		if value := pending[i].result.value; value != nil {
+			results[pending[i].key] = value
+		}
 	}
 	// Awaited after the DB reads and outside every lock, for the reason given on pendingValue.await.
 	if err := s.awaitStagedReadsUnlocked(staged, results); err != nil {
@@ -791,8 +769,13 @@ func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error)
 		if err != nil {
 			return nil, fmt.Errorf("schedule %d prior value reads: %w", len(unresolved), err)
 		}
-		if err := s.cache.ResolveBatchUnlocked(pending, results); err != nil {
+		if err := s.cache.ResolveBatchUnlocked(pending); err != nil {
 			return nil, fmt.Errorf("complete %d prior value reads: %w", len(pending), err)
+		}
+		for i := range pending {
+			if value := pending[i].result.value; value != nil {
+				results[pending[i].key] = value
+			}
 		}
 	}
 
@@ -960,9 +943,6 @@ func (s *shard) Commit() (uint64, error) {
 	newVersion := s.currentVersion + 1
 	s.currentVersion = newVersion
 
-	// Registered at the seal rather than at the materialize, so that a consumer asking for a sealed
-	// version's diff always finds a handle to wait on, however far ahead of it they arrive.
-	s.sealedDiffs[sealedVersion] = &sealedDiff{done: make(chan struct{})}
 	// Sized from the version just sealed, so a block's writes land in one allocation instead of
 	// growing the map up from empty. Doubled, so a block that writes somewhat more than the last one
 	// still does not resize.
@@ -981,96 +961,197 @@ func (s *shard) Commit() (uint64, error) {
 	return newVersion, nil
 }
 
-// MaterializeSortedDiff turns a sealed version's writes into entries ordered by key, replacing the map
-// they were accumulated in, and publishes them to everything waiting on that version. It returns once
-// they are published, and does nothing for a version already materialized.
-//
-// This is the single place a sealed diff is produced: the flush, hashing, and retirement all read the
-// result rather than the map.
-func (s *shard) MaterializeSortedDiff(version uint64) error {
-	// A sealed version keeps being written to while its folds resolve, so it can be materialized only
-	// once its latch has opened.
+// ExtractMaterializedWrites returns a sealed version's writes, keyed by key, once every value is final,
+// and removes them from the shard. A version can be sealed while some of its values are still partial:
+// a value written by BatchUpdate, such as a flatKV account row, has its prior value folded in
+// asynchronously. This waits for those folds to finish.
+func (s *shard) ExtractMaterializedWrites(version uint64) (map[string][]byte, error) {
+	// Folds keep writing into a sealed version's map until its latch opens.
 	if err := s.awaitVersionFoldsUnlocked(version); err != nil {
-		return fmt.Errorf("await version %d before materializing its diff: %w", version, err)
+		return nil, fmt.Errorf("await version %d's folds: %w", version, err)
 	}
 
-	handle, diff, err := s.claimDiffToMaterialize(version)
-	if err != nil {
-		return err
-	}
-	if diff == nil {
-		// Claimed by another caller. Waited on rather than returned from, so that this reports what it
-		// promises: when it returns, the version's diff is published, whoever ordered it.
-		_, err := s.SortedDiff(version)
-		return err
-	}
-
-	// Ordered outside the lock. The map is private to this call once claimed — it has left
-	// versionDiffs and the latch guarantees no writer remains — so the only work the lock covers is
-	// publishing the result.
-	entries := make([]Write, 0, len(diff))
-	for key, value := range diff {
-		entries = append(entries, Write{Key: key, Value: value})
-	}
-	// Ordering is what makes the diff cheap for pebble to absorb: its memtable is a skiplist that caches
-	// the splice it last inserted at, which map order defeated. Bytewise, to match pebble's default
-	// comparer, since that is what decides whether it ascends as far as the memtable is concerned.
-	slices.SortFunc(entries, func(a Write, b Write) int {
-		return strings.Compare(a.Key, b.Key)
-	})
-
-	s.lock.Lock()
-	handle.entries = entries
-	s.lock.Unlock()
-	close(handle.done)
-
-	return nil
-}
-
-// claimDiffToMaterialize takes a sealed version's diff map out of the shard for the caller to order,
-// returning the handle to publish the result on. A nil map means the version needs no freezing because
-// another caller has already claimed it.
-func (s *shard) claimDiffToMaterialize(version uint64) (*sealedDiff, map[string][]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	if version >= s.currentVersion {
-		return nil, nil, fmt.Errorf("version (%d) must be less than the current version (%d) to be "+
-			"materialized", version, s.currentVersion)
+		return nil, fmt.Errorf("version (%d) is not sealed, the current version is %d",
+			version, s.currentVersion)
 	}
-	handle, sealed := s.sealedDiffs[version]
-	if !sealed {
-		return nil, nil, fmt.Errorf("version (%d) is no longer tracked and cannot be materialized", version)
-	}
-
-	diff, unmaterialized := s.versionDiffs[version]
-	if !unmaterialized {
-		return handle, nil, nil
+	writes, found := s.versionDiffs[version]
+	if !found {
+		return nil, fmt.Errorf("version (%d) has no writes", version)
 	}
 	delete(s.versionDiffs, version)
-	return handle, diff, nil
+	return writes, nil
 }
 
-// SortedDiff returns a sealed version's writes ordered by key, waiting for them to be materialized if
-// that has not happened yet. The returned entries must not be mutated, but are otherwise thread safe to read.
-func (s *shard) SortedDiff(version uint64) ([]Write, error) {
-	s.lock.RLock()
-	handle, sealed := s.sealedDiffs[version]
-	s.lock.RUnlock()
-	if !sealed {
-		return nil, fmt.Errorf("version (%d) is not a sealed version of this shard", version)
+// ReadPriorValues reads the prior value of each mutation at positions, the key's value in the version
+// before version, and stores it as the mutation's previous value. Every key at positions must belong to
+// this shard, and the version before must still be tracked by it, or be the version before the first.
+func (s *shard) ReadPriorValues(
+	// The version the mutations were written in.
+	version uint64,
+	// The version's mutations. Only the entries at positions are touched.
+	mutations []Mutation,
+	// The positions in mutations of this shard's keys.
+	positions []uint32,
+) error {
+	prior := version - 1
+
+	unresolved, staged, stagedPositions, hits, err :=
+		s.attemptFastReadPriorValuesUnlocked(prior, mutations, positions)
+	if err != nil {
+		return fmt.Errorf("read prior values at version %d: %w", version, err)
 	}
 
-	select {
-	case <-handle.done:
-	case <-s.ctx.Done():
-		return nil, fmt.Errorf("view manager shut down while awaiting the diff at version %d: %w",
-			version, s.shutdownError())
+	var pending []pendingRead
+	var pendingPositions []uint32
+	if len(unresolved) > 0 {
+		var remainingStaged []*pendingValue
+		var remainingStagedPositions []uint32
+		var remainingHits int64
+		pending, pendingPositions, remainingStaged, remainingStagedPositions, remainingHits, err =
+			s.readPriorValuesRemainingUnlocked(prior, mutations, unresolved)
+		if err != nil {
+			return fmt.Errorf("read prior values at version %d: %w", version, err)
+		}
+		hits += remainingHits
+		staged = append(staged, remainingStaged...)
+		stagedPositions = append(stagedPositions, remainingStagedPositions...)
 	}
 
+	if hits > 0 {
+		s.metrics.reportCacheHits(hits)
+	}
+
+	if err := s.cache.ResolveBatchUnlocked(pending); err != nil {
+		return fmt.Errorf("complete %d database reads for previous values: %w", len(pending), err)
+	}
+	for i := range pending {
+		mutations[pendingPositions[i]].previous = pending[i].result.value
+	}
+
+	// Awaited after the DB reads and outside every lock, for the reason given on pendingValue.await.
+	for i, pendingValue := range staged {
+		value, err := pendingValue.await(s.ctx, s.shutdownError)
+		if err != nil {
+			return fmt.Errorf("await staged previous value for key %x: %w", pendingValue.key, err)
+		}
+		mutations[stagedPositions[i]].previous = value
+	}
+	return nil
+}
+
+// attemptFastReadPriorValuesUnlocked stores the prior values it can resolve while holding the read lock,
+// returning the positions it could not, and the staged folds it found along with their positions.
+func (s *shard) attemptFastReadPriorValuesUnlocked(
+	prior uint64,
+	mutations []Mutation,
+	positions []uint32,
+) (unresolved []uint32, staged []*pendingValue, stagedPositions []uint32, hits int64, err error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return handle.entries, nil
+
+	if err := s.validatePriorVersionRLocked(prior); err != nil {
+		return nil, nil, nil, 0, fmt.Errorf("resolve what is already in memory: %w", err)
+	}
+
+	for _, position := range positions {
+		key := utils.UnsafeStringToBytes(mutations[position].key)
+		if prior > 0 {
+			if entry, found := s.lookupVersionedRLocked(key, prior); found {
+				if entry.pending != nil {
+					staged = append(staged, entry.pending)
+					stagedPositions = append(stagedPositions, position)
+					continue
+				}
+				mutations[position].previous = entry.value
+				hits++
+				continue
+			}
+		}
+
+		// The batch path never records recency on hits, hence updateLru=false.
+		value, _, ok := s.cache.AttemptFastLookupRLocked(key, false)
+		if ok {
+			mutations[position].previous = value
+			hits++
+			continue
+		}
+		unresolved = append(unresolved, position)
+	}
+	return unresolved, staged, stagedPositions, hits, nil
+}
+
+// readPriorValuesRemainingUnlocked classifies the positions the fast pass could not resolve, creating cache
+// entries and scheduling DB reads as needed.
+func (s *shard) readPriorValuesRemainingUnlocked(
+	prior uint64,
+	mutations []Mutation,
+	positions []uint32,
+) (
+	pending []pendingRead,
+	pendingPositions []uint32,
+	staged []*pendingValue,
+	stagedPositions []uint32,
+	hits int64,
+	err error,
+) {
+	pending = make([]pendingRead, 0, len(positions))
+	pendingPositions = make([]uint32, 0, len(positions))
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if err := s.validatePriorVersionRLocked(prior); err != nil {
+		return nil, nil, nil, nil, 0, fmt.Errorf("classify the remaining keys: %w", err)
+	}
+
+	// Redone from scratch rather than carried over from the fast pass, because the lock was released in
+	// between and another reader may have scheduled or completed any of these keys.
+	for _, position := range positions {
+		key := utils.UnsafeStringToBytes(mutations[position].key)
+		if prior > 0 {
+			if entry, found := s.lookupVersionedRLocked(key, prior); found {
+				if entry.pending != nil {
+					staged = append(staged, entry.pending)
+					stagedPositions = append(stagedPositions, position)
+					continue
+				}
+				mutations[position].previous = entry.value
+				hits++
+				continue
+			}
+		}
+
+		outcome := s.cache.LookupWLocked(key, false)
+		if outcome.immediate {
+			mutations[position].previous = outcome.value
+			hits++
+			continue
+		}
+		pending = append(pending, pendingRead{
+			key:           mutations[position].key,
+			entry:         outcome.entry,
+			valueChan:     outcome.valueChan,
+			needsSchedule: outcome.needsSchedule,
+		})
+		pendingPositions = append(pendingPositions, position)
+	}
+	return pending, pendingPositions, staged, stagedPositions, hits, nil
+}
+
+// validatePriorVersionRLocked checks that the shard is in service and can still answer reads at prior.
+// Version 0, the version before the first, is answered by the read cache alone.
+func (s *shard) validatePriorVersionRLocked(prior uint64) error {
+	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
+		return err
+	}
+	if prior == 0 {
+		return nil
+	}
+	return s.validateVersionRLocked(prior)
 }
 
 // MaterializeCurrentOverrides returns the in-memory overrides in this shard at the current version
@@ -1141,6 +1222,15 @@ func (s *shard) materializeAttemptUnlocked(
 	return out, nil, nil
 }
 
+// shardMutations is one shard's writes in one sealed version.
+type shardMutations struct {
+	// The version's writes in ascending key order.
+	mutations []Mutation
+
+	// The positions in mutations of this shard's keys, ascending.
+	positions []uint32
+}
+
 // Drop versions, pushing their data down into the read cache. The first version to drop must be
 // equal to the oldest version currently being tracked.
 func (s *shard) DropVersions(
@@ -1148,20 +1238,16 @@ func (s *shard) DropVersions(
 	firstVersion uint64,
 	// The last version to drop (exclusive).
 	lastVersion uint64,
+	// This shard's writes in each version dropped, oldest version first.
+	diffs []shardMutations,
 ) error {
 
 	if firstVersion >= lastVersion {
 		return fmt.Errorf("firstVersion (%d) must be less than lastVersion (%d)",
 			firstVersion, lastVersion)
 	}
-
-	// Retirement reads the diffs, so it materializes the versions it is about to drop rather than
-	// trusting that a flush already did. An already materialized version makes this a no-op, which is
-	// the production case; it cannot happen under the lock below, because materializing waits for folds.
-	for version := firstVersion; version < lastVersion; version++ {
-		if err := s.MaterializeSortedDiff(version); err != nil {
-			return fmt.Errorf("materialize version %d before retiring it: %w", version, err)
-		}
+	if uint64(len(diffs)) != lastVersion-firstVersion {
+		return fmt.Errorf("got %d diffs to drop versions [%d, %d)", len(diffs), firstVersion, lastVersion)
 	}
 
 	s.lock.Lock()
@@ -1187,32 +1273,12 @@ func (s *shard) DropVersions(
 		}
 	}
 
-	// Gather the diffs oldest version first. The cache insert below replays them in that order, so a
-	// key written in several retiring versions ends up holding the newest of those values — which is
-	// what combining them into one map used to do.
-	diffs := make([][]Write, 0, lastVersion-firstVersion)
-	for version := firstVersion; version < lastVersion; version++ {
-		handle, sealed := s.sealedDiffs[version]
-		if !sealed {
-			return fmt.Errorf("version %d is not a sealed version and cannot be retired", version)
-		}
-		select {
-		case <-handle.done:
-		default:
-			// The materialize above covers this, so reaching it means the lifecycle is broken. Carrying on
-			// would retire keys whose values never reached the read cache: an unmaterialized version's diff
-			// is empty, and an empty diff is indistinguishable from a version that wrote nothing.
-			return fmt.Errorf("version %d was not materialized and cannot be retired", version)
-		}
-		diffs = append(diffs, handle.entries)
-		delete(s.sealedDiffs, version)
-	}
-
 	// Clean up the versioned data map. A key written in more than one retiring version is visited
 	// once per diff, and the trim is idempotent, so the repeat costs a lookup and finds nothing to do.
 	for _, diff := range diffs {
-		for _, entry := range diff {
-			deque, tracked := s.versionedData[entry.Key]
+		for _, position := range diff.positions {
+			key := diff.mutations[position].key
+			deque, tracked := s.versionedData[key]
 			if !tracked {
 				continue
 			}
@@ -1224,7 +1290,7 @@ func (s *shard) DropVersions(
 				deque.PopFront()
 			}
 			if deque.IsEmpty() {
-				delete(s.versionedData, entry.Key)
+				delete(s.versionedData, key)
 			}
 		}
 	}

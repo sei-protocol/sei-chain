@@ -8,6 +8,7 @@ package ktype
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
@@ -83,6 +84,16 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 		return "", nil, fmt.Errorf("physical key missing module prefix separator '/': %x", physicalKey)
 	}
 	return string(physicalKey[:idx]), physicalKey[idx+1:], nil
+}
+
+// ModuleName returns the module name of a module-prefixed physical key. Returns an error if no "/"
+// separator is found.
+func ModuleName(physicalKey string) (string, error) {
+	idx := strings.IndexByte(physicalKey, '/')
+	if idx < 0 {
+		return "", fmt.Errorf("physical key missing module prefix separator '/': %x", physicalKey)
+	}
+	return physicalKey[:idx], nil
 }
 
 // EVMPhysicalKey returns the physical DB key for an EVM key kind.

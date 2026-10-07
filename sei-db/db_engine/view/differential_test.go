@@ -13,7 +13,7 @@ import (
 
 // TestDifferentialAgainstModel drives randomized operation sequences through both the real
 // ViewManager and a naive deep-copy oracle (modelManager), deep-comparing every observable read
-// (live + all held views: Get, BatchGet, ForEachDiff, Iterator) after each step. Any data-integrity
+// (live + all held views: Get, BatchGet, Mutations, Iterator) after each step. Any data-integrity
 // divergence fails the test. Seeds are fixed for reproducibility.
 func TestDifferentialAgainstModel(t *testing.T) {
 	configs := []struct {
@@ -144,6 +144,10 @@ func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys []
 	compareBatchGet(t, label, view.BatchGet, lookup, keys)
 
 	require.Equal(t, model.DiffAt(ver), collectDiff(t, view), "%s diff mismatch", label)
+
+	mutations, err := view.Mutations()
+	require.NoError(t, err, "%s Mutations", label)
+	require.Equal(t, model.MutationsAt(ver), mutations, "%s mutations mismatch", label)
 }
 
 // checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator

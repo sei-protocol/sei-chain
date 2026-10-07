@@ -17,8 +17,8 @@ The HashEngine hashes using three pipelined phases:
 -- Phase 1: Gather --
 
 In order to compute a lattice hash, for each key-value pair that changed in a block, we must know
-both the new value and the previous value. This phase is responsible for gathering these previous-new
-pairs.
+both the new value and the previous value. This phase collects those pairs from each store's view,
+which materializes them when the block is sealed.
 
 -- Phase 2: Hash --
 
@@ -95,21 +95,18 @@ func NewHashEngine(
 
 // Schedule a block to be hashed.
 //
-// The engine takes its own reservation on both views and releases it once it has read them. The
-// caller keeps its own.
+// The engine takes its own reservation on the view and releases it once it has read it. The caller
+// keeps its own.
 func (he *HashEngine) ScheduleHash(
 	// This block's sealed view.
 	current *sview.StoreView,
-	// The preceding block's view, which is where each changed key's value before the block is read from.
-	previous *sview.StoreView,
 ) error {
-	if current == nil || previous == nil {
-		return fmt.Errorf("schedule hash: current and previous views are both required")
+	if current == nil {
+		return fmt.Errorf("schedule hash: the block's view is required")
 	}
 	request := &hashRequest{
 		blockNumber: current.BlockHeight(),
 		current:     current,
-		previous:    previous,
 	}
 	if err := request.reserve(); err != nil {
 		return fmt.Errorf("schedule hash for block %d: %w", request.blockNumber, err)

@@ -126,7 +126,7 @@ func hash(data []byte) *LtHash {
 
 // serializeKV encodes a KV pair with length-prefixed fields.
 // Format: keyLen[4] || key || valueLen[4] || value
-func serializeKV(key, value []byte) []byte {
+func serializeKV(key string, value []byte) []byte {
 	if len(key) == 0 || len(value) == 0 {
 		return nil
 	}

@@ -21,6 +21,8 @@ type modelManager struct {
 	// pending is the set of mutations applied to the live version since the last Commit(). A nil
 	// value records a delete.
 	pending map[string][]byte
+	// initial is the materialized state before the first version: the backing DB's initial contents.
+	initial map[string][]byte
 	// versions holds sealed views by version number.
 	versions       map[uint64]*modelVersion
 	currentVersion uint64
@@ -36,6 +38,7 @@ type modelVersion struct {
 func newModelManager(seed map[string][]byte) *modelManager {
 	return &modelManager{
 		current:        cloneMap(seed),
+		initial:        cloneMap(seed),
 		pending:        make(map[string][]byte),
 		versions:       make(map[uint64]*modelVersion),
 		currentVersion: 1,
@@ -96,6 +99,26 @@ func (m *modelManager) GetAt(version uint64, key []byte) ([]byte, bool) {
 // DiffAt returns the mutations applied in the given sealed version (nil value == delete).
 func (m *modelManager) DiffAt(version uint64) map[string][]byte {
 	return m.versions[version].diff
+}
+
+// MutationsAt returns the mutations of the given sealed version in ascending key order, each carrying the
+// value its key held in the version before (nil if absent).
+func (m *modelManager) MutationsAt(version uint64) []Mutation {
+	before := m.initial
+	if version > 1 {
+		before = m.versions[version-1].full
+	}
+	diff := m.versions[version].diff
+	keys := make([]string, 0, len(diff))
+	for k := range diff {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	mutations := make([]Mutation, 0, len(keys))
+	for _, k := range keys {
+		mutations = append(mutations, Mutation{key: k, value: diff[k], previous: before[k]})
+	}
+	return mutations
 }
 
 // IterateLive returns the ascending, tombstone-free key/value pairs of the live (mutable) version.

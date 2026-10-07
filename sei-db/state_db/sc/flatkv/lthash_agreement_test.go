@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -416,9 +417,9 @@ func (m *stateModel) expect() *expectedState {
 	}
 	for _, dir := range dataDBDirs {
 		byKey := byDB[dir]
-		pairs := make([]lthash.KeyMutation, 0, len(byKey))
+		pairs := make([]view.Mutation, 0, len(byKey))
 		for physKey, value := range byKey {
-			pairs = append(pairs, lthash.KeyMutation{Key: []byte(physKey), Value: value})
+			pairs = append(pairs, view.NewMutation(physKey, value, nil))
 			out.rows[physKey] = value
 		}
 		root := lthash.ComputeLtHash(nil, pairs)

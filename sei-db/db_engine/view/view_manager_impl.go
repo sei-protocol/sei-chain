@@ -115,6 +115,10 @@ type viewManager struct {
 	// Protected by versionLock.
 	fatalErr error
 
+	// Counts the materializations that have been submitted and have not yet finished, successfully or not.
+	// Close waits on it before cancelling anything.
+	materializationsInProgress sync.WaitGroup
+
 	// Ensures Close runs its teardown exactly once; closeErr memoizes the result so repeat calls
 	// return the same error without re-running teardown.
 	closeOnce sync.Once
@@ -146,6 +150,13 @@ type viewReferenceCounter struct {
 	// flushedToDisk. Used as a synchronization handle for AwaitFlush waiters; a closed channel is
 	// immediately selectable, so the "already flushed at call time" case requires no special path.
 	flushCompleted chan struct{}
+
+	// The view's writes, sorted by key, once published.
+	mutations *versionMutations
+
+	// True once the next version has been materialized. Retirement is gated on it, because
+	// materializing the next version reads this one.
+	successorMaterialized bool
 }
 
 // Creates a new ViewManager.
@@ -498,11 +509,12 @@ func (c *viewManager) Commit() (View, error) {
 
 	sealedVersion := c.currentVersion
 
-	c.versionMap[sealedVersion] = &viewReferenceCounter{
+	counter := &viewReferenceCounter{
 		version:        sealedVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
 	}
+	c.versionMap[sealedVersion] = counter
 
 	view := &viewImpl{
 		version:       sealedVersion,
@@ -528,7 +540,14 @@ func (c *viewManager) Commit() (View, error) {
 	c.versionLock.Unlock()
 
 	c.metrics.setViewPhase("submit_diff_sort")
-	c.materializeDiffAtVersion(sealedVersion)
+	mutations := c.materializeMutations(sealedVersion)
+
+	// Nothing reads the counter's mutations before this returns: the view has not been handed out, a flush
+	// needs it finalized, and retirement needs it flushed. The lock is taken because the counter's fields
+	// are guarded by it.
+	c.versionLock.Lock()
+	counter.mutations = mutations
+	c.versionLock.Unlock()
 
 	view.closed = utils.MustClose(view, "view")
 	return view, nil
@@ -741,8 +760,9 @@ func (c *viewManager) scanForRetirementEligibilityLocked() bool {
 
 	for version := start; version < c.currentVersion; version++ {
 		counter := c.versionMap[version]
-		if counter.referenceCount != 0 || !counter.flushedToDisk {
-			// We can only retire views that are fully released and flushed to disk.
+		if counter.referenceCount != 0 || !counter.flushedToDisk || !counter.successorMaterialized {
+			// We can only retire views that are fully released, flushed to disk, and no longer read by
+			// the next version's materialization.
 			break
 		}
 		c.highestRetirementEligibleVersion = version
@@ -789,23 +809,16 @@ func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error
 	return nil
 }
 
-// ForEachDiffAtVersion visits every write at a sealed version, waiting for it to be materialized if that
-// has not happened yet. Shard by shard, so the keys arrive ordered within a shard but not across them: no
-// consumer of a whole version's diff depends on a global order, and merging the shards to provide one
-// would cost the caller a comparison per key for nothing.
-func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string, value []byte) error) error {
-	for i, shard := range c.shards {
-		diff, err := shard.SortedDiff(version)
-		if err != nil {
-			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
-		}
-		for _, entry := range diff {
-			if err := visit(entry.Key, entry.Value); err != nil {
-				return err
-			}
-		}
+// MutationsAtVersion returns every write at a sealed version, sorted by key, waiting for the version to
+// be materialized if that has not happened yet.
+func (c *viewManager) MutationsAtVersion(version uint64) ([]Mutation, error) {
+	c.versionLock.Lock()
+	counter, tracked := c.versionMap[version]
+	c.versionLock.Unlock()
+	if !tracked {
+		return nil, fmt.Errorf("version (%d) is not tracked", version)
 	}
-	return nil
+	return c.awaitMutations(version, counter.mutations)
 }
 
 func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
@@ -1079,8 +1092,9 @@ func (c *viewManager) determineVersionsToRetireLocked() (
 	for targetVersion := c.oldestVersion; targetVersion < c.currentVersion; targetVersion++ {
 		counter := c.versionMap[targetVersion]
 
-		if counter.referenceCount > 0 || !counter.flushedToDisk {
-			// We can only retire versions that are entirely released and flushed to disk.
+		if counter.referenceCount > 0 || !counter.flushedToDisk || !counter.successorMaterialized {
+			// We can only retire versions that are entirely released, flushed to disk, and no longer read
+			// by the next version's materialization.
 			break
 		}
 
@@ -1118,28 +1132,18 @@ func (c *viewManager) flushViews(
 			batch = c.db.NewBatch()
 		}
 
-		// Ordered by key on the sort pool when the version was sealed, so this is a merge of finished
-		// runs rather than a sort. One version at a time and never merged across versions: pebble
-		// resolves two writes to one key by sequence number, which it assigns in batch order, so a key
-		// written in several of a batch's versions must reach it oldest first.
-		shardDiffs, err := c.materializeSortedDiffs(version)
-		if err != nil {
-			return err
-		}
-		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
-			if entry.Value == nil {
-				return batch.DeleteString(entry.Key)
-			}
-			return batch.SetString(entry.Key, entry.Value)
-		})
-		if err != nil {
+		// Ordered by key on the sort pool when the version was sealed. One version at a time and never
+		// merged across versions: pebble resolves two writes to one key by sequence number, which it
+		// assigns in batch order, so a key written in several of a batch's versions must reach it oldest
+		// first.
+		if err := c.writeVersionToBatch(batch, version); err != nil {
 			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
 		}
 
 		// The caller's metadata goes in the same batch as its block's data, so the two land atomically,
 		// and last, so that a metadata key colliding with a data key still wins. It cannot be part of the
-		// merge above: that runs over diffs ordered when the version was sealed, and FinalizeView
-		// supplies these writes later. A Delete pair becomes a tombstone, and a pair carrying an empty
+		// diff above: that was ordered when the version was sealed, and FinalizeView supplies these writes
+		// later. A Delete pair becomes a tombstone, and a pair carrying an empty
 		// value is normalized to a non-nil empty slice to keep the two distinguishable.
 		for _, pair := range versionWrites[version] {
 			if pair.Delete {
@@ -1201,6 +1205,29 @@ func (c *viewManager) flushViews(
 	return nil
 }
 
+// writeVersionToBatch adds a sealed version's writes to batch in ascending key order, waiting for the
+// version to be materialized if that has not happened yet.
+func (c *viewManager) writeVersionToBatch(batch types.Batch, version uint64) error {
+	c.versionLock.Lock()
+	counter := c.versionMap[version]
+	c.versionLock.Unlock()
+	mutations, err := c.awaitMutations(version, counter.mutations)
+	if err != nil {
+		return err
+	}
+	for i := range mutations {
+		if mutations[i].value == nil {
+			err = batch.DeleteString(mutations[i].key)
+		} else {
+			err = batch.SetString(mutations[i].key, mutations[i].value)
+		}
+		if err != nil {
+			return fmt.Errorf("write key %x: %w", mutations[i].key, err)
+		}
+	}
+	return nil
+}
+
 // recordFlushedVersions debits versionCount from the unflushed version count and releases any Commit
 // blocked on lifecycle backpressure. Returns an error if versionCount exceeds the number of versions
 // currently believed to be unflushed, which means the flush and eligibility scans have disagreed
@@ -1234,8 +1261,20 @@ func (c *viewManager) retireViews(
 		return nil
 	}
 
+	// Every retiring version has been flushed, and the flush waited for its mutations to be published.
+	retiring := make([]*versionMutations, 0, lastVersion-firstVersion)
+	c.versionLock.Lock()
+	for version := firstVersion; version < lastVersion; version++ {
+		retiring = append(retiring, c.versionMap[version].mutations)
+	}
+	c.versionLock.Unlock()
+
+	shardRetiring := make([]shardMutations, len(retiring))
 	for i, shard := range c.shards {
-		err := shard.DropVersions(firstVersion, lastVersion)
+		for v, m := range retiring {
+			shardRetiring[v] = shardMutations{mutations: m.mutations, positions: m.shardPositions[i]}
+		}
+		err := shard.DropVersions(firstVersion, lastVersion, shardRetiring)
 		if err != nil {
 			return fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
 		}
@@ -1246,10 +1285,11 @@ func (c *viewManager) retireViews(
 
 	for targetVersion := firstVersion; targetVersion < lastVersion; targetVersion++ {
 		counter := c.versionMap[targetVersion]
-		if counter.referenceCount > 0 || !counter.flushedToDisk {
+		if counter.referenceCount > 0 || !counter.flushedToDisk || !counter.successorMaterialized {
 			// Sanity check, should be impossible
-			return fmt.Errorf("expected view to be released and flushed, refcount = %d, flushed = %t",
-				counter.referenceCount, counter.flushedToDisk)
+			return fmt.Errorf("expected view to be released, flushed and succeeded by a materialized "+
+				"version, refcount = %d, flushed = %t, successor materialized = %t",
+				counter.referenceCount, counter.flushedToDisk, counter.successorMaterialized)
 		}
 		delete(c.versionMap, targetVersion)
 	}
@@ -1307,6 +1347,8 @@ func (c *viewManager) closeInternal() error {
 	<-c.lifecycleExited
 
 	c.awaitOutstandingFolds()
+	// After the folds, which a materialization may be waiting on.
+	c.materializationsInProgress.Wait()
 
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ Keymap = &memKeymap{}
@@ -44,7 +44,7 @@ func (m *memKeymap) Put(keys []*types.ScopedKey) error {
 	defer m.lock.Unlock()
 
 	for _, k := range keys {
-		stringKey := util.UnsafeBytesToString(k.Key)
+		stringKey := utils.UnsafeBytesToString(k.Key)
 
 		if m.doubleWriteProtection {
 			_, ok := m.data[stringKey]
@@ -62,7 +62,7 @@ func (m *memKeymap) Get(key []byte) (types.Address, bool, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	address, ok := m.data[util.UnsafeBytesToString(key)]
+	address, ok := m.data[utils.UnsafeBytesToString(key)]
 	return address, ok, nil
 }
 
@@ -71,7 +71,7 @@ func (m *memKeymap) Delete(keys []*types.ScopedKey) error {
 	defer m.lock.Unlock()
 
 	for _, key := range keys {
-		delete(m.data, util.UnsafeBytesToString(key.Key))
+		delete(m.data, utils.UnsafeBytesToString(key.Key))
 	}
 
 	return nil

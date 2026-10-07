@@ -124,7 +124,7 @@ func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
 	finalizeAndRelease(t, view)
-	awaitRetired(t, manager, ver)
+	retire(t, manager, ver)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -205,7 +205,7 @@ func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
 
 	// Releasing the blocker unblocks the pipeline: everything behind it flushes and retires.
 	require.NoError(t, view1.Release())
-	awaitRetired(t, manager, 6)
+	retire(t, manager, 6)
 	require.True(t, db.has("k1"))
 }
 

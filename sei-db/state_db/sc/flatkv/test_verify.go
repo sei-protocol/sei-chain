@@ -98,7 +98,7 @@ func scanStoreByModule(
 	}
 	defer func() { _ = iter.Close() }()
 
-	byModule := make(map[string][]lthash.KeyMutation)
+	byModule := make(map[string][]view.Mutation)
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
 		// Match foldChunk / serializeKV: empty key or empty value is not a
@@ -107,14 +107,12 @@ func scanStoreByModule(
 		if len(iter.Key()) == 0 || len(iter.Value()) == 0 {
 			continue
 		}
-		module, err := moduleOfKey(iter.Key())
+		module, err := moduleOfKey(string(iter.Key()))
 		if err != nil {
 			return nil, nil, fmt.Errorf("route key %x: %w", iter.Key(), err)
 		}
-		byModule[module] = append(byModule[module], lthash.KeyMutation{
-			Key:   bytes.Clone(iter.Key()),
-			Value: bytes.Clone(iter.Value()),
-		})
+		byModule[module] = append(byModule[module],
+			view.NewMutation(string(iter.Key()), bytes.Clone(iter.Value()), nil))
 		st := stats[module]
 		st.KeyCount++
 		st.Bytes += int64(len(iter.Key())) + int64(len(iter.Value()))

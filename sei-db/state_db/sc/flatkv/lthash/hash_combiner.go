@@ -103,11 +103,15 @@ func (c *hashCombiner) combineBlock(job *gatheredBlock) bool {
 		case <-c.ctx.Done():
 			return false
 		}
-		if acc := deltas[result.key]; acc != nil {
-			mergeDelta(acc, result.info)
-		} else {
-			deltas[result.key] = result.info
+		if result.err != nil {
+			// The results still to arrive land in the block's buffered channel, so abandoning the drain
+			// strands no worker.
+			err := fmt.Errorf("hash block %d: %w", job.blockNumber, result.err)
+			c.publish(&BlockHash{BlockNumber: job.blockNumber, Error: err})
+			c.brick(err)
+			return false
 		}
+		mergeChunkResult(deltas, result)
 	}
 
 	c.combined = combine(
