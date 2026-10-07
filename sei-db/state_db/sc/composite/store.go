@@ -359,10 +359,7 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 		}
 	}
 
-	if err := cs.resolveCurrentWriteMode(true); err != nil {
-		return fmt.Errorf("failed to resolve write mode: %w", err)
-	}
-	return cs.buildRouter()
+	return cs.adoptPersistedWriteMode()
 }
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
@@ -432,6 +429,15 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		return nil, fmt.Errorf("failed to build router for read-only handle: %w", err)
 	}
 	return ro, nil
+}
+
+// adoptPersistedWriteMode sets the effective write mode from the opened backends' persisted state and
+// installs a router for it.
+func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
+	if err := cs.resolveCurrentWriteMode(true); err != nil {
+		return fmt.Errorf("failed to resolve write mode: %w", err)
+	}
+	return cs.buildRouter()
 }
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been
@@ -1222,14 +1228,15 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	// `seid rollback` prints and rootmulti caches in rs.lastCommitInfo)
 	// diverges from the canonical AppHash for the target height. The gates
 	// re-latch correctly on the next call against the rolled-back metadata.
-	//
-	// Note: currentWriteMode is not re-derived here. It only matters when a
-	// rollback crosses a seam whose latest-derived mode differs from the
-	// target's (e.g. a rollback all the way across a completed migration);
-	// that in-process view self-heals on the next `seid start`, which
-	// re-derives the mode from the rolled-back metadata.
 	cs.latticeAppendLatched.Store(false)
 	cs.memiavlHashExcluded.Store(false)
+
+	// The effective mode and its router were derived at the pre-rollback height. A rollback across a
+	// migration seam (back below bank completion, or to before activation) leaves them describing state
+	// the store no longer holds, so derive both again from the rolled-back metadata, as a restart would.
+	if err := cs.adoptPersistedWriteMode(); err != nil {
+		return err
+	}
 
 	// Rollback is offline (no commit cycle in flight); clear the per-block
 	// migration-advance gate defensively.
