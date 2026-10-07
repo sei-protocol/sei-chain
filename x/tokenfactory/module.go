@@ -35,10 +35,6 @@ var (
 	_ module.AppModuleBasic = AppModuleBasic{}
 )
 
-// ----------------------------------------------------------------------------
-// AppModuleBasic
-// ----------------------------------------------------------------------------
-
 // AppModuleBasic implements the AppModuleBasic interface for the capability module.
 type AppModuleBasic struct{}
 
@@ -93,10 +89,6 @@ func (a AppModuleBasic) GetTxCmd() *cobra.Command {
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 	return cli.GetQueryCmd()
 }
-
-// ----------------------------------------------------------------------------
-// AppModule
-// ----------------------------------------------------------------------------
 
 // AppModule implements the AppModule interface for the capability module.
 type AppModule struct {
@@ -163,23 +155,6 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 	am.keeper.InitGenesis(ctx, genState)
 
 	return []abci.ValidatorUpdate{}
-}
-
-// ExportGenesis returns the x/tokenfactory module's exported genesis state as raw
-// JSON bytes.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
-	genState := am.keeper.ExportGenesis(ctx)
-	return cdc.MustMarshalJSON(genState)
-}
-
-// ExportGenesisStream returns the tokenfactory module's exported genesis state as raw JSON bytes in a streaming fashion.
-func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	ch := make(chan json.RawMessage)
-	go func() {
-		ch <- am.ExportGenesis(ctx, cdc)
-		close(ch)
-	}()
-	return ch
 }
 
 // ValidateGenesisStream performs genesis state validation for the x/tokenfactory module in a streaming fashion.

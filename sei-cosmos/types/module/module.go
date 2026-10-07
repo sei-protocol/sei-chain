@@ -200,8 +200,6 @@ type AppModuleGenesis interface {
 	AppModuleBasic
 
 	InitGenesis(sdk.Context, codec.JSONCodec, json.RawMessage) []abci.ValidatorUpdate
-	ExportGenesis(sdk.Context, codec.JSONCodec) json.RawMessage
-	ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage
 }
 
 // AppModule is the standard form for an application module
@@ -280,12 +278,11 @@ func (gam GenesisOnlyAppModule) ConsensusVersion() uint64 { return 1 }
 // Manager defines a module manager that provides the high level utility for managing and executing
 // operations for a group of modules
 type Manager struct {
-	Modules            map[string]AppModule
-	OrderInitGenesis   []string
-	OrderExportGenesis []string
-	OrderMidBlockers   []string
-	OrderMigrations    []string
-	midBlockAttrs      map[string]otelmetric.MeasurementOption
+	Modules          map[string]AppModule
+	OrderInitGenesis []string
+	OrderMidBlockers []string
+	OrderMigrations  []string
+	midBlockAttrs    map[string]otelmetric.MeasurementOption
 }
 
 // NewManager creates a new Manager object
@@ -299,9 +296,8 @@ func NewManager(modules ...AppModule) *Manager {
 	}
 
 	return &Manager{
-		Modules:            moduleMap,
-		OrderInitGenesis:   modulesStr,
-		OrderExportGenesis: modulesStr,
+		Modules:          moduleMap,
+		OrderInitGenesis: modulesStr,
 	}
 }
 
@@ -309,12 +305,6 @@ func NewManager(modules ...AppModule) *Manager {
 func (m *Manager) SetOrderInitGenesis(moduleNames ...string) {
 	m.assertNoForgottenModules("SetOrderInitGenesis", moduleNames)
 	m.OrderInitGenesis = moduleNames
-}
-
-// SetOrderExportGenesis sets the order of export genesis calls
-func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderExportGenesis", moduleNames)
-	m.OrderExportGenesis = moduleNames
 }
 
 // SetOrderMidBlockers sets the order of set mid-blocker calls
@@ -445,32 +435,6 @@ func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData 
 	return abci.ResponseInitChain{
 		Validators: validatorUpdates,
 	}
-}
-
-// ExportGenesis performs export genesis functionality for modules
-func (m *Manager) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) map[string]json.RawMessage {
-	genesisData := make(map[string]json.RawMessage)
-	for _, moduleName := range m.OrderExportGenesis {
-		genesisData[moduleName] = m.Modules[moduleName].ExportGenesis(ctx, cdc)
-	}
-
-	return genesisData
-}
-
-func (m *Manager) ProcessGenesisPerModule(ctx sdk.Context, cdc codec.JSONCodec, process func(string, json.RawMessage) error) error {
-	// It's important that we use OrderInitGenesis here instead of OrderExportGenesis because the order of exporting
-	// doesn't matter much but the order of importing does due to invariant checks and how we are streaming the genesis
-	// file here
-	for _, moduleName := range m.OrderInitGenesis {
-		ch := m.Modules[moduleName].ExportGenesisStream(ctx, cdc)
-		for msg := range ch {
-			err := process(moduleName, msg)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // assertNoForgottenModules checks that we didn't forget any modules in the

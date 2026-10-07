@@ -33,10 +33,6 @@ var (
 	_ module.AppModuleSimulation = AppModule{}
 )
 
-// ----------------------------------------------------------------------------
-// AppModuleBasic
-// ----------------------------------------------------------------------------
-
 // AppModuleBasic implements the AppModuleBasic interface for the evidence module.
 type AppModuleBasic struct {
 	evidenceHandlers []eviclient.EvidenceHandler // eviclient evidence submission handlers
@@ -120,10 +116,6 @@ func (AppModuleBasic) RegisterInterfaces(registry codectypes.InterfaceRegistry) 
 	types.RegisterInterfaces(registry)
 }
 
-// ----------------------------------------------------------------------------
-// AppModule
-// ----------------------------------------------------------------------------
-
 // AppModule implements the AppModule interface for the evidence module.
 type AppModule struct {
 	AppModuleBasic
@@ -178,20 +170,6 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, bz json.Ra
 
 	InitGenesis(ctx, am.keeper, &gs)
 	return []abci.ValidatorUpdate{}
-}
-
-// ExportGenesis returns the evidence module's exported genesis state as raw JSON bytes.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
-	return cdc.MustMarshalJSON(ExportGenesis(ctx, am.keeper))
-}
-
-func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	ch := make(chan json.RawMessage)
-	go func() {
-		ch <- am.ExportGenesis(ctx, cdc)
-		close(ch)
-	}()
-	return ch
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.

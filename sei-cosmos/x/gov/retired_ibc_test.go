@@ -106,21 +106,6 @@ func TestRetiredIBCProposalV66CodecCompatibility(t *testing.T) {
 	}
 }
 
-func TestRetiredIBCProposalGenesisExport(t *testing.T) {
-	testApp := seiapp.Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{})
-	proposal := decodeV66Proposal(t, testApp, upgradeProposalHex)
-	testApp.GovKeeper.SetProposal(ctx, proposal)
-
-	genesisState := gov.ExportGenesis(ctx, testApp.GovKeeper)
-	exported, err := testApp.AppCodec().MarshalAsJSON(genesisState)
-	require.NoError(t, err)
-	var imported govtypes.GenesisState
-	require.NoError(t, testApp.AppCodec().UnmarshalAsJSON(exported, &imported))
-	require.Len(t, imported.Proposals, 1)
-	require.IsType(t, &retiredibcgov.UpgradeProposal{}, imported.Proposals[0].GetContent())
-}
-
 func TestRetiredIBCProposalSubmissionIsRejected(t *testing.T) {
 	testCases := []struct {
 		content govtypes.Content

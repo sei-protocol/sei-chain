@@ -57,27 +57,3 @@ func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 		k.SetDenomMetaData(ctx, meta)
 	}
 }
-
-// ExportGenesis returns the bank module's genesis state.
-func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
-	weiBalances := []types.WeiBalance{}
-	cosmosParams := k.GetParams(ctx)
-	params := types.Params{
-		SendEnabled:        make([]*types.SendEnabled, len(cosmosParams.SendEnabled)),
-		DefaultSendEnabled: cosmosParams.DefaultSendEnabled,
-	}
-	for i, sendEnabled := range cosmosParams.SendEnabled {
-		params.SendEnabled[i] = &types.SendEnabled{
-			Denom:   sendEnabled.Denom,
-			Enabled: sendEnabled.Enabled,
-		}
-	}
-
-	return types.NewGenesisState(
-		params,
-		[]types.Balance{},
-		sdk.Coins{},
-		[]types.Metadata{},
-		weiBalances,
-	)
-}

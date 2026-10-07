@@ -62,12 +62,6 @@ func GetValidatorByConsAddrKey(addr sdk.ConsAddress) []byte {
 	return append(ValidatorsByConsAddrKey, address.MustLengthPrefix(addr)...)
 }
 
-// AddressFromValidatorsKey creates the validator operator address from ValidatorsKey
-func AddressFromValidatorsKey(key []byte) []byte {
-	kv.AssertKeyAtLeastLength(key, 3)
-	return key[2:] // remove prefix bytes and address length
-}
-
 // AddressFromLastValidatorPowerKey creates the validator operator address from LastValidatorPowerKey
 func AddressFromLastValidatorPowerKey(key []byte) []byte {
 	kv.AssertKeyAtLeastLength(key, 3)
