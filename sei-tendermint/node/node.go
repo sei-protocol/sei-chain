@@ -441,6 +441,7 @@ func makeNode(
 		if err != nil {
 			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 		}
+		bcReactor.SetServeSnapshotsAndBlocks(cfg.P2P.ServeSnapshotsAndBlocks)
 		node.services = append(node.services, bcReactor)
 		node.rpcEnv.BlockSyncReactor = utils.Some(bcReactor)
 
@@ -499,6 +500,7 @@ func makeNode(
 		if err != nil {
 			return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
 		}
+		ssReactor.SetServeSnapshotsAndBlocks(cfg.P2P.ServeSnapshotsAndBlocks)
 		node.services = append(node.services, ssReactor)
 
 		if cfg.Mode == config.ModeValidator {
@@ -516,6 +518,7 @@ func makeNode(
 		if err != nil {
 			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 		}
+		bcReactor.SetServeSnapshotsAndBlocks(cfg.P2P.ServeSnapshotsAndBlocks)
 		node.rpcEnv.BlockSyncReactor = utils.Some(bcReactor)
 		node.services = append(node.services, bcReactor)
 	}

@@ -127,6 +127,10 @@ type Reactor struct {
 	router  *p2p.Router
 	channel *p2p.Channel[*pb.Message]
 
+	// serveSnapshotsAndBlocks answers peers' block requests. False reports
+	// every requested block missing. Outbound catch-up is unaffected.
+	serveSnapshotsAndBlocks bool
+
 	// syncer owns all active catch-up responsibilities: pool management,
 	// outgoing requests, block execution, consensus handoff, and lag metrics.
 	syncer utils.Option[*syncController]
@@ -206,6 +210,12 @@ func NewReactor(
 	return r, nil
 }
 
+// SetServeSnapshotsAndBlocks sets whether this node answers peers' block
+// sync requests. The same switch in config also covers state sync snapshots.
+func (r *Reactor) SetServeSnapshotsAndBlocks(serve bool) {
+	r.serveSnapshotsAndBlocks = serve
+}
+
 // OnStart starts the always-on query handling loops and one sync controller
 // supervisor task. The active sync routines inside that controller remain
 // gated until blocksync is enabled, either on startup or via
@@ -269,9 +279,15 @@ func (r *Reactor) GetRemainingSyncTime() time.Duration {
 	return 0
 }
 
-// respondToPeer loads a block and sends it to the requesting peer, if we have it.
-// Otherwise, it responds saying we do not have it.
+// respondToPeer answers a peer's block request. When serving is disabled the
+// response reports the block missing.
 func (r *Reactor) respondToPeer(msg *pb.BlockRequest, peerID types.NodeID) error {
+	if !r.serveSnapshotsAndBlocks {
+		logger.Debug("rejecting block request", "peer", peerID, "height", msg.GetHeight())
+		r.channel.Send(wrap(&pb.NoBlockResponse{Height: msg.GetHeight()}), peerID)
+		return nil
+	}
+
 	block := r.store.LoadBlock(msg.GetHeight())
 	if block == nil {
 		logger.Info("peer requesting a block we do not have", "peer", peerID, "height", msg.GetHeight())
