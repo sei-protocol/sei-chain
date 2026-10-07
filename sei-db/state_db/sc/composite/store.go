@@ -1551,10 +1551,14 @@ func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte,
 //
 // During a migration a key lives in exactly one backend at any committed
 // version (migrated keys are deleted from memiavl as they are copied into
-// flatkv), so the merged stream has no duplicates. memiavl must be queried
-// before flatkv: if a migration commit interleaves between the two iterator
-// constructions, this order makes the worst case a duplicate key, which the
-// merge dedupes with flatkv winning. The reverse order could miss the key.
+// flatkv), with one exception: once any field of an EVM account has migrated,
+// flatkv reports every field of that account, projecting defaults for the
+// fields memiavl still holds. memiavl therefore wins a key both backends
+// report, which is the value Read returns. memiavl must also be queried before
+// flatkv: if a migration commit interleaves between the two iterator
+// constructions, this order makes the worst case a duplicate key, resolved to
+// memiavl's value from the earlier version. The reverse order could miss the
+// key.
 func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	flatKV := cs.loadFlatKV()
 	if store == "" {
@@ -1564,27 +1568,29 @@ func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, 
 		return nil, fmt.Errorf("iteration from the %q store is not permitted", migration.MigrationStore)
 	}
 
-	// flatkv is appended after memiavl so it is the rightmost (winning) child.
-	children := make([]db.Iterator, 0, 2)
+	// memiavl is constructed first but appended last, so it is the rightmost (winning) child.
+	var memIter db.Iterator
 	if cs.memIAVL != nil {
-		memIter, err := cs.memIAVL.Iterator(store, start, end, ascending)
+		var err error
+		memIter, err = cs.memIAVL.Iterator(store, start, end, ascending)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build memiavl iterator: %w", err)
 		}
-		// memiavl returns a nil iterator for a store it does not hold; skip it.
-		if memIter != nil {
-			children = append(children, memIter)
-		}
 	}
+	children := make([]db.Iterator, 0, 2)
 	if flatKV != nil {
 		flatIter, err := flatKV.Iterator(store, start, end, ascending)
 		if err != nil {
-			closeIterators(children)
+			closeIterators([]db.Iterator{memIter})
 			return nil, fmt.Errorf("failed to build flatkv iterator: %w", err)
 		}
 		if flatIter != nil {
 			children = append(children, flatIter)
 		}
+	}
+	// memiavl returns a nil iterator for a store it does not hold; skip it.
+	if memIter != nil {
+		children = append(children, memIter)
 	}
 
 	// Zero children yields a valid, empty iterator (an absent store is a no-op).
