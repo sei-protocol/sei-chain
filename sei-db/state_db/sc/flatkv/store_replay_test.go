@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"bytes"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -240,14 +239,14 @@ func TestCheckVersionReachableCoversSeededFloorAndWAL(t *testing.T) {
 
 	err = s.CheckVersionReachable(8)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrVersionUnreachable))
+	require.ErrorIs(t, err, ErrVersionUnreachable)
 
 	commitStorageEntry(t, s, ktype.Address{0xAA}, ktype.Slot{0x01}, []byte{0x10})
 	require.NoError(t, s.CheckVersionReachable(10), "WAL should bridge from the seed to the first block")
 
 	err = s.CheckVersionReachable(11)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrVersionUnreachable))
+	require.ErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestLoadVersionReadOnlyBelowHistoryFailsBeforeCreatingWorkDir(t *testing.T) {
@@ -263,7 +262,7 @@ func TestLoadVersionReadOnlyBelowHistoryFailsBeforeCreatingWorkDir(t *testing.T)
 
 	_, err = s.LoadVersionReadOnly(8)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrVersionUnreachable))
+	require.ErrorIs(t, err, ErrVersionUnreachable)
 	require.Empty(t, readonlyWorkDirs(t, cfg.DataDir))
 }
 

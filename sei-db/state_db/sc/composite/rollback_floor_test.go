@@ -1,7 +1,6 @@
 package composite
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 
@@ -19,6 +18,9 @@ const (
 	rollbackFloorPreBlocks = 8
 	rollbackFloorKickoff   = rollbackFloorPreBlocks + 1
 	rollbackFloorBatch     = 4
+
+	// noKickoff is a kickoff height past every block a test commits, so those blocks stay memiavl-only.
+	noKickoff = rollbackFloorKickoff + 100
 )
 
 func openRollbackFloorStore(
@@ -63,7 +65,7 @@ func TestCompositeRollbackBelowFlatKVFloorIsRefusedBeforeMutation(t *testing.T) 
 
 	err := cs.Rollback(target)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, flatkv.ErrVersionUnreachable))
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 	require.Contains(t, err.Error(), "use state sync")
 	require.Equal(t, latest, cs.memIAVL.Version())
 	require.Equal(t, latest, cs.loadFlatKV().Version())
@@ -84,11 +86,11 @@ func TestCompositeHistoricalReadBelowFlatKVFloorErrorsWithoutPanic(t *testing.T)
 	target := int64(rollbackFloorKickoff - 2)
 	_, err := cs.LoadVersionReadOnly(target)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, flatkv.ErrVersionUnreachable))
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 
 	_, err = cs.Exporter(target)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, flatkv.ErrVersionUnreachable))
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 
 	for _, reachable := range []int64{rollbackFloorKickoff - 1, rollbackFloorKickoff, cs.Version()} {
 		ro, err := cs.LoadVersionReadOnly(reachable)
@@ -181,7 +183,7 @@ func TestCompositeAutoDiscardStaleIdleFlatKV(t *testing.T) {
 
 	cs := openAutoStoreWithConfig(t, dir, cfg, 0)
 	for h := int64(1); h < rollbackFloorKickoff; h++ {
-		commitRollbackFloorBlock(t, cs, blocks, h, rollbackFloorKickoff+100)
+		commitRollbackFloorBlock(t, cs, blocks, h, noKickoff)
 	}
 
 	beginRollbackFloorBlock(t, cs, rollbackFloorKickoff, rollbackFloorKickoff)
@@ -193,7 +195,7 @@ func TestCompositeAutoDiscardStaleIdleFlatKV(t *testing.T) {
 	require.Equal(t, int64(rollbackFloorKickoff-1), cs.Version())
 	require.Nil(t, cs.loadFlatKV())
 	for h := int64(rollbackFloorKickoff); h <= rollbackFloorKickoff+3; h++ {
-		commitRollbackFloorBlock(t, cs, blocks, h, rollbackFloorKickoff+100)
+		commitRollbackFloorBlock(t, cs, blocks, h, noKickoff)
 	}
 	require.NoError(t, cs.Close())
 
@@ -280,8 +282,15 @@ func TestCompositeAutoPreKickoffSnapshotReplaysThroughMigration(t *testing.T) {
 	require.True(t, hasLattice(canonical[kickoffHeight]))
 	require.NoError(t, src.Close())
 
-	for _, crashInKickoffBlock := range []bool{false, true} {
-		t.Run(map[bool]string{false: "clean", true: "crash_in_kickoff_block"}[crashInKickoffBlock], func(t *testing.T) {
+	cases := []struct {
+		name                string
+		crashInKickoffBlock bool
+	}{
+		{name: "clean", crashInKickoffBlock: false},
+		{name: "crash_in_kickoff_block", crashInKickoffBlock: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			dst := openAutoStoreWithConfig(t, dir, cfg, 0)
 			require.NoError(t, dst.Close())
@@ -296,7 +305,7 @@ func TestCompositeAutoPreKickoffSnapshotReplaysThroughMigration(t *testing.T) {
 			require.Equal(t, types.MemiavlOnly, dst.loadWriteMode())
 
 			for h := snapshotHeight + 1; h <= lastHeight; h++ {
-				if crashInKickoffBlock && h == kickoffHeight {
+				if tc.crashInKickoffBlock && h == kickoffHeight {
 					beginRollbackFloorBlock(t, dst, h, kickoffHeight)
 					require.NotNil(t, dst.loadFlatKV())
 					require.NoError(t, dst.ApplyChangeSets(cloneChangeSets(t, blocks[h])))

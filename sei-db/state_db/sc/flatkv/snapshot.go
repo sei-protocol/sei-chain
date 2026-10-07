@@ -20,10 +20,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// ErrVersionUnreachable reports that FlatKV cannot reconstruct the requested version from its
-// retained snapshots and WAL.
-var ErrVersionUnreachable = errors.New("flatkv version unreachable")
-
 // On-disk layout under <home>/flatkv/:
 //
 //	flatkv/
@@ -620,18 +616,13 @@ func pruneSnapshotsByCount(
 	return pruned
 }
 
-// reachableBaseVersion returns the snapshot version Rollback should rewind to for targetVersion, and reports
-// an error if the target cannot be reached from it. A target is reachable when a snapshot at or below it
-// exists and either sits exactly on it, or the WAL still holds every block between that snapshot and the
-// target. With a nil WAL there is no replay, so only a snapshot sitting exactly on the target qualifies.
-// When the only snapshot behind the target is the initial one, the store's history starts at the WAL's first
-// block rather than at block 1, so a target is reachable from there iff the WAL holds it.
-//
-// It reads only: no snapshot, symlink, or WAL state is modified, so Rollback can consult it before touching
-// anything and refuse an impossible target outright.
+// reachableBaseVersion returns the newest snapshot at or below targetVersion from which targetVersion can be
+// reconstructed, or an error wrapping ErrVersionUnreachable when retained history cannot reach it. A target
+// is reachable when that snapshot sits exactly on it, or the WAL holds every block between the two. With a
+// nil WAL, only a snapshot exactly on the target qualifies. It modifies no snapshot, symlink, or WAL state.
 func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int64, error) {
 	if targetVersion < 1 {
-		return 0, fmt.Errorf("%w: target version %d is invalid: version 0 means no state, so there is nothing to roll back to",
+		return 0, fmt.Errorf("%w: target version %d is invalid: version 0 means no state",
 			ErrVersionUnreachable, targetVersion)
 	}
 
@@ -650,7 +641,7 @@ func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int
 	}
 	ok, first, last, err := s.wal.GetStoredRange()
 	if err != nil {
-		return 0, fmt.Errorf("read WAL range for rollback: %w", err)
+		return 0, fmt.Errorf("read WAL range for version %d: %w", targetVersion, err)
 	}
 	if !ok {
 		return 0, fmt.Errorf("%w: cannot reach version %d: nearest snapshot is %d and the WAL is empty, "+
@@ -667,8 +658,8 @@ func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int
 	return baseVersion, nil
 }
 
-// CheckVersionReachable verifies that targetVersion can be reconstructed from this store's retained
-// snapshots and WAL. It does not modify snapshot, symlink, database, or WAL state.
+// CheckVersionReachable reports whether targetVersion can be reconstructed from this store's retained
+// snapshots and WAL. It does not modify the store.
 func (s *CommitStore) CheckVersionReachable(targetVersion int64) error {
 	_, err := s.reachableBaseVersion(s.flatkvDir(), targetVersion)
 	return err

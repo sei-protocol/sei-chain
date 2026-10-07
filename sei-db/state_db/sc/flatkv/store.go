@@ -45,6 +45,10 @@ const sortPoolQueueSize = 65536
 
 var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 
+// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
+// version from its retained snapshots and WAL.
+var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
+
 // CommitStore implements gigatypes.LiveStateStore for EVM state.
 //
 // Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
