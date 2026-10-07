@@ -734,6 +734,11 @@ type P2PConfig struct {
 	// Comma separated list of nodes for block sync only
 	BlockSyncPeers string `mapstructure:"blocksync-peers"`
 
+	// ServeSnapshotsAndBlocks reports whether this node answers peers' block
+	// sync requests and state sync snapshot requests. False rejects both. This
+	// node still fetches blocks and snapshots from peers.
+	ServeSnapshotsAndBlocks bool `mapstructure:"serve-snapshots-and-blocks"`
+
 	// UPNP port forwarding. UNUSED
 	UPNP bool `mapstructure:"upnp"`
 
@@ -808,6 +813,7 @@ func DefaultP2PConfig() *P2PConfig {
 		SendRate:                      20971520, // 20 MiB/s per connection
 		RecvRate:                      20971520, // 20 MiB/s per connection
 		PexReactor:                    true,
+		ServeSnapshotsAndBlocks:       false,
 		AllowDuplicateIP:              false,
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
