@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -42,7 +43,8 @@ const (
 
 // Stages of MockApp.FinalizeBlock, published as mock_app_finalize_phase_duration_seconds_total.
 const (
-	// mockAppPhaseParse covers decoding each transaction and recovering its sender.
+	// mockAppPhaseParse covers taking the transactions PrepareBlock parsed, or parsing them here
+	// when it did not.
 	mockAppPhaseParse = "parse"
 	// mockAppPhaseLockWait covers waiting for the state lock, which nonce reads also take.
 	mockAppPhaseLockWait = "lock_wait"
@@ -91,13 +93,28 @@ type MockApp struct {
 	store utils.Option[*mockAppStore]
 	// finalizePhases times FinalizeBlock, which the execute loop calls from one goroutine.
 	finalizePhases *seidbmetrics.PhaseTimer
+	// prepared holds blocks PrepareBlock parsed ahead of their FinalizeBlock.
+	prepared utils.Mutex[*[]mockAppPreparedBlock]
 }
+
+// mockAppPreparedBlock is a block whose transactions PrepareBlock parsed. FinalizeBlock uses it
+// only for the block with this height and hash.
+type mockAppPreparedBlock struct {
+	height int64
+	hash   []byte
+	txs    []mockAppTx
+}
+
+// maxMockAppPreparedBlocks bounds the prepared blocks held: the block about to execute and the
+// one after it.
+const maxMockAppPreparedBlocks = 2
 
 // NewMockApp returns a MockApp that keeps its state in memory only.
 func NewMockApp(app abci.Application) *MockApp {
 	return &MockApp{
 		app:            app,
 		finalizePhases: seidbmetrics.NewPhaseTimer(otel.Meter("mock_app"), "mock_app_finalize"),
+		prepared:       utils.NewMutex(&[]mockAppPreparedBlock{}),
 		state: utils.NewRWMutex(&mockAppState{
 			nextNonce:      map[common.Address]uint64{},
 			nextTransition: mockAppTransitionInitialize,
@@ -229,14 +246,59 @@ func (app *MockApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBl
 	}
 	defer app.finalizePhases.Reset()
 	app.finalizePhases.SetPhase(mockAppPhaseParse)
-	txs, err := parseMockAppTxs(req.Txs)
-	if err != nil {
-		return nil, err
+	txs, ok := app.takePrepared(req.Header.Height, req.Hash)
+	if !ok {
+		var err error
+		if txs, err = parseMockAppTxs(req.Txs); err != nil {
+			return nil, err
+		}
 	}
 	app.finalizePhases.SetPhase(mockAppPhaseLockWait)
 	for state := range app.state.Lock() {
 		app.finalizePhases.SetPhase(mockAppPhaseApply)
 		return state.finalizeBlock(req, txs)
+	}
+	panic("unreachable")
+}
+
+// PrepareBlock parses a block's transactions and recovers their senders before FinalizeBlock is
+// called for it, so that work runs while the previous block executes. It may run concurrently
+// with FinalizeBlock. A parse error is left for FinalizeBlock to report.
+func (app *MockApp) PrepareBlock(_ context.Context, req *abci.RequestFinalizeBlock) error {
+	if req.Header == nil {
+		return nil
+	}
+	txs, err := parseMockAppTxs(req.Txs)
+	if err != nil {
+		return nil
+	}
+	next := app.LastBlockHeight() + 1
+	for queue := range app.prepared.Lock() {
+		kept := slices.DeleteFunc(*queue, func(b mockAppPreparedBlock) bool {
+			return b.height < next || b.height == req.Header.Height
+		})
+		if len(kept) < maxMockAppPreparedBlocks {
+			kept = append(kept, mockAppPreparedBlock{height: req.Header.Height, hash: slices.Clone(req.Hash), txs: txs})
+		}
+		*queue = kept
+	}
+	return nil
+}
+
+// takePrepared removes and returns the parsed transactions prepared for this height and hash,
+// and drops every prepared block below height.
+func (app *MockApp) takePrepared(height int64, hash []byte) ([]mockAppTx, bool) {
+	for queue := range app.prepared.Lock() {
+		*queue = slices.DeleteFunc(*queue, func(b mockAppPreparedBlock) bool { return b.height < height })
+		i := slices.IndexFunc(*queue, func(b mockAppPreparedBlock) bool {
+			return b.height == height && bytes.Equal(b.hash, hash)
+		})
+		if i < 0 {
+			return nil, false
+		}
+		txs := (*queue)[i].txs
+		*queue = slices.Delete(*queue, i, i+1)
+		return txs, true
 	}
 	panic("unreachable")
 }
