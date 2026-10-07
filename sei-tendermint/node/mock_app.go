@@ -63,24 +63,61 @@ type mockAppState struct {
 	lastBlockAppHash []byte
 	validators       []abci.ValidatorUpdate
 	nextTransition   mockAppTransition
+	// dirtyNonces holds the senders whose nonce changed since the last Commit.
+	dirtyNonces map[common.Address]struct{}
+	// validatorsSaved reports whether the store holds the current validator set.
+	validatorsSaved bool
 }
 
-// MockApp is an in-memory ABCI app for EVM transaction load tests.
+// MockApp is an ABCI app for EVM transaction load tests. It checks nonces and rolls an app
+// hash, but executes nothing. With a store it resumes after its last committed block on restart.
 type MockApp struct {
 	abci.BaseApplication
 
 	app   abci.Application
 	state utils.RWMutex[*mockAppState]
+	store utils.Option[*mockAppStore]
 }
 
+// NewMockApp returns a MockApp that keeps its state in memory only.
 func NewMockApp(app abci.Application) *MockApp {
 	return &MockApp{
 		app: app,
 		state: utils.NewRWMutex(&mockAppState{
 			nextNonce:      map[common.Address]uint64{},
 			nextTransition: mockAppTransitionInitialize,
+			dirtyNonces:    map[common.Address]struct{}{},
 		}),
 	}
+}
+
+// OpenMockApp returns a MockApp that persists its state in dir and restores it from there.
+func OpenMockApp(app abci.Application, dir string) (*MockApp, error) {
+	store, err := openMockAppStore(dir)
+	if err != nil {
+		return nil, err
+	}
+	mock := NewMockApp(app)
+	mock.store = utils.Some(store)
+	for state := range mock.state.Lock() {
+		restored, err := store.load(state)
+		if err != nil {
+			return nil, errors.Join(err, store.Close())
+		}
+		if restored {
+			state.nextTransition = mockAppTransitionFinalize
+			state.validatorsSaved = true
+		}
+	}
+	return mock, nil
+}
+
+// Close closes the store, when there is one.
+func (app *MockApp) Close() error {
+	if store, ok := app.store.Get(); ok {
+		return store.Close()
+	}
+	return nil
 }
 
 func (app *MockApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -99,6 +136,7 @@ func (app *MockApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 		state.lastBlockHeight = req.InitialHeight - 1
 		state.lastBlockAppHash = nil
 		state.validators = slices.Clone(validators)
+		state.validatorsSaved = false
 		state.nextTransition = mockAppTransitionFinalize
 		res.AppHash = nil
 		return res, nil
@@ -189,6 +227,13 @@ func (app *MockApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		if err := state.checkTransition(mockAppTransitionCommit); err != nil {
 			return nil, err
 		}
+		if store, ok := app.store.Get(); ok {
+			if err := store.save(state, state.dirtyNonces, !state.validatorsSaved); err != nil {
+				return nil, fmt.Errorf("save mock app state at height %d: %w", state.lastBlockHeight, err)
+			}
+			state.validatorsSaved = true
+		}
+		clear(state.dirtyNonces)
 		state.nextTransition = mockAppTransitionFinalize
 		return &abci.ResponseCommit{RetainHeight: max(state.lastBlockHeight-blocksToRetain, 0)}, nil
 	}
@@ -226,6 +271,7 @@ func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []m
 				GasUsed:   tx.GasWanted,
 			}
 			state.nextNonce[tx.EVMSenderAddress]++
+			state.dirtyNonces[tx.EVMSenderAddress] = struct{}{}
 		} else {
 			logger.Warn(
 				"unexpected nonce",

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -204,7 +205,7 @@ func wrapApplication(
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
 	if conf.MockApp {
-		return NewMockApp(app), nil
+		return OpenMockApp(app, filepath.Join(conf.DBDir(), "mockapp"))
 	}
 	if conf.AutobahnConfigFile != "" {
 		manager, ok := storage.Get()

@@ -82,6 +82,7 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
+			RootDir:     t.TempDir(),
 			MockApp:     true,
 			FastCheckTx: true,
 		},
@@ -89,8 +90,9 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
-	_, ok := prepared.(*MockApp)
+	mock, ok := prepared.(*MockApp)
 	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, mock.Close()) })
 }
 
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
@@ -115,6 +117,7 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
+			RootDir:     t.TempDir(),
 			MockApp:     true,
 			FastCheckTx: true,
 		},
@@ -125,8 +128,9 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, ok = prepared.(*MockApp)
+	mock, ok := prepared.(*MockApp)
 	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, mock.Close()) })
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
