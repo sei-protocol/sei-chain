@@ -11,8 +11,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	"go.opentelemetry.io/otel"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -36,6 +38,16 @@ const blocksToRetain = 10_000
 const (
 	mockAppMinGasPrice = 1_000_000_000
 	mockAppGasLimit    = 10_000_000_000
+)
+
+// Stages of MockApp.FinalizeBlock, published as mock_app_finalize_phase_duration_seconds_total.
+const (
+	// mockAppPhaseParse covers decoding each transaction and recovering its sender.
+	mockAppPhaseParse = "parse"
+	// mockAppPhaseLockWait covers waiting for the state lock, which nonce reads also take.
+	mockAppPhaseLockWait = "lock_wait"
+	// mockAppPhaseApply covers the nonce checks, the transaction results, and the app hash.
+	mockAppPhaseApply = "apply"
 )
 
 const (
@@ -77,12 +89,15 @@ type MockApp struct {
 	app   abci.Application
 	state utils.RWMutex[*mockAppState]
 	store utils.Option[*mockAppStore]
+	// finalizePhases times FinalizeBlock, which the execute loop calls from one goroutine.
+	finalizePhases *seidbmetrics.PhaseTimer
 }
 
 // NewMockApp returns a MockApp that keeps its state in memory only.
 func NewMockApp(app abci.Application) *MockApp {
 	return &MockApp{
-		app: app,
+		app:            app,
+		finalizePhases: seidbmetrics.NewPhaseTimer(otel.Meter("mock_app"), "mock_app_finalize"),
 		state: utils.NewRWMutex(&mockAppState{
 			nextNonce:      map[common.Address]uint64{},
 			nextTransition: mockAppTransitionInitialize,
@@ -212,11 +227,15 @@ func (app *MockApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBl
 	if req.Header == nil {
 		return nil, errMockAppMissingHeader
 	}
+	defer app.finalizePhases.Reset()
+	app.finalizePhases.SetPhase(mockAppPhaseParse)
 	txs, err := parseMockAppTxs(req.Txs)
 	if err != nil {
 		return nil, err
 	}
+	app.finalizePhases.SetPhase(mockAppPhaseLockWait)
 	for state := range app.state.Lock() {
+		app.finalizePhases.SetPhase(mockAppPhaseApply)
 		return state.finalizeBlock(req, txs)
 	}
 	panic("unreachable")
