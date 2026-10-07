@@ -38,7 +38,7 @@ type shard struct {
 	lock sync.RWMutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
-	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
+	versionedData map[string] /* key */ keyHistory
 
 	// The values set in each version not yet extracted: the current version, and any sealed version the
 	// manager has not yet materialized. A key set more than once in a version keeps only its last value.
@@ -86,6 +86,15 @@ type shard struct {
 	// initialVersionsPerKey sizes the value list a key gets when first written. See
 	// ViewManagerConfig.InitialVersionsPerKey.
 	initialVersionsPerKey int
+}
+
+// keyHistory is one key's values at the versions the shard still holds.
+type keyHistory struct {
+	// The key, owned by the shard: never memory the caller handed in.
+	key string
+
+	// The key's values, oldest version first.
+	versions *structures.Deque[versionedValue]
 }
 
 // A single value at a specific version.
@@ -156,7 +165,7 @@ func NewShard(
 	versionDiffs[1] = make(map[string][]byte) // versions start at 1
 
 	s := &shard{
-		versionedData:  make(map[string]*structures.Deque[versionedValue]),
+		versionedData:  make(map[string]keyHistory),
 		versionDiffs:   versionDiffs,
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
@@ -291,10 +300,11 @@ func (s *shard) validateVersionRLocked(version uint64) error {
 func (s *shard) lookupVersionedRLocked(key []byte, version uint64) (versionedValue, bool) {
 	// Converted inline rather than by the caller: the compiler elides the conversion only where it
 	// indexes a map directly, and every single-key read pays an allocation for it otherwise.
-	deque, ok := s.versionedData[string(key)]
+	history, ok := s.versionedData[string(key)]
 	if !ok {
 		return versionedValue{}, false
 	}
+	deque := history.versions
 	if version == s.oldestVersion {
 		next := deque.PeekFront()
 		if next.version == version {
@@ -521,30 +531,35 @@ func (s *shard) Set(key []byte, value []byte) error {
 	return nil
 }
 
-// setWLocked writes a value to the versioned data structures at the current version.
-//
-// key may be carved from a shared buffer: nothing retains it past this version's retirement without
-// copying it first, so a caller allocating its keys out of one arena does not pin that arena for the
-// life of the shard. value gets no such treatment — it is retained as given.
+// setWLocked writes a value to the versioned data structures at the current version. The shard never
+// retains key itself, so the caller may carve it from a shared buffer. value is retained as given.
 func (s *shard) setWLocked(key string, value []byte) {
-	// Dropped whole when this version retires, so it can hold the caller's string as given.
-	s.versionDiffs[s.currentVersion][key] = value
+	history := s.keyHistoryWLocked(key)
+	s.versionDiffs[s.currentVersion][history.key] = value
 
-	deque, ok := s.versionedData[key]
-	if !ok {
-		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
-		// Copied, because this map's entries outlive the version that created them and a Go string
-		// can be a window onto a much larger allocation: a caller that cut its keys from one shared
-		// buffer would pin that whole buffer here. Only on first insert — Go keeps a map's existing
-		// key on reassignment, so copying later would have no effect.
-		s.versionedData[strings.Clone(key)] = deque
-	}
+	deque := history.versions
 	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
 		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
 	} else {
 		deque.PopBack()
 		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
 	}
+}
+
+// keyHistoryWLocked returns the shard's history for key, creating an empty one if the shard holds none.
+func (s *shard) keyHistoryWLocked(key string) keyHistory {
+	history, ok := s.versionedData[key]
+	if !ok {
+		// Copied, because a Go string can be a window onto a much larger allocation: a caller that cut
+		// its keys from one shared buffer would otherwise have the shard, and everything the shard
+		// hands out, pin that whole buffer. Once per key new to the shard, not once per write.
+		history = keyHistory{
+			key:      strings.Clone(key),
+			versions: structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey),
+		}
+		s.versionedData[history.key] = history
+	}
+	return history
 }
 
 // batchSetAt applies the writes named by indices, which index into writes. Refused on a shard that
@@ -586,11 +601,11 @@ func (s *shard) StageUpdates(
 	folds := make([]stagedFold, len(indices))
 	for n, index := range indices {
 		key := keys[index]
+		prior := s.capturePriorValueWLocked(key)
 		folds[n] = stagedFold{
-			prior:  s.capturePriorValueWLocked(key),
-			result: newPendingValue(key),
+			prior:  prior,
+			result: s.stagePendingValueWLocked(key, version),
 		}
-		s.stagePendingValueWLocked(key, version, folds[n].result)
 	}
 	return folds, nil
 }
@@ -599,14 +614,14 @@ func (s *shard) StageUpdates(
 // value the shard holds, resolved or not, or neither when the shard holds none and it has to come
 // from the read cache or the database.
 func (s *shard) capturePriorValueWLocked(key string) priorValueSource {
-	deque, ok := s.versionedData[key]
-	if !ok || deque.IsEmpty() {
+	history, ok := s.versionedData[key]
+	if !ok || history.versions.IsEmpty() {
 		return priorValueSource{location: priorValueInReadCache}
 	}
 	// The newest entry is the right one to fold onto, whether it belongs to an earlier version or to
 	// an earlier write within this one. It can never belong to a later version: every write lands at
 	// the current version, and StageUpdates refuses any other, so nothing is ever appended above it.
-	newest := deque.PeekBack()
+	newest := history.versions.PeekBack()
 	if newest.pending != nil {
 		return priorValueSource{location: priorValueInEarlierFold, pending: newest.pending}
 	}
@@ -614,17 +629,14 @@ func (s *shard) capturePriorValueWLocked(key string) priorValueSource {
 }
 
 // stagePendingValueWLocked puts an unresolved fold into the versioned data at the given version,
-// replacing any entry this version already had for the key.
-func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pendingValue) {
+// replacing any entry this version already had for the key, and returns the fold's pending value.
+func (s *shard) stagePendingValueWLocked(key string, version uint64) *pendingValue {
+	history := s.keyHistoryWLocked(key)
+	// Built on the shard's copy of the key, which recordFoldsUnlocked writes into the version's diff.
+	pending := newPendingValue(history.key)
 	entry := versionedValue{version: version, pending: pending}
 
-	deque, ok := s.versionedData[key]
-	if !ok {
-		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
-		// Cloned because this map entry outlives the batch that created it, and Go leaves a map's
-		// original key in place on reassignment. The copy is per key new to this shard, not per write.
-		s.versionedData[strings.Clone(key)] = deque
-	}
+	deque := history.versions
 	if deque.IsEmpty() || deque.PeekBack().version < version {
 		deque.PushBack(entry)
 	} else {
@@ -633,6 +645,7 @@ func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pe
 	}
 
 	s.markFoldStagedWLocked(version)
+	return pending
 }
 
 // markFoldStagedWLocked records one more of a version's folds as outstanding, creating the version's
@@ -879,13 +892,14 @@ func (s *shard) fillStagedValueWLocked(
 	pending *pendingValue,
 	value []byte,
 ) bool {
-	deque, ok := s.versionedData[key]
+	history, ok := s.versionedData[key]
 	if !ok {
 		// Retirement is the only thing that removes a key, and it refuses a version whose folds are
 		// still outstanding. Reaching here means that invariant broke, and carrying on would lose
 		// the write silently.
 		panic(fmt.Sprintf("no versioned data for staged key %x at version %d", key, version))
 	}
+	deque := history.versions
 
 	for i := deque.Len() - 1; i >= 0; i-- {
 		entry := deque.Get(i)
@@ -1221,7 +1235,8 @@ func (s *shard) materializeAttemptUnlocked(
 	}
 
 	out := make([]kvPair, 0, len(s.versionedData))
-	for key, deque := range s.versionedData {
+	for key, history := range s.versionedData {
+		deque := history.versions
 		if deque.IsEmpty() {
 			continue
 		}
@@ -1303,10 +1318,11 @@ func (s *shard) DropVersions(
 	for _, diff := range diffs {
 		for _, position := range diff.positions {
 			key := diff.mutations[position].Key()
-			deque, tracked := s.versionedData[key]
+			history, tracked := s.versionedData[key]
 			if !tracked {
 				continue
 			}
+			deque := history.versions
 			for !deque.IsEmpty() {
 				next := deque.PeekFront()
 				if next.version >= lastVersion {

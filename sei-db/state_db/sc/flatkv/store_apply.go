@@ -381,7 +381,8 @@ func moduleOfKey(physicalKey string) (string, error) {
 // classifiedChange is one changeset pair with its physical key already built.
 type classifiedChange struct {
 	// key is the physical key: "module/" + the module's encoded key. It is carved from a keyArena, so anything that
-	// keeps it past the version that writes it must copy it.
+	// keeps it past the version that writes it must copy it, and it must never be returned through flatKV's public
+	// API (see keyArena).
 	key string
 
 	// value is the key's new raw bytes. A nil value means the key was deleted.

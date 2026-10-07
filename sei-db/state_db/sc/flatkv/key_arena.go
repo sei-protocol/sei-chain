@@ -7,7 +7,8 @@ import (
 // keyArena hands out immutable strings carved from one buffer of fixed capacity.
 //
 // A string from here keeps the whole buffer alive, so anything that retains one past the version that wrote it must
-// copy it.
+// copy it. A string from here must never be returned through flatKV's public API: the caller could keep it, and with
+// it the whole buffer, for any length of time.
 type keyArena struct {
 	// The bytes handed out so far. Its capacity is the arena's size, and it never grows past it.
 	buf []byte

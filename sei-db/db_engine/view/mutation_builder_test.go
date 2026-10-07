@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 // gatedPool holds every submitted task until release is called, then runs each on its own goroutine.
@@ -118,6 +119,65 @@ func TestMutationsAreSortedAcrossShardsWithPreviousValues(t *testing.T) {
 			require.Nil(t, m.Value(), "key %s was deleted", m.Key())
 		}
 	}
+
+	finalizeAndRelease(t, first)
+	finalizeAndRelease(t, second)
+}
+
+// The keys a version's mutations report are the shard's own copies: overwriting the buffers the caller
+// carved its keys from, as a key arena does, leaves them unchanged. Covers keys new to the shard and keys
+// it already tracks, written by BatchSet and by BatchUpdate.
+func TestMutationKeysDoNotAliasTheCallersBuffers(t *testing.T) {
+	manager, _ := newTestManager(t, nil, 4, 1<<20)
+
+	// Carves each key from one shared buffer, and returns a function that overwrites the buffer.
+	carve := func(keys ...string) ([]string, func()) {
+		buffer := []byte(strings.Join(keys, ""))
+		carved := make([]string, 0, len(keys))
+		start := 0
+		for _, key := range keys {
+			carved = append(carved, utils.UnsafeBytesToString(buffer[start:start+len(key)]))
+			start += len(key)
+		}
+		scramble := func() {
+			for i := range buffer {
+				buffer[i] = 'x'
+			}
+		}
+		return carved, scramble
+	}
+	write := func(setKeys []string, updateKeys []string) View {
+		carvedSets, scrambleSets := carve(setKeys...)
+		writes := make([]Write, 0, len(carvedSets))
+		for _, key := range carvedSets {
+			writes = append(writes, Write{Key: key, Value: []byte("value")})
+		}
+		require.NoError(t, manager.BatchSet(writes))
+		scrambleSets()
+
+		carvedUpdates, scrambleUpdates := carve(updateKeys...)
+		require.NoError(t, manager.BatchUpdate(carvedUpdates, markUpdater{mark: 'u'}))
+		scrambleUpdates()
+
+		view, err := manager.Commit()
+		require.NoError(t, err)
+		return view
+	}
+	requireKeys := func(view View, want ...string) {
+		mutations, err := view.Mutations()
+		require.NoError(t, err)
+		got := make([]string, 0, len(mutations))
+		for _, m := range mutations {
+			got = append(got, m.Key())
+		}
+		require.Equal(t, want, got)
+	}
+
+	first := write([]string{"set-a"}, []string{"update-b"})
+	second := write([]string{"set-a", "set-b"}, []string{"update-a", "update-b"})
+
+	requireKeys(first, "set-a", "update-b")
+	requireKeys(second, "set-a", "set-b", "update-a", "update-b")
 
 	finalizeAndRelease(t, first)
 	finalizeAndRelease(t, second)

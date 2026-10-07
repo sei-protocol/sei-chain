@@ -91,7 +91,8 @@ type ViewManager interface {
 	// blocks until its value is available. A failure to produce a value is reported to whatever
 	// reads, hashes or flushes that key, and bricks the manager.
 	//
-	// keys must not repeat. Not visible to iterators created earlier (see Iterator).
+	// keys must not repeat. The manager never retains the strings in keys. Not visible to iterators
+	// created earlier (see Iterator).
 	BatchUpdate(keys []string, updater BatchUpdater) error
 
 	// Commit seals the current version as an immutable, point-in-time View and advances the

@@ -6,7 +6,7 @@ package view
 // returns nil from NewValueFor to delete, and the version diff maps hold nil for a deleted key — so a
 // caller with a genuinely empty value passes a non-nil, zero-length slice.
 //
-// Key may be carved from a shared buffer; see setWLocked for what the manager retains.
+// The manager never retains Key, so it may be carved from a shared buffer.
 type Write struct {
 	// Key is the key to write.
 	Key string
