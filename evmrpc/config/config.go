@@ -747,9 +747,9 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	rateLimitingSwitchSet := opts.Get(flagRateLimitingEnabled) != nil
-	if v := opts.Get(flagRateLimitingEnabled); v != nil {
-		if cfg.RateLimitingEnabled, err = cast.ToBoolE(v); err != nil {
+	rateLimitingSwitch := opts.Get(flagRateLimitingEnabled)
+	if rateLimitingSwitch != nil {
+		if cfg.RateLimitingEnabled, err = cast.ToBoolE(rateLimitingSwitch); err != nil {
 			return cfg, err
 		}
 	}
@@ -814,10 +814,10 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	burstBelowBatchLimit := cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
 		cfg.IPRateLimitBurst < cfg.BatchRequestLimit
-	// Config files that predate rate_limiting_enabled carry an explicit burst
-	// sized for the older, smaller batch default. When the switch is inherited
+	// Files written before rate_limiting_enabled existed set ip_rate_limit_burst
+	// with no burst-vs-batch check to satisfy. When the switch is inherited
 	// rather than set, raise the burst so those nodes still start.
-	if burstBelowBatchLimit && !rateLimitingSwitchSet {
+	if burstBelowBatchLimit && rateLimitingSwitch == nil {
 		logger.Warn("raising EVM per-IP rate-limit burst to the batch request limit",
 			"configured", cfg.IPRateLimitBurst,
 			"effective", cfg.BatchRequestLimit,

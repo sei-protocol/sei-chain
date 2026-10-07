@@ -340,7 +340,6 @@ func TestComposedStack_NonObjectBatchElementRejectedBeforeSeiLegacyGate(t *testi
 
 	body := `[{"jsonrpc":"2.0","id":1,"method":"sei_removedMethod","params":[]},42]`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.RemoteAddr = "198.51.100.8:1"
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	stack.ServeHTTP(rec, req)
