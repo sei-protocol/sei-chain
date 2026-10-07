@@ -343,30 +343,6 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 	return append(addrs, selfAddrs...)
 }
 
-// All addresses in pools: connected peers and addresses learned via PEX.
-func (m *peerManager[C]) AllAddrs() []NodeAddress {
-	addrs := map[types.NodeID]NodeAddress{}
-	for _, info := range m.ConnInfos() {
-		if addr, ok := info.DialedAddr.Get(); ok {
-			addrs[addr.NodeID] = addr
-		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
-			addrs[addr.NodeID] = addr
-		}
-	}
-	for inner := range m.inner.Lock() {
-		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
-			for e := range pool.pex.All() {
-				for _, pAddr := range e.addrs {
-					if _, ok := addrs[pAddr.NodeID]; !ok {
-						addrs[pAddr.NodeID] = pAddr.NodeAddress
-					}
-				}
-			}
-		}
-	}
-	return slices.Collect(maps.Values(addrs))
-}
-
 // Infos of connections in the pool.
 func (m *peerManager[C]) ConnInfos() []PeerConnInfo {
 	infos := map[types.NodeID]PeerConnInfo{}

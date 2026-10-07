@@ -3,8 +3,10 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -273,9 +275,29 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 	return err
 }
 
-// KnownAddrs returns all addresses known to the node, including ones learned via PEX.
+// KnownAddrs returns the addresses of connected peers and the addresses learned via PEX.
 func (n *TestNode) KnownAddrs() []NodeAddress {
-	return n.Router.peerManager.AllAddrs()
+	m := n.Router.peerManager
+	addrs := map[types.NodeID]NodeAddress{}
+	for _, info := range m.ConnInfos() {
+		if addr, ok := info.DialedAddr.Get(); ok {
+			addrs[addr.NodeID] = addr
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
+			addrs[addr.NodeID] = addr
+		}
+	}
+	for inner := range m.inner.Lock() {
+		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
+			for e := range pool.pex.All() {
+				for _, pAddr := range e.addrs {
+					if _, ok := addrs[pAddr.NodeID]; !ok {
+						addrs[pAddr.NodeID] = pAddr.NodeAddress
+					}
+				}
+			}
+		}
+	}
+	return slices.Collect(maps.Values(addrs))
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) error {
