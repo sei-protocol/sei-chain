@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 var _ HashLogger = (*noOpHashLogger)(nil)
@@ -37,7 +37,7 @@ func (n *noOpHashLogger) ReportHash(uint64, string, []byte) error {
 	return nil
 }
 
-func (n *noOpHashLogger) HashListener(context.Context, int64, *lthash.BlockHash) error {
+func (n *noOpHashLogger) HashListener(context.Context, uint64, *gigatypes.BlockHash) error {
 	// intentional no-op
 	return nil
 }

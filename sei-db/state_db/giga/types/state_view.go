@@ -42,6 +42,11 @@ type StateView interface {
 	// account that exists with no code is not found, where GetCodeHash reports EmptyCodeHash.
 	Get(module string, key []byte) ([]byte, bool)
 
+	// Mutations returns every key this view's block changed, in ascending lexicographical (bytewise) order
+	// of key, each with its new and previous value, in the store's physical encoding. It blocks until they
+	// are available. The returned slice stays valid after Close.
+	Mutations() []Mutation
+
 	// Close releases the view's underlying ref counting.
 	// Caller is required to Close the view after using it.
 	// Not closing the view properly could lead to memory leak.

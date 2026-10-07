@@ -31,7 +31,7 @@ func (v *recordingView) BatchGet([][]byte) (map[string][]byte, error) {
 	panic("unexpected call")
 }
 
-func (v *recordingView) Mutations() ([]view.Mutation, error) {
+func (v *recordingView) Mutations() ([]gigatypes.Mutation, error) {
 	panic("unexpected call")
 }
 

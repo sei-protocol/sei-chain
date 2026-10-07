@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -40,7 +42,7 @@ func (s *viewImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	return value, ok, nil
 }
 
-func (s *viewImpl) Mutations() ([]Mutation, error) {
+func (s *viewImpl) Mutations() ([]gigatypes.Mutation, error) {
 	mutations, err := s.parentManager.MutationsAtVersion(s.version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mutations: %w", err)

@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -27,12 +28,12 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	var pairs []view.Mutation
+	var pairs []gigatypes.Mutation
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
-		pairs = append(pairs, view.NewMutation(string(iter.Key()), bytes.Clone(iter.Value()), nil))
+		pairs = append(pairs, gigatypes.NewMutation(string(iter.Key()), bytes.Clone(iter.Value()), nil))
 	}
 	require.NoError(t, iter.Error())
 	result := lthash.ComputeLtHash(nil, pairs)

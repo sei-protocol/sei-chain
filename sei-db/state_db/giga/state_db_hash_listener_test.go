@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
@@ -16,20 +16,20 @@ import (
 func TestRegisterHashListenerReachesTheLiveStateDB(t *testing.T) {
 	stateDB, _, liveStateDB := newTestStateDB(t)
 
-	var seen []int64
+	var seen []uint64
 	mostRecent, err := stateDB.RegisterHashListener(
-		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		func(_ context.Context, blockNumber uint64, _ *gigatypes.BlockHash) error {
 			seen = append(seen, blockNumber)
 			return nil
 		})
 	require.NoError(t, err)
-	require.Equal(t, int64(0), mostRecent.BlockNumber, "a fresh store has hashed nothing")
+	require.Equal(t, uint64(0), mostRecent.BlockNumber, "a fresh store has hashed nothing")
 
 	require.NoError(t, stateDB.CommitStateChanges(1, changeset("key", "one")))
 	require.NoError(t, stateDB.CommitStateChanges(2, changeset("key", "two")))
 	require.NoError(t, liveStateDB.FlushHashes())
 
-	require.Equal(t, []int64{1, 2}, seen)
+	require.Equal(t, []uint64{1, 2}, seen)
 }
 
 // The hash logger is wired in as a listener, and this is that wiring end to end: blocks committed

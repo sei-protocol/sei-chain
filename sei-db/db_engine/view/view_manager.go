@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -219,7 +221,7 @@ type View interface {
 	// order of key, each with its new and previous value, blocking until they are available. The caller
 	// must hold a reservation across the call. The returned slice stays valid after the view is
 	// released, and neither it nor anything it references may be mutated.
-	Mutations() ([]Mutation, error)
+	Mutations() ([]gigatypes.Mutation, error)
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,
 	// the view is safe to read and its internal data is protected from cleanup. Each Reserve

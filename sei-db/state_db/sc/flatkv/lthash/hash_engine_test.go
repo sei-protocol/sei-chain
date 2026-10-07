@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -57,14 +59,14 @@ type pipeView struct {
 
 func (v *pipeView) Name() string { return v.name }
 
-func (v *pipeView) Mutations() ([]view.Mutation, error) {
+func (v *pipeView) Mutations() ([]gigatypes.Mutation, error) {
 	if v.mutationsErr != nil {
 		return nil, v.mutationsErr
 	}
 	// Sorted, as a real view's are.
-	mutations := make([]view.Mutation, 0, len(v.diff))
+	mutations := make([]gigatypes.Mutation, 0, len(v.diff))
 	for _, key := range slices.Sorted(maps.Keys(v.diff)) {
-		mutations = append(mutations, view.NewMutation(key, v.diff[key], v.prior[key]))
+		mutations = append(mutations, gigatypes.NewMutation(key, v.diff[key], v.prior[key]))
 	}
 	return mutations, nil
 }

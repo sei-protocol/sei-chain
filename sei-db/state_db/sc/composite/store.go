@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -49,7 +48,7 @@ type CompositeCommitStore struct {
 
 	// flatKVHash is the last hash flatKV handed over, written by the listener registered on it and
 	// read on the commit path once per block.
-	flatKVHash atomic.Pointer[lthash.BlockHash]
+	flatKVHash atomic.Pointer[gigatypes.BlockHash]
 
 	// Manages routing of traffic between the memiavl and flatkv backends.
 	// Built (and rebuilt) inside LoadVersion against the just-opened
@@ -232,7 +231,7 @@ func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) erro
 
 // recordFlatKVHash keeps flatKVHash current. It is the listener registered on every flatKV instance
 // this store adopts.
-func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ uint64, hash *gigatypes.BlockHash) error {
 	cs.flatKVHash.Store(hash)
 	return nil
 }
@@ -1257,14 +1256,13 @@ func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
 	}
 
 	hash := cs.flatKVHash.Load()
-	if hash.BlockNumber != version {
+	if hash.BlockNumber != uint64(version) { //nolint:gosec // commit versions are non-negative
 		// Block version+1 has not been handed to flatKV yet, so the hash just flushed is version's.
 		// Asserted rather than assumed: this value reaches the AppHash, where a hash for the wrong
 		// height is indistinguishable from the right one.
 		return nil, fmt.Errorf("flatkv last published block %d, not block %d", hash.BlockNumber, version)
 	}
-	checksum := hash.Global.Checksum()
-	return checksum[:], nil
+	return hash.Global[:], nil
 }
 
 // LastCommitInfo returns the commit info for the block the backends last committed, or nil before the

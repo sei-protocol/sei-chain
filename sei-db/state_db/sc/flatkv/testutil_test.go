@@ -208,8 +208,7 @@ func rootHash(s gigatypes.LiveStateStore) []byte {
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: read the current hash: %v", err))
 	}
-	checksum := current.Global.Checksum()
-	return checksum[:]
+	return current.Global[:]
 }
 
 // rootHashAndVersion is rootHash paired with the height it describes, for the tests that assert on

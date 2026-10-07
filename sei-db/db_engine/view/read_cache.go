@@ -502,10 +502,10 @@ func (c *readCache) PutRetiredWLocked(diffs []shardMutations) error {
 	for _, diff := range diffs {
 		for _, position := range diff.positions {
 			mutation := diff.mutations[position]
-			if mutation.value == nil {
-				c.deleteRetiredWLocked([]byte(mutation.key))
+			if mutation.Value() == nil {
+				c.deleteRetiredWLocked([]byte(mutation.Key()))
 			} else {
-				c.setRetiredWLocked([]byte(mutation.key), mutation.value)
+				c.setRetiredWLocked([]byte(mutation.Key()), mutation.Value())
 			}
 		}
 	}

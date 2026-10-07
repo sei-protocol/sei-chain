@@ -6,7 +6,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/zeebo/blake3"
 )
 
@@ -157,7 +158,7 @@ func BenchmarkHashKV(b *testing.B) {
 // backend, switching the active backend for each sub-benchmark.
 func BenchmarkHashChunk(b *testing.B) {
 	rng := rand.New(rand.NewSource(4))
-	mutations := make([]view.Mutation, 1000)
+	mutations := make([]gigatypes.Mutation, 1000)
 	for i := range mutations {
 		key := make([]byte, 40)
 		last := make([]byte, 76)
@@ -165,7 +166,7 @@ func BenchmarkHashChunk(b *testing.B) {
 		rng.Read(key)
 		rng.Read(last)
 		rng.Read(value)
-		mutations[i] = view.NewMutation(string(key), value, last)
+		mutations[i] = gigatypes.NewMutation(string(key), value, last)
 	}
 	saved := active
 	defer func() { active = saved }()

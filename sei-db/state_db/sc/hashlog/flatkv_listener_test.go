@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // flatKVTestHashTypes names the columns a flatKV store's hashes go into. Spelled out rather than
@@ -22,33 +22,25 @@ func flatKVTestHashTypes() []string {
 	}
 }
 
-// distinctLtHash returns an LtHash unlike any other seed's, so that a hash recorded under the wrong
+// distinctChecksum returns a checksum unlike any other seed's, so that a hash recorded under the wrong
 // column is visible rather than matching by accident.
-func distinctLtHash(t *testing.T, seed byte) *lthash.LtHash {
-	t.Helper()
-	hash, err := lthash.Unmarshal(bytes.Repeat([]byte{seed}, lthash.LtHashBytes))
-	require.NoError(t, err)
-	return hash
-}
-
-// checksumOf returns an LtHash's checksum as a slice, which is the form a hash is recorded in.
-func checksumOf(hash *lthash.LtHash) []byte {
-	checksum := hash.Checksum()
-	return checksum[:]
+func distinctChecksum(seed byte) [32]byte {
+	var checksum [32]byte
+	copy(checksum[:], bytes.Repeat([]byte{seed}, len(checksum)))
+	return checksum
 }
 
 // flatKVBlockHash returns a block hash with a distinct root and a distinct hash for each of flatKV's
 // data databases.
-func flatKVBlockHash(t *testing.T, blockNumber int64) *lthash.BlockHash {
-	t.Helper()
-	return &lthash.BlockHash{
+func flatKVBlockHash(blockNumber uint64) *gigatypes.BlockHash {
+	return &gigatypes.BlockHash{
 		BlockNumber: blockNumber,
-		Global:      distinctLtHash(t, 0x01),
-		PerDB: map[string]*lthash.LtHash{
-			"account": distinctLtHash(t, 0x10),
-			"code":    distinctLtHash(t, 0x11),
-			"storage": distinctLtHash(t, 0x12),
-			"misc":    distinctLtHash(t, 0x13),
+		Global:      distinctChecksum(0x01),
+		PerDB: map[string][32]byte{
+			"account": distinctChecksum(0x10),
+			"code":    distinctChecksum(0x11),
+			"storage": distinctChecksum(0x12),
+			"misc":    distinctChecksum(0x13),
 		},
 	}
 }
@@ -67,7 +59,7 @@ func TestTheListenerFillsEveryColumn(t *testing.T) {
 	hl, err := NewHashLogger(cfg)
 	require.NoError(t, err)
 
-	hash := flatKVBlockHash(t, block)
+	hash := flatKVBlockHash(block)
 	require.NoError(t, hl.HashListener(t.Context(), block, hash))
 
 	// The changeset column is the logger's own, and a block is only written once every column has an
@@ -83,9 +75,9 @@ func TestTheListenerFillsEveryColumn(t *testing.T) {
 	for _, hashType := range flatKVTestHashTypes() {
 		require.NotEmpty(t, recorded[hashType], "column %s holds no hash", hashType)
 	}
-	require.Equal(t, checksumOf(hash.Global), recorded[FlatKVRootHashType])
-	for dataDB, dbHash := range hash.PerDB {
-		require.Equal(t, checksumOf(dbHash), recorded[FlatKVDBHashPrefix+dataDB],
+	require.Equal(t, hash.Global[:], recorded[FlatKVRootHashType])
+	for dataDB, checksum := range hash.PerDB {
+		require.Equal(t, checksum[:], recorded[FlatKVDBHashPrefix+dataDB],
 			"column for %s holds another database's hash", dataDB)
 	}
 }
@@ -99,6 +91,6 @@ func TestTheListenerReportsALoggerThatRefuses(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, hl.Close())
 
-	err = hl.HashListener(t.Context(), 1, flatKVBlockHash(t, 1))
+	err = hl.HashListener(t.Context(), 1, flatKVBlockHash(1))
 	require.ErrorContains(t, err, "closed")
 }

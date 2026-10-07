@@ -1,6 +1,8 @@
 package lthash
 
-import "github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+import (
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+)
 
 // The vocabulary shared by everything that hashes a block: the engine's inputs, its per-module
 // intermediates, and the state it produces.
@@ -8,7 +10,7 @@ import "github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 // DatabaseMutations is everything one database changed in a block.
 type DatabaseMutations struct {
 	DBName    string
-	Mutations []view.Mutation
+	Mutations []gigatypes.Mutation
 }
 
 // ModuleParser extracts the owning module name from a physical key. Injected by

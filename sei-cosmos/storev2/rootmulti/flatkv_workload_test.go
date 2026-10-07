@@ -59,8 +59,7 @@ func TestFlatKVFullScanLtHashVerification(t *testing.T) {
 
 	current, err := ro.RegisterHashListener(nil)
 	require.NoError(t, err)
-	roHash := current.Global.Checksum()
-	require.Equal(t, expectedLatticeHash, roHash[:],
+	require.Equal(t, expectedLatticeHash, current.Global[:],
 		"flatkv's published root should match evm_lattice in CommitInfo")
 }
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -133,7 +132,7 @@ type LiveStateStore interface {
 	// A read-only store takes a listener and never calls it: it hashes only inside the call that
 	// builds it. The hash it reports is the height it was opened at, which is what such a caller is
 	// after.
-	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
+	RegisterHashListener(listener HashListener) (mostRecentHash BlockHash, err error)
 
 	// FlushHashes blocks until every block committed so far has been hashed and its hash handed to
 	// every registered listener.

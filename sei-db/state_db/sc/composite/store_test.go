@@ -19,7 +19,6 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -53,8 +52,8 @@ func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
-	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
+func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (gigatypes.BlockHash, error) {
+	return gigatypes.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) FlushHashes() error                     { return nil }
 func (f *failingEVMStore) Flush() error                           { return nil }
@@ -80,8 +79,7 @@ func flatKVRootHash(cs *CompositeCommitStore) []byte {
 	if err != nil {
 		panic(fmt.Sprintf("composite: read the flatkv hash: %v", err))
 	}
-	checksum := current.Global.Checksum()
-	return checksum[:]
+	return current.Global[:]
 }
 
 func padLeft32(val ...byte) []byte {

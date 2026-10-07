@@ -13,7 +13,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // MemoryStoreChangeSetName identifies MemoryStore's direct key/value format.
@@ -368,8 +367,8 @@ func (s *MemoryStore) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 
 // RegisterHashListener reports that this store hashes nothing. It keeps state in maps rather than
 // in a lattice, so there is no block hash for a listener to be given.
-func (s *MemoryStore) RegisterHashListener(_ gigatypes.HashListener) (lthash.BlockHash, error) {
-	return lthash.BlockHash{}, fmt.Errorf("evmonly: an in-memory store computes no block hashes")
+func (s *MemoryStore) RegisterHashListener(_ gigatypes.HashListener) (gigatypes.BlockHash, error) {
+	return gigatypes.BlockHash{}, fmt.Errorf("evmonly: an in-memory store computes no block hashes")
 }
 
 // Close releases nothing. This store holds no handle outside its own maps, which go with it.
@@ -572,6 +571,12 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// Mutations panics. This store keeps state in per-field maps rather than as rows, so it has no
+// mutations in the store encoding a Mutation describes.
+func (s *memoryStoreSnapshot) Mutations() []gigatypes.Mutation {
+	panic("evmonly: an in-memory store records no mutations")
 }
 
 func (s *memoryStoreSnapshot) Close() {

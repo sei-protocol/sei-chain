@@ -3,8 +3,9 @@ package lthash
 import (
 	"fmt"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 // The hash phase: turning a block's changed key-value pairs into one homomorphic delta per (database,
@@ -76,7 +77,7 @@ func ComputeModuleHashInfos(
 // modules.
 type lthashTask struct {
 	dbName    string
-	mutations []view.Mutation
+	mutations []gigatypes.Mutation
 }
 
 // buildTasks splits each database's mutations into tasks of at most chunkSize, as sub-slices.
@@ -96,7 +97,7 @@ func buildTasks(mutations []DatabaseMutations, chunkSize uint32) []lthashTask {
 }
 
 // ComputeLtHash applies mutations to prev and returns the result. A nil prev starts from zero.
-func ComputeLtHash(prev *LtHash, mutations []view.Mutation) *LtHash {
+func ComputeLtHash(prev *LtHash, mutations []gigatypes.Mutation) *LtHash {
 	result := New()
 	if prev != nil {
 		result = prev.Clone()
@@ -151,7 +152,7 @@ func (r *chunkResult) add(module string, info *ModuleHashInfo) {
 //   - update ( old,  new):  0 keys, + (len(newVal)-len(oldVal)) bytes
 //   - delete ( old, !new): -1 key, - (len(key)+len(oldVal)) bytes
 //   - no-op  (!old, !new): unchanged (delete of an absent key)
-func hashMutations(mutations []view.Mutation) *ModuleHashInfo {
+func hashMutations(mutations []gigatypes.Mutation) *ModuleHashInfo {
 	d := &ModuleHashInfo{Hash: New()}
 	for i := range mutations {
 		key := mutations[i].Key()

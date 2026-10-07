@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // hashWaitTimeout bounds how long the benchmark waits for one block's hash. Nothing bounds how long
@@ -23,7 +23,7 @@ type blockHashWaiter struct {
 	// The hashes published but not yet taken. One deeper than the window, because the hash of the
 	// block just committed can already be here when the one from lagBlocks back is taken, and a
 	// publisher blocking then would be blocking while still inside its allowance.
-	hashes chan *lthash.BlockHash
+	hashes chan *gigatypes.BlockHash
 
 	// How many blocks the benchmark commits before it starts taking hashes, and so how late a block's
 	// hash may be.
@@ -34,7 +34,7 @@ type blockHashWaiter struct {
 	committed int
 
 	// The block the next hash taken must describe, or 0 until the first one has been taken.
-	nextExpected int64
+	nextExpected uint64
 
 	// How long to wait for one hash before reporting a state DB that has stopped hashing.
 	waitTimeout time.Duration
@@ -45,7 +45,7 @@ type blockHashWaiter struct {
 // newBlockHashWaiter returns a waiter that lets the benchmark run lagBlocks ahead of hashing.
 func newBlockHashWaiter(lagBlocks int, metrics *GigasimMetrics) *blockHashWaiter {
 	return &blockHashWaiter{
-		hashes:      make(chan *lthash.BlockHash, lagBlocks+1),
+		hashes:      make(chan *gigatypes.BlockHash, lagBlocks+1),
 		lagBlocks:   lagBlocks,
 		waitTimeout: hashWaitTimeout,
 		metrics:     metrics,
@@ -55,7 +55,7 @@ func newBlockHashWaiter(lagBlocks int, metrics *GigasimMetrics) *blockHashWaiter
 // listen takes one block's hash from the state DB, blocking while the benchmark is further ahead than
 // its window allows. That block is the backpressure on hashing; the context releases it when the state
 // DB shuts down, since a send with no taker left would never return.
-func (w *blockHashWaiter) listen(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
+func (w *blockHashWaiter) listen(ctx context.Context, _ uint64, hash *gigatypes.BlockHash) error {
 	select {
 	case w.hashes <- hash:
 		return nil
@@ -87,7 +87,7 @@ func (w *blockHashWaiter) awaitBlock() error {
 }
 
 // takeHash waits for the next block's hash, reporting a state DB that has stopped producing them.
-func (w *blockHashWaiter) takeHash() (*lthash.BlockHash, error) {
+func (w *blockHashWaiter) takeHash() (*gigatypes.BlockHash, error) {
 	startedWaiting := time.Now()
 	defer func() {
 		w.metrics.RecordBlockHashWaitDuration(time.Since(startedWaiting))

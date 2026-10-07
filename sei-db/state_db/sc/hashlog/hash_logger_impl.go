@@ -12,7 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -448,17 +448,13 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 // HashListener records one block's flatKV hashes: the store-wide root and each data database's root.
 // Its signature is gigatypes.HashListener, so it registers as one directly:
 // stateDB.RegisterHashListener(hashLogger.HashListener).
-func (h *hashLoggerImpl) HashListener(_ context.Context, blockNumber int64, hash *lthash.BlockHash) error {
-	block := uint64(blockNumber) //nolint:gosec // commit versions are non-negative
-
-	root := hash.Global.Checksum()
-	if err := h.ReportHash(block, FlatKVRootHashType, root[:]); err != nil {
-		return fmt.Errorf("record the flatkv root hash of block %d: %w", block, err)
+func (h *hashLoggerImpl) HashListener(_ context.Context, blockNumber uint64, hash *gigatypes.BlockHash) error {
+	if err := h.ReportHash(blockNumber, FlatKVRootHashType, hash.Global[:]); err != nil {
+		return fmt.Errorf("record the flatkv root hash of block %d: %w", blockNumber, err)
 	}
-	for dataDB, dbHash := range hash.PerDB {
-		checksum := dbHash.Checksum()
-		if err := h.ReportHash(block, FlatKVDBHashPrefix+dataDB, checksum[:]); err != nil {
-			return fmt.Errorf("record the flatkv %s hash of block %d: %w", dataDB, block, err)
+	for dataDB, checksum := range hash.PerDB {
+		if err := h.ReportHash(blockNumber, FlatKVDBHashPrefix+dataDB, checksum[:]); err != nil {
+			return fmt.Errorf("record the flatkv %s hash of block %d: %w", dataDB, blockNumber, err)
 		}
 	}
 	return nil

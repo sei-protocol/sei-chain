@@ -1366,7 +1366,7 @@ func (s *CommitStore) currentHash() *lthash.BlockHash {
 // RegisterHashListener registers a callback the store hands the hash of each committed block to:
 // exactly one per block, in block order, with no gaps or duplicates. It reports the most recent hash
 // dispatched, which is the block the listener's first delivery follows.
-func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
+func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (gigatypes.BlockHash, error) {
 	return s.hashListeners.register(listener, s.currentHash()), nil
 }
 

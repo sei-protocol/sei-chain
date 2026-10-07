@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // captureLogger is a HashLogger test double that records registered categories and reported hashes.
@@ -39,7 +39,7 @@ func (c *captureLogger) ReportChangeset(uint64, []*proto.NamedChangeSet) {}
 
 // HashListener is unused here: memIAVL reports its hashes synchronously through RecordHashes, and a
 // listener is for the store that publishes hashes asynchronously.
-func (c *captureLogger) HashListener(context.Context, int64, *lthash.BlockHash) error { return nil }
+func (c *captureLogger) HashListener(context.Context, uint64, *gigatypes.BlockHash) error { return nil }
 
 func (c *captureLogger) Close() error { return nil }
 

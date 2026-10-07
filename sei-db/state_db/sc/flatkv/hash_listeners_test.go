@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -37,9 +38,9 @@ func commitBlocks(t *testing.T, s *CommitStore, count int) {
 
 // recordBlocks returns a listener that records the block number of every hash it is handed, and the
 // slice it records into. The slice is only safe to read once FlushHashes has returned.
-func recordBlocks() (func(context.Context, int64, *lthash.BlockHash) error, *[]int64) {
-	blocks := &[]int64{}
-	return func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+func recordBlocks() (func(context.Context, uint64, *gigatypes.BlockHash) error, *[]uint64) {
+	blocks := &[]uint64{}
+	return func(_ context.Context, blockNumber uint64, _ *gigatypes.BlockHash) error {
 		*blocks = append(*blocks, blockNumber)
 		return nil
 	}, blocks
@@ -67,13 +68,13 @@ func TestAListenerSeesEveryBlockInOrder(t *testing.T) {
 	listener, seen := recordBlocks()
 	mostRecent, err := s.RegisterHashListener(listener)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), mostRecent.BlockNumber, "a fresh store has hashed nothing")
+	require.Equal(t, uint64(0), mostRecent.BlockNumber, "a fresh store has hashed nothing")
 
 	const blocks = 8
 	commitBlocks(t, s, blocks)
 	require.NoError(t, s.FlushHashes())
 
-	require.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7, 8}, *seen)
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7, 8}, *seen)
 }
 
 // FlushHashes is how a caller waits for hashing to catch up, and a hash that has been computed but
@@ -107,13 +108,13 @@ func TestRegisterReportsTheBlockTheFirstDeliveryFollows(t *testing.T) {
 	listener, seen := recordBlocks()
 	mostRecent, err := s.RegisterHashListener(listener)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), mostRecent.BlockNumber)
-	require.Equal(t, rootHash(s), checksumOf(mostRecent.Global))
+	require.Equal(t, uint64(3), mostRecent.BlockNumber)
+	require.Equal(t, rootHash(s), mostRecent.Global[:])
 
 	commitBlocks(t, s, 2)
 	require.NoError(t, s.FlushHashes())
 
-	require.Equal(t, []int64{4, 5}, *seen, "a listener starts at the block after the one it was told")
+	require.Equal(t, []uint64{4, 5}, *seen, "a listener starts at the block after the one it was told")
 }
 
 // Listeners are independent: one of them consuming a hash must not take it away from another.
@@ -131,8 +132,8 @@ func TestEveryListenerSeesEveryBlock(t *testing.T) {
 	commitBlocks(t, s, 3)
 	require.NoError(t, s.FlushHashes())
 
-	require.Equal(t, []int64{1, 2, 3}, *seenByFirst)
-	require.Equal(t, []int64{1, 2, 3}, *seenBySecond)
+	require.Equal(t, []uint64{1, 2, 3}, *seenByFirst)
+	require.Equal(t, []uint64{1, 2, 3}, *seenBySecond)
 }
 
 // A listener that refuses a block is a caller that cannot keep up with the state it is deriving. The
@@ -141,7 +142,7 @@ func TestAListenerThatFailsBricksTheStore(t *testing.T) {
 	s := setupTestStoreWithConfig(t, tightHashPipelineConfig(t))
 	defer func() { _ = s.Close() }()
 
-	_, err := s.RegisterHashListener(func(context.Context, int64, *lthash.BlockHash) error {
+	_, err := s.RegisterHashListener(func(context.Context, uint64, *gigatypes.BlockHash) error {
 		return fmt.Errorf("injected listener failure")
 	})
 	require.NoError(t, err)
@@ -171,7 +172,7 @@ func TestANilHashListenerRegistersNothing(t *testing.T) {
 
 	mostRecent, err := s.RegisterHashListener(nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), mostRecent.BlockNumber, "a nil listener still reports the current hash")
+	require.Equal(t, uint64(2), mostRecent.BlockNumber, "a nil listener still reports the current hash")
 
 	// Nothing was registered, so the block below has nobody to deliver to and must still commit.
 	commitBlocks(t, s, 1)
@@ -196,7 +197,7 @@ func TestRegistrationsSurviveARollback(t *testing.T) {
 
 	commitBlocks(t, s, 5)
 	require.NoError(t, s.FlushHashes())
-	require.Equal(t, []int64{1, 2, 3, 4, 5}, *seen)
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, *seen)
 
 	require.NoError(t, s.Rollback(3))
 
@@ -204,7 +205,7 @@ func TestRegistrationsSurviveARollback(t *testing.T) {
 	require.NoError(t, s.FlushHashes())
 
 	// 0 is the height the rollback reopened at, then 1 to 3 are replayed, then 4 and 5 re-executed.
-	require.Equal(t, []int64{1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5}, *seen,
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5}, *seen,
 		"the listener registered before the rollback must still be given the blocks after it")
 }
 
@@ -215,8 +216,8 @@ func TestDispatchedPerDBHashesMatchWhatEachDatabaseRecorded(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
-	var dispatched *lthash.BlockHash
-	_, err := s.RegisterHashListener(func(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+	var dispatched *gigatypes.BlockHash
+	_, err := s.RegisterHashListener(func(_ context.Context, _ uint64, hash *gigatypes.BlockHash) error {
 		dispatched = hash
 		return nil
 	})
@@ -226,13 +227,14 @@ func TestDispatchedPerDBHashesMatchWhatEachDatabaseRecorded(t *testing.T) {
 	require.NoError(t, s.FlushHashes())
 	require.NotNil(t, dispatched, "the committed block must have been dispatched")
 
-	require.Equal(t, rootHash(s), checksumOf(dispatched.Global))
+	require.Equal(t, rootHash(s), dispatched.Global[:])
 
 	// Read back off disk rather than from the store's load-time copy: the finalizer writes it, so disk
 	// is the only place the two can be compared.
 	require.NoError(t, s.reloadLocalMeta())
 	for _, dir := range dataDBDirs {
-		require.Equal(t, checksumOf(s.localMeta[dir].LtHash), checksumOf(dispatched.PerDB[dir]),
+		checksum := dispatched.PerDB[dir]
+		require.Equal(t, checksumOf(s.localMeta[dir].LtHash), checksum[:],
 			"the %s hash dispatched must be the one that database recorded", dir)
 	}
 
@@ -241,7 +243,7 @@ func TestDispatchedPerDBHashesMatchWhatEachDatabaseRecorded(t *testing.T) {
 	for _, dir := range dataDBDirs {
 		sum.MixIn(s.localMeta[dir].LtHash)
 	}
-	require.True(t, sum.Equal(dispatched.Global))
+	require.Equal(t, checksumOf(sum), dispatched.Global[:])
 }
 
 // checksumOf returns an LtHash's checksum as a slice, for comparison.

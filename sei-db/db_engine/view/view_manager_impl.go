@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -811,7 +813,7 @@ func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error
 
 // MutationsAtVersion returns every write at a sealed version, sorted by key, waiting for the version to
 // be materialized if that has not happened yet.
-func (c *viewManager) MutationsAtVersion(version uint64) ([]Mutation, error) {
+func (c *viewManager) MutationsAtVersion(version uint64) ([]gigatypes.Mutation, error) {
 	c.versionLock.Lock()
 	counter, tracked := c.versionMap[version]
 	c.versionLock.Unlock()
@@ -1216,13 +1218,13 @@ func (c *viewManager) writeVersionToBatch(batch types.Batch, version uint64) err
 		return err
 	}
 	for i := range mutations {
-		if mutations[i].value == nil {
-			err = batch.DeleteString(mutations[i].key)
+		if mutations[i].Value() == nil {
+			err = batch.DeleteString(mutations[i].Key())
 		} else {
-			err = batch.SetString(mutations[i].key, mutations[i].value)
+			err = batch.SetString(mutations[i].Key(), mutations[i].Value())
 		}
 		if err != nil {
-			return fmt.Errorf("write key %x: %w", mutations[i].key, err)
+			return fmt.Errorf("write key %x: %w", mutations[i].Key(), err)
 		}
 	}
 	return nil

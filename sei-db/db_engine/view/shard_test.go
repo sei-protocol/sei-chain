@@ -3,6 +3,8 @@ package view
 import (
 	"testing"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,17 +107,17 @@ func TestShardReadPriorValuesReadsTheVersionBefore(t *testing.T) {
 	require.NoError(t, s.Delete([]byte("fresh")))
 	commitShard(t, s) // seals v2
 
-	first := []Mutation{
-		{key: "fresh", value: []byte("v1")},
-		{key: "seeded", value: []byte("v1")},
+	first := []gigatypes.Mutation{
+		gigatypes.NewMutation("fresh", []byte("v1"), nil),
+		gigatypes.NewMutation("seeded", []byte("v1"), nil),
 	}
 	require.NoError(t, s.ReadPriorValues(1, first, []uint32{0, 1}))
 	require.Nil(t, first[0].Previous(), "a key absent from the database has no previous value")
 	require.Equal(t, []byte("db"), first[1].Previous())
 
-	second := []Mutation{
-		{key: "fresh"},
-		{key: "seeded", value: []byte("v2")},
+	second := []gigatypes.Mutation{
+		gigatypes.NewMutation("fresh", nil, nil),
+		gigatypes.NewMutation("seeded", []byte("v2"), nil),
 	}
 	require.NoError(t, s.ReadPriorValues(2, second, []uint32{0, 1}))
 	require.Equal(t, []byte("v1"), second[0].Previous())
@@ -128,7 +130,7 @@ func TestShardReadPriorValuesTouchesOnlyItsPositions(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(map[string][]byte{"a": []byte("x"), "b": []byte("y")}))
 	commitShard(t, s)
 
-	mutations := []Mutation{{key: "a"}, {key: "b"}}
+	mutations := []gigatypes.Mutation{gigatypes.NewMutation("a", nil, nil), gigatypes.NewMutation("b", nil, nil)}
 	require.NoError(t, s.ReadPriorValues(1, mutations, []uint32{1}))
 	require.Nil(t, mutations[0].Previous())
 	require.Equal(t, []byte("y"), mutations[1].Previous())
@@ -180,7 +182,7 @@ func extractShardMutations(t *testing.T, s *shard, version uint64) shardMutation
 	diff := shardMutations{}
 	for key, value := range writes {
 		diff.positions = append(diff.positions, uint32(len(diff.mutations))) //nolint:gosec // small test index
-		diff.mutations = append(diff.mutations, Mutation{key: key, value: value})
+		diff.mutations = append(diff.mutations, gigatypes.NewMutation(key, value, nil))
 	}
 	return diff
 }

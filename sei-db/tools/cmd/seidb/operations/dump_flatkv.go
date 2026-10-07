@@ -9,7 +9,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
@@ -341,21 +340,21 @@ const lthashBatchCap = 8192
 // committed LtHash.
 type bucketLtHasher struct {
 	acc   *lthash.LtHash
-	batch []view.Mutation
+	batch []gigatypes.Mutation
 	count uint64
 }
 
 func newBucketLtHasher() *bucketLtHasher {
 	return &bucketLtHasher{
 		acc:   lthash.New(),
-		batch: make([]view.Mutation, 0, lthashBatchCap),
+		batch: make([]gigatypes.Mutation, 0, lthashBatchCap),
 	}
 }
 
 // add buffers one (key, value) pair. The iterator may reuse the underlying
 // slices on Next(), so both are cloned before being retained in the batch.
 func (h *bucketLtHasher) add(key, val []byte) {
-	h.batch = append(h.batch, view.NewMutation(string(key), bytes.Clone(val), nil))
+	h.batch = append(h.batch, gigatypes.NewMutation(string(key), bytes.Clone(val), nil))
 	h.count++
 	if len(h.batch) >= lthashBatchCap {
 		h.flush()
@@ -396,8 +395,7 @@ func verifyFlatKVLtHash(store gigatypes.LiveStateStore, hashers map[string]*buck
 	if err != nil {
 		return fmt.Errorf("read the flatkv hash: %w", err)
 	}
-	committedChecksum := published.Global.Checksum()
-	committedTotal := committedChecksum[:]
+	committedTotal := published.Global[:]
 
 	// A store holding no state reports the checksum of the zero LtHash. Treat that as "nothing to
 	// verify against" rather than a spurious failure.

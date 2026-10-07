@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 func TestLtHashBasic(t *testing.T) {
@@ -19,8 +19,8 @@ func TestLtHashBasic(t *testing.T) {
 	}
 
 	// Test via ComputeLtHash
-	lth1 := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key", []byte("value"), nil),
+	lth1 := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key", []byte("value"), nil),
 	})
 	if lth1.IsZero() {
 		t.Error("ComputeLtHash should not return zero for non-empty data")
@@ -45,8 +45,8 @@ func TestLtHashBasic(t *testing.T) {
 }
 
 func TestLtHashDeterminism(t *testing.T) {
-	mutations := []view.Mutation{
-		view.NewMutation("key", []byte("test data for determinism"), nil),
+	mutations := []gigatypes.Mutation{
+		gigatypes.NewMutation("key", []byte("test data for determinism"), nil),
 	}
 
 	lth1 := ComputeLtHash(nil, mutations)
@@ -63,11 +63,11 @@ func TestLtHashDeterminism(t *testing.T) {
 
 func TestHashKVNoCollision(t *testing.T) {
 	// Verify length-prefixing prevents key||value concatenation collisions
-	lth1 := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("a", []byte("bc"), nil),
+	lth1 := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("a", []byte("bc"), nil),
 	})
-	lth2 := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("ab", []byte("c"), nil),
+	lth2 := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("ab", []byte("c"), nil),
 	})
 
 	if lth1.Checksum() == lth2.Checksum() {
@@ -82,34 +82,34 @@ func TestComputeLtHash(t *testing.T) {
 		t.Error("Empty changeset should produce zero")
 	}
 	// Insert
-	result = ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key1", []byte("value1"), nil),
+	result = ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key1", []byte("value1"), nil),
 	})
 	if result.IsZero() {
 		t.Error("Insert should produce non-zero result")
 	}
 
 	// Insert then delete should cancel out
-	result1 := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key1", []byte("value1"), nil),
+	result1 := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key1", []byte("value1"), nil),
 	})
-	result2 := ComputeLtHash(result1, []view.Mutation{
-		view.NewMutation("key1", nil, []byte("value1")),
+	result2 := ComputeLtHash(result1, []gigatypes.Mutation{
+		gigatypes.NewMutation("key1", nil, []byte("value1")),
 	})
 	if !result2.IsZero() {
 		t.Error("Insert then delete should cancel out to zero")
 	}
 
 	// Update: old value replaced with new value
-	initial := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key1", []byte("value1"), nil),
+	initial := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key1", []byte("value1"), nil),
 	})
-	updated := ComputeLtHash(initial, []view.Mutation{
-		view.NewMutation("key1", []byte("value2"), []byte("value1")),
+	updated := ComputeLtHash(initial, []gigatypes.Mutation{
+		gigatypes.NewMutation("key1", []byte("value2"), []byte("value1")),
 	})
 	// updated should equal direct insert of value2
-	direct := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key1", []byte("value2"), nil),
+	direct := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key1", []byte("value2"), nil),
 	})
 	if updated.Checksum() != direct.Checksum() {
 		t.Error("Update should produce same result as direct insert")
@@ -117,10 +117,10 @@ func TestComputeLtHash(t *testing.T) {
 }
 
 func TestComputeLtHashLarge(t *testing.T) {
-	mutations := make([]view.Mutation, 500)
+	mutations := make([]gigatypes.Mutation, 500)
 	for i := range mutations {
 		key := string([]byte{byte(i >> 8), byte(i)})
-		mutations[i] = view.NewMutation(key, []byte{byte(i), byte(i >> 8)}, nil)
+		mutations[i] = gigatypes.NewMutation(key, []byte{byte(i), byte(i >> 8)}, nil)
 	}
 
 	result := ComputeLtHash(nil, mutations)
@@ -130,8 +130,8 @@ func TestComputeLtHashLarge(t *testing.T) {
 }
 
 func TestUnmarshal(t *testing.T) {
-	original := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key", []byte("test data"), nil),
+	original := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key", []byte("test data"), nil),
 	})
 	rawBytes := original.Marshal()
 
@@ -151,8 +151,8 @@ func TestUnmarshal(t *testing.T) {
 }
 
 func TestChecksumHex(t *testing.T) {
-	lth := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key", []byte("hello"), nil),
+	lth := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key", []byte("hello"), nil),
 	})
 	checksum := lth.Checksum()
 	hexStr := hex.EncodeToString(checksum[:])
@@ -162,8 +162,8 @@ func TestChecksumHex(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	lth := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key", []byte("data"), nil),
+	lth := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key", []byte("data"), nil),
 	})
 	if lth.IsZero() {
 		t.Error("Should not be zero after ComputeLtHash")
@@ -176,15 +176,15 @@ func TestReset(t *testing.T) {
 
 func TestEmptyKeyOrValue(t *testing.T) {
 	// Empty key or value should be skipped
-	result := ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("", []byte("value"), nil),
+	result := ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("", []byte("value"), nil),
 	})
 	if !result.IsZero() {
 		t.Error("Empty key should be skipped")
 	}
 
-	result = ComputeLtHash(nil, []view.Mutation{
-		view.NewMutation("key", nil, nil),
+	result = ComputeLtHash(nil, []gigatypes.Mutation{
+		gigatypes.NewMutation("key", nil, nil),
 	})
 	if !result.IsZero() {
 		t.Error("Empty value should be skipped")
@@ -196,11 +196,11 @@ func TestEmptyKeyOrValue(t *testing.T) {
 func TestParallelConsistency(t *testing.T) {
 	// Create enough pairs to trigger parallel path (> 100)
 	count := 500
-	mutations := make([]view.Mutation, count)
+	mutations := make([]gigatypes.Mutation, count)
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		val := fmt.Sprintf("val-%d", i)
-		mutations[i] = view.NewMutation(key, []byte(val), nil)
+		mutations[i] = gigatypes.NewMutation(key, []byte(val), nil)
 	}
 
 	// 1. Run with parallel workers (default)
@@ -229,9 +229,9 @@ func TestParallelConsistency(t *testing.T) {
 // Commutativity: A + B = B + A
 // Associativity: (A + B) + C = A + (B + C)
 func TestHomomorphicProperties(t *testing.T) {
-	kv1 := []view.Mutation{view.NewMutation("k1", []byte("v1"), nil)}
-	kv2 := []view.Mutation{view.NewMutation("k2", []byte("v2"), nil)}
-	kv3 := []view.Mutation{view.NewMutation("k3", []byte("v3"), nil)}
+	kv1 := []gigatypes.Mutation{gigatypes.NewMutation("k1", []byte("v1"), nil)}
+	kv2 := []gigatypes.Mutation{gigatypes.NewMutation("k2", []byte("v2"), nil)}
+	kv3 := []gigatypes.Mutation{gigatypes.NewMutation("k3", []byte("v3"), nil)}
 
 	h1 := ComputeLtHash(nil, kv1)
 	h2 := ComputeLtHash(nil, kv2)
@@ -277,16 +277,16 @@ func TestFuzz(t *testing.T) {
 		binary.LittleEndian.PutUint64(val, rng.Uint64())
 
 		// Randomly insert or delete
-		var op view.Mutation
+		var op gigatypes.Mutation
 		if rng.Intn(2) == 0 {
 			// Insert
-			op = view.NewMutation(string(key), val, nil)
+			op = gigatypes.NewMutation(string(key), val, nil)
 		} else {
 			// Delete (requires we "know" the old value, but here we just test MixOut stability)
-			op = view.NewMutation(string(key), nil, val)
+			op = gigatypes.NewMutation(string(key), nil, val)
 		}
 
-		next := ComputeLtHash(base, []view.Mutation{op})
+		next := ComputeLtHash(base, []gigatypes.Mutation{op})
 		base = next
 	}
 

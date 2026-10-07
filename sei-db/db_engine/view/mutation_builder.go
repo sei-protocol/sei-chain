@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // versionMutations is one sealed version's writes, sorted by key, each carrying the value its key held in
@@ -17,7 +19,7 @@ type versionMutations struct {
 	ready chan struct{}
 
 	// The version's writes in ascending key order.
-	mutations []Mutation
+	mutations []gigatypes.Mutation
 
 	// For each shard, the positions in mutations of its keys, ascending.
 	shardPositions [][]uint32
@@ -76,7 +78,7 @@ func (c *viewManager) materializeMutations(version uint64) *versionMutations {
 }
 
 // sortWrites merges every shard's writes into one slice of mutations, sorted by key.
-func sortWrites(shardWrites []map[string][]byte) ([]Mutation, error) {
+func sortWrites(shardWrites []map[string][]byte) ([]gigatypes.Mutation, error) {
 	total := 0
 	for _, writes := range shardWrites {
 		total += len(writes)
@@ -85,22 +87,22 @@ func sortWrites(shardWrites []map[string][]byte) ([]Mutation, error) {
 		return nil, fmt.Errorf("%d writes are more than a shard position can address", total)
 	}
 
-	mutations := make([]Mutation, 0, total)
+	mutations := make([]gigatypes.Mutation, 0, total)
 	for _, writes := range shardWrites {
 		for key, value := range writes {
-			mutations = append(mutations, Mutation{key: key, value: value})
+			mutations = append(mutations, gigatypes.NewMutation(key, value, nil))
 		}
 	}
 	// Bytewise, to match pebble's default comparer: the flush writes in this order, and pebble absorbs an
 	// ascending batch far more cheaply, because its memtable caches the splice it last inserted at.
-	slices.SortFunc(mutations, func(a Mutation, b Mutation) int {
-		return strings.Compare(a.key, b.key)
+	slices.SortFunc(mutations, func(a gigatypes.Mutation, b gigatypes.Mutation) int {
+		return strings.Compare(a.Key(), b.Key())
 	})
 	return mutations, nil
 }
 
 // indexByShard returns, for each shard, the positions in mutations of the keys it wrote.
-func (c *viewManager) indexByShard(mutations []Mutation, shardWrites []map[string][]byte) [][]uint32 {
+func (c *viewManager) indexByShard(mutations []gigatypes.Mutation, shardWrites []map[string][]byte) [][]uint32 {
 	positions := make([]uint32, len(mutations))
 	shardPositions := make([][]uint32, len(shardWrites))
 	start := 0
@@ -113,7 +115,7 @@ func (c *viewManager) indexByShard(mutations []Mutation, shardWrites []map[strin
 	}
 
 	for i := range mutations {
-		shardIndex := c.shardManager.ShardString(mutations[i].key)
+		shardIndex := c.shardManager.ShardString(mutations[i].Key())
 		position := uint32(i) //nolint:gosec // sortWrites bounds the count
 		shardPositions[shardIndex] = append(shardPositions[shardIndex], position)
 	}
@@ -122,7 +124,7 @@ func (c *viewManager) indexByShard(mutations []Mutation, shardWrites []map[strin
 
 // readPriorValues reads every mutation's prior value, each shard's keys in their own task on the misc pool,
 // and returns once all of them are read.
-func (c *viewManager) readPriorValues(version uint64, mutations []Mutation, shardPositions [][]uint32) error {
+func (c *viewManager) readPriorValues(version uint64, mutations []gigatypes.Mutation, shardPositions [][]uint32) error {
 	errs := make([]error, len(c.shards))
 	var wg sync.WaitGroup
 	wg.Add(len(c.shards))
@@ -139,7 +141,7 @@ func (c *viewManager) readPriorValues(version uint64, mutations []Mutation, shar
 }
 
 // awaitMutations returns a version's mutations once they are published.
-func (c *viewManager) awaitMutations(version uint64, m *versionMutations) ([]Mutation, error) {
+func (c *viewManager) awaitMutations(version uint64, m *versionMutations) ([]gigatypes.Mutation, error) {
 	select {
 	case <-m.ready:
 		return m.mutations, nil

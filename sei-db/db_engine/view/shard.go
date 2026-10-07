@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -993,7 +995,7 @@ func (s *shard) ReadPriorValues(
 	// The version the mutations were written in.
 	version uint64,
 	// The version's mutations. Only the entries at positions are touched.
-	mutations []Mutation,
+	mutations []gigatypes.Mutation,
 	// The positions in mutations of this shard's keys.
 	positions []uint32,
 ) error {
@@ -1029,7 +1031,8 @@ func (s *shard) ReadPriorValues(
 		return fmt.Errorf("complete %d database reads for previous values: %w", len(pending), err)
 	}
 	for i := range pending {
-		mutations[pendingPositions[i]].previous = pending[i].result.value
+		position := pendingPositions[i]
+		mutations[position] = mutations[position].WithPrevious(pending[i].result.value)
 	}
 
 	// Awaited after the DB reads and outside every lock, for the reason given on pendingValue.await.
@@ -1038,7 +1041,8 @@ func (s *shard) ReadPriorValues(
 		if err != nil {
 			return fmt.Errorf("await staged previous value for key %x: %w", pendingValue.key, err)
 		}
-		mutations[stagedPositions[i]].previous = value
+		position := stagedPositions[i]
+		mutations[position] = mutations[position].WithPrevious(value)
 	}
 	return nil
 }
@@ -1049,7 +1053,7 @@ func (s *shard) attemptFastReadPriorValuesUnlocked(
 	// The version to read at. 0 reads only the cache.
 	prior uint64,
 	// The version's mutations. Resolved values are stored in the mutation.previous slots.
-	mutations []Mutation,
+	mutations []gigatypes.Mutation,
 	// The positions in mutations to resolve (i.e. the mutations that belong to this shard).
 	positions []uint32,
 ) (
@@ -1071,7 +1075,7 @@ func (s *shard) attemptFastReadPriorValuesUnlocked(
 	}
 
 	for _, position := range positions {
-		key := utils.UnsafeStringToBytes(mutations[position].key)
+		key := utils.UnsafeStringToBytes(mutations[position].Key())
 		if prior > 0 {
 			if entry, found := s.lookupVersionedRLocked(key, prior); found {
 				if entry.pending != nil {
@@ -1079,7 +1083,7 @@ func (s *shard) attemptFastReadPriorValuesUnlocked(
 					stagedPositions = append(stagedPositions, position)
 					continue
 				}
-				mutations[position].previous = entry.value
+				mutations[position] = mutations[position].WithPrevious(entry.value)
 				hits++
 				continue
 			}
@@ -1088,7 +1092,7 @@ func (s *shard) attemptFastReadPriorValuesUnlocked(
 		// The batch path never records recency on hits, hence updateLru=false.
 		value, _, ok := s.cache.AttemptFastLookupRLocked(key, false)
 		if ok {
-			mutations[position].previous = value
+			mutations[position] = mutations[position].WithPrevious(value)
 			hits++
 			continue
 		}
@@ -1103,7 +1107,7 @@ func (s *shard) readPriorValuesRemainingUnlocked(
 	// The version to read at. 0 reads only the cache.
 	prior uint64,
 	// The version's mutations. Resolved values are stored in the mutation.previous slots.
-	mutations []Mutation,
+	mutations []gigatypes.Mutation,
 	// The positions in mutations the fast pass left unresolved.
 	positions []uint32,
 ) (
@@ -1132,7 +1136,7 @@ func (s *shard) readPriorValuesRemainingUnlocked(
 	// Redone from scratch rather than carried over from the fast pass, because the lock was released in
 	// between and another reader may have scheduled or completed any of these keys.
 	for _, position := range positions {
-		key := utils.UnsafeStringToBytes(mutations[position].key)
+		key := utils.UnsafeStringToBytes(mutations[position].Key())
 		if prior > 0 {
 			if entry, found := s.lookupVersionedRLocked(key, prior); found {
 				if entry.pending != nil {
@@ -1140,7 +1144,7 @@ func (s *shard) readPriorValuesRemainingUnlocked(
 					stagedPositions = append(stagedPositions, position)
 					continue
 				}
-				mutations[position].previous = entry.value
+				mutations[position] = mutations[position].WithPrevious(entry.value)
 				hits++
 				continue
 			}
@@ -1148,12 +1152,12 @@ func (s *shard) readPriorValuesRemainingUnlocked(
 
 		outcome := s.cache.LookupWLocked(key, false)
 		if outcome.immediate {
-			mutations[position].previous = outcome.value
+			mutations[position] = mutations[position].WithPrevious(outcome.value)
 			hits++
 			continue
 		}
 		pending = append(pending, pendingRead{
-			key:           mutations[position].key,
+			key:           mutations[position].Key(),
 			entry:         outcome.entry,
 			valueChan:     outcome.valueChan,
 			needsSchedule: outcome.needsSchedule,
@@ -1246,7 +1250,7 @@ func (s *shard) materializeAttemptUnlocked(
 // shardMutations is one shard's writes in one sealed version.
 type shardMutations struct {
 	// The version's writes in ascending key order.
-	mutations []Mutation
+	mutations []gigatypes.Mutation
 
 	// The positions in mutations of this shard's keys, ascending.
 	positions []uint32
@@ -1298,7 +1302,7 @@ func (s *shard) DropVersions(
 	// once per diff, and the trim is idempotent, so the repeat costs a lookup and finds nothing to do.
 	for _, diff := range diffs {
 		for _, position := range diff.positions {
-			key := diff.mutations[position].key
+			key := diff.mutations[position].Key()
 			deque, tracked := s.versionedData[key]
 			if !tracked {
 				continue

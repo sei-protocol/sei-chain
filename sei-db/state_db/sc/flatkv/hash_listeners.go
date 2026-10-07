@@ -26,7 +26,7 @@ type hashListenerRegistry struct {
 
 	// The most recent hash handed to the listeners, which is the block a listener registering now
 	// is told its first delivery follows. Nil until a block has been dispatched.
-	lastDispatched *lthash.BlockHash
+	lastDispatched *gigatypes.BlockHash
 }
 
 // newHashListenerRegistry returns an empty registry.
@@ -40,7 +40,7 @@ func (r *hashListenerRegistry) register(
 	listener gigatypes.HashListener,
 	// The height the store stands at, for a store that has dispatched nothing.
 	current *lthash.BlockHash,
-) lthash.BlockHash {
+) gigatypes.BlockHash {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -49,7 +49,7 @@ func (r *hashListenerRegistry) register(
 		r.listeners = append(r.listeners, listener)
 	}
 	if r.lastDispatched == nil {
-		return *current
+		return blockHashChecksums(current)
 	}
 	return *r.lastDispatched
 }
@@ -59,11 +59,25 @@ func (r *hashListenerRegistry) dispatch(ctx context.Context, hash *lthash.BlockH
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	checksums := blockHashChecksums(hash)
 	for _, listener := range r.listeners {
-		if err := listener(ctx, hash.BlockNumber, hash); err != nil {
+		if err := listener(ctx, checksums.BlockNumber, &checksums); err != nil {
 			return fmt.Errorf("a hash listener refused block %d: %w", hash.BlockNumber, err)
 		}
 	}
-	r.lastDispatched = hash
+	r.lastDispatched = &checksums
 	return nil
+}
+
+// blockHashChecksums returns hash as the store's listeners receive it.
+func blockHashChecksums(hash *lthash.BlockHash) gigatypes.BlockHash {
+	perDB := make(map[string][32]byte, len(hash.PerDB))
+	for dbName, dbHash := range hash.PerDB {
+		perDB[dbName] = dbHash.Checksum()
+	}
+	return gigatypes.BlockHash{
+		BlockNumber: uint64(hash.BlockNumber), //nolint:gosec // block heights are non-negative
+		Global:      hash.Global.Checksum(),
+		PerDB:       perDB,
+	}
 }

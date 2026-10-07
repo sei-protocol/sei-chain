@@ -7,11 +7,22 @@ import (
 	"context"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // A callback function for getting the hash of each block.
-type HashListener func(ctx context.Context, blockNum int64, hash *lthash.BlockHash) error
+type HashListener func(ctx context.Context, blockNum uint64, hash *BlockHash) error
+
+// BlockHash is the lattice hash of the store as of one block.
+type BlockHash struct {
+	// The block this hash describes.
+	BlockNumber uint64
+
+	// The checksum of the store-wide lattice hash, which reaches consensus.
+	Global [32]byte
+
+	// The checksum of each data database's lattice hash, keyed by database name.
+	PerDB map[string][32]byte
+}
 
 // StateDB is the top-level API used by the Giga EVM executor for
 // read and write. Writes commit into both SC and SS; reads can be served for
@@ -38,7 +49,7 @@ type StateDB interface {
 	// This method returns the most recent hash observed at the moment the listener is registered. If the
 	// first hash the listener observes is for block N, the mostRecentHash returned will have been block N-1.
 	// This may be useful at startup time to determine the initial hash of the database.
-	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
+	RegisterHashListener(listener HashListener) (mostRecentHash BlockHash, err error)
 
 	// Close releases everything this StateDB was built over, reporting every failure rather than
 	// stopping at the first.

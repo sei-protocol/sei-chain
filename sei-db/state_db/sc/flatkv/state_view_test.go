@@ -380,3 +380,44 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 			"Get reports what is stored; substituting EmptyCodeHash here is GetCodeHash's job")
 	})
 }
+
+// A view's mutations cover every store the block wrote, merged into one ascending key order, and each
+// carries the value its key held in the block before, with that block's height stamped in it.
+func TestOpenViewMutationsSpanEveryStore(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	addr := addrN(1)
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(
+		noncePair(addr, 1),
+		storagePair(addr, slotN(1), []byte{0x01}),
+		codePair(addr, []byte{0x60, 0x01}),
+		miscPair(addr, []byte{0x01}),
+	)}))
+	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{namedCS(
+		noncePair(addr, 2),
+		storagePair(addr, slotN(1), []byte{0x02}),
+		codePair(addr, []byte{0x60, 0x02}),
+		miscPair(addr, []byte{0x02}),
+	)}))
+
+	stateView := s.OpenView()
+	defer stateView.Close()
+	mutations := stateView.Mutations()
+
+	require.Len(t, mutations, 4, "one mutation per store")
+	for i := 1; i < len(mutations); i++ {
+		require.Less(t, mutations[i-1].Key(), mutations[i].Key(), "mutations must be in ascending key order")
+	}
+	for _, m := range mutations {
+		previousHeight, present, err := m.PreviousBlockHeight()
+		require.NoError(t, err)
+		require.True(t, present, "key %x existed before block 2", m.Key())
+		require.Equal(t, uint64(1), previousHeight, "key %x was last written at block 1", m.Key())
+
+		height, present, err := m.BlockHeight()
+		require.NoError(t, err)
+		require.True(t, present)
+		require.Equal(t, uint64(2), height)
+	}
+}

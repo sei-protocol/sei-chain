@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"testing"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,10 +129,8 @@ func TestMaintenanceEvictsBackToBudget(t *testing.T) {
 	// Twice the budget, inserted as a retirement so every entry lands in a terminal state.
 	retired := shardMutations{}
 	for i := 0; i < 2*maxSize/entrySize; i++ {
-		retired.mutations = append(retired.mutations, Mutation{
-			key:   fmt.Sprintf("key%05d", i),
-			value: []byte(fmt.Sprintf("val%05d", i)),
-		})
+		retired.mutations = append(retired.mutations,
+			gigatypes.NewMutation(fmt.Sprintf("key%05d", i), []byte(fmt.Sprintf("val%05d", i)), nil))
 		retired.positions = append(retired.positions, uint32(i)) //nolint:gosec // small test index
 	}
 	shard.lock.Lock()

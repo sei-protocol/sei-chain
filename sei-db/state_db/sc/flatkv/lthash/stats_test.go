@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -49,44 +50,44 @@ func TestFoldChunkStats(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		pair     view.Mutation
+		pair     gigatypes.Mutation
 		wantKeys int64
 		wantByte int64
 	}{
 		{
 			name:     "add",
-			pair:     view.NewMutation(string(key), []byte("newvalue"), nil),
+			pair:     gigatypes.NewMutation(string(key), []byte("newvalue"), nil),
 			wantKeys: 1,
 			wantByte: int64(len(key)) + int64(len("newvalue")),
 		},
 		{
 			name:     "update grows",
-			pair:     view.NewMutation(string(key), []byte("longer-value"), []byte("short")),
+			pair:     gigatypes.NewMutation(string(key), []byte("longer-value"), []byte("short")),
 			wantKeys: 0,
 			wantByte: int64(len("longer-value")) - int64(len("short")),
 		},
 		{
 			name:     "update shrinks",
-			pair:     view.NewMutation(string(key), []byte("v"), []byte("wasbigger")),
+			pair:     gigatypes.NewMutation(string(key), []byte("v"), []byte("wasbigger")),
 			wantKeys: 0,
 			wantByte: int64(len("v")) - int64(len("wasbigger")),
 		},
 		{
 			name:     "delete",
-			pair:     view.NewMutation(string(key), nil, []byte("oldvalue")),
+			pair:     gigatypes.NewMutation(string(key), nil, []byte("oldvalue")),
 			wantKeys: -1,
 			wantByte: -(int64(len(key)) + int64(len("oldvalue"))),
 		},
 		{
 			name:     "delete absent is no-op",
-			pair:     view.NewMutation(string(key), nil, nil),
+			pair:     gigatypes.NewMutation(string(key), nil, nil),
 			wantKeys: 0,
 			wantByte: 0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := hashMutations([]view.Mutation{tc.pair})
+			d := hashMutations([]gigatypes.Mutation{tc.pair})
 			require.Equal(t, tc.wantKeys, d.KeyCount)
 			require.Equal(t, tc.wantByte, d.Bytes)
 		})
@@ -103,12 +104,12 @@ func TestComputeModuleHashInfosStatsParallel(t *testing.T) {
 	defer pool.Close()
 	cfg := DefaultConfig()
 	n := int(cfg.ChunkSize)*3 + 7 // spans several chunks, not a chunk multiple
-	mutations := make([]view.Mutation, n)
+	mutations := make([]gigatypes.Mutation, n)
 	var wantKeys, wantBytes int64
 	for i := range mutations {
 		key := []byte(fmt.Sprintf("m/key-%05d", i))
 		val := []byte(fmt.Sprintf("value-%d", i))
-		mutations[i] = view.NewMutation(string(key), val, nil)
+		mutations[i] = gigatypes.NewMutation(string(key), val, nil)
 		wantKeys++
 		wantBytes += int64(len(key)) + int64(len(val))
 	}

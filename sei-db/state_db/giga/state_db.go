@@ -16,7 +16,6 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
@@ -387,7 +386,7 @@ func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 
 // RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and
 // so is the layer that dispatches them.
-func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
+func (s *StateDB) RegisterHashListener(listener gigatypes.HashListener) (gigatypes.BlockHash, error) {
 	mostRecentHash, err := s.sc.RegisterHashListener(listener)
 	if err != nil {
 		return mostRecentHash, fmt.Errorf("register hash listener on the state commit store: %w", err)

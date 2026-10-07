@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -121,7 +123,7 @@ func TestMutationsAreSortedAcrossShardsWithPreviousValues(t *testing.T) {
 	finalizeAndRelease(t, second)
 }
 
-func requireStrictlyAscending(t *testing.T, mutations []Mutation) {
+func requireStrictlyAscending(t *testing.T, mutations []gigatypes.Mutation) {
 	t.Helper()
 	require.True(t, sort.SliceIsSorted(mutations, func(i, j int) bool {
 		return strings.Compare(mutations[i].Key(), mutations[j].Key()) < 0

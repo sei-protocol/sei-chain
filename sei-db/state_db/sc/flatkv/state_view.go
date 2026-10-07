@@ -270,6 +270,41 @@ func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, key
 	return value, found
 }
 
+// Mutations returns every key the view's block changed across all of the stores, in ascending key order.
+func (v *flatKVStateView) Mutations() []gigatypes.Mutation {
+	views := v.blockView.Views()
+	perStore := make([][]gigatypes.Mutation, len(views))
+	total := 0
+	for i, dbView := range views {
+		mutations, err := dbView.Mutations()
+		if err != nil {
+			panic(fmt.Sprintf("flatkv: %s mutations at height %d: %v",
+				dbView.Name(), v.blockView.BlockHeight(), err))
+		}
+		perStore[i] = mutations
+		total += len(mutations)
+	}
+
+	// Each store's mutations are already sorted and the stores hold disjoint keys, so a merge of the
+	// sorted runs gives the global order.
+	merged := make([]gigatypes.Mutation, 0, total)
+	cursors := make([]int, len(perStore))
+	for len(merged) < total {
+		next := -1
+		for i, mutations := range perStore {
+			if cursors[i] == len(mutations) {
+				continue
+			}
+			if next == -1 || mutations[cursors[i]].Key() < perStore[next][cursors[next]].Key() {
+				next = i
+			}
+		}
+		merged = append(merged, perStore[next][cursors[next]])
+		cursors[next]++
+	}
+	return merged
+}
+
 // readRow returns the bytes stored under physKey, without deserializing them.
 func (v *flatKVStateView) readRow(dbView view.View, physKey []byte) ([]byte, bool) {
 	value, found, err := dbView.Get(physKey, true)

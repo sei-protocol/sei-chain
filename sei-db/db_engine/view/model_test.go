@@ -3,6 +3,8 @@ package view
 import (
 	"bytes"
 	"sort"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // modelManager is a deliberately naive, obviously-correct reference implementation of the
@@ -103,7 +105,7 @@ func (m *modelManager) DiffAt(version uint64) map[string][]byte {
 
 // MutationsAt returns the mutations of the given sealed version in ascending key order, each carrying the
 // value its key held in the version before (nil if absent).
-func (m *modelManager) MutationsAt(version uint64) []Mutation {
+func (m *modelManager) MutationsAt(version uint64) []gigatypes.Mutation {
 	before := m.initial
 	if version > 1 {
 		before = m.versions[version-1].full
@@ -114,9 +116,9 @@ func (m *modelManager) MutationsAt(version uint64) []Mutation {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	mutations := make([]Mutation, 0, len(keys))
+	mutations := make([]gigatypes.Mutation, 0, len(keys))
 	for _, k := range keys {
-		mutations = append(mutations, Mutation{key: k, value: diff[k], previous: before[k]})
+		mutations = append(mutations, gigatypes.NewMutation(k, diff[k], before[k]))
 	}
 	return mutations
 }

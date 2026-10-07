@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -46,7 +48,7 @@ func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	panic("stubView: unexpected BatchGet")
 }
 
-func (s *stubView) Mutations() ([]view.Mutation, error) {
+func (s *stubView) Mutations() ([]gigatypes.Mutation, error) {
 	panic("stubView: unexpected Mutations")
 }
 

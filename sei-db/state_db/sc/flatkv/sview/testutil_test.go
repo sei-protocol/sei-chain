@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -72,7 +74,7 @@ func (v *fakeView) BatchGet([][]byte) (map[string][]byte, error) {
 	panic("fakeView: unexpected BatchGet")
 }
 
-func (v *fakeView) Mutations() ([]view.Mutation, error) {
+func (v *fakeView) Mutations() ([]gigatypes.Mutation, error) {
 	panic("fakeView: unexpected Mutations")
 }
 
