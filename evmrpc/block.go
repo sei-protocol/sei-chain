@@ -43,7 +43,7 @@ var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
-// isGenesisBlockNumber reports whether number selects the synthetic genesis block; "earliest" is the first available block.
+// isGenesisBlockNumber reports whether number selects the synthetic genesis block.
 func isGenesisBlockNumber(number rpc.BlockNumber) bool {
 	return number == 0
 }
@@ -200,12 +200,15 @@ func (a *BlockAPI) getBlockByNumber(
 	number rpc.BlockNumber,
 	fullTx bool,
 ) (result map[string]any, returnErr error) {
+	// synthetic genesis block, not the Tendermint block at height 0.
+	if isGenesisBlockNumber(number) {
+		return encodeGenesisBlock(), nil
+	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
 	}
-	// synthetic genesis block, not the Tendermint block at height 0.
-	if isGenesisBlockNumber(number) || (numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0) {
+	if numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0 {
 		return encodeGenesisBlock(), nil
 	}
 

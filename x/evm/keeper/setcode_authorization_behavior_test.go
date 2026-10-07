@@ -51,6 +51,7 @@ func TestSetCodeAuthorizationBehavior(t *testing.T) {
 
 		r := e.runTx(sponsorKey, e.setCodeTx(authorityKey, 0, 0, common.Address{}), 0)
 		require.Empty(t, r.res.VmError)
+		require.Equal(t, uint64(46_000), r.res.GasUsed)
 		require.Equal(t, uint64(1), e.k.GetNonce(e.ctx, authority))
 		require.False(t, e.hasCodeKeys(authority))
 		require.Equal(t, ethtypes.EmptyCodeHash, e.k.GetCodeHash(e.ctx, authority))
@@ -70,6 +71,7 @@ func TestSetCodeAuthorizationBehavior(t *testing.T) {
 
 		r := e.runTx(sponsorKey, e.setCodeTx(authorityKey, 1, 1, common.Address{}), 1)
 		require.Empty(t, r.res.VmError)
+		require.Equal(t, uint64(36_800), r.res.GasUsed)
 		require.True(t, e.hasCodeKeys(authority))
 		require.Nil(t, e.k.GetCode(e.ctx, authority))
 		require.Equal(t, 0, e.k.GetCodeSize(e.ctx, authority))
@@ -88,6 +90,7 @@ func TestSetCodeAuthorizationBehavior(t *testing.T) {
 
 		r := e.runTx(sponsorKey, e.setCodeTx(authorityKey, 1, 1, delegateTarget), 1)
 		require.Empty(t, r.res.VmError)
+		require.Equal(t, uint64(36_800), r.res.GasUsed)
 		require.Equal(t, uint64(2), e.k.GetNonce(e.ctx, authority))
 		require.False(t, e.k.PrefixStore(e.ctx, types.CodeSizeKeyPrefix).Has(authority[:]))
 		require.Equal(t, ethtypes.AddressToDelegation(delegateTarget), e.k.GetCode(e.ctx, authority))

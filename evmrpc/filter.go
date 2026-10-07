@@ -673,7 +673,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	}
 	earliest, err := a.logFetcher.earliestHeight(ctx)
 	if err != nil {
-		earliest = 0
+		return nil, err
 	}
 
 	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
@@ -881,7 +881,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 	earliest, err := f.earliestHeight(ctx)
 	if err != nil {
-		earliest = 0
+		return nil, 0, err
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {
@@ -1046,7 +1046,7 @@ func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filte
 		}
 		earliest, eErr := f.earliestHeight(ctx)
 		if eErr != nil {
-			earliest = 0
+			return nil, 0, eErr
 		}
 		begin, curEnd, boundsErr := ComputeBlockBounds(latest, earliest, lastToHeight, narrowed)
 		if boundsErr != nil {
