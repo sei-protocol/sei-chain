@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"testing"
 
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
@@ -58,14 +59,29 @@ func TestMockAppFinalizeBlockParsesWhenPreparedHashDiffers(t *testing.T) {
 	require.Empty(t, res.TxResults)
 }
 
-func TestMockAppPrepareBlockKeepsTwoUpcomingBlocks(t *testing.T) {
+func TestMockAppPrepareBlockKeepsThreeUpcomingBlocks(t *testing.T) {
 	app := NewMockApp(abci.BaseApplication{})
 	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 5})
 	require.NoError(t, err)
 
-	for _, h := range []int64{4, 5, 6, 7} {
+	for _, h := range []int64{4, 5, 6, 7, 8} {
 		require.NoError(t, app.PrepareBlock(t.Context(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: h}}))
 	}
-	// Height 4 is below the next block, and height 7 exceeds the bound of two.
-	require.Equal(t, []int64{5, 6}, preparedHeights(app))
+	// Height 4 is below the next block, and height 8 exceeds the bound of three.
+	require.Equal(t, []int64{5, 6, 7}, preparedHeights(app))
+}
+
+func TestMockAppFinalizeBlockStopsWaitingWhenContextEnds(t *testing.T) {
+	app := NewMockApp(abci.BaseApplication{})
+	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 1})
+	require.NoError(t, err)
+	// A parse that never finishes stands in for one still running.
+	for queue := range app.prepared.Lock() {
+		*queue = append(*queue, &mockAppPreparedBlock{height: 1, hash: []byte("h1"), done: make(chan struct{})})
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: 1}, Hash: []byte("h1")})
+	require.ErrorIs(t, err, context.Canceled)
 }
