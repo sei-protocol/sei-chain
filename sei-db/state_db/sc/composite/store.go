@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync/atomic"
 
 	ics23 "github.com/confio/ics23/go"
@@ -382,6 +383,9 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 			return fmt.Errorf("failed to load FlatKV: %w", err)
 		}
 	}
+	if err := cs.discardStaleIdleFlatKV(); err != nil {
+		return err
+	}
 
 	if cs.memIAVL != nil && cs.loadFlatKV() != nil {
 		// Migration-entry seeding: turning on a non-MemiavlOnly mode on a chain that has been running on
@@ -410,6 +414,47 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 	// After the router, because the gating this reads gets its answer from migration metadata through
 	// the backends the router was just built against.
 	return cs.refreshLastCommitInfo()
+}
+
+// discardStaleIdleFlatKV removes an Auto-mode FlatKV directory that has no migration state and whose seed
+// no longer matches memIAVL: it is above memIAVL, or more than one block below it. Such a directory holds
+// only a seed, so the next migration kickoff recreates it exactly.
+func (cs *CompositeCommitStore) discardStaleIdleFlatKV() error {
+	if cs.config.WriteMode != types.Auto || cs.memIAVL == nil || cs.loadFlatKV() == nil {
+		return nil
+	}
+	derived, err := migration.DeriveWriteMode(cs.loadFlatKV())
+	if err != nil {
+		return fmt.Errorf("failed to derive write mode before idle flatkv cleanup: %w", err)
+	}
+	if derived != types.MemiavlOnly || !isStaleSeed(cs.memIAVL.Version(), cs.loadFlatKV().Version()) {
+		return nil
+	}
+
+	flatKVDir := utils.GetFlatKVPath(cs.homeDir)
+	logger.Warn("discarding stale idle flatkv directory",
+		"memiavlVersion", cs.memIAVL.Version(),
+		"flatkvVersion", cs.loadFlatKV().Version(),
+		"flatkvDir", flatKVDir)
+	if err := cs.loadFlatKV().Close(); err != nil {
+		return fmt.Errorf("failed to close stale idle flatkv: %w", err)
+	}
+	cs.storeFlatKV(nil)
+	if err := os.RemoveAll(flatKVDir); err != nil {
+		return fmt.Errorf("failed to remove stale idle flatkv directory %q: %w", flatKVDir, err)
+	}
+	return nil
+}
+
+// isStaleSeed reports whether an idle flatkv seeded at flatKVVersion is stale against memIAVL at
+// memIAVLVersion.
+//
+// Exactly one block behind is not stale. It is what a crash between the memIAVL and flatkv commits of
+// the kickoff block leaves: memIAVL holds block K and flatkv still holds only its seed at K-1, because
+// the migration boundary is first written by flatkv's K commit. Discarding flatkv there would lose
+// block K's flatkv half, so reconcileVersions must roll memIAVL back to the seed and let K replay.
+func isStaleSeed(memIAVLVersion, flatKVVersion int64) bool {
+	return flatKVVersion > memIAVLVersion || memIAVLVersion-flatKVVersion > 1
 }
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
@@ -498,7 +543,8 @@ func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
 }
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been
-// opened. For a fixed configured mode this is a copy; for types.Auto the
+// opened. For a fixed configured mode this is a copy once
+// requirePinnedModeMatchesMigration accepts it; for types.Auto the
 // mode is derived from the migration metadata persisted in flatkv. A nil
 // flatkv under types.Auto means the backend was never materialized
 // (lazy-open found no directory), which is definitionally MemiavlOnly.
@@ -516,6 +562,9 @@ func (cs *CompositeCommitStore) adoptPersistedWriteMode() error {
 // anyway.
 func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) error {
 	if cs.config.WriteMode != types.Auto {
+		if err := cs.requirePinnedModeMatchesMigration(); err != nil {
+			return err
+		}
 		cs.storeWriteMode(cs.config.WriteMode)
 		return nil
 	}
@@ -538,6 +587,34 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 	logger.Debug("derived effective write mode from migration metadata", "mode", derived)
 	cs.storeWriteMode(derived)
 	return nil
+}
+
+// requirePinnedModeMatchesMigration returns an error when the configured
+// steady-state write mode disagrees with the migration state persisted in
+// flatkv. A store whose history began in flatkv carries no migration
+// metadata and derives MemiavlOnly, so that state is accepted for any pin.
+func (cs *CompositeCommitStore) requirePinnedModeMatchesMigration() error {
+	pinned := cs.config.WriteMode
+	switch pinned {
+	case types.EVMMigrated, types.AllMigratedButBank, types.FlatKVOnly:
+	default:
+		return nil
+	}
+	flatKV := cs.loadFlatKV()
+	if flatKV == nil {
+		return nil
+	}
+	persisted, err := migration.DeriveWriteMode(flatKV)
+	if err != nil {
+		return fmt.Errorf("failed to derive persisted write mode: %w", err)
+	}
+	if persisted == pinned || persisted == types.MemiavlOnly {
+		return nil
+	}
+	return fmt.Errorf(
+		"write mode is pinned to %q but the persisted migration state is %q; "+
+			"set state-commit.sc-write-mode-enable-auto = true to follow the migration",
+		pinned, persisted)
 }
 
 // loadFlatKV returns the flatKV backend, or nil when none is open.
@@ -968,12 +1045,14 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 
 	if cosmosVer > minVer {
 		if err := cs.memIAVL.Rollback(minVer); err != nil {
-			return fmt.Errorf("failed to rollback cosmos to reconciled version %d: %w", minVer, err)
+			return fmt.Errorf("failed to rollback cosmos to reconciled version %d: %w; use state sync instead",
+				minVer, err)
 		}
 	}
 	if evmVer > minVer {
 		if err := cs.loadFlatKV().Rollback(minVer); err != nil {
-			return fmt.Errorf("failed to rollback EVM to reconciled version %d: %w", minVer, err)
+			return fmt.Errorf("failed to rollback EVM to reconciled version %d: %w; use state sync instead",
+				minVer, err)
 		}
 	}
 
@@ -1420,6 +1499,10 @@ func (cs *CompositeCommitStore) ReleaseSnapshotRefs() error {
 
 // Rollback rolls back to the specified version
 func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
+	if err := cs.requireRollbackReachable(targetVersion); err != nil {
+		return err
+	}
+
 	if cs.memIAVL != nil {
 		if err := cs.memIAVL.Rollback(targetVersion); err != nil {
 			return fmt.Errorf("failed to rollback cosmos commit store: %w", err)
@@ -1463,6 +1546,19 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	// After the latch resets and the re-derived mode above, so the rebuilt info reflects the rolled-back
 	// metadata rather than the gating that was latched at the pre-rollback height.
 	return cs.refreshLastCommitInfo()
+}
+
+// requireRollbackReachable refuses a rollback before any backend moves when FlatKV cannot reconstruct
+// the target version from its retained history.
+func (cs *CompositeCommitStore) requireRollbackReachable(targetVersion int64) error {
+	if cs.loadFlatKV() == nil {
+		return nil
+	}
+	if err := cs.loadFlatKV().CheckVersionReachable(targetVersion); err != nil {
+		return fmt.Errorf("flatkv cannot roll back to version %d: %w; use state sync instead",
+			targetVersion, err)
+	}
+	return nil
 }
 
 // exportNeedsMetadataGating reports whether the configured mode allows
@@ -1739,10 +1835,14 @@ func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte,
 //
 // During a migration a key lives in exactly one backend at any committed
 // version (migrated keys are deleted from memiavl as they are copied into
-// flatkv), so the merged stream has no duplicates. memiavl must be queried
-// before flatkv: if a migration commit interleaves between the two iterator
-// constructions, this order makes the worst case a duplicate key, which the
-// merge dedupes with flatkv winning. The reverse order could miss the key.
+// flatkv), with one exception: once any field of an EVM account has migrated,
+// flatkv reports every field of that account, projecting defaults for the
+// fields memiavl still holds. memiavl therefore wins a key both backends
+// report, which is the value Read returns. memiavl must also be queried before
+// flatkv: if a migration commit interleaves between the two iterator
+// constructions, this order makes the worst case a duplicate key, resolved to
+// memiavl's value from the earlier version. The reverse order could miss the
+// key.
 func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
@@ -1751,27 +1851,29 @@ func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, 
 		return nil, fmt.Errorf("iteration from the %q store is not permitted", migration.MigrationStore)
 	}
 
-	// flatkv is appended after memiavl so it is the rightmost (winning) child.
-	children := make([]db.Iterator, 0, 2)
+	// memiavl is constructed first but appended last, so it is the rightmost (winning) child.
+	var memIter db.Iterator
 	if cs.memIAVL != nil {
-		memIter, err := cs.memIAVL.Iterator(store, start, end, ascending)
+		var err error
+		memIter, err = cs.memIAVL.Iterator(store, start, end, ascending)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build memiavl iterator: %w", err)
 		}
-		// memiavl returns a nil iterator for a store it does not hold; skip it.
-		if memIter != nil {
-			children = append(children, memIter)
-		}
 	}
+	children := make([]db.Iterator, 0, 2)
 	if flatKV := cs.loadFlatKV(); flatKV != nil {
 		flatIter, err := flatKV.Iterator(store, start, end, ascending)
 		if err != nil {
-			closeIterators(children)
+			closeIterators([]db.Iterator{memIter})
 			return nil, fmt.Errorf("failed to build flatkv iterator: %w", err)
 		}
 		if flatIter != nil {
 			children = append(children, flatIter)
 		}
+	}
+	// memiavl returns a nil iterator for a store it does not hold; skip it.
+	if memIter != nil {
+		children = append(children, memIter)
 	}
 
 	// Zero children yields a valid, empty iterator (an absent store is a no-op).

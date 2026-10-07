@@ -659,10 +659,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			"grpc.keepalive-permit-without-stream",
 			cfg.GRPC.KeepalivePermitWithoutStream, def.GRPC.KeepalivePermitWithoutStream, false,
 		},
-		{
-			"grpc.rate-limiting-enabled",
-			cfg.GRPC.RateLimitingEnabled, def.GRPC.RateLimitingEnabled, false,
-		},
 		{"telemetry.service-name", cfg.Telemetry.ServiceName, def.Telemetry.ServiceName, false},
 		{"telemetry.enable-hostname", cfg.Telemetry.EnableHostname, def.Telemetry.EnableHostname, false},
 		{
@@ -728,6 +724,7 @@ func TestGetConfigGRPCAbsentReads(t *testing.T) {
 		{"grpc.ip-rate-limit-rps", got.IPRateLimitRPS, def.IPRateLimitRPS},
 		{"grpc.ip-rate-limit-burst", got.IPRateLimitBurst, def.IPRateLimitBurst},
 		{"grpc.max-in-flight-per-ip", got.MaxInFlightPerIP, def.MaxInFlightPerIP},
+		{"grpc.rate-limiting-enabled", got.RateLimitingEnabled, def.RateLimitingEnabled},
 	} {
 		if c.absent != c.declared {
 			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its v.IsSet guard "+

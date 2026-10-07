@@ -35,6 +35,7 @@ func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavail
 func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
+func (f *failingEVMStore) CheckVersionReachable(int64) error { return nil }
 func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
 	return nil
 }
