@@ -396,9 +396,8 @@ func TestConvertBlockNumber(t *testing.T) {
 		return sdk.Context{}
 	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
-	// "earliest" resolves to the first real block; a literal 0 is block 0.
+	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(rpc.EarliestBlockNumber))
-	require.Equal(t, int64(0), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
@@ -526,7 +525,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(200_000_000), header.GasLimit)
 
-	header2, err := backend.HeaderByNumber(context.Background(), rpc.EarliestBlockNumber)
+	header2, err := backend.HeaderByNumber(context.Background(), 0)
 	require.NoError(t, err)
 	require.Equal(t, uint64(200_000_000), header2.GasLimit)
 }

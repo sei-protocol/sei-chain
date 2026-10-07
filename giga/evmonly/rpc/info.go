@@ -177,9 +177,17 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 }
 
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
+// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
+func normalizeEarliest(number ethrpc.BlockNumber) ethrpc.BlockNumber {
+	if number == 0 {
+		return ethrpc.EarliestBlockNumber
+	}
+	return number
+}
+
 func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
-	switch lastBlock {
+	switch normalizeEarliest(lastBlock) {
 	case ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.LatestBlockNumber, ethrpc.PendingBlockNumber:
 		if current <= 0 {
 			return 0, errors.New("no committed block available for fee history")

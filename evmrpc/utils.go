@@ -64,9 +64,17 @@ func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, 
 	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
 }
 
+// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
+func normalizeEarliest(number rpc.BlockNumber) rpc.BlockNumber {
+	if number == 0 {
+		return rpc.EarliestBlockNumber
+	}
+	return number
+}
+
 func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
-	switch number {
+	switch normalizeEarliest(number) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		numberPtr = nil // requesting Block with nil means the latest block
 	case rpc.EarliestBlockNumber:

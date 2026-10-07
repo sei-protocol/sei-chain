@@ -147,7 +147,7 @@ func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context
 }
 
 func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
-	switch number {
+	switch normalizeEarliest(number) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return api.ctxProvider(LatestCtxHeight).BlockHeight(), nil
 	case rpc.EarliestBlockNumber:

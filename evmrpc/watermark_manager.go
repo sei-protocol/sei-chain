@@ -147,7 +147,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	}
 
 	blockNr := *blockNrOrHash.BlockNumber
-	switch blockNr {
+	switch normalizeEarliest(blockNr) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return latest, nil
 	case rpc.EarliestBlockNumber:

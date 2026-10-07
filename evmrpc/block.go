@@ -43,11 +43,9 @@ var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
-// isGenesisBlockNumber reports whether number selects the synthetic genesis
-// block. Only a literal 0x0 does: since go-ethereum v1.17 the "earliest" tag
-// decodes to rpc.EarliestBlockNumber and resolves to the earliest real block.
+// isGenesisBlockNumber reports whether number selects the synthetic genesis block: 0x0 or "earliest".
 func isGenesisBlockNumber(number rpc.BlockNumber) bool {
-	return number == 0
+	return normalizeEarliest(number) == rpc.EarliestBlockNumber
 }
 
 func encodeGenesisBlock() map[string]any {

@@ -190,7 +190,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	if earliestHeight < genesisHeight {
 		earliestHeight = genesisHeight
 	}
-	switch lastBlock {
+	switch normalizeEarliest(lastBlock) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		lastBlockNumber = latestHeight
 	case rpc.EarliestBlockNumber:

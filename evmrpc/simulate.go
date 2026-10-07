@@ -444,7 +444,7 @@ func (b *Backend) ChainDb() ethdb.Database {
 }
 
 func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
-	blockNum := bn.Int64()
+	blockNum := normalizeEarliest(bn).Int64()
 	switch blockNum {
 	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
 		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
