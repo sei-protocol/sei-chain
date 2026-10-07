@@ -56,6 +56,17 @@ laddr = "tcp://0.0.0.0:26656"
 	defaults := tmconfig.DefaultP2PConfig()
 	require.Equal(t, defaults.AcceptInterval, p2p.AcceptInterval)
 	require.Equal(t, defaults.DialInterval, p2p.DialInterval)
+	require.False(t, p2p.ServeSnapshotsAndBlocks)
 	require.NotZero(t, p2p.AcceptInterval, "a zero accept-interval disables accept pacing entirely")
 	require.NoError(t, p2p.ValidateBasic())
+}
+
+func TestServeSnapshotsAndBlocksOverride(t *testing.T) {
+	require.False(t, tmconfig.DefaultP2PConfig().ServeSnapshotsAndBlocks)
+
+	p2p := readP2PConfig(t, `
+[p2p]
+serve-snapshots-and-blocks = true
+`)
+	require.True(t, p2p.ServeSnapshotsAndBlocks)
 }

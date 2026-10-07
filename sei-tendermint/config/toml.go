@@ -352,6 +352,10 @@ persistent-peers = "{{ .P2P.PersistentPeers }}"
 # Comma separated list of nodes for block sync only
 blocksync-peers = "{{ .P2P.BlockSyncPeers }}"
 
+# Serve block sync requests and state sync snapshot requests to peers.
+# false rejects both. This node still fetches blocks and snapshots from peers.
+serve-snapshots-and-blocks = {{ .P2P.ServeSnapshotsAndBlocks }}
+
 # UPNP port forwarding
 upnp = {{ .P2P.UPNP }}
 

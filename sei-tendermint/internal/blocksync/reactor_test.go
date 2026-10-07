@@ -157,6 +157,8 @@ func (rts *reactorTestSuite) addNode(
 		func() {},
 		remediationConfig,
 	)
+	// Peers in this suite serve each other. Production defaults to off.
+	reactor.SetServeSnapshotsAndBlocks(true)
 	lastCommit := &types.Commit{}
 
 	state, err := reactor.stateStore.Load()
@@ -482,7 +484,7 @@ func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
 	})
 }
 
-func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
+func TestQueryResponder_RejectsBlockRequests(t *testing.T) {
 	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_query_responder_test")
@@ -519,16 +521,12 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	network.Start(t)
 
 	client.Send(wrap(&pb.BlockRequest{Height: 2}), nodeIDs[0])
-	for range 2 {
-		msg, err := client.Recv(ctx)
-		require.NoError(t, err)
-		if blockResponse, ok := msg.Message.Sum.(*pb.Message_BlockResponse); ok {
-			require.Equal(t, int64(2), blockResponse.BlockResponse.GetBlock().Header.Height)
-			require.Equal(t, nodeIDs[0], msg.From)
-			return
-		}
-	}
-	t.Fatal("did not receive block response")
+	msg, err := client.Recv(ctx)
+	require.NoError(t, err)
+	noBlock, ok := msg.Message.Sum.(*pb.Message_NoBlockResponse)
+	require.True(t, ok)
+	require.Equal(t, int64(2), noBlock.NoBlockResponse.GetHeight())
+	require.Equal(t, nodeIDs[0], msg.From)
 }
 
 func TestPoolRoutineHandsOffAtFreezeHeight(t *testing.T) {
