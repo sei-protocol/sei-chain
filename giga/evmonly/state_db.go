@@ -207,12 +207,14 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 			changes.Balances = append(changes.Balances, BalanceChange{
 				Address: addr,
 				Balance: acct.Balance.ToBig(),
+				Prior:   base.Balance.Bytes32(),
 			})
 		}
 		if acct.Nonce != base.Nonce {
 			changes.Nonces = append(changes.Nonces, NonceChange{
 				Address: addr,
 				Nonce:   acct.Nonce,
+				Prior:   base.Nonce,
 			})
 		}
 		if !bytes.Equal(acct.Code, base.Code) {
@@ -220,6 +222,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Address: addr,
 				Code:    cloneBytes(acct.Code),
 				Delete:  len(acct.Code) == 0,
+				Prior:   base.Code,
 			})
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
@@ -237,6 +240,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Key:     key,
 				Value:   newValue,
 				Delete:  newValue == (common.Hash{}),
+				Prior:   oldValue,
 			})
 		}
 		if acct.StorageCleared {
