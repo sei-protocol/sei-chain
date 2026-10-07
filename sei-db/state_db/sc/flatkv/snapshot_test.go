@@ -680,7 +680,7 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 // TestRollbackRejectsVersionZero verifies version 0 is refused: it means no state, so there is nothing to roll
 // back to, and it is the one target that would reach PruneAfter's retains-block-zero boundary.
 func TestRollbackRejectsVersionZero(t *testing.T) {
-	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
+	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
 }
 
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
@@ -1264,6 +1264,18 @@ func TestSeekSnapshotEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	_, err := seekSnapshot(dir, 10)
 	require.Error(t, err, "empty dir should not find any snapshot")
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+// A filesystem fault while listing snapshots says nothing about which versions the store holds, so it
+// must not be reported as an unreachable version.
+func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(root, nil, 0600))
+
+	_, err := seekSnapshot(root, 10)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestSeekSnapshotExact(t *testing.T) {

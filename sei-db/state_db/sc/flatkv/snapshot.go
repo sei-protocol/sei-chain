@@ -105,7 +105,7 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 		return 0, err
 	}
 	if !ok {
-		return 0, fmt.Errorf("no snapshot found for target version %d", targetVersion)
+		return 0, fmt.Errorf("%w: no snapshot found for target version %d", ErrVersionUnreachable, targetVersion)
 	}
 	return found, nil
 }
@@ -492,24 +492,19 @@ func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) in
 	return pruned
 }
 
-// rollbackBaseVersion returns the snapshot version Rollback should rewind to for targetVersion, and reports
-// an error if the target cannot be reached from it. A target is reachable when a snapshot at or below it
-// exists and either sits exactly on it, or the WAL still holds every block between that snapshot and the
-// target. With a nil WAL there is no replay, so only a snapshot sitting exactly on the target qualifies.
-// When the only snapshot behind the target is the initial one, the store's history starts at the WAL's first
-// block rather than at block 1, so a target is reachable from there iff the WAL holds it.
-//
-// It reads only: no snapshot, symlink, or WAL state is modified, so Rollback can consult it before touching
-// anything and refuse an impossible target outright.
-func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int64, error) {
+// reachableBaseVersion returns the newest snapshot at or below targetVersion from which targetVersion can be
+// reconstructed, or an error wrapping ErrVersionUnreachable when retained history cannot reach it. A target
+// is reachable when that snapshot sits exactly on it, or the WAL holds every block between the two. With a
+// nil WAL, only a snapshot exactly on the target qualifies. It modifies no snapshot, symlink, or WAL state.
+func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int64, error) {
 	if targetVersion < 1 {
-		return 0, fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is nothing "+
-			"to roll back to", targetVersion)
+		return 0, fmt.Errorf("%w: target version %d is invalid: version 0 means no state",
+			ErrVersionUnreachable, targetVersion)
 	}
 
 	baseVersion, err := seekSnapshot(dir, targetVersion)
 	if err != nil {
-		return 0, fmt.Errorf("seek snapshot for rollback: %w", err)
+		return 0, fmt.Errorf("seek snapshot for version %d: %w", targetVersion, err)
 	}
 	if baseVersion == targetVersion {
 		return baseVersion, nil
@@ -517,25 +512,33 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 
 	// The snapshot lands below the target, so the WAL has to supply the blocks in between.
 	if s.wal == nil {
-		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d and this store has no "+
-			"WAL to replay the difference", targetVersion, baseVersion)
+		return 0, fmt.Errorf("%w: cannot reach version %d: nearest snapshot is %d and this store has no "+
+			"WAL to replay the difference", ErrVersionUnreachable, targetVersion, baseVersion)
 	}
 	ok, first, last, err := s.wal.GetStoredRange()
 	if err != nil {
-		return 0, fmt.Errorf("read WAL range for rollback: %w", err)
+		return 0, fmt.Errorf("read WAL range for version %d: %w", targetVersion, err)
 	}
 	if !ok {
-		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d and the WAL is empty, "+
-			"so blocks %d-%d are unavailable", targetVersion, baseVersion, baseVersion+1, targetVersion)
+		return 0, fmt.Errorf("%w: cannot reach version %d: nearest snapshot is %d and the WAL is empty, "+
+			"so blocks %d-%d are outside the retained FlatKV history",
+			ErrVersionUnreachable, targetVersion, baseVersion, baseVersion+1, targetVersion)
 	}
 	needFrom := uint64(baseVersion) + 1 //nolint:gosec // baseVersion >= 0
 	needTo := uint64(targetVersion)     //nolint:gosec // targetVersion >= 1 checked above
 	if first > needFrom || last < needTo {
-		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d, so blocks %d-%d are "+
-			"needed, but the WAL only holds %d-%d",
-			targetVersion, baseVersion, needFrom, needTo, first, last)
+		return 0, fmt.Errorf("%w: cannot reach version %d: nearest snapshot is %d, so blocks %d-%d are "+
+			"needed and are missing; the WAL only holds %d-%d",
+			ErrVersionUnreachable, targetVersion, baseVersion, needFrom, needTo, first, last)
 	}
 	return baseVersion, nil
+}
+
+// CheckVersionReachable reports whether targetVersion can be reconstructed from this store's retained
+// snapshots and WAL. It does not modify the store.
+func (s *CommitStore) CheckVersionReachable(targetVersion int64) error {
+	_, err := s.reachableBaseVersion(s.flatkvDir(), targetVersion)
+	return err
 }
 
 // Rollback restores state to targetVersion by rewinding to the highest
@@ -578,7 +581,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 
 	// Establish reachability first: everything below this point mutates the store irreversibly, and closing
 	// the DBs would leave it unusable on an early return.
-	baseVersion, err := s.rollbackBaseVersion(dir, targetVersion)
+	baseVersion, err := s.reachableBaseVersion(dir, targetVersion)
 	if err != nil {
 		return err
 	}
@@ -609,7 +612,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	// can't replay past target and the write head resumes at targetVersion+1. Rollback is a startup/offline
 	// operation (no concurrent commits), so rather than mutating a live instance we close the WAL, prune it
 	// offline, and reopen it. The store owns the injected WAL and its location (see NewCommitStore), so the
-	// reopen goes through the same config. The prune only ever runs for a target rollbackBaseVersion already
+	// reopen goes through the same config. The prune only ever runs for a target reachableBaseVersion already
 	// established is reachable, including the case where the target predates every retained block and the
 	// prune empties the WAL. Skipped when the WAL is nil — the outer context owns it.
 	if s.wal != nil {

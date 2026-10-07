@@ -380,6 +380,11 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	if s.readOnly {
 		return nil, errReadOnly
 	}
+	if targetVersion != 0 {
+		if err := s.CheckVersionReachable(targetVersion); err != nil {
+			return nil, err
+		}
+	}
 
 	lazyLock := s.fileLock == nil
 	if lazyLock {
