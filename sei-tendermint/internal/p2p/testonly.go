@@ -273,6 +273,11 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 	return err
 }
 
+// KnownAddrs returns all addresses known to the node, including ones learned via PEX.
+func (n *TestNode) KnownAddrs() []NodeAddress {
+	return n.Router.peerManager.AllAddrs()
+}
+
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) error {
 	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
 	if err := n.WaitForConn(ctx, target.NodeID, true); err != nil {

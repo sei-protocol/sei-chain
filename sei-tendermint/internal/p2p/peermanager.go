@@ -343,8 +343,7 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 	return append(addrs, selfAddrs...)
 }
 
-// All addresses in pools.
-// Used by net_info endpoint, which is used by integration tests and for debugging.
+// All addresses in pools: connected peers and addresses learned via PEX.
 func (m *peerManager[C]) AllAddrs() []NodeAddress {
 	addrs := map[types.NodeID]NodeAddress{}
 	for _, info := range m.ConnInfos() {
