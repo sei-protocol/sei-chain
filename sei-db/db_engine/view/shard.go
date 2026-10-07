@@ -1043,13 +1043,26 @@ func (s *shard) ReadPriorValues(
 	return nil
 }
 
-// attemptFastReadPriorValuesUnlocked stores the prior values it can resolve while holding the read lock,
-// returning the positions it could not, and the staged folds it found along with their positions.
+// attemptFastReadPriorValuesUnlocked stores every prior value it can resolve under the read lock, and
+// reports the rest.
 func (s *shard) attemptFastReadPriorValuesUnlocked(
+	// The version to read at. 0 reads only the cache.
 	prior uint64,
+	// The version's mutations. Resolved values are stored in the mutation.previous slots.
 	mutations []Mutation,
+	// The positions in mutations to resolve (i.e. the mutations that belong to this shard).
 	positions []uint32,
-) (unresolved []uint32, staged []*pendingValue, stagedPositions []uint32, hits int64, err error) {
+) (
+	// The positions in mutations whose prior values are neither in memory nor cached.
+	unresolved []uint32,
+	// The folds still producing the prior values at some positions in mutations.
+	staged []*pendingValue,
+	// For each fold in staged, the position in mutations it belongs to.
+	stagedPositions []uint32,
+	// How many positions in mutations were resolved.
+	hits int64,
+	err error,
+) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -1084,17 +1097,25 @@ func (s *shard) attemptFastReadPriorValuesUnlocked(
 	return unresolved, staged, stagedPositions, hits, nil
 }
 
-// readPriorValuesRemainingUnlocked classifies the positions the fast pass could not resolve, creating cache
-// entries and scheduling DB reads as needed.
+// readPriorValuesRemainingUnlocked resolves under the write lock what the fast pass could not, and
+// prepares a database read for each position in mutations it still cannot resolve.
 func (s *shard) readPriorValuesRemainingUnlocked(
+	// The version to read at. 0 reads only the cache.
 	prior uint64,
+	// The version's mutations. Resolved values are stored in the mutation.previous slots.
 	mutations []Mutation,
+	// The positions in mutations the fast pass left unresolved.
 	positions []uint32,
 ) (
+	// The database reads to complete.
 	pending []pendingRead,
+	// For each read in pending, the position in mutations it belongs to.
 	pendingPositions []uint32,
+	// The folds still producing the prior values at some positions in mutations.
 	staged []*pendingValue,
+	// For each fold in staged, the position in mutations it belongs to.
 	stagedPositions []uint32,
+	// How many positions in mutations were resolved.
 	hits int64,
 	err error,
 ) {
