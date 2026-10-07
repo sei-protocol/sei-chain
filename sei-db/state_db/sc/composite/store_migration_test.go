@@ -1563,3 +1563,91 @@ func TestMigrateEVMPausedMidMigrationHashesEveryWrite(t *testing.T) {
 	require.NotEqual(t, lattice, hashOf(cs, "evm_lattice"),
 		"after a restart, a paused write to flatkv must still change the lattice hash")
 }
+
+// pinnedConfig returns a test config pinned to mode.
+func pinnedConfig(mode types.WriteMode) config.StateCommitConfig {
+	cfg := autoConfig()
+	cfg.WriteMode = mode
+	return cfg
+}
+
+// loadLatestError opens the store at dir with cfg and returns the LoadLatest error.
+func loadLatestError(t *testing.T, dir string, cfg config.StateCommitConfig) error {
+	t.Helper()
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	err = cs.LoadLatest()
+	_ = cs.Close()
+	return err
+}
+
+// TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoBankMigration rolls a store pinned to FlatKVOnly back
+// below the bank migration's completion. The rollback and every later pinned open must fail, and reopening
+// in Auto must recover the canonical state at the target and reproduce the rolled-back blocks.
+func TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoBankMigration(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xB0A7)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+	walkToMigrateBank(t, cs, workload)
+	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+	require.NoError(t, cs.Close())
+
+	pinned := pinnedConfig(types.FlatKVOnly)
+	cs = openAutoStoreWithConfig(t, dir, pinned, batch)
+	require.ErrorContains(t, cs.Rollback(target.info.Version), `persisted migration state is "migrate_bank"`)
+	require.NoError(t, cs.Close())
+	require.ErrorContains(t, loadLatestError(t, dir, pinned), `persisted migration state is "migrate_bank"`)
+
+	cs = openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	requireCommitInfoEqual(t, target.info, cs.LastCommitInfo(), "commit info after reopening in Auto")
+	replayRecorded(t, cs, rolledBack, "replay after reopening in Auto")
+}
+
+// TestComposite_PinnedSteadyStateModes_RefuseInFlightMigration opens a store whose EVM migration is in
+// flight with each steady-state pin. Every pin must refuse to load.
+func TestComposite_PinnedSteadyStateModes_RefuseInFlightMigration(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xE7E8)
+
+	cs := openAutoStore(t, dir, 8)
+	for i := 0; i < 12; i++ {
+		commitRecorded(t, cs, workload.generateBlock(6, 0, 0, 4, 0))
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	commitRecorded(t, cs, workload.generateBlock(2, 2, 1, 0, 0))
+	require.NoError(t, cs.Close())
+
+	for _, mode := range []types.WriteMode{types.EVMMigrated, types.AllMigratedButBank, types.FlatKVOnly} {
+		require.ErrorContains(t, loadLatestError(t, dir, pinnedConfig(mode)),
+			`persisted migration state is "migrate_evm"`, "pinned %s", mode)
+	}
+
+	cs = openAutoStore(t, dir, 8)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, types.MigrateEVM, cs.loadWriteMode(), "sanity: the migration is still in flight")
+}
+
+// TestComposite_PinnedFlatKVOnly_GenesisStoreReopensAndRollsBack checks that a store pinned to FlatKVOnly
+// from genesis, which has no migration metadata, still reopens and rolls back.
+func TestComposite_PinnedFlatKVOnly_GenesisStoreReopensAndRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0x6E5)
+	pinned := pinnedConfig(types.FlatKVOnly)
+
+	cs := openAutoStoreWithConfig(t, dir, pinned, 0)
+	runBlocks(t, cs, workload, 5)
+	require.NoError(t, cs.Close())
+
+	cs = openAutoStoreWithConfig(t, dir, pinned, 0)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, int64(5), cs.Version())
+	require.NoError(t, cs.Rollback(3))
+	require.Equal(t, int64(3), cs.Version())
+	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode())
+}
