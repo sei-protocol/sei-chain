@@ -8,6 +8,7 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -98,18 +99,58 @@ func BenchmarkMockAppStoreSave(b *testing.B) {
 	store, err := openMockAppStore(filepath.Join(b.TempDir(), "mockapp"))
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = store.Close() })
-	state := &mockAppState{nextNonce: map[common.Address]uint64{}, lastBlockAppHash: make([]byte, 32)}
-	dirty := map[common.Address]struct{}{}
+	snap := mockAppSnapshot{appHash: make([]byte, 32), nonces: map[common.Address]uint64{}}
 	for i := range 2000 {
-		addr := common.BytesToAddress([]byte{byte(i >> 8), byte(i)})
-		state.nextNonce[addr] = uint64(i)
-		dirty[addr] = struct{}{}
+		snap.nonces[common.BytesToAddress([]byte{byte(i >> 8), byte(i)})] = uint64(i)
 	}
 	b.ResetTimer()
 	for i := range b.N {
-		state.lastBlockHeight = int64(i) + 1
-		if err := store.save(state, dirty, false); err != nil {
+		snap.height = int64(i) + 1
+		if err := store.save(snap); err != nil {
 			b.Fatal(err)
 		}
 	}
+}
+
+func TestMockAppSnapshotMergeNewerKeepsLatestValues(t *testing.T) {
+	a, b, c := common.Address{1}, common.Address{2}, common.Address{3}
+	older := mockAppSnapshot{
+		height:     5,
+		appHash:    []byte("h5"),
+		nonces:     map[common.Address]uint64{a: 1, b: 4},
+		validators: utils.Some([]abci.ValidatorUpdate{{Power: 7}}),
+	}
+	older.mergeNewer(mockAppSnapshot{height: 6, appHash: []byte("h6"), nonces: map[common.Address]uint64{b: 5, c: 2}})
+
+	require.Equal(t, int64(6), older.height)
+	require.Equal(t, []byte("h6"), older.appHash)
+	require.Equal(t, map[common.Address]uint64{a: 1, b: 5, c: 2}, older.nonces)
+	validators, ok := older.validators.Get()
+	require.True(t, ok)
+	require.Equal(t, []abci.ValidatorUpdate{{Power: 7}}, validators)
+}
+
+func TestMockAppSaverMergesQueuedSnapshots(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mockapp")
+	store, err := openMockAppStore(dir)
+	require.NoError(t, err)
+	saver := newMockAppSaver(store)
+	a, b := common.Address{1}, common.Address{2}
+	saver.put(mockAppSnapshot{height: 1, appHash: []byte("h1"), nonces: map[common.Address]uint64{a: 1},
+		validators: utils.Some([]abci.ValidatorUpdate{{Power: 7}})})
+	saver.put(mockAppSnapshot{height: 2, appHash: []byte("h2"), nonces: map[common.Address]uint64{b: 1}})
+	saver.put(mockAppSnapshot{height: 3, appHash: []byte("h3"), nonces: map[common.Address]uint64{a: 2}})
+	require.NoError(t, saver.Close())
+
+	store, err = openMockAppStore(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	state := &mockAppState{nextNonce: map[common.Address]uint64{}}
+	restored, err := store.load(state)
+	require.NoError(t, err)
+	require.True(t, restored)
+	require.Equal(t, int64(3), state.lastBlockHeight)
+	require.Equal(t, []byte("h3"), state.lastBlockAppHash)
+	require.Equal(t, map[common.Address]uint64{a: 2, b: 1}, state.nextNonce)
+	require.Equal(t, []abci.ValidatorUpdate{{Power: 7}}, state.validators)
 }

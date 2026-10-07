@@ -84,13 +84,13 @@ type mockAppState struct {
 }
 
 // MockApp is an ABCI app for EVM transaction load tests. It checks nonces and rolls an app
-// hash, but executes nothing. With a store it resumes after its last committed block on restart.
+// hash, but executes nothing. With a store it resumes after its last saved block on restart.
 type MockApp struct {
 	abci.BaseApplication
 
 	app   abci.Application
 	state utils.RWMutex[*mockAppState]
-	store utils.Option[*mockAppStore]
+	saver utils.Option[*mockAppSaver]
 	// finalizePhases times FinalizeBlock, which the execute loop calls from one goroutine.
 	finalizePhases *seidbmetrics.PhaseTimer
 	// prepared holds blocks PrepareBlock parsed ahead of their FinalizeBlock.
@@ -130,7 +130,6 @@ func OpenMockApp(app abci.Application, dir string) (*MockApp, error) {
 		return nil, err
 	}
 	mock := NewMockApp(app)
-	mock.store = utils.Some(store)
 	for state := range mock.state.Lock() {
 		restored, err := store.load(state)
 		if err != nil {
@@ -141,13 +140,14 @@ func OpenMockApp(app abci.Application, dir string) (*MockApp, error) {
 			state.validatorsSaved = true
 		}
 	}
+	mock.saver = utils.Some(newMockAppSaver(store))
 	return mock, nil
 }
 
-// Close closes the store, when there is one.
+// Close writes any queued state and closes the store, when there is one.
 func (app *MockApp) Close() error {
-	if store, ok := app.store.Get(); ok {
-		return store.Close()
+	if saver, ok := app.saver.Get(); ok {
+		return saver.Close()
 	}
 	return nil
 }
@@ -308,10 +308,8 @@ func (app *MockApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 		if err := state.checkTransition(mockAppTransitionCommit); err != nil {
 			return nil, err
 		}
-		if store, ok := app.store.Get(); ok {
-			if err := store.save(state, state.dirtyNonces, !state.validatorsSaved); err != nil {
-				return nil, fmt.Errorf("save mock app state at height %d: %w", state.lastBlockHeight, err)
-			}
+		if saver, ok := app.saver.Get(); ok {
+			saver.put(state.snapshot())
 			state.validatorsSaved = true
 		}
 		clear(state.dirtyNonces)
@@ -376,6 +374,23 @@ func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []m
 		TxResults: txResults,
 		AppHash:   slices.Clone(state.lastBlockAppHash),
 	}, nil
+}
+
+// snapshot returns the committed tip, the nonces changed since the last Commit, and the validator
+// set when the store does not hold it yet.
+func (state *mockAppState) snapshot() mockAppSnapshot {
+	snap := mockAppSnapshot{
+		height:  state.lastBlockHeight,
+		appHash: slices.Clone(state.lastBlockAppHash),
+		nonces:  make(map[common.Address]uint64, len(state.dirtyNonces)),
+	}
+	for addr := range state.dirtyNonces {
+		snap.nonces[addr] = state.nextNonce[addr]
+	}
+	if !state.validatorsSaved {
+		snap.validators = utils.Some(slices.Clone(state.validators))
+	}
+	return snap
 }
 
 func (state *mockAppState) checkTransition(want mockAppTransition) error {

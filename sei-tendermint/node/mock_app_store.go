@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // mockAppStore persists the MockApp state a restarted node needs to resume after its last
@@ -86,17 +87,37 @@ func (s *mockAppStore) load(state *mockAppState) (bool, error) {
 	return true, nil
 }
 
-// save writes the committed tip, the validators when saveValidators is set, and the nonces of
-// dirty senders, in one batch.
-func (s *mockAppStore) save(state *mockAppState, dirty map[common.Address]struct{}, saveValidators bool) error {
+// mockAppSnapshot is what one save writes: the committed tip, the nonces that changed since the
+// previous save, and the validator set when the store does not hold it yet.
+type mockAppSnapshot struct {
+	height     int64
+	appHash    []byte
+	nonces     map[common.Address]uint64
+	validators utils.Option[[]abci.ValidatorUpdate]
+}
+
+// mergeNewer folds next, which was taken after s, into s. Nonces only grow, so the union with
+// next's values is the state at next's height.
+func (s *mockAppSnapshot) mergeNewer(next mockAppSnapshot) {
+	s.height, s.appHash = next.height, next.appHash
+	for addr, nonce := range next.nonces {
+		s.nonces[addr] = nonce
+	}
+	if next.validators.IsPresent() {
+		s.validators = next.validators
+	}
+}
+
+// save writes snap in one batch.
+func (s *mockAppStore) save(snap mockAppSnapshot) error {
 	batch := s.db.NewBatch()
 	defer func() { _ = batch.Close() }()
-	tip := binary.BigEndian.AppendUint64(nil, uint64(state.lastBlockHeight)) //nolint:gosec // heights are non-negative
-	if err := batch.Set(mockAppTipKey, append(tip, state.lastBlockAppHash...), nil); err != nil {
+	tip := binary.BigEndian.AppendUint64(nil, uint64(snap.height)) //nolint:gosec // heights are non-negative
+	if err := batch.Set(mockAppTipKey, append(tip, snap.appHash...), nil); err != nil {
 		return err
 	}
-	if saveValidators {
-		raw, err := encodeMockAppValidators(state.validators)
+	if validators, ok := snap.validators.Get(); ok {
+		raw, err := encodeMockAppValidators(validators)
 		if err != nil {
 			return err
 		}
@@ -104,12 +125,93 @@ func (s *mockAppStore) save(state *mockAppState, dirty map[common.Address]struct
 			return err
 		}
 	}
-	for addr := range dirty {
-		if err := batch.Set(mockAppNonceKey(addr), binary.BigEndian.AppendUint64(nil, state.nextNonce[addr]), nil); err != nil {
+	for addr, nonce := range snap.nonces {
+		if err := batch.Set(mockAppNonceKey(addr), binary.BigEndian.AppendUint64(nil, nonce), nil); err != nil {
 			return err
 		}
 	}
 	return batch.Commit(pebble.NoSync)
+}
+
+// mockAppSaver writes snapshots to the store on its own goroutine, so Commit does not wait for
+// pebble. Snapshots that queue while a write runs merge into one. The store may therefore lag
+// the committed tip by a few blocks, which a restarted node executes again.
+type mockAppSaver struct {
+	store   *mockAppStore
+	pending utils.Mutex[*utils.Option[mockAppSnapshot]]
+	wake    chan struct{}
+	stop    chan struct{}
+	stopped chan struct{}
+}
+
+func newMockAppSaver(store *mockAppStore) *mockAppSaver {
+	saver := &mockAppSaver{
+		store:   store,
+		pending: utils.NewMutex(&utils.Option[mockAppSnapshot]{}),
+		wake:    make(chan struct{}, 1),
+		stop:    make(chan struct{}),
+		stopped: make(chan struct{}),
+	}
+	go saver.run()
+	return saver
+}
+
+// put queues snap behind any snapshot not yet written.
+func (s *mockAppSaver) put(snap mockAppSnapshot) {
+	for pending := range s.pending.Lock() {
+		if queued, ok := pending.Get(); ok {
+			queued.mergeNewer(snap)
+			snap = queued
+		}
+		*pending = utils.Some(snap)
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *mockAppSaver) run() {
+	defer close(s.stopped)
+	for {
+		select {
+		case <-s.wake:
+			s.flush()
+		case <-s.stop:
+			s.flush()
+			return
+		}
+	}
+}
+
+// flush writes the queued snapshot. A failed write goes back in front of anything queued since,
+// so no nonce change is skipped.
+func (s *mockAppSaver) flush() {
+	var snap mockAppSnapshot
+	var ok bool
+	for pending := range s.pending.Lock() {
+		snap, ok = pending.Get()
+		*pending = utils.None[mockAppSnapshot]()
+	}
+	if !ok {
+		return
+	}
+	if err := s.store.save(snap); err != nil {
+		logger.Error("failed to save mock app state", "height", snap.height, "err", err)
+		for pending := range s.pending.Lock() {
+			if newer, ok := pending.Get(); ok {
+				snap.mergeNewer(newer)
+			}
+			*pending = utils.Some(snap)
+		}
+	}
+}
+
+// Close writes the queued snapshot and closes the store.
+func (s *mockAppSaver) Close() error {
+	close(s.stop)
+	<-s.stopped
+	return s.store.Close()
 }
 
 func encodeMockAppValidators(validators []abci.ValidatorUpdate) ([]byte, error) {
