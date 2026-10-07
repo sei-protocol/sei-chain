@@ -95,6 +95,8 @@ type MockApp struct {
 	finalizePhases *seidbmetrics.PhaseTimer
 	// prepared holds blocks PrepareBlock started parsing ahead of their FinalizeBlock.
 	prepared utils.Mutex[*[]*mockAppPreparedBlock]
+	// parseWorkers is the number of goroutines that parse one block; 0 uses GOMAXPROCS.
+	parseWorkers int
 }
 
 // mockAppPreparedBlock is a block whose transactions PrepareBlock parses in the background.
@@ -126,13 +128,15 @@ func NewMockApp(app abci.Application) *MockApp {
 	}
 }
 
-// OpenMockApp returns a MockApp that persists its state in dir and restores it from there.
-func OpenMockApp(app abci.Application, dir string) (*MockApp, error) {
+// OpenMockApp returns a MockApp that persists its state in dir and restores it from there, and
+// parses each block with parseWorkers goroutines (0 uses GOMAXPROCS).
+func OpenMockApp(app abci.Application, dir string, parseWorkers int) (*MockApp, error) {
 	store, err := openMockAppStore(dir)
 	if err != nil {
 		return nil, err
 	}
 	mock := NewMockApp(app)
+	mock.parseWorkers = parseWorkers
 	for state := range mock.state.Lock() {
 		restored, err := store.load(state)
 		if err != nil {
@@ -254,7 +258,7 @@ func (app *MockApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		return nil, err
 	}
 	if !ok {
-		if txs, err = parseMockAppTxs(req.Txs); err != nil {
+		if txs, err = parseMockAppTxs(req.Txs, app.parseWorkers); err != nil {
 			return nil, err
 		}
 	}
@@ -290,7 +294,7 @@ func (app *MockApp) PrepareBlock(_ context.Context, req *abci.RequestFinalizeBlo
 	if queued {
 		go func(txs [][]byte) {
 			defer close(block.done)
-			block.txs, block.err = parseMockAppTxs(txs)
+			block.txs, block.err = parseMockAppTxs(txs, app.parseWorkers)
 		}(req.Txs)
 	}
 	return nil
@@ -426,9 +430,14 @@ func (state *mockAppState) checkTransition(want mockAppTransition) error {
 	return nil
 }
 
-func parseMockAppTxs(txs [][]byte) ([]mockAppTx, error) {
+// parseMockAppTxs decodes txs and recovers their senders with up to workers goroutines; workers <= 0
+// uses GOMAXPROCS.
+func parseMockAppTxs(txs [][]byte, workers int) ([]mockAppTx, error) {
 	parsed := make([]mockAppTx, len(txs))
-	workers := min(runtime.GOMAXPROCS(0), len(txs))
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	workers = min(workers, len(txs))
 	if workers == 0 {
 		return parsed, nil
 	}

@@ -85,3 +85,28 @@ func TestMockAppFinalizeBlockStopsWaitingWhenContextEnds(t *testing.T) {
 	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: 1}, Hash: []byte("h1")})
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestParseMockAppTxsSameResultForAnyWorkerCount(t *testing.T) {
+	var txs [][]byte
+	for range 5 {
+		key, err := ethcrypto.GenerateKey()
+		require.NoError(t, err)
+		tx, _, _ := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
+		txs = append(txs, tx)
+	}
+	txs = append(txs, []byte("garbage"))
+
+	want, err := parseMockAppTxs(txs, 0)
+	require.NoError(t, err)
+	for _, workers := range []int{1, 2, 16} {
+		got, err := parseMockAppTxs(txs, workers)
+		require.NoError(t, err)
+		require.Len(t, got, len(want))
+		for i := range want {
+			require.Equal(t, want[i].parseErr == nil, got[i].parseErr == nil)
+			if want[i].checkTx != nil {
+				require.Equal(t, want[i].checkTx.EVMSenderAddress, got[i].checkTx.EVMSenderAddress)
+			}
+		}
+	}
+}

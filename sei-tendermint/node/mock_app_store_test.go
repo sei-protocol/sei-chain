@@ -15,7 +15,7 @@ import (
 
 func openTestMockApp(t *testing.T, inner abci.Application, dir string) *MockApp {
 	t.Helper()
-	app, err := OpenMockApp(inner, dir)
+	app, err := OpenMockApp(inner, dir, 0)
 	require.NoError(t, err)
 	return app
 }

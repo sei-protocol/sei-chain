@@ -205,7 +205,7 @@ func wrapApplication(
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
 	if conf.MockApp {
-		return OpenMockApp(app, filepath.Join(conf.DBDir(), "mockapp"))
+		return OpenMockApp(app, filepath.Join(conf.DBDir(), "mockapp"), execution.ParseWorkers)
 	}
 	if conf.AutobahnConfigFile != "" {
 		manager, ok := storage.Get()

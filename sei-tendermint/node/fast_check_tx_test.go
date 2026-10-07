@@ -95,6 +95,21 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, mock.Close()) })
 }
 
+func TestPrepareApplicationMockAppUsesParseWorkers(t *testing.T) {
+	giga := gigaconfig.DefaultConfig
+	giga.Execution.ParseWorkers = 3
+
+	prepared, _, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig: config.BaseConfig{RootDir: t.TempDir(), MockApp: true},
+	}, abci.BaseApplication{}, giga)
+	require.NoError(t, err)
+
+	mock, ok := prepared.(*MockApp)
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, mock.Close()) })
+	require.Equal(t, 3, mock.parseWorkers)
+}
+
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 
