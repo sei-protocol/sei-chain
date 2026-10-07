@@ -55,11 +55,7 @@ func (c Config) WithDefaults() Config {
 	return c
 }
 
-// DefaultChainConfig returns params.AllDevChainProtocolChanges limited to the
-// forks it enabled before go-ethereum v1.17 (through Prague). Later upstream
-// forks (Osaka, BPOs, Amsterdam, Bogota, UBT) change execution semantics and are
-// left disabled. Sei does not burn the base fee, so the coinbase receives base
-// fee plus tip.
+// DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the coinbase.
 func DefaultChainConfig() *params.ChainConfig {
 	cfg := *params.AllDevChainProtocolChanges
 	cfg.OsakaTime = nil

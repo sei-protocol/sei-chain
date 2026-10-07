@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"math/big"
+	"sync"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/eth/filters"
@@ -60,4 +61,25 @@ func TestComputeBlockBoundsClampsEarliest(t *testing.T) {
 
 	_, _, err = ComputeBlockBounds(latest, floor, 0, filters.FilterCriteria{FromBlock: big.NewInt(100)})
 	require.ErrorContains(t, err, "before earliest available block 500")
+}
+
+// The block-by-block log fallback starts "earliest" at the receipt floor, not the block floor.
+func TestFetchBlocksByCritClampsEarliestToReceiptFloor(t *testing.T) {
+	client := newHeightTestClient(0, 5, 20)
+	fetcher := &LogFetcher{
+		tmClient:           client,
+		dbReadSemaphore:    make(chan struct{}, 1),
+		globalBlockCache:   NewBlockCache(20),
+		cacheCreationMutex: &sync.Mutex{},
+		watermarks:         NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: 20, earliest: 8}),
+	}
+	crit := filters.FilterCriteria{FromBlock: big.NewInt(rpc.EarliestBlockNumber.Int64()), ToBlock: big.NewInt(10)}
+
+	blocks, _, err := fetcher.fetchBlocksByCrit(context.Background(), crit, 0, nil)
+	require.NoError(t, err)
+	var heights []int64
+	for b := range blocks {
+		heights = append(heights, b.Block.Height)
+	}
+	require.ElementsMatch(t, []int64{8, 9, 10}, heights)
 }

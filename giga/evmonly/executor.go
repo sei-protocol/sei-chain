@@ -564,9 +564,7 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	} else {
 		cfg.ChainID = big.NewInt(1)
 	}
-	// Sei does not burn the base fee: the coinbase receives base fee plus tip.
-	// The Sei go-ethereum fork applied this unconditionally before v1.17; it is
-	// now gated on this chain config flag.
+	// Sei pays the base fee to the coinbase instead of burning it.
 	cfg.SeiCoinbaseReceivesBaseFee = true
 	return &cfg
 }

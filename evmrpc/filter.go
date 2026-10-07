@@ -811,11 +811,9 @@ type LogFetcher struct {
 	watermarks               *WatermarkManager
 }
 
-// ComputeBlockBounds validates that the requested block range lies within the
-// available bounds and returns the effective range, taking incremental
-// pagination into account. The function never widens the range – any request
-// that extends beyond the available history results in an error so we avoid
-// returning truncated data.
+// ComputeBlockBounds returns the effective block range within the available
+// bounds, taking incremental pagination into account. "earliest" and 0x0 mean
+// the earliest available block; other heights outside available history error.
 func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64, error) {
 	begin := latest
 	end := latest
@@ -1429,9 +1427,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if err != nil {
 		return nil, 0, err
 	}
-	earliest, err := f.watermarks.EarliestHeight(ctx)
+	earliest, err := f.earliestHeight(ctx)
 	if err != nil {
-		earliest = 0
+		return nil, 0, err
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {

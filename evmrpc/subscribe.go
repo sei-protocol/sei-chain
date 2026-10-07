@@ -219,8 +219,6 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
-	// "earliest" decodes to rpc.EarliestBlockNumber (-5) since go-ethereum v1.17;
-	// it used to decode to 0, which the logic below relies on.
 	normalizeEarliestFilterBounds(filter)
 	// when fromBlock is 0 and toBlock is latest, adjust the filter
 	// to unbounded filter
@@ -516,8 +514,7 @@ func encodeTmHeader(
 	return result, nil
 }
 
-// normalizeEarliestFilterBounds maps the "earliest" tag (rpc.EarliestBlockNumber,
-// -5 since go-ethereum v1.17) back to 0, the value it decoded to before.
+// normalizeEarliestFilterBounds maps "earliest" filter bounds to 0.
 func normalizeEarliestFilterBounds(filter *filters.FilterCriteria) {
 	earliest := rpc.EarliestBlockNumber.Int64()
 	if filter.FromBlock != nil && filter.FromBlock.IsInt64() && filter.FromBlock.Int64() == earliest {

@@ -81,12 +81,7 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 	s.journal = append(s.journal, &transientStorageChange{account: addr, key: key, prevalue: prev})
 }
 
-// clear account's state except the transient state (in Ethereum transient states are
-// still available even after self destruction in the same tx)
-// SelfDestruct marks the account as self-destructed. The SELFDESTRUCT opcode has
-// already moved (or burned) the balance. Account state is cleared except the
-// transient state (in Ethereum transient states are still available even after
-// self destruction in the same tx).
+// SelfDestruct marks acc self-destructed; transient state is kept for the rest of the tx.
 func (s *DBImpl) SelfDestruct(acc common.Address) {
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association

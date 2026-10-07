@@ -123,7 +123,7 @@ func TestSurplus(t *testing.T) {
 func TestBalanceChangesReturnPriorBalance(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	ctx = ctx.WithBlockTime(time.Now())
-	db := state.NewDBImpl(ctx, k, false)
+	db := state.NewDBImpl(ctx, k, true)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(db.Ctx(), seiAddr, evmAddr)
 
@@ -136,4 +136,18 @@ func TestBalanceChangesReturnPriorBalance(t *testing.T) {
 	require.Nil(t, db.Err())
 	require.Equal(t, uint256.NewInt(15_000_000_000_000), &prev)
 	require.Equal(t, uint256.NewInt(12_000_000_000_000), db.GetBalance(evmAddr))
+}
+
+// Outside simulation and tracing the prior balance is not read.
+func TestBalanceChangesSkipPriorBalanceInDeliver(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	db := state.NewDBImpl(ctx, k, false)
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(db.Ctx(), seiAddr, evmAddr)
+
+	db.AddBalance(evmAddr, uint256.NewInt(10_000_000_000_000), tracing.BalanceChangeUnspecified)
+	prev := db.AddBalance(evmAddr, uint256.NewInt(5_000_000_000_000), tracing.BalanceChangeUnspecified)
+	require.Nil(t, db.Err())
+	require.Equal(t, uint256.NewInt(0), &prev)
 }

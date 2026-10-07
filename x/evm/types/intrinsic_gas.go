@@ -8,10 +8,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-// intrinsicGasRules are the rules Sei applies when computing a transaction's
-// intrinsic gas: Homestead contract-creation pricing, EIP-2028 calldata
-// pricing and EIP-3860 initcode word pricing. Later forks that re-price
-// intrinsic gas (e.g. Amsterdam) are intentionally not enabled here.
+// intrinsicGasRules are the forks Sei prices intrinsic gas under: Homestead, Istanbul and Shanghai.
 var intrinsicGasRules = params.Rules{IsHomestead: true, IsIstanbul: true, IsShanghai: true}
 
 // IntrinsicGas returns the intrinsic gas of an EVM transaction under Sei's rules.

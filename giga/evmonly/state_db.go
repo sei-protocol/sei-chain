@@ -490,8 +490,7 @@ func (s *nativeStateDB) SetTransientState(addr common.Address, key, value common
 	states[key] = value
 }
 
-// SelfDestruct marks addr as self-destructed. The SELFDESTRUCT opcode has already
-// moved or burned the balance; clearing it here keeps the pre-v1.17 behaviour.
+// SelfDestruct marks addr as self-destructed and clears its balance.
 func (s *nativeStateDB) SelfDestruct(addr common.Address) {
 	acct := s.account(addr)
 	s.recordAccount(addr)

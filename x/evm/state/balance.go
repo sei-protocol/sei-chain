@@ -108,8 +108,12 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	return prior
 }
 
-// priorBalance returns evmAddr's balance before a change, read without charging Cosmos gas.
+// priorBalance returns evmAddr's balance before a change for tracers, read without charging
+// Cosmos gas; it is zero outside simulation and tracing.
 func (s *DBImpl) priorBalance(evmAddr common.Address) uint256.Int {
+	if !s.simulation && s.logger == nil {
+		return uint256.Int{}
+	}
 	ctx := s.ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(s.ctx))
 	res, overflow := uint256.FromBig(s.k.GetBalance(ctx, s.getSeiAddress(evmAddr)))
 	if overflow {

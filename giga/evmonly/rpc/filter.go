@@ -147,13 +147,9 @@ func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
 	return nil
 }
 
-// resolveLogBound maps a filter bound to a height: nil and the head tags mean
-// the latest indexed block, and the earliest tag (which decodes to 0) means
-// the retention floor. Other explicit numbers pass through so the caller can
-// check them against the indexed range.
+// resolveLogBound maps a filter bound to a height: nil and head tags are latest,
+// "earliest" and 0x0 are the retention floor, other numbers pass through.
 func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
-	// The earliest tag decodes to ethrpc.EarliestBlockNumber (-5) since
-	// go-ethereum v1.17 (0 before); both mean the retention floor.
 	if bound != nil && bound.IsInt64() && (bound.Int64() == ethrpc.EarliestBlockNumber.Int64() || bound.Sign() == 0) {
 		return earliest, nil
 	}

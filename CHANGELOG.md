@@ -35,6 +35,9 @@ sei-chain
   * EIP-7702: an authorization that clears an account with no delegation, or re-delegates to the same target, no longer writes code keys.
   * JSON-RPC: `null` for a required argument is rejected with -32602.
   * prestateTracer omits empty accounts and adds `codeHash`; tracer balance hooks now report balance changes.
+  * JSON-RPC "earliest" is the node's earliest available block, not the synthetic genesis block; 0x0 still returns the synthetic genesis block.
+  * eth_getLogs and filters clamp "earliest" and 0x0 bounds to the earliest available receipts instead of erroring.
+  * eth_call, eth_estimateGas and debug_traceCall state overrides cannot move or replace Sei precompiles.
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics

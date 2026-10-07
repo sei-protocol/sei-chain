@@ -31,9 +31,11 @@ func TestGetBlockByNumber(t *testing.T) {
 	txBz3 := signAndEncodeTx(send(2), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz1}, {txBz2}, {txBz3}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", true)
+			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x0", true)
 			blockHash := res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", blockHash.(string))
+			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", true)
+			require.Equal(t, "0x1", res["result"].(map[string]interface{})["number"])
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "safe", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0x8ace0b4e9ced0ef792034128d37eb19b9b2b06bf016d51d533216a9afd7c0e8f", blockHash.(string))
@@ -72,7 +74,7 @@ func TestGetBlockMilliTimestamp(t *testing.T) {
 			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.Unix())), block["timestamp"])
 			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.UnixMilli())), block["milliTimestamp"])
 
-			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", false)
+			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x0", false)
 			genesis := res["result"].(map[string]interface{})
 			require.Equal(t, "0x0", genesis["timestamp"])
 			require.Equal(t, "0x0", genesis["milliTimestamp"])

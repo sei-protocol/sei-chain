@@ -164,7 +164,7 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	// Overrides apply only through prior calls; with none they are ignored (pre-v1.17 behavior).
+	// Overrides apply only through prior calls.
 	if len(calls) == 0 {
 		overrides = nil
 	}
@@ -430,11 +430,7 @@ func (b *Backend) GetCanonicalTransaction(txHash common.Hash) (bool, *ethtypes.T
 	return true, tx, blockHash, blockNumber, index
 }
 
-// TxIndexDone implements tracers.Backend and ethapi.Backend. It reports false so
-// that a transaction which cannot be found is reported as a transaction
-// indexing error, matching the behaviour of the previous tracing API where any
-// GetTransaction lookup error (Sei reports a missing receipt as an error) was
-// returned as ethapi.NewTxIndexingError().
+// TxIndexDone reports false so a transaction that cannot be found is a tx-indexing error.
 func (b *Backend) TxIndexDone() bool {
 	return false
 }
@@ -443,21 +439,16 @@ func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
 }
 
-func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
-	blockNum := normalizeEarliest(bn).Int64()
-	switch blockNum {
-	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
-		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
-	case rpc.EarliestBlockNumber.Int64():
-		earliest, err := earliestBlockHeight(context.Background(), b.tmClient)
-		if err != nil {
-			panic("could not get earliest block height from tendermint")
-		}
-		blockNum = earliest
-	case rpc.PendingBlockNumber.Int64():
-		panic("tracing on pending block is not supported")
+func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) (int64, error) {
+	switch normalizeEarliest(bn) {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber:
+		return b.ctxProvider(LatestCtxHeight).BlockHeight(), nil
+	case rpc.EarliestBlockNumber:
+		return earliestBlockHeight(context.Background(), b.tmClient)
+	case rpc.PendingBlockNumber:
+		return 0, errors.New("tracing on pending block is not supported")
 	}
-	return blockNum
+	return bn.Int64(), nil
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
@@ -471,7 +462,10 @@ func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.B
 }
 
 func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum := b.ConvertBlockNumber(bn)
+	blockNum, err := b.ConvertBlockNumber(bn)
+	if err != nil {
+		return nil, nil, err
+	}
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
 	if err != nil {
 		return nil, nil, err

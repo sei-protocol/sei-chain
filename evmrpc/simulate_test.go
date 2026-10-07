@@ -395,12 +395,13 @@ func TestConvertBlockNumber(t *testing.T) {
 		}
 		return sdk.Context{}
 	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
-	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
-	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
-	require.Equal(t, int64(1), backend.ConvertBlockNumber(rpc.EarliestBlockNumber))
-	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
-	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
-	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
+	for bn, want := range map[rpc.BlockNumber]int64{10: 10, 0: 1, rpc.EarliestBlockNumber: 1, -2: 1000, -3: 1000, -4: 1000} {
+		got, err := backend.ConvertBlockNumber(bn)
+		require.NoError(t, err)
+		require.Equal(t, want, got, bn)
+	}
+	_, err := backend.ConvertBlockNumber(rpc.PendingBlockNumber)
+	require.Error(t, err)
 }
 
 func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {

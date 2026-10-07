@@ -91,10 +91,7 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	return numberPtr, nil
 }
 
-// earliestBlockHeight returns the lowest block height this node can serve, the
-// JSON-RPC "earliest" tag for block queries. It is not genesis on nodes whose
-// block history starts later (pruning, state sync, a Giga cutover or SIP-3),
-// but is never below the chain's initial height.
+// earliestBlockHeight returns the lowest block height this node serves, never below the initial height.
 func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int64, error) {
 	if tmClient == nil {
 		return 0, errors.New("tendermint client is not configured")
@@ -111,9 +108,7 @@ func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int6
 	return max(status.SyncInfo.EarliestBlockHeight, initial), nil
 }
 
-// getHeightFromBigIntBlockNumber resolves a log filter bound. "earliest" and a
-// literal 0 mean "from the start of available history" and are clamped to
-// earliest; other heights pass through unchanged.
+// getHeightFromBigIntBlockNumber resolves a log filter bound; "earliest" and 0x0 are earliest.
 func getHeightFromBigIntBlockNumber(latest, earliest int64, blockNumber *big.Int) int64 {
 	switch blockNumber.Int64() {
 	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
