@@ -651,8 +651,8 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
 	// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
 	// wrong, because that lock is what stops another process from deleting the view's working directory, and
-	// holding a second reference purely to close it is deferred to a follow-up. Only `seid export --height N`
-	// reaches this, a one-shot command that exits immediately and is itself slated for removal.
+	// holding a second reference purely to close it is deferred to a follow-up. No seid command loads a
+	// non-zero version through here.
 	sc, err := rs.scStore.LoadVersion(version, false)
 	if err != nil {
 		return err
