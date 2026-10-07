@@ -42,7 +42,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(3), cs.memIAVL.Version())
-	require.Nil(t, cs.flatKV, "fixture precondition: flatkv must not be materialized yet")
+	require.Nil(t, cs.loadFlatKV(), "fixture precondition: flatkv must not be materialized yet")
 	require.NoError(t, cs.Close())
 
 	// Bring the flatkv directory into existence in a never-seeded state, the way materializeFlatKV
@@ -58,14 +58,14 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 
 	require.NoError(t, reopened.LoadLatest(), "an interrupted flatkv seed must not stop the node")
 	require.Equal(t, int64(3), reopened.memIAVL.Version())
-	require.Nil(t, reopened.flatKV,
+	require.Nil(t, reopened.loadFlatKV(),
 		"an auto store keeps flatkv closed until a migration starts, even once it is seeded")
 
 	// The re-seed is durable: materializing flatkv again finds it at memiavl's height rather than at
 	// 0, so the seeding branch does not run a second time.
 	require.NoError(t, reopened.SetWriteMode(types.MigrateEVM))
-	require.NotNil(t, reopened.flatKV)
-	require.Equal(t, int64(3), reopened.flatKV.Version(),
+	require.NotNil(t, reopened.loadFlatKV())
+	require.Equal(t, int64(3), reopened.loadFlatKV().Version(),
 		"the composite must have re-seeded flatkv to memiavl's height")
 
 	// The chain keeps going from there, with both backends in lockstep.
@@ -77,7 +77,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 	_, err = reopened.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(4), reopened.memIAVL.Version())
-	require.Equal(t, int64(4), reopened.flatKV.Version())
+	require.Equal(t, int64(4), reopened.loadFlatKV().Version())
 }
 
 // initializeUnseededFlatKV creates the flatkv directory layout — a baseline snapshot and a working

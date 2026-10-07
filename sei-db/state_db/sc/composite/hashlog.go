@@ -10,25 +10,27 @@ import (
 // logger's category set must change). Note: the memIAVL root ("memIAVL/root") is not included here — it
 // is a simple-merkle aggregation owned by the cosmos layer (see MemIAVLCommitInfo).
 func (cs *CompositeCommitStore) HashCategories() []string {
+	flatKV := cs.loadFlatKV()
 	var categories []string
 	if cs.memIAVL != nil {
 		categories = append(categories, cs.memIAVL.HashCategories()...)
 	}
-	if cs.flatKV != nil {
-		categories = append(categories, cs.flatKV.HashCategories()...)
+	if flatKV != nil {
+		categories = append(categories, flatKV.HashCategories()...)
 	}
 	return categories
 }
 
 // RecordHashes reports every live backend's hashes for blockNumber. Call right after Commit.
 func (cs *CompositeCommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error {
+	flatKV := cs.loadFlatKV()
 	if cs.memIAVL != nil {
 		if err := cs.memIAVL.RecordHashes(hl, blockNumber); err != nil {
 			return err
 		}
 	}
-	if cs.flatKV != nil {
-		if err := cs.flatKV.RecordHashes(hl, blockNumber); err != nil {
+	if flatKV != nil {
+		if err := flatKV.RecordHashes(hl, blockNumber); err != nil {
 			return err
 		}
 	}
