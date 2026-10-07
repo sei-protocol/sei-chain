@@ -113,7 +113,7 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 		return 0, err
 	}
 	if !ok {
-		return 0, fmt.Errorf("no snapshot found for target version %d", targetVersion)
+		return 0, fmt.Errorf("%w: no snapshot found for target version %d", ErrVersionUnreachable, targetVersion)
 	}
 	return found, nil
 }
@@ -637,8 +637,7 @@ func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int
 
 	baseVersion, err := seekSnapshot(dir, targetVersion)
 	if err != nil {
-		return 0, fmt.Errorf("%w: cannot reach version %d: %w",
-			ErrVersionUnreachable, targetVersion, err)
+		return 0, fmt.Errorf("seek snapshot for version %d: %w", targetVersion, err)
 	}
 	if baseVersion == targetVersion {
 		return baseVersion, nil

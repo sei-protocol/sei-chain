@@ -416,8 +416,9 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 	return cs.refreshLastCommitInfo()
 }
 
-// discardStaleIdleFlatKV removes an Auto-mode FlatKV directory that has no migration state and is behind
-// memIAVL. Such a directory holds only a seed, so the next migration kickoff can recreate it exactly.
+// discardStaleIdleFlatKV removes an Auto-mode FlatKV directory that has no migration state and whose seed
+// no longer matches memIAVL: it is above memIAVL, or more than one block below it. Such a directory holds
+// only a seed, so the next migration kickoff recreates it exactly.
 func (cs *CompositeCommitStore) discardStaleIdleFlatKV() error {
 	if cs.config.WriteMode != types.Auto || cs.memIAVL == nil || cs.loadFlatKV() == nil {
 		return nil
@@ -426,7 +427,7 @@ func (cs *CompositeCommitStore) discardStaleIdleFlatKV() error {
 	if err != nil {
 		return fmt.Errorf("failed to derive write mode before idle flatkv cleanup: %w", err)
 	}
-	if derived != types.MemiavlOnly || cs.memIAVL.Version() == cs.loadFlatKV().Version() {
+	if derived != types.MemiavlOnly || !isStaleSeed(cs.memIAVL.Version(), cs.loadFlatKV().Version()) {
 		return nil
 	}
 
@@ -443,6 +444,17 @@ func (cs *CompositeCommitStore) discardStaleIdleFlatKV() error {
 		return fmt.Errorf("failed to remove stale idle flatkv directory %q: %w", flatKVDir, err)
 	}
 	return nil
+}
+
+// isStaleSeed reports whether an idle flatkv seeded at flatKVVersion is stale against memIAVL at
+// memIAVLVersion.
+//
+// Exactly one block behind is not stale. It is what a crash between the memIAVL and flatkv commits of
+// the kickoff block leaves: memIAVL holds block K and flatkv still holds only its seed at K-1, because
+// the migration boundary is first written by flatkv's K commit. Discarding flatkv there would lose
+// block K's flatkv half, so reconcileVersions must roll memIAVL back to the seed and let K replay.
+func isStaleSeed(memIAVLVersion, flatKVVersion int64) bool {
+	return flatKVVersion > memIAVLVersion || memIAVLVersion-flatKVVersion > 1
 }
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store

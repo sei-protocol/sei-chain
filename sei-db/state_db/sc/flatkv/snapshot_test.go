@@ -1404,6 +1404,18 @@ func TestSeekSnapshotEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	_, err := seekSnapshot(dir, 10)
 	require.Error(t, err, "empty dir should not find any snapshot")
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+// A filesystem fault while listing snapshots says nothing about which versions the store holds, so it
+// must not be reported as an unreachable version.
+func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(root, nil, 0600))
+
+	_, err := seekSnapshot(root, 10)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestSeekSnapshotExact(t *testing.T) {

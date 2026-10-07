@@ -208,6 +208,50 @@ func TestCompositeAutoDiscardStaleIdleFlatKV(t *testing.T) {
 	require.NoError(t, cs.Close())
 }
 
+// A crash between the memIAVL and flatkv commits of the kickoff block leaves memIAVL at K and an idle
+// flatkv at its seed K-1. That is a torn commit, not a stale seed: the restart must keep flatkv, roll
+// memIAVL back to K-1, and replay K to the canonical AppHash.
+func TestCompositeAutoTornKickoffCommitReplaysKickoffBlock(t *testing.T) {
+	const last = int64(rollbackFloorKickoff + 3)
+	blocks := rollbackFloorBlocks(0x5705, last)
+	cfg := autoExportConfig()
+	cfg.FlatKVConfig.SnapshotKeepRecent = 100
+
+	canonical, src := runAutoMigration(t, t.TempDir(), cfg, blocks, last, rollbackFloorKickoff)
+	require.NoError(t, src.Close())
+	require.True(t, hasLattice(canonical[rollbackFloorKickoff]))
+
+	dir := t.TempDir()
+	cs := openAutoStoreWithConfig(t, dir, cfg, 0)
+	for h := int64(1); h < rollbackFloorKickoff; h++ {
+		commitRollbackFloorBlock(t, cs, blocks, h, rollbackFloorKickoff)
+	}
+	beginRollbackFloorBlock(t, cs, rollbackFloorKickoff, rollbackFloorKickoff)
+	require.NoError(t, cs.ApplyChangeSets(cloneChangeSets(t, blocks[rollbackFloorKickoff])))
+	committed, err := cs.memIAVL.Commit(rollbackFloorKickoff)
+	require.NoError(t, err)
+	require.Equal(t, int64(rollbackFloorKickoff), committed)
+	require.Equal(t, int64(rollbackFloorKickoff-1), cs.loadFlatKV().Version())
+	require.NoError(t, cs.Close())
+
+	cs = openAutoStoreWithConfig(t, dir, cfg, 0)
+	require.Equal(t, int64(rollbackFloorKickoff-1), cs.Version(), "memIAVL must be rolled back to the seed")
+	require.True(t, utils.DirExists(utils.GetFlatKVPath(dir)), "a torn kickoff commit must keep flatkv")
+
+	for h := int64(rollbackFloorKickoff); h <= last; h++ {
+		commitRollbackFloorBlock(t, cs, blocks, h, rollbackFloorKickoff)
+		requireCommitInfoEqual(t, canonical[h], cs.LastCommitInfo(), fmt.Sprintf("replayed height %d", h))
+	}
+	require.NoError(t, cs.Close())
+}
+
+func TestIsStaleSeed(t *testing.T) {
+	require.False(t, isStaleSeed(9, 9), "matching versions")
+	require.False(t, isStaleSeed(10, 9), "one block behind is a torn kickoff commit")
+	require.True(t, isStaleSeed(11, 9), "more than one block behind")
+	require.True(t, isStaleSeed(5, 9), "seed above memIAVL")
+}
+
 func TestCompositeAutoPreKickoffSnapshotReplaysThroughMigration(t *testing.T) {
 	const (
 		snapshotHeight = int64(5)
