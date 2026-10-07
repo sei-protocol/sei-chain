@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"bytes"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -224,6 +225,53 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 
 	commit(6, 0xAA)
 	require.Equal(t, int64(6), s.Version())
+}
+
+func TestCheckVersionReachableCoversSeededFloorAndWAL(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer func() { require.NoError(t, s.Close()) }()
+
+	require.NoError(t, s.SetInitialVersion(10))
+	require.NoError(t, s.CheckVersionReachable(9), "seeded snapshot should be reachable without WAL replay")
+
+	err = s.CheckVersionReachable(8)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrVersionUnreachable))
+
+	commitStorageEntry(t, s, ktype.Address{0xAA}, ktype.Slot{0x01}, []byte{0x10})
+	require.NoError(t, s.CheckVersionReachable(10), "WAL should bridge from the seed to the first block")
+
+	err = s.CheckVersionReachable(11)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrVersionUnreachable))
+}
+
+func TestLoadVersionReadOnlyBelowHistoryFailsBeforeCreatingWorkDir(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer func() { require.NoError(t, s.Close()) }()
+
+	require.NoError(t, s.SetInitialVersion(10))
+	require.Empty(t, readonlyWorkDirs(t, cfg.DataDir))
+
+	_, err = s.LoadVersionReadOnly(8)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrVersionUnreachable))
+	require.Empty(t, readonlyWorkDirs(t, cfg.DataDir))
+}
+
+func readonlyWorkDirs(t *testing.T, dir string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, readOnlyDirPrefix+"*"))
+	require.NoError(t, err)
+	return matches
 }
 
 // TestResolveReplayRangeBounds exercises resolveReplayRange directly. It is the one piece of arithmetic both

@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -535,8 +536,8 @@ func TestReadOnlyAtBeyondWALFails(t *testing.T) {
 	require.NoError(t, s2.LoadLatest())
 	defer func() { require.NoError(t, s2.Close()) }()
 	_, err = s2.LoadVersionReadOnly(100)
-	require.ErrorContains(t, err, "readonly version mismatch",
-		"a view beyond the WAL should fail")
+	require.Error(t, err, "a view beyond the WAL should fail")
+	require.True(t, errors.Is(err, ErrVersionUnreachable))
 }
 
 // =============================================================================

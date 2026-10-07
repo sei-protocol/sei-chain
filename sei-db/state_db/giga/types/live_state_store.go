@@ -40,6 +40,9 @@ type LiveStateStore interface {
 	// so a version whose history has been pruned fails rather than being served approximately.
 	LoadVersionReadOnly(targetVersion int64) (LiveStateStore, error)
 
+	// CheckVersionReachable verifies that targetVersion can be reconstructed without modifying this store.
+	CheckVersionReachable(targetVersion int64) error
+
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.
 	//
