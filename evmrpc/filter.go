@@ -671,7 +671,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	if err != nil {
 		return nil, err
 	}
-	earliest, err := a.logFetcher.earliestHeight(ctx)
+	earliest, err := a.logFetcher.earliestReceiptHeight(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -879,7 +879,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		return nil, 0, err
 	}
-	earliest, err := f.earliestHeight(ctx)
+	earliest, err := f.earliestReceiptHeight(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1044,7 +1044,7 @@ func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filte
 		if hErr != nil {
 			return nil, 0, hErr
 		}
-		earliest, eErr := f.earliestHeight(ctx)
+		earliest, eErr := f.earliestReceiptHeight(ctx)
 		if eErr != nil {
 			return nil, 0, eErr
 		}
@@ -1125,9 +1125,9 @@ func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
 	return f.watermarks.LatestHeight(ctx)
 }
 
-// earliestHeight is the lowest height with logs available: receipts may be
+// earliestReceiptHeight is the lowest height with logs available: receipts may be
 // pruned above the block floor.
-func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
+func (f *LogFetcher) earliestReceiptHeight(ctx context.Context) (int64, error) {
 	return f.watermarks.EarliestAvailable(ctx, ReceiptHistory)
 }
 
@@ -1427,7 +1427,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if err != nil {
 		return nil, 0, err
 	}
-	earliest, err := f.earliestHeight(ctx)
+	earliest, err := f.earliestReceiptHeight(ctx)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,4 +84,42 @@ func TestFetchBlocksByCritClampsEarliestToReceiptFloor(t *testing.T) {
 		heights = append(heights, b.Block.Height)
 	}
 	require.ElementsMatch(t, []int64{8, 9, 10}, heights)
+}
+
+// statusFailsAfterClient answers Status successfully ok times, then errors.
+type statusFailsAfterClient struct {
+	*heightTestClient
+	ok int
+}
+
+var errStatusUnavailable = errors.New("status unavailable")
+
+func (c *statusFailsAfterClient) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
+	if c.ok == 0 {
+		return nil, errStatusUnavailable
+	}
+	c.ok--
+	return c.heightTestClient.Status(ctx)
+}
+
+// A failed earliest-floor lookup is an error, not a floor of 0.
+func TestGetLogsReturnsEarliestFloorLookupError(t *testing.T) {
+	newFetcher := func() *LogFetcher {
+		client := &statusFailsAfterClient{heightTestClient: newHeightTestClient(0, 5, 20), ok: 1}
+		return &LogFetcher{
+			tmClient:           client,
+			k:                  newTestKeeperWithReceiptStore(),
+			dbReadSemaphore:    make(chan struct{}, 1),
+			globalBlockCache:   NewBlockCache(20),
+			cacheCreationMutex: &sync.Mutex{},
+			watermarks:         NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: 20, earliest: 8}),
+		}
+	}
+	crit := filters.FilterCriteria{FromBlock: big.NewInt(rpc.EarliestBlockNumber.Int64()), ToBlock: big.NewInt(10)}
+
+	_, _, err := newFetcher().GetLogsByFilters(context.Background(), crit, 0)
+	require.ErrorIs(t, err, errStatusUnavailable)
+
+	_, _, err = newFetcher().fetchBlocksByCrit(context.Background(), crit, 0, nil)
+	require.ErrorIs(t, err, errStatusUnavailable)
 }
