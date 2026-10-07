@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"errors"
 	"io"
 
 	dbm "github.com/tendermint/tm-db"
@@ -16,6 +17,9 @@ type Options struct {
 	// Dir is the base directory containing snapshot dirs, working/, and changelog/.
 	Dir string
 }
+
+// ErrVersionUnreachable reports that a store cannot reconstruct a version from its retained history.
+var ErrVersionUnreachable = errors.New("version unreachable")
 
 // Store provides EVM state storage with LtHash integrity.
 //
@@ -35,6 +39,11 @@ type Store interface {
 	// The view is reconstructed from the newest snapshot at or below targetVersion plus this store's WAL,
 	// so a version whose history has been pruned fails rather than being served approximately.
 	LoadVersionReadOnly(targetVersion int64) (Store, error)
+
+	// CheckVersionReachable reports whether targetVersion can be reconstructed from retained history. It
+	// does not modify the store. An unreachable version returns an error wrapping ErrVersionUnreachable,
+	// and the store stays usable.
+	CheckVersionReachable(targetVersion int64) error
 
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.

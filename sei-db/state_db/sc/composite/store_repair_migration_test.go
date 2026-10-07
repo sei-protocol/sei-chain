@@ -109,7 +109,7 @@ func TestComposite_MigrateEVM_RepairWritesSurviveTheMigration(t *testing.T) {
 	}
 	requireEVMValues(t, cs, want)
 	require.False(t, memiavlEVMHoldsAny(cs), "memiavl should hold no EVM keys after the migration")
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 }
 
 func commitEVMPairs(t *testing.T, cs *CompositeCommitStore, pairs []*proto.KVPair) {
@@ -131,7 +131,7 @@ func requireMigrated(t *testing.T, cs *CompositeCommitStore, evmKeys ...[]byte) 
 	t.Helper()
 	for _, key := range evmKeys {
 		require.False(t, memiavlEVMHolds(cs, key), "key %x should have left memiavl", key)
-		_, ok := cs.flatKV.Get(keys.EVMStoreKey, key)
+		_, ok := cs.loadFlatKV().Get(keys.EVMStoreKey, key)
 		require.True(t, ok, "key %x should be in flatkv", key)
 	}
 }

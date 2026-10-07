@@ -33,6 +33,7 @@ func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavail
 func (f *failingEVMStore) LoadVersionReadOnly(int64) (flatkv.Store, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
+func (f *failingEVMStore) CheckVersionReachable(int64) error { return nil }
 func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
 	return nil
 }
@@ -276,7 +277,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmos := cs.memIAVL.WorkingCommitInfo()
 				var expectedEvmHash []byte
 				if tt.expectLattice {
-					expectedEvmHash = cs.flatKV.RootHash()
+					expectedEvmHash = cs.loadFlatKV().RootHash()
 				}
 
 				workingInfo := cs.WorkingCommitInfo()
@@ -314,7 +315,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmosLast := cs.memIAVL.LastCommitInfo()
 				var expectedEvmCommitted []byte
 				if tt.expectLattice {
-					expectedEvmCommitted = cs.flatKV.CommittedRootHash()
+					expectedEvmCommitted = cs.loadFlatKV().CommittedRootHash()
 					require.Equal(t, expectedEvmHash, expectedEvmCommitted)
 				}
 
@@ -413,7 +414,7 @@ func TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit(t *test
 	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs1.LoadLatest()
 	require.NoError(t, err)
-	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate a flatkv store")
+	require.Nil(t, cs1.loadFlatKV(), "MemiavlOnly must not allocate a flatkv store")
 
 	const phase1Blocks = 10
 	for i := 0; i < phase1Blocks; i++ {
@@ -453,7 +454,7 @@ func TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit(t *test
 	require.NoError(t, err)
 	defer cs2.Close()
 
-	require.NotNil(t, cs2.flatKV, "MigrateEVM must allocate a flatkv store")
+	require.NotNil(t, cs2.loadFlatKV(), "MigrateEVM must allocate a flatkv store")
 	require.Equal(t, int64(phase1Blocks), cs2.Version(),
 		"composite version must survive reopen unchanged")
 
@@ -497,7 +498,7 @@ func TestMigrateEVMGenesisPreFirstCommitOmitsLatticeHash(t *testing.T) {
 	require.NoError(t, err)
 	defer cs.Close()
 
-	require.NotNil(t, cs.flatKV, "MigrateEVM must allocate a flatkv store")
+	require.NotNil(t, cs.loadFlatKV(), "MigrateEVM must allocate a flatkv store")
 	require.Equal(t, int64(0), cs.Version(), "fresh MigrateEVM store must report version 0")
 
 	info := cs.LastCommitInfo()
@@ -590,11 +591,11 @@ func TestMigrateEVMLatticeRemainsAfterRestartPostMigrationCompletion(t *testing.
 
 	// Confirm on-disk MigrationStore reflects a completed migration:
 	// MigrationVersionKey is set, MigrationBoundaryKey is absent.
-	versionBytes, versionPresent := cs1.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
+	versionBytes, versionPresent := cs1.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
 	require.True(t, versionPresent,
 		"MigrationVersionKey must be set on the flatkv MigrationStore after the completion block")
 	require.NotEmpty(t, versionBytes)
-	_, boundaryPresent := cs1.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	_, boundaryPresent := cs1.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.False(t, boundaryPresent,
 		"MigrationBoundaryKey must be absent on the flatkv MigrationStore after the completion block")
 
@@ -712,7 +713,7 @@ func TestGetLatestVersionMemiavlOnly(t *testing.T) {
 	err = cs.LoadLatest()
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
-	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate flatKV")
+	require.Nil(t, cs.loadFlatKV(), "MemiavlOnly must not allocate flatKV")
 
 	for i := 0; i < 2; i++ {
 		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -779,7 +780,7 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
 	require.NotNil(t, cs.memIAVL)
-	require.NotNil(t, cs.flatKV)
+	require.NotNil(t, cs.loadFlatKV())
 
 	for i := 0; i < 3; i++ {
 		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -834,7 +835,7 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 
 	// Inject a failing EVM committer. The read-only load must surface
 	// the error rather than swallow it.
-	cs.flatKV = &failingEVMStore{}
+	cs.storeFlatKV(&failingEVMStore{})
 
 	_, err = cs.LoadVersionReadOnly(0)
 	require.Error(t, err, "readonly LoadVersion must fail loud when FlatKV is unavailable")
@@ -853,7 +854,7 @@ func TestLoadVersionFlatKVOnlyReadWrite(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
 	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate memIAVL")
-	require.NotNil(t, cs.flatKV, "FlatKVOnly must allocate flatKV")
+	require.NotNil(t, cs.loadFlatKV(), "FlatKVOnly must allocate flatKV")
 
 	err = cs.LoadLatest()
 	require.NoError(t, err, "LoadLatest must not nil-deref memIAVL in FlatKVOnly")
@@ -1126,12 +1127,12 @@ func TestExportImportEVMMigrated(t *testing.T) {
 	require.Equal(t, []byte("100"), bankStore.Get([]byte("balance_alice")))
 
 	// Verify FlatKV data
-	require.NotNil(t, dst.flatKV)
-	got, found := dst.flatKV.Get(keys.EVMStoreKey, storageKey)
+	require.NotNil(t, dst.loadFlatKV())
+	got, found := dst.loadFlatKV().Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist in FlatKV after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = dst.flatKV.Get(keys.EVMStoreKey, nonceKey)
+	got, found = dst.loadFlatKV().Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key should exist in FlatKV after import")
 	require.Equal(t, nonceVal, got)
 }
@@ -1198,7 +1199,7 @@ func TestExporterFailsLoudOnFlatKVLoadFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Inject a flatkv whose load always fails; the failure must surface.
-	cs.flatKV = &failingEVMStore{}
+	cs.storeFlatKV(&failingEVMStore{})
 
 	_, err = cs.Exporter(1)
 	require.Error(t, err, "Exporter must fail loud on an in-history flatkv load failure")
@@ -1301,7 +1302,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(3), cs.memIAVL.Version())
-	require.Equal(t, int64(3), cs.flatKV.Version())
+	require.Equal(t, int64(3), cs.loadFlatKV().Version())
 	require.NoError(t, cs.Close())
 
 	// Simulate crash: rollback FlatKV to version 2 independently, leaving
@@ -1332,7 +1333,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	defer cs2.Close()
 
 	require.Equal(t, int64(2), cs2.memIAVL.Version(), "cosmos should be rolled back to EVM version")
-	require.Equal(t, int64(2), cs2.flatKV.Version(), "EVM should remain at version 2")
+	require.Equal(t, int64(2), cs2.loadFlatKV().Version(), "EVM should remain at version 2")
 	require.Equal(t, int64(2), cs2.Version())
 
 	// Verify cosmos data is at version 2 (value = 0x02, not 0x03)
@@ -1391,7 +1392,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int64(2), cs2.memIAVL.Version())
-	require.Equal(t, int64(2), cs2.flatKV.Version())
+	require.Equal(t, int64(2), cs2.loadFlatKV().Version())
 
 	// Continue committing new blocks on top of the reconciled state.
 	// Version 3 is re-created with new data (0xA3 instead of 0x03).
@@ -1409,7 +1410,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(3+i), ver, "commit should produce sequential versions")
 		require.Equal(t, ver, cs2.memIAVL.Version())
-		require.Equal(t, ver, cs2.flatKV.Version())
+		require.Equal(t, ver, cs2.loadFlatKV().Version())
 	}
 	require.NoError(t, cs2.Close())
 
@@ -1423,12 +1424,12 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	defer cs3.Close()
 
 	require.Equal(t, int64(5), cs3.memIAVL.Version())
-	require.Equal(t, int64(5), cs3.flatKV.Version())
+	require.Equal(t, int64(5), cs3.loadFlatKV().Version())
 
 	bankStore := cs3.GetChildStoreByName("bank")
 	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
 
-	got, found := cs3.flatKV.Get(keys.EVMStoreKey, storageKey)
+	got, found := cs3.loadFlatKV().Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xA5), got)
 }
@@ -1719,8 +1720,8 @@ func TestCompositeEVMMigratedEVMReadsAreVisible(t *testing.T) {
 	require.NoError(t, err)
 
 	// FlatKV holds the authoritative copy.
-	require.NotNil(t, cs.flatKV)
-	got, found := cs.flatKV.Get(keys.EVMStoreKey, evmKey)
+	require.NotNil(t, cs.loadFlatKV())
+	got, found := cs.loadFlatKV().Get(keys.EVMStoreKey, evmKey)
 	require.True(t, found, "EVM data should be present in FlatKV")
 	require.Equal(t, evmVal, got)
 
@@ -1826,7 +1827,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	defer cs2.Close()
 
 	require.Equal(t, int64(3), cs2.memIAVL.Version())
-	require.Equal(t, int64(3), cs2.flatKV.Version())
+	require.Equal(t, int64(3), cs2.loadFlatKV().Version())
 
 	bankStore := cs2.GetChildStoreByName("bank")
 	require.Equal(t, []byte{3}, bankStore.Get([]byte("bal")))
@@ -1867,7 +1868,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 		require.Equal(t, int64(i+1), v)
 	}
 	require.Equal(t, int64(phase1Blocks), cs1.Version())
-	require.Nil(t, cs1.flatKV, "MemiavlOnly mode must not create a flatkv store")
+	require.Nil(t, cs1.loadFlatKV(), "MemiavlOnly mode must not create a flatkv store")
 	require.NoError(t, cs1.Close())
 
 	// Phase 2: reopen with MigrateEVM mode. memiavl is at version 100,
@@ -1885,8 +1886,8 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 
 	require.Equal(t, int64(phase1Blocks), cs2.memIAVL.Version(),
 		"memiavl version must survive reopen")
-	require.NotNil(t, cs2.flatKV, "MigrateEVM mode must create a flatkv store")
-	require.Equal(t, int64(phase1Blocks), cs2.flatKV.Version(),
+	require.NotNil(t, cs2.loadFlatKV(), "MigrateEVM mode must create a flatkv store")
+	require.Equal(t, int64(phase1Blocks), cs2.loadFlatKV().Version(),
 		"flatkv must be seeded to memiavl's version after migration-entry seeding")
 	require.Equal(t, int64(phase1Blocks), cs2.Version(),
 		"composite version must report the seeded version")
@@ -1905,7 +1906,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 		v, err := cs2.Commit()
 		require.NoError(t, err)
 		require.Equal(t, int64(blockIdx+1), v)
-		require.Equal(t, cs2.memIAVL.Version(), cs2.flatKV.Version(),
+		require.Equal(t, cs2.memIAVL.Version(), cs2.loadFlatKV().Version(),
 			"memiavl and flatkv must stay in lockstep after seeding")
 	}
 }
@@ -1938,7 +1939,7 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 		_, err = cs1.Commit()
 		require.NoError(t, err)
 	}
-	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate flatkv before the migration")
+	require.Nil(t, cs1.loadFlatKV(), "MemiavlOnly must not allocate flatkv before the migration")
 	require.NoError(t, cs1.Close())
 
 	preFlipVersion := int64(3)
@@ -2017,7 +2018,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	err = cs2.LoadLatest()
 	require.NoError(t, err)
-	require.Equal(t, int64(5), cs2.flatKV.Version(), "flatkv seeded to memiavl version on first reopen")
+	require.Equal(t, int64(5), cs2.loadFlatKV().Version(), "flatkv seeded to memiavl version on first reopen")
 	_, err = cs2.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(6), cs2.Version())
@@ -2030,7 +2031,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	require.NoError(t, err, "second reopen must not re-seed flatkv (would fail the fresh-store guard)")
 	defer cs3.Close()
 	require.Equal(t, int64(6), cs3.memIAVL.Version())
-	require.Equal(t, int64(6), cs3.flatKV.Version())
+	require.Equal(t, int64(6), cs3.loadFlatKV().Version())
 }
 
 // TestInitializeIsNoOpInFlatKVOnly verifies that composite.Initialize does
@@ -2061,7 +2062,7 @@ func TestSetInitialVersionMemiavlOnly(t *testing.T) {
 	err = cs.LoadLatest()
 	require.NoError(t, err)
 	defer cs.Close()
-	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate a flatkv backend")
+	require.Nil(t, cs.loadFlatKV(), "MemiavlOnly must not allocate a flatkv backend")
 
 	require.NoError(t, cs.SetInitialVersion(100))
 
@@ -2089,11 +2090,11 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 	require.NoError(t, err)
 	defer cs.Close()
 	require.NotNil(t, cs.memIAVL)
-	require.NotNil(t, cs.flatKV)
+	require.NotNil(t, cs.loadFlatKV())
 
 	require.NoError(t, cs.SetInitialVersion(50))
 
-	require.Equal(t, int64(49), cs.flatKV.Version(),
+	require.Equal(t, int64(49), cs.loadFlatKV().Version(),
 		"flatkv reflects the seed immediately (committedVersion = N-1)")
 
 	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -2106,7 +2107,7 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 	require.Equal(t, int64(50), v,
 		"first commit after composite.SetInitialVersion must produce the seeded version on both backends")
 	require.Equal(t, int64(50), cs.memIAVL.Version())
-	require.Equal(t, int64(50), cs.flatKV.Version())
+	require.Equal(t, int64(50), cs.loadFlatKV().Version())
 }
 
 // TestSetInitialVersionRetryIsIdempotent verifies that a caller retrying

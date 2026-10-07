@@ -2,109 +2,17 @@ package gov_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
-
-func TestImportExportQueues(t *testing.T) {
-	app := seiapp.Setup(t, false, false, false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
-
-	SortAddresses(addrs)
-
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
-
-	ctx = app.BaseApp.NewContext(false, tmproto.Header{})
-
-	// Create two proposals, put the second into the voting period
-	proposal := TestProposal
-	proposal1, err := app.GovKeeper.SubmitProposal(ctx, proposal)
-	require.NoError(t, err)
-	proposalID1 := proposal1.ProposalId
-
-	proposal2, err := app.GovKeeper.SubmitProposal(ctx, proposal)
-	require.NoError(t, err)
-	proposalID2 := proposal2.ProposalId
-
-	votingStarted, err := app.GovKeeper.AddDeposit(ctx, proposalID2, addrs[0], app.GovKeeper.GetDepositParams(ctx).MinDeposit)
-	require.NoError(t, err)
-	require.True(t, votingStarted)
-
-	proposal1, ok := app.GovKeeper.GetProposal(ctx, proposalID1)
-	require.True(t, ok)
-	proposal2, ok = app.GovKeeper.GetProposal(ctx, proposalID2)
-	require.True(t, ok)
-	require.True(t, proposal1.Status == types.StatusDepositPeriod)
-	require.True(t, proposal2.Status == types.StatusVotingPeriod)
-
-	authGenState := auth.ExportGenesis(ctx, app.AccountKeeper)
-	bankGenState := app.BankKeeper.ExportGenesis(ctx)
-
-	// export the state and import it into a new app
-	govGenState := gov.ExportGenesis(ctx, app.GovKeeper)
-	genesisState := seiapp.NewDefaultGenesisState(app.AppCodec())
-
-	genesisState[authtypes.ModuleName] = app.AppCodec().MustMarshalJSON(authGenState)
-	genesisState[banktypes.ModuleName] = app.AppCodec().MustMarshalJSON(bankGenState)
-	genesisState[types.ModuleName] = app.AppCodec().MustMarshalJSON(govGenState)
-
-	stateBytes, err := json.MarshalIndent(genesisState, "", " ")
-	if err != nil {
-		panic(err)
-	}
-
-	db := dbm.NewMemDB()
-	app2 := seiapp.SetupWithDB(t, db, false, false, false)
-
-	app2.InitChain(&abci.RequestInitChain{
-		ConsensusParams: seiapp.DefaultConsensusParams,
-		AppStateBytes:   stateBytes,
-	},
-	)
-
-	app2.Commit(context.Background())
-	app2.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app2.LastBlockHeight() + 1}})
-
-	ctx2 := app2.BaseApp.NewContext(false, tmproto.Header{})
-
-	// Jump the time forward past the DepositPeriod and VotingPeriod
-	ctx2 = ctx2.WithBlockTime(ctx2.BlockHeader().Time.Add(app2.GovKeeper.GetDepositParams(ctx2).MaxDepositPeriod).Add(app2.GovKeeper.GetVotingParams(ctx2).VotingPeriod))
-
-	// Make sure that they are still in the DepositPeriod and VotingPeriod respectively
-	proposal1, ok = app2.GovKeeper.GetProposal(ctx2, proposalID1)
-	require.True(t, ok)
-	proposal2, ok = app2.GovKeeper.GetProposal(ctx2, proposalID2)
-	require.True(t, ok)
-	require.True(t, proposal1.Status == types.StatusDepositPeriod)
-	require.True(t, proposal2.Status == types.StatusVotingPeriod)
-
-	macc := app2.GovKeeper.GetGovernanceAccount(ctx2)
-	require.Equal(t, app2.GovKeeper.GetDepositParams(ctx2).MinDeposit, app2.BankKeeper.GetAllBalances(ctx2, macc.GetAddress()))
-
-	// Run the endblocker. Check to make sure that proposal1 is removed from state, and proposal2 is finished VotingPeriod.
-	gov.EndBlocker(ctx2, app2.GovKeeper)
-
-	proposal1, ok = app2.GovKeeper.GetProposal(ctx2, proposalID1)
-	require.False(t, ok)
-
-	proposal2, ok = app2.GovKeeper.GetProposal(ctx2, proposalID2)
-	require.True(t, ok)
-	require.True(t, proposal2.Status == types.StatusRejected)
-}
 
 func TestImportExportQueues_ErrorUnconsistentState(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)

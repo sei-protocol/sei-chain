@@ -624,11 +624,6 @@ func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
 	return staking.EndBlocker(ctx, app.stakingKeeper)
 }
 
-// LoadHeight loads a particular height
-func (app *WasmApp) LoadHeight(height int64) error {
-	return app.LoadVersion(height)
-}
-
 // ModuleAccountAddrs returns all the app's module account addresses.
 func (app *WasmApp) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)
