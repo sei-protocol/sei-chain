@@ -24,6 +24,21 @@ func TestReadStoresPrefersRequestError(t *testing.T) {
 	require.Empty(t, result)
 }
 
+func TestReadStoreAtHeightSkipsReadAfterContextConstructionCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	readStarted := false
+	_, err := readStoreAtHeight(ctx, 1, func(int64) sdk.Context {
+		cancel()
+		return sdk.Context{}
+	}, func(sdk.Context) (string, error) {
+		readStarted = true
+		return "late result", nil
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, readStarted)
+}
+
 func TestCachedReceiptRejectsExpiredRequest(t *testing.T) {
 	const height int64 = 7
 	txHash := common.HexToHash("0x1")
