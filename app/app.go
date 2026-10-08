@@ -339,7 +339,7 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 	if err != nil {
 		return nil, err
 	}
-	sstore := keeper.GetParams(ctx).SeiSstoreSetGasEip2200
+	sstore := keeper.GetSstoreSetGasEIP2200(ctx)
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
 	baseFee := keeper.GetBaseFee(ctx)
 	return &gigaBlockCache{
@@ -2382,11 +2382,6 @@ func cloneDuration(duration *time.Duration) *time.Duration {
 	}
 	cloned := *duration
 	return &cloned
-}
-
-// LoadHeight loads a particular height
-func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersionWithoutInit(height)
 }
 
 // ModuleAccountAddrs returns all the app's module account addresses.

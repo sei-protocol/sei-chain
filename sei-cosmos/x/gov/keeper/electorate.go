@@ -122,28 +122,6 @@ func (keeper Keeper) selectTallyBoundary(ctx sdk.Context, proposal types.Proposa
 	return boundary, boundaryID
 }
 
-// ExportTallyElectorate returns the frozen electorate needed to restart a proposal tally.
-func (keeper Keeper) ExportTallyElectorate(
-	ctx sdk.Context,
-	proposal types.Proposal,
-) (types.TallyElectorate, bool) {
-	if progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId); found {
-		return tallyElectorateToGenesis(proposal.ProposalId, keeper.tallyProgressBoundary(ctx, proposal.ProposalId, progress).Electorate), true
-	}
-	if boundary, _, found := keeper.getSelectedTallyBoundary(ctx, proposal.ProposalId); found {
-		return tallyElectorateToGenesis(proposal.ProposalId, boundary.Electorate), true
-	}
-	if !keeper.usesLegacyTallySemantics(ctx, proposal) {
-		if boundary, _, found := keeper.getDeadlineTallyBoundary(ctx, proposal.VotingEndTime); found {
-			return tallyElectorateToGenesis(proposal.ProposalId, boundary.Electorate), true
-		}
-	}
-	if proposal.Status == types.StatusVotingPeriod && !proposal.VotingEndTime.After(ctx.BlockTime()) {
-		return tallyElectorateToGenesis(proposal.ProposalId, keeper.snapshotTallyElectorate(ctx)), true
-	}
-	return types.TallyElectorate{}, false
-}
-
 // SetTallyElectorate stores an imported frozen electorate for a proposal tally.
 func (keeper Keeper) SetTallyElectorate(ctx sdk.Context, electorate types.TallyElectorate) {
 	boundaryID := proposalSpecificTallyBoundaryID(electorate.ProposalId)
@@ -315,23 +293,6 @@ func parseBoundaryTime(value []byte) time.Time {
 		panic(fmt.Errorf("parse tally boundary block time: %w", err))
 	}
 	return blockTime
-}
-
-func tallyElectorateToGenesis(proposalID uint64, electorate tallyElectorate) types.TallyElectorate {
-	validators := make([]types.TallyValidator, 0, len(electorate.Validators))
-	for _, validator := range electorate.Validators {
-		validators = append(validators, types.TallyValidator{
-			Address:         validator.Address,
-			BondedTokens:    validator.BondedTokens,
-			DelegatorShares: validator.DelegatorShares,
-		})
-	}
-	return types.TallyElectorate{
-		ProposalId:        proposalID,
-		TotalBondedTokens: electorate.TotalBondedTokens,
-		TallyParams:       electorate.TallyParams,
-		TallyValidators:   validators,
-	}
 }
 
 func tallyElectorateFromGenesis(electorate types.TallyElectorate) tallyElectorate {

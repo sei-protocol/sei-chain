@@ -324,6 +324,29 @@ func TestComposedStack_RateLimitDistinctFromSizeBudget(t *testing.T) {
 	require.Contains(t, rec2.Body.String(), "too many requests")
 }
 
+func TestComposedStack_NonObjectBatchElementRejectedBeforeSeiLegacyGate(t *testing.T) {
+	const maxBody = 4096
+	reg := mustRateLimitRegistry(t, 100, 10)
+	gate := newTestRateLimitGate(t, reg, 0)
+	base := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run for a batch with a non-object element")
+	})
+	stack := newRequestSizeLimiter(
+		newRateLimitMiddleware(wrapSeiLegacyHTTP(base, BuildSeiLegacyEnabledSet(nil), maxBody), gate),
+		maxBody,
+		0,
+		0,
+	)
+
+	body := `[{"jsonrpc":"2.0","id":1,"method":"sei_removedMethod","params":[]},42]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	stack.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.NotContains(t, rec.Body.String(), "legacy_sei_deprecated")
+}
+
 func TestComposedStack_OversizeContentLengthBeforeProbeRead(t *testing.T) {
 	const maxBody = 100
 	reg := mustRateLimitRegistry(t, 100, 10)
