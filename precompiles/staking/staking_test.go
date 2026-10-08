@@ -1546,6 +1546,60 @@ func TestPrecompile_Run_Redelegations(t *testing.T) {
 			wantRet: happyPathPackedOutput,
 			wantErr: false,
 		},
+		{
+			name: "should return redelegations filtered by source validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:    []interface{}{"", srcValidatorAddress, "", []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+		{
+			name: "should return redelegations filtered by delegator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:    []interface{}{callerSeiAddress.String(), "", "", []byte{}},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+		{
+			name: "fails with delegator and source validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{callerSeiAddress.String(), srcValidatorAddress, "", []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
+		{
+			name: "fails with delegator and destination validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{callerSeiAddress.String(), "", dstValidatorAddress, []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
+		{
+			name: "fails with destination validator only",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{"", "", dstValidatorAddress, []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
+		{
+			name: "fails with no filter",
+			fields: &TestStakingQuerier{
+				RedelegationsResponse: redelegationsResponse,
+			},
+			args:       []interface{}{"", "", "", []byte{}},
+			wantErr:    true,
+			wantErrMsg: "unsupported redelegations filter",
+		},
 	}
 
 	for _, tt := range tests {

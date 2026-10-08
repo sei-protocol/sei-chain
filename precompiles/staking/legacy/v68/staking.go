@@ -1315,6 +1315,9 @@ func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, a
 	srcValidatorStr := args[1].(string)
 	dstValidatorStr := args[2].(string)
 	nextKey := args[3].([]byte)
+	if err := validateRedelegationsFilter(delegatorStr, srcValidatorStr, dstValidatorStr); err != nil {
+		return nil, 0, err
+	}
 
 	request := &stakingtypes.QueryRedelegationsRequest{
 		DelegatorAddr:    delegatorStr,
@@ -1359,6 +1362,20 @@ func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, a
 		return nil, 0, err
 	}
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+// validateRedelegationsFilter rejects filter combinations the staking querier does not
+// honour. It supports delegator, srcValidator and dstValidator together, srcValidator
+// alone, and delegator alone.
+func validateRedelegationsFilter(delegator, srcValidator, dstValidator string) error {
+	switch {
+	case delegator != "" && srcValidator != "" && dstValidator != "":
+	case delegator == "" && srcValidator != "" && dstValidator == "":
+	case delegator != "" && srcValidator == "" && dstValidator == "":
+	default:
+		return errors.New("unsupported redelegations filter: set delegator, srcValidator and dstValidator; srcValidator only; or delegator only")
+	}
+	return nil
 }
 
 func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {

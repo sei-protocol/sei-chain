@@ -289,10 +289,11 @@ interface IStaking {
     ) external view returns (UnbondingDelegationsResponse memory response);
 
     /**
-     * @notice Get redelegations
-     * @param delegator The delegator's address (empty string for all)
-     * @param srcValidator The source validator address (empty string for all)
-     * @param dstValidator The destination validator address (empty string for all)
+     * @notice Get redelegations. Supported filters: delegator, srcValidator and dstValidator
+     * together; srcValidator alone; or delegator alone. Any other combination reverts.
+     * @param delegator The delegator's address, or empty when filtering by srcValidator alone
+     * @param srcValidator The source validator address, or empty when filtering by delegator alone
+     * @param dstValidator The destination validator address, set only with delegator and srcValidator
      * @param nextKey Pagination key
      * @return response Redelegations response with pagination
      */
