@@ -49,14 +49,14 @@ func (i hashInput) of(record *apphash.AppHashData) [32]byte {
 	}
 }
 
-// One input's progress through the block heights. A report is a call to the method that reports the input (i.e.
-// its Report*() method). The builder uses the tracker to reject a report that skips or repeats a block height, and,
-// before setup, to check each report against the app hash stored for its block.
+// One input's progress through the block heights above the initial block. A report is a call to the method that
+// reports the input (i.e. its Report*() method). The builder uses the tracker to reject a report that skips or
+// repeats a block height, and, before setup, to check each report against the app hash stored for its block.
 type reportTracker struct {
 
-	// Whether the height the input's reports start from is known. The input's first report sets it, as does
-	// SetupComplete(). While false, a report at any height is accepted. Afterwards, reports are required to
-	// proceed through the block heights in order, one block at a time.
+	// Whether the height the input's reports start from is known. The input's first report above the initial block
+	// sets it, as does SetupComplete(). While false, a report at any height is accepted. Afterwards, reports are
+	// required to proceed through the block heights in order, one block at a time.
 	startingPointKnown bool
 
 	// The only block height the input may report next. A report at any other height stops the builder.

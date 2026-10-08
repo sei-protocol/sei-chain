@@ -66,7 +66,7 @@ func openTestBuilder(t *testing.T, dir string, chainID uint64, initialBlock uint
 // openBuilder opens a builder over the vault in dir.
 func openBuilder(dir string, chainID uint64, initialBlock uint64) (*StandardAppHashBuilder, error) {
 	config := DefaultAppHashBuilderConfig()
-	config.HashVault.Path = dir
+	config.HashVaultConfig.Path = dir
 	return NewStandardAppHashBuilder(config, chainID, initialBlock)
 }
 
@@ -361,6 +361,16 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 	require.Error(t, err)
 	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}))
 	require.Error(t, b.SetupComplete(context.Background(), 0))
+}
+
+func TestFailedBuilderReleasesHashVault(t *testing.T) {
+	dir := t.TempDir()
+	b := openTestBuilder(t, dir, testChainID, 0)
+	reportInput(t, b, blockHashInput, 4, 0)
+	reportInput(t, b, blockHashInput, 6, 0)
+	b.wg.Wait()
+
+	openTestBuilder(t, dir, testChainID, 0)
 }
 
 func TestFirstReportAfterSetupMustFollowStorageHeight(t *testing.T) {

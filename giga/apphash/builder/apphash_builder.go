@@ -44,9 +44,10 @@ type AppHashBuilder interface {
 
 	// Marks the end of startup, which publishes the app hashes through blockHeight.
 	//
-	// Must be called after every call made during startup to the methods that report hashes (i.e. the Report*()
-	// methods), though some of them may never have been called. Afterwards, each Report*() method's next call must
-	// be for blockHeight+1. Errors if an app hash at or below blockHeight cannot be computed.
+	// Must be called once, after every call made during startup to the methods that report hashes (i.e. the
+	// Report*() methods), though some of them may never have been called. Afterwards, each Report*() method's next
+	// call must be for blockHeight+1. Errors if called again, or if an app hash at or below blockHeight cannot be
+	// computed; either error shuts the builder down.
 	SetupComplete(
 		ctx context.Context,
 		// The height of the storage layer: the last block every store has applied.
@@ -59,15 +60,15 @@ type AppHashBuilder interface {
 	// changes. Errors if listener is nil, or if called before SetupComplete().
 	RegisterListener(
 		ctx context.Context,
-		// Called once the app hash is durable. It may delay later app hashes while it runs, and it must not
-		// call the builder.
+		// Called once the app hash is stored; the store is durable only if the builder's configuration requests
+		// it. It may delay later app hashes while it runs, and it must not call the builder.
 		listener func(appHash *apphash.AppHashData),
 	) (*apphash.AppHashData, error)
 
 	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one.
 	//
 	// A published app hash never changes. Errors if called before SetupComplete(), or if startingBlockHeight has
-	// been pruned.
+	// been pruned. The iterator errors once the builder stops.
 	Iterator(ctx context.Context, startingBlockHeight uint64) (apphash.AppHashIterator, error)
 
 	// Permits deleting the app hashes below blockHeight.
@@ -75,7 +76,8 @@ type AppHashBuilder interface {
 	// They may be deleted at any later time, and the newest published app hash is always kept.
 	Prune(ctx context.Context, blockHeight uint64) error
 
-	// Stops the builder and releases its resources.
+	// Stops the builder, and returns once its resources are released. A builder stopped by an error has released
+	// them already.
 	//
 	// This method does not flush data, and may cause in-flight work to be dropped. Every iterator must be closed
 	// first.

@@ -13,18 +13,23 @@ type AppHashBuilderConfig struct {
 	// at the cost of memory.
 	InputBufferSize int
 
+	// The most requests the builder runs before storing and publishing the blocks they complete. Higher values
+	// amortize each store over more blocks, at the cost of latency.
+	MaxBatchSize int
+
 	// Configures the WAL holding the app hashes. Its Path is the hash vault's directory, and its PermitGaps is
-	// ignored.
-	HashVault seiwal.Config
+	// ignored. App hashes survive a power loss only if its FsyncOnFlush is true.
+	HashVaultConfig seiwal.Config
 }
 
-// Returns an AppHashBuilderConfig holding every default. HashVault.Path has no default and must be set.
+// Returns an AppHashBuilderConfig holding every default. HashVaultConfig.Path has no default and must be set.
 func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 	hashVault := seiwal.DefaultConfig("", "app_hash_vault")
 	hashVault.FsyncOnFlush = true
 	return AppHashBuilderConfig{
 		InputBufferSize: 1024,
-		HashVault:       *hashVault,
+		MaxBatchSize:    1024,
+		HashVaultConfig: *hashVault,
 	}
 }
 
@@ -33,7 +38,10 @@ func (c *AppHashBuilderConfig) Validate() error {
 	if c.InputBufferSize <= 0 {
 		return fmt.Errorf("input buffer size must be positive, got %d", c.InputBufferSize)
 	}
-	if err := c.HashVault.Validate(); err != nil {
+	if c.MaxBatchSize <= 0 {
+		return fmt.Errorf("max batch size must be positive, got %d", c.MaxBatchSize)
+	}
+	if err := c.HashVaultConfig.Validate(); err != nil {
 		return fmt.Errorf("invalid hash vault config: %w", err)
 	}
 	return nil
