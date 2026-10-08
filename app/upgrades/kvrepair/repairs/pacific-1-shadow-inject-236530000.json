@@ -1,0 +1,10 @@
+{
+  "name": "pacific-1-shadow-inject-236530000",
+  "chain_id": "pacific-1",
+  "target_repair_height": 236530000,
+  "state_height": 236529999,
+  "source": "shadow drill fault injection for shadow-1k-0-0 only: evm EVMAddressToSeiAddress key of 0x007F003A2661D8E0A8FFAAF7325A654165189157, correct value 6429F9665295A05A4AFB6B5FAA7EC7E519D59FE8 (1k-a composite at 236503411), last byte changed",
+  "entries": [
+    {"store":"evm","key":"01007F003A2661D8E0A8FFAAF7325A654165189157","new":"6429F9665295A05A4AFB6B5FAA7EC7E519D59F17"}
+  ]
+}
