@@ -38,45 +38,31 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 						return nil
 					})
 				})
-			}
-			s.Spawn(func() error {
-				return from.SubscribePrepareVote().Iter(ctx, func(ctx context.Context, msg utils.Option[*types.ConsensusMsgPrepareVote]) error {
-					if vote, ok := msg.Get(); ok {
-						for _, to := range states {
-							if err := to.PushPrepareVote(ctx, vote.Signed); err != nil {
-								return err
-							}
+				s.Spawn(func() error {
+					return from.SubscribePrepareVote().Iter(ctx, func(ctx context.Context, msg utils.Option[*types.ConsensusMsgPrepareVote]) error {
+						if vote, ok := msg.Get(); ok {
+							return to.PushPrepareVote(ctx, vote.Signed)
 						}
-					}
-					return nil
-				})
-			})
-			s.Spawn(func() error {
-				return from.SubscribeCommitVote().Iter(ctx, func(ctx context.Context, msg utils.Option[*types.ConsensusMsgCommitVote]) error {
-					vote, ok := msg.Get()
-					if !ok {
 						return nil
-					}
-					for _, to := range states {
-						if err := to.PushCommitVote(ctx, vote.Signed); err != nil {
-							return err
-						}
-					}
-					return nil
+					})
 				})
-			})
-			s.Spawn(func() error {
-				return from.SubscribeTimeoutVote().Iter(ctx, func(ctx context.Context, msg utils.Option[*types.FullTimeoutVote]) error {
-					if vote, ok := msg.Get(); ok {
-						for _, to := range states {
-							if err := to.PushTimeoutVote(ctx, vote); err != nil {
-								return err
-							}
+				s.Spawn(func() error {
+					return from.SubscribeCommitVote().Iter(ctx, func(ctx context.Context, msg utils.Option[*types.ConsensusMsgCommitVote]) error {
+						if vote, ok := msg.Get(); ok {
+							return to.PushCommitVote(ctx, vote.Signed)
 						}
-					}
-					return nil
+						return nil
+					})
 				})
-			})
+				s.Spawn(func() error {
+					return from.SubscribeTimeoutVote().Iter(ctx, func(ctx context.Context, msg utils.Option[*types.FullTimeoutVote]) error {
+						if vote, ok := msg.Get(); ok {
+							return to.PushTimeoutVote(ctx, vote)
+						}
+						return nil
+					})
+				})
+			}
 		}
 		return nil
 	})
