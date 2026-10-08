@@ -71,6 +71,43 @@ func TestAutobahnFileConfig_ValidateMaxConcurrentCheckTx(t *testing.T) {
 	}
 }
 
+func TestAutobahnFileConfig_ValidateEvmProxy(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		maxConns utils.Option[uint64]
+		timeout  utils.Option[utils.Duration]
+		ok       bool
+	}{
+		{"absent", utils.None[uint64](), utils.None[utils.Duration](), true},
+		{"set", utils.Some[uint64](8), utils.Some(utils.Duration(time.Second)), true},
+		{"zero_conns", utils.Some[uint64](0), utils.None[utils.Duration](), false},
+		{"zero_timeout", utils.None[uint64](), utils.Some(utils.Duration(0)), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := validAutobahnFileConfig()
+			fc.EvmProxyMaxConnsPerOwner = tc.maxConns
+			fc.EvmProxyTimeout = tc.timeout
+			if tc.ok {
+				require.NoError(t, fc.Validate())
+			} else {
+				require.Error(t, fc.Validate())
+			}
+		})
+	}
+}
+
+func TestAutobahnFileConfig_EvmProxyJSON(t *testing.T) {
+	var fc AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"evm_proxy_max_conns_per_owner":32,"evm_proxy_timeout":"3s"}`), &fc))
+	require.Equal(t, utils.Some[uint64](32), fc.EvmProxyMaxConnsPerOwner)
+	require.Equal(t, utils.Some(3*time.Second), fc.GetEvmProxyTimeout())
+
+	var empty AutobahnFileConfig
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &empty))
+	require.False(t, empty.EvmProxyMaxConnsPerOwner.IsPresent())
+	require.False(t, empty.GetEvmProxyTimeout().IsPresent())
+}
+
 func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 	dir := t.TempDir()
 	const (

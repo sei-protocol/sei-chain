@@ -249,13 +249,15 @@ func buildValidatorGigaConfig(
 	}
 	return &p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
-			DialInterval:            time.Duration(fc.DialInterval),
-			ValidatorAddrs:          validatorAddrs,
-			PersistentStateDir:      fc.PersistentStateDir,
-			App:                     app,
-			GenDoc:                  genDoc,
-			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
-			EnableEvmProxy:          fc.GetEnableEvmProxy(),
+			DialInterval:             time.Duration(fc.DialInterval),
+			ValidatorAddrs:           validatorAddrs,
+			PersistentStateDir:       fc.PersistentStateDir,
+			App:                      app,
+			GenDoc:                   genDoc,
+			MaxInboundFullnodePeers:  resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
+			EnableEvmProxy:           fc.GetEnableEvmProxy(),
+			EvmProxyMaxConnsPerOwner: fc.EvmProxyMaxConnsPerOwner,
+			EvmProxyTimeout:          fc.GetEvmProxyTimeout(),
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
@@ -479,12 +481,14 @@ func buildFullnodeGigaConfig(
 		return nil, err
 	}
 	return &p2p.GigaRouterCommonConfig{
-		DialInterval:            time.Duration(fc.DialInterval),
-		ValidatorAddrs:          validatorAddrs,
-		PersistentStateDir:      fc.PersistentStateDir,
-		App:                     app,
-		GenDoc:                  genDoc,
-		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
+		DialInterval:             time.Duration(fc.DialInterval),
+		ValidatorAddrs:           validatorAddrs,
+		PersistentStateDir:       fc.PersistentStateDir,
+		App:                      app,
+		GenDoc:                   genDoc,
+		MaxInboundFullnodePeers:  resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
+		EvmProxyMaxConnsPerOwner: fc.EvmProxyMaxConnsPerOwner,
+		EvmProxyTimeout:          fc.GetEvmProxyTimeout(),
 	}, nil
 }
 

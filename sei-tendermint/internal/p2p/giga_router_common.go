@@ -94,6 +94,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.PersistentStateDir == "" {
 		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
 	}
+	if err := cfg.validateEvmProxy(); err != nil {
+		return nil, err
+	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -320,7 +323,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, has
 // runEvmProxy maintains an EVM RPC client for one committee member.
 func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
 	for {
-		client, err := ethrpc.DialContext(ctx, addr.EVMRPC.String())
+		client, transport, err := dialEvmProxy(ctx, validator, addr.EVMRPC.String(), r.cfg.evmProxyConfig(), Global)
 		if err != nil {
 			logger.Info("evm proxy dial failed", "url", addr.EVMRPC, "err", err)
 			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
@@ -338,6 +341,7 @@ func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.Pub
 				delete(proxies, validator)
 			}
 		}
+		transport.close()
 		return ctx.Err()
 	}
 }
