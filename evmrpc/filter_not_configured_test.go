@@ -65,7 +65,7 @@ func TestFeeHistoryWithoutReceiptStore(t *testing.T) {
 func TestGetRewardsWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 	api := &InfoAPI{keeper: &keeper.Keeper{}}
-	_, err := api.getRewards(nil, nil, nil)
+	_, err := api.getRewards(context.Background(), nil, nil, nil)
 	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 }
 

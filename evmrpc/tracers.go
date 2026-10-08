@@ -27,6 +27,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -110,7 +111,12 @@ func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endp
 	if err := requireReceiptStore(api.keeper); err != nil {
 		return err
 	}
-	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, api.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return api.keeper.GetReceipt(sdkCtx, hash)
+	})
+	if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil || receipt == nil {
 		return nil
 	}
@@ -337,7 +343,9 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		return nil, returnErr
 	}
 
-	if cached, ok := api.tryTraceCache(hash, config); ok {
+	if cached, ok, err := api.tryTraceCache(ctx, hash, config); err != nil {
+		return nil, err
+	} else if ok {
 		return cached, nil
 	}
 
@@ -355,24 +363,32 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	return resultUnlessExpired(ctx, traced, err)
 }
 
-func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
+func (api *DebugAPI) tryTraceCache(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, bool, error) {
 	cache := api.keeper.TraceDB()
 	if cache == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	name := bakeableTracerName(config)
 	if name == "" {
-		return nil, false
+		return nil, false, nil
 	}
-	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, api.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return api.keeper.GetReceipt(sdkCtx, hash)
+	})
+	if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+		return nil, false, ctxErr
+	}
 	if err != nil || receipt == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	bz, ok, err := cache.Get(int64(receipt.BlockNumber), name, hash) //nolint:gosec
-	if err != nil || !ok {
-		return nil, false
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, false, ctxErr
 	}
-	return bz, true
+	if err != nil || !ok {
+		return nil, false, nil
+	}
+	return bz, true, nil
 }
 
 // blockTraceCacheGet assembles a per-tx hit; returns (nil, false) if any miss.
