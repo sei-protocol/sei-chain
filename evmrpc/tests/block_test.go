@@ -92,6 +92,7 @@ func TestGetBlockSkipTxIndex(t *testing.T) {
 			txs := res["result"].(map[string]any)["transactions"].([]any)
 			require.Len(t, txs, 1)
 			require.Equal(t, "0x0", txs[0].(map[string]any)["transactionIndex"].(string))
+			require.NotContains(t, txs[0].(map[string]any), "blockTimestamp")
 		},
 	)
 }

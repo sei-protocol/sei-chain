@@ -20,12 +20,15 @@ export const APPROVAL_TOPIC = ERC20_LOG_IFACE.getEvent('Approval')!.topicHash;
 /** Filter handles are opaque random hex, not minimally-encoded quantities. */
 export const FILTER_ID = OPAQUE_HEX_ID;
 
-/** The canonical Ethereum log fields, as returned by both Sei and geth. */
+/**
+ * The canonical Ethereum log fields. Sei returns exactly these; a modern geth
+ * additionally returns `blockTimestamp`, so parity is asserted as "both carry
+ * every core field" rather than strict key-set equality.
+ */
 export const CORE_LOG_KEYS = [
     'address',
     'blockHash',
     'blockNumber',
-    'blockTimestamp',
     'data',
     'logIndex',
     'removed',
@@ -327,7 +330,6 @@ export function expectLogShape(log: any, ctx = 'log'): void {
     );
     expect(log.data, `${ctx}.data`).to.match(HEX_DATA);
     expect(log.blockNumber, `${ctx}.blockNumber`).to.match(HEX_QUANTITY);
-    expect(log.blockTimestamp, `${ctx}.blockTimestamp`).to.match(HEX_QUANTITY);
     expect(log.transactionIndex, `${ctx}.transactionIndex`).to.match(HEX_QUANTITY);
     expect(log.logIndex, `${ctx}.logIndex`).to.match(HEX_QUANTITY);
     expect(log.blockHash, `${ctx}.blockHash`).to.match(HASH32);

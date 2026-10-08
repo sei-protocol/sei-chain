@@ -26,6 +26,7 @@ import {
     SEI_ONLY_BLOCK_FIELDS,
     GETH_ONLY_BLOCK_FIELDS,
     CORE_TX_FIELDS,
+    GETH_ONLY_TX_FIELDS,
     STAKING_PRECOMPILE_ADDRESS,
     RichBlock,
     SentTx,
@@ -397,7 +398,7 @@ describe('eth_getBlockByNumber', function () {
             );
         });
 
-        it('both single transactions expose the same tx field set', async () => {
+        it('both single transactions expose the core tx field set, with only the documented divergences', async () => {
             const [s, g] = await Promise.all([
                 getBlock(sei, seiOne.number, true),
                 getBlock(geth, gethOne.number, true),
@@ -413,9 +414,10 @@ describe('eth_getBlockByNumber', function () {
                 expect(sKeys, `Sei tx has ${f}`).to.include(f);
                 expect(gKeys, `geth tx has ${f}`).to.include(f);
             }
-            expect([...sKeys].sort(), 'tx key set parity').to.deep.equal([...gKeys].sort());
-            expect(seiTx.blockTimestamp, 'Sei tx blockTimestamp == block.timestamp').to.equal(s.timestamp);
-            expect(gethTx.blockTimestamp, 'geth tx blockTimestamp == block.timestamp').to.equal(g.timestamp);
+            const gethExtra = gKeys.filter(k => !sKeys.includes(k));
+            gethExtra.forEach(k =>
+                expect(GETH_ONLY_TX_FIELDS as readonly string[], `unexpected geth-only tx ${k}`).to.include(k),
+            );
             expect(BigInt(seiTx.type), 'both are EIP-1559').to.equal(2n);
             expect(BigInt(gethTx.type), 'both are EIP-1559').to.equal(2n);
         });

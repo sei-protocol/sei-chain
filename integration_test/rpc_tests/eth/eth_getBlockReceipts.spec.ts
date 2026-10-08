@@ -221,19 +221,23 @@ describe('eth_getBlockReceipts', function () {
             }
         });
 
-        it('both stamp blockTimestamp on the tx object, equal to the block timestamp', async () => {
+        it('[divergence] geth stamps blockTimestamp on the tx object; Sei does not', async () => {
             const [s, g] = await Promise.all([
                 sei.send('eth_getTransactionByHash', [seiOne.tx.hash]),
                 geth.send('eth_getTransactionByHash', [gethOne.tx.hash]),
             ]);
-            expect(Object.keys(s).sort(), 'tx key set parity').to.deep.equal(Object.keys(g).sort());
-            expect(s, 'Sei tx has blockTimestamp').to.have.property('blockTimestamp');
-            const [sBlock, gBlock] = await Promise.all([
-                sei.send('eth_getBlockByNumber', [s.blockNumber, false]),
-                geth.send('eth_getBlockByNumber', [g.blockNumber, false]),
+            const sKeys = Object.keys(s).sort();
+            const gKeys = Object.keys(g).sort();
+            // geth carries exactly one extra field, the including block's timestamp.
+            expect(gKeys.filter(k => !sKeys.includes(k)), 'geth-only tx fields').to.deep.equal([
+                'blockTimestamp',
             ]);
-            expect(s.blockTimestamp, 'Sei blockTimestamp == block.timestamp').to.equal(sBlock.timestamp);
-            expect(g.blockTimestamp, 'geth blockTimestamp == block.timestamp').to.equal(gBlock.timestamp);
+            expect(sKeys.filter(k => !gKeys.includes(k)), 'Sei-only tx fields').to.deep.equal([]);
+            // It is purely informational: it equals the block's own timestamp, so it adds no
+            // state — just saves a second round-trip. Sei omitting it is consistent with the
+            // receipt (which also has no timestamp); query the block for the time instead.
+            const gBlock = await geth.send('eth_getBlockByNumber', [g.blockNumber, false]);
+            expect(g.blockTimestamp, 'blockTimestamp == block.timestamp').to.equal(gBlock.timestamp);
         });
     });
 

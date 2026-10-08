@@ -428,7 +428,6 @@ func EncodeTmBlock(
 				transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 			} else {
 				ti := uint64(len(transactions))
-				blockUnix := toUint64(blockTime.Unix())
 				var to common.Address
 				ercAddress, _, exists := k.GetAnyPointeeInfo(ctx, m.Contract)
 				if exists {
@@ -439,7 +438,6 @@ func EncodeTmBlock(
 				transactions = append(transactions, &export.RPCTransaction{
 					BlockHash:        &blockhash,
 					BlockNumber:      (*hexutil.Big)(number),
-					BlockTimestamp:   (*hexutil.Uint64)(&blockUnix),
 					From:             common.HexToAddress(receipt.From),
 					To:               &to,
 					Input:            m.Msg.Bytes(),
