@@ -146,6 +146,20 @@ else
   echo "occ_enabled = $GIGA_OCC_VALUE" >> ~/.sei/config/app.toml
 fi
 
+# EVM_IP_RATE_LIMIT_RPS and EVM_IP_RATE_LIMIT_BURST override the EVM RPC per-IP
+# rate limit. CI sets them because the integration suites drive node0 from a
+# single IP; when unset the app.toml defaults apply.
+set_evm_rate_limit() {
+  key=$1
+  value=$2
+  [ -n "$value" ] || return 0
+  echo "Setting EVM RPC $key to $value for node $NODE_ID..."
+  sed -i "/^\[evm\]/,/^\[/{/^$key[[:space:]]*=/d;}" ~/.sei/config/app.toml
+  sed -i "/^\[evm\]/a $key = $value" ~/.sei/config/app.toml
+}
+set_evm_rate_limit ip_rate_limit_rps "${EVM_IP_RATE_LIMIT_RPS:-}"
+set_evm_rate_limit ip_rate_limit_burst "${EVM_IP_RATE_LIMIT_BURST:-}"
+
 # Override receipt store backend if requested
 RECEIPT_BACKEND=${RECEIPT_BACKEND:-}
 if [ -n "$RECEIPT_BACKEND" ]; then
