@@ -145,6 +145,7 @@ func TestGigaRouter_FullnodeSyncsFromEveryCommitteeMember(t *testing.T) {
 				GigaRouterCommonConfig: *cfg,
 				ValidatorKey:           v.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+				ProposalTimeout:        time.Hour,
 				Producer:               testProducerConfig(txGasUsed, maxTxsPerBlock),
 			}, v.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
