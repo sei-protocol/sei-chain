@@ -189,7 +189,7 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	return nil
 }
 
-// Prune implements HashVault. The boundary advance and range deletion are written in a single
+// Prune implements HashVault. The boundary advance and the deletions are written in a single
 // atomic Pebble batch: a crash mid-Prune either rolls forward to the new boundary (with the
 // deletions applied) or leaves the old state intact. On return, every height strictly below
 // blockHeight is guaranteed durable-deleted (subject to config.Fsync).
@@ -212,16 +212,39 @@ func (p *PebbleHashVault) Prune(ctx context.Context, blockHeight uint64) error {
 	if err := batch.Set(pruneBoundaryKey, encodeBoundaryValue(blockHeight), nil); err != nil {
 		return fmt.Errorf("failed to stage prune boundary advance to %d: %w", blockHeight, err)
 	}
-	// DeleteRange's upper bound is exclusive, so hashKey(blockHeight) keeps the boundary block
-	// itself per the HashVault.Prune contract.
-	if err := batch.DeleteRange(hashKey(0), hashKey(blockHeight), nil); err != nil {
-		return fmt.Errorf("failed to stage prune deletion below %d: %w", blockHeight, err)
+	if err := p.stagePrunedHashDeletes(batch, blockHeight); err != nil {
+		return err
 	}
 	if err := batch.Commit(p.writeOpts); err != nil {
 		return fmt.Errorf("failed to commit prune to %d: %w", blockHeight, err)
 	}
 
 	p.pruneBoundary = blockHeight
+	return nil
+}
+
+// stagePrunedHashDeletes stages a point delete for every stored height in
+// [p.pruneBoundary, blockHeight). Every height below p.pruneBoundary is already deleted, so the
+// scan visits only the heights this call prunes. Point deletes keep the cost of a later read
+// constant; a range deletion per call leaves one range tombstone per block in the memtable, and
+// every Get pays for all of them until the memtable flushes.
+func (p *PebbleHashVault) stagePrunedHashDeletes(batch *pebble.Batch, blockHeight uint64) error {
+	iter, err := p.db.NewIter(&pebble.IterOptions{
+		LowerBound: hashKey(p.pruneBoundary),
+		UpperBound: hashKey(blockHeight),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to open prune iterator below %d: %w", blockHeight, err)
+	}
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := batch.Delete(iter.Key(), nil); err != nil {
+			_ = iter.Close()
+			return fmt.Errorf("failed to stage prune deletion below %d: %w", blockHeight, err)
+		}
+	}
+	if err := iter.Close(); err != nil {
+		return fmt.Errorf("failed to scan heights below %d: %w", blockHeight, err)
+	}
 	return nil
 }
 
