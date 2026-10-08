@@ -87,6 +87,9 @@ func (s *DBImpl) SelfDestruct(acc common.Address) {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
+	// The balance is left alone: the SELFDESTRUCT opcode transfers or burns it
+	// before calling this, and under EIP-8246 deliberately keeps it when the
+	// beneficiary is acc itself, so debiting here would burn funds it preserves.
 	// mark account as self-destructed
 	s.MarkAccount(acc, AccountDeleted)
 }
