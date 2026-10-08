@@ -30,6 +30,7 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			res = sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx.Hash().Hex())
 			logs := res["result"].(map[string]any)["logs"].([]interface{})
 			require.Len(t, logs, 2)
+			requireLogBlockTimestamps(t, port, logs)
 
 			// the first block should have no receipts for eth_getBlockReceipts
 			res = sendRequestWithNamespace("eth", port, "getBlockReceipts", "0x2")
@@ -43,6 +44,7 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			require.Len(t, receipts, 1)
 			logs = receipts[0].(map[string]any)["logs"].([]interface{})
 			require.Len(t, logs, 2)
+			requireLogBlockTimestamps(t, port, logs)
 
 			// eth_getLogs should only return logs for the EVM transaction, which
 			// has two (synthetic and non-synthetic) logs.
@@ -52,6 +54,7 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			})
 			logs = res["result"].([]interface{})
 			require.Len(t, logs, 2)
+			requireLogBlockTimestamps(t, port, logs)
 			require.Equal(t, mixedLogTesterAddr, common.HexToAddress(logs[0].(map[string]any)["address"].(string)))
 			require.Equal(t, "0x0", logs[0].(map[string]any)["logIndex"])
 			require.Equal(t, "0x0", logs[0].(map[string]any)["transactionIndex"])
@@ -61,4 +64,14 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 
 		},
 	)
+}
+
+// requireLogBlockTimestamps asserts each log's blockTimestamp equals its block's timestamp.
+func requireLogBlockTimestamps(t *testing.T, port int, logs []interface{}) {
+	t.Helper()
+	for _, l := range logs {
+		log := l.(map[string]any)
+		block := sendRequestWithNamespace("eth", port, "getBlockByNumber", log["blockNumber"], false)
+		require.Equal(t, block["result"].(map[string]any)["timestamp"], log["blockTimestamp"])
+	}
 }

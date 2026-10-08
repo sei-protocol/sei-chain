@@ -478,8 +478,10 @@ func encodeReceipt(
 	normalizedReceipt := cloneReceiptForMutation(receipt)
 	normalizedReceipt.TransactionIndex = uint32(evmTxIndex)              //nolint:gosec
 	logs := keeper.GetLogsForTx(normalizedReceipt, uint(logIndexOffset)) //nolint:gosec
+	blockTimestamp := toUint64(block.Block.Time.Unix())
 	for _, log := range logs {
 		log.BlockHash = bh
+		log.BlockTimestamp = blockTimestamp
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)

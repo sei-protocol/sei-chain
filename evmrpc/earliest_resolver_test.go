@@ -45,6 +45,36 @@ func TestEarliestBlockHeightFlooredAtInitialHeight(t *testing.T) {
 	require.Equal(t, int64(1), earliest)
 }
 
+// "earliest" selects the synthetic genesis block until history is pruned past
+// the chain's first block; 0x0 always selects it.
+func TestIsGenesisBlockRequest(t *testing.T) {
+	ctx := context.Background()
+	unpruned := newHeightTestClient(0, 1, 10)
+	pruned := newHeightTestClient(0, 500, 1000)
+
+	for _, tc := range []struct {
+		name   string
+		client *heightTestClient
+		number rpc.BlockNumber
+		want   bool
+	}{
+		{"earliest unpruned", unpruned, rpc.EarliestBlockNumber, true},
+		{"earliest pruned", pruned, rpc.EarliestBlockNumber, false},
+		{"0x0 unpruned", unpruned, 0, true},
+		{"0x0 pruned", pruned, 0, true},
+		{"latest", unpruned, rpc.LatestBlockNumber, false},
+		{"first block", unpruned, 1, false},
+	} {
+		got, err := isGenesisBlockRequest(ctx, tc.client, tc.number)
+		require.NoError(t, err, tc.name)
+		require.Equal(t, tc.want, got, tc.name)
+	}
+
+	earliest, err := earliestBlockHeight(ctx, unpruned)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), earliest, "state and trace lookups resolve earliest to the first real block")
+}
+
 // "earliest" and 0x0 log bounds mean "from the start of available history"
 // and clamp to the floor; an explicit height below the floor is still rejected
 // rather than silently truncated.

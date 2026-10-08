@@ -167,9 +167,11 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	ti := uint64(0)
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
+	blockTimestamp := uint64(resBlock.Block.Time.Unix())
 	require.Equal(t, &export.RPCTransaction{
 		BlockHash:        &bh,
 		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
+		BlockTimestamp:   (*hexutil.Uint64)(&blockTimestamp),
 		From:             fromEvmAddr,
 		To:               &to,
 		Input:            []byte{1, 2, 3},

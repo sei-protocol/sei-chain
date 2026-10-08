@@ -76,7 +76,6 @@ export const CORE_TX_FIELDS = [
     'value',
     'yParity',
 ] as const;
-export const GETH_ONLY_TX_FIELDS = ['blockTimestamp'] as const;
 
 export type TxKind =
     | 'legacy'

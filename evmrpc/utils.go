@@ -91,7 +91,7 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	return numberPtr, nil
 }
 
-// earliestBlockHeight returns the lowest block height this node serves, never below the initial height.
+// earliestBlockHeight returns the lowest block height this node serves, never below the chain's first block.
 func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int64, error) {
 	if tmClient == nil {
 		return 0, errors.New("tendermint client is not configured")
@@ -101,11 +101,12 @@ func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int6
 		return 0, err
 	}
 	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
-	initial := tmClient.GenesisInitialHeight()
-	if initial <= 0 {
-		initial = genesistypes.DefaultGenesisInitialHeight
-	}
-	return max(status.SyncInfo.EarliestBlockHeight, initial), nil
+	return max(status.SyncInfo.EarliestBlockHeight, firstBlockHeight(tmClient)), nil
+}
+
+// firstBlockHeight returns the height of the chain's first committed block.
+func firstBlockHeight(tmClient client.LocalClient) int64 {
+	return max(tmClient.GenesisInitialHeight(), genesistypes.DefaultGenesisInitialHeight)
 }
 
 // getHeightFromBigIntBlockNumber resolves a log filter bound; "earliest" and 0x0 are earliest.

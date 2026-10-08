@@ -1254,6 +1254,7 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 
 		sdkCtx := f.ctxProvider(height)
 		blockHash := common.BytesToHash(block.BlockID.Hash)
+		blockTimestamp := toUint64(block.Block.Time.Unix())
 
 		var logIndex uint
 		for txIdx, txHashEntry := range txHashes {
@@ -1276,14 +1277,15 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 			for _, log := range rcpt.Logs {
 				// #nosec G115 -- blockHeight and txIdx are validated non-negative
 				ethLog := &ethtypes.Log{
-					Address:     common.HexToAddress(log.Address),
-					Data:        log.Data,
-					BlockNumber: uint64(height),
-					TxHash:      txHashEntry.hash,
-					TxIndex:     uint(txIdx),
-					BlockHash:   blockHash,
-					Index:       logIndex,
-					Removed:     false,
+					Address:        common.HexToAddress(log.Address),
+					Data:           log.Data,
+					BlockNumber:    uint64(height),
+					TxHash:         txHashEntry.hash,
+					TxIndex:        uint(txIdx),
+					BlockHash:      blockHash,
+					BlockTimestamp: blockTimestamp,
+					Index:          logIndex,
+					Removed:        false,
 				}
 				ethLog.Topics = make([]common.Hash, len(log.Topics))
 				for i, topic := range log.Topics {
@@ -1335,6 +1337,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 
 	blockHeight := block.Block.Height
 	blockHash := common.BytesToHash(block.BlockID.Hash)
+	blockTimestamp := toUint64(block.Block.Time.Unix())
 
 	// Pre-encode bloom filter indexes for fast per-receipt filtering
 	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
@@ -1365,14 +1368,15 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 		for _, log := range rcpt.Logs {
 			// #nosec G115 -- blockHeight and txIdx are validated non-negative
 			ethLog := &ethtypes.Log{
-				Address:     common.HexToAddress(log.Address),
-				Data:        log.Data,
-				BlockNumber: uint64(blockHeight),
-				TxHash:      txHashEntry.hash,
-				TxIndex:     uint(txIdx),
-				BlockHash:   blockHash,
-				Index:       logIndex,
-				Removed:     false,
+				Address:        common.HexToAddress(log.Address),
+				Data:           log.Data,
+				BlockNumber:    uint64(blockHeight),
+				TxHash:         txHashEntry.hash,
+				TxIndex:        uint(txIdx),
+				BlockHash:      blockHash,
+				BlockTimestamp: blockTimestamp,
+				Index:          logIndex,
+				Removed:        false,
 			}
 			ethLog.Topics = make([]common.Hash, len(log.Topics))
 			for i, topic := range log.Topics {

@@ -134,19 +134,12 @@ export async function sharedGethTx(geth: ethers.JsonRpcProvider): Promise<GethTx
 }
 
 /**
- * Assert two tx objects expose the same field set, ignoring `blockTimestamp` — a known Sei
- * divergence (geth stamps it on tx objects; Sei does not). Both objects must be the SAME
+ * Assert two tx objects expose the same field set. Both objects must be the SAME
  * transaction type, since the typed-tx EIPs gate which fee fields appear.
  */
 export function assertTxKeysetParity(seiTx: any, gethTx: any): void {
-    const keys = (o: any) =>
-        Object.keys(o)
-            .filter(k => k !== 'blockTimestamp')
-            .sort();
-    expect(
-        keys(seiTx),
-        'tx-object key set parity (excluding the known blockTimestamp divergence)',
-    ).to.deep.equal(keys(gethTx));
+    const keys = (o: any) => Object.keys(o).sort();
+    expect(keys(seiTx), 'tx-object key set parity').to.deep.equal(keys(gethTx));
 }
 
 /** All logs in a block, fetched via eth_getLogs by blockHash. */
