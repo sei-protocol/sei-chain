@@ -45,7 +45,7 @@ type budGoldenFile struct {
 	// The recorded blocks.
 	Records []budGoldenRecord `json:"records"`
 
-	// Serialized BUD state proofs, each over one or two recorded writes of a key.
+	// Serialized BUD state proofs, each of one recorded write of a key.
 	StateProofs []budGoldenStateProof `json:"stateProofs"`
 }
 
@@ -66,8 +66,8 @@ type budGoldenStateProof struct {
 	// The highest block height the proof covers, as a decimal string.
 	EndHeight string `json:"endHeight"`
 
-	// The app hash of each of the proof's blocks, in height order.
-	AppHashes []string `json:"appHashes"`
+	// The app hash of the proof's block.
+	AppHash string `json:"appHash"`
 
 	// The value the proof gives at the start height and at every height below the end height.
 	StartValue budGoldenValue `json:"startValue"`
@@ -112,9 +112,15 @@ type budGoldenBudlet struct {
 	// Whether the budlet is a deletion.
 	Deleted bool `json:"deleted"`
 
-	// The budlet's previous height, as a decimal string so readers without exact 64-bit JSON numbers keep every
+	// The budlet's previous value.
+	PreviousValue string `json:"previousValue"`
+
+	// Whether the budlet's key was absent before the block.
+	PreviousDeleted bool `json:"previousDeleted"`
+
+	// The budlet's anchor height, as a decimal string so readers without exact 64-bit JSON numbers keep every
 	// digit.
-	PreviousHeight string `json:"previousHeight"`
+	AnchorHeight string `json:"anchorHeight"`
 }
 
 // TestBUDGolden requires every committed golden file to verify against this build.
@@ -211,7 +217,7 @@ func verifyBUDGoldenRecord(
 }
 
 // verifyBUDGoldenStateProof requires a recorded BUD state proof to deserialize and give the recorded key, chain ID,
-// heights, app hashes, and values. A state proof of the current versions must also serialize back to the recorded
+// heights, app hash, and values. A state proof of the current versions must also serialize back to the recorded
 // bytes.
 func verifyBUDGoldenStateProof(
 	t *testing.T,
@@ -237,11 +243,8 @@ func verifyBUDGoldenStateProof(
 	require.Equal(t, recorded.StartHeight, strconv.FormatUint(stateProof.StartHeight(), 10),
 		"state proof %d", index)
 	require.Equal(t, recorded.EndHeight, strconv.FormatUint(stateProof.EndHeight(), 10), "state proof %d", index)
-	appHashes := make([]string, 0, len(stateProof.AppHashes()))
-	for _, appHash := range stateProof.AppHashes() {
-		appHashes = append(appHashes, hex.EncodeToString(appHash[:]))
-	}
-	require.Equal(t, recorded.AppHashes, appHashes, "state proof %d app hashes", index)
+	appHash := stateProof.AppHash()
+	require.Equal(t, recorded.AppHash, hex.EncodeToString(appHash[:]), "state proof %d app hash", index)
 
 	startValue := decodeBUDGoldenValue(t, recorded.StartValue)
 	endValue := decodeBUDGoldenValue(t, recorded.EndValue)
@@ -310,20 +313,17 @@ func newBUDGoldenStateProof(t *testing.T, stateProof *BUDStateProof) budGoldenSt
 	require.True(t, covered)
 	endValue, covered := stateProof.ValueAt(stateProof.EndHeight())
 	require.True(t, covered)
-	recorded := budGoldenStateProof{
+	appHash := stateProof.AppHash()
+	return budGoldenStateProof{
 		Proof:       hex.EncodeToString(stateProof.Serialize()),
 		Key:         hex.EncodeToString(stateProof.Key()),
 		ChainID:     strconv.FormatUint(stateProof.ChainID(), 10),
 		StartHeight: strconv.FormatUint(stateProof.StartHeight(), 10),
 		EndHeight:   strconv.FormatUint(stateProof.EndHeight(), 10),
-		AppHashes:   make([]string, 0, len(stateProof.AppHashes())),
+		AppHash:     hex.EncodeToString(appHash[:]),
 		StartValue:  newBUDGoldenValue(startValue),
 		EndValue:    newBUDGoldenValue(endValue),
 	}
-	for _, appHash := range stateProof.AppHashes() {
-		recorded.AppHashes = append(recorded.AppHashes, hex.EncodeToString(appHash[:]))
-	}
-	return recorded
 }
 
 // decodeBUDGoldenBudlet decodes one recorded budlet, failing the test if a field does not parse.
@@ -333,10 +333,12 @@ func decodeBUDGoldenBudlet(t *testing.T, recordIndex int, budletIndex int, recor
 	key, err := hex.DecodeString(recorded.Key)
 	require.NoError(t, err, "record %d budlet %d key", recordIndex, budletIndex)
 	value := decodeBUDGoldenValue(t, budGoldenValue{Value: recorded.Value, Deleted: recorded.Deleted})
-	previousHeight, err := strconv.ParseUint(recorded.PreviousHeight, 10, 64)
-	require.NoError(t, err, "record %d budlet %d previous height", recordIndex, budletIndex)
+	previousValue := decodeBUDGoldenValue(t,
+		budGoldenValue{Value: recorded.PreviousValue, Deleted: recorded.PreviousDeleted})
+	anchorHeight, err := strconv.ParseUint(recorded.AnchorHeight, 10, 64)
+	require.NoError(t, err, "record %d budlet %d anchor height", recordIndex, budletIndex)
 
-	budlet, err := NewBudlet(key, value, previousHeight)
+	budlet, err := NewBudlet(key, value, previousValue, anchorHeight)
 	require.NoError(t, err, "record %d budlet %d", recordIndex, budletIndex)
 	return budlet
 }
@@ -380,12 +382,11 @@ func recordBUDGoldenFile(t *testing.T) {
 	for _, count := range budGoldenCounts {
 		file.Records = append(file.Records, newBUDGoldenRecord(t, randomBudlets(t, rng, count)))
 	}
-	writes := newTestConsecutiveWrites(t, rng, []byte("second value"))
-	single, err := NewBUDStateProof(writes.appHashData[:1], writes.budProofs[:1])
-	require.NoError(t, err)
-	pair, err := NewBUDStateProof(writes.appHashData, writes.budProofs)
-	require.NoError(t, err)
-	file.StateProofs = []budGoldenStateProof{newBUDGoldenStateProof(t, single), newBUDGoldenStateProof(t, pair)}
+	file.StateProofs = []budGoldenStateProof{
+		newBUDGoldenStateProof(t,
+			newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testAnchorHeight)),
+		newBUDGoldenStateProof(t, newTestBUDStateProof(t, rng, []byte("value"), nil, 0)),
+	}
 	writeBUDGoldenFile(t, budGoldenFilePath(budVersion, budProofVersion, budStateProofVersion), file)
 }
 
@@ -404,10 +405,12 @@ func newBUDGoldenRecord(t *testing.T, budlets []*Budlet) budGoldenRecord {
 	}
 	for _, budlet := range budlets {
 		record.Budlets = append(record.Budlets, budGoldenBudlet{
-			Key:            hex.EncodeToString(budlet.Key()),
-			Value:          hex.EncodeToString(budlet.Value()),
-			Deleted:        budlet.Value() == nil,
-			PreviousHeight: strconv.FormatUint(budlet.PreviousHeight(), 10),
+			Key:             hex.EncodeToString(budlet.Key()),
+			Value:           hex.EncodeToString(budlet.Value()),
+			Deleted:         budlet.Value() == nil,
+			PreviousValue:   hex.EncodeToString(budlet.PreviousValue()),
+			PreviousDeleted: budlet.PreviousValue() == nil,
+			AnchorHeight:    strconv.FormatUint(budlet.AnchorHeight(), 10),
 		})
 		proof, found := tree.BuildBUDProof(budlet.Key())
 		require.True(t, found)

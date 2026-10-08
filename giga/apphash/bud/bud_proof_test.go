@@ -72,8 +72,9 @@ func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProo
 	alter := func(name string, change func(claim *budProofClaim)) {
 		proofCopy := *proof
 		proofCopy.budlet.key = bytes.Clone(proof.budlet.key)
-		// bytes.Clone keeps a nil value nil and an empty one non-nil, so deletions and empty writes stay apart.
+		// bytes.Clone keeps a nil value nil and an empty one non-nil, so deletions and empty values stay apart.
 		proofCopy.budlet.value = bytes.Clone(proof.budlet.value)
+		proofCopy.budlet.previousValue = bytes.Clone(proof.budlet.previousValue)
 		proofCopy.siblings = append([][32]byte(nil), proof.siblings...)
 		claim := budProofClaim{bud: bud, proof: &proofCopy}
 		change(&claim)
@@ -82,13 +83,23 @@ func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProo
 
 	alter("bud", func(claim *budProofClaim) { claim.bud[0] ^= 1 })
 	alter("key", func(claim *budProofClaim) { claim.proof.budlet.key[0] ^= 1 })
-	alter("previous height", func(claim *budProofClaim) { claim.proof.budlet.previousHeight ^= 1 })
+	alter("anchor height", func(claim *budProofClaim) { claim.proof.budlet.anchorHeight ^= 1 })
 	if proof.budlet.value == nil {
 		alter("empty write", func(claim *budProofClaim) { claim.proof.budlet.value = []byte{} })
 	} else {
 		alter("deletion", func(claim *budProofClaim) { claim.proof.budlet.value = nil })
 		alter("value", func(claim *budProofClaim) {
 			claim.proof.budlet.value = append(claim.proof.budlet.value, 0)
+		})
+	}
+	if proof.budlet.previousValue == nil {
+		alter("empty previous value", func(claim *budProofClaim) {
+			claim.proof.budlet.previousValue = []byte{}
+		})
+	} else {
+		alter("absent previous value", func(claim *budProofClaim) { claim.proof.budlet.previousValue = nil })
+		alter("previous value", func(claim *budProofClaim) {
+			claim.proof.budlet.previousValue = append(claim.proof.budlet.previousValue, 0)
 		})
 	}
 	alter("count up", func(claim *budProofClaim) { claim.proof.count++ })
@@ -114,7 +125,7 @@ func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProo
 }
 
 func TestDeserializeBUDProofRejectsMalformedInput(t *testing.T) {
-	budlet := newTestBudlet(t, "evm/a", []byte{0x01}, 0).Serialize()
+	budlet := newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0).Serialize()
 	serialize := func(version uint8, budVersion uint8, count uint64, index uint64, siblings int) []byte {
 		data := append([]byte{version, budVersion}, budlet...)
 		data = binary.BigEndian.AppendUint64(data, count)

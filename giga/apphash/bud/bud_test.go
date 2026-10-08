@@ -25,10 +25,12 @@ func TestBUDCommitsToEveryField(t *testing.T) {
 	original := budOf(t, threeBudlets(t))
 
 	replacements := map[string]*Budlet{
-		"key":             newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, 0),
-		"value":           newTestBudlet(t, "evm/b", []byte{0x02, 0x04}, 0),
-		"deletion":        newTestDeletionBudlet(t, "evm/b", 0),
-		"previous height": newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, 1),
+		"key":                  newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, nil, 0),
+		"value":                newTestBudlet(t, "evm/b", []byte{0x02, 0x04}, nil, 0),
+		"deletion":             newTestDeletionBudlet(t, "evm/b", nil, 0),
+		"previous value":       newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{0x05}, 0),
+		"empty previous value": newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{}, 0),
+		"anchor height":        newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, nil, 1),
 	}
 	for name, replacement := range replacements {
 		t.Run(name, func(t *testing.T) {
@@ -44,16 +46,23 @@ func TestBUDCommitsToEveryField(t *testing.T) {
 }
 
 func TestBUDDistinguishesDeletionFromEmptyValue(t *testing.T) {
-	deleted := budOf(t, []*Budlet{newTestDeletionBudlet(t, "evm/a", 0)})
-	empty := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{}, 0)})
+	deleted := budOf(t, []*Budlet{newTestDeletionBudlet(t, "evm/a", nil, 0)})
+	empty := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{}, nil, 0)})
 	require.NotEqual(t, deleted, empty)
+}
+
+func TestBUDDistinguishesAbsentFromEmptyPreviousValue(t *testing.T) {
+	absent := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0)})
+	empty := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, []byte{}, 0)})
+	require.NotEqual(t, absent, empty)
 }
 
 func TestZeroValuesDoNotPanic(t *testing.T) {
 	var budlet Budlet
 	require.Nil(t, budlet.Key())
 	require.Nil(t, budlet.Value())
-	require.Zero(t, budlet.PreviousHeight())
+	require.Nil(t, budlet.PreviousValue())
+	require.Zero(t, budlet.AnchorHeight())
 	_, err := DeserializeBudlet(budlet.Serialize())
 	require.Error(t, err)
 
@@ -80,7 +89,7 @@ func TestZeroValuesDoNotPanic(t *testing.T) {
 	require.Zero(t, stateProof.EndHeight())
 	_, covered := stateProof.ValueAt(0)
 	require.False(t, covered)
-	require.Empty(t, stateProof.AppHashes())
+	_ = stateProof.AppHash()
 	_, err = DeserializeBUDStateProof(stateProof.Serialize())
 	require.Error(t, err)
 }

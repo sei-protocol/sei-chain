@@ -32,12 +32,12 @@ func TestBUDTreeRootMatchesRFC6962(t *testing.T) {
 func TestNewBUDTreeRejectsUnsortedBudlets(t *testing.T) {
 	testCases := map[string][]*Budlet{
 		"unsorted": {
-			newTestBudlet(t, "evm/b", []byte{0x01}, 0),
-			newTestBudlet(t, "evm/a", []byte{0x01}, 0),
+			newTestBudlet(t, "evm/b", []byte{0x01}, nil, 0),
+			newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0),
 		},
 		"duplicate key": {
-			newTestBudlet(t, "evm/a", []byte{0x01}, 0),
-			newTestDeletionBudlet(t, "evm/a", 0),
+			newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0),
+			newTestDeletionBudlet(t, "evm/a", []byte{0x01}, 0),
 		},
 	}
 	for name, budlets := range testCases {
@@ -49,7 +49,7 @@ func TestNewBUDTreeRejectsUnsortedBudlets(t *testing.T) {
 }
 
 func TestNewBUDTreeRejectsNilAndInvalidBudlets(t *testing.T) {
-	valid := newTestBudlet(t, "evm/a", []byte{0x01}, 0)
+	valid := newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0)
 	testCases := map[string][]*Budlet{
 		"nil budlet":          {nil},
 		"nil after a budlet":  {valid, nil},
@@ -85,8 +85,8 @@ func TestDeserializeBUDTreeRejectsMalformedInput(t *testing.T) {
 		}
 		return data
 	}
-	first := newTestBudlet(t, "evm/a", []byte{0x01}, 0)
-	second := newTestDeletionBudlet(t, "evm/b", 4)
+	first := newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0)
+	second := newTestDeletionBudlet(t, "evm/b", []byte{0x02}, 4)
 	valid := serialize(budVersion, 2, first, second)
 	_, err := DeserializeBUDTree(valid)
 	require.NoError(t, err)
