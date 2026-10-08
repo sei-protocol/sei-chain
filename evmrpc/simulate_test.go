@@ -395,13 +395,30 @@ func TestConvertBlockNumber(t *testing.T) {
 		}
 		return sdk.Context{}
 	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
-	for bn, want := range map[rpc.BlockNumber]int64{10: 10, 0: 1, rpc.EarliestBlockNumber: 1, -2: 1000, -3: 1000, -4: 1000} {
-		got, err := backend.ConvertBlockNumber(bn)
-		require.NoError(t, err)
-		require.Equal(t, want, got, bn)
+	for _, tc := range []struct {
+		name    string
+		bn      rpc.BlockNumber
+		want    int64
+		wantErr bool
+	}{
+		{name: "number", bn: 10, want: 10},
+		{name: "0x0", bn: 0, want: 1},
+		{name: "earliest", bn: rpc.EarliestBlockNumber, want: 1},
+		{name: "latest", bn: rpc.LatestBlockNumber, want: 1000},
+		{name: "finalized", bn: rpc.FinalizedBlockNumber, want: 1000},
+		{name: "safe", bn: rpc.SafeBlockNumber, want: 1000},
+		{name: "pending", bn: rpc.PendingBlockNumber, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := backend.ConvertBlockNumber(tc.bn)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
 	}
-	_, err := backend.ConvertBlockNumber(rpc.PendingBlockNumber)
-	require.Error(t, err)
 }
 
 func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
