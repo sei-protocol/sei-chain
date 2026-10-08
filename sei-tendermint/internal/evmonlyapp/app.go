@@ -34,16 +34,39 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
+// transaction invalidates the block containing it. Every node must agree on
+// it, so it is not an operator setting.
+const evmOnlyBlockMinGasPrice = 1_000_000_000
+
+// checkedSendersCap bounds the senders remembered from CheckTx per generation.
+// Entries are dropped as their transactions execute; the cap only guards against
+// admitted transactions that never reach a block.
+const checkedSendersCap = 1 << 18
+
+// minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
+const minTxsPerHashWorker = 64
+
+const (
+	// finalizeMeterName is the OTel meter FinalizeBlock's phase timer records to,
+	// as evmonly_finalize_phase_duration_seconds_total.
+	finalizeMeterName = "evmonly_app"
+	finalizeTimerName = "evmonly_finalize"
+
+	finalizePhaseTakeSenders = "take_senders"
+	finalizePhasePrepare     = "prepare"
+	finalizePhaseExecute     = "execute"
+	finalizePhaseTxResults   = "tx_results"
+)
+
+// evmOnlyHashBufferSize is the buffer between the stream and the hash.
+const evmOnlyHashBufferSize = 32 << 10
+
 var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
 
 // evmOnlyBaseFee is the base fee this application executes every block at.
 // Admission and block validity both price against it, so they cannot diverge.
 func evmOnlyBaseFee() *big.Int { return new(big.Int) }
-
-// evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
-// transaction invalidates the block containing it. Every node must agree on
-// it, so it is not an operator setting.
-const evmOnlyBlockMinGasPrice = 1_000_000_000
 
 // evmOnlyAdmissionMinGasPrice returns the local admission floor for a configured
 // value, never below the block-validity floor.
@@ -52,11 +75,6 @@ func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
 }
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
-
-// checkedSendersCap bounds the senders remembered from CheckTx per generation.
-// Entries are dropped as their transactions execute; the cap only guards against
-// admitted transactions that never reach a block.
-const checkedSendersCap = 1 << 18
 
 // senderCache remembers the sender recovered for each transaction hash. It keeps
 // two generations: inserts go to fresh, and once fresh reaches the cap it
@@ -88,9 +106,6 @@ func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 	return utils.None[common.Address]()
 }
 
-// minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
-const minTxsPerHashWorker = 64
-
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -121,18 +136,6 @@ type evmOnlyApplication struct {
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
 	finalizePhases *seidbmetrics.PhaseTimer
 }
-
-const (
-	// finalizeMeterName is the OTel meter FinalizeBlock's phase timer records to,
-	// as evmonly_finalize_phase_duration_seconds_total.
-	finalizeMeterName = "evmonly_app"
-	finalizeTimerName = "evmonly_finalize"
-
-	finalizePhaseTakeSenders = "take_senders"
-	finalizePhasePrepare     = "prepare"
-	finalizePhaseExecute     = "execute"
-	finalizePhaseTxResults   = "tx_results"
-)
 
 // evmOnlyCursorState is the execution position: the block whose state is
 // committed to storage and the block finalized but not yet acknowledged by
@@ -482,20 +485,34 @@ func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
 	return a.storage.StateDB().OpenView()
 }
 
-func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
+// latestAccount returns address's balance and nonce after the last finalized block, read through
+// the executor's in-flight commit rather than waiting for it. Before InitChain, or once a commit
+// has failed, it reads the settled store instead.
+func (a *evmOnlyApplication) latestAccount(address common.Address) evmonly.LatestAccount {
+	if executor, ok := a.settler.Load().Get(); ok {
+		if account, err := executor.ReadLatestAccount(address); err == nil {
+			return account
+		}
+	}
 	snapshot := a.openSettledView()
 	defer snapshot.Close()
-	return snapshot.GetNonce(evmOnlyStoreAddress(address))
+	storeAddress := evmOnlyStoreAddress(address)
+	if !snapshot.AccountExists(storeAddress) {
+		return evmonly.LatestAccount{Balance: new(big.Int).Set(evmOnlyBaseBalance)}
+	}
+	balance := snapshot.GetBalance(storeAddress)
+	return evmonly.LatestAccount{
+		Balance: new(big.Int).SetBytes(balance[:]),
+		Nonce:   snapshot.GetNonce(storeAddress),
+	}
+}
+
+func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
+	return a.latestAccount(address).Nonce
 }
 
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
-	snapshot := a.openSettledView()
-	defer snapshot.Close()
-	if !snapshot.AccountExists(evmOnlyStoreAddress(address)) {
-		return *uint256.MustFromBig(evmOnlyBaseBalance)
-	}
-	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
-	return *new(uint256.Int).SetBytes(balance[:])
+	return *uint256.MustFromBig(a.latestAccount(address).Balance)
 }
 
 // EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
@@ -806,9 +823,6 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	}
 	return common.BytesToHash(h.Sum(nil)), nil
 }
-
-// evmOnlyHashBufferSize is the buffer between the stream and the hash.
-const evmOnlyHashBufferSize = 32 << 10
 
 // evmOnlyHashWriter buffers the app-hash byte stream into a hash; flush before reading the digest.
 type evmOnlyHashWriter struct {
