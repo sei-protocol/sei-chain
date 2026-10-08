@@ -49,6 +49,7 @@ func newTestStateWith(
 	s := utils.OrPanic1(NewState(&Config{
 		Key:                key,
 		ViewTimeout:        timeout.Or(hourTimeout),
+		ProposalTimeout:    time.Hour,
 		PersistentStateDir: utils.None[string](),
 	}, newTestDataState(registry)))
 	return s, keys, registry
@@ -207,6 +208,20 @@ func advancingSpec(keys []types.SecretKey, registry *epoch.Registry) types.Conse
 	return types.ConsensusSpec{
 		CommitQC: utils.Some(qc),
 		Epoch:    utils.OrPanic1(registry.EpochAt(qc.Index() + 1)),
+	}
+}
+
+func TestNewStateRejectsNonPositiveProposalTimeout(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	for _, timeout := range []time.Duration{0, -time.Millisecond} {
+		_, err := NewState(&Config{
+			Key:                keys[0],
+			ViewTimeout:        hourTimeout,
+			ProposalTimeout:    timeout,
+			PersistentStateDir: utils.None[string](),
+		}, newTestDataState(registry))
+		require.Error(t, err)
 	}
 }
 
@@ -574,7 +589,7 @@ func TestRunPropose(t *testing.T) {
 			if p.View() != e.vs.View() {
 				return fmt.Errorf("proposal view %v, want %v", p.View(), e.vs.View())
 			}
-			if err := p.Verify(e.vs); err != nil {
+			if err := p.Verify(e.vs, e.s.cfg.ProposalTimeout); err != nil {
 				return fmt.Errorf("proposal.Verify(): %w", err)
 			}
 			return nil
@@ -589,7 +604,9 @@ func TestRunPropose(t *testing.T) {
 			return secretKeyForView(reg, keys, next)
 		})), utils.None[ViewTimeoutFunc]())
 		e.occupyBusy()
-		require.NoError(t, e.s.PushTimeoutQC(t.Context(), makeTimeoutQC(e.keys, e.vs.View(), e.inner().PrepareQC)))
+		// inner PrepareQC carries a random timestamp, which Verify rejects.
+		locked := makeFullProposal(e.rng, e.keys, e.vs, true).Proposal().Msg()
+		require.NoError(t, e.s.PushTimeoutQC(t.Context(), makeTimeoutQC(e.keys, e.vs.View(), utils.Some(makePrepareQC(e.keys, locked)))))
 
 		err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 			sc.SpawnBg(func() error { return utils.IgnoreCancel(e.s.runOutputs(ctx)) })
@@ -619,7 +636,7 @@ func TestRunPropose(t *testing.T) {
 			if !p.TimeoutQC().IsPresent() {
 				return fmt.Errorf("reproposal missing TimeoutQC")
 			}
-			if err := p.Verify(vs); err != nil {
+			if err := p.Verify(vs, e.s.cfg.ProposalTimeout); err != nil {
 				return fmt.Errorf("proposal.Verify(): %w", err)
 			}
 			return nil
@@ -921,6 +938,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 		return &Config{
 			Key:                keys[0],
 			ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+			ProposalTimeout:    time.Hour,
 			PersistentStateDir: utils.Some(dir),
 		}
 	}
