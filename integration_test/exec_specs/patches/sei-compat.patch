@@ -399,6 +399,55 @@ index 58cfb1403..57b8266df 100644
          calls = [
              RPCCall(
                  method="sendRawTransaction",
+diff --git a/tests/cancun/eip6780_selfdestruct/test_selfdestruct.py b/tests/cancun/eip6780_selfdestruct/test_selfdestruct.py
+index a78ddccb..d3fc920b 100644
+--- a/tests/cancun/eip6780_selfdestruct/test_selfdestruct.py
++++ b/tests/cancun/eip6780_selfdestruct/test_selfdestruct.py
+@@ -1002,7 +1002,7 @@ def test_selfdestruct_pre_existing(
+ 
+     # Lastly return zero so the entry point contract is created and we can
+     # retain the stored values for verification.
+-    entry_code += Op.RETURN(32, 1)
++    entry_code += Op.MSTORE8(32, 0) + Op.RETURN(32, 1)
+ 
+     tx = Transaction(
+         value=entry_code_balance,
+@@ -1115,7 +1115,7 @@ def test_selfdestruct_created_same_block_different_tx(
+ 
+     # Lastly return zero so the entry point contract is created and we can
+     # retain the stored values for verification.
+-    entry_code += Op.RETURN(32, 1)
++    entry_code += Op.MSTORE8(32, 0) + Op.RETURN(32, 1)
+ 
+     post: Dict[Address, Account] = {
+         entry_code_address: Account(
+@@ -1877,7 +1877,7 @@ def test_create_and_destroy_multiple_contracts_same_tx(
+             Op.BALANCE(contract_addresses[i]),
+         )
+ 
+-    entry_code += Op.RETURN(32, 1)
++    entry_code += Op.MSTORE8(32, 0) + Op.RETURN(32, 1)
+ 
+     tx = Transaction(
+         data=entry_code,
+@@ -2182,7 +2182,7 @@ def test_parent_creates_child_selfdestruct_one(
+         Op.CALL(Op.GASLIMIT, parent_address, 0, 0, 32, 0, 0),
+     )
+ 
+-    entry_code += Op.RETURN(32, 1)
++    entry_code += Op.MSTORE8(32, 0) + Op.RETURN(32, 1)
+ 
+     tx = Transaction(
+         data=entry_code,
+@@ -2357,7 +2357,7 @@ def test_recursive_contract_creation_and_selfdestruct(
+         Op.CALL(Op.GASLIMIT, contract_addresses[0], 0, 0, 0, 0, 0),
+     )
+ 
+-    entry_code += Op.RETURN(32, 1)
++    entry_code += Op.MSTORE8(32, 0) + Op.RETURN(32, 1)
+ 
+     tx = Transaction(
+         data=entry_code,
 diff --git a/tests/istanbul/eip1344_chainid/test_chainid.py b/tests/istanbul/eip1344_chainid/test_chainid.py
 index 963a7b3..319249e 100644
 --- a/tests/istanbul/eip1344_chainid/test_chainid.py

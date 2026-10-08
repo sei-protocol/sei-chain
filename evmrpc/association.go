@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type AssociationAPI struct {
@@ -71,7 +72,9 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 	defer func() {
 		recordMetricsWithError(ctx, "sei_getCosmosTx", t.connectionType, startTime, returnErr, recover())
 	}()
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethHash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, t.ctxProvider, func(sdkCtx sdk.Context) (*evmtypes.Receipt, error) {
+		return t.keeper.GetReceipt(sdkCtx, ethHash)
+	})
 	if err != nil {
 		return "", err
 	}

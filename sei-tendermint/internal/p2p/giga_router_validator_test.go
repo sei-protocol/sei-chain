@@ -65,6 +65,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GigaRouterCommonConfig: *commonCfg,
 				ValidatorKey:           cfg.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+				ProposalTimeout:        time.Hour,
 				Producer:               testProducerConfig(txGasUsed, maxTxsPerBlock),
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
@@ -222,6 +223,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GigaRouterCommonConfig: commonCfg,
 		ValidatorKey:           validatorKeys[0],
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
+		ProposalTimeout:        time.Hour,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,

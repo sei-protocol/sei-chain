@@ -246,6 +246,7 @@ func newTestEnvN(rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv,
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+		ProposalTimeout:    time.Hour,
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
 	return &testEnv{

@@ -82,6 +82,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 			}
 			return 0
 		},
+		ProposalTimeout: time.Hour,
 	})
 	e.nodes[key.Public()] = n
 	return n

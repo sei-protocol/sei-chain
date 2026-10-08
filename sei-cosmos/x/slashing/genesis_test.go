@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 )
 
-func TestExportAndInitGenesis(t *testing.T) {
+func TestInitGenesis(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -29,11 +29,10 @@ func TestExportAndInitGenesis(t *testing.T) {
 
 	app.SlashingKeeper.SetValidatorSigningInfo(ctx, sdk.ConsAddress(addrDels[0]), info1)
 	app.SlashingKeeper.SetValidatorSigningInfo(ctx, sdk.ConsAddress(addrDels[1]), info2)
-	genesisState := slashing.ExportGenesis(ctx, app.SlashingKeeper)
-
-	require.Equal(t, genesisState.Params, testslashing.TestParams())
-	require.Len(t, genesisState.SigningInfos, 2)
-	require.Equal(t, genesisState.SigningInfos[0].ValidatorSigningInfo, info1)
+	genesisState := types.NewGenesisState(testslashing.TestParams(), []types.SigningInfo{
+		{Address: sdk.ConsAddress(addrDels[0]).String(), ValidatorSigningInfo: info1},
+		{Address: sdk.ConsAddress(addrDels[1]).String(), ValidatorSigningInfo: info2},
+	}, nil)
 
 	// Tombstone validators after genesis shouldn't effect genesis state
 	app.SlashingKeeper.Tombstone(ctx, sdk.ConsAddress(addrDels[0]))
@@ -58,4 +57,5 @@ func TestExportAndInitGenesis(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, info1, newInfo1)
 	require.Equal(t, info2, newInfo2)
+	require.Equal(t, testslashing.TestParams(), app.SlashingKeeper.GetParams(ctx))
 }

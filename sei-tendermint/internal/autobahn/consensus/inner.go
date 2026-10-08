@@ -76,11 +76,9 @@
 // which triggers rebroadcasting to peers:
 //   - Votes (prepareVote, commitVote, timeoutVote): YES - rebroadcast via sendUpdates
 //   - TimeoutQC: YES - rebroadcast via myTimeoutQC watch
-//   - CommitQC: NO - used locally for view justification but not rebroadcast;
-//     the runtime tip comes from ConsensusSpec, while the WAL stores only
-//     Index. CommitQCs are served via StreamCommitQCs from the data
-//     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
-//     sync faster after cluster-wide outages.
+//   - CommitQC: NO - used locally for view justification but not rebroadcast.
+//     The tip comes from avail's ConsensusSpec, and avail serves CommitQCs on
+//     StreamCommitQCs. The WAL stores only Index.
 package consensus
 
 import (
@@ -221,7 +219,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	if err := proposal.Verify(vs); err != nil {
+	if err := proposal.Verify(vs, s.cfg.ProposalTimeout); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.
