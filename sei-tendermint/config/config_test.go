@@ -9,6 +9,7 @@ import (
 
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -90,6 +91,8 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		"TimeoutWrite",
 		"MaxTxSearchResults",
 		"MaxSearchScanBudget",
+		"PprofMutexProfileFraction",
+		"PprofBlockProfileRate",
 	}
 
 	for _, fieldName := range fieldsToTest {
@@ -340,4 +343,35 @@ trusted-proxy-cidrs = ["10.0.0.0/8"]
 	require.Equal(t, 50, conf.RPC.IPRateLimitBurst)
 	require.True(t, conf.RPC.RateLimitingEnabled)
 	require.Equal(t, []string{"10.0.0.0/8"}, conf.RPC.TrustedProxyCIDRs)
+}
+
+func TestRPCPprofProfileRateKeysParseFromRPCSection(t *testing.T) {
+	const body = `
+[rpc]
+pprof-laddr = "localhost:6060"
+pprof-mutex-profile-fraction = 100
+pprof-block-profile-rate = 1000000
+`
+	conf, err := unmarshalConfigTOML(t, body)
+	require.NoError(t, err)
+	require.Equal(t, 100, conf.RPC.PprofMutexProfileFraction)
+	require.Equal(t, 1000000, conf.RPC.PprofBlockProfileRate)
+	require.NoError(t, conf.RPC.ValidateBasic())
+}
+
+func TestRPCPprofProfileRatesDefaultOffInRenderedTemplate(t *testing.T) {
+	require.Zero(t, DefaultRPCConfig().PprofMutexProfileFraction)
+	require.Zero(t, DefaultRPCConfig().PprofBlockProfileRate)
+
+	tmpDir := t.TempDir()
+	EnsureRoot(tmpDir)
+	require.NoError(t, WriteConfigFile(tmpDir, DefaultConfig()))
+
+	v := viper.New()
+	v.SetConfigFile(filepath.Join(tmpDir, defaultConfigFilePath))
+	require.NoError(t, v.ReadInConfig())
+	for _, key := range []string{"rpc.pprof-mutex-profile-fraction", "rpc.pprof-block-profile-rate"} {
+		require.True(t, v.IsSet(key), "rendered config.toml is missing %s", key)
+		require.Zero(t, v.GetInt(key), key)
+	}
 }
