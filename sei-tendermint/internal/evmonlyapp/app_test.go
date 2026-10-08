@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -841,6 +842,241 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	}
 }
 
+// preparedBlockCounts reads evmonly_finalize_prepared_blocks_total by its prepared label.
+func preparedBlockCounts(t *testing.T, reader *sdkmetric.ManualReader) map[bool]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	counts := map[bool]int64{}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "evmonly_finalize_prepared_blocks_total" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			require.True(t, ok)
+			for _, point := range sum.DataPoints {
+				prepared, ok := point.Attributes.Value("prepared")
+				require.True(t, ok)
+				counts[prepared.AsBool()] = point.Value
+			}
+		}
+	}
+	return counts
+}
+
+// A block decoded ahead of FinalizeBlock has to execute to the same result as one
+// decoded inside it, and a block nobody prepared still has to execute.
+func TestEVMOnlyApplicationExecutesAPreparedBlockLikeAnUnpreparedOne(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	first, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	second, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	for height, txs := range [][][]byte{{first}, {second}} {
+		block := evmOnlyTestBlock(int64(height)+1, txs...)
+		if height == 0 {
+			require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+		}
+		preparedResp, err := prepared.FinalizeBlock(t.Context(), block)
+		require.NoError(t, err)
+		unpreparedResp, err := unprepared.FinalizeBlock(t.Context(), block)
+		require.NoError(t, err)
+		require.Equal(t, unpreparedResp.AppHash, preparedResp.AppHash)
+		require.Equal(t, len(unpreparedResp.TxResults), len(preparedResp.TxResults))
+		for i := range preparedResp.TxResults {
+			require.Equal(t, unpreparedResp.TxResults[i].Code, preparedResp.TxResults[i].Code)
+			require.Equal(t, unpreparedResp.TxResults[i].GasUsed, preparedResp.TxResults[i].GasUsed)
+		}
+		_, err = prepared.Commit(t.Context())
+		require.NoError(t, err)
+		_, err = unprepared.Commit(t.Context())
+		require.NoError(t, err)
+	}
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(1), counts[true])
+	require.Equal(t, int64(1), counts[false])
+}
+
+// A prepared block is only used for the block it was prepared for: one with the
+// same height but another hash is decoded again, and the prepared one is kept
+// for its own block.
+func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherHash(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	other, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	otherBlock := evmOnlyTestBlock(1, other)
+	otherBlock.Hash = crypto.Keccak256([]byte("other-block"))
+	require.NoError(t, preparedApp.PrepareBlock(t.Context(), otherBlock))
+
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	block := evmOnlyTestBlock(1, raw)
+	preparedHash := finalizeAndCommitEVMOnlyTestBlock(t, prepared, block)
+	unpreparedHash := finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block)
+	require.Equal(t, unpreparedHash, preparedHash)
+	_, ok = preparedApp.takePrepared(1, common.BytesToHash(otherBlock.Hash))
+	require.True(t, ok)
+}
+
+// A block PrepareBlock cannot decode is reported by FinalizeBlock, the same as
+// when nobody prepared it.
+func TestEVMOnlyApplicationReportsAnUndecodableBlockFromFinalizeBlock(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	block := evmOnlyTestBlock(1, []byte("not a transaction"))
+	require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+	_, preparedErr := prepared.FinalizeBlock(t.Context(), block)
+	require.Error(t, preparedErr)
+	_, unpreparedErr := unprepared.FinalizeBlock(t.Context(), block)
+	require.Error(t, unpreparedErr)
+}
+
+// Preparing before InitChain is a no-op rather than a failure.
+func TestEVMOnlyApplicationPrepareBlockBeforeInitChainIsANoOp(t *testing.T) {
+	app := newEVMOnlyTestApp(t, nil)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	require.NoError(t, evmOnlyApp.PrepareBlock(t.Context(), evmOnlyTestBlock(1, raw)))
+}
+
+// PrepareBlock for the next block runs while FinalizeBlock runs the current one,
+// and both blocks come out as if they had been finalized alone.
+func TestEVMOnlyApplicationPreparesTheNextBlockWhileFinalizingTheCurrentOne(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	var blocks []*abci.RequestFinalizeBlock
+	for height := range int64(4) {
+		var txs [][]byte
+		for i := range 8 {
+			txs = append(txs, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height)*8+uint64(i))) //nolint:gosec // G115: small test counters.
+		}
+		blocks = append(blocks, evmOnlyTestBlock(height+1, txs...))
+	}
+
+	hashes := make([][]byte, len(blocks))
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		for i, block := range blocks {
+			var next *abci.RequestFinalizeBlock
+			if i+1 < len(blocks) {
+				next = blocks[i+1]
+			}
+			resp, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*abci.ResponseFinalizeBlock, error) {
+				if next != nil {
+					s.Spawn(func() error { return preparedApp.PrepareBlock(ctx, next) })
+				}
+				return prepared.FinalizeBlock(ctx, block)
+			})
+			if err != nil {
+				return err
+			}
+			if _, err := prepared.Commit(ctx); err != nil {
+				return err
+			}
+			hashes[i] = resp.AppHash
+		}
+		return nil
+	}))
+	for i, block := range blocks {
+		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), hashes[i])
+	}
+}
+
+// A block prepared before FinalizeBlock reaches it survives the preparation of the
+// block after it, as when the fetcher runs ahead during catch-up, and both blocks
+// execute as if nobody had prepared them.
+func TestEVMOnlyApplicationKeepsAPreparedBlockWhileTheNextIsPrepared(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	blocks := []*abci.RequestFinalizeBlock{
+		evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)),
+		evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)),
+	}
+	for _, block := range blocks {
+		require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+	}
+	for _, block := range blocks {
+		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), finalizeAndCommitEVMOnlyTestBlock(t, prepared, block))
+	}
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(2), counts[true])
+	require.Equal(t, int64(0), counts[false])
+}
+
+// A prepared block that executes drops the senders CheckTx cached for its
+// transactions, as an unprepared one does.
+func TestEVMOnlyApplicationForgetsTheSendersOfAPreparedBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	require.Equal(t, abci.CodeTypeOK, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).Code)
+	hashes := hashRawTxs([][]byte{raw})
+	require.True(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+
+	block := evmOnlyTestBlock(1, raw)
+	require.NoError(t, evmOnlyApp.PrepareBlock(t.Context(), block))
+	require.True(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+	finalizeAndCommitEVMOnlyTestBlock(t, app, block)
+	require.False(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+}
+
+// The prepared queue keeps one block per height and at most maxPreparedBlocks of the
+// lowest heights, and drops the heights that can no longer execute.
+func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
+	block := func(height int64, hash byte) preparedBlock {
+		return preparedBlock{height: height, hash: common.Hash{hash}}
+	}
+	contents := func(q preparedQueue) []preparedBlock { return slices.Clone(q) }
+	var q preparedQueue
+
+	q.put(block(5, 1), 5)
+	q.put(block(7, 1), 5)
+	q.put(block(6, 1), 5)
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 1)}, contents(q))
+
+	q.put(block(6, 2), 5)
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 2)}, contents(q))
+
+	q.put(block(8, 1), 6)
+	require.Equal(t, []preparedBlock{block(6, 2), block(8, 1)}, contents(q))
+
+	_, ok := q.take(6, common.Hash{1})
+	require.False(t, ok)
+	require.Equal(t, []preparedBlock{block(6, 2), block(8, 1)}, contents(q))
+
+	got, ok := q.take(8, common.Hash{1})
+	require.True(t, ok)
+	require.Equal(t, block(8, 1), got)
+	require.Equal(t, []preparedBlock{}, contents(q))
+}
+
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
@@ -1083,4 +1319,15 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
+}
+
+func TestPreparedQueueReleasesAnEvictedBlock(t *testing.T) {
+	var q preparedQueue
+	for h := int64(1); h <= maxPreparedBlocks+1; h++ {
+		q.put(preparedBlock{height: h, txs: make([]evmonly.PreparedTx, 1)}, 1)
+	}
+	require.Len(t, q, maxPreparedBlocks)
+	for _, evicted := range q[len(q):cap(q)] {
+		require.Nil(t, evicted.txs, "an evicted block must not stay reachable through the queue's backing array")
+	}
 }

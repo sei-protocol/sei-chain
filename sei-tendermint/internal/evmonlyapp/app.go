@@ -32,6 +32,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
@@ -95,6 +97,16 @@ func (c *senderCache) put(hash common.Hash, sender common.Address) {
 	c.fresh[hash] = sender
 }
 
+// peek returns the sender remembered for hash, if any, and keeps it.
+func (c *senderCache) peek(hash common.Hash) utils.Option[common.Address] {
+	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
+		if sender, ok := gen[hash]; ok {
+			return utils.Some(sender)
+		}
+	}
+	return utils.None[common.Address]()
+}
+
 // take returns the sender remembered for hash, if any, and forgets it.
 func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
@@ -131,6 +143,13 @@ type evmOnlyApplication struct {
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[*senderCache]
+	// prepared holds the blocks PrepareBlock decoded ahead of FinalizeBlock.
+	prepared utils.Mutex[*preparedQueue]
+	// preparedBlocks counts finalized blocks by whether prepared held them.
+	preparedBlocks otelmetric.Int64Counter
+	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
+	// called from the single block fetcher, so one timer serves the app.
+	preparePhases *seidbmetrics.PhaseTimer
 	// finalizePhases times FinalizeBlock's stages around the executor. It is a
 	// field so each application instance has its own last-phase clock.
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
@@ -179,6 +198,9 @@ func NewEVMOnlyApplication(
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
+		prepared:         utils.NewMutex(new(preparedQueue)),
+		preparedBlocks:   newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
+		preparePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
@@ -387,12 +409,30 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // raw transaction is the keccak of its bytes for every transaction type, so no
 // decoding is needed.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
-	out := make([]utils.Option[common.Address], len(txs))
 	// Hashed outside the lock; CheckTx writes this map constantly.
-	hashes := hashRawTxs(txs)
+	return a.checkedSendersOf(hashRawTxs(txs), true)
+}
+
+// peekSenders returns, aligned with txHashes, the sender CheckTx recovered for each
+// transaction hash, and keeps the entries.
+func (a *evmOnlyApplication) peekSenders(txHashes []common.Hash) []utils.Option[common.Address] {
+	return a.checkedSendersOf(txHashes, false)
+}
+
+// forgetSenders drops the CheckTx-recovered senders of the transaction hashes.
+func (a *evmOnlyApplication) forgetSenders(txHashes []common.Hash) {
+	a.checkedSendersOf(txHashes, true)
+}
+
+func (a *evmOnlyApplication) checkedSendersOf(hashes []common.Hash, forget bool) []utils.Option[common.Address] {
+	out := make([]utils.Option[common.Address], len(hashes))
 	for senders := range a.checkedSenders.Lock() {
 		for i, hash := range hashes {
-			out[i] = senders.take(hash)
+			if forget {
+				out[i] = senders.take(hash)
+			} else {
+				out[i] = senders.peek(hash)
+			}
 		}
 	}
 	return out
@@ -630,53 +670,68 @@ func (a *evmOnlyApplication) EvmEstimateGas(ctx context.Context, msg *ethcore.Me
 	return executor.EstimateGas(ctx, blockCtx, msg, gasCap)
 }
 
-func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+// finalizeRequest is the block identity FinalizeBlock and PrepareBlock derive from a request.
+type finalizeRequest struct {
+	height    int64
+	number    uint64
+	timestamp uint64
+	blockHash common.Hash
+}
+
+func parseFinalizeRequest(req *abci.RequestFinalizeBlock) (finalizeRequest, error) {
 	height := req.Header.Height
 	if height <= 0 {
-		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
+		return finalizeRequest{}, fmt.Errorf("EVM-only block height must be positive: %d", height)
 	}
 	number, ok := utils.SafeCast[uint64](height)
 	if !ok {
-		return nil, fmt.Errorf("EVM-only block height exceeds uint64: %d", height)
+		return finalizeRequest{}, fmt.Errorf("EVM-only block height exceeds uint64: %d", height)
 	}
 	timestamp, ok := utils.SafeCast[uint64](req.Header.Time.Unix())
 	if !ok {
-		return nil, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
+		return finalizeRequest{}, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
 	}
-	blockHash := common.BytesToHash(req.Hash)
+	return finalizeRequest{
+		height:    height,
+		number:    number,
+		timestamp: timestamp,
+		blockHash: common.BytesToHash(req.Hash),
+	}, nil
+}
+
+func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	block, err := parseFinalizeRequest(req)
+	if err != nil {
+		return nil, err
+	}
 	for executor := range a.executor.Lock() {
 		executor, ok := executor.Get()
 		if !ok {
 			return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 		}
-		parent, err := a.beginBlock(height)
+		parent, err := a.beginBlock(block.height)
 		if err != nil {
 			return nil, err
 		}
+		blockCtx := evmonly.BlockContext{
+			Number:      block.number,
+			Time:        block.timestamp,
+			GasLimit:    parent.gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			ParentHash:  parent.blockHash,
+			BlockHash:   block.blockHash,
+			PrevRandao:  evmOnlyPrevRandao(block.timestamp),
+		}
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
-		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
-		senders := a.takeSenders(req.Txs)
-		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
-			Context: evmonly.BlockContext{
-				Number:      number,
-				Time:        timestamp,
-				GasLimit:    parent.gasLimit,
-				ChainID:     new(big.Int).Set(a.chainID),
-				BaseFee:     evmOnlyBaseFee(),
-				BlobBaseFee: new(big.Int),
-				ParentHash:  parent.blockHash,
-				BlockHash:   blockHash,
-				PrevRandao:  evmOnlyPrevRandao(timestamp),
-			},
-			Txs:     req.Txs,
-			Senders: senders,
-		})
+		result, err := a.executeBlock(ctx, executor, req.Txs, block, blockCtx)
 		if err != nil {
-			return nil, errors.Join(err, a.abandonPending(executor, height))
+			return nil, errors.Join(err, a.abandonPending(executor, block.height))
 		}
 		defer result.Release()
-		pending, err := a.pendingCursor(height)
+		pending, err := a.pendingCursor(block.height)
 		if err != nil {
 			return nil, err
 		}
@@ -732,6 +787,24 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 		return pending, nil
 	}
 	panic("unreachable")
+}
+
+// executeBlock executes the block from its prepared transactions when PrepareBlock
+// decoded this block, and decodes it here otherwise.
+func (a *evmOnlyApplication) executeBlock(ctx context.Context, executor *evmonly.Executor, txs [][]byte, block finalizeRequest, blockCtx evmonly.BlockContext) (*evmonly.BlockResult, error) {
+	prepared, hit := a.takePrepared(block.height, block.blockHash)
+	a.preparedBlocks.Add(ctx, 1, otelmetric.WithAttributes(attribute.Bool("prepared", hit)))
+	a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
+	if !hit {
+		return a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
+			Context: blockCtx,
+			Txs:     txs,
+			Senders: a.takeSenders(txs),
+		})
+	}
+	a.forgetSenders(prepared.txHashes)
+	a.finalizePhases.SetPhase(finalizePhaseExecute)
+	return executor.ExecutePreparedBlock(ctx, evmonly.PreparedBlock{Context: blockCtx, Txs: prepared.txs})
 }
 
 // executeBlockPipelined executes the block and returns once its state commit
