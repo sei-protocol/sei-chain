@@ -7,7 +7,8 @@ import (
 )
 
 // AppHashBuilder computes the app hash of each block from inputs reported independently, and publishes the app
-// hashes in block order.
+// hashes in block order. App hashes start at the giga activation height, which must be a global chain configuration
+// value. No app hash is published below the giga activation height.
 type AppHashBuilder interface {
 
 	// Reports the hash of the block.
@@ -56,8 +57,9 @@ type AppHashBuilder interface {
 
 	// Registers listener to receive, in block order, every app hash published after the one returned.
 	//
-	// Returns the newest published app hash, or nil if none has been published. A published app hash never
-	// changes. Errors if listener is nil, or if called before SetupComplete().
+	// Returns the newest published app hash, or nil if none has been published (this is possible if the builder
+	// is started at a block height below the giga activation height). A published app hash never changes.
+	// Errors if listener is nil, or if called before SetupComplete().
 	RegisterListener(
 		ctx context.Context,
 		// Called once the app hash is stored; the store is durable only if the builder's configuration requests
