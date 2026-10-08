@@ -864,6 +864,21 @@ func (suite *KeeperTestSuite) TestGRPCQueryTally() {
 			},
 			true,
 		},
+		{
+			"request final tally of a failed proposal",
+			func() {
+				proposal.Status = types.StatusFailed
+				proposal.FinalTallyResult = types.NewTallyResult(sdk.NewInt(1234), sdk.NewInt(5), sdk.NewInt(6), sdk.NewInt(7))
+				app.GovKeeper.SetProposal(ctx, proposal)
+
+				req = &types.QueryTallyResultRequest{ProposalId: proposal.ProposalId}
+
+				expRes = &types.QueryTallyResultResponse{
+					Tally: proposal.FinalTallyResult,
+				}
+			},
+			true,
+		},
 	}
 
 	for _, testCase := range testCases {
