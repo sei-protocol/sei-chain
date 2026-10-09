@@ -1688,6 +1688,18 @@ func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
 }
 
+func TestStateDBSelfDestructKeepsBalance(t *testing.T) {
+	contract := testAddress(0xc4)
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.AddBalance(contract, uint256.NewInt(7), tracing.BalanceChangeUnspecified)
+
+	stateDB.SelfDestruct(contract)
+	require.Equal(t, uint256.NewInt(7), stateDB.GetBalance(contract))
+
+	stateDB.Finalise(params.Rules{IsEIP158: true})
+	require.Equal(t, uint256.NewInt(7), stateDB.GetBalance(contract))
+}
+
 func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
 	contract := testAddress(0xc6)
 	unreadKey := testHash(0x02)

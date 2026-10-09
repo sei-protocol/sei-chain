@@ -111,8 +111,7 @@ func (m *WatermarkManager) EarliestHeight(ctx context.Context) (int64, error) {
 	return blockEarliest, err
 }
 
-// HistoryKind selects the data an "earliest" query refers to. Blocks, receipts
-// and state are pruned independently, so each has its own floor.
+// HistoryKind selects which pruned data set an "earliest" query refers to.
 type HistoryKind int
 
 const (

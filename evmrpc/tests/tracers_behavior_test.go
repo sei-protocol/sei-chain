@@ -318,7 +318,7 @@ func TestBehaviorTracersPrecompileFrames(t *testing.T) {
 		res = requireRPCResult(t, port, "debug_traceTransaction", mb.sh.Hash().Hex(), map[string]any{"tracer": "4byteTracer"})
 		require.JSONEq(t, `{"0x68656c6c-1":1}`, string(res))
 
-		// prestateTracer omits empty accounts (incl. precompiles) and adds codeHash (go-ethereum v1.17.7)
+		// prestateTracer omits empty accounts, including precompiles, and reports codeHash
 		res = requireRPCResult(t, port, "debug_traceTransaction", mb.jsonTx.Hash().Hex(), map[string]any{"tracer": "prestateTracer"})
 		require.JSONEq(t, fmt.Sprintf(`{
 			"0x00000000000000000000000000000000000b0001":{"balance":"0x0","code":"%s","codeHash":"%s"},
@@ -398,7 +398,7 @@ func TestBehaviorTraceCallStateOverrides(t *testing.T) {
 		res = requireRPCResult(t, port, "debug_traceCall", valueArgs, "latest", map[string]any{
 			"tracer": "prestateTracer", "stateOverrides": map[string]any{poor.Hex(): map[string]any{"balance": "0xde0b6b3a7640000"}},
 		})
-		// empty accounts are omitted (go-ethereum v1.17.7)
+		// empty accounts are omitted
 		require.JSONEq(t, `{"0x00000000000000000000000000000000000e0001":{"balance":"0xde0b6b3a7640000"}}`, string(res))
 		res = requireRPCResult(t, port, "debug_traceCall", valueArgs, "latest", map[string]any{"tracer": "callTracer"})
 		require.JSONEq(t, `{"error":"insufficient funds for gas * price + value: address 0x00000000000000000000000000000000000E0001 have 0 want 100",

@@ -87,7 +87,7 @@ func TestBehaviorHookedDBImplWrapperHooksOnly(t *testing.T) {
 
 	sdb.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
 	sdb.SubBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
-	require.Equal(t, 2, c.balance) // go-ethereum v1.17.7 fires OnBalanceChange; the old fork did not
+	require.Equal(t, 2, c.balance) // HookedStateDB fires OnBalanceChange for AddBalance and SubBalance
 
 	sdb.SetNonce(addr, 7, tracing.NonceChangeEoACall)
 	require.Equal(t, 1, c.nonce)

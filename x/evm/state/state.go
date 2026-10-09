@@ -104,7 +104,7 @@ func (s *DBImpl) IsNewContract(acc common.Address) bool {
 	return s.Created(acc)
 }
 
-// Touch is used by upstream for block access lists, which Sei does not build.
+// Touch is a no-op; block access lists are not built.
 func (s *DBImpl) Touch(common.Address) {}
 
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
@@ -216,7 +216,7 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 }
 
 // clearDestructedAccountState clears a self-destructed account's storage, code and nonce,
-// even if no code was ever stored (e.g. a constructor that self-destructs).
+// whether or not code was ever stored.
 func (s *DBImpl) clearDestructedAccountState(acc common.Address) {
 	// The balance is not cleared: SELFDESTRUCT already moved it, and under EIP-8246
 	// a self-beneficiary keeps it, leaving a balance-only account.

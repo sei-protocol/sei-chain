@@ -36,9 +36,10 @@ sei-chain
     * EIP-7702: an authorization that clears an account with no delegation no longer writes code keys, and re-delegating to the same target no longer rewrites them.
   * JSON-RPC (takes effect when the node runs the new binary):
     * `null` for a required argument is rejected with -32602.
+    * HTTP and WebSocket responses no longer end with a trailing newline.
     * prestateTracer omits empty accounts and adds `codeHash`; tracer balance hooks now report balance changes.
-    * "earliest" is the node's earliest available block, not the synthetic genesis block, and can error if that block's receipts are unavailable; 0x0 still returns the synthetic genesis block. On EVM-only (Giga) nodes "earliest" returns the earliest retained block instead of null.
-    * debug_trace* and eth_getTransactionByBlockNumberAndIndex at 0x0 use the earliest available block, not the genesis initial height.
+    * On a pruned node "earliest" is the node's earliest available block, and can error if that block's receipts are unavailable; until history is pruned it, like 0x0, returns the synthetic genesis block. On EVM-only (Giga) nodes "earliest" returns the earliest retained block instead of null.
+    * On a pruned node, debug_trace* and eth_getTransactionByBlockNumberAndIndex at "earliest" or 0x0 use the earliest available block, not the genesis initial height.
     * eth_getLogs and filters clamp "earliest" and 0x0 bounds to the earliest available receipts instead of erroring.
     * eth_call, eth_estimateGas and debug_traceCall state overrides cannot move Sei precompiles, and a `code` override at a Sei precompile address is ignored.
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.

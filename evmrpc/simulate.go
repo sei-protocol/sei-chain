@@ -420,8 +420,8 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil //nolint:gosec
 }
 
-// GetCanonicalTransaction implements tracers.Backend and ethapi.Backend on top of
-// GetTransaction. Lookup errors are reported as not found.
+// GetCanonicalTransaction returns the transaction with txHash and its location; lookup
+// errors are reported as not found.
 func (b *Backend) GetCanonicalTransaction(txHash common.Hash) (bool, *ethtypes.Transaction, common.Hash, uint64, uint64) {
 	found, tx, blockHash, blockNumber, index, err := b.GetTransaction(context.Background(), txHash)
 	if err != nil || !found {
@@ -430,8 +430,9 @@ func (b *Backend) GetCanonicalTransaction(txHash common.Hash) (bool, *ethtypes.T
 	return true, tx, blockHash, blockNumber, index
 }
 
-// TxIndexDone reports false so a transaction that cannot be found is a tx-indexing error.
+// TxIndexDone reports whether transaction indexing is complete; it is always false.
 func (b *Backend) TxIndexDone() bool {
+	// A transaction that cannot be found is then reported as a tx-indexing error.
 	return false
 }
 

@@ -1125,8 +1125,7 @@ func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
 	return f.watermarks.LatestHeight(ctx)
 }
 
-// earliestReceiptHeight is the lowest height with logs available: receipts may be
-// pruned above the block floor.
+// earliestReceiptHeight returns the lowest height with receipts available.
 func (f *LogFetcher) earliestReceiptHeight(ctx context.Context) (int64, error) {
 	return f.watermarks.EarliestAvailable(ctx, ReceiptHistory)
 }

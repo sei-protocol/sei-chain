@@ -490,13 +490,15 @@ func (s *nativeStateDB) SetTransientState(addr common.Address, key, value common
 	states[key] = value
 }
 
-// SelfDestruct marks addr as self-destructed and clears its balance.
+// SelfDestruct marks addr as self-destructed.
 func (s *nativeStateDB) SelfDestruct(addr common.Address) {
 	acct := s.account(addr)
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
-	acct.Balance.Clear()
+	// The balance is left alone: the SELFDESTRUCT opcode transfers or burns it
+	// before calling this, and under EIP-8246 deliberately keeps it when the
+	// beneficiary is addr itself, so clearing here would burn funds it preserves.
 	acct.SelfDestructed = true
 	s.markForFinalise(addr)
 }
@@ -506,7 +508,7 @@ func (s *nativeStateDB) IsNewContract(addr common.Address) bool {
 	return s.account(addr).Created
 }
 
-// Touch is used by upstream for block access lists, which are not built here.
+// Touch is a no-op; block access lists are not built.
 func (s *nativeStateDB) Touch(common.Address) {}
 
 func (s *nativeStateDB) HasSelfDestructed(addr common.Address) bool {

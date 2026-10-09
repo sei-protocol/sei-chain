@@ -36,7 +36,7 @@ func TestBehaviorEstimateGasAfterCallsOverrides(t *testing.T) {
 		// one call, no overrides
 		require.Equal(t, `"0x5208"`, string(requireRPCResult(t, port, "eth_estimateGasAfterCalls", args, []any{unrelatedCall}, "latest")))
 
-		// go-ethereum v1.17.7 rejects null for required args; the old fork accepted it
+		// null for a required argument is rejected with -32602
 		r := callRPC(t, port, "eth_estimateGasAfterCalls", args, nil, "latest", overrides)
 		require.NotNil(t, r.Error)
 		require.Equal(t, -32602, r.Error.Code)

@@ -14,9 +14,8 @@ type Config struct {
 	DisableNonceCheck    bool
 	DisableGasPriceCheck bool
 	MinGasPrice          *big.Int
-	// ChainConfig defaults to DefaultChainConfig() when nil. Test
-	// and scaffold callers can use the default, but production wiring should pass
-	// the chain's explicit config.
+	// ChainConfig is the EVM chain config; nil means DefaultChainConfig(). Production
+	// wiring should set it explicitly.
 	ChainConfig       *params.ChainConfig
 	CustomPrecompiles precompiles.Registry
 	OCCWorkers        int

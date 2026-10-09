@@ -24,8 +24,7 @@ type blockAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// earliestHeight is the lowest retained height, matching eth_feeHistory and
-// eth_getLogs.
+// earliestHeight returns the lowest retained block height.
 func (api *blockAPI) earliestHeight() int64 {
 	if api.store == nil {
 		return earliestCommittedHeight

@@ -1446,7 +1446,6 @@ func TestEcho(t *testing.T) {
 	require.Nil(t, err)
 	resBody, err := io.ReadAll(res.Body)
 	require.Nil(t, err)
-	// go-ethereum v1.17 writes responses without the trailing newline json.Encoder added.
 	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}", strings.TrimSpace(string(resBody)))
 
 	// Test WS server

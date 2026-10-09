@@ -119,8 +119,7 @@ type estimateEngine struct {
 	*ethash.Ethash
 }
 
-// Author returns the header's coinbase, which buildEstimateHeader sets to the
-// block context's coinbase.
+// Author returns header.Coinbase.
 func (estimateEngine) Author(header *ethtypes.Header) (common.Address, error) {
 	return header.Coinbase, nil
 }
