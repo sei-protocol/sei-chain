@@ -2676,3 +2676,7 @@ func TestNewCompositeCommitStoreKeepsFlatKVKeepRecent(t *testing.T) {
 	require.Equal(t, cfg.FlatKVConfig.SnapshotKeepRecent, cs.config.FlatKVConfig.SnapshotKeepRecent)
 	require.Equal(t, cfg.MemIAVLConfig.SnapshotInterval, cs.config.FlatKVConfig.SnapshotInterval)
 }
+
+func TestPrecedesMigrationFalseWithoutLaterSnapshot(t *testing.T) {
+	require.False(t, precedesMigration(&failingEVMStore{}, 5))
+}
