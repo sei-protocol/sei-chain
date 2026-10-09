@@ -148,9 +148,6 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
 
 	if !dryRun {
-		// Custom precompiles are no longer registered in the global vm precompile
-		// tables; they are passed to each EVM via vm.NewEVMWithCustomPrecompiles
-		// (see GetCustomPrecompiles).
 		Initialized = true
 	}
 	return nil
@@ -166,8 +163,4 @@ func GetPrecompileInfo(name string) PrecompileInfo {
 		panic(name + "doesn't exist as a precompile")
 	}
 	return i
-}
-
-var PrecompileLastUpgrade = map[string]int64{
-	bank.BankAddress: 1,
 }

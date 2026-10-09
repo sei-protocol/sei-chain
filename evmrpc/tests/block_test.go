@@ -31,10 +31,10 @@ func TestGetBlockByNumber(t *testing.T) {
 	txBz3 := signAndEncodeTx(send(2), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz1}, {txBz2}, {txBz3}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x0", true)
+			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", true)
 			blockHash := res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", blockHash.(string))
-			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", true)
+			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x0", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "safe", true)

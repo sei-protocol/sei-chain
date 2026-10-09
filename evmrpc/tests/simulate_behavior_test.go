@@ -28,11 +28,6 @@ func TestBehaviorEstimateGasAfterCallsOverrides(t *testing.T) {
 
 		// zero prior calls: overrides dropped
 		require.Equal(t, `"0x5208"`, string(requireRPCResult(t, port, "eth_estimateGasAfterCalls", args, []any{}, "latest", overrides)))
-		// go-ethereum v1.17.7 rejects null for required args; the old fork accepted it
-		r := callRPC(t, port, "eth_estimateGasAfterCalls", args, nil, "latest", overrides)
-		require.NotNil(t, r.Error)
-		require.Equal(t, -32602, r.Error.Code)
-		require.Equal(t, "missing value for required argument 1", r.Error.Message)
 
 		// one prior call: overrides applied
 		require.Equal(t, `"0xa9da"`, string(requireRPCResult(t, port, "eth_estimateGasAfterCalls", args, []any{unrelatedCall}, "latest", overrides)))
@@ -40,6 +35,13 @@ func TestBehaviorEstimateGasAfterCallsOverrides(t *testing.T) {
 		require.Equal(t, `"0x5b93"`, string(requireRPCResult(t, port, "eth_estimateGasAfterCalls", args, []any{args}, "latest", overrides)))
 		// one call, no overrides
 		require.Equal(t, `"0x5208"`, string(requireRPCResult(t, port, "eth_estimateGasAfterCalls", args, []any{unrelatedCall}, "latest")))
+
+		// go-ethereum v1.17.7 rejects null for required args; the old fork accepted it
+		r := callRPC(t, port, "eth_estimateGasAfterCalls", args, nil, "latest", overrides)
+		require.NotNil(t, r.Error)
+		require.Equal(t, -32602, r.Error.Code)
+		require.Equal(t, "missing value for required argument 1", r.Error.Message)
+
 	})
 }
 

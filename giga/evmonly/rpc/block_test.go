@@ -609,10 +609,10 @@ func TestGetBlockTransactionCountByNumber(t *testing.T) {
 		{name: "pending", number: ethrpc.PendingBlockNumber, block: twoTxBlock, want: countOf(2)},
 		{name: "explicit historical height", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), block: twoTxBlock, want: countOf(2)},
 		{name: "empty block is zero, not null", number: ethrpc.LatestBlockNumber, block: emptyBlock, want: countOf(0)},
-		// earliest resolves to the retention floor.
-		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(earliestCommittedHeight), block: twoTxBlock, want: countOf(2)},
 		// Heights with no block answer null, not an error.
 		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
+		// earliest resolves to the retention floor.
+		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(earliestCommittedHeight), block: twoTxBlock, want: countOf(2)},
 		{name: "nil block", number: ethrpc.LatestBlockNumber},
 		// A pruned height and any other backend failure are errors.
 		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
