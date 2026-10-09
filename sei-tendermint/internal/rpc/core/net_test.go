@@ -11,13 +11,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-func TestNetInfo_ReportsConnectedPeers(t *testing.T) {
+func TestNetInfo_NPeersCountsConnectedPeers(t *testing.T) {
 	ctx := t.Context()
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{})
 	hub := network.MakeNode(t, p2p.TestNodeOptions{})
 	a := network.MakeNode(t, p2p.TestNodeOptions{SelfAddress: true})
-	// b declares no address, so hub has no URL to list for it.
 	b := network.MakeNode(t, p2p.TestNodeOptions{})
+
 	require.NoError(t, a.Connect(ctx, hub))
 	require.NoError(t, b.Connect(ctx, hub))
 
@@ -32,7 +32,7 @@ func TestNetInfo_ReportsConnectedPeers(t *testing.T) {
 	}, res.PeerConnections)
 }
 
-func TestNetInfo_ExcludesPexAddresses(t *testing.T) {
+func TestNetInfo_PeersIncludesPexAddresses(t *testing.T) {
 	ctx := t.Context()
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{})
 	opts := p2p.TestNodeOptions{PexOnHandshake: true, SelfAddress: true}
@@ -43,12 +43,9 @@ func TestNetInfo_ExcludesPexAddresses(t *testing.T) {
 	require.NoError(t, a.Connect(ctx, hub))
 	require.NoError(t, b.Connect(ctx, hub))
 
-	// b learns both addresses via PEX but holds a single connection.
 	env := &Environment{Router: b.Router}
 	require.Eventually(t, func() bool {
 		res, err := env.NetInfo(ctx)
-		return err == nil && len(b.KnownAddrs()) == 2 &&
-			res.NPeers == 1 && len(res.Peers) == 1 && len(res.PeerConnections) == 1 &&
-			res.Peers[0].ID == res.PeerConnections[0].ID
+		return err == nil && res.NPeers == 1 && len(res.PeerConnections) == 1 && len(res.Peers) == 2
 	}, 10*time.Second, 10*time.Millisecond)
 }

@@ -147,6 +147,7 @@ func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 }
 
 func (r *Router) ConnInfos() []PeerConnInfo { return r.peerManager.ConnInfos() }
+func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 
 // Giga returns the GigaRouter if Autobahn is enabled, None otherwise.
 // Consumers (e.g. the /status RPC handler) use this to reach Autobahn-specific

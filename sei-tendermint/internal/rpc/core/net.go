@@ -4,29 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// NetInfo returns network info. NPeers and PeerConnections cover every
-// connected peer; Peers lists the connected peers with a known address.
+// NetInfo returns network info. NPeers counts connected peers, the same set as
+// PeerConnections; Peers lists every known address, including those learned via PEX.
 // More: https://docs.tendermint.com/master/rpc/#/Info/net_info
 func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
-	infos := env.Router.ConnInfos()
-	peers := make([]coretypes.Peer, 0, len(infos))
-	peerConnections := make([]coretypes.PeerConnection, 0, len(infos))
-	for _, info := range infos {
-		peerConnections = append(peerConnections, coretypes.PeerConnection{
+	peers := map[types.NodeID]coretypes.Peer{}
+	for _, addr := range env.Router.AllAddrs() {
+		if _, ok := peers[addr.NodeID]; ok {
+			continue
+		}
+		peers[addr.NodeID] = coretypes.Peer{ID: addr.NodeID, URL: addr.String()}
+	}
+	peerConnections := map[types.NodeID]coretypes.PeerConnection{}
+	for _, info := range env.Router.ConnInfos() {
+		if _, ok := peerConnections[info.ID]; ok {
+			continue
+		}
+		peerConnections[info.ID] = coretypes.PeerConnection{
 			ID:    info.ID,
 			State: "ready,connected",
 			Score: 100,
-		})
-		addr, ok := info.DialedAddr.Get()
-		if !ok {
-			addr, ok = info.SelfDeclaredAddr.Get()
-		}
-		if ok {
-			peers = append(peers, coretypes.Peer{ID: info.ID, URL: addr.String()})
 		}
 	}
 
@@ -34,8 +38,8 @@ func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, 
 		Listening:       env.IsListening,
 		Listeners:       env.Listeners,
 		NPeers:          len(peerConnections),
-		Peers:           peers,
-		PeerConnections: peerConnections,
+		Peers:           slices.Collect(maps.Values(peers)),
+		PeerConnections: slices.Collect(maps.Values(peerConnections)),
 	}, nil
 }
 

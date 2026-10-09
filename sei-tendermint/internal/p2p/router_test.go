@@ -240,7 +240,7 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 
 	// newNode should NOT learn about nodes[1] during handshake.
 	require.True(t, slices.Index(
-		newNode.KnownAddrs(),
+		newNode.Router.peerManager.AllAddrs(),
 		nodes[1].NodeAddress,
 	) == -1)
 }
