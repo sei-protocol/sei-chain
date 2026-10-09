@@ -449,12 +449,27 @@ func (rs *Store) validateSSReadVersion(version int64) error {
 	return nil
 }
 
+// exportVersionLoader is implemented by SC stores that can open a historical view for state-sync export
+// at heights their generic read-only load refuses.
+type exportVersionLoader interface {
+	LoadVersionReadOnlyForExport(version int64) (sctypes.Committer, error)
+}
+
+var _ exportVersionLoader = (*composite.CompositeCommitStore)(nil)
+
+func (rs *Store) loadSCVersionForExport(version int64) (sctypes.Committer, error) {
+	if loader, ok := rs.scStore.(exportVersionLoader); ok {
+		return loader.LoadVersionReadOnlyForExport(version)
+	}
+	return rs.scStore.LoadVersion(version, true)
+}
+
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
 	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
 	// Open SC stores for wasm snapshot, this op is blocking and could take a long time
-	scStore, err := rs.scStore.LoadVersion(version, true)
+	scStore, err := rs.loadSCVersionForExport(version)
 	if err != nil {
 		return nil, err
 	}

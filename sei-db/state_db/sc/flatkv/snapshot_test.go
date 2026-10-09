@@ -361,6 +361,25 @@ func TestSeekSnapshot(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOldestSnapshotAbove(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{0, 10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+	s := &CommitStore{config: config.Config{DataDir: dir}}
+
+	for _, tc := range []struct {
+		version  int64
+		snapshot int64
+		ok       bool
+	}{{0, 10, true}, {5, 10, true}, {10, 20, true}, {20, 0, false}, {25, 0, false}} {
+		snapshot, ok, err := s.OldestSnapshotAbove(tc.version)
+		require.NoError(t, err)
+		require.Equal(t, tc.ok, ok, "version %d", tc.version)
+		require.Equal(t, tc.snapshot, snapshot, "version %d", tc.version)
+	}
+}
+
 func TestReadOnlyAtTargetVersion(t *testing.T) {
 	dir := t.TempDir()
 
