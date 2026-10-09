@@ -1582,6 +1582,53 @@ func exportNeedsMetadataGating(mode types.WriteMode) bool {
 	return mode == types.Auto || mode == types.MigrateEVM || mode == types.MigrateBank
 }
 
+// exportMigrationState reads the migration metadata as of version, which decides whether each backend is
+// in the AppHash there. FlatKV read-only clones replay the WAL to the target version, so the boundary and
+// version keys reflect historical state, not the live store's.
+//
+// A version FlatKV can't reach is still pre-migration when the migration had not started at the next
+// retained snapshot above it either, because migration status only moves forward. Under Auto this covers
+// every height before kickoff, since FlatKV is created at the kickoff block. Any other unreachable
+// version fails: silently omitting flatkv would produce a consensus-incomplete snapshot,
+// byte-indistinguishable from a legitimate memiavl-only stream.
+func exportMigrationState(flatKV gigatypes.LiveStateStore, version int64) (started, bankDone bool, err error) {
+	ro, err := flatKV.LoadVersionReadOnly(version)
+	if err != nil {
+		if errors.Is(err, gigatypes.ErrVersionUnreachable) && precedesMigration(flatKV, version) {
+			return false, false, nil
+		}
+		return false, false, fmt.Errorf("failed to load flatkv at export version %d: %w", version, err)
+	}
+	started, gateErr := migrationStarted(ro)
+	if gateErr == nil {
+		bankDone, gateErr = migration.IsModeComplete(ro, types.MigrateBank)
+	}
+	closeErr := ro.Close()
+	if gateErr != nil {
+		return false, false, fmt.Errorf("failed to read migration metadata for export gating: %w", gateErr)
+	}
+	if closeErr != nil {
+		return false, false, fmt.Errorf("failed to close export gating handle: %w", closeErr)
+	}
+	return started, bankDone, nil
+}
+
+// precedesMigration reports whether the migration had not started at the oldest FlatKV snapshot above
+// version. Any error reading that snapshot reports false.
+func precedesMigration(flatKV gigatypes.LiveStateStore, version int64) bool {
+	snapshot, ok, err := flatKV.OldestSnapshotAbove(version)
+	if err != nil || !ok {
+		return false
+	}
+	ro, err := flatKV.LoadVersionReadOnly(snapshot)
+	if err != nil {
+		return false
+	}
+	started, gateErr := migrationStarted(ro)
+	closeErr := ro.Close()
+	return gateErr == nil && closeErr == nil && !started
+}
+
 // Exporter returns an exporter for state sync.
 //
 // Section selection follows the AppHash: a backend's section belongs in
@@ -1600,28 +1647,9 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	includeFlatKV := flatKV != nil
 
 	if includeFlatKV && exportNeedsMetadataGating(cs.config.WriteMode) {
-		// Evaluate the hash predicates against metadata as-of the exported
-		// version: flatkv read-only clones replay the WAL to the target
-		// version, so the boundary/version keys reflect historical state, not
-		// the live store's.
-		ro, err := flatKV.LoadVersionReadOnly(version)
+		started, bankDone, err := exportMigrationState(flatKV, version)
 		if err != nil {
-			// Silently omitting flatkv here would produce a consensus-incomplete
-			// snapshot, byte-indistinguishable from a legitimate memiavl-only
-			// stream, so fail loud instead.
-			return nil, fmt.Errorf("failed to load flatkv at export version %d: %w", version, err)
-		}
-		started, gateErr := migrationStarted(ro)
-		var bankDone bool
-		if gateErr == nil {
-			bankDone, gateErr = migration.IsModeComplete(ro, types.MigrateBank)
-		}
-		closeErr := ro.Close()
-		if gateErr != nil {
-			return nil, fmt.Errorf("failed to read migration metadata for export gating: %w", gateErr)
-		}
-		if closeErr != nil {
-			return nil, fmt.Errorf("failed to close export gating handle: %w", closeErr)
+			return nil, err
 		}
 		if cs.config.WriteMode == types.MigrateBank {
 			// Fixed MigrateBank descends from a flatkv-bearing predecessor;

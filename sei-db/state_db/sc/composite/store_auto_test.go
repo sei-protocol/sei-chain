@@ -371,6 +371,36 @@ func TestComposite_Auto_ExportExcludesFlatKVUntilMigrationStarts(t *testing.T) {
 	require.Contains(t, moduleNamesOf(postItems), keys.FlatKVStoreKey)
 }
 
+// TestComposite_Auto_ExportBeforeKickoffAfterMigrationStarts pins that a
+// height before kickoff stays exportable once the migration is running.
+// FlatKV is created at kickoff and can't reach that height, but the
+// migration had not started there, so the export is memiavl-only and
+// matches the one taken before kickoff.
+func TestComposite_Auto_ExportBeforeKickoffAfterMigrationStarts(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA078)
+
+	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
+	defer func() { _ = cs.Close() }()
+	runBlocks(t, cs, workload, 3)
+	pre := cs.Version() - 1
+
+	exp, err := cs.Exporter(pre)
+	require.NoError(t, err)
+	preItems := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 3)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(pre), flatkv.ErrVersionUnreachable)
+
+	exp, err = cs.Exporter(pre)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Equal(t, preItems, items)
+}
+
 // TestComposite_Auto_ExportImportRoundTrip pins the stream-driven import:
 // a migrated Auto node's snapshot restored onto a FRESH Auto node (no
 // flatkv directory) must materialize flatkv from the stream's section,
