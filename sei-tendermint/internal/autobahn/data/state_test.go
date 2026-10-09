@@ -281,6 +281,13 @@ func TestState(t *testing.T) {
 			if err := utils.TestDiff(wantG, gotG); err != nil {
 				return fmt.Errorf("state.GlobalBlock(%v): %w", n, err)
 			}
+			gotH, err := state.GlobalBlockHash(ctx, n)
+			if err != nil {
+				return fmt.Errorf("state.GlobalBlockHash(%v): %w", n, err)
+			}
+			if gotH != wantB.Header().Hash() {
+				return fmt.Errorf("state.GlobalBlockHash(%v) = %v, want %v", n, gotH, wantB.Header().Hash())
+			}
 		}
 		return nil
 	}); err != nil {
