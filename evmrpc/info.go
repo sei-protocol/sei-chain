@@ -272,7 +272,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			// block pruned from tendermint store. Skipping
 			continue
 		}
-		rewards, err := i.getRewards(block, baseFee, rewardPercentiles)
+		rewards, err := i.getRewards(ctx, block, baseFee, rewardPercentiles)
 		if err != nil {
 			return nil, err
 		}
@@ -377,41 +377,46 @@ type GasAndReward struct {
 	Reward  *big.Int
 }
 
-func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
+func (i *InfoAPI) getRewards(ctx context.Context, block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
 	if err := requireReceiptStore(i.keeper); err != nil {
 		return nil, err
 	}
-	GasAndRewards := []GasAndReward{}
-	totalEVMGasUsed := uint64(0)
-	for _, txbz := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
-		if ethtx == nil {
-			// not evm tx
-			continue
-		}
-		// okay to get from latest since receipt is immutable
-		rcpt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
-		if err != nil {
-			if errors.Is(err, receipt.ErrNotConfigured) {
-				return nil, err
+	return readStores(ctx, i.ctxProvider, func(ctxProvider func(int64) sdk.Context) ([]*hexutil.Big, error) {
+		GasAndRewards := []GasAndReward{}
+		totalEVMGasUsed := uint64(0)
+		for _, txbz := range block.Block.Txs {
+			ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
+			if ethtx == nil {
+				// not evm tx
+				continue
 			}
-			// tx doesn't have a receipt because of nonce mismatch
-			continue
-		}
-		receiptEffectiveGasPrice := new(big.Int).SetUint64(rcpt.EffectiveGasPrice)
-		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
-			// if effective gas price is 0, it's expected behavior for txs that failed ante.
-			// if it's not zero but still smaller than baseFee then something is wrong.
-			if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
-				fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
+			// okay to get from latest since receipt is immutable
+			rcpt, err := i.keeper.GetReceipt(ctxProvider(LatestCtxHeight), ethtx.Hash())
+			if err != nil {
+				if errors.Is(err, receipt.ErrNotConfigured) {
+					return nil, err
+				}
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, ctxErr
+				}
+				// tx doesn't have a receipt because of nonce mismatch
+				continue
 			}
-			continue
+			receiptEffectiveGasPrice := new(big.Int).SetUint64(rcpt.EffectiveGasPrice)
+			if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
+				// if effective gas price is 0, it's expected behavior for txs that failed ante.
+				// if it's not zero but still smaller than baseFee then something is wrong.
+				if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
+					fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
+				}
+				continue
+			}
+			reward := new(big.Int).Sub(new(big.Int).SetUint64(rcpt.EffectiveGasPrice), baseFee)
+			GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: rcpt.GasUsed, Reward: reward})
+			totalEVMGasUsed += rcpt.GasUsed
 		}
-		reward := new(big.Int).Sub(new(big.Int).SetUint64(rcpt.EffectiveGasPrice), baseFee)
-		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: rcpt.GasUsed, Reward: reward})
-		totalEVMGasUsed += rcpt.GasUsed
-	}
-	return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
+		return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
+	})
 }
 
 func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGasUsed uint64, err error) {
