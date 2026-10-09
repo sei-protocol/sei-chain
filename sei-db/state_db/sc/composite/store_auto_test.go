@@ -401,6 +401,36 @@ func TestComposite_Auto_ExportBeforeKickoffAfterMigrationStarts(t *testing.T) {
 	require.Equal(t, preItems, items)
 }
 
+// TestComposite_Auto_ReadOnlyForExportBeforeKickoffAfterMigrationStarts pins the state-sync extension
+// path: a snapshot of a pre-kickoff height opens a read-only view at that height after kickoff, when
+// FlatKV exists but can't reach it. The generic read-only load still refuses that height.
+func TestComposite_Auto_ReadOnlyForExportBeforeKickoffAfterMigrationStarts(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA079)
+
+	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
+	defer func() { _ = cs.Close() }()
+	runBlocks(t, cs, workload, 3)
+	pre := cs.Version() - 1
+
+	ro, err := cs.LoadVersionReadOnly(pre)
+	require.NoError(t, err)
+	preInfo := ro.LastCommitInfo()
+	require.NoError(t, ro.Close())
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 3)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(pre), flatkv.ErrVersionUnreachable)
+
+	_, err = cs.LoadVersionReadOnly(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
+
+	ro, err = cs.LoadVersionReadOnlyForExport(pre)
+	require.NoError(t, err)
+	require.Equal(t, preInfo, ro.LastCommitInfo())
+	require.NoError(t, ro.Close())
+}
+
 // TestComposite_Auto_ExportImportRoundTrip pins the stream-driven import:
 // a migrated Auto node's snapshot restored onto a FRESH Auto node (no
 // flatkv directory) must materialize flatkv from the stream's section,

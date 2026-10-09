@@ -459,7 +459,19 @@ func isStaleSeed(memIAVLVersion, flatKVVersion int64) bool {
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
 // is left untouched and must stay open while the view is in use; the caller owns the view and must Close it.
-func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ types.Committer, retErr error) {
+func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (types.Committer, error) {
+	return cs.loadVersionReadOnly(targetVersion, false)
+}
+
+// LoadVersionReadOnlyForExport is LoadVersionReadOnly for state-sync snapshot extensions. Under Auto, a height
+// FlatKV can't reach is served memIAVL-only when the migration had not started at the next retained FlatKV
+// snapshot above it, since FlatKV isn't in the AppHash there. Such a snapshot can start before kickoff and
+// reach its extensions after FlatKV was created.
+func (cs *CompositeCommitStore) LoadVersionReadOnlyForExport(targetVersion int64) (types.Committer, error) {
+	return cs.loadVersionReadOnly(targetVersion, true)
+}
+
+func (cs *CompositeCommitStore) loadVersionReadOnly(targetVersion int64, allowPreMigration bool) (_ types.Committer, retErr error) {
 	if cs.derived {
 		return nil, errDerivedStore
 	}
@@ -497,12 +509,17 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		}
 	}
 
-	if cs.loadFlatKV() != nil {
-		fkv, err := cs.loadFlatKV().LoadVersionReadOnly(targetVersion)
-		if err != nil {
+	if flatKV := cs.loadFlatKV(); flatKV != nil {
+		fkv, err := flatKV.LoadVersionReadOnly(targetVersion)
+		switch {
+		case err == nil:
+			flatKVStore = fkv
+		case allowPreMigration && cs.config.WriteMode == types.Auto &&
+			errors.Is(err, gigatypes.ErrVersionUnreachable) && precedesMigration(flatKV, targetVersion):
+			// Before kickoff FlatKV isn't in the AppHash, so memIAVL alone is the full state.
+		default:
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
-		flatKVStore = fkv
 	}
 
 	// Build a per-handle composite with its own router. Without this the read-only handle has
