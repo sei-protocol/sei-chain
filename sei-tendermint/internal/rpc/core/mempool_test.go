@@ -43,6 +43,7 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 
 	// Test: the EVM RPC accessors Environment exposes to giga/evmonly/rpc.
 	nonce := env.EvmTransactionCount(address)
+	pendingNonce := env.EvmNextPendingNonce(address)
 	height := env.EvmBlockNumber()
 	chainID := env.EvmChainID()
 	_, chainConfigErr := env.EvmChainConfig()
@@ -55,6 +56,7 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	// Verify: nonce/height/chain-id hit Application; the rest error because
 	// BaseApplication implements none of those optional interfaces.
 	require.Equal(t, uint64(0), nonce)
+	require.Equal(t, uint64(0), pendingNonce)
 	require.Equal(t, uint64(0), height)
 	require.Equal(t, uint64(0), chainID)
 	require.Error(t, chainConfigErr)

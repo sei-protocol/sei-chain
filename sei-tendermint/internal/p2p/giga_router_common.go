@@ -562,6 +562,26 @@ func (r *gigaRouterCommon) dialAndRunConn(
 	})
 }
 
+// runCommitteePeer maintains an outbound giga connection to a committee member.
+// Every connection except the one to self drains the shared GetBlock queue, so
+// block-sync throughput grows with the committee size on validators and full
+// nodes alike. Self disables GetBlock: a loopback consumer always returns empty
+// for missing catch-up heights and can starve the contiguous prefix while
+// higher gap-fills keep retrying. Compare against the p2p node key
+// (r.key.Public), not the consensus key: GigaNodeAddr.Key is a NodePublicKey.
+func (r *gigaRouterCommon) runCommitteePeer(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
+	getBlock := addr.Key != r.key.Public()
+	for {
+		err := r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			return r.service.RunClient(ctx, client, validator, getBlock)
+		})
+		logger.Info("giga connection failed", "addr", addr, "err", err)
+		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+			return err
+		}
+	}
+}
+
 // committeeMemberTask is work for one reachable committee member. It must run
 // until ctx is cancelled; otherwise it is not restarted while the member stays
 // in the committee.

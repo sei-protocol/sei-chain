@@ -37,7 +37,6 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber),
 		ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber),
 	} {
 		got, err := api.GetTransactionCount(t.Context(), address, tag)
 		require.NoError(t, err)
@@ -79,6 +78,118 @@ func TestGetTransactionCountEndToEnd(t *testing.T) {
 	var got hexutil.Uint64
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getTransactionCount", address, "latest"))
 	require.Equal(t, hexutil.Uint64(3), got)
+}
+
+func TestGetTransactionCountProxiesPendingToShardOwner(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	remote := &testRemoteNonceAPI{nonce: 42}
+	backend := &testBackend{
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("proxied pending read reached local state")
+			return 0
+		},
+		proxy: utils.Some(newTestNonceProxy(t, remote)),
+	}
+
+	// Test: a pending read on a node with a shard-owner proxy.
+	got, err := (&txAPI{backend: backend}).GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber))
+
+	// Verify: the owner's pending nonce for the same address comes back.
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(42), *got)
+	require.Equal(t, address, remote.address)
+	number, ok := remote.block.Number()
+	require.True(t, ok)
+	require.Equal(t, ethrpc.PendingBlockNumber, number)
+}
+
+func TestGetTransactionCountReadsCommittedTagsLocally(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	remote := &testRemoteNonceAPI{nonce: 42}
+	backend := &testBackend{
+		transactionCount: func(common.Address) uint64 { return 7 },
+		proxy:            utils.Some(newTestNonceProxy(t, remote)),
+	}
+
+	for _, tag := range []ethrpc.BlockNumber{ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber} {
+		// Test: a committed-state read on a node with a shard-owner proxy.
+		got, err := (&txAPI{backend: backend}).GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(tag))
+
+		// Verify: local state answers and the owner is never asked.
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Uint64(7), *got)
+	}
+	require.Zero(t, backend.proxyCalls)
+	require.Zero(t, remote.calls)
+}
+
+func TestGetTransactionCountPendingWithoutProxyReadsLocalMempool(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := &testBackend{
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("pending read skipped the local mempool")
+			return 0
+		},
+		nextPendingNonce: func(common.Address) uint64 { return 9 },
+		proxy:            utils.None[*ethrpc.Client](),
+	}
+
+	// Test: a pending read on a node with no shard-owner proxy.
+	got, err := (&txAPI{backend: backend}).GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber))
+
+	// Verify: the local mempool-aware nonce answers.
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(9), *got)
+	require.Zero(t, backend.proxyCalls)
+}
+
+func TestGetTransactionCountSurfacesProxyError(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := &testBackend{
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("failed proxy read reached local state")
+			return 0
+		},
+		proxy: utils.Some(newTestNonceProxy(t, &testRemoteNonceAPI{err: errors.New("shard owner unavailable")})),
+	}
+
+	// Test: the shard-owner eth_getTransactionCount call fails.
+	_, err := (&txAPI{backend: backend}).GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber))
+
+	// Verify: that remote error is returned.
+	require.ErrorContains(t, err, "shard owner unavailable")
+}
+
+// testRemoteNonceAPI is a shard owner's eth_getTransactionCount that records
+// its last request.
+type testRemoteNonceAPI struct {
+	nonce   hexutil.Uint64
+	err     error
+	calls   int
+	address common.Address
+	block   ethrpc.BlockNumberOrHash
+}
+
+func (api *testRemoteNonceAPI) GetTransactionCount(address common.Address, block ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
+	api.calls++
+	api.address = address
+	api.block = block
+	return api.nonce, api.err
+}
+
+// newTestNonceProxy serves remote as the "eth" namespace over HTTP and returns
+// a client for it.
+func newTestNonceProxy(t *testing.T, remote *testRemoteNonceAPI) *ethrpc.Client {
+	t.Helper()
+	handler := ethrpc.NewServer()
+	require.NoError(t, handler.RegisterName("eth", remote))
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	return client
 }
 
 func TestGetTransactionReceipt(t *testing.T) {
