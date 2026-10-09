@@ -30,7 +30,7 @@ var (
 type Metrics struct {
 	// Number of peers.
 	peers prometheus.GaugeIntVec
-	// Number of distinct known peer addresses: connected peers plus addresses learned via PEX.
+	// Number of distinct peers with a known address: connected peers plus those learned via PEX.
 	knownAddresses prometheus.GaugeIntVec
 	// Number of bytes per channel received.
 	peerReceiveBytesTotal prometheus.CounterIntVec `metrics_labels:"chID, message_type"`

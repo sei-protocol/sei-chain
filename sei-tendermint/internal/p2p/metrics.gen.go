@@ -35,7 +35,7 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "known_addresses",
-			Help:      "Number of distinct known peer addresses: connected peers plus addresses learned via PEX.",
+			Help:      "Number of distinct peers with a known address: connected peers plus those learned via PEX.",
 		}, nil),
 		peerReceiveBytesTotal: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,

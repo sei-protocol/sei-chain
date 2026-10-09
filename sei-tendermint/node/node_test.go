@@ -656,8 +656,8 @@ func TestNodeNewSeedNode_ServesPrometheusMetrics(t *testing.T) {
 	require.True(t, n.prometheusSrv.IsPresent(), "seed node should have started a Prometheus server")
 
 	// No polling: startPrometheusServer binds before returning, so the listener is
-	// accepting once Start returns, and NewRouter seeds tendermint_p2p_peers at
-	// construction, so the series exists before Start is even called. Both are
+	// accepting once Start returns, and NewRouter seeds the p2p gauges at
+	// construction, so the series exist before Start is even called. Both are
 	// ordered ahead of the scrape, which is what makes a single one sufficient.
 	url := fmt.Sprintf("http://%s/metrics", cfg.Instrumentation.PrometheusListenAddr)
 	body := fetchMetrics(t, url)

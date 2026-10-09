@@ -106,7 +106,7 @@ func NewRouter(
 	router.giga = options.Giga
 	router.BaseService = service.NewBaseService("router", router)
 
-	// Publish the peers gauge at construction, not from metricsRoutine. It is a
+	// Publish the p2p gauges at construction, not from metricsRoutine. Each is a
 	// MetricVec child, absent from /metrics until something sets it, and an absent
 	// series is not zero: an alert comparing peers against the connection cap
 	// matches nothing until the series exists, which is exactly the window a
