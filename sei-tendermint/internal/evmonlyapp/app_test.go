@@ -888,6 +888,102 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	require.Equal(t, int64(4), latest)
 }
 
+// Nonce and balance reads answer for the block FinalizeBlock just ran, before its commit lands,
+// for every account it touched; accounts it did not touch keep the funded default.
+func TestEVMOnlyApplicationNonceAndBalanceReflectTheFinalizedBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	untouched := common.HexToAddress("0x2000000000000000000000000000000000000002")
+
+	response, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
+	require.NoError(t, err)
+	require.Len(t, response.TxResults, 1)
+
+	require.Equal(t, uint64(1), app.EvmNonce(sender))
+	gasPaid := new(big.Int).Mul(big.NewInt(evmOnlyMinGasPrice), big.NewInt(response.TxResults[0].GasUsed))
+	wantSender := new(big.Int).Sub(new(big.Int).Sub(new(big.Int).Set(evmOnlyBaseBalance), big.NewInt(1)), gasPaid)
+	senderBalance := app.EvmBalance(sender, nil)
+	require.Equal(t, wantSender, senderBalance.ToBig())
+	recipientBalance := app.EvmBalance(recipient, nil)
+	require.Equal(t, new(big.Int).Add(new(big.Int).Set(evmOnlyBaseBalance), big.NewInt(1)), recipientBalance.ToBig())
+	require.Equal(t, uint64(0), app.EvmNonce(untouched))
+	untouchedBalance := app.EvmBalance(untouched, nil)
+	require.Equal(t, evmOnlyBaseBalance, untouchedBalance.ToBig())
+
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), app.EvmNonce(sender))
+}
+
+// A nonce or balance read taken before a block's commit lands answers exactly what the settled
+// store answers once it has, block after block, for touched and untouched accounts alike.
+func TestEVMOnlyApplicationLatestAccountMatchesTheSettledStore(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	addresses := []common.Address{
+		crypto.PubkeyToAddress(key.PublicKey),
+		common.HexToAddress("0x1000000000000000000000000000000000000001"),
+		common.HexToAddress("0x2000000000000000000000000000000000000002"),
+	}
+
+	for nonce := range uint64(4) {
+		height := int64(nonce) + 1 //nolint:gosec // G115: test nonces are small.
+		_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, nonce)))
+		require.NoError(t, err)
+		latest := make([]evmonly.LatestAccount, len(addresses))
+		for i, address := range addresses {
+			latest[i] = settler.latestAccount(address)
+		}
+		require.NoError(t, settler.AwaitCommits())
+		for i, address := range addresses {
+			settled := settledEVMOnlyTestAccount(settler, address)
+			require.Equal(t, settled.Nonce, latest[i].Nonce)
+			require.Equal(t, settled.Balance.String(), latest[i].Balance.String())
+		}
+		_, err = app.Commit(t.Context())
+		require.NoError(t, err)
+	}
+}
+
+// settledEVMOnlyTestAccount reads address from a store view that holds every finalized block.
+func settledEVMOnlyTestAccount(app *evmOnlyApplication, address common.Address) evmonly.LatestAccount {
+	snapshot := app.openSettledView()
+	defer snapshot.Close()
+	storeAddress := evmOnlyStoreAddress(address)
+	if !snapshot.AccountExists(storeAddress) {
+		return evmonly.LatestAccount{Balance: new(big.Int).Set(evmOnlyBaseBalance)}
+	}
+	balance := snapshot.GetBalance(storeAddress)
+	return evmonly.LatestAccount{Balance: new(big.Int).SetBytes(balance[:]), Nonce: snapshot.GetNonce(storeAddress)}
+}
+
+// Once a commit has failed, nonce and balance reads fall back to the store, which stays at the
+// last version that landed.
+func TestEVMOnlyApplicationNonceAndBalanceFallBackToTheStoreAfterAFailedCommit(t *testing.T) {
+	storage := openEVMOnlyTestStorageAt(t, t.TempDir())
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder, gigaconfig.DefaultConfig.Execution)
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+
+	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
+	require.Error(t, settler.AwaitCommits())
+
+	require.Equal(t, uint64(0), app.EvmNonce(sender))
+	balance := app.EvmBalance(sender, nil)
+	require.Equal(t, evmOnlyBaseBalance, balance.ToBig())
+}
+
 // unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store
 // refuses to apply, so the block executes and encodes cleanly and its commit is
 // the first thing that fails.
