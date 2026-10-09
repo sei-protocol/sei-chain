@@ -13,6 +13,7 @@ var intrinsicGasRules = params.Rules{IsHomestead: true, IsIstanbul: true, IsShan
 
 // IntrinsicGas returns the intrinsic gas of an EVM transaction under Sei's rules.
 func IntrinsicGas(etx *ethtypes.Transaction) (uint64, error) {
+	// value only prices intrinsic gas under Amsterdam (EIP-2780), which intrinsicGasRules excludes.
 	value, _ := uint256.FromBig(etx.Value())
 	return core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), common.Address{}, etx.To(), value, intrinsicGasRules)
 }

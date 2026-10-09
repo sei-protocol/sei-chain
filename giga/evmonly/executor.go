@@ -341,11 +341,7 @@ func (e *Executor) executeTx(
 
 	msg, err := transactionToPreparedMessage(p, baseFee)
 	if err != nil {
-		if !e.cfg.RejectUnappliableTxs {
-			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
-		}
-		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
-		return txResult, receipt, nil
+		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
 	}
 	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
 
@@ -361,14 +357,12 @@ func (e *Executor) executeTx(
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		if !e.cfg.RejectUnappliableTxs {
-			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if e.cfg.RejectUnappliableTxs {
+			stateDB.RevertToSnapshot(snapshot)
+			stateDB.clearSnapshots()
+			gasPool.Set(poolSnapshot)
 		}
-		stateDB.RevertToSnapshot(snapshot)
-		stateDB.clearSnapshots()
-		gasPool.Set(poolSnapshot)
-		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
-		return txResult, receipt, nil
+		return e.unappliableTx(p, block, txIndexUint, baseFee, err)
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(evm.GetRules())
@@ -423,6 +417,22 @@ func (e *Executor) executeTx(
 
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the
 // executor did not run.
+// unappliableTx returns the outcome for a transaction that cannot be applied: err, failing
+// the block, or a failed receipt when RejectUnappliableTxs is set.
+func (e *Executor) unappliableTx(
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	err error,
+) (TxResult, *ethtypes.Receipt, error) {
+	if !e.cfg.RejectUnappliableTxs {
+		return TxResult{Hash: p.Tx.Hash(), Sender: p.Sender, To: p.Tx.To(), Err: err}, nil, err
+	}
+	txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+	return txResult, receipt, nil
+}
+
 func rejectedTx(
 	p PreparedTx,
 	block BlockContext,
@@ -492,11 +502,7 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) (*core.Message
 		BlobGasFeeCap:         blobGasFeeCap,
 	}
 	if baseFee != nil {
-		effectiveGasPrice := new(big.Int).Add(tx.GasTipCap(), baseFee)
-		if effectiveGasPrice.Cmp(tx.GasFeeCap()) > 0 {
-			effectiveGasPrice = tx.GasFeeCap()
-		}
-		msg.GasPrice = uint256.MustFromBig(effectiveGasPrice)
+		msg.GasPrice = uint256.MustFromBig(EffectiveGasPrice(tx, baseFee))
 	}
 	return msg, nil
 }

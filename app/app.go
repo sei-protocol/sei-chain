@@ -135,6 +135,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -1911,10 +1912,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// V2 charges fees in the ante handler, then runs the EVM with feeAlreadyCharged=true
 	// which skips buyGas/refundGas/coinbase. Without this, GasUsed differs between Giga
 	// and V2, causing LastResultsHash → AppHash divergence.
-	effectiveGasPrice := new(big.Int).Add(new(big.Int).Set(ethTx.GasTipCap()), validation.baseFee)
-	if effectiveGasPrice.Cmp(ethTx.GasFeeCap()) > 0 {
-		effectiveGasPrice.Set(ethTx.GasFeeCap())
-	}
+	effectiveGasPrice := ethtx.EffectiveGasPrice(validation.baseFee, ethTx.GasFeeCap(), ethTx.GasTipCap())
 	gasFee := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), effectiveGasPrice)
 	stateDB.SubBalance(sender, uint256.MustFromBig(gasFee), tracing.BalanceDecreaseGasBuy)
 

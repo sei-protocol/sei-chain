@@ -34,7 +34,7 @@ func (e *behaviorEnv) setCodeTx(authority *ecdsa.PrivateKey, authNonce, txNonce 
 	}
 }
 
-func (e *behaviorEnv) hasCodeKeys(addr common.Address) bool {
+func (e *behaviorEnv) hasCodeKey(addr common.Address) bool {
 	return e.k.PrefixStore(e.ctx, types.CodeKeyPrefix).Has(addr[:])
 }
 
@@ -53,7 +53,7 @@ func TestSetCodeAuthorizationBehavior(t *testing.T) {
 		require.Empty(t, r.res.VmError)
 		require.Equal(t, uint64(46_000), r.res.GasUsed)
 		require.Equal(t, uint64(1), e.k.GetNonce(e.ctx, authority))
-		require.False(t, e.hasCodeKeys(authority))
+		require.False(t, e.hasCodeKey(authority))
 		require.Equal(t, ethtypes.EmptyCodeHash, e.k.GetCodeHash(e.ctx, authority))
 		gotSei, ok := e.k.GetSeiAddress(e.ctx, authority)
 		require.True(t, ok)
@@ -72,7 +72,7 @@ func TestSetCodeAuthorizationBehavior(t *testing.T) {
 		r := e.runTx(sponsorKey, e.setCodeTx(authorityKey, 1, 1, common.Address{}), 1)
 		require.Empty(t, r.res.VmError)
 		require.Equal(t, uint64(36_800), r.res.GasUsed)
-		require.True(t, e.hasCodeKeys(authority))
+		require.True(t, e.hasCodeKey(authority))
 		require.Nil(t, e.k.GetCode(e.ctx, authority))
 		require.Equal(t, 0, e.k.GetCodeSize(e.ctx, authority))
 		require.Equal(t, ethtypes.EmptyCodeHash, e.k.GetCodeHash(e.ctx, authority))

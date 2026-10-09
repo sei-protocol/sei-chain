@@ -29,10 +29,10 @@ func TestEarliestResolvesToLowestAvailableBlock(t *testing.T) {
 
 	ctxProvider := func(int64) sdk.Context { return sdk.Context{}.WithBlockHeight(1000) }
 	wm := NewWatermarkManager(tmClient, ctxProvider, nil, nil)
-	blocks, err := wm.EarliestAvailable(context.Background(), BlockHistory)
+	blocks, err := wm.EarliestHeight(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(500), blocks)
-	receipts, err := wm.EarliestAvailable(context.Background(), ReceiptHistory)
+	receipts, _, err := wm.ReceiptRange(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(500), receipts)
 }
@@ -132,10 +132,10 @@ func (c *statusFailsAfterClient) Status(ctx context.Context) (*coretypes.ResultS
 	return c.heightTestClient.Status(ctx)
 }
 
-// A failed earliest-floor lookup is an error, not a floor of 0.
+// A failed receipt-range lookup is an error, not a floor of 0.
 func TestGetLogsReturnsEarliestFloorLookupError(t *testing.T) {
 	newFetcher := func() *LogFetcher {
-		client := &statusFailsAfterClient{heightTestClient: newHeightTestClient(0, 5, 20), ok: 1}
+		client := &statusFailsAfterClient{heightTestClient: newHeightTestClient(0, 5, 20), ok: 0}
 		return &LogFetcher{
 			tmClient:           client,
 			k:                  newTestKeeperWithReceiptStore(),

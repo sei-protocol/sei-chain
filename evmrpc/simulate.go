@@ -441,15 +441,10 @@ func (b *Backend) ChainDb() ethdb.Database {
 }
 
 func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) (int64, error) {
-	switch normalizeEarliest(bn) {
-	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber:
-		return b.ctxProvider(LatestCtxHeight).BlockHeight(), nil
-	case rpc.EarliestBlockNumber:
-		return earliestBlockHeight(context.Background(), b.tmClient)
-	case rpc.PendingBlockNumber:
+	if bn == rpc.PendingBlockNumber {
 		return 0, errors.New("tracing on pending block is not supported")
 	}
-	return bn.Int64(), nil
+	return resolveHeight(context.Background(), b.tmClient, b.ctxProvider(LatestCtxHeight).BlockHeight(), bn)
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {

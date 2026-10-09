@@ -91,6 +91,18 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	return numberPtr, nil
 }
 
+// resolveHeight returns the block height number selects, with head tags resolving to latest.
+func resolveHeight(ctx context.Context, tmClient client.LocalClient, latest int64, number rpc.BlockNumber) (int64, error) {
+	height, err := getBlockNumber(ctx, tmClient, number)
+	if err != nil {
+		return 0, err
+	}
+	if height == nil {
+		return latest, nil
+	}
+	return *height, nil
+}
+
 // earliestBlockHeight returns the lowest block height this node serves, never below the chain's first block.
 func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int64, error) {
 	if tmClient == nil {
@@ -109,13 +121,19 @@ func firstBlockHeight(tmClient client.LocalClient) int64 {
 	return max(tmClient.GenesisInitialHeight(), genesistypes.DefaultGenesisInitialHeight)
 }
 
+// isEarliestBound reports whether a log filter bound is "earliest" or 0x0.
+func isEarliestBound(bound *big.Int) bool {
+	return bound != nil && bound.IsInt64() && normalizeEarliest(rpc.BlockNumber(bound.Int64())) == rpc.EarliestBlockNumber
+}
+
 // getHeightFromBigIntBlockNumber resolves a log filter bound; "earliest" and 0x0 are earliest.
 func getHeightFromBigIntBlockNumber(latest, earliest int64, blockNumber *big.Int) int64 {
+	if isEarliestBound(blockNumber) {
+		return earliest
+	}
 	switch blockNumber.Int64() {
 	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
 		return latest
-	case rpc.EarliestBlockNumber.Int64(), 0:
-		return earliest
 	default:
 		return blockNumber.Int64()
 	}

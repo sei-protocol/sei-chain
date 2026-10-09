@@ -219,11 +219,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
-	normalizeEarliestFilterBounds(filter)
-	// when fromBlock is 0 and toBlock is latest, adjust the filter
+	// when fromBlock is earliest and toBlock is a head tag, adjust the filter
 	// to unbounded filter
-	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
-		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
+	if isEarliestBound(filter.FromBlock) &&
+		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 && !isEarliestBound(filter.ToBlock) {
 		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
 		unboundedFilter := &filters.FilterCriteria{
 			FromBlock: latest, // set to latest block height
@@ -512,15 +511,4 @@ func encodeTmHeader(
 		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
 	}
 	return result, nil
-}
-
-// normalizeEarliestFilterBounds maps "earliest" filter bounds to 0.
-func normalizeEarliestFilterBounds(filter *filters.FilterCriteria) {
-	earliest := rpc.EarliestBlockNumber.Int64()
-	if filter.FromBlock != nil && filter.FromBlock.IsInt64() && filter.FromBlock.Int64() == earliest {
-		filter.FromBlock = new(big.Int)
-	}
-	if filter.ToBlock != nil && filter.ToBlock.IsInt64() && filter.ToBlock.Int64() == earliest {
-		filter.ToBlock = new(big.Int)
-	}
 }

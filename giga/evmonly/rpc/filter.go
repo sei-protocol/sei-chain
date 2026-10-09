@@ -127,11 +127,7 @@ func (api *filterAPI) indexedRange() (uint64, uint64) {
 	if stored := api.store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
-	// EarliestVersion is 0 until something has pruned the store; blocks start at 1.
-	earliest := uint64(1)
-	if stored := api.store.EarliestVersion(); stored > 1 {
-		earliest = uint64(stored) //nolint:gosec // stored is positive
-	}
+	earliest := uint64(earliestRetainedHeight(api.store)) //nolint:gosec // never below earliestCommittedHeight
 	return earliest, latest
 }
 

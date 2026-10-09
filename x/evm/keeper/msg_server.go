@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"runtime/debug"
 	"strings"
 
@@ -26,6 +25,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 var logger = seilog.NewLogger("x", "evm", "keeper")
@@ -214,11 +214,7 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetBaseFee(ctx)
 	if baseFee != nil {
-		effectiveGasPrice := new(big.Int).Add(tx.GasTipCap(), baseFee)
-		if effectiveGasPrice.Cmp(tx.GasFeeCap()) > 0 {
-			effectiveGasPrice = tx.GasFeeCap()
-		}
-		msg.GasPrice = uint256.MustFromBig(effectiveGasPrice)
+		msg.GasPrice = uint256.MustFromBig(ethtx.EffectiveGasPrice(baseFee, tx.GasFeeCap(), tx.GasTipCap()))
 	}
 	return msg
 }
