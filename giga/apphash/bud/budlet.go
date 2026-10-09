@@ -7,8 +7,8 @@ import (
 	"math"
 )
 
-// Budlet is the 4-tuple (key, value, previous value, anchor height) for one key a block modified: a leaf of that
-// block's BUD tree.
+// Budlet is the 4-tuple (key, value, previous value, not-modified-since height) for one key a block modified: a
+// leaf of that block's BUD tree.
 type Budlet struct {
 	// The key modified. Never empty.
 	key []byte
@@ -16,12 +16,12 @@ type Budlet struct {
 	// The key's value after the block, or nil if the key is absent after the block.
 	value []byte
 
-	// The value this budlet proves the key held at every height in [anchorHeight, block height), or nil if the key
+	// The value this budlet proves the key held at every height in [notModifiedSince, block height), or nil if the key
 	// was absent there.
 	previousValue []byte
 
 	// The inclusive lower bound of the heights at which this budlet proves the key held previousValue.
-	anchorHeight uint64
+	notModifiedSince uint64
 }
 
 // NewBudlet returns the budlet for one key a block modified, or an error if a parameter is out of bounds.
@@ -32,15 +32,15 @@ func NewBudlet(
 	// The key's value after the block, or nil if the key is absent after the block; a non-nil empty value is the
 	// empty value. Must not be longer than 2^32-1 bytes. Retained, so it must not be mutated afterward.
 	value []byte,
-	// The value this budlet proves the key held at every height in [anchorHeight, block height), or nil if the key
+	// The value this budlet proves the key held at every height in [notModifiedSince, block height), or nil if the key
 	// was absent there; a non-nil empty value is the empty value. Must not be longer than 2^32-1 bytes. Retained,
 	// so it must not be mutated afterward.
 	previousValue []byte,
 	// The inclusive lower bound of the heights at which this budlet proves the key held previousValue. Must be
 	// below the block's height.
-	anchorHeight uint64,
+	notModifiedSince uint64,
 ) (*Budlet, error) {
-	budlet := &Budlet{key: key, value: value, previousValue: previousValue, anchorHeight: anchorHeight}
+	budlet := &Budlet{key: key, value: value, previousValue: previousValue, notModifiedSince: notModifiedSince}
 	if err := budlet.validate(); err != nil {
 		return nil, fmt.Errorf("creating budlet: %w", err)
 	}
@@ -75,16 +75,16 @@ func (b *Budlet) Value() []byte {
 	return b.value
 }
 
-// PreviousValue returns the value the budlet proves the key held at every height in [AnchorHeight(), block height),
+// PreviousValue returns the value the budlet proves the key held at every height in [NotModifiedSince(), block height),
 // or nil if the key was absent there. The caller must not mutate it.
 func (b *Budlet) PreviousValue() []byte {
 	return b.previousValue
 }
 
-// AnchorHeight returns the inclusive lower bound of the heights at which the budlet proves the key held
+// NotModifiedSince returns the inclusive lower bound of the heights at which the budlet proves the key held
 // PreviousValue().
-func (b *Budlet) AnchorHeight() uint64 {
-	return b.anchorHeight
+func (b *Budlet) NotModifiedSince() uint64 {
+	return b.notModifiedSince
 }
 
 // Serialize returns the budlet's serialization, which is also the input to its BUD tree leaf hash. The
@@ -97,7 +97,7 @@ func (b *Budlet) Serialize() []byte {
 	serialized = append(serialized, b.key...)
 	serialized = appendBudletValue(serialized, b.value)
 	serialized = appendBudletValue(serialized, b.previousValue)
-	serialized = binary.BigEndian.AppendUint64(serialized, b.anchorHeight)
+	serialized = binary.BigEndian.AppendUint64(serialized, b.notModifiedSince)
 	return serialized
 }
 
@@ -144,12 +144,12 @@ func readBudlet(
 	}
 
 	if len(data) < 8 {
-		return nil, nil, fmt.Errorf("serialized budlet ends before its anchor height")
+		return nil, nil, fmt.Errorf("serialized budlet ends before its not-modified-since height")
 	}
-	anchorHeight := binary.BigEndian.Uint64(data)
+	notModifiedSince := binary.BigEndian.Uint64(data)
 	rest := data[8:]
 
-	budlet, err := NewBudlet(key, value, previousValue, anchorHeight)
+	budlet, err := NewBudlet(key, value, previousValue, notModifiedSince)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid budlet: %w", err)
 	}

@@ -24,7 +24,7 @@ over a range of heights. It does not define where a BUD tree is stored, or how a
 
 ## Terms
 
-- **budlet:** the 4-tuple (`key`, `value`, `previousValue`, `anchorHeight`) for one key a block modified.
+- **budlet:** the 4-tuple (`key`, `value`, `previousValue`, `notModifiedSince`) for one key a block modified.
 - **BUD tree:** the Merkle tree whose leaves are one block's budlets.
 - **BUD:** the hash at the top of a BUD tree.
 - **BUD proof:** a budlet together with the proof that it is a leaf of the BUD tree under a given BUD.
@@ -33,8 +33,8 @@ over a range of heights. It does not define where a BUD tree is stored, or how a
 - **value at a height:** a key's value at height `h` is its value in the state after executing the block at
   height `h`, or `⊥` if the key is absent from that state. The value at height 0 is the key's value in the genesis
   state.
-- **anchor height:** the inclusive lower bound of the heights at which a budlet proves that its key held the
-  budlet's previous value.
+- **not-modified-since height:** the inclusive lower bound of the heights at which a budlet proves that its key held
+  the budlet's previous value. No block after it and before the budlet's block modified the key.
 - **tombstone:** the entry a deletion leaves in the state in place of the key's value, holding the height of the
   deletion.
 - **tombstone horizon:** each block has its own tombstone horizon. For the block at height `C`, it is a height
@@ -48,46 +48,48 @@ over a range of heights. It does not define where a BUD tree is stored, or how a
 
 ### Purpose
 
-Executing a block yields one budlet for each key it modified. A block's writes are a set: each key the block
-modifies has one new value, which lands at the end of the block. A touch, a write of a key's existing value, is
-still a modification. A touch of an absent key writes a tombstone, so its budlet has `value = ⊥` and
-`previousValue = ⊥`. A budlet records the key's new value, its previous value, and an anchor height. It can
-be used to prove that the key held its previous value over [anchor height, block height) and its new value at the
-block's height, so a BUD state proof can show the key's value over a range of heights from a single block.
+Executing a block yields one budlet for each key it modified. A block's writes are a set: each key the block modifies
+has one new value, which lands at the end of the block. A touch, a write of a key's existing value, is still a
+modification. A touch of an absent key writes a tombstone, so its budlet has `value = ⊥` and `previousValue = ⊥`. A
+budlet records the key's new value, its previous value, and a not-modified-since height. It can be used to prove that
+the key held its previous value over [not-modified-since height, block height) and its new value at the block's height,
+so a BUD state proof can show the key's value over a range of heights from a single block.
 
 ### Schema
 
 **Version:** BUD version 1.
 
-A budlet is a 4-tuple (`key`, `value`, `previousValue`, `anchorHeight`). In this section, `C` is the height of the
+A budlet is a 4-tuple (`key`, `value`, `previousValue`, `notModifiedSince`). In this section, `C` is the height of the
 block the budlet belongs to.
 
-| Element         | Type                    | Meaning                                                                  |
-|-----------------|-------------------------|--------------------------------------------------------------------------|
-| `key`           | byte string             | The key modified. 1 to 2^32 − 1 bytes.                                   |
-| `value`         | byte string, or `⊥`     | The new value, 0 to 2^32 − 1 bytes, or `⊥` if absent after the block.    |
-| `previousValue` | byte string, or `⊥`     | Value over [`anchorHeight`, `C`), 0 to 2^32 − 1 bytes, or `⊥` if absent. |
-| `anchorHeight`  | 64-bit unsigned integer | Inclusive lower bound of the heights `previousValue` covers.             |
+| Element            | Type                    | Meaning                                                             |
+|--------------------|-------------------------|---------------------------------------------------------------------|
+| `key`              | byte string             | The key modified.                                                   |
+| `value`            | byte string, or `⊥`     | The new value, or `⊥` if the key is absent after the block.         |
+| `previousValue`    | byte string, or `⊥`     | Value over [`notModifiedSince`, `C`), or `⊥` if the key was absent. |
+| `notModifiedSince` | 64-bit unsigned integer | Inclusive lower bound of the heights `previousValue` covers.        |
+
+`key` is 1 to 2^32 − 1 bytes. `value` and `previousValue` are each 0 to 2^32 − 1 bytes.
 
 A deletion (`value = ⊥`) and a write of the empty value are different budlets, and so are an absent previous value
 (`previousValue = ⊥`) and an empty one.
 
-#### Anchor height
+#### Not-modified-since height
 
-A budlet guarantees that its key held `previousValue` at every height from `anchorHeight` through `C − 1`. It does
-not assert that the key was written at `anchorHeight`.
+A budlet guarantees that its key held `previousValue` at every height from `notModifiedSince` through `C − 1`. It does
+not assert that the key was written at `notModifiedSince`.
 
-`anchorHeight` is determined by the key's entry in the state at height `C − 1`:
+`notModifiedSince` is determined by the key's entry in the state at height `C − 1`:
 
-- If the state holds an entry for the key, either a value or a tombstone, `anchorHeight` is the height of the
+- If the state holds an entry for the key, either a value or a tombstone, `notModifiedSince` is the height of the
   block that wrote that entry.
-- Otherwise, `anchorHeight` is `T`, the tombstone horizon of the block at height `C`.
+- Otherwise, `notModifiedSince` is `T`, the tombstone horizon of the block at height `C`.
 
 When the state holds no entry for the key, any deletion that removed it was at a height below `T`, so the key was
 absent at every height from `T` through `C − 1`. `T` is defined by the state, not by this document, and is carried
 in no format this document defines.
 
-Since `T ≤ C − 1`, `anchorHeight` is always below `C`. A budlet does not hold `C`; a BUD state proof checks the
+Since `T ≤ C − 1`, `notModifiedSince` is always below `C`. A budlet does not hold `C`; a BUD state proof checks the
 bound.
 
 #### Serialization
@@ -105,13 +107,13 @@ flag and a value of length 0. The serialization is also the input to the budlet'
 |                    1 | previous deletion flag | `u8(1)` if `previousValue = ⊥`, `u8(0)` otherwise |
 |                    4 | previous value length  | `u32be(len(previousValue))`, 0 if `⊥`             |
 | `len(previousValue)` | `previousValue`        | raw bytes, none if `previousValue = ⊥`            |
-|                    8 | `anchorHeight`         | `u64be(anchorHeight)`                             |
+|                    8 | `notModifiedSince`     | `u64be(notModifiedSince)`                         |
 
 This is Solidity's
 
 ```
 abi.encodePacked(uint32(key.length), key, deleted, uint32(value.length), value,
-                 previousDeleted, uint32(previousValue.length), previousValue, uint64(anchorHeight))
+                 previousDeleted, uint32(previousValue.length), previousValue, uint64(notModifiedSince))
 ```
 
 with `deleted` and `previousDeleted` as the deletion flags.
@@ -135,11 +137,11 @@ A decoder rejects, as an error:
 
 The test vectors in this document use one block, at height 9, of three budlets:
 
-| `b[i]` | `key` (ASCII) | `key` (hex)  | `value`        | `previousValue` | `anchorHeight` |
-|-------:|---------------|--------------|----------------|-----------------|----------------|
-|      0 | `evm/a`       | `65766d2f61` | `aabb`         | `⊥` (absent)    | `0`            |
-|      1 | `evm/b`       | `65766d2f62` | `⊥` (deletion) | `bb`            | `7`            |
-|      2 | `evm/c`       | `65766d2f63` | `cc`           | empty           | `8`            |
+| `b[i]` | `key` (ASCII) | `key` (hex)  | `value`        | `previousValue` | `notModifiedSince` |
+|-------:|---------------|--------------|----------------|-----------------|--------------------|
+|      0 | `evm/a`       | `65766d2f61` | `aabb`         | `⊥` (absent)    | `0`                |
+|      1 | `evm/b`       | `65766d2f62` | `⊥` (deletion) | `bb`            | `7`                |
+|      2 | `evm/c`       | `65766d2f63` | `cc`           | empty           | `8`                |
 
 Their serializations, one column per field, in hex, split across two tables.
 
@@ -149,7 +151,7 @@ Their serializations, one column per field, in hex, split across two tables.
 |      1 | `00000005` | `65766d2f62` | `01`          | `00000000`   |         |
 |      2 | `00000005` | `65766d2f63` | `00`          | `00000001`   | `cc`    |
 
-| `b[i]` | previous deletion flag | previous value length | `previousValue` | `anchorHeight`     |
+| `b[i]` | previous deletion flag | previous value length | `previousValue` | `notModifiedSince` |
 |-------:|------------------------|-----------------------|-----------------|--------------------|
 |      0 | `01`                   | `00000000`            |                 | `0000000000000000` |
 |      1 | `00`                   | `00000001`            | `bb`            | `0000000000000007` |
@@ -327,7 +329,7 @@ Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
 Given a block's BUD, a BUD proof proves two facts about one key:
 
 - the block wrote `value` to the key
-- the key held `previousValue` at every height from `anchorHeight` up to, but not including, the block's height
+- the key held `previousValue` at every height from `notModifiedSince` up to, but not including, the block's height
 
 ### Schema
 
@@ -471,7 +473,7 @@ serialization are defined by the [Giga app hash specification](../apphash_spec.m
 the height of the block and its `bud` field the block's BUD.
 
 For budlet `b` in the block at height `C`, the proof shows that the key `b.key` held `b.previousValue` at every
-height from `b.anchorHeight` through `C − 1`, and `b.value` at `C`.
+height from `b.notModifiedSince` through `C − 1`, and `b.value` at `C`.
 
 #### Serialization
 
@@ -492,7 +494,7 @@ decoder find the end of `appHashData` without knowing its size for each app hash
 An implementation rejects, as an error, a BUD state proof that does not satisfy both conditions below.
 
 - The BUD [computed](#computing-the-bud) from its BUD proof equals the `bud` of its app hash data.
-- `b.anchorHeight < blockHeight`.
+- `b.notModifiedSince < blockHeight`.
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects, as
 an error:
@@ -510,10 +512,10 @@ also authenticate the app hash of its app hash data through a protocol outside t
 
 #### Heights below the tombstone horizon
 
-A BUD state proof covers no height below its budlet's anchor height. Once a deletion falls below the tombstone
-horizon, its tombstone may be removed, and a later budlet for the key then anchors at the tombstone horizon rather
-than at the deletion. Whether such a key was present at heights below the tombstone horizon may therefore not be
-provable from any later block.
+A BUD state proof covers no height below its budlet's not-modified-since height. Once a deletion falls below the
+tombstone horizon, its tombstone may be removed, and a later budlet for the key then has the tombstone horizon as its
+not-modified-since height rather than the height of the deletion. Whether such a key was present at heights below the
+tombstone horizon may therefore not be provable from any later block.
 
 ### Test vector
 
@@ -525,16 +527,16 @@ held `bb` over [7, 9).
 
 The app hash data of the block, in hex. `appHashData9` stands for its serialization.
 
-| Field             | Height 9             |
-|-------------------|----------------------|
-| `version`         | `01`                 |
-| `chainID`         | `1112131415161718`   |
-| `blockHeight`     | `0000000000000009`   |
-| `blockHash`       | 32 bytes of `a9`     |
-| `stateHash`       | 32 bytes of `b9`     |
-| `bud`             | `BUD9`               |
-| `receiptHash`     | 32 bytes of `d9`     |
-| `previousAppHash` | 32 bytes of `e9`     |
+| Field             | Height 9           |
+|-------------------|--------------------|
+| `version`         | `01`               |
+| `chainID`         | `1112131415161718` |
+| `blockHeight`     | `0000000000000009` |
+| `blockHash`       | 32 bytes of `a9`   |
+| `stateHash`       | 32 bytes of `b9`   |
+| `bud`             | `BUD9`             |
+| `receiptHash`     | 32 bytes of `d9`   |
+| `previousAppHash` | 32 bytes of `e9`   |
 
 Its app hash, which the verifier must authenticate:
 

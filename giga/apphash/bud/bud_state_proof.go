@@ -20,8 +20,8 @@ const (
 )
 
 // BUDStateProof proves the value of one key over a range of block heights: the key's previous value from the
-// budlet's anchor height up to the height of the block that wrote it, and the value written at that height. It
-// proves nothing until the caller has also:
+// budlet's not-modified-since height up to the height of the block that wrote it, and the value written at that
+// height. It proves nothing until the caller has also:
 //   - authenticated AppHash()
 //   - confirmed that ChainID() is the chain it expects
 //   - confirmed that Key() is the key it asked about
@@ -35,8 +35,8 @@ type BUDStateProof struct {
 }
 
 // NewBUDStateProof returns the BUD state proof made of a BUD proof and the app hash data of its block. It returns
-// an error unless the BUD proof computes the BUD in the app hash data and its budlet's anchor height is below the
-// block's height.
+// an error unless the BUD proof computes the BUD in the app hash data and its budlet's not-modified-since height is
+// below the block's height.
 func NewBUDStateProof(
 	// The app hash data of the block that wrote the key. Retained, so it must not be mutated afterward.
 	appHashData *apphash.AppHashData,
@@ -56,9 +56,9 @@ func NewBUDStateProof(
 		return nil, fmt.Errorf("creating BUD state proof: BUD proof computes %x, but app hash data holds %x",
 			computed, want)
 	}
-	if anchorHeight := budProof.budlet.anchorHeight; anchorHeight >= appHashData.BlockHeight() {
-		return nil, fmt.Errorf("creating BUD state proof: anchor height %d is not below block height %d",
-			anchorHeight, appHashData.BlockHeight())
+	if notModifiedSince := budProof.budlet.notModifiedSince; notModifiedSince >= appHashData.BlockHeight() {
+		return nil, fmt.Errorf("creating BUD state proof: not-modified-since height %d is not below block height %d",
+			notModifiedSince, appHashData.BlockHeight())
 	}
 	return &BUDStateProof{appHashData: appHashData, budProof: budProof}, nil
 }
@@ -108,10 +108,10 @@ func (p *BUDStateProof) ChainID() uint64 {
 	return appHashData.ChainID()
 }
 
-// StartHeight returns the lowest block height the proof covers: the anchor height of its budlet.
+// StartHeight returns the lowest block height the proof covers: its budlet's not-modified-since height.
 func (p *BUDStateProof) StartHeight() uint64 {
 	_, budProof := p.parts()
-	return budProof.budlet.anchorHeight
+	return budProof.budlet.notModifiedSince
 }
 
 // EndHeight returns the highest block height the proof covers: the height of the block that wrote the key.

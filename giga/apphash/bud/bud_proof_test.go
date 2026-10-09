@@ -83,7 +83,7 @@ func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProo
 
 	alter("bud", func(claim *budProofClaim) { claim.bud[0] ^= 1 })
 	alter("key", func(claim *budProofClaim) { claim.proof.budlet.key[0] ^= 1 })
-	alter("anchor height", func(claim *budProofClaim) { claim.proof.budlet.anchorHeight ^= 1 })
+	alter("not-modified-since height", func(claim *budProofClaim) { claim.proof.budlet.notModifiedSince ^= 1 })
 	if proof.budlet.value == nil {
 		alter("empty write", func(claim *budProofClaim) { claim.proof.budlet.value = []byte{} })
 	} else {

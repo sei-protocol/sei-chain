@@ -19,8 +19,8 @@ const (
 	// testChainID is the chain ID of the test blocks.
 	testChainID = 0x5e1
 
-	// testAnchorHeight is the anchor height of the write of testStateKey.
-	testAnchorHeight = 100
+	// testNotModifiedSince is the not-modified-since height of the write of testStateKey.
+	testNotModifiedSince = 100
 
 	// testWriteHeight is the height of the block that writes testStateKey.
 	testWriteHeight = 107
@@ -65,52 +65,52 @@ func newTestBUDStateProof(
 	value []byte,
 	// The key's previous value, or nil if it was absent.
 	previousValue []byte,
-	// The anchor height of the write.
-	anchorHeight uint64,
+	// The not-modified-since height of the write.
+	notModifiedSince uint64,
 ) *BUDStateProof {
 	t.Helper()
 
-	budlet := newTestBudlet(t, testStateKey, value, previousValue, anchorHeight)
+	budlet := newTestBudlet(t, testStateKey, value, previousValue, notModifiedSince)
 	stateProof, err := NewBUDStateProof(newTestWrite(t, rng, budlet, testWriteHeight))
 	require.NoError(t, err)
 	return stateProof
 }
 
 func TestBUDStateProofAccessors(t *testing.T) {
-	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testAnchorHeight)
+	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(6)), budlet, testWriteHeight)
 	stateProof, err := NewBUDStateProof(appHashData, budProof)
 	require.NoError(t, err)
 
 	require.Equal(t, []byte(testStateKey), stateProof.Key())
 	require.Equal(t, uint64(testChainID), stateProof.ChainID())
-	require.Equal(t, uint64(testAnchorHeight), stateProof.StartHeight())
+	require.Equal(t, uint64(testNotModifiedSince), stateProof.StartHeight())
 	require.Equal(t, uint64(testWriteHeight), stateProof.EndHeight())
 	require.Equal(t, appHashData.AppHash(), stateProof.AppHash())
 }
 
 func TestBUDStateProofValueAt(t *testing.T) {
 	testCases := map[string]struct {
-		value         []byte
-		previousValue []byte
-		anchorHeight  uint64
+		value            []byte
+		previousValue    []byte
+		notModifiedSince uint64
 	}{
-		"write over a value":        {[]byte("value"), []byte("previous value"), testAnchorHeight},
-		"write over an empty value": {[]byte("value"), []byte{}, testAnchorHeight},
-		"deletion":                  {nil, []byte("previous value"), testAnchorHeight},
-		"write over an absent key":  {[]byte("value"), nil, testAnchorHeight},
-		"anchored at genesis":       {[]byte("value"), []byte("previous value"), 0},
-		"absent since genesis":      {[]byte("value"), nil, 0},
-		"anchored one height below": {[]byte("value"), []byte("previous value"), testWriteHeight - 1},
+		"write over a value":         {[]byte("value"), []byte("previous value"), testNotModifiedSince},
+		"write over an empty value":  {[]byte("value"), []byte{}, testNotModifiedSince},
+		"deletion":                   {nil, []byte("previous value"), testNotModifiedSince},
+		"write over an absent key":   {[]byte("value"), nil, testNotModifiedSince},
+		"not modified since genesis": {[]byte("value"), []byte("previous value"), 0},
+		"absent since genesis":       {[]byte("value"), nil, 0},
+		"modified one height below":  {[]byte("value"), []byte("previous value"), testWriteHeight - 1},
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
 			stateProof := newTestBUDStateProof(t, rand.New(rand.NewSource(7)), testCase.value,
-				testCase.previousValue, testCase.anchorHeight)
-			require.Equal(t, testCase.anchorHeight, stateProof.StartHeight())
+				testCase.previousValue, testCase.notModifiedSince)
+			require.Equal(t, testCase.notModifiedSince, stateProof.StartHeight())
 			require.Equal(t, uint64(testWriteHeight), stateProof.EndHeight())
 
-			for height := testCase.anchorHeight; height < testWriteHeight; height++ {
+			for height := testCase.notModifiedSince; height < testWriteHeight; height++ {
 				value, covered := stateProof.ValueAt(height)
 				require.True(t, covered, "height %d", height)
 				require.Equal(t, testCase.previousValue == nil, value == nil, "height %d", height)
@@ -121,8 +121,8 @@ func TestBUDStateProofValueAt(t *testing.T) {
 			require.Equal(t, testCase.value == nil, value == nil)
 			require.Equal(t, testCase.value, value)
 
-			if testCase.anchorHeight > 0 {
-				_, covered := stateProof.ValueAt(testCase.anchorHeight - 1)
+			if testCase.notModifiedSince > 0 {
+				_, covered := stateProof.ValueAt(testCase.notModifiedSince - 1)
 				require.False(t, covered)
 			}
 			_, covered = stateProof.ValueAt(testWriteHeight + 1)
@@ -132,7 +132,7 @@ func TestBUDStateProofValueAt(t *testing.T) {
 }
 
 func TestNewBUDStateProofRejectsWrongBUD(t *testing.T) {
-	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testAnchorHeight)
+	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(8)), budlet, testWriteHeight)
 	wrongBUD := appHashData.BUD()
 	wrongBUD[0] ^= 1
@@ -144,17 +144,17 @@ func TestNewBUDStateProofRejectsWrongBUD(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestNewBUDStateProofRejectsAnchorHeightNotBelowBlockHeight(t *testing.T) {
+func TestNewBUDStateProofRejectsNotModifiedSinceNotBelowBlockHeight(t *testing.T) {
 	rng := rand.New(rand.NewSource(9))
-	for _, anchorHeight := range []uint64{testWriteHeight, testWriteHeight + 1} {
-		budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), anchorHeight)
+	for _, notModifiedSince := range []uint64{testWriteHeight, testWriteHeight + 1} {
+		budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), notModifiedSince)
 		_, err := NewBUDStateProof(newTestWrite(t, rng, budlet, testWriteHeight))
-		require.Error(t, err, "anchor height %d", anchorHeight)
+		require.Error(t, err, "not-modified-since height %d", notModifiedSince)
 	}
 }
 
 func TestNewBUDStateProofRejectsNilAndInvalidParts(t *testing.T) {
-	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testAnchorHeight)
+	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(13)), budlet, testWriteHeight)
 	zeroProof := &BUDProof{}
 	// App hash data holding the BUD the zero proof computes, so that only the proof's validity is at fault.
@@ -188,8 +188,8 @@ func TestNewBUDStateProofRejectsNilAndInvalidParts(t *testing.T) {
 func TestBUDStateProofSerializationRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(10))
 	for _, stateProof := range []*BUDStateProof{
-		newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testAnchorHeight),
-		newTestBUDStateProof(t, rng, nil, []byte{}, testAnchorHeight),
+		newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testNotModifiedSince),
+		newTestBUDStateProof(t, rng, nil, []byte{}, testNotModifiedSince),
 		newTestBUDStateProof(t, rng, []byte{}, nil, 0),
 	} {
 		deserialized, err := DeserializeBUDStateProof(stateProof.Serialize())
@@ -200,7 +200,7 @@ func TestBUDStateProofSerializationRoundTrip(t *testing.T) {
 
 func TestDeserializeBUDStateProofRejectsMalformedInput(t *testing.T) {
 	rng := rand.New(rand.NewSource(11))
-	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testAnchorHeight)
+	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rng, budlet, testWriteHeight)
 	_, otherBUDProof := newTestWrite(t, rng, budlet, testWriteHeight)
 	serialize := func(version uint8, appHashData []byte, budProof []byte) []byte {

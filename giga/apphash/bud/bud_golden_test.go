@@ -118,9 +118,9 @@ type budGoldenBudlet struct {
 	// Whether the budlet's key was absent before the block.
 	PreviousDeleted bool `json:"previousDeleted"`
 
-	// The budlet's anchor height, as a decimal string so readers without exact 64-bit JSON numbers keep every
+	// The budlet's not-modified-since height, as a decimal string so readers without exact 64-bit JSON numbers keep every
 	// digit.
-	AnchorHeight string `json:"anchorHeight"`
+	NotModifiedSince string `json:"notModifiedSince"`
 }
 
 // TestBUDGolden requires every committed golden file to verify against this build.
@@ -335,10 +335,10 @@ func decodeBUDGoldenBudlet(t *testing.T, recordIndex int, budletIndex int, recor
 	value := decodeBUDGoldenValue(t, budGoldenValue{Value: recorded.Value, Deleted: recorded.Deleted})
 	previousValue := decodeBUDGoldenValue(t,
 		budGoldenValue{Value: recorded.PreviousValue, Deleted: recorded.PreviousDeleted})
-	anchorHeight, err := strconv.ParseUint(recorded.AnchorHeight, 10, 64)
-	require.NoError(t, err, "record %d budlet %d anchor height", recordIndex, budletIndex)
+	notModifiedSince, err := strconv.ParseUint(recorded.NotModifiedSince, 10, 64)
+	require.NoError(t, err, "record %d budlet %d not-modified-since height", recordIndex, budletIndex)
 
-	budlet, err := NewBudlet(key, value, previousValue, anchorHeight)
+	budlet, err := NewBudlet(key, value, previousValue, notModifiedSince)
 	require.NoError(t, err, "record %d budlet %d", recordIndex, budletIndex)
 	return budlet
 }
@@ -384,7 +384,7 @@ func recordBUDGoldenFile(t *testing.T) {
 	}
 	file.StateProofs = []budGoldenStateProof{
 		newBUDGoldenStateProof(t,
-			newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testAnchorHeight)),
+			newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testNotModifiedSince)),
 		newBUDGoldenStateProof(t, newTestBUDStateProof(t, rng, []byte("value"), nil, 0)),
 	}
 	writeBUDGoldenFile(t, budGoldenFilePath(budVersion, budProofVersion, budStateProofVersion), file)
@@ -405,12 +405,12 @@ func newBUDGoldenRecord(t *testing.T, budlets []*Budlet) budGoldenRecord {
 	}
 	for _, budlet := range budlets {
 		record.Budlets = append(record.Budlets, budGoldenBudlet{
-			Key:             hex.EncodeToString(budlet.Key()),
-			Value:           hex.EncodeToString(budlet.Value()),
-			Deleted:         budlet.Value() == nil,
-			PreviousValue:   hex.EncodeToString(budlet.PreviousValue()),
-			PreviousDeleted: budlet.PreviousValue() == nil,
-			AnchorHeight:    strconv.FormatUint(budlet.AnchorHeight(), 10),
+			Key:              hex.EncodeToString(budlet.Key()),
+			Value:            hex.EncodeToString(budlet.Value()),
+			Deleted:          budlet.Value() == nil,
+			PreviousValue:    hex.EncodeToString(budlet.PreviousValue()),
+			PreviousDeleted:  budlet.PreviousValue() == nil,
+			NotModifiedSince: strconv.FormatUint(budlet.NotModifiedSince(), 10),
 		})
 		proof, found := tree.BuildBUDProof(budlet.Key())
 		require.True(t, found)

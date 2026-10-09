@@ -29,8 +29,8 @@ type budFuzzSeeds struct {
 func newBUDFuzzSeeds(f *testing.F) budFuzzSeeds {
 	f.Helper()
 
-	newBudlet := func(key string, value []byte, previousValue []byte, anchorHeight uint64) *Budlet {
-		budlet, err := NewBudlet([]byte(key), value, previousValue, anchorHeight)
+	newBudlet := func(key string, value []byte, previousValue []byte, notModifiedSince uint64) *Budlet {
+		budlet, err := NewBudlet([]byte(key), value, previousValue, notModifiedSince)
 		require.NoError(f, err)
 		return budlet
 	}

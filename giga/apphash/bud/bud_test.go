@@ -25,12 +25,12 @@ func TestBUDCommitsToEveryField(t *testing.T) {
 	original := budOf(t, threeBudlets(t))
 
 	replacements := map[string]*Budlet{
-		"key":                  newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, nil, 0),
-		"value":                newTestBudlet(t, "evm/b", []byte{0x02, 0x04}, nil, 0),
-		"deletion":             newTestDeletionBudlet(t, "evm/b", nil, 0),
-		"previous value":       newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{0x05}, 0),
-		"empty previous value": newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{}, 0),
-		"anchor height":        newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, nil, 1),
+		"key":                       newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, nil, 0),
+		"value":                     newTestBudlet(t, "evm/b", []byte{0x02, 0x04}, nil, 0),
+		"deletion":                  newTestDeletionBudlet(t, "evm/b", nil, 0),
+		"previous value":            newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{0x05}, 0),
+		"empty previous value":      newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{}, 0),
+		"not-modified-since height": newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, nil, 1),
 	}
 	for name, replacement := range replacements {
 		t.Run(name, func(t *testing.T) {
@@ -62,7 +62,7 @@ func TestZeroValuesDoNotPanic(t *testing.T) {
 	require.Nil(t, budlet.Key())
 	require.Nil(t, budlet.Value())
 	require.Nil(t, budlet.PreviousValue())
-	require.Zero(t, budlet.AnchorHeight())
+	require.Zero(t, budlet.NotModifiedSince())
 	_, err := DeserializeBudlet(budlet.Serialize())
 	require.Error(t, err)
 

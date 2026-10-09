@@ -25,8 +25,8 @@ func randomBudlets(t *testing.T, rng *rand.Rand, count int) []*Budlet {
 		}
 		seen[string(key)] = true
 
-		anchorHeight := rng.Uint64() >> rng.Intn(64)
-		budlet, err := NewBudlet(key, randomBudletValue(rng), randomBudletValue(rng), anchorHeight)
+		notModifiedSince := rng.Uint64() >> rng.Intn(64)
+		budlet, err := NewBudlet(key, randomBudletValue(rng), randomBudletValue(rng), notModifiedSince)
 		require.NoError(t, err)
 		budlets = append(budlets, budlet)
 	}
@@ -48,19 +48,19 @@ func randomBudletValue(rng *rand.Rand) []byte {
 }
 
 // newTestBudlet returns NewBudlet(), failing the test on an error.
-func newTestBudlet(t *testing.T, key string, value []byte, previousValue []byte, anchorHeight uint64) *Budlet {
+func newTestBudlet(t *testing.T, key string, value []byte, previousValue []byte, notModifiedSince uint64) *Budlet {
 	t.Helper()
 
-	budlet, err := NewBudlet([]byte(key), value, previousValue, anchorHeight)
+	budlet, err := NewBudlet([]byte(key), value, previousValue, notModifiedSince)
 	require.NoError(t, err)
 	return budlet
 }
 
 // newTestDeletionBudlet returns the budlet deleting key, failing the test on an error.
-func newTestDeletionBudlet(t *testing.T, key string, previousValue []byte, anchorHeight uint64) *Budlet {
+func newTestDeletionBudlet(t *testing.T, key string, previousValue []byte, notModifiedSince uint64) *Budlet {
 	t.Helper()
 
-	budlet, err := NewBudlet([]byte(key), nil, previousValue, anchorHeight)
+	budlet, err := NewBudlet([]byte(key), nil, previousValue, notModifiedSince)
 	require.NoError(t, err)
 	return budlet
 }
