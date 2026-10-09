@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
@@ -21,6 +22,10 @@ type Config struct {
 	// The size of the channel used to send framed records from the underlying WAL's serialization to its
 	// writer goroutine.
 	WriteBufferSize uint
+
+	// The size of the channel used to send written blocks from the caller to the goroutine that computes their
+	// BUDs and delivers them to listeners. Write blocks while it is full. Must be greater than 0.
+	BUDBufferSize uint
 
 	// The size a WAL file may reach before it is sealed and a fresh one is opened. Because each block is
 	// written as a single record, a file may exceed this by the size of one block's serialized changesets.
@@ -49,6 +54,7 @@ func DefaultConfig(path string, name string) *Config {
 		Name:                  name,
 		RequestBufferSize:     16,
 		WriteBufferSize:       2048,
+		BUDBufferSize:         16,
 		TargetFileSize:        s.TargetFileSize,
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,
@@ -58,7 +64,13 @@ func DefaultConfig(path string, name string) *Config {
 
 // Validate the configuration, returning nil if valid, or an error describing the problem if invalid.
 func (c *Config) Validate() error {
-	return c.toSeiwalConfig().Validate()
+	if c.BUDBufferSize == 0 {
+		return fmt.Errorf("BUDBufferSize must be greater than 0")
+	}
+	if err := c.toSeiwalConfig().Validate(); err != nil {
+		return fmt.Errorf("invalid underlying WAL config: %w", err)
+	}
+	return nil
 }
 
 // toSeiwalConfig maps this configuration onto the underlying generic WAL's configuration.
