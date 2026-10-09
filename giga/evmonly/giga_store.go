@@ -24,6 +24,13 @@ var (
 
 var _ StateReader = gigaSnapshotStateReader{}
 
+// historyStore is a giga store that keeps its history as an undo log, which takes the value each key
+// held before the block alongside the block's changesets.
+type historyStore interface {
+	NeedsPriorValues() bool
+	CommitStateChangesWithPrior(blockNum int64, changeset []*proto.NamedChangeSet, prior []*proto.KVPair) error
+}
+
 // NamedChangeSetEncoder converts an executor-native state result into the on-disk changesets
 // understood by a giga store. It must treat the input as immutable, and its output must not alias
 // the input, since the commit outlives the pooled block result. It may read the store only to
@@ -132,6 +139,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 		changesets = append(changesets, extra...)
 	}
+	commit := func() error { return stateStore.CommitStateChanges(blockNumber, changesets) }
+	if store, ok := stateStore.(historyStore); ok && store.NeedsPriorValues() {
+		// Execution read every value the block replaces, and the change set kept them.
+		prior := encodePriorValues(result.ChangeSet)
+		commit = func() error { return store.CommitStateChangesWithPrior(blockNumber, changesets, prior) }
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -155,7 +168,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseCommitState)
-	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
+	if err := e.startPipelineCommit(commit, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -233,20 +246,20 @@ func (e *Executor) awaitPipelineCommit() error {
 	return e.pipelineFailure
 }
 
-// startPipelineCommit writes the block in the background and records what it changed, so the next
-// block reads those changes through an overlay rather than waiting for the write. On a closed
-// executor it commits synchronously instead.
+// startPipelineCommit runs commit, which writes the block to the store, in the background and records
+// what the block changed, so the next block reads those changes through an overlay rather than waiting
+// for the write. On a closed executor it commits synchronously instead.
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
+func (e *Executor) startPipelineCommit(commit func() error, changes *StateChangeSet) error {
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
 		if err := e.awaitPipelineCommit(); err != nil {
 			return err
 		}
-		return e.stateStore.CommitStateChanges(blockNumber, changesets)
+		return commit()
 	}
 	pending := changes.clone()
 	done := make(chan struct{})
@@ -261,7 +274,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 	e.pipelineMu.Unlock()
 
 	go func() {
-		err := e.stateStore.CommitStateChanges(blockNumber, changesets)
+		err := commit()
 		e.pipelineMu.Lock()
 		e.pipelineErr = err
 		e.pipelineMu.Unlock()

@@ -180,12 +180,12 @@ func TestOpenViewServesTheBlockCommittedToTheLiveStateDB(t *testing.T) {
 	require.Equal(t, []byte("value"), value)
 }
 
-// Serving a past height needs the historical state DB, which is not wired in. Answering from the live
-// state DB instead would return the current block under the name of a historical one.
-func TestOpenViewAtPanicsUntilTheHistoricalStateDBIsWired(t *testing.T) {
+// Without an EVM state store no past height is served. Answering from the live state DB instead would
+// return the current block under the name of a historical one.
+func TestOpenViewAtServesNoHeightWithoutAStateStore(t *testing.T) {
 	stateDB, _, _ := newTestStateDB(t)
 
-	require.PanicsWithValue(t,
-		"giga: OpenViewAt(5) is not implemented: the historical state DB is not wired in",
-		func() { stateDB.OpenViewAt(5) })
+	view, ok := stateDB.OpenViewAt(5)
+	require.False(t, ok)
+	require.Nil(t, view)
 }

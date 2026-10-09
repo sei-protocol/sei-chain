@@ -93,6 +93,47 @@ func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([
 	}}, nil
 }
 
+// encodePriorValues renders, in the EVM keyspace a Giga state DB stores, the value before the block of
+// every key encodeFlatKVChangeSet writes for changes, with Delete marking a key that did not exist. A
+// storage clear adds none: it only clears accounts created in the same transaction, whose storage was
+// empty.
+func encodePriorValues(changes StateChangeSet) []*proto.KVPair {
+	b := newFlatKVChangeSetBuilder(changes)
+	for _, change := range changes.Balances {
+		b.setWord(b.addAddressPair(keys.EVMKeyBalance, change.Address), change.Prior)
+	}
+	for _, change := range changes.Nonces {
+		pair := b.addAddressPair(keys.EVMKeyNonce, change.Address)
+		pair.Value = b.takeFixedValue(vtype.NonceLen)
+		binary.BigEndian.PutUint64(pair.Value, change.Prior)
+	}
+	for _, change := range changes.Code {
+		codeHashPair := b.addAddressPair(keys.EVMKeyCodeHash, change.Address)
+		codePair := b.addAddressPair(keys.EVMKeyCode, change.Address)
+		if len(change.Prior) == 0 {
+			codeHashPair.Delete = true
+			codePair.Delete = true
+			continue
+		}
+		b.setWord(codeHashPair, crypto.Keccak256Hash(change.Prior))
+		codePair.Value = cloneBytes(change.Prior)
+	}
+	for _, change := range changes.Storage {
+		b.setWord(b.addStoragePair(change.Address, change.Key), change.Prior)
+	}
+	return b.pairPtrs
+}
+
+// setWord sets pair's value to word, and deletes the key instead when word is zero.
+func (b *flatKVChangeSetBuilder) setWord(pair *proto.KVPair, word common.Hash) {
+	if word == (common.Hash{}) {
+		pair.Delete = true
+		return
+	}
+	pair.Value = b.takeFixedValue(common.HashLength)
+	copy(pair.Value, word[:])
+}
+
 // flatKVChangeSetBuilder assembles a block's KVPairs, keys and values from per-call
 // slabs. Keys and values are subslices of those slabs and outlive the changeset.
 type flatKVChangeSetBuilder struct {

@@ -145,8 +145,9 @@ type BlockResultPoolStats struct {
 }
 
 // StateChangeSet is the deterministic EVM-native state output for a block.
-// Values are post-block values, not deltas. Store-specific encoders must retain
-// StorageClears as prefix-clear operations and apply them before Storage.
+// Values are post-block values, not deltas, each beside the value it replaced.
+// Store-specific encoders must retain StorageClears as prefix-clear operations
+// and apply them before Storage.
 type StateChangeSet struct {
 	Balances      []BalanceChange
 	Nonces        []NonceChange
@@ -158,17 +159,23 @@ type StateChangeSet struct {
 type BalanceChange struct {
 	Address common.Address
 	Balance *big.Int
+	// Prior is the balance before the block, as a big-endian word.
+	Prior common.Hash
 }
 
 type NonceChange struct {
 	Address common.Address
 	Nonce   uint64
+	// Prior is the nonce before the block.
+	Prior uint64
 }
 
 type CodeChange struct {
 	Address common.Address
 	Code    []byte
 	Delete  bool
+	// Prior is the code before the block, empty when there was none. It is shared, not copied.
+	Prior []byte
 }
 
 type StorageChange struct {
@@ -176,6 +183,8 @@ type StorageChange struct {
 	Key     common.Hash
 	Value   common.Hash
 	Delete  bool
+	// Prior is the slot's value before the block, zero for an address in StorageClears.
+	Prior common.Hash
 }
 
 // TxResult is the minimum per-transaction output needed for receipts, RPC, and

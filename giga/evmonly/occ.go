@@ -862,25 +862,30 @@ func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSe
 	balanceAddrs := sortedAddressesFromBigMap(h.balances)
 	for _, addr := range balanceAddrs {
 		balance := cloneBig(h.balances[addr])
-		if balance.Cmp(base.balance(addr)) == 0 {
+		prior := base.balance(addr)
+		if balance.Cmp(prior) == 0 {
 			continue
 		}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: balance})
+		change := BalanceChange{Address: addr, Balance: balance}
+		prior.FillBytes(change.Prior[:])
+		changes.Balances = append(changes.Balances, change)
 	}
 	nonceAddrs := sortedAddressesFromUint64Map(h.nonces)
 	for _, addr := range nonceAddrs {
-		if h.nonces[addr] == base.nonce(addr) {
+		prior := base.nonce(addr)
+		if h.nonces[addr] == prior {
 			continue
 		}
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: h.nonces[addr]})
+		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: h.nonces[addr], Prior: prior})
 	}
 	codeAddrs := sortedAddressesFromBytesMap(h.code)
 	for _, addr := range codeAddrs {
 		code := cloneBytes(h.code[addr])
-		if bytes.Equal(code, base.code(addr)) {
+		prior := base.code(addr)
+		if bytes.Equal(code, prior) {
 			continue
 		}
-		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: code, Delete: len(code) == 0})
+		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: code, Delete: len(code) == 0, Prior: prior})
 	}
 	storageClearAddrs := sortedAddressesFromSet(h.storageClears)
 	changes.StorageClears = append(changes.StorageClears, storageClearAddrs...)
@@ -909,6 +914,7 @@ func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSe
 			Key:     key.key,
 			Value:   value,
 			Delete:  value == (common.Hash{}),
+			Prior:   baseValue,
 		})
 	}
 }
