@@ -211,9 +211,14 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4442](https://github.com/sei-protocol/sei-chain/pull/4442) Backport `release/v6.7`: fix(seidb): fix stale FlatKV migration gauges on snapshotting nodes
+* [#4439](https://github.com/sei-protocol/sei-chain/pull/4439) Backport `release/v6.7`: seidb: add changelog mode and --inspect-plan to speed up EVM digest
+* [#4416](https://github.com/sei-protocol/sei-chain/pull/4416) Remove the conflict markers #4415 left in the v6.7 changelog
+* [#4415](https://github.com/sei-protocol/sei-chain/pull/4415) Backport `release/v6.7`: Update v6.7 changelog in prep to cut rc4
 * [#4411](https://github.com/sei-protocol/sei-chain/pull/4411) Backport `release/v6.7`: Log a pinned node's skipped migration kick-off once per batch size
 * [#4410](https://github.com/sei-protocol/sei-chain/pull/4410) Backport `release/v6.7`: Apply compiled KV repair files at a fixed height and generate them from digest inspect lists
 * [#4409](https://github.com/sei-protocol/sei-chain/pull/4409) Backport `release/v6.7`: feat: add migration pause handler
+* [#4407](https://github.com/sei-protocol/sei-chain/pull/4407) Bump version to v6.7.0-rc4 in prep for release
 * [#4397](https://github.com/sei-protocol/sei-chain/pull/4397) Backport `release/v6.7`: fix(evmrpc): release eth_getLogs DB-read slots when a block read panics
 * [#4378](https://github.com/sei-protocol/sei-chain/pull/4378) Backport release/v6.7: Raise goreleaser timeout to 2h (#4375)
 * [#4377](https://github.com/sei-protocol/sei-chain/pull/4377) Backport `release/v6.7`: Fix FlatKV state sync bad-hash scenario.
@@ -512,6 +517,9 @@ sei-chain
 
 ## v6.6
 sei-chain
+* [#4448](https://github.com/sei-protocol/sei-chain/pull/4448) Initialize app from last header on frozen restart for v6.6
+* [#4056](https://github.com/sei-protocol/sei-chain/pull/4056) Bump version to v6.6.3 in prep for patch release
+* [#4055](https://github.com/sei-protocol/sei-chain/pull/4055) Backport `release/v6.6`: Update v6.6 change log in prep to cut v6.6.3 patch
 * [#4053](https://github.com/sei-protocol/sei-chain/pull/4053) Backport `release/v6.6`: Validate snapshots before publication
 * [#4050](https://github.com/sei-protocol/sei-chain/pull/4050) Backport `release/v6.6`: Fix memiavl snapshot race condition
 * [#4048](https://github.com/sei-protocol/sei-chain/pull/4048) Backport `release/v6.6`: Bound frozen RPC router batch allocations

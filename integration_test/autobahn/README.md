@@ -184,6 +184,7 @@ The operational EVM-only configuration is:
 | Consensus block gas limit | `35,000,000` |
 | Autobahn transaction limit | `2,000` transactions per block |
 | Block interval | `400ms` |
+| View timeout | `1500ms` (`"1500000000"` nanoseconds in genesis) |
 | Empty blocks | disabled |
 | Persistent state directory | `data/autobahn` under each node home |
 | BlockDB minimum retention age | `30s` |
@@ -220,6 +221,7 @@ jq '{
   initial_height,
   chain_id,
   max_gas: .consensus_params.block.max_gas,
+  view_timeout: .autobahn.view_timeout,
   validators: (.validators | length),
   gentxs: (.app_state.genutil.gen_txs | length)
 }' build/generated/genesis.json
@@ -230,7 +232,6 @@ docker exec sei-node-0 jq '{
   max_txs_per_second,
   allow_empty_blocks,
   block_interval,
-  view_timeout,
   persistent_state_dir,
   block_db
 }' /root/.sei/config/autobahn.json
@@ -384,7 +385,11 @@ The public EVM JSON-RPC surface intentionally contains only:
   against current committed state;
 - `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
   height (including any height still within the node's retention window) or
-  by hash.
+  by hash;
+- `eth_getBlockTransactionCountByNumber` and
+  `eth_getBlockTransactionCountByHash`, for the number of transactions in a
+  finalized block, resolved the same way as `eth_getBlockByNumber` and
+  `eth_getBlockByHash`.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -574,7 +579,7 @@ transactions.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no
-by-block-and-index transaction lookups or block-transaction-count methods.
+by-block-and-index transaction lookups.
 There are also no fee-estimation, log, or WebSocket subscription methods.
 Commands that depend on those queries cannot operate normally; raw
 transactions must still provide gas price offline as in the example above.

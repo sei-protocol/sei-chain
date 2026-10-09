@@ -38,11 +38,6 @@ loadtest/contracts/**.json
 
 loadtest_results.txt
 
-# parallelization test build artifact
-parallelization/**/artifacts/
-parallelization/**/target/
-parallelization/**/Cargo.lock
-
 # integration test resources
 integration_test/**/*.txt
 

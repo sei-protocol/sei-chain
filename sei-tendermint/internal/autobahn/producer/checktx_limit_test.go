@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -200,6 +202,110 @@ func TestTryInsertTx_InFlightBounded(t *testing.T) {
 	_, err := env.state.TryInsertTx(ctx, newTx())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
+}
+
+// countingApp is a testApp that counts its CheckTx calls.
+type countingApp struct {
+	*testApp
+	checkTxCalls atomic.Int64
+}
+
+func newCountingApp() *countingApp {
+	return &countingApp{testApp: newTestApp()}
+}
+
+func (a *countingApp) Proxy() *proxy.Proxy {
+	return proxy.New(a)
+}
+
+func (a *countingApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	a.checkTxCalls.Add(1)
+	return a.testApp.CheckTx(ctx, req)
+}
+
+// TryInsertTx on a full mempool fails with errMempoolFull without running CheckTx.
+func TestTryInsertTx_FullSkipsCheckTx(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newCountingApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	_, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+
+	calls := app.checkTxCalls.Load()
+	_, err = env.state.TryInsertTx(ctx, env.fullTx(rng, app.testApp).encode())
+	require.Equal(t, metrics.ResultFull, insertResult(nil, err))
+	require.Equal(t, calls, app.checkTxCalls.Load())
+}
+
+// On a full mempool, the capacity error wins over the app's rejection: an invalid tx
+// gets the retryable errMempoolFull, not the CheckTx response it would get with room.
+func TestTryInsertTx_FullRejectsInvalidTxAsFull(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newCountingApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	_, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+	tx := utils.GenBytes(rng, 1)
+	_, err = decodeTxSpec(tx)
+	require.Error(t, err)
+
+	calls := app.checkTxCalls.Load()
+	resp, err := env.state.TryInsertTx(ctx, tx)
+	require.Nil(t, resp)
+	require.Equal(t, metrics.ResultFull, insertResult(nil, err))
+	require.Equal(t, calls, app.checkTxCalls.Load())
+}
+
+// InsertTx on a full mempool with MaxPendingInserts calls already queued fails with
+// errPendingFull without running CheckTx.
+func TestInsertTx_PendingFullSkipsCheckTx(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newCountingApp()
+	cfg := app.Cfg()
+	cfg.MaxPendingInserts = 2
+	env := newTestEnv(rng, cfg, app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+
+	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app.testApp, mp, 2, context.Canceled); err != nil {
+			return err
+		}
+		calls := app.checkTxCalls.Load()
+		_, err := env.state.InsertTx(ctx, env.fullTx(rng, app.testApp).encode())
+		if insertResult(nil, err) != metrics.ResultPendingFull {
+			return fmt.Errorf("InsertTx over the bound: got %v, want errPendingFull", err)
+		}
+		if got := app.checkTxCalls.Load(); got != calls {
+			return fmt.Errorf("CheckTx calls: got %d, want %d", got, calls)
+		}
+		s.Cancel(context.Canceled)
+		return nil
+	})))
+}
+
+// Inserts into a closed session fail with ErrNotProducing without running CheckTx,
+// even when the mempool is also full.
+func TestInsertTx_ClosedSkipsCheckTx(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newCountingApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app.testApp)
+	require.NoError(t, err)
+	for m, ctrl := range mp.inner.Lock() {
+		m.close(ctrl)
+	}
+
+	calls := app.checkTxCalls.Load()
+	_, err = env.state.TryInsertTx(ctx, env.fullTx(rng, app.testApp).encode())
+	require.ErrorIs(t, err, ErrNotProducing)
+	_, err = env.state.InsertTx(ctx, env.fullTx(rng, app.testApp).encode())
+	require.ErrorIs(t, err, ErrNotProducing)
+	require.Equal(t, calls, app.checkTxCalls.Load())
 }
 
 // An absent or zero limit resolves to at least one permit so inserts proceed.

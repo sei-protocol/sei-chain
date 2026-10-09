@@ -213,34 +213,6 @@ func (mr *MockAppModuleGenesisMockRecorder) DefaultGenesis(arg0 interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DefaultGenesis", reflect.TypeOf((*MockAppModuleGenesis)(nil).DefaultGenesis), arg0)
 }
 
-// ExportGenesis mocks base method.
-func (m *MockAppModuleGenesis) ExportGenesis(arg0 types0.Context, arg1 codec.JSONCodec) json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesis", arg0, arg1)
-	ret0, _ := ret[0].(json.RawMessage)
-	return ret0
-}
-
-// ExportGenesis indicates an expected call of ExportGenesis.
-func (mr *MockAppModuleGenesisMockRecorder) ExportGenesis(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesis", reflect.TypeOf((*MockAppModuleGenesis)(nil).ExportGenesis), arg0, arg1)
-}
-
-// ExportGenesisStream mocks base method.
-func (m *MockAppModuleGenesis) ExportGenesisStream(ctx types0.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesisStream", ctx, cdc)
-	ret0, _ := ret[0].(<-chan json.RawMessage)
-	return ret0
-}
-
-// ExportGenesisStream indicates an expected call of ExportGenesisStream.
-func (mr *MockAppModuleGenesisMockRecorder) ExportGenesisStream(ctx, cdc interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesisStream", reflect.TypeOf((*MockAppModuleGenesis)(nil).ExportGenesisStream), ctx, cdc)
-}
-
 // GetQueryCmd mocks base method.
 func (m *MockAppModuleGenesis) GetQueryCmd() *cobra.Command {
 	m.ctrl.T.Helper()
@@ -446,34 +418,6 @@ func (m *MockAppModule) MidBlock(arg0 types0.Context, arg1 int64) {
 func (mr *MockAppModuleMockRecorder) MidBlock(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MidBlock", reflect.TypeOf((*MockAppModule)(nil).MidBlock), arg0, arg1)
-}
-
-// ExportGenesis mocks base method.
-func (m *MockAppModule) ExportGenesis(arg0 types0.Context, arg1 codec.JSONCodec) json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesis", arg0, arg1)
-	ret0, _ := ret[0].(json.RawMessage)
-	return ret0
-}
-
-// ExportGenesis indicates an expected call of ExportGenesis.
-func (mr *MockAppModuleMockRecorder) ExportGenesis(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesis", reflect.TypeOf((*MockAppModule)(nil).ExportGenesis), arg0, arg1)
-}
-
-// ExportGenesisStream mocks base method.
-func (m *MockAppModule) ExportGenesisStream(ctx types0.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesisStream", ctx, cdc)
-	ret0, _ := ret[0].(<-chan json.RawMessage)
-	return ret0
-}
-
-// ExportGenesisStream indicates an expected call of ExportGenesisStream.
-func (mr *MockAppModuleMockRecorder) ExportGenesisStream(ctx, cdc interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesisStream", reflect.TypeOf((*MockAppModule)(nil).ExportGenesisStream), ctx, cdc)
 }
 
 // GetQueryCmd mocks base method.
@@ -737,34 +681,6 @@ func (mr *MockBeginBlockAppModuleMockRecorder) DefaultGenesis(arg0 interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DefaultGenesis", reflect.TypeOf((*MockBeginBlockAppModule)(nil).DefaultGenesis), arg0)
 }
 
-// ExportGenesis mocks base method.
-func (m *MockBeginBlockAppModule) ExportGenesis(arg0 types0.Context, arg1 codec.JSONCodec) json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesis", arg0, arg1)
-	ret0, _ := ret[0].(json.RawMessage)
-	return ret0
-}
-
-// ExportGenesis indicates an expected call of ExportGenesis.
-func (mr *MockBeginBlockAppModuleMockRecorder) ExportGenesis(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesis", reflect.TypeOf((*MockBeginBlockAppModule)(nil).ExportGenesis), arg0, arg1)
-}
-
-// ExportGenesisStream mocks base method.
-func (m *MockBeginBlockAppModule) ExportGenesisStream(ctx types0.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesisStream", ctx, cdc)
-	ret0, _ := ret[0].(<-chan json.RawMessage)
-	return ret0
-}
-
-// ExportGenesisStream indicates an expected call of ExportGenesisStream.
-func (mr *MockBeginBlockAppModuleMockRecorder) ExportGenesisStream(ctx, cdc interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesisStream", reflect.TypeOf((*MockBeginBlockAppModule)(nil).ExportGenesisStream), ctx, cdc)
-}
-
 // GetQueryCmd mocks base method.
 func (m *MockBeginBlockAppModule) GetQueryCmd() *cobra.Command {
 	m.ctrl.T.Helper()
@@ -1012,34 +928,6 @@ func (m *MockMidBlockAppModule) DefaultGenesis(arg0 codec.JSONCodec) json.RawMes
 func (mr *MockMidBlockAppModuleMockRecorder) DefaultGenesis(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DefaultGenesis", reflect.TypeOf((*MockMidBlockAppModule)(nil).DefaultGenesis), arg0)
-}
-
-// ExportGenesis mocks base method.
-func (m *MockMidBlockAppModule) ExportGenesis(arg0 types0.Context, arg1 codec.JSONCodec) json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesis", arg0, arg1)
-	ret0, _ := ret[0].(json.RawMessage)
-	return ret0
-}
-
-// ExportGenesis indicates an expected call of ExportGenesis.
-func (mr *MockMidBlockAppModuleMockRecorder) ExportGenesis(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesis", reflect.TypeOf((*MockMidBlockAppModule)(nil).ExportGenesis), arg0, arg1)
-}
-
-// ExportGenesisStream mocks base method.
-func (m *MockMidBlockAppModule) ExportGenesisStream(ctx types0.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesisStream", ctx, cdc)
-	ret0, _ := ret[0].(<-chan json.RawMessage)
-	return ret0
-}
-
-// ExportGenesisStream indicates an expected call of ExportGenesisStream.
-func (mr *MockMidBlockAppModuleMockRecorder) ExportGenesisStream(ctx, cdc interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesisStream", reflect.TypeOf((*MockMidBlockAppModule)(nil).ExportGenesisStream), ctx, cdc)
 }
 
 // GetQueryCmd mocks base method.
@@ -1301,34 +1189,6 @@ func (m *MockEndBlockAppModule) DefaultGenesis(arg0 codec.JSONCodec) json.RawMes
 func (mr *MockEndBlockAppModuleMockRecorder) DefaultGenesis(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DefaultGenesis", reflect.TypeOf((*MockEndBlockAppModule)(nil).DefaultGenesis), arg0)
-}
-
-// ExportGenesis mocks base method.
-func (m *MockEndBlockAppModule) ExportGenesis(arg0 types0.Context, arg1 codec.JSONCodec) json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesis", arg0, arg1)
-	ret0, _ := ret[0].(json.RawMessage)
-	return ret0
-}
-
-// ExportGenesis indicates an expected call of ExportGenesis.
-func (mr *MockEndBlockAppModuleMockRecorder) ExportGenesis(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesis", reflect.TypeOf((*MockEndBlockAppModule)(nil).ExportGenesis), arg0, arg1)
-}
-
-// ExportGenesisStream mocks base method.
-func (m *MockEndBlockAppModule) ExportGenesisStream(ctx types0.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExportGenesisStream", ctx, cdc)
-	ret0, _ := ret[0].(<-chan json.RawMessage)
-	return ret0
-}
-
-// ExportGenesisStream indicates an expected call of ExportGenesisStream.
-func (mr *MockEndBlockAppModuleMockRecorder) ExportGenesisStream(ctx, cdc interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportGenesisStream", reflect.TypeOf((*MockEndBlockAppModule)(nil).ExportGenesisStream), ctx, cdc)
 }
 
 // GetQueryCmd mocks base method.

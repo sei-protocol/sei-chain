@@ -3,6 +3,8 @@
   "Seed": 1337,
   "DataDir": "~/gigasim/validator/data",
   "TransactionType": "erc20",
+  "TransactionsPerBlock": 2000,
+  "LaneBlocksPerSuperblock": 50,
   "EnableSS": false,
   "EnableReceiptStore": false,
   "LookbackWindow": 0

@@ -136,6 +136,76 @@ func TestKVImporter_EmptyPhysicalValueRejected(t *testing.T) {
 	}
 }
 
+// TestKVImporter_NodeVersionMustMatchImport verifies that Importer accepts a node only at the import's own
+// version, and that a node at any other version fails the whole import, including the nodes before it.
+func TestKVImporter_NodeVersionMustMatchImport(t *testing.T) {
+	const importVersion = 5
+	nodeAt := func(key string, version int64) *types.SnapshotNode {
+		return &types.SnapshotNode{
+			Key:     ktype.ModulePhysicalKey("bank", []byte(key)),
+			Value:   vtype.SerializeMisc(importVersion, []byte("v")),
+			Version: version,
+		}
+	}
+
+	t.Run("same version", func(t *testing.T) {
+		s, imp := newKVImporterForTest(t, importVersion)
+		defer func() { require.NoError(t, s.Close()) }()
+
+		require.NoError(t, imp.AddNode(nodeAt("a", importVersion)))
+		require.NoError(t, imp.Close())
+		require.Equal(t, int64(importVersion), s.Version())
+		got, found := s.Get("bank", []byte("a"))
+		require.True(t, found)
+		require.Equal(t, []byte("v"), got)
+	})
+
+	for name, version := range map[string]int64{
+		"earlier version": importVersion - 1,
+		"later version":   importVersion + 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, imp := newKVImporterForTest(t, importVersion)
+			defer func() { require.NoError(t, s.Close()) }()
+
+			require.NoError(t, imp.AddNode(nodeAt("a", importVersion)))
+			err := imp.AddNode(nodeAt("b", version))
+			require.ErrorContains(t, err, "the import is at version")
+			require.ErrorIs(t, imp.AddNode(nodeAt("c", importVersion)), err,
+				"once the import has failed, AddNode must keep returning the failure")
+			require.ErrorIs(t, imp.Close(), err)
+			require.Zero(t, s.Version(), "a rejected import must not finalize")
+		})
+	}
+}
+
+// TestKVImporter_ImportAfterFailedImport verifies that a failed import does not carry its failure into the
+// next import on the same store.
+func TestKVImporter_ImportAfterFailedImport(t *testing.T) {
+	s, failed := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	node := &types.SnapshotNode{
+		Key:     ktype.ModulePhysicalKey("bank", []byte("k")),
+		Value:   vtype.SerializeMisc(1, []byte("v")),
+		Version: 2,
+	}
+	require.Error(t, failed.AddNode(node))
+	require.Error(t, failed.Close())
+	require.Zero(t, s.Version())
+
+	next, err := s.Importer(1)
+	require.NoError(t, err)
+	node.Version = 1
+	require.NoError(t, next.AddNode(node))
+	require.NoError(t, next.Close())
+
+	require.Equal(t, int64(1), s.Version())
+	got, found := s.Get("bank", []byte("k"))
+	require.True(t, found)
+	require.Equal(t, []byte("v"), got)
+}
+
 // TestKVImporter_ErrLifecycle locks in the contract that Err() returns the
 // first pipeline error as soon as it propagates, before Close is invoked.
 // This is the path the seidb tool relies on to short-circuit a failing import

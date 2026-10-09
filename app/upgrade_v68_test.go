@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
@@ -56,8 +57,6 @@ const (
 	// runs the gov 3 to 4 migration.
 	v68GovVersion uint64 = 4
 
-	v68BaseAccountTypeURL    = "/cosmos.auth.v1beta1.BaseAccount"
-	v68RunningSeid           = "/root/go/bin/seid"
 	v68KeyringPassword       = "12345678\n"
 	v68PostUpgradeSendAmount = "6868usei"
 )
@@ -431,6 +430,36 @@ func TestV68RewritesRetiredIBCProposals(t *testing.T) {
 	require.Len(t, app.GovKeeper.GetProposals(ctx), 2)
 }
 
+// TestV68RetiredIBCProposalScanIsBounded pins that the v6.8 proposal rewrite
+// decodes nothing above app.RetiredIBCProposalIDLimit: a proposal at the limit is
+// still rewritten, while bytes stored just above it are neither decoded nor
+// touched, even when they would fail to decode.
+func TestV68RetiredIBCProposalScanIsBounded(t *testing.T) {
+	chain := newV68Chain(t)
+	ctx := chain.Ctx()
+	text, err := govtypes.NewProposal(
+		govtypes.NewTextProposal("edge", "at the limit", false), app.RetiredIBCProposalIDLimit, ctx.BlockTime(), ctx.BlockTime().Add(time.Hour), false)
+	require.NoError(t, err)
+	text.Content = &codectypes.Any{
+		TypeUrl: "/ibc.core.client.v1.ClientUpdateProposal",
+		Value:   v68EncodeStrings("edge", "at the limit", "07-tendermint-0", "07-tendermint-1"),
+	}
+	store := ctx.KVStore(chain.GetKey(govtypes.StoreKey))
+	store.Set(govtypes.ProposalKey(text.ProposalId), chain.GovKeeper.MustMarshalProposal(text))
+	undecodable := []byte{0xff, 0xff, 0xff}
+	store.Set(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1), undecodable)
+	store.Set(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1_000_000), undecodable)
+
+	require.NotPanics(t, func() { applyV68(t, chain) })
+
+	proposal, found := chain.GovKeeper.GetProposal(ctx, app.RetiredIBCProposalIDLimit)
+	require.True(t, found)
+	require.Equal(t, "/cosmos.gov.v1beta1.TextProposal", proposal.Content.TypeUrl)
+	require.Equal(t, "at the limit", proposal.GetContent().GetDescription())
+	require.Equal(t, undecodable, store.Get(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1)))
+	require.Equal(t, undecodable, store.Get(govtypes.ProposalKey(app.RetiredIBCProposalIDLimit+1_000_000)))
+}
+
 // v68EncodeStrings protobuf-encodes the given values as consecutive string
 // fields numbered from 1.
 func v68EncodeStrings(values ...string) []byte {
@@ -464,50 +493,26 @@ func TestV68PrunesUpgradedIBCState(t *testing.T) {
 	require.Equal(t, v68UpgradeName, name)
 }
 
-func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
-	app := newV68Chain(t)
-	applyV68(t, app)
-	exported, err := app.ExportAppStateAndValidators(false, nil)
-	require.NoError(t, err)
-	var state map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(exported.AppState, &state))
-	_, found := state["bank"]
-	require.True(t, found)
-	_, found = state["oracle"]
-	require.False(t, found)
-}
-
-// TestV68ExportsNoVestingState exports genesis after v6.8. Export decodes every
-// stored account, so it succeeds only if no account is left under a type v6.8
-// no longer registers; the document has no vesting section and lists every
-// converted account as a base account.
-func TestV68ExportsNoVestingState(t *testing.T) {
+// TestV68DecodesEveryAccount reads every stored account after v6.8, which
+// panics on an account left under a type v6.8 no longer registers, and requires
+// each converted account to be a base account.
+func TestV68DecodesEveryAccount(t *testing.T) {
 	a := newV68Chain(t)
 	fixtures := seedV67VestingState(t, a)
 	a.RunBlock([]signing.Tx{})
 	applyV68ToCommitStore(t, a)
 	a.RunBlock([]signing.Tx{})
 
-	exported, err := a.ExportAppStateAndValidators(false, nil)
-	require.NoError(t, err)
-	var genesis map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(exported.AppState, &genesis))
-	require.NotContains(t, genesis, v68VestingModule)
-
-	var auth struct {
-		Accounts []struct {
-			Type    string `json:"@type"`
-			Address string `json:"address"`
-		} `json:"accounts"`
-	}
-	require.NoError(t, json.Unmarshal(genesis[authtypes.ModuleName], &auth))
-	exportedTypes := make(map[string]string, len(auth.Accounts))
-	for _, account := range auth.Accounts {
-		exportedTypes[account.Address] = account.Type
-	}
+	accounts := map[string]authtypes.AccountI{}
+	require.NotPanics(t, func() {
+		a.AccountKeeper.IterateAccounts(a.Ctx(), func(account authtypes.AccountI) bool {
+			accounts[account.GetAddress().String()] = account
+			return false
+		})
+	})
 	for _, fixture := range fixtures {
-		require.Equal(t, v68BaseAccountTypeURL, exportedTypes[fixture.account.Base.Address],
-			"the exported %s is not a base account", fixture.account.TypeURL)
+		require.IsType(t, &authtypes.BaseAccount{}, accounts[fixture.account.Base.Address],
+			"the stored %s is not a base account", fixture.account.TypeURL)
 	}
 }
 
@@ -614,11 +619,16 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		v68UseiBalance(t, chain, v68PostUpgradeBankReceiver.String()).String(),
 		"the bank send after v6.8 did not credit the receiver")
 
-	chain.StopNode(t)
-
-	currentGenesis := chain.Export(t, v68RunningSeid, "v68-export")
-	require.NotContains(t, currentGenesis.AppState, v68VestingModule,
-		"v6.8 export still carries a vesting section")
+	accounts := chain.MustSeid(t, "", "q", "auth", "accounts", "--limit", "1000", "--output", "json")
+	chain.WriteDiagnostic(t, "v68-accounts.json", []byte(accounts))
+	var page struct {
+		Pagination struct {
+			NextKey string `json:"next_key"`
+		} `json:"pagination"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(accounts), &page), accounts)
+	require.Empty(t, page.Pagination.NextKey, "the account query did not return every account")
+	require.NotContains(t, accounts, "/cosmos.vesting.", "v6.8 still serves a vesting account")
 }
 
 // v68ModuleVersions returns the on-chain module version map by module name.

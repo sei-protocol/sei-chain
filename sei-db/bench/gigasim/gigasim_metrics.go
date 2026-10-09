@@ -38,12 +38,14 @@ type GigasimMetrics struct {
 	receiptsWrittenTotal      metric.Int64Counter
 	flushCallsTotal           metric.Int64Counter
 
-	highestBlockHeight metric.Int64Gauge
-	totalAccounts      metric.Int64Gauge
-	hotAccounts        metric.Int64Gauge
-	coldAccounts       metric.Int64Gauge
-	dormantAccounts    metric.Int64Gauge
-	erc20Contracts     metric.Int64Gauge
+	highestBlockHeight         metric.Int64Gauge
+	executionBatchTransactions metric.Int64Gauge
+	commitChangesetEntries     metric.Int64Gauge
+	totalAccounts              metric.Int64Gauge
+	hotAccounts                metric.Int64Gauge
+	coldAccounts               metric.Int64Gauge
+	dormantAccounts            metric.Int64Gauge
+	erc20Contracts             metric.Int64Gauge
 
 	blockHashWaitSeconds metric.Float64Histogram
 
@@ -119,6 +121,16 @@ func NewGigasimMetrics() *GigasimMetrics {
 		metric.WithDescription("Highest block height taken through the pipeline"),
 		metric.WithUnit("{height}"),
 	)
+	executionBatchTransactions, _ := meter.Int64Gauge(
+		"gigasim_execution_batch_transactions",
+		metric.WithDescription("Transactions executed together in the last batch, spread across the executor pool before the next commit"),
+		metric.WithUnit("{count}"),
+	)
+	commitChangesetEntries, _ := meter.Int64Gauge(
+		"gigasim_commit_changeset_entries",
+		metric.WithDescription("Key-value entries in the changeset applied by the last state commit"),
+		metric.WithUnit("{count}"),
+	)
 	totalAccounts, _ := meter.Int64Gauge(
 		"gigasim_accounts_total",
 		metric.WithDescription("Number of accounts in existence"),
@@ -152,28 +164,30 @@ func NewGigasimMetrics() *GigasimMetrics {
 	)
 
 	return &GigasimMetrics{
-		blocksProcessedTotal:      blocksProcessedTotal,
-		transactionsExecutedTotal: transactionsExecutedTotal,
-		gasUsedTotal:              gasUsedTotal,
-		storeBytesWrittenTotal:    storeBytesWrittenTotal,
-		storeKeysWrittenTotal:     storeKeysWrittenTotal,
-		qcsWrittenTotal:           qcsWrittenTotal,
-		stateCommitsTotal:         stateCommitsTotal,
-		stateChangesTotal:         stateChangesTotal,
-		receiptsWrittenTotal:      receiptsWrittenTotal,
-		flushCallsTotal:           flushCallsTotal,
-		highestBlockHeight:        highestBlockHeight,
-		totalAccounts:             totalAccounts,
-		hotAccounts:               hotAccounts,
-		coldAccounts:              coldAccounts,
-		dormantAccounts:           dormantAccounts,
-		erc20Contracts:            erc20Contracts,
-		blockHashWaitSeconds:      blockHashWaitSeconds,
-		transactionPhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_transaction").RecordLatencies(),
-		executionLoopPhases:       metrics.NewPhaseTimerFactory(meter, "gigasim_execution_loop").RecordLatencies(),
-		blockProducingPhases:      metrics.NewPhaseTimerFactory(meter, "gigasim_block_producing_loop").RecordLatencies(),
-		blockStoreWritePhases:     metrics.NewPhaseTimerFactory(meter, "gigasim_blockstore_write"),
-		pendingExecutionQueue:     metrics.NewQueueMeter(meter, "gigasim_pending_execution"),
+		blocksProcessedTotal:       blocksProcessedTotal,
+		transactionsExecutedTotal:  transactionsExecutedTotal,
+		gasUsedTotal:               gasUsedTotal,
+		storeBytesWrittenTotal:     storeBytesWrittenTotal,
+		storeKeysWrittenTotal:      storeKeysWrittenTotal,
+		qcsWrittenTotal:            qcsWrittenTotal,
+		stateCommitsTotal:          stateCommitsTotal,
+		stateChangesTotal:          stateChangesTotal,
+		receiptsWrittenTotal:       receiptsWrittenTotal,
+		flushCallsTotal:            flushCallsTotal,
+		highestBlockHeight:         highestBlockHeight,
+		executionBatchTransactions: executionBatchTransactions,
+		commitChangesetEntries:     commitChangesetEntries,
+		totalAccounts:              totalAccounts,
+		hotAccounts:                hotAccounts,
+		coldAccounts:               coldAccounts,
+		dormantAccounts:            dormantAccounts,
+		erc20Contracts:             erc20Contracts,
+		blockHashWaitSeconds:       blockHashWaitSeconds,
+		transactionPhases:          metrics.NewPhaseTimerFactory(meter, "gigasim_transaction").RecordLatencies(),
+		executionLoopPhases:        metrics.NewPhaseTimerFactory(meter, "gigasim_execution_loop").RecordLatencies(),
+		blockProducingPhases:       metrics.NewPhaseTimerFactory(meter, "gigasim_block_producing_loop").RecordLatencies(),
+		blockStoreWritePhases:      metrics.NewPhaseTimerFactory(meter, "gigasim_blockstore_write"),
+		pendingExecutionQueue:      metrics.NewQueueMeter(meter, "gigasim_pending_execution"),
 	}
 }
 
@@ -238,6 +252,9 @@ func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactionType stri
 	if m.highestBlockHeight != nil {
 		m.highestBlockHeight.Record(ctx, number)
 	}
+	if m.executionBatchTransactions != nil {
+		m.executionBatchTransactions.Record(ctx, transactions)
+	}
 }
 
 // ReportStoreBytesWritten records bytes handed to one store, named by a store constant. It is the
@@ -279,6 +296,9 @@ func (m *GigasimMetrics) ReportStateCommit(changes int64) {
 	}
 	if m.stateChangesTotal != nil {
 		m.stateChangesTotal.Add(ctx, changes)
+	}
+	if m.commitChangesetEntries != nil {
+		m.commitChangesetEntries.Record(ctx, changes)
 	}
 }
 

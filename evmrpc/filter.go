@@ -269,7 +269,6 @@ type FilterAPI struct {
 	tmClient            client.LocalClient
 	filtersMu           sync.RWMutex
 	filters             map[ethrpc.ID]filter
-	toDelete            chan ethrpc.ID
 	filterConfig        *FilterConfig
 	logFetcher          *LogFetcher
 	connectionType      ConnectionType
@@ -345,7 +344,6 @@ func NewFilterAPI(
 		tmClient:            tmClient,
 		filtersMu:           sync.RWMutex{},
 		filters:             filters,
-		toDelete:            make(chan ethrpc.ID, 1000),
 		filterConfig:        filterConfig,
 		logFetcher:          logFetcher,
 		connectionType:      connectionType,
@@ -415,7 +413,6 @@ func (a *FilterAPI) takeBlockHashes(filterID ethrpc.ID) ([]common.Hash, error) {
 	return hashes, nil
 }
 
-// Unified cleanup loop that handles both timeout and manual deletion
 func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
 	ticker := time.NewTicker(timeout / 2) // Check more frequently than timeout
 	defer func() {
@@ -430,9 +427,6 @@ func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
 		case <-ticker.C:
 			// Clean up expired filters
 			a.cleanupExpiredFilters(timeout)
-		case filterID := <-a.toDelete:
-			// Handle manual filter deletion
-			a.removeFilter(filterID)
 		}
 	}
 }
@@ -465,16 +459,19 @@ func (a *FilterAPI) cleanupExpiredFilters(timeout time.Duration) {
 	}
 }
 
-func (a *FilterAPI) removeFilter(filterID ethrpc.ID) {
+func (a *FilterAPI) removeFilter(filterID ethrpc.ID) bool {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 
-	if filter, exists := a.filters[filterID]; exists {
-		delete(a.filters, filterID)
-		if filter.cancelFunc != nil {
-			filter.cancelFunc()
-		}
+	filter, exists := a.filters[filterID]
+	if !exists {
+		return false
 	}
+	delete(a.filters, filterID)
+	if filter.cancelFunc != nil {
+		filter.cancelFunc()
+	}
+	return true
 }
 
 func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
@@ -782,25 +779,7 @@ func (a *FilterAPI) UninstallFilter(
 	defer func() {
 		recordMetrics(ctx, fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, startTime)
 	}()
-
-	// Check if filter exists
-	a.filtersMu.RLock()
-	_, found := a.filters[filterID]
-	a.filtersMu.RUnlock()
-
-	if !found {
-		return false
-	}
-
-	// Queue for deletion in cleanup loop to avoid race conditions
-	select {
-	case a.toDelete <- filterID:
-		return true
-	default:
-		// Channel is full, fall back to direct deletion
-		a.removeFilter(filterID)
-		return true
-	}
+	return a.removeFilter(filterID)
 }
 
 // shutdown method for graceful shutdown
@@ -816,8 +795,6 @@ func (a *FilterAPI) shutdown() {
 	}
 	a.filters = make(map[ethrpc.ID]filter)
 	a.filtersMu.Unlock()
-
-	close(a.toDelete)
 }
 
 type LogFetcher struct {
@@ -1182,7 +1159,11 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 
 		// Use a context at the window's toBlock height for the query
 		// #nosec G115 -- windowTo is a block height which fits in int64
-		sdkCtx := f.ctxProvider(int64(windowTo)).WithContext(ctx)
+		sdkCtx, err := ctxAtHeight(f.ctxProvider, int64(windowTo))
+		if err != nil {
+			return nil, err
+		}
+		sdkCtx = sdkCtx.WithContext(ctx)
 
 		candidates, err := store.FilterLogs(sdkCtx, windowFrom, windowTo, crit, f.storeCandidateBudget())
 		if err != nil {
@@ -1339,7 +1320,10 @@ func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit fi
 
 // Unified log collection logic - fallback path that fetches receipts individually
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) error {
-	ctx := f.ctxProvider(block.Block.Height)
+	ctx, err := ctxAtHeight(f.ctxProvider, block.Block.Height)
+	if err != nil {
+		return err
+	}
 
 	txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
 	if err != nil {
@@ -1577,7 +1561,10 @@ func (f *LogFetcher) readUncachedBlock(ctx context.Context, height int64, crit f
 	var blockBloom ethtypes.Bloom
 	if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 		// Bloom cache miss - read from database
-		providerCtx := f.ctxProvider(height)
+		providerCtx, err := ctxAtHeight(f.ctxProvider, height)
+		if err != nil {
+			return nil, false, err
+		}
 		if f.includeSyntheticReceipts {
 			blockBloom = f.k.GetBlockBloom(providerCtx)
 		} else {

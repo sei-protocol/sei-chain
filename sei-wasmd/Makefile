@@ -1,12 +1,10 @@
 #!/usr/bin/make -f
 
-PACKAGES_SIMTEST=$(shell go list ./... | grep '/simulation')
 VERSION := $(shell echo $(shell git describe --tags) | sed 's/^v//')
 COMMIT := $(shell git log -1 --format='%H')
 LEDGER_ENABLED ?= true
 SDK_PACK := $(shell go list -m github.com/cosmos/cosmos-sdk | sed  's/ /\@/g')
 BINDIR ?= $(GOPATH)/bin
-SIMAPP = ./app
 
 # for dockerized protobuf tools
 DOCKER := $(shell which docker)
@@ -136,14 +134,6 @@ test-cover:
 benchmark:
 	@go test -mod=readonly -bench=. ./...
 
-test-sim-import-export: runsim
-	@echo "Running application import/export simulation. This may take several minutes..."
-	@$(BINDIR)/runsim -Jobs=4 -SimAppPkg=$(SIMAPP) -ExitOnFail 50 5 TestAppImportExport
-
-test-sim-multi-seed-short: runsim
-	@echo "Running short multi-seed application simulation. This may take awhile!"
-	@$(BINDIR)/runsim -Jobs=4 -SimAppPkg=$(SIMAPP) -ExitOnFail 50 10 TestFullAppSimulation
-
 ###############################################################################
 ###                                Linting                                  ###
 ###############################################################################
@@ -192,14 +182,13 @@ proto-check-breaking:
 .PHONY: all install install-debug \
 	go-mod-cache draw-deps clean build format \
 	test test-all test-build test-cover test-unit test-race \
-	test-sim-import-export \
 
 test:
 	go test -mod=readonly -timeout 8m -race -coverprofile=coverage.txt -covermode=atomic ./...
 
 test-group-%:
 	@mkdir -p profiles
-	@PKGS_TO_TEST=$$(go list ./... | grep -v '/simulation' | awk -v partition=$* 'NR % 4 == (partition - 1)'); \
+	@PKGS_TO_TEST=$$(go list ./... | awk -v partition=$* 'NR % 4 == (partition - 1)'); \
 	for pkg in $$PKGS_TO_TEST; do \
 		id=$$(echo "$$pkg" | sed 's|[/.]|_|g'); \
 		go test -mod=readonly -timeout 8m -race -coverprofile=profiles/$$id.out -covermode=atomic -tags='ledger test_ledger_mock' "$$pkg"; \

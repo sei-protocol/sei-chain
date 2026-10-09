@@ -30,9 +30,10 @@ func (a GigaNodeAddr) String() string {
 // GigaRouterCommonConfig is the slice of giga config shared by both
 // validator and fullnode constructors.
 type GigaRouterCommonConfig struct {
-	DialInterval   time.Duration
-	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
-	GenDoc         *types.GenesisDoc
+	DialInterval     time.Duration
+	HandshakeTimeout utils.Option[time.Duration]
+	ValidatorAddrs   map[atypes.PublicKey]GigaNodeAddr
+	GenDoc           *types.GenesisDoc
 	// PersistentStateDir is the absolute on-disk root for durable state
 	// (BlockDB, hashvault, epoch snapshots, and the validator's consensus
 	// persister in sibling subdirs). Required and must already exist.

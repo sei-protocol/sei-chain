@@ -51,6 +51,10 @@ type transaction struct {
 	newSrcAccountSlot []byte
 	newDstAccountSlot []byte
 
+	// The transaction type, gas price, and token amount its receipt records. A native transfer's amount
+	// is zero.
+	drawn receiptDraw
+
 	// If true, record per-phase timings while executing. Only a sampled fraction of transactions do,
 	// since the instrumentation costs more than the work it measures.
 	captureMetrics bool

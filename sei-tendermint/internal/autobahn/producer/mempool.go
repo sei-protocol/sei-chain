@@ -292,6 +292,23 @@ func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[
 	return utils.Some(s.evmNonce(addr)), first, nil
 }
 
+// poolCanAdmit returns nil when the pool would admit or queue an insert without a ticket right
+// now, and otherwise the error the admission loop would return, so such an insert skips CheckTx.
+// The admission loop rechecks after CheckTx.
+func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
+	for m := range mp.inner.Lock() {
+		switch {
+		case m.closed:
+			return ErrNotProducing
+		case !waitIfFull && m.IsFull():
+			return errMempoolFull
+		case waitIfFull && uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
+			return errPendingFull
+		}
+	}
+	return nil
+}
+
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
 func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
@@ -379,7 +396,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 	// Reject / wait for a produce session before CheckTxSafe — IsFull and closed
-	// are checked after, since they can change while CheckTx runs.
+	// are checked again after, since they can change while CheckTx runs.
 	var mp *mempool
 	var err error
 	if waitIfFull {
@@ -393,6 +410,9 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 			return nil, ErrNotProducing
 		}
 		mp = loaded
+	}
+	if err := s.poolCanAdmit(mp, waitIfFull); err != nil {
+		return nil, err
 	}
 	resp, err := s.checkTx(ctx, tx)
 	if err != nil {

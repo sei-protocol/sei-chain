@@ -585,7 +585,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-func TestImporterHeightNonZeroSkipped(t *testing.T) {
+func TestImporterHeightNonZeroRejected(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -598,45 +598,53 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 	imp, err := s.Importer(1)
 	require.NoError(t, err)
 
-	// Non-leaf nodes (Height != 0) are silently skipped.
-	imp.AddNode(&types.SnapshotNode{
-		Key:    keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
-		Value:  padLeft32(0x11),
-		Height: 1, // non-leaf
+	key := storagePhysKey(addrN(0x01), slotN(0x01))
+
+	// Non-leaf nodes (Height != 0) fail the import.
+	addErr := imp.AddNode(&types.SnapshotNode{
+		Key:     key,
+		Value:   padLeft32(0x11),
+		Version: 1,
+		Height:  1, // non-leaf
 	})
+	require.ErrorContains(t, addErr, "only leaves can be imported")
+	require.ErrorIs(t, imp.Close(), addErr)
 
-	require.NoError(t, imp.Close())
-
-	// Data should NOT have been imported.
-	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01)))
-	_, found := s.Get(keys.EVMStoreKey, key)
-	require.False(t, found, "height != 0 node should be skipped")
+	_, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))))
+	require.False(t, found, "height != 0 node should be rejected")
+	require.Zero(t, s.Version(), "a rejected import must not finalize")
 	require.NoError(t, s.Close())
 }
 
-func TestImporterNilKeySkipped(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+func TestImporterEmptyKeyRejected(t *testing.T) {
+	// A restore hands the importer an empty key where the snapshot carried none, so both forms must fail.
+	for name, key := range map[string][]byte{"nil": nil, "zero-length": {}} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := config.DefaultTestConfig(t)
+			cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
+			s, err := newCommitStoreWithWAL(t.Context(), cfg)
+			require.NoError(t, err)
+			err = s.LoadLatest()
+			require.NoError(t, err)
 
-	imp, err := s.Importer(1)
-	require.NoError(t, err)
+			imp, err := s.Importer(1)
+			require.NoError(t, err)
 
-	// Nodes with nil key are silently skipped.
-	imp.AddNode(&types.SnapshotNode{
-		Key:    nil,
-		Value:  []byte{0xAA},
-		Height: 0,
-	})
+			addErr := imp.AddNode(&types.SnapshotNode{
+				Key:     key,
+				Value:   []byte{0xAA},
+				Version: 1,
+				Height:  0,
+			})
+			require.ErrorContains(t, addErr, "node has an empty key")
 
-	require.NoError(t, imp.Close())
-	require.Equal(t, int64(1), s.Version())
-	require.NoError(t, s.Close())
+			require.ErrorIs(t, imp.Close(), addErr)
+			require.Zero(t, s.Version(), "a rejected import must not finalize")
+			require.NoError(t, s.Close())
+		})
+	}
 }
 
 func TestImporterEmptyStore(t *testing.T) {
