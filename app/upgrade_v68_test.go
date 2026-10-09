@@ -19,6 +19,8 @@ import (
 	authtestutil "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/testutil"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
@@ -35,7 +37,7 @@ import (
 // the base accounts they embed. These tests cover the rewrite of every vesting
 // account type, spending a balance a schedule had locked, the messages both
 // modules served, genesis export over the migrated store, and the handler
-// itself.
+// itself. The handler also populates the staking delegation-by-validator index.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
@@ -310,6 +312,79 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 		"second ApplyUpgrade changed the done height")
 	require.Equal(t, onceAppVersion+1, a.AppVersion(),
 		"second ApplyUpgrade is not a no-op: ApplyUpgrade increments protocol version on every call")
+}
+
+// unreadyV68DelegationIndex deletes the delegation-by-validator index and its
+// ready marker, leaving the staking store as v6.7 left it.
+func unreadyV68DelegationIndex(t *testing.T, a *processblock.App) {
+	t.Helper()
+	store := a.Ctx().KVStore(a.GetKey(stakingtypes.StoreKey))
+	iterator := sdk.KVStorePrefixIterator(store, stakingtypes.DelegationByValIndexKey)
+	var keys [][]byte
+	for ; iterator.Valid(); iterator.Next() {
+		keys = append(keys, iterator.Key())
+	}
+	require.NoError(t, iterator.Close())
+	for _, key := range keys {
+		store.Delete(key)
+	}
+	store.Delete(stakingtypes.DelegationByValIndexReadyKey)
+}
+
+// v68DelegationKeys returns the keys of every stored delegation.
+func v68DelegationKeys(t *testing.T, store sdk.KVStore) map[string]struct{} {
+	t.Helper()
+	return v68PrefixKeys(t, store, stakingtypes.DelegationKey, func(key []byte) []byte { return key })
+}
+
+// v68IndexedDelegationKeys returns the delegation key every index entry points at.
+func v68IndexedDelegationKeys(t *testing.T, store sdk.KVStore) map[string]struct{} {
+	t.Helper()
+	return v68PrefixKeys(t, store, stakingtypes.DelegationByValIndexKey, stakingtypes.GetDelegationKeyFromValIndexKey)
+}
+
+func v68PrefixKeys(t *testing.T, store sdk.KVStore, prefix []byte, resolve func([]byte) []byte) map[string]struct{} {
+	t.Helper()
+	iterator := sdk.KVStorePrefixIterator(store, prefix)
+	defer func() { require.NoError(t, iterator.Close()) }()
+	keys := map[string]struct{}{}
+	for ; iterator.Valid(); iterator.Next() {
+		keys[string(resolve(iterator.Key()))] = struct{}{}
+	}
+	return keys
+}
+
+func TestV68PopulatesDelegationByValIndex(t *testing.T) {
+	a := newV68Chain(t)
+	unreadyV68DelegationIndex(t, a)
+	ctx := a.Ctx()
+	store := ctx.KVStore(a.GetKey(stakingtypes.StoreKey))
+
+	validators := a.StakingKeeper.GetAllValidators(ctx)
+	require.NotEmpty(t, validators)
+	valAddr := validators[0].GetOperator()
+	delAddr := a.NewAccount()
+	a.StakingKeeper.SetDelegation(ctx, stakingtypes.NewDelegation(delAddr, valAddr, sdk.NewDec(68)))
+	require.False(t, store.Has(stakingtypes.GetDelegationByValIndexKey(delAddr, valAddr)),
+		"a delegation written before v6.8 is indexed")
+
+	applyV68(t, a)
+
+	require.True(t, a.StakingKeeper.DelegationByValIndexReady(ctx))
+	delegations := v68DelegationKeys(t, store)
+	require.Contains(t, delegations, string(stakingtypes.GetDelegationKey(delAddr, valAddr)))
+	require.Equal(t, delegations, v68IndexedDelegationKeys(t, store),
+		"the index does not hold exactly one entry per delegation")
+
+	querier := stakingkeeper.Querier{Keeper: a.StakingKeeper}
+	res, err := querier.ValidatorDelegationsIndexed(sdk.WrapSDKContext(ctx),
+		&stakingtypes.QueryValidatorDelegationsRequest{ValidatorAddr: valAddr.String()})
+	require.NoError(t, err)
+	var delegators []string
+	for _, response := range res.DelegationResponses {
+		delegators = append(delegators, response.Delegation.DelegatorAddress)
+	}
+	require.Contains(t, delegators, delAddr.String())
 }
 
 // TestV68RejectsOracleTxsWithoutCharging pins that retired oracle transactions

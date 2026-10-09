@@ -27,8 +27,27 @@ func seedDelegations(t *testing.T, app *seiapp.App, ctx sdk.Context, delegations
 	}
 }
 
+// unreadyDelegationByValIndex deletes the index and its ready marker, leaving the
+// store as a chain that has not run the migration holds it.
+func unreadyDelegationByValIndex(t *testing.T, app *seiapp.App, ctx sdk.Context) {
+	t.Helper()
+	store := ctx.KVStore(app.StakingKeeper.GetStoreKey())
+	iterator := sdk.KVStorePrefixIterator(store, types.DelegationByValIndexKey)
+	var keys [][]byte
+	for ; iterator.Valid(); iterator.Next() {
+		keys = append(keys, iterator.Key())
+	}
+	require.NoError(t, iterator.Close())
+	for _, key := range keys {
+		store.Delete(key)
+	}
+	store.Delete(types.DelegationByValIndexReadyKey)
+	require.False(t, app.StakingKeeper.DelegationByValIndexReady(ctx))
+}
+
 func TestDelegationByValIndexNotReadyNoDualWrite(t *testing.T) {
 	_, app, ctx := createTestInput(t)
+	unreadyDelegationByValIndex(t, app, ctx)
 
 	addrDels, valAddrs := generateAddresses(app, ctx, 1)
 	delegation := types.NewDelegation(addrDels[0], valAddrs[0], sdk.NewDec(1))
@@ -45,6 +64,7 @@ func TestDelegationByValIndexNotReadyNoDualWrite(t *testing.T) {
 
 func TestDelegationByValIndexDualWriteAfterMigration(t *testing.T) {
 	_, app, ctx := createTestInput(t)
+	unreadyDelegationByValIndex(t, app, ctx)
 
 	_, err := app.StakingKeeper.MigrateDelegationByValIndex(ctx)
 	require.NoError(t, err)
@@ -67,6 +87,8 @@ func TestDelegationByValIndexDualWriteAfterMigration(t *testing.T) {
 
 func TestMigrateDelegationByValIndex(t *testing.T) {
 	_, app, ctx := createTestInput(t)
+	unreadyDelegationByValIndex(t, app, ctx)
+	genesisDelegations := len(app.StakingKeeper.GetAllDelegations(ctx))
 
 	addrDels, valAddrs := generateAddresses(app, ctx, 2)
 	delegations := []types.Delegation{
@@ -78,8 +100,7 @@ func TestMigrateDelegationByValIndex(t *testing.T) {
 
 	result, err := app.StakingKeeper.MigrateDelegationByValIndex(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 3, result.TotalDelegations)
-	require.Equal(t, 3, result.IndexWritten)
+	require.Equal(t, genesisDelegations+3, result.TotalDelegations)
 	require.False(t, result.AlreadyReady)
 	require.True(t, app.StakingKeeper.DelegationByValIndexReady(ctx))
 
@@ -92,13 +113,14 @@ func TestMigrateDelegationByValIndex(t *testing.T) {
 	repeat, err := app.StakingKeeper.MigrateDelegationByValIndex(ctx)
 	require.NoError(t, err)
 	require.True(t, repeat.AlreadyReady)
-	require.Equal(t, 0, repeat.IndexWritten)
+	require.Zero(t, repeat.TotalDelegations)
 }
 
 // TestMigrateDelegationByValIndexNoOrphans pins the invariant the index exists to
 // uphold: every delegation is indexed, and every index entry resolves to a delegation.
 func TestMigrateDelegationByValIndexNoOrphans(t *testing.T) {
 	_, app, ctx := createTestInput(t)
+	unreadyDelegationByValIndex(t, app, ctx)
 
 	addrDels, valAddrs := generateAddresses(app, ctx, 3)
 	seedDelegations(t, app, ctx, []types.Delegation{
@@ -141,6 +163,7 @@ var maxScanDelegator = sdk.AccAddress(bytes.Repeat([]byte{0xff}, 20))
 func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedBeyondScanLimit() {
 	app, ctx := suite.app, suite.ctx
 	querier := keeper.Querier{Keeper: app.StakingKeeper}
+	unreadyDelegationByValIndex(suite.T(), app, ctx)
 
 	targetVal := suite.vals[1].GetOperator()
 	fillerVal := suite.vals[0].GetOperator()
@@ -194,6 +217,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedMatchesSca
 	app, ctx := suite.app, suite.ctx
 	querier := keeper.Querier{Keeper: app.StakingKeeper}
 
+	unreadyDelegationByValIndex(suite.T(), app, ctx)
 	req := &types.QueryValidatorDelegationsRequest{ValidatorAddr: suite.vals[1].GetOperator().String()}
 
 	scanned, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), req)

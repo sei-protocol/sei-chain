@@ -9,32 +9,26 @@ import (
 )
 
 // MigrateDelegationByValIndexResult reports the outcome of populating the
-// validator-indexed delegation store.
+// delegation-by-validator index.
 type MigrateDelegationByValIndexResult struct {
 	TotalDelegations int
-	IndexWritten     int
 	AlreadyReady     bool
 	Elapsed          time.Duration
 }
 
-// DelegationByValIndexReady reports whether the validator-indexed delegation store
-// is populated at the version this context reads.
-//
-// The marker is versioned state written by MigrateDelegationByValIndex, so a context
-// reading a height before that migration observes it absent. That makes the answer
-// correct for historical queries and re-traced blocks without the caller supplying
-// an upgrade name or height.
+// DelegationByValIndexReady reports whether the delegation-by-validator index is
+// populated in the state this context reads.
 func (k Keeper) DelegationByValIndexReady(ctx sdk.Context) bool {
 	return ctx.KVStore(k.storeKey).Has(types.DelegationByValIndexReadyKey)
 }
 
-// MigrateDelegationByValIndex writes a validator-indexed key for every existing
-// delegation and then marks the index ready. It is a no-op once the marker is set.
+// MigrateDelegationByValIndex writes an index entry for every stored delegation and
+// marks the index ready. It is a no-op once the index is ready.
 func (k Keeper) MigrateDelegationByValIndex(ctx sdk.Context) (MigrateDelegationByValIndexResult, error) {
 	start := time.Now()
 	store := ctx.KVStore(k.storeKey)
 
-	if store.Has(types.DelegationByValIndexReadyKey) {
+	if k.DelegationByValIndexReady(ctx) {
 		return MigrateDelegationByValIndexResult{AlreadyReady: true, Elapsed: time.Since(start)}, nil
 	}
 
@@ -42,6 +36,8 @@ func (k Keeper) MigrateDelegationByValIndex(ctx sdk.Context) (MigrateDelegationB
 	iterator := sdk.KVStorePrefixIterator(store, types.DelegationKey)
 	defer func() { _ = iterator.Close() }()
 
+	// SetDelegation writes no index entry while the index is not ready, so none
+	// exists yet and each one can be written without checking for it first.
 	for ; iterator.Valid(); iterator.Next() {
 		delegation, err := types.UnmarshalDelegation(k.cdc, iterator.Value())
 		if err != nil {
@@ -51,14 +47,8 @@ func (k Keeper) MigrateDelegationByValIndex(ctx sdk.Context) (MigrateDelegationB
 		if err != nil {
 			return result, fmt.Errorf("parse delegator address %q: %w", delegation.DelegatorAddress, err)
 		}
-
+		store.Set(types.GetDelegationByValIndexKey(delAddr, delegation.GetValidatorAddr()), []byte{})
 		result.TotalDelegations++
-		indexKey := types.GetDelegationByValIndexKey(delAddr, delegation.GetValidatorAddr())
-		if store.Has(indexKey) {
-			continue
-		}
-		store.Set(indexKey, []byte{})
-		result.IndexWritten++
 	}
 
 	store.Set(types.DelegationByValIndexReadyKey, []byte{})

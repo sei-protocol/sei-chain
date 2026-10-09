@@ -135,12 +135,9 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 		DelegationResponses: delResponses, Pagination: pageRes}, nil
 }
 
-// ValidatorDelegationsIndexed queries delegate info for a given validator, reading the
-// validator-indexed delegation store when it is populated.
-//
-// The indexed prefix holds only this validator's delegations, so iteration tracks page
-// size instead of the total delegation count. That keeps the scan inside the limit
-// query.FilteredPaginateV66 enforces on consensus execution.
+// ValidatorDelegationsIndexed queries the delegations of a validator through the
+// delegation-by-validator index. It answers as ValidatorDelegations does until the
+// index is ready.
 func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.QueryValidatorDelegationsRequest) (*types.QueryValidatorDelegationsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
@@ -152,9 +149,8 @@ func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.Query
 
 	ctx := sdk.UnwrapSDKContext(c)
 	if !k.DelegationByValIndexReady(ctx) {
-		// Below the height that populated the index the entries do not exist, so the
-		// full scan is the only readable source. It reverts on validators too large to
-		// scan within the limit, which is what the same query did at those heights.
+		// Before the index is populated the full scan is the only source, and it fails
+		// exactly where this query failed at those heights.
 		return k.ValidatorDelegations(c, req)
 	}
 
@@ -169,7 +165,8 @@ func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.Query
 	indexStore := prefix.NewStore(store, valPrefix)
 
 	pageRes, err := query.Paginate(ctx, indexStore, req.Pagination, func(key []byte, _ []byte) error {
-		storeKey := types.GetDelegationKeyFromValIndexKey(append(valPrefix, key...))
+		indexKey := append(append([]byte{}, valPrefix...), key...)
+		storeKey := types.GetDelegationKeyFromValIndexKey(indexKey)
 		delegation, err := types.UnmarshalDelegation(k.cdc, store.Get(storeKey))
 		if err != nil {
 			return err
@@ -178,7 +175,7 @@ func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.Query
 		return nil
 	})
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	delResponses, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
