@@ -156,6 +156,9 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				app.pruneUpgradedIBCState(ctx)
+				if err := app.migrateDelegationByValIndex(ctx); err != nil {
+					return nil, err
+				}
 				return newVM, nil
 			}
 
@@ -261,3 +264,21 @@ func deleteByPrefix(store sdk.KVStore, prefix []byte) {
 }
 
 const v606UpgradeHeight = 151573570
+
+// migrateDelegationByValIndex populates the staking module's
+// delegation-by-validator index and marks it ready. It runs on an infinite gas
+// meter, since its cost is set by the number of delegations at the upgrade
+// height.
+func (app *App) migrateDelegationByValIndex(ctx sdk.Context) error {
+	result, err := app.StakingKeeper.MigrateDelegationByValIndex(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
+	if err != nil {
+		return err
+	}
+	logger.Info(
+		"populated delegation-by-validator index",
+		"total_delegations", result.TotalDelegations,
+		"already_ready", result.AlreadyReady,
+		"elapsed", result.Elapsed.String(),
+	)
+	return nil
+}
