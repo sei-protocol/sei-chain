@@ -849,3 +849,32 @@ func TestComposite_Auto_ChildStoreIterationDuringWriteModeSwitch(t *testing.T) {
 	require.NoError(t, readAll(view))
 	require.NoError(t, stopReader())
 }
+
+// TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned pins the pre-kickoff export fallback's
+// dependency on FlatKV's kickoff seed snapshot: once pruning drops it, both export paths fail loud.
+func TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned(t *testing.T) {
+	cfg := autoExportConfig()
+	cfg.FlatKVConfig.SnapshotKeepRecent = 1
+	cs := openAutoStoreWithConfig(t, t.TempDir(), cfg, 100)
+	defer func() { _ = cs.Close() }()
+	workload := newMigrationWorkload(0x5EED)
+
+	runBlocks(t, cs, workload, 3)
+	pre, seed := cs.Version()-1, cs.Version()
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 6)
+	flatKVStore, ok := cs.loadFlatKV().(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
+	oldest, ok, err := flatKVStore.OldestSnapshotAbove(pre)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Greater(t, oldest, seed, "the seed snapshot must be pruned")
+
+	_, err = cs.LoadVersionReadOnlyForExport(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
+	_, err = cs.Exporter(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
+}

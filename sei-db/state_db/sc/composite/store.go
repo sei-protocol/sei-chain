@@ -466,7 +466,8 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (types.
 // LoadVersionReadOnlyForExport is LoadVersionReadOnly for state-sync snapshot extensions. Under Auto, a height
 // FlatKV can't reach is served memIAVL-only when the migration had not started at the next retained FlatKV
 // snapshot above it, since FlatKV isn't in the AppHash there. Such a snapshot can start before kickoff and
-// reach its extensions after FlatKV was created.
+// reach its extensions after FlatKV was created. Fixed modes create FlatKV at a restart, which ends any
+// snapshot in progress, so their extensions never ask for a height before FlatKV existed.
 func (cs *CompositeCommitStore) LoadVersionReadOnlyForExport(targetVersion int64) (types.Committer, error) {
 	return cs.loadVersionReadOnly(targetVersion, true)
 }
@@ -1631,7 +1632,8 @@ func exportMigrationState(flatKV gigatypes.LiveStateStore, version int64) (start
 }
 
 // precedesMigration reports whether the migration had not started at the oldest FlatKV snapshot above
-// version. Any error reading that snapshot reports false.
+// version. Any error reading that snapshot reports false. For a pre-kickoff version that snapshot is the
+// kickoff seed written by SetInitialVersion; once pruning drops it this reports false and exports fail loud.
 func precedesMigration(flatKV gigatypes.LiveStateStore, version int64) bool {
 	snapshot, ok, err := flatKV.OldestSnapshotAbove(version)
 	if err != nil || !ok {
