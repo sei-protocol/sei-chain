@@ -17,9 +17,12 @@ type MigrateDelegationByValIndexResult struct {
 }
 
 // DelegationByValIndexReady reports whether the delegation-by-validator index is
-// populated in the state this context reads.
+// populated in the state this context reads. It consumes no gas.
 func (k Keeper) DelegationByValIndexReady(ctx sdk.Context) bool {
-	return ctx.KVStore(k.storeKey).Has(types.DelegationByValIndexReadyKey)
+	// Delegation writes call this at every height, so charging for the read would change
+	// the gas of pre-upgrade transactions that touch a delegation.
+	gasless := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	return gasless.KVStore(k.storeKey).Has(types.DelegationByValIndexReadyKey)
 }
 
 // MigrateDelegationByValIndex writes an index entry for every stored delegation and
