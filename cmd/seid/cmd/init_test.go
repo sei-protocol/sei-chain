@@ -192,6 +192,23 @@ func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
 	require.NotContains(t, output, "use-default-comparer")
 }
 
+func TestInitAppConfigIncludesRPCAdmissionDefaults(t *testing.T) {
+	customAppTemplate, customAppConfig := initAppConfig()
+
+	tmpl, err := template.New("app").Parse(customAppTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, tmpl.Execute(&buf, customAppConfig))
+
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(bytes.NewReader(buf.Bytes())))
+	require.Equal(t, int64(100), v.GetInt64("rpc_admission.global_limit"))
+	require.Equal(t, int64(20), v.GetInt64("rpc_admission.class_limits.trace"))
+	require.Equal(t, "2s", v.GetString("rpc_admission.class_timeouts.evm_execution"))
+}
+
 // TestInitAppConfigLeavesPrometheusSinkOff pins the two app.toml-generation pipelines to the same
 // answer about the Prometheus sink. This one writes the file a node without one gets on any command
 // other than init, and a positive retention here would start the sink with nothing scraping it and no

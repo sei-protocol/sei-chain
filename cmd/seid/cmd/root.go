@@ -18,6 +18,7 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	"github.com/sei-protocol/sei-chain/rpcadmission"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
@@ -381,6 +382,7 @@ func initAppConfig() (string, interface{}) {
 		giganodeconfig.ConfigTemplate +
 		admin.ConfigTemplate +
 		cosmosmetrics.ConfigTemplate +
+		rpcadmission.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###
