@@ -55,7 +55,19 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	if k.receiptStore == nil {
 		return nil, receipt.ErrNotConfigured
 	}
-	return k.receiptStore.GetReceipt(ctx, txHash)
+	if goCtx := ctx.Context(); goCtx != nil {
+		if err := goCtx.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	rcpt, err := k.receiptStore.GetReceipt(ctx, txHash)
+	if goCtx := ctx.Context(); goCtx != nil {
+		if ctxErr := goCtx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+	}
+	return rcpt, err
 }
 
 // Only used for testing
@@ -70,6 +82,7 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 // where the receipt might not be immediately available after the transaction. The wait
 // between retries aborts early once goCtx is done.
 func (k *Keeper) GetReceiptWithRetry(goCtx context.Context, ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
+	ctx = ctx.WithContext(goCtx)
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		rcpt, err := k.GetReceipt(ctx, txHash)

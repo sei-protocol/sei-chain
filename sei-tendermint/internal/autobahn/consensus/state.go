@@ -27,6 +27,9 @@ type ViewTimeoutFunc = func(types.View) time.Duration
 type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
+	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
+	// The accepted width is ProposalTimeout * (view number + 1).
+	ProposalTimeout time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
 	PersistentStateDir utils.Option[string]
@@ -104,6 +107,9 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
+	if cfg.ProposalTimeout <= 0 {
+		return nil, fmt.Errorf("ProposalTimeout must be greater than 0, got %v", cfg.ProposalTimeout)
+	}
 	availState, err := avail.NewState(cfg.Key, data, cfg.PersistentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("avail.NewState: %w", err)
@@ -255,7 +261,7 @@ func (s *State) runPropose(ctx context.Context) error {
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
 			vs,
-			time.Now(),
+			vs.ClampTimestamp(time.Now(), s.cfg.ProposalTimeout),
 			laneQCsMap,
 		)
 		if err != nil {
