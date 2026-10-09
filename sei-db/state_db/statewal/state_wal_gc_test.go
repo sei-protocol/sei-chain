@@ -215,8 +215,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 }
 
 // The collector can still be mid-cycle when the node shuts down, so a prune arriving after the close
-// must be reported rather than panic, and must not brick the WAL on the way out — PruneHistory declines
-// to write fatalErr precisely because the writer reads it unsynchronized.
+// must be reported rather than panic, and must not brick the WAL on the way out.
 func TestGCPruneHistoryAfterClose(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1
