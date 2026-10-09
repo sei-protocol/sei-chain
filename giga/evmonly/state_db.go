@@ -205,21 +205,24 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
 		if !acct.Balance.Eq(base.Balance) || hasCommutativeDelta {
 			changes.Balances = append(changes.Balances, BalanceChange{
-				Address: addr,
-				Balance: acct.Balance.ToBig(),
+				Address:      addr,
+				Balance:      acct.Balance.ToBig(),
+				PriorBalance: base.Balance.ToBig(),
 			})
 		}
 		if acct.Nonce != base.Nonce {
 			changes.Nonces = append(changes.Nonces, NonceChange{
-				Address: addr,
-				Nonce:   acct.Nonce,
+				Address:    addr,
+				Nonce:      acct.Nonce,
+				PriorNonce: base.Nonce,
 			})
 		}
 		if !bytes.Equal(acct.Code, base.Code) {
 			changes.Code = append(changes.Code, CodeChange{
-				Address: addr,
-				Code:    cloneBytes(acct.Code),
-				Delete:  len(acct.Code) == 0,
+				Address:   addr,
+				Code:      cloneBytes(acct.Code),
+				Delete:    len(acct.Code) == 0,
+				PriorCode: base.Code,
 			})
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
@@ -233,10 +236,11 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				continue
 			}
 			changes.Storage = append(changes.Storage, StorageChange{
-				Address: addr,
-				Key:     key,
-				Value:   newValue,
-				Delete:  newValue == (common.Hash{}),
+				Address:    addr,
+				Key:        key,
+				Value:      newValue,
+				Delete:     newValue == (common.Hash{}),
+				PriorValue: oldValue,
 			})
 		}
 		if acct.StorageCleared {

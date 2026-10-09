@@ -1709,6 +1709,66 @@ func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
 	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
 }
 
+// Executing a block reports, for every balance, nonce, code and storage change, the value its key held
+// before the block: for a slot written twice, a slot deleted, a contract created and a fresh account.
+func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	counter, clearer, fresh := testAddress(0xc8), testAddress(0xc9), testAddress(0xca)
+	coinbase := blockContext(chainID).Coinbase
+	created := crypto.CreateAddress(sender, 2)
+	slot := testHash(0x01)
+	runtime := storeCode(slot, testHash(0x2a))
+	funded := big.NewInt(10 * testFundedBalanceWei)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, funded)
+	state.SetBalance(counter, big.NewInt(1_000))
+	state.SetCode(counter, counterRuntime(slot))
+	state.SetState(counter, slot, testHash(0x05))
+	state.SetCode(clearer, storeCode(slot, common.Hash{}))
+	state.SetState(clearer, slot, testHash(0x09))
+	executor := NewExecutor(Config{}, withTestState(state))
+	defer executor.Close()
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{
+		signLegacyTx(t, key, chainID, 0, &counter, big.NewInt(10), nil),
+		signLegacyTx(t, key, chainID, 1, &counter, big.NewInt(10), nil),
+		signLegacyTx(t, key, chainID, 2, nil, big.NewInt(0), initCode(runtime)),
+		signLegacyTx(t, key, chainID, 3, &clearer, big.NewInt(0), nil),
+		signLegacyTx(t, key, chainID, 4, &fresh, big.NewInt(5), nil),
+	}})
+	require.NoError(t, err)
+	require.False(t, result.OCCStats.Attempted)
+	for _, tx := range result.Txs {
+		require.Equal(t, uint64(1), tx.Status)
+	}
+
+	fees := new(big.Int).SetUint64(result.GasUsed * testGasPriceWei)
+	spent := new(big.Int).Add(fees, big.NewInt(25))
+	want := StateChangeSet{
+		Balances: []BalanceChange{
+			{Address: counter, Balance: big.NewInt(1_020), PriorBalance: big.NewInt(1_000)},
+			{Address: fresh, Balance: big.NewInt(5), PriorBalance: big.NewInt(0)},
+			{Address: coinbase, Balance: fees, PriorBalance: big.NewInt(0)},
+			{Address: sender, Balance: new(big.Int).Sub(funded, spent), PriorBalance: funded},
+		},
+		Nonces: []NonceChange{
+			{Address: created, Nonce: 1, PriorNonce: 0},
+			{Address: sender, Nonce: 5, PriorNonce: 0},
+		},
+		Code: []CodeChange{
+			{Address: created, Code: runtime},
+		},
+		Storage: []StorageChange{
+			{Address: counter, Key: slot, Value: testHash(0x07), PriorValue: testHash(0x05)},
+			{Address: clearer, Key: slot, Delete: true, PriorValue: testHash(0x09)},
+		},
+	}
+	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
+}
+
 func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
 	contract := testAddress(0xc5)
 	key := testHash(0x01)
