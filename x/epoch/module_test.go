@@ -51,21 +51,6 @@ func TestRoutesAddition(t *testing.T) {
 	require.NotNil(t, appModule)
 }
 
-func TestExportGenesis(t *testing.T) {
-	t.Parallel()
-	// Create a mock context and keeper
-	app := app.Setup(t, false, false, false)
-	appModule := epoch.NewAppModule(
-		app.AppCodec(),
-		app.EpochKeeper,
-		app.AccountKeeper,
-		app.BankKeeper,
-	)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-
-	require.NotNil(t, appModule.ExportGenesis(ctx, app.AppCodec()))
-}
-
 func hasEventType(ctx sdk.Context, eventType string) bool {
 	for _, event := range ctx.EventManager().Events() {
 		if event.Type == eventType {

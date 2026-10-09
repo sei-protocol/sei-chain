@@ -2,13 +2,16 @@ package gigasim
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/params"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
@@ -18,26 +21,39 @@ var _ utils.Config = (*GigasimConfig)(nil)
 // these names exactly, and anything left out keeps its default.
 type GigasimConfig struct {
 
-	// The number of transactions in each simulated block. Every transaction is executed against the
-	// state DB and contributes one entry to the block payload written to the block store.
+	// The number of transactions in each lane block written to the block store. Every transaction is
+	// executed against the state DB and contributes BytesPerTransaction bytes to that lane block's
+	// payload. A lane block may carry more transactions than the ledger has payload entries; they are
+	// then packed several to an entry.
 	TransactionsPerBlock int
 
+	// How many lane blocks are executed and committed as one superblock. The block store advances once
+	// per lane block; the state DB and the receipt store advance once per superblock. 1 commits each
+	// lane block on its own.
+	LaneBlocksPerSuperblock int
+
 	// The size of each simulated transaction in the block payload, in bytes. This governs the block
-	// store's write volume and is independent of the state each transaction touches.
+	// store's write volume and is independent of the state each transaction touches. One lane block's
+	// transactions together must fit the ledger's payload byte budget.
 	BytesPerTransaction int
 
-	// Throttle block production to this many blocks per second. 0 means unthrottled.
-	MaxBlocksPerSecond float64
+	// The kind of transaction every block carries: "erc20", an ERC20 token transfer that reads and writes
+	// the token's storage, or "transfer", a native balance transfer that touches only the two accounts.
+	TransactionType string
 
-	// The number of blocks finalized by each generated QC. One QC is written per batch of this many
-	// blocks, matching how consensus commits a range at a time.
-	BlocksPerQc uint64
+	// The average gas one ERC20 transfer uses. A native transfer always uses 21,000, the EVM's fixed
+	// transaction cost. It fills each block's gas totals and is what the reported gas throughput counts.
+	Erc20GasPerTransaction int
+
+	// Throttle block production to this many transactions per second, a whole superblock's worth at a
+	// time. 0 means unthrottled.
+	MaxTps float64
 
 	// The capacity of the queue holding generated blocks waiting to be executed. A larger queue lets
 	// the generator run further ahead of the pipeline.
 	MaxPendingExecutionQueueSize int
 
-	// How often to flush the block store, in blocks. 0 never flushes explicitly.
+	// How often to flush the block store, in lane blocks. 0 never flushes explicitly.
 	FlushIntervalBlocks int
 
 	// The number of hot accounts to create before the benchmark starts. Hot accounts are chosen far
@@ -77,13 +93,15 @@ type GigasimConfig struct {
 	// The number of ERC20 contracts in the hot set, which are the low-numbered contracts.
 	HotErc20ContractSetSize int
 
-	// The probability in [0,1] that a transaction picks its ERC20 contract from the hot set.
+	// The share in [0,1] of account token holdings drawn from the hot set, and so of transfers that move a
+	// hot token.
 	HotErc20ContractProbability float64
 
 	// The size in bytes of an ERC20 contract's code record.
 	Erc20ContractSize int
 
-	// The number of distinct ERC20 storage slots each account may touch.
+	// The number of ERC20 tokens each account holds. A transfer moves one of the sender's holdings, so
+	// this is also how many balance slots an account sends from.
 	Erc20InteractionsPerAccount int
 
 	// How many blocks behind head the storage layer must remain able to roll back to. Every store keeps
@@ -132,7 +150,7 @@ type GigasimConfig struct {
 	// The size in bytes of the pre-generated random buffer that all simulated data is sliced from.
 	CannedRandomSize int
 
-	// The directory holding every database the benchmark opens.
+	// The directory holding every database the benchmark opens, and the logs directory seilog writes to.
 	DataDir string
 
 	// If this many seconds pass without a console update, the benchmark prints a report.
@@ -147,6 +165,18 @@ type GigasimConfig struct {
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). Empty disables metrics serving.
 	MetricsAddr string
 
+	// Address for the pprof HTTP server (e.g. ":6060"). Empty disables profiling.
+	PprofAddr string
+
+	// The mutex profile's sampling rate: 1 records every contention event, N one in N on average, and 0
+	// leaves the profile off. Requires PprofAddr. Sampling slows the locks it measures, so a run with it
+	// on is a diagnostic run rather than a measurement.
+	MutexProfileFraction int
+
+	// The block profile's sampling rate, in nanoseconds of blocked time per sample; 0 leaves the profile
+	// off. Requires PprofAddr, and carries the same cost as MutexProfileFraction.
+	BlockProfileRate int
+
 	// How often to scrape background metrics such as data directory size, in seconds. 0 disables them.
 	BackgroundMetricsScrapeInterval int
 
@@ -155,29 +185,26 @@ type GigasimConfig struct {
 	// two stores, which nothing else reports.
 	LittMetricsEnabled bool
 
-	// If true, the live state DB's read caches record their own instruments: a hit counter, a miss
-	// counter and a miss latency histogram, all of them per read and reported into by every executor
-	// thread. At the read rates a measured run drives, what the run measures starts to include the cost
-	// of measuring it.
-	//
-	// The cost of leaving it off is visibility: cache hit rate and cache size are reported by these
-	// same instruments, so a run configured that way cannot show them. Turn it on for any run whose
-	// question is about cache behaviour rather than throughput.
-	ReadCacheMetricsEnabled bool
+	// The live state DB's read cache budget for the account store, in bytes.
+	AccountCacheSizeBytes uint64
+
+	// The live state DB's read cache budget for the contract code store, in bytes.
+	CodeCacheSizeBytes uint64
+
+	// The live state DB's read cache budget for the contract storage store, in bytes.
+	StorageCacheSizeBytes uint64
 
 	// If true, pressing Enter in the terminal toggles suspend/resume.
 	EnableSuspension bool
 
-	// Directory for seilog output files. Supports ~ expansion and relative paths.
-	LogDir string
-
-	// Log level for seilog output. One of debug, info, warn, error.
+	// Log level for seilog output, which is written under DataDir (see LogDir). One of debug, info,
+	// warn, error.
 	LogLevel string
 
-	// If true, delete the contents of DataDir and LogDir before opening the databases.
+	// If true, delete the contents of DataDir, logs included, before opening the databases.
 	CleanDataOnStart bool
 
-	// If true, delete the contents of DataDir and LogDir after the benchmark finishes.
+	// If true, delete the contents of DataDir, logs included, after the benchmark finishes.
 	CleanDataOnExit bool
 
 	// This field is ignored, but allows for a comment to be added to the config file.
@@ -185,15 +212,17 @@ type GigasimConfig struct {
 }
 
 // DefaultGigasimConfig returns the configuration a run takes when its file sets nothing: a full node's
-// stack driven at the largest block consensus accepts.
+// stack executing superblocks of 50 lane blocks of 2,000 transactions.
 func DefaultGigasimConfig() *GigasimConfig {
 	return &GigasimConfig{
-		TransactionsPerBlock:            2000,
-		BytesPerTransaction:             256,
-		MaxBlocksPerSecond:              0,
-		BlocksPerQc:                     1,
-		MaxPendingExecutionQueueSize:    100,
-		FlushIntervalBlocks:             10,
+		TransactionsPerBlock:            2_000,
+		LaneBlocksPerSuperblock:         50,
+		BytesPerTransaction:             200,
+		TransactionType:                 transactionTypeErc20,
+		Erc20GasPerTransaction:          50_000,
+		MaxTps:                          0,
+		MaxPendingExecutionQueueSize:    20,
+		FlushIntervalBlocks:             50,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
@@ -203,14 +232,14 @@ func DefaultGigasimConfig() *GigasimConfig {
 		NewAccountDormantProbability:    0.9,
 		MinimumNumberOfErc20Contracts:   1_000,
 		HotErc20ContractSetSize:         10,
-		HotErc20ContractProbability:     0.5,
-		Erc20ContractSize:               4096,
+		HotErc20ContractProbability:     0.9,
+		Erc20ContractSize:               2048,
 		Erc20InteractionsPerAccount:     8,
 		RollbackWindow:                  1_000,
-		LookbackWindow:                  1_000_000,
+		LookbackWindow:                  100_000,
 		PruneIntervalSeconds:            300,
-		CheckpointIntervalSeconds:       60,
-		CheckpointBlockInterval:         0,
+		CheckpointIntervalSeconds:       300,
+		CheckpointBlockInterval:         5000,
 		EnableSS:                        true,
 		EnableReceiptStore:              true,
 		ThreadsPerCore:                  2,
@@ -224,19 +253,73 @@ func DefaultGigasimConfig() *GigasimConfig {
 		ConsoleUpdateIntervalBlocks:     1_000,
 		MaxRuntimeSeconds:               0,
 		MetricsAddr:                     ":9090",
+		PprofAddr:                       "",
+		MutexProfileFraction:            0,
+		BlockProfileRate:                0,
 		BackgroundMetricsScrapeInterval: 60,
 		LittMetricsEnabled:              true,
-		ReadCacheMetricsEnabled:         false,
+		AccountCacheSizeBytes:           2 * unit.GB,
+		CodeCacheSizeBytes:              unit.GB,
+		StorageCacheSizeBytes:           8 * unit.GB,
 		EnableSuspension:                true,
-		LogDir:                          "logs",
 		LogLevel:                        "info",
 	}
 }
 
-// blockPayloadBytes is the size of one generated block's payload: the transaction bytes a real block
-// of this shape would carry.
+// The directory under DataDir seilog output goes to, and the file in it.
+const (
+	logDirName  = "logs"
+	logFileName = "gigasim.log"
+)
+
+// LogDir returns the directory seilog output goes to, which lives under DataDir.
+func (c *GigasimConfig) LogDir() string {
+	return filepath.Join(c.DataDir, logDirName)
+}
+
+// LogFile returns the file seilog output goes to.
+func (c *GigasimConfig) LogFile() string {
+	return filepath.Join(c.LogDir(), logFileName)
+}
+
+// blockPayloadBytes is the size of one lane block's payload: the transaction bytes a real block of
+// this shape would carry.
 func (c *GigasimConfig) blockPayloadBytes() int {
 	return c.TransactionsPerBlock * c.BytesPerTransaction
+}
+
+// transactionsPerSuperblock is the number of transactions executed and committed together.
+func (c *GigasimConfig) transactionsPerSuperblock() int {
+	return c.TransactionsPerBlock * c.LaneBlocksPerSuperblock
+}
+
+// firstLaneBlock is the block store height of the first lane block in superblock. Superblock heights
+// and lane-block heights both start at 1.
+func (c *GigasimConfig) firstLaneBlock(superblock int64) int64 {
+	return (superblock-1)*int64(c.LaneBlocksPerSuperblock) + 1
+}
+
+// The values TransactionType takes.
+const (
+	transactionTypeErc20    = "erc20"
+	transactionTypeTransfer = "transfer"
+)
+
+// transactionKind returns the kind of transaction TransactionType names.
+func (c *GigasimConfig) transactionKind() transactionKind {
+	if c.TransactionType == transactionTypeTransfer {
+		return nativeTransfer
+	}
+	return erc20Transfer
+}
+
+// gasUsedBy is the gas the given number of transactions use.
+func (c *GigasimConfig) gasUsedBy(transactions int) int64 {
+	gas := int64(c.Erc20GasPerTransaction)
+	if c.transactionKind() == nativeTransfer {
+		gas = int64(params.TxGas)
+	}
+	return int64(transactions) * gas
 }
 
 // storageConfig builds the config the storage manager opens every database from. DataDir must already
@@ -253,14 +336,9 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 	storage.BlockDBConfig.Litt.MetricsEnabled = c.LittMetricsEnabled
 	storage.ReceiptDBConfig.LittMetricsEnabled = c.LittMetricsEnabled
 
-	for _, store := range []*view.ViewManagerConfig{
-		&storage.FlatKVConfig.AccountStoreConfig,
-		&storage.FlatKVConfig.CodeStoreConfig,
-		&storage.FlatKVConfig.StorageStoreConfig,
-		&storage.FlatKVConfig.MiscStoreConfig,
-	} {
-		store.MetricsEnabled = c.ReadCacheMetricsEnabled
-	}
+	storage.WithAccountDBCacheSize(c.AccountCacheSizeBytes).
+		WithCodeDBCacheSize(c.CodeCacheSizeBytes).
+		WithStorageDBCacheSize(c.StorageCacheSizeBytes)
 
 	storage.PruningConfig.RollbackWindow = c.RollbackWindow
 	storage.PruningConfig.LookbackWindow = c.LookbackWindow
@@ -285,7 +363,7 @@ func (c *GigasimConfig) MonitoredDirs() ([]metrics.MonitoredDir, error) {
 	}
 	return []metrics.MonitoredDir{
 		{Name: "data_dir", Path: c.DataDir, TrackAvailableSpace: true},
-		{Name: "log_dir", Path: c.LogDir},
+		{Name: "log_dir", Path: c.LogDir()},
 		{Name: storeBlockDB, Path: utils.GetBlockStorePath(c.DataDir)},
 		{Name: storeReceiptDB, Path: storage.ReceiptDBConfig.DBDirectory},
 		{Name: storeStateCommit, Path: storage.FlatKVConfig.DataDir},
@@ -308,12 +386,22 @@ func (c *GigasimConfig) Validate() error {
 	return c.validateRuntime()
 }
 
-// validateBlockShape checks the generated block against the ceilings consensus places on a real one,
-// so the benchmark cannot be configured to write blocks the chain could never produce.
+// validateBlockShape checks the generated block against the ledger's payload budget and the simulation's
+// own ceilings, so the benchmark cannot be configured to write blocks the ledger would refuse.
 func (c *GigasimConfig) validateBlockShape() error {
-	if c.TransactionsPerBlock < 1 || uint64(c.TransactionsPerBlock) > autobahn.MaxTxsPerBlock {
-		return fmt.Errorf("TransactionsPerBlock must be in [1, %d] (got %d)",
-			autobahn.MaxTxsPerBlock, c.TransactionsPerBlock)
+	// The transaction count is not held to the ledger's entry limit, since ledgerPayload packs a lane
+	// block's transactions into as few entries as that limit requires. Synthetic transaction hashes give
+	// each superblock txIDBlockStride identifiers, which is the ceiling on the bundle instead.
+	if c.LaneBlocksPerSuperblock < 1 {
+		return fmt.Errorf("LaneBlocksPerSuperblock must be at least 1 (got %d)", c.LaneBlocksPerSuperblock)
+	}
+	if c.TransactionsPerBlock < 1 {
+		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
+	}
+	// Each factor is bounded before the product is taken, so the multiplication stays inside int64.
+	if int64(c.TransactionsPerBlock) > txIDBlockStride/int64(c.LaneBlocksPerSuperblock) {
+		return fmt.Errorf("TransactionsPerBlock*LaneBlocksPerSuperblock must be at most %d (got %d*%d)",
+			txIDBlockStride, c.TransactionsPerBlock, c.LaneBlocksPerSuperblock)
 	}
 	// Each factor is bounded before the product is taken, both because a single oversized transaction is
 	// its own error and because it keeps the multiplication below well inside the range of an int.
@@ -325,8 +413,14 @@ func (c *GigasimConfig) validateBlockShape() error {
 		return fmt.Errorf("TransactionsPerBlock*BytesPerTransaction must be at most %d (got %d)",
 			autobahn.MaxTxsBytesPerBlock, c.blockPayloadBytes())
 	}
-	if c.BlocksPerQc < 1 {
-		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)
+	switch c.TransactionType {
+	case transactionTypeErc20, transactionTypeTransfer:
+	default:
+		return fmt.Errorf("TransactionType must be %q or %q (got %q)",
+			transactionTypeErc20, transactionTypeTransfer, c.TransactionType)
+	}
+	if c.Erc20GasPerTransaction < 1 {
+		return fmt.Errorf("Erc20GasPerTransaction must be at least 1 (got %d)", c.Erc20GasPerTransaction)
 	}
 	if c.MaxPendingExecutionQueueSize < 1 {
 		return fmt.Errorf("MaxPendingExecutionQueueSize must be at least 1 (got %d)",
@@ -335,8 +429,8 @@ func (c *GigasimConfig) validateBlockShape() error {
 	if c.FlushIntervalBlocks < 0 {
 		return fmt.Errorf("FlushIntervalBlocks must be non-negative (got %d)", c.FlushIntervalBlocks)
 	}
-	if c.MaxBlocksPerSecond < 0 {
-		return fmt.Errorf("MaxBlocksPerSecond must be non-negative (got %f)", c.MaxBlocksPerSecond)
+	if c.MaxTps < 0 {
+		return fmt.Errorf("MaxTps must be non-negative (got %f)", c.MaxTps)
 	}
 	return nil
 }
@@ -442,8 +536,17 @@ func (c *GigasimConfig) validateRuntime() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")
 	}
-	if c.LogDir == "" {
-		return fmt.Errorf("LogDir is required")
+	for _, cache := range []struct {
+		name string
+		size uint64
+	}{
+		{"AccountCacheSizeBytes", c.AccountCacheSizeBytes},
+		{"CodeCacheSizeBytes", c.CodeCacheSizeBytes},
+		{"StorageCacheSizeBytes", c.StorageCacheSizeBytes},
+	} {
+		if cache.size == 0 {
+			return fmt.Errorf("%s must be positive", cache.name)
+		}
 	}
 	if c.ConsoleUpdateIntervalSeconds < 0 {
 		return fmt.Errorf("ConsoleUpdateIntervalSeconds must be non-negative (got %f)",
@@ -459,10 +562,29 @@ func (c *GigasimConfig) validateRuntime() error {
 		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)",
 			c.BackgroundMetricsScrapeInterval)
 	}
+	if err := c.validateProfiling(); err != nil {
+		return err
+	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
+	return nil
+}
+
+// validateProfiling checks the pprof sample rates, and that a profile turned on has a server to be read
+// from: both profiles accumulate in memory and are readable only over the pprof endpoint.
+func (c *GigasimConfig) validateProfiling() error {
+	if c.MutexProfileFraction < 0 {
+		return fmt.Errorf("MutexProfileFraction must be non-negative (got %d)", c.MutexProfileFraction)
+	}
+	if c.BlockProfileRate < 0 {
+		return fmt.Errorf("BlockProfileRate must be non-negative (got %d)", c.BlockProfileRate)
+	}
+	if c.PprofAddr == "" && (c.MutexProfileFraction > 0 || c.BlockProfileRate > 0) {
+		return fmt.Errorf("MutexProfileFraction (%d) and BlockProfileRate (%d) require PprofAddr to be set",
+			c.MutexProfileFraction, c.BlockProfileRate)
 	}
 	return nil
 }

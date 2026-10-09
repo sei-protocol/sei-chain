@@ -13,14 +13,25 @@ import (
 
 func TestDefaultConfigIsValid(t *testing.T) {
 	t.Parallel()
-	require.NoError(t, DefaultGigasimConfig().Validate())
+	config := DefaultGigasimConfig()
+	require.Equal(t, 2_000, config.TransactionsPerBlock)
+	require.Equal(t, 50, config.LaneBlocksPerSuperblock)
+	require.NoError(t, config.Validate())
 }
 
 // TestGenerationIsUnthrottledByDefault pins that a measured run is bounded by the stack rather than by
 // a rate chosen in advance. Only the debug config throttles, and it says so explicitly.
 func TestGenerationIsUnthrottledByDefault(t *testing.T) {
 	t.Parallel()
-	require.Zero(t, DefaultGigasimConfig().MaxBlocksPerSecond)
+	require.Zero(t, DefaultGigasimConfig().MaxTps)
+}
+
+func TestProfilingIsOffByDefault(t *testing.T) {
+	t.Parallel()
+	config := DefaultGigasimConfig()
+	require.Empty(t, config.PprofAddr)
+	require.Zero(t, config.MutexProfileFraction)
+	require.Zero(t, config.BlockProfileRate)
 }
 
 func TestShippedConfigsAreValid(t *testing.T) {
@@ -41,7 +52,7 @@ func TestShippedConfigsAreValid(t *testing.T) {
 }
 
 // TestShippedConfigsUseSeparateDirectories pins that no shipped config can destroy another's run. The
-// debug config cleans its directories at both ends, so sharing a path with the standard config would
+// debug config cleans its directories at both ends, so sharing a path with the full-node config would
 // make a smoke test delete a long benchmark's data.
 func TestShippedConfigsUseSeparateDirectories(t *testing.T) {
 	t.Parallel()
@@ -54,11 +65,9 @@ func TestShippedConfigsUseSeparateDirectories(t *testing.T) {
 	for _, path := range paths {
 		config := DefaultGigasimConfig()
 		require.NoError(t, utils.LoadConfigFromFile(path, config))
-		for _, dir := range []string{config.DataDir, config.LogDir} {
-			require.NotContains(t, owners, dir,
-				"%s and %s both use %s", filepath.Base(path), owners[dir], dir)
-			owners[dir] = filepath.Base(path)
-		}
+		require.NotContains(t, owners, config.DataDir,
+			"%s and %s both use %s", filepath.Base(path), owners[config.DataDir], config.DataDir)
+		owners[config.DataDir] = filepath.Base(path)
 	}
 }
 
@@ -95,7 +104,18 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		mutate func(*GigasimConfig)
 	}{
 		{"a block with no transactions", func(c *GigasimConfig) { c.TransactionsPerBlock = 0 }},
-		{"a block larger than consensus allows", func(c *GigasimConfig) { c.TransactionsPerBlock = 5000 }},
+		{"a superblock with no lane blocks", func(c *GigasimConfig) { c.LaneBlocksPerSuperblock = 0 }},
+		// One byte per transaction keeps each lane block inside its budget, so only the bundle can reject it.
+		{"a superblock with more transactions than a block's hash space", func(c *GigasimConfig) {
+			c.TransactionsPerBlock = int(txIDBlockStride)/2 + 1
+			c.LaneBlocksPerSuperblock = 2
+			c.BytesPerTransaction = 1
+		}},
+		// One byte per transaction keeps the payload inside its budget, so only the count can reject it.
+		{"a block with more transactions than a block's hash space", func(c *GigasimConfig) {
+			c.TransactionsPerBlock = int(txIDBlockStride) + 1
+			c.BytesPerTransaction = 1
+		}},
 		{"a payload larger than consensus allows", func(c *GigasimConfig) { c.BytesPerTransaction = 1 << 20 }},
 		// The limit is on the product, so neither field alone says whether a config fits. The width is
 		// derived from the budget rather than written down, because a default that moves must not
@@ -104,7 +124,9 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 			c.BytesPerTransaction = int(autobahn.MaxTxsBytesPerBlock)/c.TransactionsPerBlock + 1
 		}},
 		{"a probability above one", func(c *GigasimConfig) { c.HotAccountProbability = 1.5 }},
-		{"a negative block rate", func(c *GigasimConfig) { c.MaxBlocksPerSecond = -1 }},
+		{"a negative transaction rate", func(c *GigasimConfig) { c.MaxTps = -1 }},
+		{"an ERC20 transfer that uses no gas", func(c *GigasimConfig) { c.Erc20GasPerTransaction = 0 }},
+		{"an unknown transaction type", func(c *GigasimConfig) { c.TransactionType = "swap" }},
 		{"a lookback window below the infinite sentinel", func(c *GigasimConfig) { c.LookbackWindow = -2 }},
 		{"a prune interval of zero", func(c *GigasimConfig) { c.PruneIntervalSeconds = 0 }},
 		{"a hot ERC20 set as large as the whole population", func(c *GigasimConfig) {
@@ -113,6 +135,15 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		{"a random buffer too small for one block", func(c *GigasimConfig) { c.CannedRandomSize = 8 }},
 		{"no data directory", func(c *GigasimConfig) { c.DataDir = "" }},
 		{"an unknown log level", func(c *GigasimConfig) { c.LogLevel = "chatty" }},
+		{"an account cache of zero bytes", func(c *GigasimConfig) { c.AccountCacheSizeBytes = 0 }},
+		{"a code cache of zero bytes", func(c *GigasimConfig) { c.CodeCacheSizeBytes = 0 }},
+		{"a storage cache of zero bytes", func(c *GigasimConfig) { c.StorageCacheSizeBytes = 0 }},
+		{"a negative mutex profile fraction", func(c *GigasimConfig) { c.MutexProfileFraction = -1 }},
+		{"a negative block profile rate", func(c *GigasimConfig) { c.BlockProfileRate = -1 }},
+		{"a profile with no pprof server to read it from", func(c *GigasimConfig) {
+			c.PprofAddr = ""
+			c.MutexProfileFraction = 1
+		}},
 	}
 
 	for _, test := range tests {
@@ -144,6 +175,36 @@ func TestStorageConfigCarriesTheConfiguredWindows(t *testing.T) {
 	require.Equal(t, 11*time.Second, storage.PruningConfig.PruneInterval)
 	require.Equal(t, 22*time.Second, storage.CheckpointConfig.TimeInterval)
 	require.Equal(t, int64(33), storage.CheckpointConfig.BlockInterval)
+}
+
+// TestGasFollowsTheTransactionType pins the gas each kind of transfer is charged: the configured
+// average for an ERC20 transfer, and the EVM's fixed 21,000 for a native one whatever that average is.
+func TestGasFollowsTheTransactionType(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	require.Equal(t, transactionTypeErc20, config.TransactionType, "ERC20 transfers are the default")
+	require.Equal(t, int64(10*config.Erc20GasPerTransaction), config.gasUsedBy(10))
+
+	config.TransactionType = transactionTypeTransfer
+	require.Equal(t, int64(10*21_000), config.gasUsedBy(10))
+}
+
+func TestStorageConfigCarriesTheConfiguredCacheSizes(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.DataDir = t.TempDir()
+	config.AccountCacheSizeBytes = 11 << 20
+	config.CodeCacheSizeBytes = 22 << 20
+	config.StorageCacheSizeBytes = 33 << 20
+
+	storage, err := config.storageConfig()
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(11<<20), storage.FlatKVConfig.AccountStoreConfig.MaxSize)
+	require.Equal(t, uint64(22<<20), storage.FlatKVConfig.CodeStoreConfig.MaxSize)
+	require.Equal(t, uint64(33<<20), storage.FlatKVConfig.StorageStoreConfig.MaxSize)
 }
 
 func TestDisablingAStoreKeepsItOutOfTheStorageConfig(t *testing.T) {

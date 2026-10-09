@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -51,8 +52,9 @@ func TestAvailClientServer(t *testing.T) {
 		// After an honest tip, corrupt PushBlocks are stale or parent-mismatch drops.
 		t.Log("Spawn task sending corrupted data of node 0 to node 2.")
 		corrupt := newTestNode(registry, &consensus.Config{
-			Key:         activeKeys[0],
-			ViewTimeout: defaultViewTimeout,
+			Key:             activeKeys[0],
+			ViewTimeout:     defaultViewTimeout,
+			ProposalTimeout: time.Hour,
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()

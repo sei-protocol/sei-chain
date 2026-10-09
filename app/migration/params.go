@@ -8,14 +8,6 @@
 // dedicated x/params subspace and is editable via the standard
 // ParameterChangeProposal gov flow. The app reads it once per block in
 // BeginBlock and pushes it into the SC commit store.
-//
-// Caveat: this subspace has no owning AppModule, so the x/params module's
-// ExportGenesis (which only emits Fees/CosmosGas params) does not serialize
-// NumKeysToMigratePerBlock. A `seid export` taken mid-migration therefore
-// omits the rate, and a chain bootstrapped from that genesis re-seeds the
-// default (0, paused) on the first BeginBlock. This is not consensus-fatal —
-// re-issue the ParameterChangeProposal on the new chain to resume the drain —
-// but operators forking/recovering via export must be aware of it.
 package migration
 
 import (

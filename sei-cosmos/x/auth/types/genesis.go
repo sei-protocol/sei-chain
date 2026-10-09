@@ -9,13 +9,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 )
 
 var _ types.UnpackInterfacesMessage = GenesisState{}
-
-// RandomGenesisAccountsFn defines the function required to generate custom account types
-type RandomGenesisAccountsFn func(simState *module.SimulationState) GenesisAccounts
 
 // NewGenesisState - Create a new genesis state
 func NewGenesisState(params Params, accounts GenesisAccounts) *GenesisState {

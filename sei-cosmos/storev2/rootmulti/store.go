@@ -68,6 +68,10 @@ type Store struct {
 
 	snapshotSCStoreWarnOnce sync.Once
 
+	// migrationSkipLoggedBatchSize is the batch size whose skipped migration kick-off was last
+	// logged. SetMigrationBatchSize runs every block, so the skip is logged once per batch size.
+	migrationSkipLoggedBatchSize int
+
 	// Hash logger state (per-block hash logging; a debugging/forensics tool). See hashlog.go.
 	hashLoggerConfig   config.HashLoggerConfig
 	hashLoggerDisabled bool
@@ -674,8 +678,8 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
 	// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
 	// wrong, because that lock is what stops another process from deleting the view's working directory, and
-	// holding a second reference purely to close it is deferred to a follow-up. Only `seid export --height N`
-	// reaches this, a one-shot command that exits immediately and is itself slated for removal.
+	// holding a second reference purely to close it is deferred to a follow-up. No seid command loads a
+	// non-zero version through here.
 	sc, err := rs.scStore.LoadVersion(version, false)
 	if err != nil {
 		return err
@@ -811,6 +815,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
 	if batchSize <= 0 {
+		rs.migrationSkipLoggedBatchSize = 0
 		return nil
 	}
 	mode, ok := rs.GetWriteMode()
@@ -825,6 +830,9 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		// cannot tell whether this is an auto store. Don't assume a deliberate
 		// opt-out — skip with a distinct message so it isn't mistaken for the
 		// pinned-memiavl_only case below during debugging.
+		if !rs.shouldLogMigrationSkip(batchSize) {
+			return nil
+		}
 		logger.Info(
 			"migration requested (batch size > 0) but the SC store does not expose a "+
 				"configured write mode; skipping migration kick-off",
@@ -832,6 +840,9 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return nil
 	}
 	if configured != sctypes.Auto {
+		if !rs.shouldLogMigrationSkip(batchSize) {
+			return nil
+		}
 		logger.Error(
 			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
 				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
@@ -845,6 +856,16 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	}
 
 	return nil
+}
+
+// shouldLogMigrationSkip reports whether a skipped kick-off at batchSize has
+// not been logged yet, and records it as logged.
+func (rs *Store) shouldLogMigrationSkip(batchSize int) bool {
+	if rs.migrationSkipLoggedBatchSize == batchSize {
+		return false
+	}
+	rs.migrationSkipLoggedBatchSize = batchSize
+	return true
 }
 
 // GetWriteMode returns the SC store's effective write mode. The bool is
@@ -1224,7 +1245,7 @@ func (rs *Store) Restore(
 
 func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	var (
-		ssImporter   chan seidbtypes.SnapshotNode
+		ssImport     *stateStoreImport
 		snapshotItem snapshottypes.SnapshotItem
 		storeKey     string
 		restoreErr   error
@@ -1234,13 +1255,7 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 		return snapshottypes.SnapshotItem{}, err
 	}
 	if rs.ssStore != nil {
-		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
-		go func() {
-			err := rs.ssStore.Import(height, ssImporter)
-			if err != nil {
-				panic(err)
-			}
-		}()
+		ssImport = startStateStoreImport(rs.ssStore, height)
 	}
 loop:
 	for {
@@ -1262,6 +1277,12 @@ loop:
 			}
 			logger.Info("Start restoring store", "key", storeKey)
 		case *snapshottypes.SnapshotItem_IAVL:
+			// Importers route each node to the store opened by the last store item, so a node with no
+			// named store before it has nowhere to go.
+			if storeKey == "" {
+				restoreErr = errors.Wrap(sdkerrors.ErrLogic, "snapshot node appears outside a named store section")
+				break loop
+			}
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
 					item.IAVL.Height, math.MaxInt8)
@@ -1281,14 +1302,20 @@ loop:
 			if node.Height == 0 && node.Value == nil {
 				node.Value = []byte{}
 			}
-			scImporter.AddNode(node)
+			if err = scImporter.AddNode(node); err != nil {
+				restoreErr = err
+				break loop
+			}
 
-			// Check if we should also import to SS store
-			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- seidbtypes.SnapshotNode{
+			// Only leaves the SC importer accepted reach the state store.
+			if ssImport != nil && node.Height == 0 {
+				if err = ssImport.send(seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,
+				}); err != nil {
+					restoreErr = err
+					break loop
 				}
 			}
 		default:
@@ -1297,18 +1324,17 @@ loop:
 		}
 	}
 
-	if err = scImporter.Close(); err != nil {
-		if restoreErr == nil {
+	if ssImport != nil {
+		if err = ssImport.finish(); err != nil && restoreErr == nil {
 			restoreErr = err
 		}
 	}
-	if ssImporter != nil {
-		close(ssImporter)
-	}
+	restoreErr = finishSCImport(scImporter, restoreErr)
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any
-	// caller that reads it in that window.
-	if rs.ssStore != nil {
+	// caller that reads it in that window. A failed restore may have imported only
+	// part of the snapshot, so it must not claim the height.
+	if rs.ssStore != nil && restoreErr == nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
 			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
@@ -1318,6 +1344,65 @@ loop:
 	}
 
 	return snapshotItem, restoreErr
+}
+
+// finishSCImport publishes the SC import when the restore has succeeded, and discards it otherwise, so a
+// failed restore leaves no snapshot behind. It returns the restore's final error.
+func finishSCImport(imp sctypes.Importer, restoreErr error) error {
+	if restoreErr != nil {
+		if err := imp.Abort(restoreErr); err != nil && !errors.IsOf(err, restoreErr) {
+			logger.Error("Failed to discard the SC import of a failed restore", "err", err)
+		}
+		return restoreErr
+	}
+	return imp.Close()
+}
+
+// stateStoreImport feeds restored leaves to a state store's Import running on its own goroutine.
+type stateStoreImport struct {
+	nodes chan seidbtypes.SnapshotNode
+	// done is closed once Import has returned; err holds its result.
+	done chan struct{}
+	err  error
+}
+
+func startStateStoreImport(ss seidbtypes.StateStore, height int64) *stateStoreImport {
+	imp := &stateStoreImport{
+		nodes: make(chan seidbtypes.SnapshotNode, 10000),
+		done:  make(chan struct{}),
+	}
+	go func() {
+		defer close(imp.done)
+		imp.err = ss.Import(height, imp.nodes)
+	}()
+	return imp
+}
+
+// send queues node for import. It returns an error when Import has already returned.
+func (imp *stateStoreImport) send(node seidbtypes.SnapshotNode) error {
+	select {
+	case imp.nodes <- node:
+		return nil
+	case <-imp.done:
+		return imp.stoppedErr()
+	}
+}
+
+// finish closes the input and waits for Import to return, returning its error.
+func (imp *stateStoreImport) finish() error {
+	close(imp.nodes)
+	<-imp.done
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return nil
+}
+
+func (imp *stateStoreImport) stoppedErr() error {
+	if imp.err != nil {
+		return fmt.Errorf("state store import: %w", imp.err)
+	}
+	return fmt.Errorf("state store import returned before the snapshot stream ended")
 }
 
 // Snapshot Implements the interface from Snapshotter
@@ -1381,6 +1466,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 				return err
 			}
 			currentStoreName = item
+			keySizePerStore[item] = 0
+			valueSizePerStore[item] = 0
+			numKeysPerStore[item] = 0
 		default:
 			return fmt.Errorf("unknown item type %T", item)
 		}

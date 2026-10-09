@@ -3,12 +3,13 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'cryptosim'
+  # The gigasim benchmark, at its default MetricsAddr.
+  - job_name: 'gigasim'
     static_configs:
       - targets: ['host.docker.internal:9090']
     scrape_interval: 5s
 
-  # evmonly-loadtest, which defaults to this port rather than the 9090 the sims use. It serves the
+  # evmonly-loadtest, which defaults to this port rather than the 9090 gigasim uses. It serves the
   # storage stack's OTel instruments alongside its own counters, so the phase timers behind a slow
   # block arrive on the same scrape.
   - job_name: 'evmonly-loadtest'

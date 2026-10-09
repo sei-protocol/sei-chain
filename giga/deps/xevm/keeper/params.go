@@ -231,6 +231,19 @@ func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 
 }
 
+// LegacySstoreSetGasEIP2200 is the SSTORE gas cost used before the param existed.
+const LegacySstoreSetGasEIP2200 = uint64(20000)
+
+// GetSstoreSetGasEIP2200 returns the SSTORE gas cost, falling back to the
+// legacy value when the stored param is 0.
+func (k *Keeper) GetSstoreSetGasEIP2200(ctx sdk.Context) uint64 {
+	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
+	if sstore == 0 {
+		return LegacySstoreSetGasEIP2200
+	}
+	return sstore
+}
+
 /*
 *
 sei gas = evm gas * multiplier

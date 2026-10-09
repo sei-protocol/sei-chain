@@ -5,9 +5,7 @@ import (
 	"log"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
@@ -161,68 +159,6 @@ func InitGenesis(
 	}
 
 	return res
-}
-
-// ExportGenesis returns a GenesisState for a given context and keeper. The
-// GenesisState will contain the pool, params, validators, and bonds found in
-// the keeper.
-func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
-	var unbondingDelegations []types.UnbondingDelegation
-
-	keeper.IterateUnbondingDelegations(ctx, func(_ int64, ubd types.UnbondingDelegation) (stop bool) {
-		unbondingDelegations = append(unbondingDelegations, ubd)
-		return false
-	})
-
-	var redelegations []types.Redelegation
-
-	keeper.IterateRedelegations(ctx, func(_ int64, red types.Redelegation) (stop bool) {
-		redelegations = append(redelegations, red)
-		return false
-	})
-
-	var lastValidatorPowers []types.LastValidatorPower
-
-	keeper.IterateLastValidatorPowers(ctx, func(addr sdk.ValAddress, power int64) (stop bool) {
-		lastValidatorPowers = append(lastValidatorPowers, types.LastValidatorPower{Address: addr.String(), Power: power})
-		return false
-	})
-
-	return &types.GenesisState{
-		Params:               keeper.GetParams(ctx),
-		LastTotalPower:       keeper.GetLastTotalPower(ctx),
-		LastValidatorPowers:  lastValidatorPowers,
-		Validators:           keeper.GetAllValidators(ctx),
-		Delegations:          keeper.GetAllDelegations(ctx),
-		UnbondingDelegations: unbondingDelegations,
-		Redelegations:        redelegations,
-		Exported:             true,
-	}
-}
-
-// WriteValidators returns a slice of bonded genesis validators.
-func WriteValidators(ctx sdk.Context, keeper keeper.Keeper) (vals []tmtypes.GenesisValidator, err error) {
-	keeper.IterateLastValidators(ctx, func(_ int64, validator types.ValidatorI) (stop bool) {
-		pk, err := validator.ConsPubKey()
-		if err != nil {
-			return true
-		}
-		tmPk, err := cryptocodec.ToTmPubKeyInterface(pk)
-		if err != nil {
-			return true
-		}
-
-		vals = append(vals, tmtypes.GenesisValidator{
-			Address: sdk.ConsAddress(tmPk.Address()).Bytes(),
-			PubKey:  tmPk,
-			Power:   validator.GetConsensusPower(keeper.PowerReduction(ctx)),
-			Name:    validator.GetMoniker(),
-		})
-
-		return false
-	})
-
-	return
 }
 
 // ValidateGenesis validates the provided staking genesis state to ensure the

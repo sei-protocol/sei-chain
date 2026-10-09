@@ -1,6 +1,7 @@
 package types
 
 import (
+	"errors"
 	"io"
 
 	dbm "github.com/tendermint/tm-db"
@@ -10,6 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
+
+// ErrVersionUnreachable reports that a store cannot reconstruct a version from its retained history.
+var ErrVersionUnreachable = errors.New("version unreachable")
 
 // LiveStateStore provides EVM state storage with LtHash integrity.
 //
@@ -39,6 +43,11 @@ type LiveStateStore interface {
 	// The view is reconstructed from the newest snapshot at or below targetVersion plus this store's WAL,
 	// so a version whose history has been pruned fails rather than being served approximately.
 	LoadVersionReadOnly(targetVersion int64) (LiveStateStore, error)
+
+	// CheckVersionReachable reports whether targetVersion can be reconstructed from retained history. It
+	// does not modify the store. An unreachable version returns an error wrapping ErrVersionUnreachable;
+	// unlike other errors from this store, that one is not fatal and the store stays usable.
+	CheckVersionReachable(targetVersion int64) error
 
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.

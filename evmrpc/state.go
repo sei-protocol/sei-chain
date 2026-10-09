@@ -39,12 +39,13 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(height)
-	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
-		return nil, err
-	}
-	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
-	return (*hexutil.Big)(statedb.GetBalance(address).ToBig()), nil
+	return readStoreAtHeight(ctx, height, a.ctxProvider, func(sdkCtx sdk.Context) (*hexutil.Big, error) {
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
+		statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
+		return (*hexutil.Big)(statedb.GetBalance(address).ToBig()), nil
+	})
 }
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
@@ -56,12 +57,12 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(height)
-	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
-		return nil, err
-	}
-	code := a.keeper.GetCode(sdkCtx, address)
-	return code, nil
+	return readStoreAtHeight(ctx, height, a.ctxProvider, func(sdkCtx sdk.Context) (hexutil.Bytes, error) {
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
+		return a.keeper.GetCode(sdkCtx, address), nil
+	})
 }
 
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
@@ -73,16 +74,17 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(height)
-	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
-		return nil, err
-	}
-	key, _, err := decodeHash(hexKey)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode storage key: %s", err)
-	}
-	state := a.keeper.GetState(sdkCtx, address, key)
-	return state[:], nil
+	return readStoreAtHeight(ctx, height, a.ctxProvider, func(sdkCtx sdk.Context) (hexutil.Bytes, error) {
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
+		key, _, err := decodeHash(hexKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode storage key: %s", err)
+		}
+		value := a.keeper.GetState(sdkCtx, address, key)
+		return value[:], nil
+	})
 }
 
 // Result structs for GetProof
@@ -105,10 +107,14 @@ func (a *StateAPI) GetProof(ctx context.Context, _ common.Address, _ []string, _
 	return nil, &ErrEVMNotSupported{Msg: "eth_getProof is not supported yet; please reach out to the Sei Labs if you need this endpoint"}
 }
 
-func (a *StateAPI) GetNonce(ctx context.Context, address common.Address) uint64 {
+func (a *StateAPI) GetNonce(ctx context.Context, address common.Address) (result uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(ctx, "eth_getNonce", a.connectionType, startTime)
-	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getNonce", a.connectionType, startTime, returnErr, recover())
+	}()
+	return readStoreAtHeight(ctx, LatestCtxHeight, a.ctxProvider, func(sdkCtx sdk.Context) (uint64, error) {
+		return a.keeper.GetNonce(sdkCtx, address), nil
+	})
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally

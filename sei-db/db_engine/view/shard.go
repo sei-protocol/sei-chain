@@ -55,8 +55,8 @@ type shard struct {
 	// nesting cache calls under the shard lock cannot deadlock. See readCache.
 	cache *readCache
 
-	// ViewManager-level metrics. Nil-safe; if nil, no metrics are recorded.
-	metrics *ViewManagerMetrics
+	// This shard's handle on the ViewManager-level metrics. Nil-safe; if nil, no metrics are recorded.
+	metrics *shardMetrics
 
 	// The current version number.
 	currentVersion uint64

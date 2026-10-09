@@ -221,7 +221,13 @@ type CommitKVStore interface {
 type Importer interface {
 	AddModule(name string) error
 
-	AddNode(node *SnapshotNode)
+	// AddNode queues node for import. A non-nil error means node was not accepted and the import cannot
+	// complete.
+	AddNode(node *SnapshotNode) error
+
+	// Abort discards the import in place of Close, publishing none of it. The returned error may be
+	// reason itself, or another error that already ended the import.
+	Abort(reason error) error
 
 	io.Closer
 }

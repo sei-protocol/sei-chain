@@ -104,8 +104,14 @@ const (
 	// 0 means unlimited.
 	DefaultGRPCMaxInFlightPerIP = 100
 
+	// DefaultGRPCRateLimitingEnabled is the default for the gRPC rate-limit
+	// admission master switch.
+	DefaultGRPCRateLimitingEnabled = true
+
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
+
+	DefaultGRPCRequestTimeout = 30 * time.Second
 )
 
 var (
@@ -321,6 +327,12 @@ type GRPCConfig struct {
 	// when resolving the client IP for rate limiting. Empty means trust no proxy.
 	// It applies to gRPC-Web (:9091) as well as native gRPC (:9090).
 	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
+
+	// RequestTimeout is the deadline applied to a gRPC request with no shorter
+	// client-supplied grpc-timeout. It applies to gRPC-Web (:9091) as well as
+	// native gRPC (:9090), since both are served by the same grpc.Server. 0
+	// disables the default deadline.
+	RequestTimeout time.Duration `mapstructure:"request-timeout"`
 }
 
 // RateLimiterConfig builds the ratelimiter.Config used by gRPC admission.
@@ -367,7 +379,7 @@ type StateSyncConfig struct {
 	SnapshotDirectory string `mapstructure:"snapshot-directory"`
 }
 
-// GenesisConfig defines the genesis export, validation, and import configuration
+// GenesisConfig defines the genesis import configuration
 type GenesisConfig struct {
 	// StreamImport defines if the genesis.json is in stream form or not.
 	StreamImport bool `mapstructure:"stream-import"`
@@ -467,8 +479,9 @@ func DefaultConfig() *Config {
 			IPRateLimitRPS:               DefaultGRPCIPRateLimitRPS,
 			IPRateLimitBurst:             DefaultGRPCIPRateLimitBurst,
 			MaxInFlightPerIP:             DefaultGRPCMaxInFlightPerIP,
-			RateLimitingEnabled:          false,
+			RateLimitingEnabled:          DefaultGRPCRateLimitingEnabled,
 			TrustedProxyCIDRs:            nil,
+			RequestTimeout:               DefaultGRPCRequestTimeout,
 		},
 		Rosetta: RosettaConfig{
 			Enable:     false,
@@ -679,9 +692,17 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("grpc.max-in-flight-per-ip") {
 		grpcMaxInFlightPerIP = v.GetInt("grpc.max-in-flight-per-ip")
 	}
+	grpcRateLimitingEnabled := DefaultGRPCRateLimitingEnabled
+	if v.IsSet("grpc.rate-limiting-enabled") {
+		grpcRateLimitingEnabled = v.GetBool("grpc.rate-limiting-enabled")
+	}
 	grpcTrustedProxyCIDRs := []string(nil)
 	if v.IsSet("grpc.trusted-proxy-cidrs") {
 		grpcTrustedProxyCIDRs = v.GetStringSlice("grpc.trusted-proxy-cidrs")
+	}
+	grpcRequestTimeout := DefaultGRPCRequestTimeout
+	if v.IsSet("grpc.request-timeout") {
+		grpcRequestTimeout = clampNonNegativeDuration(v.GetDuration("grpc.request-timeout"), DefaultGRPCRequestTimeout)
 	}
 
 	cfg := Config{
@@ -743,8 +764,9 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			IPRateLimitRPS:               grpcIPRateLimitRPS,
 			IPRateLimitBurst:             grpcIPRateLimitBurst,
 			MaxInFlightPerIP:             grpcMaxInFlightPerIP,
-			RateLimitingEnabled:          v.GetBool("grpc.rate-limiting-enabled"),
+			RateLimitingEnabled:          grpcRateLimitingEnabled,
 			TrustedProxyCIDRs:            grpcTrustedProxyCIDRs,
+			RequestTimeout:               grpcRequestTimeout,
 		},
 		GRPCWeb: GRPCWebConfig{
 			Enable:              v.GetBool("grpc-web.enable"),

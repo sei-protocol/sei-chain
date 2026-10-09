@@ -38,11 +38,6 @@ loadtest/contracts/**.json
 
 loadtest_results.txt
 
-# parallelization test build artifact
-parallelization/**/artifacts/
-parallelization/**/target/
-parallelization/**/Cargo.lock
-
 # integration test resources
 integration_test/**/*.txt
 
@@ -64,10 +59,5 @@ contracts/artifacts
 integration_test/dapp_tests/artifacts
 
 # DB benchmark data and artifacts
-sei-db/bench/cryptosim/data/**
-sei-db/bench/cryptosim/bin/
-sei-db/bench/cryptosim/logs/
-sei-db/bench/blocksim/bin/
 sei-db/bench/gigasim/bin/
-sei-db/bench/walsim/bin/
 sei-db/db_engine/litt/bin/

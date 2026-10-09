@@ -7,12 +7,37 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"golang.org/x/mod/semver"
+	"google.golang.org/protobuf/encoding/protowire"
 )
+
+// retiredIBCStores are the IBC module stores that v6.7 left mounted for
+// historical access.
+var retiredIBCStores = []string{"capability", "ibc", "transfer"}
+
+// v68DeletedStores are the KV stores deleted from the multistore at the v6.8
+// upgrade height. Their module version map entries go with them.
+var v68DeletedStores = append([]string{retiredoracle.ModuleName}, retiredIBCStores...)
+
+// retiredIBCProposalTypeURLPrefix matches governance proposal content types
+// whose decoders no longer exist.
+const retiredIBCProposalTypeURLPrefix = "/ibc."
+
+// RetiredIBCProposalIDLimit bounds the proposal scan at the v6.8 upgrade. IBC
+// proposal content types stopped being submittable at v6.7, when the highest
+// proposal ID on any Sei network was below 300, so proposals above this ID
+// cannot carry IBC content and are not decoded. The bound keeps the upgrade
+// block's work independent of how many proposals are submitted before it.
+const RetiredIBCProposalIDLimit uint64 = 1000
+
+// upgradedIBCStateKeyPrefix is the upgrade-store prefix under which the cosmos
+// upgrade module recorded planned IBC client state before IBC was retired.
+const upgradedIBCStateKeyPrefix = "upgradedIBCState/"
 
 //go:embed tags
 var f embed.FS
@@ -113,22 +138,27 @@ func (app *App) RegisterUpgradeHandlers() {
 				if err != nil {
 					return nil, err
 				}
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, storekeys.IBCStoreKey)
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
-				if err := migrateDelegationByValIndex(ctx, app); err != nil {
-					return nil, err
-				}
+				app.deleteRetiredModuleVersions(ctx)
 				return newVM, nil
 			}
 
 			if upgradeName == "v6.8" {
+				// Proposals must be readable before any module migration walks
+				// the gov store, so the retired IBC records are rewritten first.
+				app.rewriteRetiredIBCProposals(ctx)
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return nil, err
 				}
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, retiredoracle.ModuleName)
+				for _, name := range v68DeletedStores {
+					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
+				}
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
+				app.pruneUpgradedIBCState(ctx)
+				if err := app.migrateDelegationByValIndex(ctx); err != nil {
+					return nil, err
+				}
 				return newVM, nil
 			}
 
@@ -137,15 +167,109 @@ func (app *App) RegisterUpgradeHandlers() {
 	}
 }
 
+// deleteRetiredModuleVersions drops the module version map entries of the
+// modules removed in v6.7.
+func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
+	for _, name := range retiredIBCStores {
+		app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
+	}
+	app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+}
+
+// rewriteRetiredIBCProposals replaces the content of every stored governance
+// proposal whose type lives under an IBC protobuf package with a TextProposal
+// carrying the original title and description. The proposal record, its
+// deposits, votes and tally indexes are left untouched. Proposal keys sort by
+// big-endian ID, so the scan stops at RetiredIBCProposalIDLimit.
+func (app *App) rewriteRetiredIBCProposals(ctx sdk.Context) {
+	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
+	iterator := sdk.KVStorePrefixIterator(store, govtypes.ProposalsKeyPrefix)
+	var retired []govtypes.Proposal
+	for ; iterator.Valid(); iterator.Next() {
+		if govtypes.SplitProposalKey(iterator.Key()) > RetiredIBCProposalIDLimit {
+			break
+		}
+		var proposal govtypes.Proposal
+		if err := proposal.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		if proposal.Content != nil && strings.HasPrefix(proposal.Content.TypeUrl, retiredIBCProposalTypeURLPrefix) {
+			retired = append(retired, proposal)
+		}
+	}
+	if err := iterator.Close(); err != nil {
+		panic(err)
+	}
+	for _, proposal := range retired {
+		title, description := retiredProposalText(proposal.Content.Value)
+		content, err := codectypes.NewAnyWithValue(&govtypes.TextProposal{Title: title, Description: description})
+		if err != nil {
+			panic(err)
+		}
+		typeURL := proposal.Content.TypeUrl
+		proposal.Content = content
+		store.Set(govtypes.ProposalKey(proposal.ProposalId), app.GovKeeper.MustMarshalProposal(proposal))
+		logger.Info("rewrote retired IBC governance proposal as a text proposal", "proposal_id", proposal.ProposalId, "type_url", typeURL)
+	}
+}
+
+// retiredProposalText reads the title (field 1) and description (field 2)
+// string fields from an encoded governance proposal content message.
+func retiredProposalText(bz []byte) (title, description string) {
+	for len(bz) > 0 {
+		num, typ, n := protowire.ConsumeTag(bz)
+		if n < 0 {
+			panic(protowire.ParseError(n))
+		}
+		bz = bz[n:]
+		if typ == protowire.BytesType && (num == 1 || num == 2) {
+			value, n := protowire.ConsumeBytes(bz)
+			if n < 0 {
+				panic(protowire.ParseError(n))
+			}
+			if num == 1 {
+				title = string(value)
+			} else {
+				description = string(value)
+			}
+			bz = bz[n:]
+			continue
+		}
+		n = protowire.ConsumeFieldValue(num, typ, bz)
+		if n < 0 {
+			panic(protowire.ParseError(n))
+		}
+		bz = bz[n:]
+	}
+	return title, description
+}
+
+// pruneUpgradedIBCState removes any planned IBC client state the upgrade module recorded.
+func (app *App) pruneUpgradedIBCState(ctx sdk.Context) {
+	deleteByPrefix(ctx.KVStore(app.GetKey(upgradetypes.StoreKey)), []byte(upgradedIBCStateKeyPrefix))
+}
+
+func deleteByPrefix(store sdk.KVStore, prefix []byte) {
+	iterator := sdk.KVStorePrefixIterator(store, prefix)
+	var keys [][]byte
+	for ; iterator.Valid(); iterator.Next() {
+		keys = append(keys, iterator.Key())
+	}
+	if err := iterator.Close(); err != nil {
+		panic(err)
+	}
+	for _, key := range keys {
+		store.Delete(key)
+	}
+}
+
 const v606UpgradeHeight = 151573570
 
-// migrateDelegationByValIndex populates the validator-indexed delegation store and
-// marks it ready, so the staking precompile's validatorDelegations can answer from a
-// per-validator prefix instead of scanning every delegation.
-//
-// It runs on an infinite gas meter: the cost is a property of chain size at the
-// upgrade height, not of anything a transaction chose to spend.
-func migrateDelegationByValIndex(ctx sdk.Context, app *App) error {
+// migrateDelegationByValIndex populates the staking module's
+// delegation-by-validator index and marks it ready. It runs on an infinite gas
+// meter, since its cost is set by the number of delegations at the upgrade
+// height.
+func (app *App) migrateDelegationByValIndex(ctx sdk.Context) error {
 	result, err := app.StakingKeeper.MigrateDelegationByValIndex(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
 	if err != nil {
 		return err
@@ -153,7 +277,6 @@ func migrateDelegationByValIndex(ctx sdk.Context, app *App) error {
 	logger.Info(
 		"populated delegation-by-validator index",
 		"total_delegations", result.TotalDelegations,
-		"index_written", result.IndexWritten,
 		"already_ready", result.AlreadyReady,
 		"elapsed", result.Elapsed.String(),
 	)

@@ -9,10 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/upgradetest"
@@ -114,7 +112,7 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	testWrapper.App.RegisterUpgradeHandlers()
 
 	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	versionMap[storekeys.IBCStoreKey] = 1
+	versionMap["ibc"] = 1
 	versionMap["capability"] = 1
 	versionMap["feegrant"] = 1
 	versionMap["transfer"] = 2
@@ -126,7 +124,7 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	})
 
 	versionMap = testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	require.NotContains(t, versionMap, storekeys.IBCStoreKey)
+	require.NotContains(t, versionMap, "ibc")
 	require.NotContains(t, versionMap, "capability")
 	require.NotContains(t, versionMap, "feegrant")
 	require.NotContains(t, versionMap, "transfer")
@@ -207,35 +205,4 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		// require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 		require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 	})
-}
-
-func TestV67PopulatesDelegationByValIndex(t *testing.T) {
-	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-	testWrapper.App.RegisterUpgradeHandlers()
-
-	ctx := testWrapper.Ctx
-	stakingKeeper := testWrapper.App.StakingKeeper
-	delAddr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-	valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
-	delegation := stakingtypes.NewDelegation(delAddr, valAddr, sdk.NewDec(1))
-
-	// Seed through the store rather than SetDelegation, so the index entry can only
-	// come from the upgrade handler.
-	store := ctx.KVStore(stakingKeeper.GetStoreKey())
-	store.Set(
-		stakingtypes.GetDelegationKey(delAddr, valAddr),
-		stakingtypes.MustMarshalDelegation(testWrapper.App.AppCodec(), delegation),
-	)
-	require.False(t, stakingKeeper.DelegationByValIndexReady(ctx))
-
-	testWrapper.App.UpgradeKeeper.ApplyUpgrade(ctx, types.Plan{
-		Name:   "v6.7",
-		Height: ctx.BlockHeight(),
-	})
-
-	require.True(t, stakingKeeper.DelegationByValIndexReady(ctx))
-	require.True(t, store.Has(stakingtypes.GetDelegationByValIndexKey(delAddr, valAddr)))
 }
