@@ -115,6 +115,7 @@ func NewRouter(
 	// the genesis-time wait, well before Start — can expose a scrapeable endpoint
 	// whose peers series is still missing.
 	Global.peersAt().Set(int64(router.peerManager.Conns().Len()))
+	Global.knownAddressesAt().Set(int64(len(router.peerManager.AllAddrs())))
 
 	return router, nil
 }
@@ -380,6 +381,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 		// construction, but a refresh only after the first sleep would leave it
 		// reporting that construction-time zero for ten seconds while peers connect.
 		Global.peersAt().Set(int64(r.peerManager.Conns().Len()))
+		Global.knownAddressesAt().Set(int64(len(r.peerManager.AllAddrs())))
 		r.peerManager.LogState()
 		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 			return err

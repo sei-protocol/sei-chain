@@ -679,6 +679,7 @@ func TestNodeNewSeedNode_ServesPrometheusMetrics(t *testing.T) {
 	// test does not enter — between the metrics listener binding and router.Start,
 	// which for a seed spans the genesis-time wait.
 	assert.Contains(t, body, "tendermint_p2p_peers")
+	assert.Contains(t, body, "tendermint_p2p_known_addresses")
 	assert.Contains(t, body, `chain_id="tendermint_test"`)
 }
 
