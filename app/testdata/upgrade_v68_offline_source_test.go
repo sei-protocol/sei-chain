@@ -21,6 +21,7 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -58,6 +59,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	seedV68IBCProposal(t, testApp, ctx, &retained)
 	seedV68UpgradedIBCState(t, testApp, ctx, &retained)
 	seedV68Voucher(t, testApp, ctx, &retained)
+	seedV68OfflineDelegations(testApp, ctx)
 	requireV68OfflineBalancesLocked(t, testApp, ctx, retained)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
@@ -185,6 +187,20 @@ func seedV68Voucher(t *testing.T, testApp *App, ctx sdk.Context, retained *offli
 	retained.VoucherHolder = holder.String()
 	retained.VoucherAmount = voucher.Amount.String()
 	retained.VoucherSupply = testApp.BankKeeper.GetSupply(ctx, voucher.Denom).Amount.String()
+}
+
+// seedV68OfflineDelegations stores delegations to two validators, which v6.7
+// writes without any delegation-by-validator index entry.
+func seedV68OfflineDelegations(testApp *App, ctx sdk.Context) {
+	validators := []sdk.ValAddress{
+		sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
+		sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
+	}
+	for i := 0; i < 3; i++ {
+		delegator := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+		testApp.StakingKeeper.SetDelegation(ctx,
+			stakingtypes.NewDelegation(delegator, validators[i%len(validators)], sdk.NewDec(int64(i+1))))
+	}
 }
 
 // seedV68OfflineVestingAccounts writes one account of every vesting type

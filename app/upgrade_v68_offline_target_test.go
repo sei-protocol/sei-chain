@@ -154,9 +154,8 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 // v68OfflineTouchedKey reports the retained-store keys the v6.8 upgrade block
 // is specified to change: the vesting accounts the auth migration rewrites,
 // the rewritten IBC proposal, the pruned upgraded IBC state, the plan, done
-// and version-map entries of the upgrade store, the staking
-// delegation-by-validator index and its ready marker, and the bank entries
-// block rewards move every block.
+// and version-map entries of the upgrade store, and the bank entries block
+// rewards move every block.
 func v68OfflineTouchedKey(t *testing.T, artifact offlineUpgradeArtifact) func(storeName string, key []byte) bool {
 	t.Helper()
 	rewritten := make(map[string]struct{}, len(artifact.VestingAccounts))
@@ -178,9 +177,6 @@ func v68OfflineTouchedKey(t *testing.T, artifact offlineUpgradeArtifact) func(st
 			return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
 		case banktypes.StoreKey:
 			return v68OfflineBlockRewardKey(key)
-		case stakingtypes.StoreKey:
-			return bytes.HasPrefix(key, stakingtypes.DelegationByValIndexKey) ||
-				bytes.Equal(key, stakingtypes.DelegationByValIndexReadyKey)
 		}
 		return false
 	}
