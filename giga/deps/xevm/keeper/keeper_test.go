@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
@@ -60,7 +61,7 @@ func TestGetVMBlockContext(t *testing.T) {
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
-	_, err := k.GetVMBlockContext(ctx, 0)
+	_, err := k.GetVMBlockContext(ctx, core.NewGasPool(0))
 	require.NotNil(t, err)
 }
 

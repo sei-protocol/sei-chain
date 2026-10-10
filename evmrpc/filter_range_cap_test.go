@@ -164,6 +164,8 @@ type rangeCapTMClient struct {
 	block *coretypes.ResultBlock
 }
 
+func (*rangeCapTMClient) GenesisInitialHeight() int64 { return 1 }
+
 func (c *rangeCapTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
 
 func (c *rangeCapTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }

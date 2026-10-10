@@ -34,6 +34,9 @@ func TestGetBlockByNumber(t *testing.T) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", true)
 			blockHash := res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", blockHash.(string))
+			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x0", true)
+			blockHash = res["result"].(map[string]interface{})["hash"]
+			require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "safe", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0x8ace0b4e9ced0ef792034128d37eb19b9b2b06bf016d51d533216a9afd7c0e8f", blockHash.(string))
@@ -89,6 +92,7 @@ func TestGetBlockSkipTxIndex(t *testing.T) {
 			txs := res["result"].(map[string]any)["transactions"].([]any)
 			require.Len(t, txs, 1)
 			require.Equal(t, "0x0", txs[0].(map[string]any)["transactionIndex"].(string))
+			require.NotContains(t, txs[0].(map[string]any), "blockTimestamp")
 		},
 	)
 }

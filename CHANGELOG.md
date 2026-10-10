@@ -30,6 +30,18 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## Unreleased
 sei-chain
+* [#4505](https://github.com/sei-protocol/sei-chain/pull/4505) Bump sei-protocol/go-ethereum to the Sei fork of v1.17.7. Ships only in a minor-version upgrade (v6.8 or later), never a patch release; heights before the upgrade must be replayed on the previous binary.
+  * App-hash breaking (results hash):
+    * EVM error text (`vmError`) can differ: e.g. out of gas at a top-level CALL reports `out of gas: out of gas`, and failed deploys may report a different error or a size suffix. Gas used and status are unchanged on the paths covered by Sei's behavior tests.
+    * EIP-7702: an authorization that clears an account with no delegation no longer writes code keys, and re-delegating to the same target no longer rewrites them.
+  * JSON-RPC (takes effect when the node runs the new binary):
+    * `null` for a required argument is rejected with -32602.
+    * HTTP and WebSocket responses no longer end with a trailing newline.
+    * prestateTracer omits empty accounts and adds `codeHash`; tracer balance hooks now report balance changes.
+    * On a pruned node "earliest" is the node's earliest available block, and can error if that block's receipts are unavailable; until history is pruned it, like 0x0, returns the synthetic genesis block. On EVM-only (Giga) nodes "earliest" returns the earliest retained block instead of null.
+    * On a pruned node, debug_trace* and eth_getTransactionByBlockNumberAndIndex at "earliest" or 0x0 use the earliest available block, not the genesis initial height.
+    * eth_getLogs and filters clamp "earliest" and 0x0 bounds to the earliest available receipts instead of erroring.
+    * eth_call, eth_estimateGas and debug_traceCall state overrides cannot move Sei precompiles, and a `code` override at a Sei precompile address is ignored.
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics

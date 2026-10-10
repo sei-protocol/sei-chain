@@ -21,8 +21,8 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
-// earliestCommittedHeight is what "earliest" resolves to for eth_feeHistory: a fixed genesis of
-// 1, not a runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
+// earliestCommittedHeight is the lowest block height of an unpruned receipt store: a fixed 1, not a
+// runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
 const earliestCommittedHeight = int64(1)
 
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the admission floor up for
@@ -176,19 +176,35 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, rewardPercentiles)
 }
 
+// earliestRetainedHeight returns the lowest block height store retains.
+func earliestRetainedHeight(store receiptpkg.ReceiptStore) int64 {
+	if store == nil {
+		return earliestCommittedHeight
+	}
+	// EarliestVersion is 0 until something has pruned the store, in which case
+	// earliestCommittedHeight (this deployment's genesis) is the true earliest.
+	return max(earliestCommittedHeight, store.EarliestVersion())
+}
+
+// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
+func normalizeEarliest(number ethrpc.BlockNumber) ethrpc.BlockNumber {
+	if number == 0 {
+		return ethrpc.EarliestBlockNumber
+	}
+	return number
+}
+
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
 func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error) {
 	current := api.store.LatestVersion()
-	switch lastBlock {
+	switch normalizeEarliest(lastBlock) {
 	case ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.LatestBlockNumber, ethrpc.PendingBlockNumber:
 		if current <= 0 {
 			return 0, errors.New("no committed block available for fee history")
 		}
 		return current, nil
 	case ethrpc.EarliestBlockNumber:
-		// EarliestVersion is 0 until something has pruned the store, in which case
-		// earliestCommittedHeight (this deployment's genesis) is the true earliest.
-		return max(earliestCommittedHeight, api.store.EarliestVersion()), nil
+		return earliestRetainedHeight(api.store), nil
 	default:
 		if lastBlock < 0 {
 			return 0, fmt.Errorf("requested last block %d is not available", lastBlock)

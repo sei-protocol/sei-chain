@@ -15,8 +15,8 @@ type Executor struct {
 	evm *vm.EVM
 }
 
-func NewGethExecutor(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
+func NewGethExecutor(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.CustomPrecompiledContract) *Executor {
+	evm := vm.NewEVMWithCustomPrecompiles(blockCtx, stateDB, chainConfig, config, customPrecompiles)
 	return &Executor{
 		evm: evm,
 	}

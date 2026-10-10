@@ -40,7 +40,7 @@ func (api *estimateAPI) EstimateGas(ctx context.Context, args export.Transaction
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return 0, err
 	}
-	msg := args.ToMessage(baseFee, true, true)
+	msg := args.ToMessage(baseFee, true)
 
 	estimate, revert, err := api.backend.EvmEstimateGas(ctx, msg, defaultCallGasCap)
 	if err != nil {

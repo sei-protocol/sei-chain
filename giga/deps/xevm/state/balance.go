@@ -21,6 +21,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return s.AddBalance(evmAddr, new(uint256.Int).Neg(amtUint256), reason)
 	}
 
+	prior := s.priorBalance(evmAddr)
 	ctx := s.ctx
 
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
@@ -36,12 +37,12 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
-		return *ZeroInt
+		return prior
 	}
 	err = s.k.BankKeeper().SubWei(ctx, addr, wei)
 	if err != nil {
 		s.err = err
-		return *ZeroInt
+		return prior
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
@@ -55,7 +56,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	surplus := sdk.NewIntFromBigInt(amt)
 	s.tempState.surplus = s.tempState.surplus.Add(surplus)
 	s.journal = append(s.journal, &surplusChange{delta: surplus})
-	return *ZeroInt
+	return prior
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
@@ -67,6 +68,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return s.SubBalance(evmAddr, new(uint256.Int).Neg(amtUint256), reason)
 	}
 
+	prior := s.priorBalance(evmAddr)
 	ctx := s.ctx
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
@@ -78,12 +80,12 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	err := s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
-		return *ZeroInt
+		return prior
 	}
 	err = s.k.BankKeeper().AddWei(ctx, addr, wei)
 	if err != nil {
 		s.err = err
-		return *ZeroInt
+		return prior
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
@@ -97,7 +99,24 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	surplus := sdk.NewIntFromBigInt(amt).Neg()
 	s.tempState.surplus = s.tempState.surplus.Add(surplus)
 	s.journal = append(s.journal, &surplusChange{delta: surplus})
-	return *ZeroInt
+	return prior
+}
+
+// priorBalance returns evmAddr's current balance when simulating or tracing, and zero otherwise.
+func (s *DBImpl) priorBalance(evmAddr common.Address) uint256.Int {
+	if !s.simulation && s.logger == nil {
+		return uint256.Int{}
+	}
+	// An infinite gas meter keeps this tracer-only read from charging Cosmos gas.
+	ctx := s.ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(s.ctx))
+	res, overflow := uint256.FromBig(s.k.GetBalance(ctx, s.getSeiAddress(evmAddr)))
+	if overflow {
+		panic("balance overflow")
+	}
+	if res == nil {
+		return uint256.Int{}
+	}
+	return *res
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {

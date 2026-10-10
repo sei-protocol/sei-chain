@@ -47,7 +47,7 @@ func TestBehaviorBlocktestIngesterDecodesFixture(t *testing.T) {
 	bt := testIngester(path, "minimal")
 	require.NotNil(t, bt)
 
-	js := bt.Json
+	js := bt.JSON()
 	require.Equal(t, "London", js.Network)
 	require.Equal(t, "NoProof", js.SealEngine)
 	require.Equal(t, btBlockHash, common.Hash(js.BestBlock))
@@ -118,7 +118,7 @@ func TestBehaviorBlocktestIngesterTestNameKey(t *testing.T) {
 
 	// "./ethtests/" prefix is stripped from the lookup key
 	bt := testIngester("./ethtests/sub/x.json", "minimal")
-	require.Equal(t, btBlockHash, bt.Json.Blocks[0].BlockHeader.Hash)
+	require.Equal(t, btBlockHash, bt.JSON().Blocks[0].BlockHeader.Hash)
 
 	require.PanicsWithValue(t,
 		"Unable to find test name sub/x.json::other at test file path ./ethtests/sub/x.json",

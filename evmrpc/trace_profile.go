@@ -76,7 +76,7 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 	}
 
 	loadBlockStart := time.Now()
-	block, _, err := tracingBackend.BlockByHash(ctx, blockHash)
+	block, err := tracingBackend.BlockByHash(ctx, blockHash)
 	phases.LoadBlockNanos = time.Since(loadBlockStart).Nanoseconds()
 	if err != nil {
 		return nil, err

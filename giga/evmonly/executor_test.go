@@ -1666,7 +1666,7 @@ func TestStateDBSelfDestructEmitsStorageClear(t *testing.T) {
 
 	require.Equal(t, loadedValue, stateDB.GetState(contract, loadedKey))
 	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	changes := stateDB.ChangeSet()
 	require.Contains(t, changes.StorageClears, contract)
@@ -1688,6 +1688,18 @@ func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
 }
 
+func TestStateDBSelfDestructKeepsBalance(t *testing.T) {
+	contract := testAddress(0xc4)
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.AddBalance(contract, uint256.NewInt(7), tracing.BalanceChangeUnspecified)
+
+	stateDB.SelfDestruct(contract)
+	require.Equal(t, uint256.NewInt(7), stateDB.GetBalance(contract))
+
+	stateDB.Finalise(params.Rules{IsEIP158: true})
+	require.Equal(t, uint256.NewInt(7), stateDB.GetBalance(contract))
+}
+
 func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
 	contract := testAddress(0xc6)
 	unreadKey := testHash(0x02)
@@ -1699,9 +1711,9 @@ func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
 	stateDB := newNativeStateDB(state)
 
 	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 	stateDB.CreateAccount(contract)
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	changes := stateDB.ChangeSet()
 	require.Contains(t, changes.StorageClears, contract)
@@ -1720,7 +1732,7 @@ func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
 
 	require.Equal(t, value, stateDB.GetState(contract, key))
 	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 	stateDB.SetState(contract, key, value)
 
 	changes := stateDB.ChangeSet()
@@ -1748,7 +1760,7 @@ func TestStateDBGetCommittedStateAdvancesAtFinalise(t *testing.T) {
 	require.Equal(t, first, stateDB.GetCommittedState(addr, key))
 	require.Equal(t, first, stateDB.SetState(addr, key, second))
 	require.Equal(t, first, stateDB.GetCommittedState(addr, key))
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
 	require.Equal(t, second, stateDB.SetState(addr, key, third))
 	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
@@ -1765,7 +1777,7 @@ func TestStateDBGetStateAfterStorageClearDoesNotReloadPersistedSlot(t *testing.T
 
 	require.Equal(t, value, stateDB.GetState(contract, key))
 	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	require.Equal(t, common.Hash{}, stateDB.GetCommittedState(contract, key))
 	require.Equal(t, common.Hash{}, stateDB.GetState(contract, key))
@@ -2495,7 +2507,7 @@ func TestFinaliseClearsRefund(t *testing.T) {
 	stateDB := newNativeStateDB(NewMemoryState())
 	stateDB.AddRefund(12)
 
-	stateDB.Finalise(true)
+	stateDB.Finalise(params.Rules{IsEIP158: true})
 
 	require.Zero(t, stateDB.GetRefund())
 }

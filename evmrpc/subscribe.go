@@ -219,10 +219,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
-	// when fromBlock is 0 and toBlock is latest, adjust the filter
+	// when fromBlock is earliest and toBlock is a head tag, adjust the filter
 	// to unbounded filter
-	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
-		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
+	if isEarliestBound(filter.FromBlock) &&
+		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 && !isEarliestBound(filter.ToBlock) {
 		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
 		unboundedFilter := &filters.FilterCriteria{
 			FromBlock: latest, // set to latest block height

@@ -11,6 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
@@ -81,7 +82,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
 	}
 	if to == nil && len(data) > params.MaxInitCodeSize {
-		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
+		return nil, fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
 	}
 	if to != nil && to.Cmp(common.HexToAddress(solo.SoloAddress)) == 0 {
 		return nil, errors.New("cannot call Solo precompile via CosmWasm")
@@ -100,11 +101,11 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	evmMsg := &core.Message{
 		Nonce:     stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
 		GasLimit:  k.getEvmGasLimitFromCtx(ctx),
-		GasPrice:  utils.Big0, // fees are already paid on the CW transaction
-		GasFeeCap: utils.Big0,
-		GasTipCap: utils.Big0,
+		GasPrice:  new(uint256.Int), // fees are already paid on the CW transaction
+		GasFeeCap: new(uint256.Int),
+		GasTipCap: new(uint256.Int),
 		To:        to,
-		Value:     value,
+		Value:     uint256.MustFromBig(value),
 		Data:      data,
 		From:      from,
 	}
@@ -162,7 +163,8 @@ func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.
 		return nil, err
 	}
 	return k.callEVM(ctx, k.GetEVMAddressOrDefault(ctx, from), to, nil, data, func(caller common.Address, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
-		return evm.StaticCall(caller, *addr, input, gas)
+		ret, leftover, err := evm.StaticCall(caller, *addr, input, vm.NewGasBudget(gas, 0))
+		return ret, leftover.ExecutionGas, err
 	})
 }
 
@@ -192,7 +194,7 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 	sstore := k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
-	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evm.SetTxContext(txCtx)
 	return evm, nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -317,14 +318,14 @@ func TestBehaviorTracersPrecompileFrames(t *testing.T) {
 		res = requireRPCResult(t, port, "debug_traceTransaction", mb.sh.Hash().Hex(), map[string]any{"tracer": "4byteTracer"})
 		require.JSONEq(t, `{"0x68656c6c-1":1}`, string(res))
 
-		// prestateTracer lists touched precompiles with zero balance
+		// prestateTracer omits empty accounts, including precompiles, and reports codeHash
 		res = requireRPCResult(t, port, "debug_traceTransaction", mb.jsonTx.Hash().Hex(), map[string]any{"tracer": "prestateTracer"})
 		require.JSONEq(t, fmt.Sprintf(`{
-			"0x0000000000000000000000000000000000001003":{"balance":"0x0"},
-			"0x00000000000000000000000000000000000b0001":{"balance":"0x0","code":"%s"},
+			"0x00000000000000000000000000000000000b0001":{"balance":"0x0","code":"%s","codeHash":"%s"},
 			"0x27f7b8b8b5a4e71e8e9aa671f4e4031e3773303f":{"balance":"0x1319718a5000"},
 			"%s":{"balance":"0x21dfe1f5c5363780000"}}`,
-			hexutil.Encode(proxyCode(jsonPrecompileAddr)), strings.ToLower(mnemonic1Addr.Hex())), string(res))
+			hexutil.Encode(proxyCode(jsonPrecompileAddr)), crypto.Keccak256Hash(proxyCode(jsonPrecompileAddr)).Hex(),
+			strings.ToLower(mnemonic1Addr.Hex())), string(res))
 
 		// direct precompile calls
 		from := mnemonic1Addr.Hex()
@@ -397,9 +398,8 @@ func TestBehaviorTraceCallStateOverrides(t *testing.T) {
 		res = requireRPCResult(t, port, "debug_traceCall", valueArgs, "latest", map[string]any{
 			"tracer": "prestateTracer", "stateOverrides": map[string]any{poor.Hex(): map[string]any{"balance": "0xde0b6b3a7640000"}},
 		})
-		require.JSONEq(t, `{"0x00000000000000000000000000000000000e0001":{"balance":"0xde0b6b3a7640000"},
-			"0x00000000000000000000000000000000000f0001":{"balance":"0x0"},
-			"0x27f7b8b8b5a4e71e8e9aa671f4e4031e3773303f":{"balance":"0x0"}}`, string(res))
+		// empty accounts are omitted
+		require.JSONEq(t, `{"0x00000000000000000000000000000000000e0001":{"balance":"0xde0b6b3a7640000"}}`, string(res))
 		res = requireRPCResult(t, port, "debug_traceCall", valueArgs, "latest", map[string]any{"tracer": "callTracer"})
 		require.JSONEq(t, `{"error":"insufficient funds for gas * price + value: address 0x00000000000000000000000000000000000E0001 have 0 want 100",
 			"from":"0x00000000000000000000000000000000000E0001","gas":"0x989680","gasUsed":"0x0","input":"0x",
