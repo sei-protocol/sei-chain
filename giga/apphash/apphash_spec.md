@@ -38,7 +38,7 @@ separators, or length prefixes, for a fixed total of 177 bytes.
 |      9 |    8 | `blockHeight`     | `u64be`   | Defined                                                     |
 |     17 |   32 | `blockHash`       | raw bytes | Defined                                                     |
 |     49 |   32 | `stateHash`       | raw bytes | Defined                                                     |
-|     81 |   32 | `bud`             | raw bytes | **PLACEHOLDER**                                             |
+|     81 |   32 | `bud`             | raw bytes | Defined                                                     |
 |    113 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                                             |
 |    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga activation height |
 
@@ -200,13 +200,11 @@ resulting state.
 entry the block writes, subtract the leaf of its previous value (if any) and add the leaf of its new value
 (unless it was deleted).
 
-### `bud`: PLACEHOLDER
+### `bud`
 
-The Block Update Digest: a commitment to the key-value changes produced by executing the block. For now, this
-is SHA-256 over the block's StateWAL entry. Its byte format is intentionally not specified here.
-
-**Needs design.** The `bud` will become a Merkle tree schema over the block's changes, so that proofs can be
-built against it. That design is out of scope for this document.
+The Block Update Digest of the block: a commitment to the key-value changes produced by executing it. It is
+defined by the [BUD specification](bud/bud_spec.md), which also defines the BUD proofs and BUD
+state proofs built against it.
 
 ### `receiptHash`: PLACEHOLDER
 
@@ -226,11 +224,10 @@ to be block 0, since the chain already exists without this app hash.
 
 ## Open design work
 
-| Item                   | Needed                                                           | Owner        |
-|------------------------|------------------------------------------------------------------|--------------|
-| `bud`                  | A Merkle tree schema over the block's changes, to support proofs | Storage team |
-| `receiptHash`          | A full definition                                                | EVM team     |
-| Giga activation height | The height of the first block computed under this scheme         | TBD          |
+| Item                   | Needed                                                   | Owner    |
+|------------------------|----------------------------------------------------------|----------|
+| `receiptHash`          | A full definition                                        | EVM team |
+| Giga activation height | The height of the first block computed under this scheme | TBD      |
 
 ## Test vector
 
@@ -263,3 +260,6 @@ App hash, i.e. SHA-256 of `"sei-apphash"` followed by the serialization:
 ```
 5cc80f7617e8286151501cfccacbf5bc8b60826b7e224832519b84bdfef6c533
 ```
+
+Verified by [`TestSerializeLayout`](app_hash_test.go) (serialization) and
+[`TestHashGoldenVector`](app_hash_test.go) (app hash).

@@ -52,7 +52,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
-	require.Equal(t, filledHash(0xc3), ahd.BUD())
+	require.Equal(t, BUD(filledHash(0xc3)), ahd.BUD())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
@@ -71,6 +71,17 @@ func TestSerializeIsDeterministic(t *testing.T) {
 func TestHashGoldenVector(t *testing.T) {
 	hash := goldenData().AppHash()
 
+	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
+}
+
+func TestDeserializeGoldenVector(t *testing.T) {
+	serialized, err := hex.DecodeString(goldenSerialization)
+	require.NoError(t, err)
+
+	decoded, err := Deserialize(serialized)
+	require.NoError(t, err)
+	require.Equal(t, goldenData(), decoded)
+	hash := decoded.AppHash()
 	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
 }
 
