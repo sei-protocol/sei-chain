@@ -611,6 +611,65 @@ func TestPushBlockAcceptsSpliceAfterPrune(t *testing.T) {
 	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
 }
 
+// TestSpliceSuffixReconstructs rebuilds a CommitQC range whose first block does
+// not extend the previous tip. The range is a parent-linked suffix of two blocks.
+func TestSpliceSuffixReconstructs(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	ep := registry.MustEpoch(0)
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	tip, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	tipHeader := tip.Msg().Block().Header()
+	qc0 := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
+		lane: types.NewLaneQC(makeLaneVotes(keys, tipHeader)),
+	})
+	for inner, ctrl := range state.inner.Lock() {
+		inner.prune(data.Anchor{
+			CommitQC: qc0,
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc0.Proposal(), types.AppHash{})),
+			Epoch:    ep,
+		})
+		ctrl.Updated()
+	}
+
+	splice := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NotEqual(t, tipHeader.Hash(), splice.Header().ParentHash())
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(splice))))
+	child, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	childHeader := child.Msg().Block().Header()
+	require.Equal(t, splice.Header().Hash(), childHeader.ParentHash())
+
+	for _, h := range []*types.BlockHeader{splice.Header(), childHeader} {
+		for _, vote := range makeLaneVotes(keys, h) {
+			require.NoError(t, state.PushVote(ctx, vote))
+		}
+	}
+	laneQCs, err := state.WaitForLaneQCs(ctx, ep, utils.Some(qc0))
+	require.NoError(t, err)
+	qc1 := types.BuildCommitQC(ep, keys, utils.Some(qc0), laneQCs)
+	require.Equal(t, types.BlockNumber(1), qc1.LaneRange(lane).First())
+	require.Equal(t, types.BlockNumber(3), qc1.LaneRange(lane).Next())
+	require.Equal(t, childHeader.Hash(), qc1.LaneRange(lane).LastHash())
+	require.NoError(t, state.PushCommitQC(ctx, qc1))
+
+	headers, err := state.headers(ctx, ep, qc1.LaneRange(lane))
+	require.NoError(t, err)
+	require.Equal(t, []*types.BlockHeader{splice.Header(), childHeader}, headers)
+	_, full, err := state.fullCommitQC(ctx, qc1.Index())
+	require.NoError(t, err)
+	require.NoError(t, full.Verify(ep))
+	require.Equal(t, headers, full.Headers())
+}
+
 func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
