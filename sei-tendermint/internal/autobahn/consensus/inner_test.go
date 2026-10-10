@@ -1030,6 +1030,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	cs, err := newState(&Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+		ProposalTimeout:    time.Hour,
 		PersistentStateDir: utils.Some(dir),
 	}, ds, pers, utils.None[*pb.PersistedInner]())
 	require.NoError(t, err)
@@ -1045,8 +1046,9 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretKey) *State {
 	t.Helper()
 	s, err := NewState(&Config{
-		Key:         key,
-		ViewTimeout: func(types.View) time.Duration { return time.Hour },
+		Key:             key,
+		ViewTimeout:     func(types.View) time.Duration { return time.Hour },
+		ProposalTimeout: time.Hour,
 	}, newTestDataState(registry))
 	require.NoError(t, err)
 	return s

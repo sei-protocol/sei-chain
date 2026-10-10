@@ -344,7 +344,8 @@ func (b *Backend) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNu
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.SeiStateDB, *ethtypes.Header, error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, b.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	zeroExcessBlobGas := uint64(0)
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
@@ -366,7 +367,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
-		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
+		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 				return nil, nil, err
@@ -382,8 +383,9 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
-	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return b.keeper.GetReceipt(sdkCtx, txHash)
+	})
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
@@ -466,11 +468,12 @@ func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.Bloc
 	if err != nil {
 		return nil, nil, err
 	}
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, b.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	traceTxConfigProvider := traceCompatTxConfigProvider(b.txConfigProvider, b.isV65ActiveAtHeight, b.isV67ActiveAtHeight)
-	msgs, err := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	msgs, err := filterTransactions(b.keeper, ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -534,6 +537,9 @@ func (b Backend) BlockWithTraceMetadataByNumber(ctx context.Context, bn rpc.Bloc
 	header := b.getHeader(tmBlock)
 	block := ethtypes.NewBlockWithHeader(header).WithBody(ethtypes.Body{Transactions: txs})
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
+	}
 	return block, metadata, nil
 }
 
