@@ -547,7 +547,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	}
 }
 
-func TestPushBlockRejectsNonZeroParentAtHeightZero(t *testing.T) {
+func TestPushBlockAdmitsAnyParentWhenQueueEmpty(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -558,12 +558,10 @@ func TestPushBlockRejectsNonZeroParentAtHeightZero(t *testing.T) {
 	))
 	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
 
-	bad := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(bad))))
-	require.Equal(t, types.BlockNumber(0), state.NextBlock(lane))
-
-	good := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(good))))
+	// Empty queue (including height 0): admission does not require a zero parent.
+	// ProduceLocalBlock still extends parentOfFirstLaneBlock (zero here).
+	odd := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(odd))))
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
@@ -591,7 +589,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
-func TestPushBlockRejectsBadParentAfterPrune(t *testing.T) {
+func TestPushBlockAcceptsSpliceAfterPrune(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -606,17 +604,14 @@ func TestPushBlockRejectsBadParentAfterPrune(t *testing.T) {
 	require.NoError(t, err)
 	pruneToHeader(state, keys, first.Msg().Block().Header())
 
-	bad := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(bad))))
-	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
-
-	good := types.NewBlock(lane, 1, first.Msg().Block().Header().Hash(), types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(good))))
+	// Empty queue after prune: a cut may start a different branch here.
+	splice := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NotEqual(t, first.Msg().Block().Header().Hash(), splice.Header().ParentHash())
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(splice))))
 	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
 }
 
 func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
-	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	state := utils.OrPanic1(NewState(
@@ -636,7 +631,7 @@ func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
 		lane: types.NewLaneQC(makeLaneVotes(keys, tip)),
 	})
 	// A later commit extends a different lane. This lane's range is empty and
-	// must still name tip.
+	// must still name tip for local production.
 	otherHeader := types.NewBlock(other, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 	qc2 := types.BuildCommitQC(ep, keys, utils.Some(qc1), map[types.LaneID]*types.LaneQC{
 		other: types.NewLaneQC(makeLaneVotes(keys, otherHeader)),
@@ -652,13 +647,9 @@ func TestPushBlockKeepsTipAcrossEmptyCommit(t *testing.T) {
 		ctrl.Updated()
 	}
 
-	bad := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(bad))))
-	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
-
-	good := types.NewBlock(lane, 1, tip.Hash(), types.GenPayload(rng))
-	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(good))))
-	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
+	next, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, tip.Hash(), next.Msg().Block().Header().ParentHash())
 }
 
 func TestPushBlockRecoversWhenCertifiedLastDiffers(t *testing.T) {
