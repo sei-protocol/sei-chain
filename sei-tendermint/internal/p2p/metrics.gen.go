@@ -20,6 +20,9 @@ func init() {
 		Global.queueDroppedMsgs,
 		Global.gigaConns,
 		Global.gigaNewConns,
+		Global.evmProxyRequests,
+		Global.evmProxyRequestSeconds,
+		Global.evmProxyNewConns,
 	)
 }
 
@@ -80,6 +83,25 @@ func NewMetrics() *Metrics {
 			Name:      "giga_new_conns",
 			Help:      "Counts established giga p2p connections.",
 		}, []string{"direction"}),
+		evmProxyRequests: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "evm_proxy_requests",
+			Help:      "Counts EVM RPC requests forwarded to a shard owner, by owner and outcome.",
+		}, []string{"owner", "outcome"}),
+		evmProxyRequestSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "evm_proxy_request_seconds",
+			Help:      "Duration of an EVM RPC request forwarded to a shard owner, in seconds.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 15),
+		}, []string{"owner"}),
+		evmProxyNewConns: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "evm_proxy_new_conns",
+			Help:      "Counts TCP connections opened to a shard owner's EVM RPC.",
+		}, []string{"owner"}),
 	}
 }
 
@@ -117,4 +139,16 @@ func (m *Metrics) gigaConnsAt(direction string) *tmprometheus.GaugeInt {
 
 func (m *Metrics) gigaNewConnsAt(direction string) *tmprometheus.CounterInt {
 	return m.gigaNewConns.WithLabelValues(direction)
+}
+
+func (m *Metrics) evmProxyRequestsAt(owner string, outcome string) *tmprometheus.CounterInt {
+	return m.evmProxyRequests.WithLabelValues(owner, outcome)
+}
+
+func (m *Metrics) evmProxyRequestSecondsAt(owner string) *tmprometheus.Histogram {
+	return m.evmProxyRequestSeconds.WithLabelValues(owner)
+}
+
+func (m *Metrics) evmProxyNewConnsAt(owner string) *tmprometheus.CounterInt {
+	return m.evmProxyNewConns.WithLabelValues(owner)
 }

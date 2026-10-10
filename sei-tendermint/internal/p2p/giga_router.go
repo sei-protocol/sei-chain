@@ -53,6 +53,12 @@ type GigaRouterCommonConfig struct {
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+	// EvmProxyMaxConnsPerOwner caps the HTTP connections to each shard owner's
+	// EVM RPC. Absent ⇒ DefaultEvmProxyMaxConnsPerOwner.
+	EvmProxyMaxConnsPerOwner utils.Option[uint64]
+	// EvmProxyTimeout bounds one forward to a shard owner, including the wait
+	// for a free connection. Absent ⇒ DefaultEvmProxyTimeout.
+	EvmProxyTimeout utils.Option[time.Duration]
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.
