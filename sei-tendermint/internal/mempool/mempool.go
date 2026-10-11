@@ -12,6 +12,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/execpause"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -292,6 +293,9 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} { return txmp.txsAvailable
 // - The applications' CheckTx implementation may panic.
 // - The caller is not to explicitly require any locks for executing CheckTx.
 func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.ResponseCheckTx, error) {
+	if err := execpause.Wait(ctx); err != nil {
+		return nil, err
+	}
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
