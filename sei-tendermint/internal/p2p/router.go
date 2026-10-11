@@ -105,7 +105,7 @@ func NewRouter(
 	router.giga = options.Giga
 	router.BaseService = service.NewBaseService("router", router)
 
-	// Publish the peers gauge at construction, not from metricsRoutine. It is a
+	// Publish the p2p gauges at construction, not from metricsRoutine. Each is a
 	// MetricVec child, absent from /metrics until something sets it, and an absent
 	// series is not zero: an alert comparing peers against the connection cap
 	// matches nothing until the series exists, which is exactly the window a
@@ -114,6 +114,7 @@ func NewRouter(
 	// the genesis-time wait, well before Start — can expose a scrapeable endpoint
 	// whose peers series is still missing.
 	Global.peersAt().Set(int64(router.peerManager.Conns().Len()))
+	Global.knownAddressesAt().Set(int64(len(router.peerManager.AllAddrs())))
 
 	return router, nil
 }
@@ -370,6 +371,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 		// construction, but a refresh only after the first sleep would leave it
 		// reporting that construction-time zero for ten seconds while peers connect.
 		Global.peersAt().Set(int64(r.peerManager.Conns().Len()))
+		Global.knownAddressesAt().Set(int64(len(r.peerManager.AllAddrs())))
 		r.peerManager.LogState()
 		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 			return err
