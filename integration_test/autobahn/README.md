@@ -389,7 +389,13 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getBlockTransactionCountByNumber` and
   `eth_getBlockTransactionCountByHash`, for the number of transactions in a
   finalized block, resolved the same way as `eth_getBlockByNumber` and
-  `eth_getBlockByHash`.
+  `eth_getBlockByHash`;
+- `eth_getBlockReceipts`, for the receipts stored for a finalized block, by
+  height, tag, or hash. Tags resolve to the latest block whose receipts are
+  indexed, and a block whose receipts are not indexed yet returns `null`. Only
+  receipts stored for that block are listed: a rejected transaction with no
+  receipt is skipped, and a repeated transaction's receipt stays with the block
+  where it first executed.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
