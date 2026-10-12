@@ -11,7 +11,7 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, waitUntil } from '../utils/chainUtils';
-import { EvmAccount } from '../utils/evmUtils';
+import { EvmAccount, associateViaTx, fundEvm } from '../utils/evmUtils';
 import { cosmosQuery } from '../utils/cosmosUtils';
 import {
     PRECOMPILE_ADDRESSES,
@@ -24,8 +24,25 @@ import {
 import { readRuntimeState, claimPool, RuntimeState } from '../utils/testUtils';
 
 const MIN_DEPOSIT_WEI = ethers.parseEther('10'); // devnet min_deposit = 10 SEI
+const MIN_DEPOSIT_USEI = 10_000_000n;
 const VOTING_PERIOD = 2; // PROPOSAL_STATUS_VOTING_PERIOD
 const DEPOSIT_PERIOD = 1; // PROPOSAL_STATUS_DEPOSIT_PERIOD
+const EMPTY_PAGE_KEY = new Uint8Array();
+
+const authExpiration = (): bigint => BigInt(Math.floor(Date.now() / 1000) + 86400);
+
+/** Cosmjs Duration (`{seconds}`) or a "30s" string → seconds as bigint. */
+function durationSeconds(d: unknown): bigint {
+    if (d == null) return 0n;
+    if (typeof d === 'object' && d !== null && 'seconds' in d) {
+        return BigInt(String((d as { seconds: { toString(): string } }).seconds));
+    }
+    if (typeof d === 'string') {
+        const m = /^(\d+)/.exec(d);
+        return BigInt(m ? m[1] : 0);
+    }
+    return BigInt(d as number);
+}
 
 const textProposal = (title: string): string =>
     JSON.stringify({ title, description: 'precompile_tests e2e fixture', type: 'Text' });
@@ -141,6 +158,184 @@ describe('gov precompile (0x1006)', function () {
             const total = after.totalDeposit.find(c => c.denom === 'usei');
             expect(total?.amount, 'total deposit reaches min_deposit').to.equal('10000000');
         });
+
+        it('params() matches cosmosQuery().gov.params()', async () => {
+            const qc = await cosmosQuery();
+            const [pre, voting, deposit] = await Promise.all([
+                gov.params(),
+                qc.gov.params('voting'),
+                qc.gov.params('deposit'),
+            ]);
+            expect(pre.votingPeriod).to.equal(durationSeconds(voting.votingParams?.votingPeriod));
+            expect(pre.maxDepositPeriod).to.equal(
+                durationSeconds(deposit.depositParams?.maxDepositPeriod),
+            );
+            const min = deposit.depositParams?.minDeposit?.[0];
+            expect(min, 'cosmos min_deposit is set').to.not.equal(undefined);
+            expect(pre.minDeposit[0].denom).to.equal(min!.denom);
+            expect(pre.minDeposit[0].amount).to.equal(BigInt(min!.amount));
+        });
+
+        it('proposal/deposits/vote/tally queries reflect a freshly submitted and voted proposal', async () => {
+            const id = await submitProposal(textProposal('e2e queries'), MIN_DEPOSIT_WEI);
+
+            const prop = await waitUntil(
+                async () => {
+                    const p = await gov.proposal(id);
+                    return Number(p.status) === VOTING_PERIOD ? p : null;
+                },
+                { timeoutMs: 15_000, label: 'proposal() in voting period' },
+            );
+            expect(prop.id).to.equal(id);
+
+            const dep = await gov.getDeposit(id, admin.address);
+            expect(dep.proposalId).to.equal(id);
+            expect(dep.depositor).to.equal(adminSeiAddress);
+            expect(dep.amount[0].denom).to.equal('usei');
+            expect(dep.amount[0].amount).to.equal(MIN_DEPOSIT_USEI);
+
+            const [allDeposits] = await gov.deposits(id, EMPTY_PAGE_KEY);
+            expect(
+                allDeposits.some((d: { depositor: string }) => d.depositor === adminSeiAddress),
+            ).to.equal(true);
+
+            const voteTx = await gov.vote(id, 1, { gasLimit: 500_000 });
+            expect((await voteTx.wait())!.status).to.equal(1);
+
+            const recorded = await waitUntil(
+                async () => {
+                    try {
+                        const v = await gov.getVote(id, admin.address);
+                        return v.options?.length ? v : null;
+                    } catch {
+                        return null;
+                    }
+                },
+                { timeoutMs: 15_000, label: 'getVote after vote()' },
+            );
+            expect(recorded.proposalId).to.equal(id);
+            expect(recorded.voter).to.equal(adminSeiAddress);
+            expect(Number(recorded.options[0].option)).to.equal(1);
+
+            const [allVotes] = await gov.votes(id, EMPTY_PAGE_KEY);
+            expect(allVotes.some((v: { voter: string }) => v.voter === adminSeiAddress)).to.equal(
+                true,
+            );
+
+            // Every tally field is a decimal power string. The admin is an EOA
+            // with no delegation, so its Yes carries no weight — assert the
+            // format rather than a total, which would drift with the devnet's
+            // stake distribution.
+            const tally = await gov.tallyResult(id);
+            for (const field of ['yes', 'abstain', 'no', 'noWithVeto'] as const) {
+                expect(tally[field], `tallyResult.${field}`).to.match(/^\d+$/);
+            }
+
+            let pageKey: Uint8Array = EMPTY_PAGE_KEY;
+            let found = false;
+            for (let i = 0; i < 20 && !found; i++) {
+                const [page, nextKey] = (await gov.proposals(
+                    0,
+                    ethers.ZeroAddress,
+                    ethers.ZeroAddress,
+                    pageKey,
+                )) as [Array<{ id: bigint }>, string];
+                found = page.some(p => p.id === id);
+                // nextKey arrives as a hex string, so an exhausted page is '0x',
+                // not a zero-length value — decode before testing it or the loop
+                // re-reads page one until the counter runs out.
+                const next = ethers.getBytes(nextKey);
+                if (next.length === 0) break;
+                pageKey = next;
+            }
+            expect(found, 'proposals(0, zero, zero, empty) includes the new id').to.equal(true);
+        });
+
+        it('grantVoteAuthorization lets the grantee vote as the admin; revoke then blocks them', async () => {
+            const [grantee] = claimPool(runtime, provider, 1, 'gov:vote-authz');
+            await associateViaTx(grantee);
+
+            const grantTx = await gov.grantVoteAuthorization(grantee.address, authExpiration(), {
+                gasLimit: 500_000,
+            });
+            expect((await grantTx.wait())!.status).to.equal(1);
+
+            const id = await submitProposal(textProposal('e2e authz vote'), MIN_DEPOSIT_WEI);
+            const govAsGrantee = gov.connect(grantee.wallet) as ethers.Contract;
+            const voteTx = await govAsGrantee.voteWithAuthorization(admin.address, id, 1, {
+                gasLimit: 500_000,
+            });
+            expect((await voteTx.wait())!.status).to.equal(1);
+
+            const recorded = await waitUntil(
+                async () => {
+                    try {
+                        const v = await gov.getVote(id, admin.address);
+                        return v.options?.length ? v : null;
+                    } catch {
+                        return null;
+                    }
+                },
+                { timeoutMs: 15_000, label: 'authorized vote visible via getVote' },
+            );
+            expect(recorded.voter).to.equal(adminSeiAddress);
+            expect(Number(recorded.options[0].option)).to.equal(1);
+
+            const revokeTx = await gov.revokeVoteAuthorization(grantee.address, {
+                gasLimit: 500_000,
+            });
+            expect((await revokeTx.wait())!.status).to.equal(1);
+
+            const id2 = await submitProposal(textProposal('e2e authz vote revoked'), MIN_DEPOSIT_WEI);
+            await expectVmError(
+                govAsGrantee.voteWithAuthorization(admin.address, id2, 1, {
+                    gasLimit: 500_000,
+                }),
+                'authorization not found',
+            );
+        });
+
+        it('grantProposalAuthorization lets the grantee submit on behalf of the admin', async () => {
+            const [grantee] = claimPool(runtime, provider, 1, 'gov:proposal-authz');
+            await associateViaTx(grantee);
+            await fundEvm(admin, grantee.address, MIN_DEPOSIT_WEI);
+
+            const grantTx = await gov.grantProposalAuthorization(grantee.address, authExpiration(), {
+                gasLimit: 500_000,
+            });
+            expect((await grantTx.wait())!.status).to.equal(1);
+
+            const govAsGrantee = gov.connect(grantee.wallet) as ethers.Contract;
+            const json = textProposal('e2e authz submit');
+            const id: bigint = await govAsGrantee.submitProposalWithAuthorization.staticCall(
+                admin.address,
+                json,
+                { value: MIN_DEPOSIT_WEI },
+            );
+            const tx = await govAsGrantee.submitProposalWithAuthorization(admin.address, json, {
+                value: MIN_DEPOSIT_WEI,
+                gasLimit: 1_000_000,
+            });
+            expect((await tx.wait())!.status).to.equal(1);
+
+            const prop = await waitUntil(
+                async () => {
+                    try {
+                        const p = await gov.proposal(id);
+                        return p.id === id ? p : null;
+                    } catch {
+                        return null;
+                    }
+                },
+                { timeoutMs: 15_000, label: 'authorized proposal visible' },
+            );
+            expect(prop.id).to.equal(id);
+
+            const revokeTx = await gov.revokeProposalAuthorization(grantee.address, {
+                gasLimit: 500_000,
+            });
+            expect((await revokeTx.wait())!.status).to.equal(1);
+        });
     });
 
     describe('error handling', () => {
@@ -201,10 +396,35 @@ describe('gov precompile (0x1006)', function () {
                 'gov.deposit with value 0',
             );
         });
+
+        it('getVote on an unknown proposal reverts', async () => {
+            await expectExecutionReverted(
+                gov.getVote(999_999n, admin.address),
+                'gov.getVote on an unknown proposal',
+            );
+        });
+
+        it('voteWithAuthorization without a grant reverts', async () => {
+            const [grantee] = claimPool(runtime, provider, 1, 'gov:no-vote-grant');
+            await associateViaTx(grantee);
+            const id = await submitProposal(textProposal('e2e no grant'), MIN_DEPOSIT_WEI);
+            await expectVmError(
+                (gov.connect(grantee.wallet) as ethers.Contract).voteWithAuthorization(
+                    admin.address,
+                    id,
+                    1,
+                    { gasLimit: 500_000 },
+                ),
+                'authorization not found',
+            );
+        });
     });
 
     describe('dispatch semantics (via PrecompileCaller)', () => {
-        it('all methods are rejected under STATICCALL (gov has no view methods)', async () => {
+        // The executor dispatches its query methods before the readOnly check,
+        // so gov views answer under STATICCALL and only the transaction methods
+        // are refused.
+        it('transaction methods are rejected under STATICCALL (readOnly guard)', async () => {
             const data = govIface.encodeFunctionData('vote', [1n, 1]);
             await expectVmError(
                 caller.getFunction('staticcallTarget').send(PRECOMPILE_ADDRESSES.gov, data, {
@@ -222,6 +442,17 @@ describe('gov precompile (0x1006)', function () {
                 }),
                 'cannot delegatecall gov',
             );
+        });
+
+        it('proposal() is callable via STATICCALL', async () => {
+            const id = await submitProposal(textProposal('e2e staticcall proposal'), MIN_DEPOSIT_WEI);
+            const data = govIface.encodeFunctionData('proposal', [id]);
+            const ret: string = await caller.staticcallTarget.staticCall(
+                PRECOMPILE_ADDRESSES.gov,
+                data,
+            );
+            const [decoded] = govIface.decodeFunctionResult('proposal', ret);
+            expect(decoded.id).to.equal(id);
         });
     });
 });
