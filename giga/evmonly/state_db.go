@@ -227,8 +227,9 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
 		for _, key := range storageKeys {
-			oldValue := storageHash(base.Storage, key)
+			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
+			oldValue := priorValue
 			if acct.StorageCleared {
 				oldValue = common.Hash{}
 			}
@@ -240,7 +241,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Key:        key,
 				Value:      newValue,
 				Delete:     newValue == (common.Hash{}),
-				PriorValue: oldValue,
+				PriorValue: priorValue,
 			})
 		}
 		if acct.StorageCleared {
@@ -1032,13 +1033,13 @@ func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
 			return
 		}
 	}
-	if acct.StorageCleared {
-		return
-	}
 	if _, ok := base.Storage[key]; !ok {
 		if value := s.source.GetState(addr, key); value != (common.Hash{}) {
 			base.Storage[key] = storageValue{value: value}
 		}
+	}
+	if acct.StorageCleared {
+		return
 	}
 	if value := storageHash(base.Storage, key); value != (common.Hash{}) {
 		acct.Storage[key] = storageValue{value: value}

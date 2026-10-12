@@ -1769,6 +1769,25 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
 }
 
+// A slot written after its account is cleared reports the value it held before the block, even though
+// nothing read it.
+func TestStateDBStorageClearKeepsPriorValue(t *testing.T) {
+	contract := testAddress(0xc5)
+	key := testHash(0x01)
+
+	state := NewMemoryState()
+	state.SetState(contract, key, testHash(0x05))
+	stateDB := newNativeStateDB(state)
+
+	stateDB.SelfDestruct(contract)
+	stateDB.Finalise(true)
+	stateDB.SetState(contract, key, testHash(0x07))
+
+	changes := stateDB.ChangeSet()
+	require.Equal(t, []common.Address{contract}, changes.StorageClears)
+	require.Equal(t, []StorageChange{{Address: contract, Key: key, Value: testHash(0x07), PriorValue: testHash(0x05)}}, changes.Storage)
+}
+
 func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
 	contract := testAddress(0xc5)
 	key := testHash(0x01)
