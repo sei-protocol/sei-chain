@@ -9,19 +9,19 @@ import (
 
 var _ StateWALIterator = (*stateWALIterator)(nil)
 
-// An iterator over the blocks of a state WAL, which computes a block's BUD only when asked for it.
+// An iterator over the blocks of a state WAL, which computes a block's hash only when asked for it.
 type stateWALIterator struct {
 	seiwal.Iterator[[]*proto.NamedChangeSet]
 }
 
-// GetHash returns the BUD of the block at the iterator's current position.
+// GetHash returns the hash of the block at the iterator's current position.
 func (it *stateWALIterator) GetHash() ([32]byte, error) {
-	// STOPGAP: recomputes the BUD by marshaling the block again. The real BUD starts from the BUD tree, or BUDs
-	// will be stored in the WAL and read back. See computePlaceholderBUD().
+	// STOPGAP: recomputes the hash by marshaling the block again. The real BUD starts from the BUD tree, or hashes
+	// will be stored in the WAL and read back. See computePlaceholderHash().
 	blockNumber, cs := it.Entry()
-	bud, err := computePlaceholderBUD(cs)
+	hash, err := computePlaceholderHash(cs)
 	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to compute the BUD of block %d: %w", blockNumber, err)
+		return [32]byte{}, fmt.Errorf("failed to compute the hash of block %d: %w", blockNumber, err)
 	}
-	return bud, nil
+	return hash, nil
 }

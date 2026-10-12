@@ -38,9 +38,9 @@ func TestConfigValidate(t *testing.T) {
 		require.Error(t, cfg.Validate())
 	})
 
-	t.Run("zero BUD buffer size is rejected", func(t *testing.T) {
+	t.Run("zero hasher buffer size is rejected", func(t *testing.T) {
 		cfg := DefaultConfig("/tmp/wal", "test")
-		cfg.BUDBufferSize = 0
+		cfg.HasherBufferSize = 0
 		require.Error(t, cfg.Validate())
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -16,10 +15,9 @@ var _ StateWAL = (*stateWALImpl)(nil)
 
 // A WAL for storing state changesets by block number.
 //
-// Not safe for concurrent use; see the StateWAL interface doc. Two surfaces are exceptions. The
-// gc.PrunableStore surface in state_wal_gc.go runs on the collector's goroutine, and touches only
-// lastBlock and the WAL underneath. The BUD goroutine in state_wal_bud.go touches only ctx, cancel,
-// budChan, budListeners, and wg.
+// Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
+// state_wal_gc.go is the exception: it runs on the collector's goroutine, and touches only lastBlock and
+// the WAL underneath.
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
@@ -28,20 +26,14 @@ type stateWALImpl struct {
 	closed utils.CloseMarker[stateWALImpl]
 
 	// Cancelled when the WAL stops: by fail() with the fatal error that bricked the WAL as its cause, or by
-	// Close() with a nil cause. Every blocking operation aborts on it, and it is the ctx passed to BUD listeners.
+	// Close() with a nil cause. Every blocking operation aborts on it, and it is the ctx passed to hash listeners.
 	ctx context.Context
 
 	// Cancels ctx, recording the fatal error (or nil) as its cause. Only the first call takes effect.
 	cancel context.CancelCauseFunc
 
-	// Carries written blocks and flush requests from the caller to the BUD goroutine, in order.
-	budChan chan any
-
-	// The listeners each block's BUD is delivered to.
-	budListeners *budListenerRegistry
-
-	// Tracks the BUD goroutine so Close() can wait for it to exit.
-	wg sync.WaitGroup
+	// Computes each written block's hash and delivers it to the listeners.
+	hasher *stateWALHasher
 
 	// The highest block number written. Atomic because the garbage collector reads it off-goroutine
 	// (GetLatestBlock); Write is its only mutator.
@@ -66,7 +58,7 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal, config.BUDBufferSize)
+	return newStateWAL(wal, config.HasherBufferSize)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -119,67 +111,67 @@ func VerifyIntegrity(config *Config) error {
 
 func newStateWAL(
 	wal seiwal.WAL[[]*proto.NamedChangeSet],
-	// The capacity of the channel carrying written blocks to the BUD goroutine.
-	budBufferSize uint,
+	// The capacity of the channel carrying hash jobs to the hasher.
+	hasherBufferSize uint,
 ) (StateWAL, error) {
-	ctx, cancel := context.WithCancelCause(context.Background())
-	w := &stateWALImpl{
-		wal:          wal,
-		ctx:          ctx,
-		cancel:       cancel,
-		budChan:      make(chan any, budBufferSize),
-		budListeners: newBUDListenerRegistry(),
-	}
-
-	// Recover the write-ordering position from the highest block already on disk.
+	// Recover the write-ordering position, and the hash reported to listeners registered before any block is
+	// written, from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
 	if err != nil {
-		cancel(nil)
 		_ = wal.Close()
 		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
+	}
+	var lastHash [32]byte
+	if ok {
+		lastHash, err = computeStoredHash(wal, last)
+		if err != nil {
+			_ = wal.Close()
+			return nil, fmt.Errorf("failed to compute the hash of the last stored block: %w", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	w := &stateWALImpl{
+		wal:    wal,
+		ctx:    ctx,
+		cancel: cancel,
+		// Must not reference w: its goroutine would keep w reachable, and MustClose() could never fire.
+		hasher: newStateWALHasher(ctx, cancel, hasherBufferSize, ok, last, lastHash),
 	}
 	if ok {
 		w.lastBlock.Store(last)
 		w.hasBlock = true
-		if err := w.seedLastBUD(last); err != nil {
-			cancel(nil)
-			_ = wal.Close()
-			return nil, fmt.Errorf("failed to compute the BUD of the last stored block: %w", err)
-		}
 	}
 	w.closed = utils.MustClose(w, "state WAL")
-
-	w.wg.Add(1)
-	go w.budLoop()
 	return w, nil
 }
 
-// seedLastBUD computes the BUD of the last stored block, the one reported to listeners registered before any
-// block is written.
-func (w *stateWALImpl) seedLastBUD(
-	// The last stored block.
-	last uint64,
-) error {
-	it, err := w.wal.Iterator(last, last)
+// computeStoredHash returns the hash of a block already stored in wal.
+func computeStoredHash(
+	// The WAL holding the block.
+	wal seiwal.WAL[[]*proto.NamedChangeSet],
+	// The block to compute the hash of.
+	blockNumber uint64,
+) ([32]byte, error) {
+	it, err := wal.Iterator(blockNumber, blockNumber)
 	if err != nil {
-		return fmt.Errorf("failed to create WAL iterator: %w", err)
+		return [32]byte{}, fmt.Errorf("failed to create WAL iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
 
 	ok, err := it.Next()
 	if err != nil {
-		return fmt.Errorf("failed to read block %d: %w", last, err)
+		return [32]byte{}, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
 	}
 	if !ok {
-		return fmt.Errorf("block %d is not stored", last)
+		return [32]byte{}, fmt.Errorf("block %d is not stored", blockNumber)
 	}
 	_, cs := it.Entry()
-	bud, err := computePlaceholderBUD(cs)
+	hash, err := computePlaceholderHash(cs)
 	if err != nil {
-		return fmt.Errorf("failed to compute the BUD of block %d: %w", last, err)
+		return [32]byte{}, fmt.Errorf("failed to compute the hash of block %d: %w", blockNumber, err)
 	}
-	w.budListeners.seed(last, bud)
-	return nil
+	return hash, nil
 }
 
 // Write appends a block's changesets to the WAL as a single record.
@@ -207,8 +199,8 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 	w.lastBlock.Store(blockNumber)
 	w.hasBlock = true
 
-	if err := w.sendToBUDLoop(budBlock{blockNumber: blockNumber, cs: cs}); err != nil {
-		return fmt.Errorf("failed to schedule the BUD of block %d: %w", blockNumber, err)
+	if !w.hasher.ScheduleHash(blockNumber, cs) {
+		return fmt.Errorf("failed to schedule the hash of block %d: %w", blockNumber, w.stoppedErr())
 	}
 	return nil
 }
@@ -228,7 +220,7 @@ func (w *stateWALImpl) checkBlockOrder(blockNumber uint64) error {
 	return nil
 }
 
-// Flush blocks until all previously scheduled writes are durable and their BUDs delivered.
+// Flush blocks until all previously scheduled writes are durable and their hashes delivered.
 func (w *stateWALImpl) Flush() error {
 	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
@@ -239,22 +231,25 @@ func (w *stateWALImpl) Flush() error {
 	if err := w.wal.Flush(); err != nil {
 		return w.fail(fmt.Errorf("failed to flush state WAL: %w", err))
 	}
-	if err := w.awaitBUDs(); err != nil {
-		return fmt.Errorf("failed to deliver BUDs: %w", err)
+	if !w.hasher.Flush() {
+		return fmt.Errorf("failed to deliver hashes: %w", w.stoppedErr())
 	}
 	return nil
 }
 
-// RegisterBUDListener adds listener to those each block's BUD is delivered to, and reports the most recent BUD.
-func (w *stateWALImpl) RegisterBUDListener(listener BUDListener) (bool, uint64, [32]byte, error) {
+// RegisterHashListener adds listener to those each block's hash is delivered to, and reports the most recent hash.
+func (w *stateWALImpl) RegisterHashListener(listener HashListener) (bool, uint64, [32]byte, error) {
 	if w.closed.IsClosed() {
 		return false, 0, [32]byte{}, fmt.Errorf("state WAL is closed")
 	}
 	if err := w.fatalErr(); err != nil {
 		return false, 0, [32]byte{}, fmt.Errorf("state WAL failed: %w", err)
 	}
-	ok, blockNumber, bud := w.budListeners.register(listener)
-	return ok, blockNumber, bud, nil
+	ok, blockNumber, hash, accepted := w.hasher.RegisterListener(listener)
+	if !accepted {
+		return false, 0, [32]byte{}, w.stoppedErr()
+	}
+	return ok, blockNumber, hash, nil
 }
 
 // GetStoredRange reports the range of complete blocks stored in the WAL.
@@ -310,12 +305,12 @@ func (w *stateWALImpl) Iterator(
 	return &stateWALIterator{Iterator: it}, nil
 }
 
-// Close flushes pending writes, closes the underlying WAL, and releases resources. It stops the BUD goroutine
-// without waiting for it to deliver the BUDs still queued.
+// Close flushes pending writes, closes the underlying WAL, and releases resources. It stops the hasher
+// without waiting for it to deliver the hashes still queued.
 func (w *stateWALImpl) Close() error {
 	w.closed.Close(w)
 	w.cancel(nil)
-	w.wg.Wait()
+	w.hasher.AwaitExit()
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}

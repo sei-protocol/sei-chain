@@ -65,7 +65,7 @@ func (f *fakeWAL) Close() error {
 
 func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 	t.Helper()
-	w, err := newStateWAL(f, DefaultConfig("", "test").BUDBufferSize)
+	w, err := newStateWAL(f, DefaultConfig("", "test").HasherBufferSize)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	return w
@@ -81,7 +81,7 @@ func requireBricked(t *testing.T, w StateWAL) {
 	require.ErrorIs(t, w.Prune(1), errInjected)
 	_, err = w.Iterator(0, 0)
 	require.ErrorIs(t, err, errInjected)
-	_, _, _, err = w.RegisterBUDListener(nil)
+	_, _, _, err = w.RegisterHashListener(nil)
 	require.ErrorIs(t, err, errInjected)
 }
 

@@ -9,26 +9,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A delivery a budRecorder received.
-type recordedBUD struct {
+// A delivery a hashRecorder received.
+type recordedHash struct {
 	blockNumber uint64
-	bud         [32]byte
+	hash        [32]byte
 }
 
-// budRecorder is a BUDListener that records every delivery.
-type budRecorder struct {
+// hashRecorder is a HashListener that records every delivery.
+type hashRecorder struct {
 	mu         sync.Mutex
-	deliveries []recordedBUD
+	deliveries []recordedHash
 }
 
-func (r *budRecorder) listen(_ context.Context, blockHeight uint64, bud [32]byte) error {
+func (r *hashRecorder) listen(_ context.Context, blockHeight uint64, hash [32]byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.deliveries = append(r.deliveries, recordedBUD{blockNumber: blockHeight, bud: bud})
+	r.deliveries = append(r.deliveries, recordedHash{blockNumber: blockHeight, hash: hash})
 	return nil
 }
 
-func (r *budRecorder) blocks() []uint64 {
+func (r *hashRecorder) blocks() []uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	blocks := make([]uint64, 0, len(r.deliveries))
@@ -38,47 +38,47 @@ func (r *budRecorder) blocks() []uint64 {
 	return blocks
 }
 
-// iteratedBUDs returns the BUD GetHash() reports for each block in [start, end].
-func iteratedBUDs(t *testing.T, w StateWAL, start uint64, end uint64) []recordedBUD {
+// iteratedHashes returns the hash GetHash() reports for each block in [start, end].
+func iteratedHashes(t *testing.T, w StateWAL, start uint64, end uint64) []recordedHash {
 	t.Helper()
 	it, err := w.Iterator(start, end)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
-	var buds []recordedBUD
+	var hashes []recordedHash
 	for {
 		ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
-			return buds
+			return hashes
 		}
 		blockNumber, _ := it.Entry()
-		bud, err := it.GetHash()
+		hash, err := it.GetHash()
 		require.NoError(t, err)
-		buds = append(buds, recordedBUD{blockNumber: blockNumber, bud: bud})
+		hashes = append(hashes, recordedHash{blockNumber: blockNumber, hash: hash})
 	}
 }
 
-// Every block written reaches the listener once, in order, with the BUD the iterator reports for it.
-func TestBUDListenerReceivesEveryBlock(t *testing.T) {
+// Every block written reaches the listener once, in order, with the hash the iterator reports for it.
+func TestHashListenerReceivesEveryBlock(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	recorder := &budRecorder{}
-	ok, _, _, err := w.RegisterBUDListener(recorder.listen)
+	recorder := &hashRecorder{}
+	ok, _, _, err := w.RegisterHashListener(recorder.listen)
 	require.NoError(t, err)
-	require.False(t, ok, "an empty WAL has no BUD yet")
+	require.False(t, ok, "an empty WAL has no hash yet")
 
 	for block := uint64(1); block <= 10; block++ {
 		writeBlock(t, w, block)
 	}
 	require.NoError(t, w.Flush())
 
-	require.Equal(t, iteratedBUDs(t, w, 1, 10), recorder.deliveries)
+	require.Equal(t, iteratedHashes(t, w, 1, 10), recorder.deliveries)
 }
 
-// Distinct blocks get distinct BUDs, and an empty block still gets one.
-func TestBUDDependsOnChangesets(t *testing.T) {
+// Distinct blocks get distinct hashes, and an empty block still gets one.
+func TestHashDependsOnChangesets(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
@@ -87,14 +87,14 @@ func TestBUDDependsOnChangesets(t *testing.T) {
 	require.NoError(t, w.Write(3, nil))
 	require.NoError(t, w.Flush())
 
-	buds := iteratedBUDs(t, w, 1, 3)
-	require.NotEqual(t, buds[0].bud, buds[1].bud)
-	require.NotEqual(t, buds[1].bud, buds[2].bud)
+	hashes := iteratedHashes(t, w, 1, 3)
+	require.NotEqual(t, hashes[0].hash, hashes[1].hash)
+	require.NotEqual(t, hashes[1].hash, hashes[2].hash)
 }
 
-// A listener registered mid-stream is told the most recent BUD delivered, and its first delivery is the block
+// A listener registered mid-stream is told the most recent hash delivered, and its first delivery is the block
 // after it.
-func TestBUDListenerRegisteredMidStream(t *testing.T) {
+func TestHashListenerRegisteredMidStream(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
@@ -103,50 +103,50 @@ func TestBUDListenerRegisteredMidStream(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	recorder := &budRecorder{}
-	ok, blockNumber, bud, err := w.RegisterBUDListener(recorder.listen)
+	recorder := &hashRecorder{}
+	ok, blockNumber, hash, err := w.RegisterHashListener(recorder.listen)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(5), blockNumber)
-	require.Equal(t, iteratedBUDs(t, w, 5, 5)[0].bud, bud)
+	require.Equal(t, iteratedHashes(t, w, 5, 5)[0].hash, hash)
 
 	writeBlock(t, w, 6)
 	require.NoError(t, w.Flush())
 	require.Equal(t, []uint64{6}, recorder.blocks())
 }
 
-// A reopened WAL reports the BUD of its last stored block until it delivers another.
-func TestBUDSeededFromLastStoredBlockOnReopen(t *testing.T) {
+// A reopened WAL reports the hash of its last stored block until it delivers another.
+func TestHashSeededFromLastStoredBlockOnReopen(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	w := openWAL(t, cfg)
 	for block := uint64(1); block <= 3; block++ {
 		writeBlock(t, w, block)
 	}
 	require.NoError(t, w.Flush())
-	want := iteratedBUDs(t, w, 3, 3)[0].bud
+	want := iteratedHashes(t, w, 3, 3)[0].hash
 	require.NoError(t, w.Close())
 
 	w2 := openWAL(t, cfg)
 	defer func() { require.NoError(t, w2.Close()) }()
 
-	ok, blockNumber, bud, err := w2.RegisterBUDListener(nil)
+	ok, blockNumber, hash, err := w2.RegisterHashListener(nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(3), blockNumber)
-	require.Equal(t, want, bud)
+	require.Equal(t, want, hash)
 }
 
-// A listener error bricks the WAL, and no listener receives a BUD for any later block.
-func TestBUDListenerErrorBricksWAL(t *testing.T) {
+// A listener error bricks the WAL, and no listener receives a hash for any later block.
+func TestHashListenerErrorBricksWAL(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	recorder := &budRecorder{}
-	_, _, _, err := w.RegisterBUDListener(func(ctx context.Context, blockHeight uint64, bud [32]byte) error {
+	recorder := &hashRecorder{}
+	_, _, _, err := w.RegisterHashListener(func(ctx context.Context, blockHeight uint64, hash [32]byte) error {
 		if blockHeight == 2 {
 			return errInjected
 		}
-		return recorder.listen(ctx, blockHeight, bud)
+		return recorder.listen(ctx, blockHeight, hash)
 	})
 	require.NoError(t, err)
 
@@ -159,14 +159,14 @@ func TestBUDListenerErrorBricksWAL(t *testing.T) {
 }
 
 // Flush returns only once every listener has returned for every block written before it.
-func TestFlushWaitsForBUDListeners(t *testing.T) {
+func TestFlushWaitsForHashListeners(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	recorder := &budRecorder{}
-	_, _, _, err := w.RegisterBUDListener(func(ctx context.Context, blockHeight uint64, bud [32]byte) error {
+	recorder := &hashRecorder{}
+	_, _, _, err := w.RegisterHashListener(func(ctx context.Context, blockHeight uint64, hash [32]byte) error {
 		time.Sleep(time.Millisecond)
-		return recorder.listen(ctx, blockHeight, bud)
+		return recorder.listen(ctx, blockHeight, hash)
 	})
 	require.NoError(t, err)
 
@@ -178,11 +178,11 @@ func TestFlushWaitsForBUDListeners(t *testing.T) {
 }
 
 // Close returns while a listener is blocked, because the listener's ctx is cancelled.
-func TestCloseCancelsBlockedBUDListener(t *testing.T) {
+func TestCloseCancelsBlockedHashListener(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 
 	entered := make(chan struct{})
-	_, _, _, err := w.RegisterBUDListener(func(ctx context.Context, _ uint64, _ [32]byte) error {
+	_, _, _, err := w.RegisterHashListener(func(ctx context.Context, _ uint64, _ [32]byte) error {
 		close(entered)
 		<-ctx.Done()
 		return ctx.Err()
@@ -194,16 +194,16 @@ func TestCloseCancelsBlockedBUDListener(t *testing.T) {
 	require.NoError(t, w.Close())
 }
 
-// A full BUD channel blocks Write until the listener catches up.
-func TestWriteBlocksWhileBUDBufferIsFull(t *testing.T) {
+// A full hasher channel blocks Write until the listener catches up.
+func TestWriteBlocksWhileHasherBufferIsFull(t *testing.T) {
 	cfg := testConfig(t.TempDir())
-	cfg.BUDBufferSize = 1
+	cfg.HasherBufferSize = 1
 	w := openWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
 
 	entered := make(chan struct{}, 3)
 	release := make(chan struct{})
-	_, _, _, err := w.RegisterBUDListener(func(ctx context.Context, _ uint64, _ [32]byte) error {
+	_, _, _, err := w.RegisterHashListener(func(ctx context.Context, _ uint64, _ [32]byte) error {
 		entered <- struct{}{}
 		select {
 		case <-release:
@@ -214,7 +214,7 @@ func TestWriteBlocksWhileBUDBufferIsFull(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	writeBlock(t, w, 1) // taken by the BUD goroutine, which blocks in the listener
+	writeBlock(t, w, 1) // taken by the hasher, which blocks in the listener
 	<-entered
 	writeBlock(t, w, 2) // fills the buffer
 
@@ -224,7 +224,7 @@ func TestWriteBlocksWhileBUDBufferIsFull(t *testing.T) {
 	}()
 	select {
 	case err := <-written:
-		t.Fatalf("Write returned while the BUD buffer was full: %v", err)
+		t.Fatalf("Write returned while the hasher buffer was full: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 

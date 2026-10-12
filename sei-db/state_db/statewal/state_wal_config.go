@@ -23,9 +23,9 @@ type Config struct {
 	// writer goroutine.
 	WriteBufferSize uint
 
-	// The size of the channel used to send written blocks from the caller to the goroutine that computes their
-	// BUDs and delivers them to listeners. Write blocks while it is full. Must be greater than 0.
-	BUDBufferSize uint
+	// The capacity of the channel carrying written blocks to the hasher, which computes their hashes and delivers
+	// them to listeners. Write blocks while it is full. Must be greater than 0.
+	HasherBufferSize uint
 
 	// The size a WAL file may reach before it is sealed and a fresh one is opened. Because each block is
 	// written as a single record, a file may exceed this by the size of one block's serialized changesets.
@@ -54,7 +54,7 @@ func DefaultConfig(path string, name string) *Config {
 		Name:                  name,
 		RequestBufferSize:     16,
 		WriteBufferSize:       2048,
-		BUDBufferSize:         16,
+		HasherBufferSize:      16,
 		TargetFileSize:        s.TargetFileSize,
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,
@@ -64,8 +64,8 @@ func DefaultConfig(path string, name string) *Config {
 
 // Validate the configuration, returning nil if valid, or an error describing the problem if invalid.
 func (c *Config) Validate() error {
-	if c.BUDBufferSize == 0 {
-		return fmt.Errorf("BUDBufferSize must be greater than 0")
+	if c.HasherBufferSize == 0 {
+		return fmt.Errorf("HasherBufferSize must be greater than 0")
 	}
 	if err := c.toSeiwalConfig().Validate(); err != nil {
 		return fmt.Errorf("invalid underlying WAL config: %w", err)

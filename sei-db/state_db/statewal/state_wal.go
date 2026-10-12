@@ -24,7 +24,7 @@ type StateWAL interface {
 	// Write a block's changes to the WAL as a single record.
 	//
 	// This method only schedules the write, it does not block until the write is complete. It does block while the
-	// WAL is behind on delivering BUDs to listeners by more than Config.BUDBufferSize blocks.
+	// WAL is behind on delivering hashes to listeners by more than Config.HasherBufferSize blocks.
 	//
 	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
 	// this call. Callers that need to modify those buffers must copy them first.
@@ -48,26 +48,27 @@ type StateWAL interface {
 	// returned for each of those blocks.
 	Flush() error
 
-	// Register a listener that receives the BUD of each block written, one call per block, in block order, with no
-	// gaps. Listeners are meant for steady state, after setup; during setup, read the BUDs of specific blocks with
-	// Iterator() and GetHash().
+	// Register a listener that receives the hash of each block written, one call per block, in block order, with
+	// no gaps. Listeners are meant for steady state, after setup; during setup, read the hashes of specific blocks
+	// with Iterator() and GetHash().
 	//
 	// Listeners run on a goroutine owned by the WAL, so a listener that falls behind eventually blocks Write(). A
-	// listener must not call back into the WAL: RegisterBUDListener(), Write(), Flush(), and Close() wait on that
+	// listener must not call back into the WAL: RegisterHashListener(), Write(), Flush(), and Close() wait on that
 	// goroutine and would deadlock, and the other methods are not safe to call concurrently with the WAL's owner.
-	// An error from a listener bricks the WAL, and no listener receives a BUD for any later block.
-	RegisterBUDListener(
-		// The listener to register, or nil to only read the most recent BUD.
-		listener BUDListener,
+	// An error from a listener bricks the WAL, and no listener receives a hash for any later block.
+	RegisterHashListener(
+		// The listener to register, or nil to only read the most recent hash.
+		listener HashListener,
 	) (
-		// If false, no block has a BUD yet: the WAL was opened empty and no BUD has been delivered since.
-		// blockNumber and bud are then undefined, and the listener's first delivery is the first block written.
+		// If false, no block has a hash yet: the WAL was opened empty and no hash has been delivered since.
+		// blockNumber and hash are then undefined, and the listener's first delivery is the first block
+		// written.
 		ok bool,
-		// The block of the most recent BUD delivered to listeners, or of the last stored block if none has been
-		// delivered since the WAL was opened. The listener's first delivery is for blockNumber+1.
+		// The block of the most recent hash delivered to listeners, or of the last stored block if none has
+		// been delivered since the WAL was opened. The listener's first delivery is for blockNumber+1.
 		blockNumber uint64,
-		// The BUD of blockNumber.
-		bud [32]byte,
+		// The hash of blockNumber.
+		hash [32]byte,
 		// Any error encountered while registering.
 		err error,
 	)
@@ -106,33 +107,33 @@ type StateWAL interface {
 	//
 	// The iterator yields one entry per block in ascending block order. Its Entry() returns (blockNumber,
 	// changesets), where changesets are the changes written for that block, and its GetHash() returns that
-	// block's BUD. The returned changesets, and every byte slice reachable through them, must be treated as
+	// block's hash. The returned changesets, and every byte slice reachable through them, must be treated as
 	// read-only.
 	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (StateWALIterator, error)
 
-	// Close the WAL, flushing the blocks written so far to disk and releasing resources. BUDs not yet delivered to
-	// listeners may be dropped; call Flush() first to deliver them.
+	// Close the WAL, flushing the blocks written so far to disk and releasing resources. Hashes not yet delivered
+	// to listeners may be dropped; call Flush() first to deliver them.
 	Close() error
 }
 
-// A callback that receives the BUD of a block. Its signature matches AppHashBuilder.ReportBUD(), so that method
+// A callback that receives the hash of a block. Its signature matches AppHashBuilder.ReportBUD(), so that method
 // registers as one directly.
 //
-// The BUD is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderBUD().
-type BUDListener func(
+// The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
+type HashListener func(
 	// Cancelled when the StateWAL stops. A listener blocked when it is cancelled must return.
 	ctx context.Context,
-	// The block the BUD belongs to.
+	// The block the hash belongs to.
 	blockHeight uint64,
-	// The BUD of the block.
-	bud [32]byte,
+	// The hash of the block.
+	hash [32]byte,
 ) error
 
 // An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, changesets).
 type StateWALIterator interface {
 	seiwal.Iterator[[]*proto.NamedChangeSet]
 
-	// GetHash returns the BUD of the block at the iterator's current position: the same BUD delivered to listeners
-	// for that block. It is valid only after Next() returns true.
+	// GetHash returns the hash of the block at the iterator's current position: the same hash delivered to
+	// listeners for that block. It is valid only after Next() returns true.
 	GetHash() ([32]byte, error)
 }
