@@ -742,3 +742,300 @@ func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
 	require.NoError(t, client.CallContext(t.Context(), &missing, "eth_getBlockTransactionCountByHash", common.Hash{9}))
 	require.Nil(t, missing)
 }
+
+func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	twoTxBlock, tx1, tx2, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
+	emptyBlock := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
+		Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
+	}
+	backendErr := errors.New("block store unavailable")
+	heightOf := func(h int64) *coretypes.Int64 {
+		height := coretypes.Int64(h)
+		return &height
+	}
+
+	for _, tc := range []struct {
+		name       string
+		number     ethrpc.BlockNumber
+		index      hexutil.Uint
+		wantHeight *coretypes.Int64
+		block      *coretypes.ResultBlock
+		blockErr   error
+		want       *ethtypes.Transaction
+		wantErr    error
+	}{
+		// Current-state tags all resolve to the committed block, requested with a nil height.
+		{name: "latest", number: ethrpc.LatestBlockNumber, index: 0, block: twoTxBlock, want: tx1},
+		{name: "safe", number: ethrpc.SafeBlockNumber, index: 1, block: twoTxBlock, want: tx2},
+		{name: "finalized", number: ethrpc.FinalizedBlockNumber, index: 0, block: twoTxBlock, want: tx1},
+		{name: "pending", number: ethrpc.PendingBlockNumber, index: 1, block: twoTxBlock, want: tx2},
+		{name: "explicit historical height", number: ethrpc.BlockNumber(9), index: 1, wantHeight: heightOf(9), block: twoTxBlock, want: tx2},
+		// An index with no transaction answers null.
+		{name: "index past the end", number: ethrpc.LatestBlockNumber, index: 2, block: twoTxBlock},
+		{name: "index beyond int range", number: ethrpc.LatestBlockNumber, index: hexutil.Uint(^uint(0)), block: twoTxBlock},
+		{name: "empty block", number: ethrpc.LatestBlockNumber, index: 0, block: emptyBlock},
+		// Heights with no block answer null, not an error.
+		{name: "future height", number: ethrpc.BlockNumber(100), wantHeight: heightOf(100), blockErr: fmt.Errorf("%w: 100", coretypes.ErrHeightExceedsChainHead)},
+		{name: "earliest", number: ethrpc.EarliestBlockNumber, wantHeight: heightOf(0), blockErr: fmt.Errorf("%w: 0", coretypes.ErrZeroOrNegativeHeight)},
+		{name: "nil block", number: ethrpc.LatestBlockNumber},
+		// A pruned height and any other backend failure are errors.
+		{name: "pruned height", number: ethrpc.BlockNumber(1), wantHeight: heightOf(1), blockErr: coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]()), wantErr: coretypes.ErrHeightNotAvailable},
+		{name: "unexpected backend error", number: ethrpc.BlockNumber(3), wantHeight: heightOf(3), blockErr: backendErr, wantErr: backendErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				require.Equal(t, tc.wantHeight, req.Height)
+				return tc.block, tc.blockErr
+			})
+
+			got, err := (&blockAPI{backend: backend, store: store}).GetTransactionByBlockNumberAndIndex(t.Context(), tc.number, tc.index)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			if tc.want == nil {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tc.want.Hash(), got.Hash)
+			require.Equal(t, hexutil.Uint64(tc.index), *got.TransactionIndex)
+			require.Equal(t, blockHash, *got.BlockHash)
+			require.Equal(t, (*hexutil.Big)(big.NewInt(9)), got.BlockNumber)
+		})
+	}
+}
+
+func TestGetTransactionByBlockHashAndIndex(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	twoTxBlock, tx1, tx2, store := multiTxBlock(t, 5, blockHash, time.Unix(1_700_000_000, 0))
+	backendErr := errors.New("hash index unavailable")
+
+	for _, tc := range []struct {
+		name     string
+		index    hexutil.Uint
+		block    *coretypes.ResultBlock
+		blockErr error
+		want     *ethtypes.Transaction
+		wantErr  error
+	}{
+		{name: "first transaction", index: 0, block: twoTxBlock, want: tx1},
+		{name: "second transaction", index: 1, block: twoTxBlock, want: tx2},
+		{name: "index past the end", index: 2, block: twoTxBlock},
+		// An unknown hash answers null, whether the backend returns an empty or a nil result.
+		{name: "unknown hash, empty result", block: &coretypes.ResultBlock{}},
+		{name: "unknown hash, nil result"},
+		{name: "backend error", blockErr: backendErr, wantErr: backendErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, nil)
+			backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+				require.Equal(t, blockHash.Bytes(), []byte(req.Hash))
+				return tc.block, tc.blockErr
+			}
+
+			got, err := (&blockAPI{backend: backend, store: store}).GetTransactionByBlockHashAndIndex(t.Context(), blockHash, tc.index)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			if tc.want == nil {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tc.want.Hash(), got.Hash)
+			require.Equal(t, hexutil.Uint64(tc.index), *got.TransactionIndex)
+			require.Equal(t, blockHash, *got.BlockHash)
+			require.Equal(t, (*hexutil.Big)(big.NewInt(5)), got.BlockNumber)
+		})
+	}
+}
+
+// TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions pins that
+// both index lookups return exactly the entry eth_getBlockByNumber with full
+// transactions lists at that index, including for a replayed transaction whose
+// stored receipt belongs to an earlier block and for one with no stored receipt.
+func TestGetTransactionByBlockAndIndexMatchesGetBlockFullTransactions(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	blockTime := time.Unix(1_700_000_000, 0)
+	twoTxBlock, _, _, twoTxStore := multiTxBlock(t, 9, blockHash, blockTime)
+	tx, raw := testSignedTransaction(t)
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx)
+	require.NoError(t, err)
+	oneTxBlock := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
+		Block: &tmtypes.Block{
+			Header: tmtypes.Header{Height: 9, Time: blockTime},
+			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+		},
+	}
+	replayStore := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, replayStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash:  tx.Hash(),
+		Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 3, TransactionIndex: 7, From: sender.Hex()},
+	}}))
+
+	for _, tc := range []struct {
+		name  string
+		block *coretypes.ResultBlock
+		store receipt.ReceiptStore
+	}{
+		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore},
+		{name: "replayed transaction with an earlier block's receipt", block: oneTxBlock, store: replayStore},
+		{name: "transaction without a receipt", block: oneTxBlock, store: evmonly.NewMemoryReceiptStore()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return tc.block, nil
+			})
+			backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+				return tc.block, nil
+			}
+			api := &blockAPI{backend: backend, store: tc.store}
+			encoded, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
+			require.NoError(t, err)
+			fullTxs, ok := encoded["transactions"].([]any)
+			require.True(t, ok)
+			require.Len(t, fullTxs, len(tc.block.Block.Txs))
+
+			for i, want := range fullTxs {
+				byNumber, err := api.GetTransactionByBlockNumberAndIndex(t.Context(), ethrpc.LatestBlockNumber, hexutil.Uint(i))
+				require.NoError(t, err)
+				byHash, err := api.GetTransactionByBlockHashAndIndex(t.Context(), blockHash, hexutil.Uint(i))
+				require.NoError(t, err)
+
+				require.Equal(t, want, byNumber)
+				require.Equal(t, want, byHash)
+				// The block's own position wins over a stored receipt from another block.
+				require.Equal(t, (*hexutil.Big)(big.NewInt(9)), byNumber.BlockNumber)
+				require.Equal(t, hexutil.Uint64(i), *byNumber.TransactionIndex)
+			}
+		})
+	}
+}
+
+func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	blockWith := func(txs tmtypes.Txs, blockTime time.Time) *coretypes.ResultBlock {
+		return &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+			Block: &tmtypes.Block{
+				Header: tmtypes.Header{Height: 4, Time: blockTime},
+				Data:   tmtypes.Data{Txs: txs},
+			},
+		}
+	}
+	validTime := time.Unix(1_700_000_000, 0)
+	baseFeeErr := errors.New("no base fee")
+	chainConfigErr := errors.New("no chain config")
+	receiptErr := errors.New("receipt db closed")
+	failingReceipts := stubReceiptStore{
+		ReceiptStore: evmonly.NewMemoryReceiptStore(),
+		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+			return nil, receiptErr
+		},
+	}
+
+	for _, tc := range []struct {
+		name            string
+		block           *coretypes.ResultBlock
+		configure       func(*testBackend)
+		store           receipt.ReceiptStore
+		wantErr         error
+		wantErrContains string
+	}{
+		{name: "negative block time", block: blockWith(tmtypes.Txs{raw}, time.Unix(-1, 0)), wantErrContains: "block 4 time is negative"},
+		{
+			name:      "base fee error",
+			block:     blockWith(tmtypes.Txs{raw}, validTime),
+			configure: func(b *testBackend) { b.baseFee = func() (*big.Int, error) { return nil, baseFeeErr } },
+			wantErr:   baseFeeErr,
+		},
+		{
+			name:  "chain config error",
+			block: blockWith(tmtypes.Txs{raw}, validTime),
+			configure: func(b *testBackend) {
+				b.chainConfig = func() (*params.ChainConfig, error) { return nil, chainConfigErr }
+			},
+			wantErr: chainConfigErr,
+		},
+		{name: "undecodable transaction", block: blockWith(tmtypes.Txs{[]byte("not-an-rlp-tx")}, validTime), wantErrContains: "decode transaction at block 4 index 0"},
+		{name: "receipt read error", block: blockWith(tmtypes.Txs{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "read transaction receipt at block 4 index 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return tc.block, nil
+			})
+			if tc.configure != nil {
+				tc.configure(backend)
+			}
+			store := tc.store
+			if store == nil {
+				store = evmonly.NewMemoryReceiptStore()
+			}
+
+			got, err := (&blockAPI{backend: backend, store: store}).GetTransactionByBlockNumberAndIndex(t.Context(), ethrpc.LatestBlockNumber, 0)
+
+			require.Nil(t, got)
+			require.Error(t, err)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			if tc.wantErrContains != "" {
+				require.ErrorContains(t, err, tc.wantErrContains)
+			}
+		})
+	}
+}
+
+func TestGetTransactionByBlockAndIndexEndToEnd(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	block, tx1, tx2, store := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
+	backend.blockByHash = func(_ context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+		if common.BytesToHash(req.Hash) != blockHash {
+			return &coretypes.ResultBlock{}, nil
+		}
+		return block, nil
+	}
+	backend.proxy = utils.None[*ethrpc.Client]()
+	handler, err := newHandler(backend, store)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var byNumber map[string]any
+	require.NoError(t, client.CallContext(t.Context(), &byNumber, "eth_getTransactionByBlockNumberAndIndex", "latest", "0x1"))
+	require.Equal(t, tx2.Hash().Hex(), byNumber["hash"])
+	require.Equal(t, "0x1", byNumber["transactionIndex"])
+	require.Equal(t, "0x9", byNumber["blockNumber"])
+	require.Equal(t, blockHash.Hex(), byNumber["blockHash"])
+
+	var byHash map[string]any
+	require.NoError(t, client.CallContext(t.Context(), &byHash, "eth_getTransactionByBlockHashAndIndex", blockHash, "0x0"))
+	require.Equal(t, tx1.Hash().Hex(), byHash["hash"])
+	require.Equal(t, "0x0", byHash["transactionIndex"])
+
+	var pastEnd map[string]any
+	require.NoError(t, client.CallContext(t.Context(), &pastEnd, "eth_getTransactionByBlockNumberAndIndex", "latest", "0x2"))
+	require.Nil(t, pastEnd)
+
+	var unknownHash map[string]any
+	require.NoError(t, client.CallContext(t.Context(), &unknownHash, "eth_getTransactionByBlockHashAndIndex", common.Hash{9}, "0x0"))
+	require.Nil(t, unknownHash)
+}

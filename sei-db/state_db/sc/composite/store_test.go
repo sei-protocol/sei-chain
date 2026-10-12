@@ -57,18 +57,19 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
 	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) FlushHashes() error                     { return nil }
-func (f *failingEVMStore) Flush() error                           { return nil }
-func (f *failingEVMStore) CommitPendingBlock() error              { return nil }
-func (f *failingEVMStore) Version() int64                         { return 0 }
-func (f *failingEVMStore) PendingVersion() int64                  { return 0 }
-func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
-func (f *failingEVMStore) Rollback(int64) error                   { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
-func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
-func (f *failingEVMStore) Close() error                           { return nil }
+func (f *failingEVMStore) FlushHashes() error                             { return nil }
+func (f *failingEVMStore) Flush() error                                   { return nil }
+func (f *failingEVMStore) CommitPendingBlock() error                      { return nil }
+func (f *failingEVMStore) Version() int64                                 { return 0 }
+func (f *failingEVMStore) PendingVersion() int64                          { return 0 }
+func (f *failingEVMStore) GetLatestVersion() (int64, error)               { return 0, nil }
+func (f *failingEVMStore) Rollback(int64) error                           { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)         { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error)         { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer             { return nil }
+func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error             { return nil }
+func (f *failingEVMStore) OldestSnapshotAbove(int64) (int64, bool, error) { return 0, false, nil }
+func (f *failingEVMStore) Close() error                                   { return nil }
 
 // flatKVRootHash returns the root hash of the store's flatkv backend once hashing has caught up with
 // what was committed. Hashing is asynchronous, so that barrier is what stops an assertion racing the
@@ -2674,4 +2675,8 @@ func TestNewCompositeCommitStoreKeepsFlatKVKeepRecent(t *testing.T) {
 
 	require.Equal(t, cfg.FlatKVConfig.SnapshotKeepRecent, cs.config.FlatKVConfig.SnapshotKeepRecent)
 	require.Equal(t, cfg.MemIAVLConfig.SnapshotInterval, cs.config.FlatKVConfig.SnapshotInterval)
+}
+
+func TestPrecedesMigrationFalseWithoutLaterSnapshot(t *testing.T) {
+	require.False(t, precedesMigration(&failingEVMStore{}, 5))
 }
