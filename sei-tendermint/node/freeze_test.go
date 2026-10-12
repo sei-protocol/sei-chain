@@ -12,13 +12,10 @@ import (
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
-<<<<<<< HEAD
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
-=======
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
->>>>>>> d4853e5 (Initialize app from last header when a frozen node restarts (#4447))
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
