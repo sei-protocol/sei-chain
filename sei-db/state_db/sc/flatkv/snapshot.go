@@ -665,6 +665,19 @@ func (s *CommitStore) CheckVersionReachable(targetVersion int64) error {
 	return err
 }
 
+// OldestSnapshotAbove returns the oldest retained snapshot version above version; ok is false when there is
+// none. It does not modify the store.
+func (s *CommitStore) OldestSnapshotAbove(version int64) (snapshot int64, ok bool, err error) {
+	err = traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+		if v <= version {
+			return false, nil
+		}
+		snapshot, ok = v, true
+		return true, nil
+	})
+	return snapshot, ok, err
+}
+
 // Rollback rewinds the store to targetVersion, discarding the committed state, the WAL blocks and the
 // snapshots above it, and keeps committing from targetVersion+1. A target the snapshots and the WAL
 // cannot reach is refused before anything is modified.

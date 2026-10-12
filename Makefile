@@ -460,6 +460,10 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
+# EVM RPC per-IP rate and burst for CI clusters, which drive node0 from a single IP.
+CI_EVM_IP_RATE_LIMIT_RPS ?= 300
+CI_EVM_IP_RATE_LIMIT_BURST ?= 1500
+
 # Integration-test matrix jobs: reuse prebuilt images and build/seid from prepare-cluster.
 docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -472,7 +476,9 @@ docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true \
+		EVM_IP_RATE_LIMIT_RPS=$(CI_EVM_IP_RATE_LIMIT_RPS) EVM_IP_RATE_LIMIT_BURST=$(CI_EVM_IP_RATE_LIMIT_BURST) \
+		docker compose up $$DETACH_FLAG
 .PHONY: docker-cluster-start-ci
 
 # Stop 4-node docker containers
