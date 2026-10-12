@@ -102,7 +102,7 @@ type ReceiptStoreConfig struct {
 	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
 
 	// RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles stored per
-	// block ([0, 100], no duplicates). littidx only; empty defaults to receipt.DefaultRewardPercentiles.
+	// block ([0, 100], no duplicates). littidx only; empty defaults to gigareceipt.DefaultRewardPercentiles.
 	RewardPercentiles []float64 `mapstructure:"rs-reward-percentiles"`
 }
 

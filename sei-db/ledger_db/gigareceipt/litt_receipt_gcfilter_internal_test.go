@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import (
 	"testing"
