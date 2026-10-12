@@ -211,6 +211,12 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	switch number {
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
 		// nil height resolves to the current committed block.
+		// TODO: resolve these tags to the lower of that block and the receipt store's
+		// LatestVersion, and treat higher blocks as not yet available, for parity with
+		// geth, which advances its head only once a block's receipts are written. The
+		// receipt store writes asynchronously, so the committed block can be served
+		// before its receipts land, when blockTransactions still lists the transactions
+		// the executor rejected. eth_blockNumber and newHeads would follow the same height.
 	default:
 		h := coretypes.Int64(number.Int64())
 		height = &h
