@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
 // AppHashBuilderConfig configures a StandardAppHashBuilder.
@@ -20,6 +21,14 @@ type AppHashBuilderConfig struct {
 	// Configures the WAL holding the app hashes. Its Path is the hash vault's directory, and its PermitGaps is
 	// ignored. App hashes survive a power loss only if its FsyncOnFlush is true.
 	HashVaultConfig seiwal.Config
+
+	// Whether the builder writes each app hash it builds to a hash log, as a debugging aid.
+	HashLogEnabled bool
+
+	// Configures the hash log. Read only if HashLogEnabled. Its Path and Version have no default and must be set,
+	// and its Path must not be shared with another hash logger. Only the fields a hashlog.HashLogWriter reads
+	// apply.
+	HashLogConfig hashlog.HashLoggerConfig
 }
 
 // Returns an AppHashBuilderConfig holding every default. HashVaultConfig.Path has no default and must be set.
@@ -30,6 +39,8 @@ func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 		InputBufferSize: 1024,
 		MaxBatchSize:    1024,
 		HashVaultConfig: *hashVault,
+		HashLogEnabled:  false,
+		HashLogConfig:   *hashlog.DefaultHashLoggerConfig("", ""),
 	}
 }
 
