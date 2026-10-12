@@ -53,7 +53,7 @@ func (api *blockAPI) GetBlockTransactionCountByNumber(ctx context.Context, numbe
 	if err != nil || block == nil {
 		return nil, err
 	}
-	return transactionCount(block), nil
+	return transactionCount(ctx, api.store, block)
 }
 
 // GetBlockTransactionCountByHash returns the number of transactions in the
@@ -63,7 +63,7 @@ func (api *blockAPI) GetBlockTransactionCountByHash(ctx context.Context, hash co
 	if err != nil || block == nil {
 		return nil, err
 	}
-	return transactionCount(block), nil
+	return transactionCount(ctx, api.store, block)
 }
 
 // GetTransactionByBlockNumberAndIndex returns the transaction at index in the
@@ -89,9 +89,10 @@ func (api *blockAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, hash
 	return api.transactionAtIndex(ctx, block, index)
 }
 
-// transactionAtIndex renders the transaction at index in block, or returns nil
-// if index is past the end of the block.
+// transactionAtIndex renders the transaction at index in the transactions list
+// of eth_getBlockBy* for block, or returns nil if index is past its end.
 func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.ResultBlock, index hexutil.Uint) (*export.RPCTransaction, error) {
+	// The list never holds more transactions than the body.
 	i, ok := utils.SafeCast[int](uint(index))
 	if !ok || i >= len(block.Block.Txs) {
 		return nil, nil
@@ -108,15 +109,86 @@ func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.Re
 	if err != nil {
 		return nil, err
 	}
-	return api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
+	txs, err := blockTransactions(ctx, api.store, block)
+	if err != nil {
+		return nil, err
+	}
+	if i >= len(txs) {
+		return nil, nil
+	}
+	return rpcTransaction(block, txs[i], blockUnix, baseFee, chainConfig), nil
 }
 
-// transactionCount returns the number of transactions in block, counting every
-// transaction its body carries, as the transactions list of eth_getBlockBy*
-// does.
-func transactionCount(block *coretypes.ResultBlock) *hexutil.Uint {
-	count := hexutil.Uint(len(block.Block.Txs)) //nolint:gosec // G115: a slice length is non-negative.
-	return &count
+// transactionCount returns the length of the transactions list of
+// eth_getBlockBy* for block, building the list only when neither the body nor
+// the block's stored stats answer it.
+func transactionCount(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (*hexutil.Uint, error) {
+	height := block.Block.Height
+	if !receiptsCover(store, height) {
+		count := hexutil.Uint(len(block.Block.Txs)) //nolint:gosec // G115: a slice length is non-negative.
+		return &count, nil
+	}
+	stats, err := store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
+	if err == nil {
+		count := hexutil.Uint(stats.TxCount)
+		return &count, nil
+	}
+	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) && !errors.Is(err, receiptpkg.ErrNotFound) {
+		return nil, fmt.Errorf("read block stats for block %d: %w", height, err)
+	}
+	txs, err := blockTransactions(ctx, store, block)
+	if err != nil {
+		return nil, err
+	}
+	count := hexutil.Uint(len(txs)) //nolint:gosec // G115: a slice length is non-negative.
+	return &count, nil
+}
+
+// blockTransaction is one entry of the transactions list of eth_getBlockBy*.
+type blockTransaction struct {
+	tx *ethtypes.Transaction
+	// index is the transactionIndex the block lists tx at.
+	index uint64
+	// receipt is nil when the receipt store does not cover the block.
+	receipt *evmtypes.Receipt
+}
+
+// blockTransactions returns the transactions block lists, in order. When the
+// receipt store covers block, those are the transactions with a receipt stored
+// there, each at its receipt's index, leaving out every transaction the
+// executor rejected. Otherwise every transaction in the body is listed at its
+// position.
+func blockTransactions(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]blockTransaction, error) {
+	if !receiptsCover(store, block.Block.Height) {
+		return bodyTransactions(block)
+	}
+	records, err := blockReceiptRecords(ctx, store, block)
+	if err != nil {
+		return nil, err
+	}
+	txs := make([]blockTransaction, len(records))
+	for i, record := range records {
+		ethtx, err := receiptTransaction(block, record.TxHash, record.Receipt)
+		if err != nil {
+			return nil, err
+		}
+		txs[i] = blockTransaction{tx: ethtx, index: uint64(record.Receipt.TransactionIndex), receipt: record.Receipt}
+	}
+	return txs, nil
+}
+
+// bodyTransactions returns every transaction in block's body, each listed at
+// its position.
+func bodyTransactions(block *coretypes.ResultBlock) ([]blockTransaction, error) {
+	txs := make([]blockTransaction, len(block.Block.Txs))
+	for i, raw := range block.Block.Txs {
+		ethtx, err := decodeBlockTx(raw, block.Block.Height, i)
+		if err != nil {
+			return nil, err
+		}
+		txs[i] = blockTransaction{tx: ethtx, index: uint64(i)} //nolint:gosec // G115: a slice index is non-negative.
+	}
+	return txs, nil
 }
 
 // resolveBlockByHash returns the block with the given hash, or a nil block if
@@ -176,29 +248,22 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, err
 	}
 
-	txs := block.Block.Txs
-	transactions := make([]any, len(txs))
+	var chainConfig *params.ChainConfig
 	if fullTx {
-		chainConfig, err := api.backend.EvmChainConfig()
-		if err != nil {
+		if chainConfig, err = api.backend.EvmChainConfig(); err != nil {
 			return nil, err
 		}
-		// One receipt read per transaction here, not just for the last one:
-		// deferred pending a bulk receipt-load API on the receipt store.
-		for i := range txs {
-			result, err := api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
-			if err != nil {
-				return nil, err
-			}
-			transactions[i] = result
-		}
-	} else {
-		for i, raw := range txs {
-			ethtx, err := decodeBlockTx(raw, number, i)
-			if err != nil {
-				return nil, err
-			}
-			transactions[i] = ethtx.Hash()
+	}
+	txs, err := blockTransactions(ctx, api.store, block)
+	if err != nil {
+		return nil, err
+	}
+	transactions := make([]any, len(txs))
+	for i, tx := range txs {
+		if fullTx {
+			transactions[i] = rpcTransaction(block, tx, blockUnix, baseFee, chainConfig)
+		} else {
+			transactions[i] = tx.tx.Hash()
 		}
 	}
 	gasUsed, err := blockGasUsed(ctx, api.store, block)
@@ -216,25 +281,16 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	return result, nil
 }
 
-// rpcTransaction renders the transaction at index in block as a full
-// eth_getBlockBy* transaction entry, taking its sender from the stored receipt
-// when the signature does not resolve one.
-func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.ResultBlock, index int, blockUnix uint64, baseFee *big.Int, chainConfig *params.ChainConfig) (*export.RPCTransaction, error) {
-	number := block.Block.Height
-	ethtx, err := decodeBlockTx(block.Block.Txs[index], number, index)
-	if err != nil {
-		return nil, err
-	}
-	stored, err := receiptFor(ctx, api.store, ethtx.Hash())
-	if err != nil {
-		return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, index, err)
-	}
+// rpcTransaction renders tx as a full eth_getBlockBy* transaction entry of
+// block, taking its sender from its receipt when the signature does not
+// resolve one.
+func rpcTransaction(block *coretypes.ResultBlock, tx blockTransaction, blockUnix uint64, baseFee *big.Int, chainConfig *params.ChainConfig) *export.RPCTransaction {
 	blockHash := common.BytesToHash(block.BlockID.Hash)
-	result := export.NewRPCTransaction(ethtx, blockHash, uint64(number), blockUnix, uint64(index), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
-	if stored != nil {
-		replaceFrom(result, stored)
+	result := export.NewRPCTransaction(tx.tx, blockHash, uint64(block.Block.Height), blockUnix, tx.index, baseFee, chainConfig) //nolint:gosec // G115: the height is a validated block height.
+	if tx.receipt != nil {
+		replaceFrom(result, tx.receipt)
 	}
-	return result, nil
+	return result
 }
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
@@ -292,14 +348,31 @@ func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.
 	return stored, nil
 }
 
+// receiptsCover reports whether store holds the receipts of the block at height:
+// they are written and not yet pruned.
+func receiptsCover(store receiptpkg.ReceiptStore, height int64) bool {
+	return store != nil && height <= store.LatestVersion() && height >= store.EarliestVersion()
+}
+
+// blockReceiptRecords returns the receipts stored for block, in transaction
+// order: by walking the store when it can, otherwise by looking up each
+// transaction in the body.
+func blockReceiptRecords(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]receiptpkg.ReceiptRecord, error) {
+	records, err := receiptRecordsFromIterator(ctx, store, block.Block.Height)
+	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+		return receiptRecordsFromBlock(ctx, store, block)
+	}
+	return records, err
+}
+
 // blockGasUsed returns the gas used by block: its stored BlockStats when the store
 // has them, otherwise the total recomputed from the receipts that belong to the
-// block at their original index. It is zero when the store does not cover block.
+// block. It is zero when the store does not cover block.
 func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
 	height := block.Block.Height
-	if store == nil || height > store.LatestVersion() || height < store.EarliestVersion() {
+	if !receiptsCover(store, height) {
 		return 0, nil
 	}
 	stats, err := store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
@@ -313,10 +386,7 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
 		return 0, fmt.Errorf("read block stats for block %d: %w", height, err)
 	}
-	records, err := receiptRecordsFromIterator(ctx, store, height)
-	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
-		records, err = receiptRecordsFromBlock(ctx, store, block)
-	}
+	records, err := blockReceiptRecords(ctx, store, block)
 	if err != nil {
 		return 0, err
 	}

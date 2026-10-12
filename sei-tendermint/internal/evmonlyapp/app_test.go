@@ -707,6 +707,34 @@ func TestEVMOnlyApplicationReceiptFollowsLateExecution(t *testing.T) {
 	require.Equal(t, uint64(21_000), got.GasUsed)
 }
 
+// A block's receipts leave out its rejected transactions and index the executed ones as if the
+// block held only them, keeping each one's position in the block as its unadjusted index.
+func TestEVMOnlyApplicationReceiptsSkipRejectedTxs(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	first := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+	gapped := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 5)
+	second := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, first, gapped, second))
+
+	receiptDB := app.(*evmOnlyApplication).storage.ReceiptDB()
+	waitForReceiptVersion(t, receiptDB, 1)
+	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
+	hash := func(raw []byte) common.Hash {
+		tx := new(ethtypes.Transaction)
+		require.NoError(t, tx.UnmarshalBinary(raw))
+		return tx.Hash()
+	}
+	_, err = receiptDB.GetReceipt(receiptCtx, hash(gapped))
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+	got, err := receiptDB.GetReceipt(receiptCtx, hash(second))
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), got.BlockNumber)
+	require.Equal(t, uint32(1), got.TransactionIndex)
+	require.Equal(t, uint32(2), got.UnadjustedTransactionIndex)
+}
+
 // evmMinGasPricer is implemented by an application that exposes its
 // admission gas-price floor, matching proxy.evmMinGasPriceProvider.
 type evmMinGasPricer interface {

@@ -596,6 +596,30 @@ func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T
 		require.Nil(t, got)
 		require.ErrorContains(t, err, "decode transaction at block 4 index 3")
 	})
+
+	t.Run("another transaction at the receipt index", func(t *testing.T) {
+		_, other := secondSignedTransaction(t)
+		api := &txAPI{
+			backend: &testBackend{
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					return &coretypes.ResultBlock{
+						Block: &tmtypes.Block{
+							Header: tmtypes.Header{Height: 4},
+							Data:   tmtypes.Data{Txs: tmtypes.Txs{raw, raw, raw, other}},
+						},
+					}, nil
+				},
+			},
+			store: store,
+		}
+
+		// Test: the receipt index holds a transaction other than the receipt's.
+		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
+
+		// Verify: the mismatch is an error, not the other transaction.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "block 4 index 3 holds transaction")
+	})
 }
 
 func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {

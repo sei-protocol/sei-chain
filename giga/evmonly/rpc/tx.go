@@ -52,11 +52,7 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 	if err != nil || stored == nil {
 		return nil, err
 	}
-	if int(stored.TransactionIndex) >= len(block.Block.Txs) {
-		return nil, fmt.Errorf("receipt transaction index %d exceeds block %d transaction count %d",
-			stored.TransactionIndex, stored.BlockNumber, len(block.Block.Txs))
-	}
-	ethtx, err := decodeBlockTx(block.Block.Txs[stored.TransactionIndex], block.Block.Height, int(stored.TransactionIndex))
+	ethtx, err := receiptTransaction(block, hash, stored)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +116,37 @@ func replaceFrom(tx *export.RPCTransaction, stored *evmtypes.Receipt) {
 	if tx.From == (common.Address{}) {
 		tx.From = common.HexToAddress(stored.From)
 	}
+}
+
+// receiptTransaction decodes the transaction in block's body that stored is the receipt of, and
+// fails when the transaction at that position is not hash.
+func receiptTransaction(block *coretypes.ResultBlock, hash common.Hash, stored *evmtypes.Receipt) (*ethtypes.Transaction, error) {
+	index := int(unadjustedIndex(stored))
+	if index >= len(block.Block.Txs) {
+		return nil, fmt.Errorf("receipt unadjusted transaction index %d exceeds block %d transaction count %d",
+			index, stored.BlockNumber, len(block.Block.Txs))
+	}
+	ethtx, err := decodeBlockTx(block.Block.Txs[index], block.Block.Height, index)
+	if err != nil {
+		return nil, err
+	}
+	if ethtx.Hash() != hash {
+		return nil, fmt.Errorf("block %d index %d holds transaction %s, not receipt transaction %s",
+			stored.BlockNumber, index, ethtx.Hash(), hash)
+	}
+	return ethtx, nil
+}
+
+// unadjustedIndex returns the position of stored's transaction in its block's body, counting the
+// transactions that store no receipt. A receipt whose UnadjustedTransactionIndex is zero holds
+// that position in TransactionIndex.
+func unadjustedIndex(stored *evmtypes.Receipt) uint32 {
+	// Zero is either position 0, where TransactionIndex is zero too, or a receipt stored without
+	// the field, whose TransactionIndex was never adjusted.
+	if stored.UnadjustedTransactionIndex != 0 {
+		return stored.UnadjustedTransactionIndex
+	}
+	return stored.TransactionIndex
 }
 
 // decodeBlockTx decodes the raw transaction bytes stored at index in block
