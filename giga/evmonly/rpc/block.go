@@ -140,9 +140,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
 		// nil height resolves to the current committed block.
 	case ethrpc.EarliestBlockNumber:
-		// "earliest" is the lowest block this node retains, which is not
-		// genesis on a node that starts at the Giga cutover or prunes history.
-		h := coretypes.Int64(earliestRetainedHeight(api.store))
+		// The backend cannot name its lowest block, so "earliest" asks for
+		// height 0 and answers null.
+		h := coretypes.Int64(0)
 		height = &h
 	default:
 		h := coretypes.Int64(number.Int64())
