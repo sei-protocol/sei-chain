@@ -18,6 +18,8 @@ EEST_POLL_INTERVAL="${EEST_POLL_INTERVAL:-0.2}"
 EEST_POST_STATE_WAIT_TIMEOUT="${EEST_POST_STATE_WAIT_TIMEOUT:-2}"
 EEST_ORDERED_TX_SUBMISSION="${EEST_ORDERED_TX_SUBMISSION:-1}"
 EEST_TX_WAIT_TIMEOUT="${EEST_TX_WAIT_TIMEOUT:-120}"
+# Sei rejects JSON-RPC batches above evm.batch_request_limit (100 by default).
+EEST_MAX_TX_PER_BATCH="${EEST_MAX_TX_PER_BATCH:-100}"
 EEST_RPC_ENDPOINT="${EEST_RPC_ENDPOINT:-${SEI_EVM_RPC:-http://localhost:8545}}"
 EEST_RPC_WAIT_SECONDS="${EEST_RPC_WAIT_SECONDS:-120}"
 EEST_JUNIT_XML="${EEST_JUNIT_XML:-}"
@@ -105,6 +107,7 @@ execute_command=(
     --default-max-fee-per-blob-gas="${EEST_MAX_FEE_PER_BLOB_GAS}"
     --eoa-fund-amount-default="${EEST_EOA_FUND_AMOUNT_DEFAULT}"
     --tx-wait-timeout="${EEST_TX_WAIT_TIMEOUT}"
+    --max-tx-per-batch="${EEST_MAX_TX_PER_BATCH}"
     -p eest_plugin
 )
 if [[ "${EEST_SKIP_CLEANUP}" == "1" ]]; then

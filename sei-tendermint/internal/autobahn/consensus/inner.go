@@ -175,6 +175,11 @@ func (s *State) waitForView(ctx context.Context, view types.View) (types.ViewSpe
 	return s.myView.Wait(ctx, func(v types.ViewSpec) bool { return !v.View().Less(view) })
 }
 
+// waitForEpoch waits until myView's epoch index is at least idx.
+func (s *State) waitForEpoch(ctx context.Context, idx types.EpochIndex) (types.ViewSpec, error) {
+	return s.myView.Wait(ctx, func(v types.ViewSpec) bool { return v.Epoch.EpochIndex() >= idx })
+}
+
 func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	i, err := s.innerRecv.Wait(ctx, func(i inner) bool { return i.View().Index >= qc.View().Index })
 	if err != nil {

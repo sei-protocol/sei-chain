@@ -344,7 +344,7 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 }
 
 // All addresses in pools.
-// Used by net_info endpoint, which is used by integration tests and for debugging.
+// Used by the net_info endpoint and the known_addresses gauge.
 func (m *peerManager[C]) AllAddrs() []NodeAddress {
 	addrs := map[types.NodeID]NodeAddress{}
 	for _, info := range m.ConnInfos() {

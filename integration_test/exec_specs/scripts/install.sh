@@ -27,8 +27,11 @@ file_digest() {
 fingerprint="${EEST_REVISION} $(file_digest "${EEST_PATCH}")"
 fingerprint_file="${EEST_DIR}/.sei-eest-fingerprint"
 
+# The venv links to the interpreter that built it, so a restored cache from a
+# runner with a different Python patch release has scripts that cannot start.
 if [[ -x "${EEST_DIR}/.venv/bin/execute" && -f "${fingerprint_file}" ]] \
-    && [[ "$(<"${fingerprint_file}")" == "${fingerprint}" ]]; then
+    && [[ "$(<"${fingerprint_file}")" == "${fingerprint}" ]] \
+    && "${EEST_DIR}/.venv/bin/python" -c '' 2>/dev/null; then
     exit 0
 fi
 
