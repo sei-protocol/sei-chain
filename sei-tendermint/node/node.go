@@ -564,6 +564,16 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		return fmt.Errorf("cannot load state: %w", err)
 	}
 
+	// A frozen node never commits another block, so after a restart nothing
+	// would initialize the app (e.g. its query context and EVM RPC servers).
+	if n.freezeHeight > 0 && state.LastBlockHeight > 0 {
+		meta := n.blockStore.LoadBlockMeta(state.LastBlockHeight)
+		if meta == nil {
+			return fmt.Errorf("freeze mode: block %d is missing from the block store", state.LastBlockHeight)
+		}
+		n.rpcEnv.App.InitLastHeader(meta.Header.ToProto())
+	}
+
 	logNodeStartupInfo(state, n.rpcEnv.PubKey, n.config.Mode)
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
