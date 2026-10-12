@@ -188,6 +188,11 @@ func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) uint256.Int
 	return bigIntToUint256(mempoolBalanceFloor(balance))
 }
 
+// EvmChainID returns the EVM chain ID configured for this network.
+func (app *App) EvmChainID() uint64 {
+	return app.EvmKeeper.ChainID(app.GetCheckCtx()).Uint64()
+}
+
 func bigIntToUint256(x *big.Int) uint256.Int {
 	if x == nil {
 		return uint256.Int{}

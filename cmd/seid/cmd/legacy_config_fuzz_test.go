@@ -1176,6 +1176,7 @@ func TestApplyLeavesBothChannelsPopulated(t *testing.T) {
 		"evm.http_enabled",
 		"giga_executor.enabled",
 		"admin_server.admin_enabled",
+		"cosmos_metrics.enabled",
 	} {
 		if got.ctx.Viper.Get(key) == nil {
 			t.Errorf("serverCtx.Viper is missing %q, which app.New reads through appOpts.Get", key)

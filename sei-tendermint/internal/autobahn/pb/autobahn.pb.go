@@ -2106,35 +2106,34 @@ func (x *SignedAppProposal) GetSig() *Signature {
 	return nil
 }
 
-// TODO(gprusak): rename to ConsensusMsg
-type ConsensusReq struct {
+type ConsensusMsg struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to T:
 	//
-	//	*ConsensusReq_Proposal
-	//	*ConsensusReq_PrepareVoteV2
-	//	*ConsensusReq_CommitVoteV2
-	//	*ConsensusReq_TimeoutVote
-	//	*ConsensusReq_TimeoutQc
-	T             isConsensusReq_T `protobuf_oneof:"t"`
+	//	*ConsensusMsg_Proposal
+	//	*ConsensusMsg_PrepareVoteV2
+	//	*ConsensusMsg_CommitVoteV2
+	//	*ConsensusMsg_TimeoutVote
+	//	*ConsensusMsg_TimeoutQc
+	T             isConsensusMsg_T `protobuf_oneof:"t"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ConsensusReq) Reset() {
-	*x = ConsensusReq{}
+func (x *ConsensusMsg) Reset() {
+	*x = ConsensusMsg{}
 	mi := &file_autobahn_autobahn_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ConsensusReq) String() string {
+func (x *ConsensusMsg) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ConsensusReq) ProtoMessage() {}
+func (*ConsensusMsg) ProtoMessage() {}
 
-func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
+func (x *ConsensusMsg) ProtoReflect() protoreflect.Message {
 	mi := &file_autobahn_autobahn_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2146,96 +2145,96 @@ func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ConsensusReq.ProtoReflect.Descriptor instead.
-func (*ConsensusReq) Descriptor() ([]byte, []int) {
+// Deprecated: Use ConsensusMsg.ProtoReflect.Descriptor instead.
+func (*ConsensusMsg) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{34}
 }
 
-func (x *ConsensusReq) GetT() isConsensusReq_T {
+func (x *ConsensusMsg) GetT() isConsensusMsg_T {
 	if x != nil {
 		return x.T
 	}
 	return nil
 }
 
-func (x *ConsensusReq) GetProposal() *FullProposal {
+func (x *ConsensusMsg) GetProposal() *FullProposal {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_Proposal); ok {
+		if x, ok := x.T.(*ConsensusMsg_Proposal); ok {
 			return x.Proposal
 		}
 	}
 	return nil
 }
 
-func (x *ConsensusReq) GetPrepareVoteV2() *SignedProposal {
+func (x *ConsensusMsg) GetPrepareVoteV2() *SignedProposal {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_PrepareVoteV2); ok {
+		if x, ok := x.T.(*ConsensusMsg_PrepareVoteV2); ok {
 			return x.PrepareVoteV2
 		}
 	}
 	return nil
 }
 
-func (x *ConsensusReq) GetCommitVoteV2() *SignedProposal {
+func (x *ConsensusMsg) GetCommitVoteV2() *SignedProposal {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_CommitVoteV2); ok {
+		if x, ok := x.T.(*ConsensusMsg_CommitVoteV2); ok {
 			return x.CommitVoteV2
 		}
 	}
 	return nil
 }
 
-func (x *ConsensusReq) GetTimeoutVote() *FullTimeoutVote {
+func (x *ConsensusMsg) GetTimeoutVote() *FullTimeoutVote {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_TimeoutVote); ok {
+		if x, ok := x.T.(*ConsensusMsg_TimeoutVote); ok {
 			return x.TimeoutVote
 		}
 	}
 	return nil
 }
 
-func (x *ConsensusReq) GetTimeoutQc() *TimeoutQC {
+func (x *ConsensusMsg) GetTimeoutQc() *TimeoutQC {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_TimeoutQc); ok {
+		if x, ok := x.T.(*ConsensusMsg_TimeoutQc); ok {
 			return x.TimeoutQc
 		}
 	}
 	return nil
 }
 
-type isConsensusReq_T interface {
-	isConsensusReq_T()
+type isConsensusMsg_T interface {
+	isConsensusMsg_T()
 }
 
-type ConsensusReq_Proposal struct {
+type ConsensusMsg_Proposal struct {
 	Proposal *FullProposal `protobuf:"bytes,1,opt,name=proposal,proto3,oneof"`
 }
 
-type ConsensusReq_PrepareVoteV2 struct {
+type ConsensusMsg_PrepareVoteV2 struct {
 	PrepareVoteV2 *SignedProposal `protobuf:"bytes,6,opt,name=prepare_vote_v2,json=prepareVoteV2,proto3,oneof"`
 }
 
-type ConsensusReq_CommitVoteV2 struct {
+type ConsensusMsg_CommitVoteV2 struct {
 	CommitVoteV2 *SignedProposal `protobuf:"bytes,7,opt,name=commit_vote_v2,json=commitVoteV2,proto3,oneof"`
 }
 
-type ConsensusReq_TimeoutVote struct {
+type ConsensusMsg_TimeoutVote struct {
 	TimeoutVote *FullTimeoutVote `protobuf:"bytes,4,opt,name=timeout_vote,json=timeoutVote,proto3,oneof"`
 }
 
-type ConsensusReq_TimeoutQc struct {
+type ConsensusMsg_TimeoutQc struct {
 	TimeoutQc *TimeoutQC `protobuf:"bytes,5,opt,name=timeout_qc,json=timeoutQc,proto3,oneof"`
 }
 
-func (*ConsensusReq_Proposal) isConsensusReq_T() {}
+func (*ConsensusMsg_Proposal) isConsensusMsg_T() {}
 
-func (*ConsensusReq_PrepareVoteV2) isConsensusReq_T() {}
+func (*ConsensusMsg_PrepareVoteV2) isConsensusMsg_T() {}
 
-func (*ConsensusReq_CommitVoteV2) isConsensusReq_T() {}
+func (*ConsensusMsg_CommitVoteV2) isConsensusMsg_T() {}
 
-func (*ConsensusReq_TimeoutVote) isConsensusReq_T() {}
+func (*ConsensusMsg_TimeoutVote) isConsensusMsg_T() {}
 
-func (*ConsensusReq_TimeoutQc) isConsensusReq_T() {}
+func (*ConsensusMsg_TimeoutQc) isConsensusMsg_T() {}
 
 type Committee struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2655,7 +2654,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x11SignedAppProposal\x12'\n" +
 	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x03msg\x12%\n" +
 	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"\xf4\x02\n" +
-	"\fConsensusReq\x124\n" +
+	"\fConsensusMsg\x124\n" +
 	"\bproposal\x18\x01 \x01(\v2\x16.autobahn.FullProposalH\x00R\bproposal\x12B\n" +
 	"\x0fprepare_vote_v2\x18\x06 \x01(\v2\x18.autobahn.SignedProposalH\x00R\rprepareVoteV2\x12@\n" +
 	"\x0ecommit_vote_v2\x18\a \x01(\v2\x18.autobahn.SignedProposalH\x00R\fcommitVoteV2\x12>\n" +
@@ -2731,7 +2730,7 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*SignedBlock)(nil),               // 31: autobahn.SignedBlock
 	(*SignedBlockHeader)(nil),         // 32: autobahn.SignedBlockHeader
 	(*SignedAppProposal)(nil),         // 33: autobahn.SignedAppProposal
-	(*ConsensusReq)(nil),              // 34: autobahn.ConsensusReq
+	(*ConsensusMsg)(nil),              // 34: autobahn.ConsensusMsg
 	(*Committee)(nil),                 // 35: autobahn.Committee
 	(*EpochRecord)(nil),               // 36: autobahn.EpochRecord
 	(*PersistedEpochRegistry)(nil),    // 37: autobahn.PersistedEpochRegistry
@@ -2798,11 +2797,11 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	8,  // 56: autobahn.SignedBlockHeader.sig:type_name -> autobahn.Signature
 	26, // 57: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
 	8,  // 58: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
-	16, // 59: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
-	28, // 60: autobahn.ConsensusReq.prepare_vote_v2:type_name -> autobahn.SignedProposal
-	28, // 61: autobahn.ConsensusReq.commit_vote_v2:type_name -> autobahn.SignedProposal
-	22, // 62: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	21, // 63: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
+	16, // 59: autobahn.ConsensusMsg.proposal:type_name -> autobahn.FullProposal
+	28, // 60: autobahn.ConsensusMsg.prepare_vote_v2:type_name -> autobahn.SignedProposal
+	28, // 61: autobahn.ConsensusMsg.commit_vote_v2:type_name -> autobahn.SignedProposal
+	22, // 62: autobahn.ConsensusMsg.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	21, // 63: autobahn.ConsensusMsg.timeout_qc:type_name -> autobahn.TimeoutQC
 	38, // 64: autobahn.Committee.members:type_name -> autobahn.EpochMember
 	35, // 65: autobahn.EpochRecord.committee:type_name -> autobahn.Committee
 	36, // 66: autobahn.PersistedEpochRegistry.live:type_name -> autobahn.EpochRecord
@@ -2848,11 +2847,11 @@ func file_autobahn_autobahn_proto_init() {
 		(*Msg_AppVote)(nil),
 	}
 	file_autobahn_autobahn_proto_msgTypes[34].OneofWrappers = []any{
-		(*ConsensusReq_Proposal)(nil),
-		(*ConsensusReq_PrepareVoteV2)(nil),
-		(*ConsensusReq_CommitVoteV2)(nil),
-		(*ConsensusReq_TimeoutVote)(nil),
-		(*ConsensusReq_TimeoutQc)(nil),
+		(*ConsensusMsg_Proposal)(nil),
+		(*ConsensusMsg_PrepareVoteV2)(nil),
+		(*ConsensusMsg_CommitVoteV2)(nil),
+		(*ConsensusMsg_TimeoutVote)(nil),
+		(*ConsensusMsg_TimeoutQc)(nil),
 	}
 	file_autobahn_autobahn_proto_msgTypes[36].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[37].OneofWrappers = []any{}

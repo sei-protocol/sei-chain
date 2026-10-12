@@ -1,4 +1,3 @@
-// TODO: add Prometheus metrics for commitQCs written and truncated.
 package persist
 
 import (
@@ -26,6 +25,8 @@ type commitQCState struct {
 	// Whether a QC has been appended since the last flush, so a prune that re-persists its anchor is
 	// still made durable while a run of duplicates costs no fsync.
 	unflushed bool
+	// appended is the number of QCs accepted for append since the last successful flush.
+	appended uint64
 }
 
 // persistCommitQC schedules a CommitQC for the WAL under its own road index. The QC is not durable
@@ -41,10 +42,12 @@ func (s *commitQCState) persist(qc *types.CommitQC) error {
 		return fmt.Errorf("commitqc %d out of sequence (next=%d)", idx, s.persisted.Next)
 	}
 	if w, ok := s.wal.Get(); ok {
+		addMetricsRecords(walCommitQCs, stageAsked, 1)
 		if err := w.Append(uint64(idx), qc); err != nil {
 			return fmt.Errorf("persist commitqc %d: %w", idx, err)
 		}
 		s.unflushed = true
+		s.appended++
 	}
 	s.persisted.Next += 1
 	return nil
@@ -59,6 +62,8 @@ func (s *commitQCState) flush() error {
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("flush commitqc WAL: %w", err)
 	}
+	addMetricsRecords(walCommitQCs, stagePersisted, s.appended)
+	s.appended = 0
 	s.unflushed = false
 	return nil
 }

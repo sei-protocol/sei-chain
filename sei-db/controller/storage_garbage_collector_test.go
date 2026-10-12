@@ -645,7 +645,7 @@ func TestPruneAsksEveryStoreOncePerCycle(t *testing.T) {
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 	cfg := config.DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(1_000), cfg.RollbackWindow)
-	require.Equal(t, int64(0), cfg.LookbackWindow)
+	require.Equal(t, int64(12*60*60*100), cfg.LookbackWindow)
 	require.Equal(t, 5*time.Minute, cfg.PruneInterval)
 	require.NoError(t, cfg.Validate())
 }

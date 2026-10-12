@@ -37,6 +37,7 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	s.status = suffix.Status
+	Global.pruneWatermarkAt().Set(utils.Clamp[int64](db.GetPruneWatermark()))
 	return s, nil
 }
 
@@ -177,6 +178,7 @@ func (s *Store) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 	// SetPruneWatermark only ever raises the floor, so a request that lands at or
 	// below where it already sits is a no-op.
 	s.db.SetPruneWatermark(uint64(blockHeight))
+	Global.pruneWatermarkAt().Set(utils.Clamp[int64](s.db.GetPruneWatermark()))
 	return nil
 }
 

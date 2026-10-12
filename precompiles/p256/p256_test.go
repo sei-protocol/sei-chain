@@ -11,18 +11,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/p256"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
-// TestPrecompile_verifyOutOfGasPropagates guards the framework invariant that an
-// executor exhausting its gas mid-execution propagates the out-of-gas panic
-// (failing the tx) rather than having it caught and downgraded to a reverted
-// call. The fixed verify charge is levied outside verify's crypto recover, so a
-// call funded for the decode but not the verify cost must panic out, not revert.
-func TestPrecompile_verifyOutOfGasPropagates(t *testing.T) {
+// TestPrecompile_verifyOutOfGas guards the framework invariant that an executor
+// exhausting its gas mid-execution fails the call frame with vm.ErrOutOfGas
+// rather than having it caught and downgraded to a reverted call. The fixed
+// verify charge is levied outside verify's crypto recover, so a call funded for
+// the decode but not the verify cost must be out-of-gas, not reverted.
+func TestPrecompile_verifyOutOfGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	p, err := p256.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
@@ -44,10 +43,11 @@ func TestPrecompile_verifyOutOfGasPropagates(t *testing.T) {
 	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
 	// Enough gas to cover the calldata decode charge but not the fixed verify
-	// cost (P256VerifyGas = 3450), so the verify-cost out-of-gas must propagate.
-	require.PanicsWithValue(t, sdk.ErrorOutOfGas{Descriptor: "p256Verify"}, func() {
-		_, _, _ = p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, 4000, nil, nil, true, false)
-	})
+	// cost (P256VerifyGas = 3450), so the call must fail as out-of-gas.
+	ret, remainingGas, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, 4000, nil, nil, true, false)
+	require.Nil(t, ret)
+	require.Equal(t, uint64(0), remainingGas)
+	require.Equal(t, vm.ErrOutOfGas, err)
 }
 
 // generateValidKeyAndSignature mirrors the helper in verifier_test.go; that one

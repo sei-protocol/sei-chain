@@ -345,14 +345,20 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 	imp, err := s.Importer(1)
 	require.NoError(t, err)
 
+	var nodes []*scTypes.SnapshotNode
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
 		storVal := vtype.NewStorageData().SetBlockHeight(1).SetValue(&[32]byte{i, 0xAA}).Serialize()
 		acctVal := vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 1})
-		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 1})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     storagePhysKey(addr, slot),
+			Value:   storVal,
+			Version: 1,
+		})
+		nodes = append(nodes, &scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 1})
 	}
+	addNodesInKeyOrder(imp, nodes)
 	require.NoError(t, imp.Close())
 
 	verifyPerDBLtHash(t, s)

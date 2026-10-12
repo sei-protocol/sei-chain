@@ -4,26 +4,16 @@ package p256
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	p256v606 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v606"
-	p256v614 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v614"
-	p256v620 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v620"
-	p256v630 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v630"
-	p256v640 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v640"
-	p256v65 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v65"
 	p256v66 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v66"
+	p256v67 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v6.0.6":      check(p256v606.NewPrecompile(keepers)),
-		"v6.1.4":      check(p256v614.NewPrecompile(keepers)),
-		"v6.2.0":      check(p256v620.NewPrecompile(keepers)),
-		"v6.3.0":      check(p256v630.NewPrecompile(keepers)),
-		"v6.4.0":      check(p256v640.NewPrecompile(keepers)),
-		"v6.5":        check(p256v65.NewPrecompile(keepers)),
 		"v6.6":        check(p256v66.NewPrecompile(keepers)),
+		"v6.7":        check(p256v67.NewPrecompile(keepers)),
 	}
 }
 

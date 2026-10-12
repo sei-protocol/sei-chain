@@ -24,7 +24,7 @@ type hashRequest struct {
 }
 
 // reserve takes this request's own reservation on both views, so that neither can be torn down while the
-// engine still has to read it. On failure it releases whatever it took.
+// engine still has to read it. On failure it gives up whatever it took.
 func (r *hashRequest) reserve() error {
 	if err := r.current.Reserve(); err != nil {
 		return fmt.Errorf("reserve block %d: %w", r.blockNumber, err)

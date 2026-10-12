@@ -830,6 +830,33 @@ func TestFastCommit(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
+func TestFlushWaitsForAsyncWALWrites(t *testing.T) {
+	db, err := OpenDB(0, Options{
+		Config:          Config{AsyncCommitBuffer: 10},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	for i := 0; i < 5; i++ {
+		require.NoError(t, db.ApplyChangeSet("test", proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte{byte(i)}, Value: []byte{byte(i)}}},
+		}))
+		_, err = db.Commit()
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, db.Flush())
+	committed, err := db.CommittedVersion()
+	require.NoError(t, err)
+	require.Equal(t, db.Version(), committed)
+
+	require.NoError(t, db.Close())
+	require.Error(t, db.Flush())
+}
+
 func TestRepeatedApplyChangeSet(t *testing.T) {
 	db, err := OpenDB(0, Options{
 		Config: Config{

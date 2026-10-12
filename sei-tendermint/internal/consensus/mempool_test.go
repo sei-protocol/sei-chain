@@ -109,10 +109,14 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(config.RootDir) })
 
 	config.Consensus.CreateEmptyBlocks = false
+	params := factory.ConsensusParams()
+	// Round 0 at height 2 is meant to time out, but every later round must
+	// leave the proposer enough time to build, sign and deliver its proposal.
+	params.Timeout.Propose = time.Second
 	state, privVals := makeGenesisState(ctx, t, baseConfig, genesisStateArgs{
 		Validators: 1,
 		Power:      10,
-		Params:     factory.ConsensusParams()})
+		Params:     params})
 	cs := newStateWithConfig(t, config, state, privVals[0], proxy.New(NewCounterApplication()))
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)

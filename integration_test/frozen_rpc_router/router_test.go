@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ const (
 	defaultFrozen10URL = "http://127.0.0.1:8547"
 	defaultFrozen20URL = "http://127.0.0.1:8549"
 	defaultLiveURL     = "http://127.0.0.1:8545"
+	defaultFrozen10Box = "sei-node-1"
 	routeHeader        = "Sei-RPC-Route"
 )
 
@@ -92,6 +94,59 @@ func TestFrozenRPCRouterReachesEveryNode(t *testing.T) {
 			t.Fatalf("RPC error = %+v, want code -32000", response.Error)
 		}
 	})
+}
+
+// A restarted frozen node commits no further blocks, so its EVM RPC has to
+// come up from the stored chain state alone.
+func TestFrozenNodeServesEVMRPCAfterRestart(t *testing.T) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	frozen10URL := envOrDefault("FROZEN_RPC_NODE_10_URL", defaultFrozen10URL)
+	container := envOrDefault("FROZEN_RPC_NODE_10_CONTAINER", defaultFrozen10Box)
+
+	waitForHead(t, client, frozen10URL, func(height uint64) bool { return height == 9 }, "frozen node at height 10")
+	restartSeid(t, container)
+	waitForHead(t, client, frozen10URL, func(height uint64) bool { return height == 9 }, "restarted frozen node at height 10")
+
+	response, _, err := callRPC(t.Context(), client, frozen10URL, "eth_getBlockByNumber", []any{"0x5", false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != nil {
+		t.Fatalf("RPC returned error %d: %s", response.Error.Code, response.Error.Message)
+	}
+	var block struct {
+		Number string `json:"number"`
+	}
+	if err := json.Unmarshal(response.Result, &block); err != nil {
+		t.Fatalf("decode block response: %v", err)
+	}
+	if block.Number != "0x5" {
+		t.Fatalf("block number = %q, want %q", block.Number, "0x5")
+	}
+}
+
+// restartSeid stops seid in the container and starts it again with the
+// container's original start script. The container itself keeps running.
+func restartSeid(t *testing.T, container string) {
+	t.Helper()
+	const stop = `
+seid_pids() {
+  for p in /proc/[0-9]*; do
+    [ "$(cat "$p/comm" 2>/dev/null)" = seid ] && echo "${p#/proc/}"
+  done
+}
+pids=$(seid_pids)
+[ -n "$pids" ] || { echo "seid is not running" >&2; exit 1; }
+kill $pids
+while [ -n "$(seid_pids)" ]; do sleep 1; done
+cp "build/generated/logs/seid-$ID.log" "build/generated/logs/seid-$ID-before-restart.log"
+`
+	if output, err := exec.CommandContext(t.Context(), "docker", "exec", container, "sh", "-c", stop).CombinedOutput(); err != nil {
+		t.Fatalf("stop seid in %s: %v: %s", container, err, output)
+	}
+	if output, err := exec.CommandContext(t.Context(), "docker", "exec", "-d", container, "/usr/bin/start_sei.sh").CombinedOutput(); err != nil {
+		t.Fatalf("start seid in %s: %v: %s", container, err, output)
+	}
 }
 
 func waitForHead(t *testing.T, client *http.Client, endpoint string, ready func(uint64) bool, description string) {

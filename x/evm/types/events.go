@@ -10,5 +10,4 @@ const (
 	AttributeKeyPointerType    = "pointer_type"
 	AttributeKeyPointee        = "pointee"
 	AttributeKeyPointerAddress = "pointer_address"
-	AttributeKeyPointerVersion = "pointer_version"
 )

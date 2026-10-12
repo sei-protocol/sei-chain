@@ -19,3 +19,13 @@ const ProposerPriorityHashInterval = proposerPriorityHashInterval
 func BuildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {
 	return buildLastCommitInfo(block, store, initialHeight)
 }
+
+// PrunableHeight is an alias for prunableHeight exported for testing.
+func (blockExec *BlockExecutor) PrunableHeight(state State, requested int64) (int64, error) {
+	return blockExec.prunableHeight(state, requested)
+}
+
+// PruneBlocks is an alias for pruneBlocks exported for testing.
+func (blockExec *BlockExecutor) PruneBlocks(retainHeight int64) (uint64, error) {
+	return blockExec.pruneBlocks(retainHeight)
+}

@@ -9,7 +9,6 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	gov "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
@@ -132,10 +131,8 @@ func TestTallySharesRecordBudgetWithCanonicalDelegationUpdates(t *testing.T) {
 
 	require.True(t, app.GovKeeper.HasPendingVoteDelegationUpdates(ctx))
 	effectiveSnapshots := app.GovKeeper.GetVoteDelegationSnapshots(ctx, proposal)
-	genesisSnapshots := gov.ExportGenesis(ctx, app.GovKeeper).VoteDelegationSnapshots
 	for _, validator := range valAddrs[:2] {
 		requireVoteDelegationShares(t, effectiveSnapshots, validator, updatedShares[validator.String()])
-		requireVoteDelegationShares(t, genesisSnapshots, validator, updatedShares[validator.String()])
 	}
 
 	complete, processed, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)

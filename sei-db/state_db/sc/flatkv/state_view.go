@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -21,6 +22,9 @@ type flatKVStateView struct {
 
 	// Guards the release, so a second Close does not release a reservation this view no longer owns.
 	closeOnce sync.Once
+
+	// Closed by Close.
+	closed utils.CloseMarker[flatKVStateView]
 }
 
 // GetBlockHeight returns the block height of this view.
@@ -32,6 +36,7 @@ func (v *flatKVStateView) GetBlockHeight() int64 {
 // Idempotent.
 func (v *flatKVStateView) Close() {
 	v.closeOnce.Do(func() {
+		v.closed.Close(v)
 		if err := v.blockView.Release(); err != nil {
 			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.BlockHeight(), err))
 		}
@@ -80,36 +85,37 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 
 // AccountExists reports whether addr has an account in this block.
 func (v *flatKVStateView) AccountExists(addr gigatypes.Address) bool {
-	return v.accountData(addr[:]) != nil
+	_, ok := v.accountRow(addr)
+	return ok
 }
 
 // GetNonce returns addr's account nonce, or 0 when the account does not exist.
 func (v *flatKVStateView) GetNonce(addr gigatypes.Address) uint64 {
-	account := v.accountData(addr[:])
-	if account == nil {
+	account, ok := v.accountRow(addr)
+	if !ok {
 		return 0
 	}
-	return account.GetNonce()
+	return account.Nonce()
 }
 
 // GetBalance returns addr's balance as a 256-bit big-endian value, or the zero value when addr holds
 // no balance.
 func (v *flatKVStateView) GetBalance(addr gigatypes.Address) gigatypes.Hash {
-	account := v.accountData(addr[:])
-	if account == nil {
+	account, ok := v.accountRow(addr)
+	if !ok {
 		return gigatypes.Hash{}
 	}
-	return gigatypes.Hash(*account.GetBalance())
+	return gigatypes.Hash(account.Balance())
 }
 
 // GetCodeHash returns the hash of addr's contract code, gigatypes.EmptyCodeHash when the account exists
 // and holds no code, or the zero hash when it does not exist.
 func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
-	account := v.accountData(addr[:])
-	if account == nil {
+	account, ok := v.accountRow(addr)
+	if !ok {
 		return gigatypes.Hash{}
 	}
-	codeHash := gigatypes.Hash(*account.GetCodeHash())
+	codeHash := gigatypes.Hash(account.CodeHash())
 	if codeHash == (gigatypes.Hash{}) {
 		// A row only exists while some field is non-zero (see AccountData.IsDelete), and the code hash
 		// is not that field here, so this account has a nonce or a balance and no code — the case EVM
@@ -119,16 +125,43 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 	return codeHash
 }
 
-// GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
-func (v *flatKVStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
-	storage := v.storageData(ktype.StorageKey(ktype.Address(addr), ktype.Slot(key)))
-	if storage == nil {
-		return gigatypes.Hash{}
+// ReadAccount returns addr's balance, nonce and code hash from one account row read.
+func (v *flatKVStateView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
+	account, ok := v.accountRow(addr)
+	if !ok {
+		return gigatypes.Account{}, false
 	}
-	return gigatypes.Hash(*storage.GetValue())
+	codeHash := gigatypes.Hash(account.CodeHash())
+	if codeHash == (gigatypes.Hash{}) {
+		// The row exists, so some field is non-zero and it is not this one: no code. See GetCodeHash.
+		codeHash = gigatypes.EmptyCodeHash
+	}
+	return gigatypes.Account{
+		Balance:  gigatypes.Hash(account.Balance()),
+		Nonce:    account.Nonce(),
+		CodeHash: codeHash,
+	}, true
 }
 
-// GetCode returns addr's contract code, or nil when it has none.
+// GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
+func (v *flatKVStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
+	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, addr[:], key[:])
+	if !found {
+		return gigatypes.Hash{}
+	}
+	storage, err := vtype.ParseStorageRow(raw)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: parse storage %x/%x at height %d: %v",
+			addr, key, v.blockView.BlockHeight(), err))
+	}
+	if storage.IsDelete() {
+		return gigatypes.Hash{}
+	}
+	return gigatypes.Hash(storage.Value())
+}
+
+// GetCode returns addr's contract code, or nil when it has none. The slice aliases the store's row
+// and is valid until the view is closed.
 func (v *flatKVStateView) GetCode(addr gigatypes.Address) []byte {
 	code := v.codeData(addr[:])
 	if code == nil {
@@ -142,10 +175,33 @@ func (v *flatKVStateView) GetCodeSize(addr gigatypes.Address) int {
 	return len(v.GetCode(addr))
 }
 
+// physKeyBufLen holds the longest EVM physical key: "evm/" + kind byte + address + slot.
+const physKeyBufLen = len(keys.EVMStoreKey) + 2 + ktype.AddressLen + ktype.SlotLen
+
+// physKeyBufs holds scratch buffers for building physical keys that live only for one read.
+var physKeyBufs = sync.Pool{New: func() any { return new([physKeyBufLen]byte) }}
+
+// accountRow returns addr's account row, or false when no account exists in this block. The row
+// aliases store memory and is valid until the view is closed.
+func (v *flatKVStateView) accountRow(addr gigatypes.Address) (vtype.AccountRow, bool) {
+	raw, found := v.readEVMRow(v.blockView.AccountView(), ktype.EVMKeyAccount, addr[:])
+	if !found {
+		return vtype.AccountRow{}, false
+	}
+	account, err := vtype.ParseAccountRow(raw)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v", addr, v.blockView.BlockHeight(), err))
+	}
+	if account.IsDelete() {
+		return vtype.AccountRow{}, false
+	}
+	return account, true
+}
+
 // accountData returns the account row for the 20-byte address in keyBytes, or nil when no account
 // exists in this block.
 func (v *flatKVStateView) accountData(keyBytes []byte) *vtype.AccountData {
-	raw, found := v.readRow(v.blockView.AccountView(), ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes))
+	raw, found := v.readEVMRow(v.blockView.AccountView(), ktype.EVMKeyAccount, keyBytes)
 	account, err := parseRow(raw, found, vtype.DeserializeAccountData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v",
@@ -159,7 +215,7 @@ func (v *flatKVStateView) accountData(keyBytes []byte) *vtype.AccountData {
 
 // storageData returns the storage row for the addr||slot in keyBytes, or nil when the slot is unset.
 func (v *flatKVStateView) storageData(keyBytes []byte) *vtype.StorageData {
-	raw, found := v.readRow(v.blockView.StorageView(), ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes))
+	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, keyBytes)
 	storage, err := parseRow(raw, found, vtype.DeserializeStorageData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v",
@@ -173,7 +229,7 @@ func (v *flatKVStateView) storageData(keyBytes []byte) *vtype.StorageData {
 
 // codeData returns the code row for the 20-byte address in keyBytes, or nil when it has no code.
 func (v *flatKVStateView) codeData(keyBytes []byte) *vtype.CodeData {
-	raw, found := v.readRow(v.blockView.CodeView(), ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes))
+	raw, found := v.readEVMRow(v.blockView.CodeView(), keys.EVMKeyCode, keyBytes)
 	code, err := parseRow(raw, found, vtype.DeserializeCodeData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse code for %x at height %d: %v",
@@ -198,6 +254,20 @@ func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, boo
 	}
 	value := misc.GetValue()
 	return value, value != nil
+}
+
+// readEVMRow returns the bytes stored under an EVM physical key for kind and key parts.
+func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, bool) {
+	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], kind, keyParts[0])
+	for _, keyPart := range keyParts[1:] {
+		physKey = append(physKey, keyPart...)
+	}
+	value, found := v.readRow(dbView, physKey)
+	// Not deferred: readRow panics when the manager shuts down while a read worker may still hold
+	// physKey, and a buffer that may still be read must not go back to the pool.
+	physKeyBufs.Put(buf)
+	return value, found
 }
 
 // readRow returns the bytes stored under physKey, without deserializing them.

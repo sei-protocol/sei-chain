@@ -96,6 +96,22 @@ func registeredMethods(srv *grpc.Server) []string {
 	return methods
 }
 
+func deadlineServerOptions(cfg config.GRPCConfig) []grpc.ServerOption {
+	if cfg.RequestTimeout <= 0 {
+		return nil
+	}
+	enforcer := ratelimiter.NewDeadlineEnforcer(ratelimiter.DeadlineConfig{Default: cfg.RequestTimeout})
+	return []grpc.ServerOption{
+		// The stats handler puts the deadline on grpc-go's transport context so
+		// blocked stream operations observe it directly. Native gRPC admission
+		// runs earlier in the tap handler, while gRPC-Web admission wraps
+		// ServeHTTP, so rejected requests do not consume the deadline budget.
+		grpc.StatsHandler(deadlineStatsHandler{enforcer: enforcer}),
+		grpc.ChainUnaryInterceptor(unaryDeadlineInterceptor(enforcer)),
+		grpc.ChainStreamInterceptor(streamDeadlineInterceptor(enforcer)),
+	}
+}
+
 // StartGRPCServer starts a gRPC server on the address given by cfg. It returns
 // the rate-limit registry the server admits against, or nil when cfg leaves rate
 // limiting disabled, so the gRPC-Web server can share the same per-IP buckets.
@@ -127,6 +143,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 			PermitWithoutStream: cfg.KeepalivePermitWithoutStream,
 		}),
 	}, rateLimitOpts...)
+	serverOpts = append(serverOpts, deadlineServerOptions(cfg)...)
 
 	grpcSrv := grpc.NewServer(serverOpts...)
 	app.RegisterGRPCServer(grpcSrv)

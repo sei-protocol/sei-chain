@@ -296,6 +296,12 @@ rate-limiting-enabled = {{ .GRPC.RateLimitingEnabled }}
 # Empty means trust no proxy.
 trusted-proxy-cidrs = [{{- range $i, $c := .GRPC.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
 
+# request-timeout is the deadline applied to a gRPC request that carries no shorter
+# client-supplied grpc-timeout. It applies to
+# gRPC-Web (:9091) as well as native gRPC (:9090). 
+# Zero disables the default deadline, leaving only whatever deadline the client itself supplied.
+request-timeout = "{{ .GRPC.RequestTimeout }}"
+
 ###############################################################################
 ###                        gRPC Web Configuration (Auto-managed)            ###
 ###############################################################################

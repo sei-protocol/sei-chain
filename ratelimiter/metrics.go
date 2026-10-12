@@ -29,6 +29,16 @@ var (
 			metric.WithUnit("{connection}"),
 		)),
 	}
+
+	deadlineMetrics = struct {
+		exceededCounter metric.Int64Counter
+	}{
+		exceededCounter: must(registryMeter.Int64Counter(
+			"rpc_deadline_exceeded_total",
+			metric.WithDescription("Total RPC requests that exceeded their enforced deadline"),
+			metric.WithUnit("{request}"),
+		)),
+	}
 )
 
 func must[V any](v V, err error) V {

@@ -108,6 +108,7 @@ func prune(cfg *config.StorageGarbageCollectorConfig, stores []PrunableStore) er
 		"historyCutLine", historyCutLine,
 		"decisionByStore", describeDecisions(stores, decisions),
 	)
+	recordCycle(stores, decisions, snapshotCutLine, historyCutLine)
 	return pruneStores(stores, decisions, snapshotCutLine, historyCutLine)
 }
 
@@ -119,22 +120,36 @@ func pruneStores(
 	snapshotHeight uint64,
 	historyHeight uint64,
 ) error {
+	if snapshotHeight == 0 && historyHeight == 0 {
+		return nil
+	}
 	var errs error
 	for i, store := range stores {
 		if !decisions[i].externalPruning {
 			continue
 		}
-		if snapshotHeight > 0 {
-			if err := store.PruneSnapshots(snapshotHeight); err != nil {
-				errs = errors.Join(errs, fmt.Errorf("failed to prune %s snapshots below %d: %w",
-					store.Name(), snapshotHeight, err))
-			}
+		started := time.Now()
+		err := pruneStore(store, snapshotHeight, historyHeight)
+		recordStorePrune(store, time.Since(started), err)
+		errs = errors.Join(errs, err)
+	}
+	return errs
+}
+
+// pruneStore removes one store's snapshots below snapshotHeight and its history below historyHeight,
+// skipping a height of 0. A failure to prune snapshots does not stop history from being pruned.
+func pruneStore(store PrunableStore, snapshotHeight uint64, historyHeight uint64) error {
+	var errs error
+	if snapshotHeight > 0 {
+		if err := store.PruneSnapshots(snapshotHeight); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("failed to prune %s snapshots below %d: %w",
+				store.Name(), snapshotHeight, err))
 		}
-		if historyHeight > 0 {
-			if err := store.PruneHistory(historyHeight); err != nil {
-				errs = errors.Join(errs, fmt.Errorf("failed to prune %s history below %d: %w",
-					store.Name(), historyHeight, err))
-			}
+	}
+	if historyHeight > 0 {
+		if err := store.PruneHistory(historyHeight); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("failed to prune %s history below %d: %w",
+				store.Name(), historyHeight, err))
 		}
 	}
 	return errs

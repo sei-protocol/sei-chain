@@ -15,6 +15,8 @@ type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
 	qc     utils.Option[*types.LaneQC]
+	// qcCounted is set once this block has formed a LaneQC.
+	qcCounted bool
 }
 
 func newBlockVotes() *blockVotes {
@@ -31,6 +33,7 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 		return false
 	}
 	bv.byKey[k] = vote
+	meters.LaneVotesIngested.Add(1)
 	bv.credit(ep, vote)
 	return true
 }
@@ -43,6 +46,8 @@ func (bv *blockVotes) reweight(ep *types.Epoch) {
 	}
 }
 
+// credit adds the vote's weight to its header bucket and, on reaching quorum,
+// forms the LaneQC. A block is counted as a LaneQC only the first time it forms one.
 func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) {
 	if bv.qc.IsPresent() {
 		return
@@ -63,6 +68,10 @@ func (bv *blockVotes) credit(ep *types.Epoch, vote *types.Signed[*types.LaneVote
 	byHash.votes = append(byHash.votes, vote)
 	if byHash.weight >= c.LaneQuorum() {
 		bv.qc = utils.Some(types.NewLaneQC(byHash.votes))
+		if !bv.qcCounted {
+			bv.qcCounted = true
+			meters.LaneQCs.Add(1)
+		}
 	}
 }
 

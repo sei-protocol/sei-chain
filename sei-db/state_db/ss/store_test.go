@@ -49,4 +49,5 @@ func TestNewStateStore(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fmt.Sprintf("value%d", i), string(value))
 	}
+	require.NoError(t, stateStore.Close())
 }

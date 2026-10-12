@@ -114,6 +114,13 @@ def _eip7702_system_contract(item: pytest.Item) -> bool:
     )
 
 
+def _eip7702_reused_nonce_ordering(item: pytest.Item) -> bool:
+    return (
+        "tests/prague/eip7702_set_code_tx/test_set_code_txs.py" in item.nodeid
+        and getattr(item, "originalname", None) == "test_authorization_reusing_nonce"
+    )
+
+
 SKIP_RULES: tuple[SkipRule, ...] = (
     SkipRule(
         id="eip7623-admission",
@@ -153,6 +160,15 @@ SKIP_RULES: tuple[SkipRule, ...] = (
         id="eip7702-system-contract",
         reason="Sei genesis does not contain Ethereum system-contract bytecode.",
         matches=_eip7702_system_contract,
+    ),
+    SkipRule(
+        id="eip7702-reused-nonce-ordering",
+        reason=(
+            "Requires a transfer and a set-code authorization sharing its nonce, "
+            "sent by different senders, to land in one block in order, which a "
+            "live chain does not guarantee."
+        ),
+        matches=_eip7702_reused_nonce_ordering,
     ),
 )
 

@@ -77,17 +77,8 @@ func TestInitGenesis(t *testing.T) {
 	genesisState := types.NewGenesisState(params, validators, delegations)
 	vals := staking.InitGenesis(ctx, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, genesisState)
 
-	actualGenesis := staking.ExportGenesis(ctx, app.StakingKeeper)
-	require.Equal(t, genesisState.Params, actualGenesis.Params)
-	require.Equal(t, genesisState.Delegations, actualGenesis.Delegations)
-	require.EqualValues(t, app.StakingKeeper.GetAllValidators(ctx), actualGenesis.Validators)
-
-	// Ensure validators have addresses.
-	vals2, err := staking.WriteValidators(ctx, app.StakingKeeper)
-	require.NoError(t, err)
-	for _, val := range vals2 {
-		require.NotEmpty(t, val.Address)
-	}
+	require.Equal(t, genesisState.Params, app.StakingKeeper.GetParams(ctx))
+	require.Equal(t, genesisState.Delegations, app.StakingKeeper.GetAllDelegations(ctx))
 
 	// now make sure the validators are bonded and intra-tx counters are correct
 	resVal, found := app.StakingKeeper.GetValidator(ctx, sdk.ValAddress(addrs[0]))

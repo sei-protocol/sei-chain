@@ -226,6 +226,53 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	require.Equal(t, int64(6), s.Version())
 }
 
+func TestCheckVersionReachableCoversSeededFloorAndWAL(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer func() { require.NoError(t, s.Close()) }()
+
+	require.NoError(t, s.SetInitialVersion(10))
+	require.NoError(t, s.CheckVersionReachable(9), "seeded snapshot should be reachable without WAL replay")
+
+	err = s.CheckVersionReachable(8)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+
+	commitStorageEntry(t, s, ktype.Address{0xAA}, ktype.Slot{0x01}, []byte{0x10})
+	require.NoError(t, s.CheckVersionReachable(10), "WAL should bridge from the seed to the first block")
+
+	err = s.CheckVersionReachable(11)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+func TestLoadVersionReadOnlyBelowHistoryFailsBeforeCreatingWorkDir(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer func() { require.NoError(t, s.Close()) }()
+
+	require.NoError(t, s.SetInitialVersion(10))
+	require.Empty(t, readonlyWorkDirs(t, cfg.DataDir))
+
+	_, err = s.LoadVersionReadOnly(8)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+	require.Empty(t, readonlyWorkDirs(t, cfg.DataDir))
+}
+
+func readonlyWorkDirs(t *testing.T, dir string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, readOnlyDirPrefix+"*"))
+	require.NoError(t, err)
+	return matches
+}
+
 // TestResolveReplayRangeBounds exercises resolveReplayRange directly. It is the one piece of arithmetic both
 // replay destinations share, so a mistake here is a mistake in crash recovery and in read-only export at once.
 // The gap case matters most: silently shortening the range instead of erroring would commit a state whose
@@ -411,7 +458,7 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 
 // TestReplayConvergesOnPartialAccountFieldWrites pins the one case where replaying
 // a block into a DB that already holds it is not obviously a no-op. An account row
-// is a merge, not an overwrite: deriveNewAccountValues folds a nonce-only or
+// is a merge, not an overwrite: accountUpdater folds a nonce-only or
 // codehash-only update onto whatever is currently on disk. Replaying a range where
 // different blocks touch different fields therefore rebuilds the row field by field
 // through intermediate values that were never on-chain. It converges because the

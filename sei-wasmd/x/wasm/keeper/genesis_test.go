@@ -7,14 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"testing"
 	"time"
 
-	fuzz "github.com/google/gofuzz"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	distributionkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -34,122 +31,6 @@ import (
 )
 
 const firstCodeID = 1
-
-func TestGenesisExportImport(t *testing.T) {
-	wasmKeeper, srcCtx, srcStoreKeys := setupKeeper(t)
-	contractKeeper := NewGovPermissionKeeper(wasmKeeper)
-
-	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")
-	require.NoError(t, err)
-
-	// store some test data
-	f := fuzz.New().Funcs(ModelFuzzers...)
-
-	wasmKeeper.SetParams(srcCtx, types.DefaultParams())
-
-	for i := 0; i < 25; i++ {
-		var (
-			codeInfo          types.CodeInfo
-			contract          types.ContractInfo
-			stateModels       []types.Model
-			history           []types.ContractCodeHistoryEntry
-			pinned            bool
-			contractExtension bool
-		)
-		f.Fuzz(&codeInfo)
-		f.Fuzz(&contract)
-		f.Fuzz(&stateModels)
-		f.NilChance(0).Fuzz(&history)
-		f.Fuzz(&pinned)
-		f.Fuzz(&contractExtension)
-
-		creatorAddr, err := sdk.AccAddressFromBech32(codeInfo.Creator)
-		require.NoError(t, err)
-		codeID, err := contractKeeper.Create(srcCtx, creatorAddr, wasmCode, &codeInfo.InstantiateConfig)
-		require.NoError(t, err)
-		if pinned {
-			contractKeeper.PinCode(srcCtx, codeID)
-		}
-		if contractExtension {
-			anyTime := time.Now().UTC()
-			var nestedType govtypes.TextProposal
-			f.NilChance(0).Fuzz(&nestedType)
-			myExtension, err := govtypes.NewProposal(&nestedType, 1, anyTime, anyTime, false)
-			require.NoError(t, err)
-			contract.SetExtension(&myExtension)
-		}
-
-		contract.CodeID = codeID
-		contractAddr := wasmKeeper.generateContractAddress(srcCtx, codeID)
-		wasmKeeper.storeContractInfo(srcCtx, contractAddr, &contract)
-		wasmKeeper.appendToContractHistory(srcCtx, contractAddr, history...)
-		wasmKeeper.importContractState(srcCtx, contractAddr, stateModels)
-	}
-	var wasmParams types.Params
-	f.NilChance(0).Fuzz(&wasmParams)
-	wasmKeeper.SetParams(srcCtx, wasmParams)
-
-	// export
-	exportedState := ExportGenesis(srcCtx, wasmKeeper)
-	// order should not matter
-	rand.Shuffle(len(exportedState.Codes), func(i, j int) {
-		exportedState.Codes[i], exportedState.Codes[j] = exportedState.Codes[j], exportedState.Codes[i]
-	})
-	rand.Shuffle(len(exportedState.Contracts), func(i, j int) {
-		exportedState.Contracts[i], exportedState.Contracts[j] = exportedState.Contracts[j], exportedState.Contracts[i]
-	})
-	rand.Shuffle(len(exportedState.Sequences), func(i, j int) {
-		exportedState.Sequences[i], exportedState.Sequences[j] = exportedState.Sequences[j], exportedState.Sequences[i]
-	})
-	exportedGenesis, err := wasmKeeper.cdc.MarshalAsJSON(exportedState)
-	require.NoError(t, err)
-
-	// setup new instances
-	dstKeeper, dstCtx, dstStoreKeys := setupKeeper(t)
-
-	// reset contract code index in source DB for comparison with dest DB
-	wasmKeeper.IterateContractInfo(srcCtx, func(address sdk.AccAddress, info wasmTypes.ContractInfo) bool {
-		wasmKeeper.removeFromContractCodeSecondaryIndex(srcCtx, address, wasmKeeper.getLastContractHistoryEntry(srcCtx, address))
-		prefixStore := prefix.NewStore(srcCtx.KVStore(wasmKeeper.storeKey), types.GetContractCodeHistoryElementPrefix(address))
-		iter := prefixStore.Iterator(nil, nil)
-
-		for ; iter.Valid(); iter.Next() {
-			prefixStore.Delete(iter.Key())
-		}
-		x := &info
-		newHistory := x.ResetFromGenesis(dstCtx)
-		wasmKeeper.storeContractInfo(srcCtx, address, x)
-		wasmKeeper.addToContractCodeSecondaryIndex(srcCtx, address, newHistory)
-		wasmKeeper.appendToContractHistory(srcCtx, address, newHistory)
-		_ = iter.Close()
-		return false
-	})
-
-	// re-import
-	var importState wasmTypes.GenesisState
-	err = dstKeeper.cdc.UnmarshalAsJSON(exportedGenesis, &importState)
-	require.NoError(t, err)
-	InitGenesis(dstCtx, dstKeeper, importState, &StakingKeeperMock{}, TestHandler(contractKeeper))
-
-	// compare whole DB
-	for j := range srcStoreKeys {
-		srcIT := srcCtx.KVStore(srcStoreKeys[j]).Iterator(nil, nil)
-		dstIT := dstCtx.KVStore(dstStoreKeys[j]).Iterator(nil, nil)
-
-		for i := 0; srcIT.Valid(); i++ {
-			require.True(t, dstIT.Valid(), "[%s] destination DB has less elements than source. Missing: %x", srcStoreKeys[j].Name(), srcIT.Key())
-			require.Equal(t, srcIT.Key(), dstIT.Key(), i)
-			require.Equal(t, srcIT.Value(), dstIT.Value(), "[%s] element (%d): %X", srcStoreKeys[j].Name(), i, srcIT.Key())
-			dstIT.Next()
-			srcIT.Next()
-		}
-		if !assert.False(t, dstIT.Valid()) {
-			t.Fatalf("dest Iterator still has key :%X", dstIT.Key())
-		}
-		srcIT.Close()
-		dstIT.Close()
-	}
-}
 
 func TestGenesisInit(t *testing.T) {
 	wasmCode, err := os.ReadFile("./testdata/hackatom.wasm")

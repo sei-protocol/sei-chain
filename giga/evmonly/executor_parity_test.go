@@ -958,7 +958,7 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 			Logs:              txLogs,
 			TxHash:            tx.Hash(),
 			GasUsed:           execResult.UsedGas,
-			EffectiveGasPrice: effectiveGasPrice(&tx, baseFee),
+			EffectiveGasPrice: EffectiveGasPrice(&tx, baseFee),
 			BlockHash:         ctx.BlockHash,
 			BlockNumber:       new(big.Int).SetUint64(ctx.Number),
 			TransactionIndex:  txIndexUint,

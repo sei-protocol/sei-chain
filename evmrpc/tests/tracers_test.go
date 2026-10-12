@@ -68,24 +68,23 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 			}
 			bz, err := json.Marshal(args)
 			require.Nil(t, err)
-			// error when traced on a block prior to v6.0.5
 			res := sendRequestWithNamespace("debug", port, "traceCall", bz, "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			errMsg := res["result"].([]interface{})[0].(map[string]interface{})["error"].(string)
-			require.Contains(t, errMsg, "no method with id")
-			// no error when traced on a block post v6.0.5
+			resultMap := res["result"].([]interface{})[0].(map[string]interface{})
+			require.NotContains(t, resultMap, "error")
+
 			res = sendRequestWithNamespace("debug", port, "traceCall", bz, "0x3", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			resultMap := res["result"].([]interface{})[0].(map[string]interface{})
+			resultMap = res["result"].([]interface{})[0].(map[string]interface{})
 			require.NotContains(t, resultMap, "error")
 		},
 	)
 }
 
 func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
-	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	txBzList := make([][]byte, 100)
 	for nonce := 1; nonce <= 100; nonce++ {
 		txBzList[nonce-1] = signAndEncodeTx(sendErc20(uint64(nonce)), erc20DeployerMnemonics)
@@ -123,7 +122,7 @@ func TestTraceStateAccess(t *testing.T) {
 }
 
 func TestTraceTransactionProfile(t *testing.T) {
-	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	txData := callWasmIter(0, cwIter)
 	signedTx := signTxWithMnemonic(txData, mnemonic1)
 	txBz := encodeEvmTx(txData, signedTx)
@@ -200,7 +199,7 @@ func TestTraceBlockByNumberDefaultTracerDoesNotAbortOnFailedTx(t *testing.T) {
 }
 
 func TestTraceBlockByNumberDefaultTracerMatchesTraceTransaction(t *testing.T) {
-	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 
 	tx1Data := callWasmIter(0, cwIter)
 	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)

@@ -474,13 +474,13 @@ func TestSimulateTx(t *testing.T) {
 		require.Nil(t, err)
 
 		// simulate a message, check gas reported
-		gInfo, result, err := app.Simulate(txBytes)
+		gInfo, result, err := app.Simulate(context.Background(), txBytes)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Equal(t, gasConsumed, gInfo.GasUsed)
 
 		// simulate again, same result
-		gInfo, result, err = app.Simulate(txBytes)
+		gInfo, result, err = app.Simulate(context.Background(), txBytes)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Equal(t, gasConsumed, gInfo.GasUsed)
@@ -506,6 +506,40 @@ func TestSimulateTx(t *testing.T) {
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 	}
+}
+
+// TestSimulatePropagatesCallerContext pins that the context.Context Simulate
+// is called with reaches message execution through sdk.Context, rather than
+// stopping at the interceptor boundary. A deadline on that context must bound
+// the run itself; this only proves the plumbing carries it as far as the
+// message handler sees, not that every store operation honors it.
+func TestSimulatePropagatesCallerContext(t *testing.T) {
+	type ctxKey struct{}
+	want := context.WithValue(t.Context(), ctxKey{}, "caller-context")
+
+	var gotCtx context.Context
+	routerOpt := func(bapp *BaseApp) {
+		r := sdk.NewRoute(routeMsgCounter, func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+			gotCtx = ctx.Context()
+			return &sdk.Result{}, nil
+		})
+		bapp.Router().AddRoute(r)
+	}
+
+	app := setupBaseApp(t, routerOpt)
+	app.InitChain(&abci.RequestInitChain{})
+
+	cdc := codec.NewLegacyAmino()
+	registerTestCodec(cdc)
+	app.setDeliverState(tmproto.Header{Height: 1})
+
+	tx := newTxCounter(1, 0)
+	txBytes, err := cdc.Marshal(tx)
+	require.NoError(t, err)
+
+	_, _, err = app.Simulate(want, txBytes)
+	require.NoError(t, err)
+	require.Equal(t, "caller-context", gotCtx.Value(ctxKey{}))
 }
 
 func TestInitChainGenesisFlagDoesNotLeakToCheckOrSimulateBeforeFirstCommit(t *testing.T) {
@@ -560,7 +594,7 @@ func TestInitChainGenesisFlagDoesNotLeakToCheckOrSimulateBeforeFirstCommit(t *te
 
 	txBytes, err := aminoTxEncoder()(tx)
 	require.NoError(t, err)
-	_, _, err = app.Simulate(txBytes)
+	_, _, err = app.Simulate(context.Background(), txBytes)
 	require.NoError(t, err)
 
 	require.Len(t, anteCalls, 2)

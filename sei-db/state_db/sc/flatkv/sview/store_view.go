@@ -96,26 +96,40 @@ func (sv *StoreView) Views() []view.View {
 	return sv.viewSlice
 }
 
-// Reserve() takes one reservation on every store's view. A failure stops there, leaving what it
-// already took held: a view manager error is unrecoverable, so the node is going down anyway.
+// Reserve() takes one reservation on every store's view. A failure stops there and abandons every view,
+// leaving what it already took held: a view manager error is unrecoverable, so the node is going down
+// anyway.
 func (sv *StoreView) Reserve() error {
 	for _, dbView := range sv.viewSlice {
 		if err := dbView.Reserve(); err != nil {
+			sv.Abandon()
 			return fmt.Errorf("reserve %s view at height %d: %w", dbView.Name(), sv.blockHeight, err)
 		}
 	}
 	return nil
 }
 
-// Releases one reservation on every store's view. A failure stops there, for the same reason
-// Reserve() does.
+// Releases one reservation on every store's view. A failure stops there and abandons every view, for
+// the same reason Reserve() does.
 func (sv *StoreView) Release() error {
 	for _, dbView := range sv.viewSlice {
 		if err := dbView.Release(); err != nil {
+			sv.Abandon()
 			return fmt.Errorf("release %s view at height %d: %w", dbView.Name(), sv.blockHeight, err)
 		}
 	}
 	return nil
+}
+
+// Abandon() gives up on every store's view without releasing its reservations. It is for failure paths
+// on which the node is going down. A no-op on a nil receiver.
+func (sv *StoreView) Abandon() {
+	if sv == nil {
+		return
+	}
+	for _, dbView := range sv.viewSlice {
+		dbView.Abandon()
+	}
 }
 
 // AwaitFlush() blocks until every store has written this view's block to disk. The caller must hold a

@@ -76,11 +76,9 @@
 // which triggers rebroadcasting to peers:
 //   - Votes (prepareVote, commitVote, timeoutVote): YES - rebroadcast via sendUpdates
 //   - TimeoutQC: YES - rebroadcast via myTimeoutQC watch
-//   - CommitQC: NO - used locally for view justification but not rebroadcast;
-//     the runtime tip comes from ConsensusSpec, while the WAL stores only
-//     Index. CommitQCs are served via StreamCommitQCs from the data
-//     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
-//     sync faster after cluster-wide outages.
+//   - CommitQC: NO - used locally for view justification but not rebroadcast.
+//     The tip comes from avail's ConsensusSpec, and avail serves CommitQCs on
+//     StreamCommitQCs. The WAL stores only Index.
 package consensus
 
 import (
@@ -88,6 +86,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -176,6 +175,11 @@ func (s *State) waitForView(ctx context.Context, view types.View) (types.ViewSpe
 	return s.myView.Wait(ctx, func(v types.ViewSpec) bool { return !v.View().Less(view) })
 }
 
+// waitForEpoch waits until myView's epoch index is at least idx.
+func (s *State) waitForEpoch(ctx context.Context, idx types.EpochIndex) (types.ViewSpec, error) {
+	return s.myView.Wait(ctx, func(v types.ViewSpec) bool { return v.Epoch.EpochIndex() >= idx })
+}
+
 func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	i, err := s.innerRecv.Wait(ctx, func(i inner) bool { return i.View().Index >= qc.View().Index })
 	if err != nil {
@@ -188,16 +192,23 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	if err := qc.Verify(i.spec.Epoch, i.spec.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
+	var leader types.PublicKey
+	applied := false
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
 		if qc.View().Less(i.View()) {
 			return nil
 		}
 		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
+		leader = i.spec.Epoch.Committee().Leader(qc.View())
 		isend.Store(inner{
 			persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(qc)},
 			spec:           i.spec,
 		})
+		applied = true
+	}
+	if applied {
+		meters.Timeouts.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 	}
 	return nil
 }
@@ -213,7 +224,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	if err := proposal.Verify(vs); err != nil {
+	if err := proposal.Verify(vs, s.cfg.ProposalTimeout); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.
@@ -261,6 +272,9 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 	if _, err := s.waitForView(ctx, view); err != nil {
 		return err
 	}
+	var leader types.PublicKey
+	var phase string
+	voted := false
 	for isend := range s.inner.Lock() {
 		i := isend.Load()
 		if i.View() != view || i.TimeoutVote.IsPresent() {
@@ -274,9 +288,27 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		if tqc, ok := i.TimeoutQC.Get(); ok && !pqc.IsPresent() {
 			pqc = tqc.LatestPrepareQC()
 		}
+		phase = i.timeoutPhase()
+		leader = i.spec.Epoch.Committee().Leader(view)
 		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc)
 		i.TimeoutVote = utils.Some(v)
 		isend.Store(i)
+		voted = true
+	}
+	if voted {
+		meters.TimeoutVotes.WithLabelValues(leader.ED25519().Address().String(), phase).Add(1)
 	}
 	return nil
+}
+
+// timeoutPhase is this replica's progress in the current view for a timeout vote.
+// A PrepareQC inherited from a prior TimeoutQC is not this view's proposal.
+func (i inner) timeoutPhase() string {
+	if i.PrepareQC.IsPresent() {
+		return metrics.PhaseNoCommit
+	}
+	if i.PrepareVote.IsPresent() {
+		return metrics.PhaseNoPrepareQC
+	}
+	return metrics.PhaseNoProposal
 }

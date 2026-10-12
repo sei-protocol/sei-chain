@@ -179,6 +179,11 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 	if err := rd.DeleteRange(lower, upper, dbtypes.WriteOptions{}); err != nil {
 		return fmt.Errorf("failed to delete tag index entries above block %d: %w", highestBlockToKeep, err)
 	}
+	statsLower := blockStatsKey(highestBlockToKeep + 1)
+	statsUpper := prefixSuccessor([]byte{blockStatsKeyPrefix})
+	if err := rd.DeleteRange(statsLower, statsUpper, dbtypes.WriteOptions{}); err != nil {
+		return fmt.Errorf("failed to delete block stats entries above block %d: %w", highestBlockToKeep, err)
+	}
 	newLatest := encodeBlockNumber(highestBlockToKeep)
 	if err := index.Set(receiptLatestVersionKey, newLatest, dbtypes.WriteOptions{}); err != nil {
 		return fmt.Errorf("failed to update latest block metadata: %w", err)

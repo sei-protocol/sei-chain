@@ -5,6 +5,7 @@ import (
 	"time"
 
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,27 @@ func TestGetParamsIfExists(t *testing.T) {
 
 	// Assert that the missing parameter has its default value
 	require.Equal(t, types.DefaultParams().DeliverTxHookWasmGasLimit, params.DeliverTxHookWasmGasLimit)
+}
+
+func TestGetSstoreSetGasEIP2200(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+
+	require.Equal(t, types.DefaultSeiSstoreSetGasEIP2200, k.GetSstoreSetGasEIP2200(ctx))
+
+	// SetParams rejects 0 ...
+	p := k.GetParams(ctx)
+	p.SeiSstoreSetGasEip2200 = 0
+	require.Error(t, p.Validate())
+
+	// ... but a store with the key absent/zero (pre-param heights, or a migration
+	// that materializes an explicit 0) falls back to the legacy value.
+	k.Paramstore.Set(ctx, types.KeySeiSstoreSetGasEIP2200, uint64(0))
+	require.Equal(t, keeper.LegacySstoreSetGasEIP2200, k.GetSstoreSetGasEIP2200(ctx))
+	require.Equal(t, uint64(20000), keeper.LegacySstoreSetGasEIP2200)
+
+	k.Paramstore.Set(ctx, types.KeySeiSstoreSetGasEIP2200, uint64(72000))
+	require.Equal(t, uint64(72000), k.GetSstoreSetGasEIP2200(ctx))
 }
 
 func TestParamGettersTracingVersions(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -84,6 +85,47 @@ func TestReceiptsDisabled(t *testing.T) {
 	require.NotNil(t, manager.SC())
 	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.SS())
+}
+
+// TestReceiptsDisabledRefusesAStoreWithHistory pins that a node cannot run with receipts disabled while
+// its receipt store still holds receipts. Re-enabling them later would converge every store on that
+// store's stale head, so the transition is refused up front for the operator to clear the directory.
+func TestReceiptsDisabledRefusesAStoreWithHistory(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	first, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	writeReceipts(t, first, 2)
+	require.Eventually(t, func() bool { return first.ReceiptDB().LatestVersion() == 2 },
+		5*time.Second, 10*time.Millisecond)
+	require.NoError(t, first.Close())
+
+	cfg.ReceiptDBConfig.Enable = false
+	_, err = NewGigaStorageManager(t.Context(), cfg)
+	require.ErrorIs(t, err, ErrReceiptStoreDisabledWithHistory)
+
+	// The refusal releases everything it opened: the same home opens once receipts are enabled again.
+	cfg.ReceiptDBConfig.Enable = true
+	second, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), second.ReceiptDB().LatestVersion())
+	require.NoError(t, second.Close())
+}
+
+// TestReceiptsDisabledTakesAnEmptyStore pins that a receipt store that was opened but never written
+// does not block disabling receipts.
+func TestReceiptsDisabledTakesAnEmptyStore(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	first, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, first.Close())
+
+	cfg.ReceiptDBConfig.Enable = false
+	second, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Nil(t, second.ReceiptDB())
+	require.NoError(t, second.Close())
 }
 
 // TestStateStoreDisabled pins that SS has an Enable of its own, and that every step after the open

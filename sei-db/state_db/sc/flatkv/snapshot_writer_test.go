@@ -84,6 +84,8 @@ func (v *fakeView) Release() error {
 	return v.releaseErr
 }
 
+func (v *fakeView) Abandon() {}
+
 func (v *fakeView) Get([]byte, bool) ([]byte, bool, error) {
 	panic("fakeView: unexpected Get")
 }
@@ -92,8 +94,8 @@ func (v *fakeView) BatchGet([][]byte) (map[string][]byte, error) {
 	panic("fakeView: unexpected BatchGet")
 }
 
-func (v *fakeView) GetDiff() (map[string][]byte, error) {
-	panic("fakeView: unexpected GetDiff")
+func (v *fakeView) ForEachDiff(func(key string, value []byte) error) error {
+	panic("fakeView: unexpected ForEachDiff")
 }
 
 func (v *fakeView) Finalize([]*proto.KVPair) error {

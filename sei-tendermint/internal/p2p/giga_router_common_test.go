@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"sync/atomic"
 	"testing"
@@ -144,16 +145,22 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: validatorAddrs,
-		GenDoc:         genDoc,
-		App:            proxy.New(&fixedHeightApp{height: int64(last)}),
-	}, db)
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     validatorAddrs,
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+	}
+	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
 	got, err := state.TryBlock(last)
 	require.NoError(t, err)
 	require.Equal(t, blocks[gr.Len()/2].Header().Hash(), got.Header().Hash())
+
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+	require.Equal(t, atypes.ExecutedBlock{Number: last}, router.ExecutedBlocks().Load().Latest())
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
@@ -240,10 +247,11 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		GenDoc:         genDoc,
-		App:            proxy.New(&fixedHeightApp{height: 1}),
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(&fixedHeightApp{height: 1}),
 	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{
@@ -784,4 +792,36 @@ func TestCommitteeWeights_DuplicateKey(t *testing.T) {
 		{PubKey: pk, Power: 2},
 	})
 	require.Error(t, err)
+}
+
+// A peer that accepts and then says nothing must return from the handshake.
+func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
+	rng := utils.TestRng()
+	addr := tcp.TestReserveAddr()
+	listener, err := tcp.Listen(addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, listener.Close()) })
+	router := &gigaRouterCommon{
+		cfg: &GigaRouterCommonConfig{HandshakeTimeout: utils.Some(100 * time.Millisecond)},
+		key: makeKey(rng),
+	}
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			// Hold the accepted connection open without ever speaking.
+			conn, err := listener.AcceptOrClose(ctx)
+			if err != nil {
+				return err
+			}
+			return conn.Run(ctx)
+		})
+		return router.dialAndRunConn(ctx, atypes.GenSecretKey(rng).Public(), makeKey(rng).Public(),
+			tcp.HostPort{Hostname: addr.Addr().String(), Port: addr.Port()},
+			func(context.Context, rpc.Client[giga.API]) error { return nil })
+	})
+	// Cancelling the handshake half-closes the socket, so the connection pump
+	// often reports EOF before handshake returns the deadline.
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, io.EOF) {
+		t.Fatalf("dialAndRunConn() = %v, want context.DeadlineExceeded or io.EOF", err)
+	}
 }

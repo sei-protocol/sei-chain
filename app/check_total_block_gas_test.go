@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -16,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -175,7 +175,7 @@ func TestCheckTotalBlockGas_OracleVoteCountsTowardLimit(t *testing.T) {
 	tw := NewTestWrapper(t, time.Now().UTC(), valPub, false)
 
 	valAddr := sdk.ValAddress(valPub.Address())
-	vote := &oracletypes.MsgAggregateExchangeRateVote{
+	vote := &retiredoracle.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        sdk.AccAddress(valAddr).String(),
 		Validator:     valAddr.String(),

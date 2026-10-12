@@ -1,47 +1,32 @@
 package pointer_test
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddNative(t *testing.T) {
+// TestRetiredPrecompileRejectsCalls uses a denom carrying the bank metadata the
+// creation path required, so a passing run means the revert is the retirement rather
+// than the missing-metadata rejection that preceded it.
+func TestRetiredPrecompileRejectsCalls(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	p, err := pointer.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
+	precompile, err := pointer.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-	_, caller := testkeeper.MockAddressPair()
-	suppliedGas := uint64(10000000)
-	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
-
-	// token has no metadata
-	m, err := p.ABI.MethodById(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID)
-	require.Nil(t, err)
-	args, err := m.Inputs.Pack("test")
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
-	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
-	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
-	require.NotNil(t, err)
-	require.NotNil(t, statedb.GetPrecompileError())
-	require.Equal(t, uint64(0), g)
-	_, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
-	require.False(t, exists)
-	// token has metadata
 	testApp.BankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
 		Base:   "test",
 		Name:   "base_name",
@@ -52,42 +37,77 @@ func TestAddNative(t *testing.T) {
 			Aliases:  []string{"DENOM"},
 		}},
 	})
-	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, false)
-	evm = vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
-	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
-	require.Nil(t, err)
-	require.Equal(t, uint64(8886002), g)
-	outputs, err := m.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	addr := outputs[0].(common.Address)
-	pointerAddr, version, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
-	require.Equal(t, addr, pointerAddr)
-	require.Equal(t, native.CurrentVersion, version)
-	require.True(t, exists)
-	_, err = statedb.Finalize()
-	require.Nil(t, err)
-	hasRegisteredEvent := false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-		require.Equal(t, types.EventTypePointerRegistered, e.Type)
-		require.Equal(t, "native", string(e.Attributes[0].Value))
-	}
-	require.True(t, hasRegisteredEvent)
 
-	// upgrade to a newer version
-	// hacky way to get the existing version number to be below CurrentVersion
-	testApp.EvmKeeper.DeleteERC20NativePointer(statedb.Ctx(), "test", version)
-	testApp.EvmKeeper.SetERC20NativePointerWithVersion(statedb.Ctx(), "test", pointerAddr, version-1)
-	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
-	evm = vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
-	_, _, err = p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
-	require.Nil(t, err)
-	require.Nil(t, statedb.GetPrecompileError())
-	newAddr, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
-	require.True(t, exists)
-	require.Equal(t, addr, pointerAddr)
-	require.Equal(t, newAddr, pointerAddr) // address should stay the same as before
+	_, caller := testkeeper.MockAddressPair()
+	suppliedGas := uint64(10000000)
+	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
+	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
+
+	for _, name := range []string{
+		"addNativePointer",
+		"addCW20Pointer",
+		"addCW721Pointer",
+		"addCW1155Pointer",
+	} {
+		t.Run(name, func(t *testing.T) {
+			method := precompile.ABI.Methods[name]
+			inputs, packErr := method.Inputs.Pack("test")
+			require.NoError(t, packErr)
+
+			statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+			evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
+			ret, _, runErr := precompile.RunAndCalculateGas(
+				evm,
+				caller,
+				caller,
+				append(method.ID, inputs...),
+				suppliedGas,
+				nil,
+				nil,
+				false,
+				false,
+			)
+
+			require.ErrorIs(t, runErr, vm.ErrExecutionReverted)
+			require.ErrorIs(t, statedb.GetPrecompileError(), pointer.ErrPointerPrecompileRetired)
+			reason, unpackErr := abi.UnpackRevert(ret)
+			require.NoError(t, unpackErr)
+			require.Equal(t, pointer.ErrPointerPrecompileRetired.Error(), reason)
+		})
+	}
+
+	_, _, exists := testApp.EvmKeeper.GetERC20NativePointer(ctx, "test")
+	require.False(t, exists)
+}
+
+func TestRetiredPrecompileRejectsValue(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	precompile, err := pointer.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	_, caller := testkeeper.MockAddressPair()
+	suppliedGas := uint64(10000000)
+	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
+	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
+
+	method := precompile.ABI.Methods["addNativePointer"]
+	inputs, err := method.Inputs.Pack("test")
+	require.NoError(t, err)
+
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
+	_, _, err = precompile.RunAndCalculateGas(
+		evm,
+		caller,
+		caller,
+		append(method.ID, inputs...),
+		suppliedGas,
+		big.NewInt(1),
+		nil,
+		false,
+		false,
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
 }

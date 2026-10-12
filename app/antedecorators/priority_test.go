@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -16,7 +17,6 @@ import (
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 func TestPriorityAnteDecorator(t *testing.T) {
@@ -48,7 +48,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 		ctx.WithPriority(math.MaxInt64-50),
 		FakeTx{
 			FakeMsgs: []sdk.Msg{
-				&oracletypes.MsgDelegateFeedConsent{},
+				&retiredoracle.MsgDelegateFeedConsent{},
 			},
 		},
 		false,
@@ -69,7 +69,7 @@ func TestPriorityAnteDecoratorOracleMsgUsesNormalPriority(t *testing.T) {
 		ctx.WithPriority(0),
 		FakeTx{
 			FakeMsgs: []sdk.Msg{
-				&oracletypes.MsgAggregateExchangeRateVote{},
+				&retiredoracle.MsgAggregateExchangeRateVote{},
 			},
 		},
 		false,

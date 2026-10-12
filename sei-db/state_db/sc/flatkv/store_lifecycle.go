@@ -59,6 +59,10 @@ func (s *CommitStore) Close() error {
 		s.ltHashPool.Close()
 		s.ltHashPool = nil
 	}
+	if s.sortPool != nil {
+		s.sortPool.Close()
+		s.sortPool = nil
+	}
 	err := errors.Join(storeErr, s.closeDBsOnly())
 
 	// FlatKV owns Close of whatever WAL instance it currently holds (the injected one, or a replacement made

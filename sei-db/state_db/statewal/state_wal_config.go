@@ -48,7 +48,7 @@ func DefaultConfig(path string, name string) *Config {
 		Path:                  path,
 		Name:                  name,
 		RequestBufferSize:     16,
-		WriteBufferSize:       s.WriteBufferSize,
+		WriteBufferSize:       2048,
 		TargetFileSize:        s.TargetFileSize,
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,

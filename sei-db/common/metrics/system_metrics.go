@@ -57,7 +57,7 @@ func StartSystemMetrics(ctx context.Context, prefix string, intervalSeconds int,
 			metric.WithDescription(fmt.Sprintf("Approximate size in bytes of the %s directory", dir.Name)),
 			metric.WithUnit("By"),
 		)
-		startPeriodicSampling(ctx, intervalSeconds, func() {
+		StartPeriodicSampling(ctx, intervalSeconds, func() {
 			sizeGauge.Record(context.Background(), measureDirSize(dir.Path))
 		})
 
@@ -68,7 +68,7 @@ func StartSystemMetrics(ctx context.Context, prefix string, intervalSeconds int,
 					"Available disk space in bytes on the filesystem containing the %s directory", dir.Name)),
 				metric.WithUnit("By"),
 			)
-			startPeriodicSampling(ctx, intervalSeconds, func() {
+			StartPeriodicSampling(ctx, intervalSeconds, func() {
 				availGauge.Record(context.Background(), measureAvailableBytes(dir.Path))
 			})
 		}
@@ -84,9 +84,9 @@ func StartSystemMetrics(ctx context.Context, prefix string, intervalSeconds int,
 	startProcessIOSampling(ctx, meter, prefix, intervalSeconds)
 }
 
-// startPeriodicSampling runs sampleFn immediately and then every intervalSeconds
+// StartPeriodicSampling runs sampleFn immediately and then every intervalSeconds
 // in a background goroutine. The goroutine exits when ctx is cancelled.
-func startPeriodicSampling(ctx context.Context, intervalSeconds int, sampleFn func()) {
+func StartPeriodicSampling(ctx context.Context, intervalSeconds int, sampleFn func()) {
 	if intervalSeconds <= 0 || sampleFn == nil {
 		return
 	}

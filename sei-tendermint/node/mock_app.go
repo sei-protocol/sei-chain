@@ -146,6 +146,10 @@ func (app *MockApp) EvmNonce(addr common.Address) uint64 {
 
 func (app *MockApp) EvmBalance(common.Address, []byte) uint256.Int { return baseBalance }
 
+func (app *MockApp) EvmChainID() uint64 {
+	return app.app.EvmChainID()
+}
+
 func (app *MockApp) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return nil, errMockAppProcessProposal
 }

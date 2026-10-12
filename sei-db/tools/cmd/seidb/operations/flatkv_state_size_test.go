@@ -71,7 +71,7 @@ func TestClassifyFlatKVPhysicalKey(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.expected, classifyFlatKVPhysicalKey(tc.key))
+			require.Equal(t, tc.expected, ClassifyFlatKVPhysicalKey(tc.key))
 		})
 	}
 }

@@ -93,6 +93,13 @@ type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
 
+	// SetString sets the value for the given key, which the implementation must not retain: a
+	// string key lets the caller pass a map key straight through without converting it to bytes.
+	SetString(key string, value []byte) error
+
+	// DeleteString deletes the value for the given key, which the implementation must not retain.
+	DeleteString(key string) error
+
 	// Commit applies the batch atomically: after a crash it is either fully present or fully absent.
 	// Sequential commits on the same DB become durable in commit order — a crash may lose a suffix of
 	// commits, never an earlier commit while retaining a later one.
@@ -241,11 +248,4 @@ type SnapshotNode struct {
 	StoreKey string
 	Key      []byte
 	Value    []byte
-}
-
-type RawSnapshotNode struct {
-	StoreKey string
-	Key      []byte
-	Value    []byte
-	Version  int64
 }

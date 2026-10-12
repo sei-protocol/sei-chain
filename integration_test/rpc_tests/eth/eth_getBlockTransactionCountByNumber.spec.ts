@@ -136,14 +136,14 @@ describe('eth_getBlockTransactionCountByNumber', function () {
         });
     });
 
-    describe('dual-VM: a pointer-backed CW20 wasm transfer is not counted', () => {
+    describe('dual-VM: a CW20 wasm transfer is not counted', () => {
         let height: number | undefined;
         let cosmos: Cw20ExecResult;
         let evm: { number: number; hash: string; tx: SentTx };
 
         before(async function () {
             this.timeout(180 * 1000);
-            if (!runtime.wasm) this.skip(); // wasm-disabled chain: no CW20 / pointer fixture
+            if (!runtime.wasm) this.skip(); // wasm-disabled chain: no CW20 fixture
             const evmSigner = claimPool(runtime, sei, 1, 'eth_getBlockTransactionCountByNumber:wasm')[0];
             for (let attempt = 0; attempt < 4 && height === undefined; attempt++) {
                 const recipient = await generateSeiAddress();
@@ -160,13 +160,13 @@ describe('eth_getBlockTransactionCountByNumber', function () {
             if (height === undefined) this.skip();
         });
 
-        it('the count equals the EVM tx count, excluding the pointer-backed CW20 tx', async () => {
+        it('the count equals the EVM tx count, excluding the CW20 tx', async () => {
             const [count, block] = await Promise.all([
                 txCountByNumber(sei, height!),
                 sei.send('eth_getBlockByNumber', [ethers.toQuantity(height!), false]),
             ]);
             // The CW20 transfer and the EVM tx share this block, but only the EVM tx counts —
-            // the pointer's synthetic Transfer log does not promote the wasm tx into the block.
+            // a CosmWasm execution never enters the EVM block's transaction list.
             const hashes = block.transactions.map((h: string) => h.toLowerCase());
             const cosmosAsEvmHash = '0x' + cosmos.hash.toLowerCase();
             expect(hashes, 'EVM tx present').to.include(evm.tx.hash.toLowerCase());

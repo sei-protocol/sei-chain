@@ -3,7 +3,9 @@ package cmd
 import (
 	"github.com/sei-protocol/sei-chain/admin"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -30,11 +32,13 @@ type CustomAppConfig struct {
 	WASM            WASMConfig                     `mapstructure:"wasm"`
 	EVM             evmrpcconfig.Config            `mapstructure:"evm"`
 	GigaExecutor    gigaconfig.Config              `mapstructure:"giga_executor"`
+	Giga            giganodeconfig.Config          `mapstructure:"giga"`
 	ETHReplay       replay.Config                  `mapstructure:"eth_replay"`
 	ETHBlockTest    blocktest.Config               `mapstructure:"eth_block_test"`
 	EvmQuery        querier.Config                 `mapstructure:"evm_query"`
 	LightInvariance seiapp.LightInvarianceConfig   `mapstructure:"light_invariance"`
 	Admin           admin.Config                   `mapstructure:"admin_server"`
+	CosmosMetrics   cosmosmetrics.Config           `mapstructure:"cosmos_metrics"`
 }
 
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
@@ -50,10 +54,12 @@ func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Con
 		},
 		EVM:             evmConfig,
 		GigaExecutor:    gigaconfig.DefaultConfig,
+		Giga:            giganodeconfig.DefaultConfig,
 		ETHReplay:       replay.DefaultConfig,
 		ETHBlockTest:    blocktest.DefaultConfig,
 		EvmQuery:        querier.DefaultConfig,
 		LightInvariance: seiapp.DefaultLightInvarianceConfig,
 		Admin:           admin.DefaultConfig,
+		CosmosMetrics:   cosmosmetrics.DefaultConfig,
 	}
 }

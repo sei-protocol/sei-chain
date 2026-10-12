@@ -136,6 +136,38 @@ func TestOfflinePruneAfter(t *testing.T) {
 	require.Len(t, logs, keepThrough, "tag index should only report surviving blocks")
 }
 
+// TestOfflinePruneAfterRemovesBlockStats verifies that a rollback also discards the block-stats entries
+// above the target height, so a rolled-back block's stats don't linger for a height that no longer exists.
+func TestOfflinePruneAfterRemovesBlockStats(t *testing.T) {
+	dir := t.TempDir()
+	store, ctx := setupLittIdx(t, dir)
+
+	addr := common.HexToAddress("0xc0de")
+	topic := common.HexToHash("0xdead")
+	const count = 10
+	const keepThrough = 6
+	for block := uint64(1); block <= count; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+	require.NoError(t, store.Close())
+
+	cfg := offlineCfg(dir)
+	require.NoError(t, receipt.PruneAfter(cfg, keepThrough))
+
+	store, ctx = setupLittIdx(t, dir)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	for block := uint64(1); block <= count; block++ {
+		stats, err := store.GetBlockStats(ctx, block)
+		if block <= keepThrough {
+			require.NoErrorf(t, err, "block %d's stats should survive", block)
+			require.Equal(t, uint32(1), stats.TxCount)
+		} else {
+			require.ErrorIsf(t, err, receipt.ErrBlockStatsNotSupported, "block %d's stats should have been rolled back", block)
+		}
+	}
+}
+
 // TestOfflinePruneAfterNoOp verifies that pruning to a height at or above the current head leaves the
 // store unchanged.
 func TestOfflinePruneAfterNoOp(t *testing.T) {

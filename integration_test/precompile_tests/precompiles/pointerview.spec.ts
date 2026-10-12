@@ -2,14 +2,12 @@
  * pointerview precompile (0x…100A) — pointer registry lookups.
  *
  * Lookups NEVER revert: unregistered (or garbage) keys return the tuple
- * (0x0, 0, false). This spec registers its own native pointer (for `uatom`,
- * which ships devnet genesis metadata; registration is an upsert, so it is
- * safe and address-stable regardless of what other specs did) — spec files
- * must not depend on each other's execution order.
+ * (0x0, 0, false). Every case below uses an unregistered key, because pointers
+ * can no longer be created and a devnet therefore has none to look up.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { seiRpc, rawSei, waitUntil } from '../utils/chainUtils';
+import { seiRpc, rawSei } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import {
     PRECOMPILE_ADDRESSES,
@@ -19,6 +17,8 @@ import {
 } from '../utils/precompileUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 import { ZERO_ADDRESS } from '../utils/constants';
+
+const UNREGISTERED_DENOM = 'factory/sei1nonexistent/nope';
 
 describe('pointerview precompile (0x100A)', function () {
     this.timeout(120 * 1000);
@@ -30,39 +30,18 @@ describe('pointerview precompile (0x100A)', function () {
     let admin: EvmAccount;
     let pointerview: ethers.Contract;
     let caller: ethers.Contract;
-    let uatomPointer: string;
 
     before(async () => {
         runtime = readRuntimeState();
         admin = EvmAccount.fromMnemonic(runtime.funded.adminMnemonic, provider);
         pointerview = precompileContract('pointerview', provider);
         caller = callerContract(runtime, admin.wallet);
-
-        // Own fixture: register (upsert) the native pointer for uatom.
-        const pointer = precompileContract('pointer', admin.wallet);
-        uatomPointer = await pointer.addNativePointer.staticCall('uatom');
-        const tx = await pointer.addNativePointer('uatom', { gasLimit: 5_000_000 });
-        expect((await tx.wait())!.status, 'uatom pointer registration must succeed').to.equal(1);
-        await waitUntil(
-            async () => {
-                const [, , exists] = await pointerview.getNativePointer('uatom');
-                return exists ? true : null;
-            },
-            { timeoutMs: 15_000, label: 'uatom pointer visible' },
-        );
     });
 
     describe('happy path & state parity', () => {
-        it('getNativePointer returns the registered pointer with a positive version', async () => {
-            const [addr, version, exists] = await pointerview.getNativePointer('uatom');
-            expect(exists).to.equal(true);
-            expect(addr.toLowerCase()).to.equal(uatomPointer.toLowerCase());
-            expect(version > 0n, 'registered pointer carries a version').to.equal(true);
-        });
-
         it('unregistered lookups return (0x0, 0, false) without reverting', async () => {
             const cases: Array<[string, string]> = [
-                ['getNativePointer', 'factory/sei1nonexistent/nope'],
+                ['getNativePointer', UNREGISTERED_DENOM],
                 ['getCW20Pointer', 'sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'],
                 ['getCW721Pointer', 'complete garbage — not even bech32'],
                 ['getCW1155Pointer', ''],
@@ -82,7 +61,7 @@ describe('pointerview precompile (0x100A)', function () {
                 {
                     from: admin.address,
                     to: PRECOMPILE_ADDRESSES.pointerview,
-                    data: viewIface.encodeFunctionData('getNativePointer', ['uatom']),
+                    data: viewIface.encodeFunctionData('getNativePointer', [UNREGISTERED_DENOM]),
                     value: '0x1',
                 },
                 'latest',
@@ -97,7 +76,7 @@ describe('pointerview precompile (0x100A)', function () {
             // pointerview has neither a readOnly nor a delegatecall guard —
             // all three dispatch paths return the same tuple (unlike staking
             // and distribution, whose views reject DELEGATECALL).
-            const data = viewIface.encodeFunctionData('getNativePointer', ['uatom']);
+            const data = viewIface.encodeFunctionData('getNativePointer', [UNREGISTERED_DENOM]);
             const [viaCall, viaStatic, viaDelegate] = await Promise.all([
                 caller.callTarget.staticCall(PRECOMPILE_ADDRESSES.pointerview, data),
                 caller.staticcallTarget.staticCall(PRECOMPILE_ADDRESSES.pointerview, data),
@@ -106,8 +85,8 @@ describe('pointerview precompile (0x100A)', function () {
             expect(viaStatic).to.equal(viaCall);
             expect(viaDelegate).to.equal(viaCall);
             const [addr, , exists] = viewIface.decodeFunctionResult('getNativePointer', viaCall);
-            expect(exists).to.equal(true);
-            expect(addr.toLowerCase()).to.equal(uatomPointer.toLowerCase());
+            expect(exists).to.equal(false);
+            expect(addr).to.equal(ZERO_ADDRESS);
         });
     });
 });

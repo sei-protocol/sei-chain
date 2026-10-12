@@ -361,6 +361,25 @@ func TestSeekSnapshot(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOldestSnapshotAbove(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{0, 10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+	s := &CommitStore{config: config.Config{DataDir: dir}}
+
+	for _, tc := range []struct {
+		version  int64
+		snapshot int64
+		ok       bool
+	}{{0, 10, true}, {5, 10, true}, {10, 20, true}, {20, 0, false}, {25, 0, false}} {
+		snapshot, ok, err := s.OldestSnapshotAbove(tc.version)
+		require.NoError(t, err)
+		require.Equal(t, tc.ok, ok, "version %d", tc.version)
+		require.Equal(t, tc.snapshot, snapshot, "version %d", tc.version)
+	}
+}
+
 func TestReadOnlyAtTargetVersion(t *testing.T) {
 	dir := t.TempDir()
 
@@ -571,7 +590,9 @@ func rollbackFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -634,7 +655,9 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -677,7 +700,7 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 // TestRollbackRejectsVersionZero verifies version 0 is refused: it means no state, so there is nothing to roll
 // back to, and it is the one target that would reach PruneAfter's retains-block-zero boundary.
 func TestRollbackRejectsVersionZero(t *testing.T) {
-	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
+	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
 }
 
 // TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
@@ -701,7 +724,9 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -1188,7 +1213,9 @@ func interruptedRewindFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 	t.Cleanup(func() { _ = s.Close() })
@@ -1396,6 +1423,18 @@ func TestSeekSnapshotEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	_, err := seekSnapshot(dir, 10)
 	require.Error(t, err, "empty dir should not find any snapshot")
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+// A filesystem fault while listing snapshots says nothing about which versions the store holds, so it
+// must not be reported as an unreachable version.
+func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(root, nil, 0600))
+
+	_, err := seekSnapshot(root, 10)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestSeekSnapshotExact(t *testing.T) {
@@ -1790,6 +1829,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when storageDB is corrupted in both working and snapshot")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================
@@ -1878,6 +1918,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when meta version is corrupted")
 	require.Contains(t, err.Error(), "invalid _meta/version length")
+	require.NoError(t, s2.Close())
 }
 
 // TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
@@ -1936,6 +1977,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, s2.LoadLatest(),
 		"opening must fail loudly rather than silently skipping the corrupted WAL segment")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================

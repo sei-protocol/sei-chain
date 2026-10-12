@@ -32,19 +32,122 @@ type node struct {
 	EVMHostPort int    `json:"evm_host_port"`
 }
 
+const (
+	awsRoleValidator = "validator"
+	awsRoleLoad      = "load"
+)
+
+type awsHost struct {
+	Role       string `json:"role"`
+	Index      int    `json:"index,omitempty"`
+	InstanceID string `json:"instance_id"`
+	PublicIP   string `json:"public_ip"`
+	PrivateIP  string `json:"private_ip,omitempty"`
+}
+
 type awsState struct {
-	Region          string `json:"region"`
-	Profile         string `json:"profile,omitempty"`
-	InstanceID      string `json:"instance_id,omitempty"`
-	PublicIP        string `json:"public_ip,omitempty"`
-	SecurityGroupID string `json:"security_group_id,omitempty"`
-	KeyName         string `json:"key_name,omitempty"`
-	SSHKeyPath      string `json:"ssh_key_path,omitempty"`
-	SSHUser         string `json:"ssh_user"`
-	RemoteDir       string `json:"remote_dir"`
-	ManagedKey      bool   `json:"managed_key"`
-	RepoURL         string `json:"repo_url"`
-	Ref             string `json:"ref"`
+	Region          string    `json:"region"`
+	Profile         string    `json:"profile,omitempty"`
+	Topology        string    `json:"topology,omitempty"`
+	InstanceID      string    `json:"instance_id,omitempty"`
+	PublicIP        string    `json:"public_ip,omitempty"`
+	Hosts           []awsHost `json:"hosts,omitempty"`
+	SecurityGroupID string    `json:"security_group_id,omitempty"`
+	KeyName         string    `json:"key_name,omitempty"`
+	SSHKeyPath      string    `json:"ssh_key_path,omitempty"`
+	SSHUser         string    `json:"ssh_user"`
+	RemoteDir       string    `json:"remote_dir"`
+	ManagedKey      bool      `json:"managed_key"`
+	RepoURL         string    `json:"repo_url"`
+	Ref             string    `json:"ref"`
+}
+
+func (s *awsState) topology() string {
+	if s == nil {
+		return awsTopologyDistributed
+	}
+	switch s.Topology {
+	case awsTopologyColocated, awsTopologyDistributed:
+		return s.Topology
+	}
+	if len(s.validators()) >= 2 {
+		return awsTopologyDistributed
+	}
+	return awsTopologyColocated
+}
+
+func (s *awsState) colocated() bool {
+	return s.topology() == awsTopologyColocated
+}
+
+func (s *awsState) evmPort(n node) int {
+	if s.colocated() {
+		return n.EVMHostPort
+	}
+	return awsEVMPort
+}
+
+func (s *awsState) validators() []awsHost {
+	if s == nil {
+		return nil
+	}
+	hosts := make([]awsHost, 0, len(s.Hosts))
+	for _, host := range s.Hosts {
+		if host.Role == awsRoleValidator {
+			hosts = append(hosts, host)
+		}
+	}
+	sort.Slice(hosts, func(i, j int) bool { return hosts[i].Index < hosts[j].Index })
+	return hosts
+}
+
+func (s *awsState) loadHost() (awsHost, bool) {
+	if s == nil {
+		return awsHost{}, false
+	}
+	for _, host := range s.Hosts {
+		if host.Role == awsRoleLoad {
+			return host, true
+		}
+	}
+	if s.PublicIP != "" || s.InstanceID != "" {
+		return awsHost{Role: awsRoleLoad, InstanceID: s.InstanceID, PublicIP: s.PublicIP}, true
+	}
+	return awsHost{}, false
+}
+
+func (s *awsState) validatorByIndex(index int) (awsHost, bool) {
+	for _, host := range s.validators() {
+		if host.Index == index {
+			return host, true
+		}
+	}
+	return awsHost{}, false
+}
+
+func (s *awsState) instanceIDs() []string {
+	if s == nil {
+		return nil
+	}
+	if len(s.Hosts) > 0 {
+		ids := make([]string, 0, len(s.Hosts))
+		seen := map[string]struct{}{}
+		for _, host := range s.Hosts {
+			if host.InstanceID == "" {
+				continue
+			}
+			if _, ok := seen[host.InstanceID]; ok {
+				continue
+			}
+			seen[host.InstanceID] = struct{}{}
+			ids = append(ids, host.InstanceID)
+		}
+		return ids
+	}
+	if s.InstanceID != "" {
+		return []string{s.InstanceID}
+	}
+	return nil
 }
 
 type stateStore struct {

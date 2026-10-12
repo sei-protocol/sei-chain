@@ -370,6 +370,8 @@ func maxCurrentPointerVersion(ctx sdk.Context) uint16 {
 	return v
 }
 
+// GetStoredPointerCodeID returns the CosmWasm code ID the wrappers of the given ERC type
+// were instantiated from, or 0 when no code is stored for the current wrapper version.
 func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.PointerType) uint64 {
 	store := k.PrefixStore(ctx, types.PointerCWCodePrefix)
 	var versionBz []byte

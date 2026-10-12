@@ -51,10 +51,11 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 	app := proxy.New(&abci.BaseApplication{})
 	commonCfg := p2p.GigaRouterCommonConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		App:            app,
-		GenDoc:         genDoc,
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: t.TempDir(),
+		App:                app,
+		GenDoc:             genDoc,
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
@@ -62,12 +63,14 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		GigaRouterCommonConfig: commonCfg,
 		ValidatorKey:           valKey,
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+		ProposalTimeout:        time.Hour,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKey, dataState)
 	require.NoError(t, err)

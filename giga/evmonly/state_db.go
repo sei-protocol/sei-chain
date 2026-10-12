@@ -44,6 +44,8 @@ type nativeStateDB struct {
 	snapshots                []nativeSnapshot
 	readSet                  map[stateAccessKey]struct{}
 	writeSet                 map[stateAccessKey]struct{}
+	lastReadSetSize          int
+	lastWriteSetSize         int
 
 	txHash      common.Hash
 	txIndex     int
@@ -589,11 +591,10 @@ func (s *nativeStateDB) PointCache() *ethutils.PointCache {
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
-		journalLen:     len(s.journal),
-		refund:         s.refund,
-		logsLen:        len(s.logs),
-		journaledAddrs: map[common.Address]struct{}{},
-		err:            s.err,
+		journalLen: len(s.journal),
+		refund:     s.refund,
+		logsLen:    len(s.logs),
+		err:        s.err,
 	})
 	return id
 }
@@ -730,19 +731,24 @@ func (s *nativeStateDB) SetEVM(evm *vm.EVM) {
 
 func (s *nativeStateDB) enableAccessTracking() {
 	if s.readSet == nil {
-		s.readSet = map[stateAccessKey]struct{}{}
+		s.readSet = make(map[stateAccessKey]struct{}, s.lastReadSetSize)
 	} else {
 		clear(s.readSet)
 	}
 	if s.writeSet == nil {
-		s.writeSet = map[stateAccessKey]struct{}{}
+		s.writeSet = make(map[stateAccessKey]struct{}, s.lastWriteSetSize)
 	} else {
 		clear(s.writeSet)
 	}
 }
 
-func (s *nativeStateDB) accessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
-	return cloneAccessSet(s.readSet), cloneAccessSet(s.writeSet)
+// takeAccessSets hands the read and write sets to the caller and stops tracking;
+// enableAccessTracking must be called again before further accesses are recorded.
+func (s *nativeStateDB) takeAccessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
+	readSet, writeSet := s.readSet, s.writeSet
+	s.lastReadSetSize, s.lastWriteSetSize = len(readSet), len(writeSet)
+	s.readSet, s.writeSet = nil, nil
+	return readSet, writeSet
 }
 
 func (s *nativeStateDB) markRead(key stateAccessKey) {
@@ -764,6 +770,9 @@ func (s *nativeStateDB) recordAccount(addr common.Address) {
 	snapshot := &s.snapshots[len(s.snapshots)-1]
 	if _, ok := snapshot.journaledAddrs[addr]; ok {
 		return
+	}
+	if snapshot.journaledAddrs == nil {
+		snapshot.journaledAddrs = make(map[common.Address]struct{})
 	}
 	snapshot.journaledAddrs[addr] = struct{}{}
 	s.journal = append(s.journal, nativeJournalEntry{
@@ -1107,7 +1116,34 @@ func (s *nativeStateDB) finaliseTxStorage() {
 	clear(s.txStorageClears)
 }
 
+// baseAccount is an account's balance, nonce and code as read from the state beneath a block.
+type baseAccount struct {
+	Balance *big.Int
+	Nonce   uint64
+	Code    []byte
+}
+
+// baseAccountReader is an optional StateReader capability that reads an account's fields in one
+// lookup. ReadAccount returns false when the caller must fall back to the per-field accessors.
+type baseAccountReader interface {
+	ReadAccount(common.Address) (baseAccount, bool)
+}
+
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
+	if reader, ok := s.source.(baseAccountReader); ok {
+		if account, served := reader.ReadAccount(addr); served {
+			balance, err := uint256FromBig(account.Balance)
+			if err != nil && s.err == nil {
+				s.err = err
+			}
+			return &nativeAccount{
+				Balance: balance,
+				Nonce:   account.Nonce,
+				Code:    account.Code,
+				Storage: map[common.Hash]storageValue{},
+			}
+		}
+	}
 	balance, err := uint256FromBig(s.source.GetBalance(addr))
 	if err != nil && s.err == nil {
 		s.err = err

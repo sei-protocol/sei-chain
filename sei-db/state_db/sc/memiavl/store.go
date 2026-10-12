@@ -243,6 +243,13 @@ func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
 	return NewMultiTreeImporter(cs.opts.Dir, uint64(version))
 }
 
+func (cs *CommitStore) Flush() error {
+	if cs.db == nil {
+		return nil
+	}
+	return cs.db.Flush()
+}
+
 func (cs *CommitStore) Close() error {
 	var errs []error
 

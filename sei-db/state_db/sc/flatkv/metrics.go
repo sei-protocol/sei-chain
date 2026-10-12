@@ -16,26 +16,26 @@ var (
 	flatkvMeter = otel.Meter(flatkvMeterName)
 
 	otelMetrics = struct {
-		OpenLatency               metric.Float64Histogram
-		ApplyChangesetsLatency    metric.Float64Histogram
-		CommitLatency             metric.Float64Histogram
-		CommitBatchLatency        metric.Float64Histogram
-		BatchReadOldValuesLatency metric.Float64Histogram
-		NumKVPairs                metric.Int64Counter
-		PendingWrites             metric.Int64Gauge
-		CurrentVersion            metric.Int64Gauge
-		CatchupLatency            metric.Float64Histogram
-		CatchupReplayNumBlocks    metric.Int64Counter
-		SnapshotWriteLatency      metric.Float64Histogram
-		SnapshotQueueDepth        metric.Int64Gauge
-		SnapshotPruneLatency      metric.Float64Histogram
-		SnapshotPruneAttempts     metric.Int64Counter
-		CurrentSnapshotHeight     metric.Int64Gauge
-		RollbackLatency           metric.Float64Histogram
-		ImportLatency             metric.Float64Histogram
-		ImportKVPairs             metric.Int64Counter
-		ImportWorkerFlushLatency  metric.Float64Histogram
-		FlushLatency              metric.Float64Histogram
+		OpenLatency              metric.Float64Histogram
+		ApplyChangesetsLatency   metric.Float64Histogram
+		CommitLatency            metric.Float64Histogram
+		CommitBatchLatency       metric.Float64Histogram
+		AccountUpdateLatency     metric.Float64Histogram
+		NumKVPairs               metric.Int64Counter
+		PendingWrites            metric.Int64Gauge
+		CurrentVersion           metric.Int64Gauge
+		CatchupLatency           metric.Float64Histogram
+		CatchupReplayNumBlocks   metric.Int64Counter
+		SnapshotWriteLatency     metric.Float64Histogram
+		SnapshotQueue            *commonmetrics.QueueMeter
+		SnapshotPruneLatency     metric.Float64Histogram
+		SnapshotPruneAttempts    metric.Int64Counter
+		CurrentSnapshotHeight    metric.Int64Gauge
+		RollbackLatency          metric.Float64Histogram
+		ImportLatency            metric.Float64Histogram
+		ImportKVPairs            metric.Int64Counter
+		ImportWorkerFlushLatency metric.Float64Histogram
+		FlushLatency             metric.Float64Histogram
 	}{
 		OpenLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_open_latency",
@@ -61,9 +61,11 @@ var (
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 		)),
-		BatchReadOldValuesLatency: must(flatkvMeter.Float64Histogram(
-			"flatkv_batch_read_old_values_latency",
-			metric.WithDescription("Time taken to batch read old FlatKV values"),
+		AccountUpdateLatency: must(flatkvMeter.Float64Histogram(
+			"flatkv_account_update_latency",
+			metric.WithDescription(
+				"Time taken to stage one block's account changes with the account store, which folds "+
+					"them onto the rows they modify on its own threads"),
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 		)),
@@ -98,12 +100,6 @@ var (
 			metric.WithDescription("Time taken to write a FlatKV snapshot"),
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
-		)),
-		SnapshotQueueDepth: must(flatkvMeter.Int64Gauge(
-			"flatkv_snapshot_queue_depth",
-			metric.WithDescription(
-				"Committed blocks queued behind a FlatKV snapshot that is still being written"),
-			metric.WithUnit("{count}"),
 		)),
 		SnapshotPruneLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_snapshot_prune_latency",
@@ -152,6 +148,12 @@ var (
 		)),
 	}
 )
+
+// The snapshot queue's meter pairs the depth gauge declared above with a blocked-time counter, which a
+// struct literal cannot do while that gauge is still being built.
+func init() {
+	otelMetrics.SnapshotQueue = commonmetrics.NewQueueMeter(flatkvMeter, "flatkv_snapshot")
+}
 
 func must[V any](v V, err error) V {
 	if err != nil {

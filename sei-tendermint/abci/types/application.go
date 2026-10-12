@@ -26,8 +26,9 @@ type Application interface {
 	// Mempool Connection
 	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2                                      // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
-	EvmNonce(common.Address) uint64
 	EvmBalance(common.Address, []byte) uint256.Int
+	EvmChainID() uint64
+	EvmNonce(common.Address) uint64
 
 	// Consensus Connection
 	InitChain(*RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
@@ -106,6 +107,10 @@ func (BaseApplication) EvmNonce(common.Address) uint64 {
 
 func (BaseApplication) EvmBalance(common.Address, []byte) uint256.Int {
 	return uint256.Int{}
+}
+
+func (BaseApplication) EvmChainID() uint64 {
+	return 0
 }
 
 func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {

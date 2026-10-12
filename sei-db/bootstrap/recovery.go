@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -21,7 +22,14 @@ import (
 // The target is the lowest head among the block store, the state WAL and the receipt store. A target of
 // 0 means there is no height to converge on and nothing is moved.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
+	// Each stage is announced before it runs. Opening a store or reading its head loads that store's
+	// index, which on a large one is minutes of work, and a stage that reported only on completion
+	// would leave the longest part of a startup with nothing logged at all.
+	logger.Info("Opening the block store")
 	if err := m.openBlockStore(); err != nil {
+		return err
+	}
+	if err := m.requireNoReceiptStoreWhileDisabled(); err != nil {
 		return err
 	}
 	targetHeight, err := m.findTargetRecoveryHeight()
@@ -33,6 +41,7 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	}
 	// The receipt store opens last because its rollback runs against its files: it is the one store
 	// recovery reaches without opening, so opening it earlier would only be to close it again.
+	logger.Info("Opening the receipt store")
 	return m.openReceiptStore()
 }
 
@@ -49,8 +58,10 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 // would no longer be there to reach.
 func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) error {
 	if target == 0 {
+		logger.Info("No height to converge on, opening the state DB where its files sit")
 		return m.openStateDB(ctx)
 	}
+	logger.Info("Opening the state DB on the recovery target", "target", target)
 	if err := m.openStateDBAt(ctx, target); err != nil {
 		return err
 	}
@@ -94,22 +105,53 @@ func (m *GigaStorageManager) openReceiptStore() error {
 // The state and receipt heads are read from their directories, which takes the locks their open stores
 // hold, so this must run before either of those stores opens.
 func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
+	logger.Info("Reading a store head", "store", "block store")
 	blockHeight, err := m.blockStore.GetLatestBlock()
 	if err != nil {
 		return 0, fmt.Errorf("read block store head: %w", err)
 	}
+	logger.Info("Reading a store head", "store", "state WAL")
 	stateHeight, err := m.stateWALHead()
 	if err != nil {
 		return 0, err
 	}
 	var receiptHeight uint64
 	if m.cfg.ReceiptDBConfig.Enable {
+		logger.Info("Reading a store head", "store", "receipt store")
 		receiptHeight, err = receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
 		if err != nil {
 			return 0, fmt.Errorf("read receipt store head: %w", err)
 		}
 	}
-	return int64(recoveryTarget(blockHeight, stateHeight, receiptHeight)), nil //nolint:gosec // heights fit within int64
+	target := recoveryTarget(blockHeight, stateHeight, receiptHeight)
+	logger.Info("Read the store heads recovery converges on",
+		"block_store", blockHeight,
+		"state_wal", stateHeight,
+		"receipt_store", receiptHeight,
+		"target", target)
+	return int64(target), nil //nolint:gosec // heights fit within int64
+}
+
+// ErrReceiptStoreDisabledWithHistory is returned when the receipt store is disabled while its
+// directory still holds receipts.
+var ErrReceiptStoreDisabledWithHistory = errors.New("receipt store is disabled but holds receipts")
+
+// requireNoReceiptStoreWhileDisabled refuses to run with receipts disabled while a receipt store with
+// history sits on disk. Blocks finalized meanwhile would leave a hole the store refuses to write across,
+// and re-enabling it would then converge every store on its stale head.
+func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
+	if m.cfg.ReceiptDBConfig.Enable {
+		return nil
+	}
+	head, err := receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
+	if err != nil {
+		return fmt.Errorf("read disabled receipt store head: %w", err)
+	}
+	if head == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: head %d at %s; move that directory away to run without receipts, or enable them again",
+		ErrReceiptStoreDisabledWithHistory, head, m.cfg.ReceiptDBConfig.DBDirectory)
 }
 
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.

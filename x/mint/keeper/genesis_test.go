@@ -6,7 +6,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/testutil/nullify"
 
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
@@ -41,10 +40,6 @@ func TestGenesis(t *testing.T) {
 	}
 
 	app.MintKeeper.InitGenesis(ctx, &genesisState)
-	got := app.MintKeeper.ExportGenesis(ctx)
-	require.NotNil(t, got)
-	require.Equal(t, got, &genesisState)
-
-	nullify.Fill(&genesisState)
-	nullify.Fill(got)
+	require.Equal(t, genesisState.Params, app.MintKeeper.GetParams(ctx))
+	require.Equal(t, genesisState.Minter, app.MintKeeper.GetMinter(ctx))
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -227,8 +228,14 @@ func filterTransactions(
 	startOfBlockNonce := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
-	ctx := ctxProvider(block.Block.Height)
-	prevCtx := ctxProvider(block.Block.Height - 1)
+	ctx, err := ctxAtHeight(ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	prevCtx, err := ctxAtHeight(ctxProvider, block.Block.Height-1)
+	if err != nil {
+		return nil, err
+	}
 	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -243,8 +250,14 @@ func filterTransactions(
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
-				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
-				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
+				receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+				if err != nil {
+					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
+						return nil, goCtx.Err()
+					}
+					continue
+				}
+				if receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
 				txCount := txCounts[sender.Hex()]
@@ -267,8 +280,11 @@ func filterTransactions(
 					continue
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
-				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
-				if !found {
+				_, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
+				if err != nil {
+					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
+						return nil, goCtx.Err()
+					}
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
@@ -409,6 +425,23 @@ func recoverAndLog() {
 		fmt.Printf("Panic recovered: %s\n", e)
 		debug.PrintStack()
 	}
+}
+
+// ctxAtHeight returns the context ctxProvider builds for height, or the error it
+// panics with when it cannot, e.g. historical state the node does not retain.
+// Non-error panics and runtime errors are re-raised.
+func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			e, ok := r.(error)
+			var runtimeErr runtime.Error
+			if !ok || errors.As(e, &runtimeErr) {
+				panic(r)
+			}
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+		}
+	}()
+	return ctxProvider(height), nil
 }
 
 func must[V any](v V, err error) V {

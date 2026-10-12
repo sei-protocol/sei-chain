@@ -13,9 +13,9 @@ import (
 
 // SHA-256(genDoc)
 var expectedGenesisDigests = map[string]string{
-	"arctic-1":   "6d091f04f578537a1715d605ec2efc120f743a0d26a2ae3738bbe2ffbab652c3",
-	"atlantic-2": "d9291825bcdc6c333dbcb2232d38bfb89cbd03f75932bbf1c9738842e34a2315",
-	"pacific-1":  "3a1f5d87df75f4fdb85eaf1b506e080cbcee3a748048e1e80721f68eb2193e43",
+	"arctic-1":   "de878e00262cf11eae35bdcc19787448fd0163db4512b57c497489e7eb065d7a",
+	"atlantic-2": "f779c564fe250ac2a53003b24a6fb00f61275cdfe6cfbd3de0b55fd831552fe5",
+	"pacific-1":  "c0064d0a6b131e80d546e407161b699ac94e2cb8ce99322431ae8b4cdc4fba65",
 }
 
 func genesisDocDigest(chainID string) ([]byte, error) {

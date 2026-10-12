@@ -4,8 +4,6 @@ FROM ghcr.io/sei-protocol/seictl:${SEICTL_VERSION} AS seictl
 FROM docker.io/golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS builder
 WORKDIR /go/src/sei-chain
 
-COPY sei-wasmd/x/wasm/artifacts/v152/api/*.so /tmp/wasmd-libs/
-COPY sei-wasmd/x/wasm/artifacts/v155/api/*.so /tmp/wasmd-libs/
 COPY sei-wasmvm/internal/api/*.so /tmp/wasmvm-libs/
 ARG TARGETARCH
 RUN mkdir -p /go/lib && \
@@ -14,8 +12,6 @@ RUN mkdir -p /go/lib && \
       arm64) ARCH_SUFFIX="aarch64" ;; \
       *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac && \
-    cp /tmp/wasmd-libs/libwasmvm152.${ARCH_SUFFIX}.so /go/lib/ && \
-    cp /tmp/wasmd-libs/libwasmvm155.${ARCH_SUFFIX}.so /go/lib/ && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./

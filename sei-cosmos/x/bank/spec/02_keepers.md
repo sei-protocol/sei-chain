@@ -63,7 +63,6 @@ type Keeper interface {
     SendKeeper
 
     InitGenesis(sdk.Context, *types.GenesisState)
-    ExportGenesis(sdk.Context) *types.GenesisState
 
     GetSupply(ctx sdk.Context, denom string) sdk.Coin
     GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.PageRequest) (sdk.Coins, *query.PageResponse, error)

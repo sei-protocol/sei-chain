@@ -76,6 +76,9 @@ to cases that cannot otherwise execute faithfully against a live Sei chain:
   precompile's balance, which a persistent remote chain cannot do.
 - `test_set_code_txs.py` raises fixed EIP-1559 fee caps above the devnet base
   fee so the transaction reaches the behavior under test.
+- `test_selfdestruct.py` zeroes the byte its entry contracts return as runtime
+  code. Upstream relies on that memory byte being zero, but it holds part of a
+  live-chain contract address and is sometimes `0xEF`, which EIP-3541 rejects.
 
 These changes adapt transaction construction or remote-state limitations; they
 do not alter expected post-state. Re-evaluate each hunk when updating the

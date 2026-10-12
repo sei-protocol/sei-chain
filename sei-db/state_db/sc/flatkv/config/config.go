@@ -33,6 +33,7 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// It is not derived from memIAVL's sc-keep-recent.
 	// Ignored entirely when ExternalPruning is set.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
@@ -122,6 +123,16 @@ type Config struct {
 	// LtHashes. The number of workers in this pool is equal to LtHashThreadsPerCore * runtime.NumCPU(),
 	// clamped to at least 1.
 	LtHashThreadsPerCore float64
+
+	// Controls the number of workers in the dedicated pool that orders each sealed block's writes by key
+	// before the flush consumes them. The worker count is SortThreadsPerCore * runtime.NumCPU(), clamped
+	// to at least 1.
+	//
+	// A block is sealed long before it is flushed, so this pool exists to keep the ordering off the flush
+	// thread rather than to finish any one block quickly. Its queue is deliberately far larger than its
+	// worker count: submitting happens on the commit path, and throttling commits is
+	// MaxUnflushedVersions' job alone.
+	SortThreadsPerCore float64
 }
 
 // defaultStoreConfig returns the view manager defaults for one database, named for the database's
@@ -133,10 +144,15 @@ func defaultStoreConfig(name string) view.ViewManagerConfig {
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
-		Fsync:                     false,
-		AsyncWriteBuffer:          0,
-		SnapshotInterval:          10000,
-		SnapshotKeepRecent:        1,
+		Fsync:            false,
+		AsyncWriteBuffer: 0,
+		SnapshotInterval: 10000,
+		// A composite read needs a version both backends still hold. At mainnet state size memIAVL
+		// publishes a snapshot only about every 50,000 blocks, so FlatKV must reach back further
+		// than that: ten old checkpoints at this interval reach 100,000 blocks. A checkpoint
+		// hardlinks its SSTs, so each one costs only what compaction has obsoleted since, about
+		// 290 MiB at mainnet state size.
+		SnapshotKeepRecent:        10,
 		MaxSnapshotLagBlocks:      64,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
@@ -153,6 +169,7 @@ func DefaultConfig() *Config {
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
 		LtHashThreadsPerCore:      1.0,
+		SortThreadsPerCore:        0.25,
 		HashEngineConfig:          *lthash.DefaultConfig(),
 		FinalizationQueueSize:     64,
 	}
@@ -217,6 +234,9 @@ func (c *Config) Validate() error {
 	}
 	if c.LtHashThreadsPerCore < 0 {
 		return fmt.Errorf("lthash threads per core must not be negative")
+	}
+	if c.SortThreadsPerCore < 0 {
+		return fmt.Errorf("sort threads per core must not be negative")
 	}
 
 	return nil

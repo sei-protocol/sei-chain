@@ -403,7 +403,7 @@ describe('eth_getBlockReceipts', function () {
                     cumulativeGasUsed: BigInt(rc.cumulativeGasUsed),
                 }))
                 .sort((a, b) => a.index - b.index);
-            assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), richSei.cosmosShellGas);
+            assertCumulativeGasSeries(ordered, BigInt(block.gasUsed));
         });
 
         it('pure transfers burn exactly the intrinsic gas', async () => {

@@ -1,9 +1,7 @@
 package types
 
 import (
-	"encoding/json"
 	"io"
-	"os"
 	"time"
 
 	"github.com/gogo/protobuf/grpc"
@@ -11,8 +9,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 
@@ -69,22 +65,4 @@ type (
 
 	// ModuleInitFlags takes a start command and adds modules specific init flags.
 	ModuleInitFlags func(startCmd *cobra.Command)
-
-	// ExportedApp represents an exported app state, along with
-	// validators, consensus params and latest app height.
-	ExportedApp struct {
-		// AppState is the application state as JSON.
-		AppState json.RawMessage
-		// Validators is the exported validator set.
-		Validators []tmtypes.GenesisValidator
-		// Height is the app's latest block height.
-		Height int64
-		// ConsensusParams are the exported consensus params for ABCI.
-		ConsensusParams *tmproto.ConsensusParams
-	}
-
-	// AppExporter is a function that dumps all app state to
-	// JSON-serializable structure and returns the current validator set.
-	// If a file is specified,
-	AppExporter func(dbm.DB, io.Writer, int64, bool, []string, AppOptions, *os.File) (ExportedApp, error)
 )

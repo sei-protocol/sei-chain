@@ -6,27 +6,9 @@ import (
 	metrics "github.com/armon/go-metrics"
 )
 
-// Common metric key constants
-const (
-	MetricKeyBeginBlocker = "begin_blocker"
-	MetricKeyEndBlocker   = "end_blocker"
-	MetricLabelNameModule = "module"
-)
-
 // NewLabel creates a new instance of Label with name and value
 func NewLabel(name, value string) metrics.Label {
 	return metrics.Label{Name: name, Value: value}
-}
-
-// ModuleMeasureSince provides a short hand method for emitting a time measure
-// metric for a module with a given set of keys. If any global labels are defined,
-// they will be added to the module label.
-func ModuleMeasureSince(module string, start time.Time, keys ...string) {
-	metrics.MeasureSinceWithLabels(
-		keys,
-		start.UTC(),
-		append([]metrics.Label{NewLabel(MetricLabelNameModule, module)}, globalLabels...),
-	)
 }
 
 // IncrCounter provides a wrapper functionality for emitting a counter metric with
@@ -51,17 +33,4 @@ func SetGaugeWithLabels(keys []string, val float32, labels []metrics.Label) {
 // metric with global labels (if any).
 func MeasureSince(start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(keys, start.UTC(), globalLabels)
-}
-
-// Measure Validator slashing events
-// validator_slashed
-func IncrValidatorSlashedCounter(validator string, slashingType string) {
-	metrics.IncrCounterWithLabels(
-		[]string{"sei", "cosmos", "validator", "slashed"},
-		1,
-		[]metrics.Label{
-			NewLabel("type", slashingType),
-			NewLabel("validator", validator),
-		},
-	)
 }

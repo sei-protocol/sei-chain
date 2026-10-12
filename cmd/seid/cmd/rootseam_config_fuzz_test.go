@@ -9,14 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	dbm "github.com/tendermint/tm-db"
-
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
-	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 )
 
 // The rest of this package's config tests call LegacyConfigManager.Apply directly,
@@ -279,38 +275,4 @@ func TestPreRunReadsTheManagerGatePerInvocation(t *testing.T) {
 	if second.Viper != nil {
 		t.Fatal("a rejected invocation must leave the boot channels unpopulated")
 	}
-}
-
-// FuzzExportableAppRequiresAHome pins the one place that checks --home rather than
-// casting it.
-//
-// newApp reads home with cast.ToString, so an absent key yields "" and the app is built
-// rooted at the process working directory. getExportableApp instead uses an ok-checked
-// type assertion and refuses an empty or non-string home, so `seid export` fails where
-// `seid start` would quietly run against the wrong directory.
-//
-// Only the refusal is driven here: a valid home sends this straight into app.New.
-func FuzzExportableAppRequiresAHome(f *testing.F) {
-	f.Add(fuzzing.KindNil, "", int64(0), false)    // absent
-	f.Add(fuzzing.KindString, "", int64(0), false) // empty string
-	f.Add(fuzzing.KindInt64, "", int64(1), false)  // an int where a path belongs
-	f.Add(fuzzing.KindBool, "", int64(0), true)    // a bool
-	f.Add(fuzzing.KindMap, "", int64(0), false)    // a table
-
-	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
-		value := fuzzing.ConfigValue(kind, s, n, b)
-		home, isString := value.(string)
-		if isString && home != "" {
-			return // a usable home proceeds into app.New, which is out of scope here
-		}
-
-		_, err := getExportableApp(dbm.NewMemDB(), nil, -1, configtest.AppOpts{flags.FlagHome: value})
-		if err == nil {
-			t.Fatalf("home = %#v is not a usable path and export must refuse it rather than "+
-				"defaulting to the working directory the way newApp does", value)
-		}
-		if !strings.Contains(err.Error(), "home") {
-			t.Fatalf("the refusal must name the home, got %v", err)
-		}
-	})
 }

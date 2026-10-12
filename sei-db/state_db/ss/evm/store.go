@@ -9,8 +9,11 @@ import (
 	"sync"
 
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -39,7 +42,14 @@ type EVMStateStore struct {
 	// snapshots in flight so Close can wait for them.
 	checkpoint checkpointState
 
+	// Breaks a commit into its stages, subdividing the phase the caller charges the whole commit to.
+	// Only the commit path writes, so one timer serves the store.
+	commitPhases *metrics.PhaseTimer
+
 	externalPruning bool
+
+	// Closed by Close().
+	closed utils.CloseMarker[EVMStateStore]
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -50,8 +60,10 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 		dir:             dir,
 		ssConfig:        ssConfig,
 		separateDBs:     ssConfig.SeparateEVMSubDBs,
+		commitPhases:    metrics.NewPhaseTimer(otel.Meter("seidb_ss_evm"), "ss_evm_commit"),
 		externalPruning: ssConfig.ExternalPruning,
 	}
+	store.closed = utils.MustClose(store, "EVM state store")
 	if err := store.openDBs(); err != nil {
 		_ = store.Close()
 		return nil, err
@@ -253,6 +265,10 @@ func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) er
 // CommitBlock records a committed block and offers its version to the checkpoint schedule. It is the
 // commit path's entry point: the apply methods are raw writes and take no snapshot.
 func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	// Closes the stage in flight, so the gap until the next commit is not charged to the last one.
+	defer s.commitPhases.Reset()
+
+	s.commitPhases.SetPhase("group_changesets")
 	evmChangesets := filterEVMChangesets(changesets)
 
 	// Separate-DB mode parses and groups the block's pairs exactly once: the grouping both routes the
@@ -263,11 +279,13 @@ func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChan
 	switch {
 	case s.separateDBs:
 		grouped := s.groupBySubType(evmChangesets)
+		s.commitPhases.SetPhase("apply_changesets")
 		if err := s.ApplyChangesetAsyncGrouped(version, grouped); err != nil {
 			return err
 		}
 		unwritten = s.dbsWithoutWrites(grouped)
 	case len(evmChangesets) > 0:
+		s.commitPhases.SetPhase("apply_changesets")
 		if err := s.ApplyChangesetAsync(version, evmChangesets); err != nil {
 			return err
 		}
@@ -275,9 +293,11 @@ func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChan
 		unwritten = s.managedDBs
 	}
 
+	s.commitPhases.SetPhase("advance_unwritten_heads")
 	if err := s.advanceUnwrittenHeads(version, unwritten); err != nil {
 		return err
 	}
+	s.commitPhases.SetPhase("schedule_snapshot")
 	s.scheduleSnapshot(version)
 	return nil
 }
@@ -542,6 +562,7 @@ func subDBPath(base string, storeType EVMStoreType) string {
 }
 
 func (s *EVMStateStore) Close() error {
+	s.closed.Close(s)
 	// A snapshot being published reads and stamps these databases, so it has to finish before they
 	// close rather than race the shutdown.
 	s.stopCheckpoints()

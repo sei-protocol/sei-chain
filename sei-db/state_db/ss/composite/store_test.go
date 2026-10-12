@@ -1165,6 +1165,72 @@ func TestImport_EVMSplitDisabled_ConvertsFlatkvToCosmos(t *testing.T) {
 	require.Equal(t, []byte("ev_1"), ev)
 }
 
+// TestImport_FlatKVZeroNonceKeepsMemIAVLNonce feeds the stream a mid-migration
+// snapshot produces for an address whose code hash has migrated but whose nonce
+// has not: the memIAVL nonce, then a FlatKV account row with a zero nonce.
+func TestImport_FlatKVZeroNonceKeepsMemIAVLNonce(t *testing.T) {
+	addr := make([]byte, 20)
+	addr[19] = 0x07
+	nonceKey := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, addr)
+	codeHashKey := commonevm.BuildEVMKey(commonevm.EVMKeyCodeHash, addr)
+	memIAVLNonce := make([]byte, 8)
+	binary.BigEndian.PutUint64(memIAVLNonce, 5)
+
+	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr)
+	acctVal := vtype.NewAccountData().SetCodeHash(&vtype.CodeHash{0: 0xCC}).Serialize()
+
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			ch := make(chan types.SnapshotNode, 10)
+			nodes := []types.SnapshotNode{
+				{StoreKey: commonevm.EVMStoreKey, Key: nonceKey, Value: memIAVLNonce},
+				{StoreKey: commonevm.FlatKVStoreKey, Key: physAcct, Value: acctVal},
+			}
+			go feedNodes(ch, nodes)
+
+			require.NoError(t, store.Import(1, ch))
+
+			nonce, err := store.Get(evm.EVMStoreKey, 1, nonceKey)
+			require.NoError(t, err)
+			require.Equal(t, memIAVLNonce, nonce)
+
+			codeHash, err := store.Get(evm.EVMStoreKey, 1, codeHashKey)
+			require.NoError(t, err)
+			require.Equal(t, vtype.CodeHash{0: 0xCC}, vtype.CodeHash(codeHash))
+		})
+	}
+}
+
+func TestImport_FlatKVZeroNonceIsAbsent(t *testing.T) {
+	addr := make([]byte, 20)
+	addr[19] = 0x08
+	nonceKey := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, addr)
+
+	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr)
+	acctVal := vtype.NewAccountData().SetCodeHash(&vtype.CodeHash{0: 0xCC}).Serialize()
+
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			ch := make(chan types.SnapshotNode, 10)
+			go feedNodes(ch, []types.SnapshotNode{
+				{StoreKey: commonevm.FlatKVStoreKey, Key: physAcct, Value: acctVal},
+			})
+
+			require.NoError(t, store.Import(1, ch))
+
+			nonce, err := store.Get(evm.EVMStoreKey, 1, nonceKey)
+			require.NoError(t, err)
+			require.Nil(t, nonce)
+		})
+	}
+}
+
 func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[0] = 0xAA

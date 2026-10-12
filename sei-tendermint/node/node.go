@@ -129,7 +129,6 @@ type nodeImpl struct {
 	router               *p2p.Router
 	giga                 utils.Option[p2p.GigaRouter]
 	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
-	gigaBlockStore       utils.Option[atypes.BlockStore]
 	gigaStorageCloseOnce sync.Once
 	ServiceRestartCh     utils.Option[chan []string]
 	nodeInfo             types.NodeInfo
@@ -147,6 +146,8 @@ type nodeImpl struct {
 	services          []service.Service
 	rpcListeners      []net.Listener // rpc servers
 	evmOnlyRPC        *evmonlyrpc.Server
+	evmOnlyRPCPort    int
+	evmOnlyWSPort     int
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -261,6 +262,8 @@ func makeNode(
 		consensusPolicy:    consensusPolicy,
 		freezeHeight:       opts.freezeHeight,
 		gigaStorageManager: gigaStorageManager,
+		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
+		evmOnlyWSPort:      opts.giga.Execution.EvmWsPort,
 
 		nodeKey: nodeKey,
 
@@ -295,7 +298,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, gigaBlockStore, err := createRouter(
+	router, peerCloser, _, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -311,7 +314,6 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
-	node.gigaBlockStore = gigaBlockStore
 	// Giga storage is NOT closed in OnStop: BaseService runs OnStop before
 	// SpawnCritical (giga.Run) finishes, so closing there would race with
 	// still-running persist/execute. Close paths:
@@ -573,6 +575,16 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		return fmt.Errorf("cannot load state: %w", err)
 	}
 
+	// A frozen node never commits another block, so after a restart nothing
+	// would initialize the app (e.g. its query context and EVM RPC servers).
+	if n.freezeHeight > 0 && state.LastBlockHeight > 0 {
+		meta := n.blockStore.LoadBlockMeta(state.LastBlockHeight)
+		if meta == nil {
+			return fmt.Errorf("freeze mode: block %d is missing from the block store", state.LastBlockHeight)
+		}
+		n.rpcEnv.App.InitLastHeader(meta.Header.ToProto())
+	}
+
 	logNodeStartupInfo(state, n.rpcEnv.PubKey, n.config.Mode)
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
@@ -695,16 +707,20 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.EVMOnly {
+	if n.config.AutobahnConfigFile != "" {
 		storage, ok := n.gigaStorageManager.Get()
 		if !ok {
-			return errors.New("EVM-only RPC requires Giga storage")
+			return errors.New("autobahn rpc requires giga storage")
 		}
-		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
-		if err != nil {
-			return err
+		if receipts := storage.ReceiptDB(); receipts != nil {
+			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort)
+			if err != nil {
+				return err
+			}
+			n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
+		} else {
+			logger.Info("Autobahn: receipt store disabled, not starting EVM-only RPC")
 		}
-		n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
 	} else if n.config.RPC.ListenAddress != "" {
 		n.rpcListeners, err = n.rpcEnv.StartService(ctx, n.config)
 		if err != nil {
@@ -768,20 +784,17 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaStorage closes the manager-owned storage or standalone Autobahn
-// block store at most once.
+// closeGigaStorage closes the manager-owned storage at most once, after the
+// application's in-flight block commits have landed.
 func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
 		if manager, ok := n.gigaStorageManager.Get(); ok {
+			if settleErr := n.rpcEnv.App.AwaitCommits(); settleErr != nil {
+				logger.Error("failed to settle block commits before closing Giga storage", "err", settleErr)
+			}
 			if err = manager.Close(); err != nil {
 				logger.Error("failed to close Giga storage manager", "err", err)
-			}
-			return
-		}
-		if blockStore, ok := n.gigaBlockStore.Get(); ok {
-			if err = blockStore.Close(); err != nil {
-				logger.Error("failed to close Autobahn BlockStore", "err", err)
 			}
 		}
 	})

@@ -11,7 +11,10 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,17 +60,22 @@ func TestUpsertERCNativePointer(t *testing.T) {
 	}, func(s1, s2 string) {})
 	require.Nil(t, err)
 	require.Equal(t, addr, newAddr)
-	res, err := k.QueryERCSingleOutput(ctx, "native", addr, "name")
+	require.Equal(t, "test2", readNativePointer(t, ctx, k, addr, "name"))
+	require.Equal(t, "test2", readNativePointer(t, ctx, k, addr, "symbol"))
+	require.Equal(t, uint8(12), readNativePointer(t, ctx, k, addr, "decimals"))
+}
+
+// readNativePointer statically calls a single-output method on a deployed native pointer.
+func readNativePointer(t *testing.T, ctx sdk.Context, k *keeper.Keeper, addr common.Address, method string) interface{} {
+	t.Helper()
+	payload, err := native.GetParsedABI().Pack(method)
 	require.Nil(t, err)
-	require.Equal(t, "test2", res.(string))
-	res, err = k.QueryERCSingleOutput(ctx, "native", addr, "symbol")
+	res, err := k.StaticCallEVM(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), &addr, payload)
 	require.Nil(t, err)
-	require.Equal(t, "test2", res.(string))
-	res, err = k.QueryERCSingleOutput(ctx, "native", addr, "decimals")
+	outputs, err := native.GetParsedABI().Unpack(method, res)
 	require.Nil(t, err)
-	require.Equal(t, uint8(12), res.(uint8))
-	_, err = k.QueryERCSingleOutput(ctx, "native", addr, "nonexist")
-	require.NotNil(t, err)
+	require.Len(t, outputs, 1)
+	return outputs[0]
 }
 
 // TestUpsertERCNativePointerKeepsCodeCacheCoherent covers the mid-tx redeploy

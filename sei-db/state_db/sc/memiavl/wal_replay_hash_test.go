@@ -39,7 +39,7 @@ func TestWALReplayProducesIdenticalHashes(t *testing.T) {
 	db, err := OpenDB(0, opts)
 	require.NoError(t, err)
 
-	initialStores := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
+	initialStores := []string{"acc", "bank", "distribution", "staking", "evm", "upgrade"}
 	var upgrades []*proto.TreeNameUpgrade
 	for _, name := range initialStores {
 		upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})

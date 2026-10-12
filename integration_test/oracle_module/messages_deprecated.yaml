@@ -1,4 +1,4 @@
-- name: Test oracle messages are deprecated
+- name: Test oracle tx commands are removed
   inputs:
     - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"node_admin\")" | jq -r .address
       env: ADMIN_ADDR
@@ -10,8 +10,8 @@
       env: VOTE_ERROR
   verifiers:
     - type: regex
-      expr: oracle module is deprecated
+      expr: 'unknown command "oracle"'
       result: SET_FEEDER_ERROR
     - type: regex
-      expr: oracle module is deprecated
+      expr: 'unknown command "oracle"'
       result: VOTE_ERROR

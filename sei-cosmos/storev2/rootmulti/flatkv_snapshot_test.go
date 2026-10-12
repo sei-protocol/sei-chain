@@ -9,9 +9,12 @@ import (
 	"testing"
 
 	protoio "github.com/gogo/protobuf/io"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 )
@@ -353,6 +356,52 @@ func TestFlatKVOnlySnapshotRestorePopulatesSS(t *testing.T) {
 	queryEqual("/bank/key", []byte("supply"), []byte{snapHeight, snapHeight, 0xB0})
 	queryEqual("/evm/key", evmData.storKey, makeSlot(snapHeight, 0xBB))
 	queryEqual("/evm/key", evmData.nonKey, makeNonce(uint64(snapHeight)))
+}
+
+// TestFlatKVOnlySnapshotRestoreRejectsNodeAtOtherVersion restores a flatkv_only snapshot whose flatkv
+// section ends with a node stamped with a version other than the snapshot height. The restore must fail,
+// and the state store must not hold that node's value.
+func TestFlatKVOnlySnapshotRestoreRejectsNodeAtOtherVersion(t *testing.T) {
+	cfg := flatKVOnlyConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 0
+	evmData := newEVMTestData(0x42)
+
+	const snapHeight = 8
+
+	srcStore, srcKeys := newTestRootMultiWithSS(t, t.TempDir(), cfg, ssCfg)
+	for block := 1; block <= snapHeight; block++ {
+		simulateFlatKVOnlyBlock(t, srcStore, srcKeys, block, evmData)
+	}
+	waitUntilSSVersion(t, srcStore, snapHeight)
+
+	var buf bytes.Buffer
+	writer := protoio.NewDelimitedWriter(&buf)
+	require.NoError(t, srcStore.Snapshot(snapHeight, writer))
+	require.NoError(t, srcStore.Close())
+
+	// The flatkv section is the only one in a flatkv_only snapshot, so an item written after the snapshot
+	// belongs to it.
+	value := []byte("v9")
+	require.NoError(t, writer.WriteMsg(&snapshottypes.SnapshotItem{
+		Item: &snapshottypes.SnapshotItem_IAVL{IAVL: &snapshottypes.SnapshotIAVLItem{
+			Key:     ktype.ModulePhysicalKey("bank", []byte("supply")),
+			Value:   vtype.SerializeMisc(snapHeight, value),
+			Version: snapHeight + 1,
+		}},
+	}))
+
+	dstStore, _ := newTestRootMultiWithSS(t, t.TempDir(), cfg, ssCfg)
+	// The import reopened the commitment store, so closing releases it along with the state store.
+	defer func() { _ = dstStore.Close() }()
+	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
+	_, err := dstStore.Restore(snapHeight, 1, reader)
+	require.ErrorContains(t, err, "the import is at version")
+
+	got, err := dstStore.GetStateStore().Get("bank", snapHeight, []byte("supply"))
+	require.NoError(t, err)
+	require.NotEqual(t, value, got, "a node the commitment store rejected must not reach the state store")
 }
 
 func simulateFlatKVOnlyBlock(

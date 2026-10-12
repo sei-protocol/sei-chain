@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -56,6 +57,9 @@ type gigaRouterCommon struct {
 	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
 	// the lowest row data.State still holds.
 	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
+	// executed is the window of blocks executeBlock committed to the app, seeded
+	// with the app's height at construction.
+	executed utils.AtomicSend[atypes.ExecutedBlocks]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;
@@ -75,10 +79,8 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 // BuildDataState validates the common config, constructs the committee, and
 // returns an initialised data.State backed by blockStore.
 //
-// The caller owns blockStore: close it after giga.Run returns, or immediately if
-// construction of the GigaRouter fails. data.State never closes it. nodeImpl
-// opens BlockStore in setup and closes after Run via SpawnCritical; tests that call
-// BuildDataState directly must open and Close blockStore themselves.
+// Whoever opened blockStore must close it after giga.Run returns, or immediately
+// if construction of the GigaRouter fails. data.State never closes it.
 func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
@@ -89,6 +91,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
+	if cfg.PersistentStateDir == "" {
+		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
+	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -98,7 +103,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, cfg.PersistentStateDir)
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -111,6 +116,11 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
 	return r.app.LastBlockHeight()
+}
+
+// ExecutedBlocks publishes the recently committed blocks as executeBlock commits them.
+func (r *gigaRouterCommon) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks] {
+	return r.executed.Subscribe()
 }
 
 // MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
@@ -230,7 +240,6 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		proposerAddress = key.Address()
 	}
 
-	// TODO: add metrics to understand execution latency.
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
@@ -252,27 +261,36 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
+
 	// Commit this height's app hash to the equivocation guard before persisting app state, so the
 	// vault always records our commitment to a height before the state it implies is committed (and
 	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
 	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
 	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseVaultCommit)
 	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, err
 	}
 
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	weights, err := committeeWeights(app.GetValidators())
 	if err != nil {
 		return nil, err
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhasePushAppHash)
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
-	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
+	gasUsed := finalizeBlockGasUsed(resp)
+	r.data.PushGasUsed(gasUsed)
+	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{Number: b.GlobalNumber, GasUsed: utils.Clamp[uint64](gasUsed)}))
 	return commitResp, nil
 }
 
@@ -314,8 +332,8 @@ func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
 
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
 // returns a durable Pebble-backed vault rooted at <PersistentStateDir>/hashvault, alongside the
-// other Autobahn on-disk state. It returns a no-op vault (no protection) when PersistentStateDir
-// is unset or when the operator explicitly sets HashVaultDisabledUnsafe — both logged loudly.
+// other Autobahn on-disk state. It returns a no-op vault (no protection) when the operator
+// explicitly sets HashVaultDisabledUnsafe, logged loudly.
 func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault.HashVault, error) {
 	if cfg.HashVaultDisabledUnsafe {
 		logger.Error("################################################################")
@@ -326,18 +344,8 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 		logger.Error("################################################################")
 		return hashvault.NewNoopHashVault(), nil
 	}
-	dir, ok := cfg.PersistentStateDir.Get()
-	if !ok {
-		logger.Error("################################################################")
-		logger.Error("# HASHVAULT DISABLED (PersistentStateDir not set).             #")
-		logger.Error("# This node has NO app-hash equivocation protection and is     #")
-		logger.Error("# running in an UNSAFE configuration. Set persistent_state_dir #")
-		logger.Error("# in the node config to enable protection.                     #")
-		logger.Error("################################################################")
-		return hashvault.NewNoopHashVault(), nil
-	}
 	hvCfg := hashvault.DefaultHashVaultConfig()
-	hvCfg.DataDir = filepath.Join(dir, "hashvault")
+	hvCfg.DataDir = filepath.Join(cfg.PersistentStateDir, "hashvault")
 	return hashvault.NewPebbleHashVault(ctx, hvCfg)
 }
 
@@ -405,9 +413,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// call InitChain ourselves. It sets up the app's deliverState
 		// against which the first FinalizeBlock below runs.
 		//
-		// Re-entering on restart (crashed after InitChain, before first
-		// Commit) is safe — nothing was committed, so it behaves as a
-		// fresh init.
+		// Re-entering on restart (crashed after InitChain, before the first
+		// block became durable) is safe — nothing was committed, so it
+		// behaves as a fresh init. An app whose storage already holds
+		// blocks must report them here and refuse InitChain, since blocks
+		// may be durable before Commit acknowledged them.
 		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
@@ -457,10 +467,12 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	}
 
 	for n := next; ; n += 1 {
+		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
+		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeBlock(ctx, b, hashVault)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
@@ -469,10 +481,12 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 		}
+		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
 		if err := r.data.PruneBefore(pruneBefore); err != nil {
 			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
 		}
 		// Align the vault's retention with the data layer's prune boundary.
+		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
 		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
 			// A canceled context just means we're shutting down between a successful executeBlock
 			// and this prune; that's benign, not a prune failure, so don't alarm operators.
@@ -483,6 +497,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
 			}
 		}
+		gigametrics.EndStoragePhase()
 	}
 }
 
@@ -511,11 +526,12 @@ func (r *gigaRouterCommon) dialAndRunConn(
 			return fmt.Errorf("tcp.Dial(%v): %w", addrs[0], err)
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-		// TODO: handshake needs a timeout.
-		hConn, err := handshake(ctx, tcpConn, r.key, handshakeSpec{
-			SelfAddr:          r.selfAddr,
-			SeiGigaConnection: true,
-		}, r.offer)
+		hConn, err := utils.WithOptTimeout1(ctx, r.cfg.HandshakeTimeout, func(ctx context.Context) (*handshakedConn, error) {
+			return handshake(ctx, tcpConn, r.key, handshakeSpec{
+				SelfAddr:          r.selfAddr,
+				SeiGigaConnection: true,
+			}, r.offer)
+		})
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}

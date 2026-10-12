@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"slices"
+	"sync"
 
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -52,8 +53,7 @@ func (b builder) String(s string) builder    { return protowire.AppendString(b, 
 
 func (b builder) Message(msg protoreflect.Message) builder {
 	// NOTE: we ignore unknown fields - we are unable to encode them canonically.
-	// NOTE: we can sort fields on init if needed (in the generated files).
-	for _, fd := range sortedFields(msg.Descriptor().Fields()) {
+	for _, fd := range sortedFields(msg.Descriptor()) {
 		if fd.IsList() {
 			b = b.List(fd.Number(), fd.Kind(), msg.Get(fd).List())
 		} else if msg.Has(fd) {
@@ -166,7 +166,18 @@ func isPackable(kind protoreflect.Kind) bool {
 	}
 }
 
-func sortedFields(fields protoreflect.FieldDescriptors) []protoreflect.FieldDescriptor {
+// sortedFieldsCache maps protoreflect.MessageDescriptor to its fields sorted
+// by field number. Descriptors are process-lifetime singletons, so the cache
+// is bounded by the number of message types encoded.
+var sortedFieldsCache sync.Map
+
+// sortedFields returns the fields of md sorted by field number.
+// The returned slice is shared and must not be modified.
+func sortedFields(md protoreflect.MessageDescriptor) []protoreflect.FieldDescriptor {
+	if cached, ok := sortedFieldsCache.Load(md); ok {
+		return cached.([]protoreflect.FieldDescriptor)
+	}
+	fields := md.Fields()
 	result := make([]protoreflect.FieldDescriptor, fields.Len())
 	for i := range fields.Len() {
 		result[i] = fields.Get(i)
@@ -174,5 +185,6 @@ func sortedFields(fields protoreflect.FieldDescriptors) []protoreflect.FieldDesc
 	slices.SortFunc(result, func(a, b protoreflect.FieldDescriptor) int {
 		return cmp.Compare(a.Number(), b.Number())
 	})
-	return result
+	actual, _ := sortedFieldsCache.LoadOrStore(md, result)
+	return actual.([]protoreflect.FieldDescriptor)
 }

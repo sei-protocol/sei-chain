@@ -12,6 +12,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// testViewTimeout is the genesis view timeout. The accepted range is
+// [NextTimestamp(), NextTimestamp() + (view number + 1) * testViewTimeout].
+const testViewTimeout = 1500 * time.Millisecond
+
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
 // If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is
 // non-empty (empty tipcuts are rejected by Proposal.Verify).
@@ -34,7 +38,7 @@ func BuildCommitQC(
 			break
 		}
 	}
-	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, time.Now(), laneQCs))
+	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, vs.ClampTimestamp(time.Now(), testViewTimeout), laneQCs))
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
@@ -382,6 +386,25 @@ func GenAppQC(rng utils.Rng) *AppQC {
 	vote := GenAppVote(rng)
 	return NewAppQC(utils.GenSlice(
 		rng,
+		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
+	))
+}
+
+// GenAppProposalRange generates an AppProposal whose GlobalRange is [first, next), for a ledger that
+// indexes a record by its own range. littblock verifies no signatures, so it need not be otherwise
+// well-formed.
+func GenAppProposalRange(rng utils.Rng, first GlobalBlockNumber, next GlobalBlockNumber) *AppProposal {
+	appProposal := GenAppProposal(rng)
+	appProposal.globalRange = GlobalRange{First: first, Next: next}
+	return appProposal
+}
+
+// GenAppQCFor generates an AppQC over appProposal, so that the two carry the same GlobalRange.
+func GenAppQCFor(rng utils.Rng, appProposal *AppProposal) *AppQC {
+	vote := NewAppVote(appProposal)
+	return NewAppQC(utils.GenSliceN(
+		rng,
+		1,
 		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
 	))
 }

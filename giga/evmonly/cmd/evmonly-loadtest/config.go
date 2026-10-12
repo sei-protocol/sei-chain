@@ -46,8 +46,10 @@ const (
 
 type config struct {
 	blocks                 uint64
+	accounts               uint64
 	txsPerBlock            int
 	queueSize              int
+	gcPercent              int
 	builders               int
 	prepareWorkers         int
 	parseWorkers           int
@@ -57,6 +59,7 @@ type config struct {
 	metricsAddr            string
 	resultSink             string
 	resultPoolSize         int
+	storageDir             string
 	persistDir             string
 	persistSync            bool
 	persistBufferSize      int
@@ -98,6 +101,9 @@ func scenarioConfig(cfg config) scenarios.Config {
 		FixedRecipient:         cfg.fixedRecipient,
 		RecipientConflictRate:  cfg.recipientConflictRate,
 		SameSender:             cfg.sameSender,
+		Accounts:               cfg.accounts,
+		// Genesis takes height 1, so the run's blocks start above it.
+		FirstBlockHeight: 2,
 	}
 }
 
@@ -129,9 +135,13 @@ func parseConfig(args []string) (config, error) {
 	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
 	fs.BoolVar(&cfg.sameSender, "same-sender", false, "use one sender with sequential nonces for every transaction in a transfer block")
 
-	fs.Uint64Var(&cfg.blocks, "blocks", 0, "number of blocks to prebuild and execute; must be positive")
+	fs.Uint64Var(&cfg.blocks, "blocks", 0,
+		"blocks to prebuild and execute; 0 builds blocks as the run goes and runs until interrupted, which requires --accounts")
+	fs.Uint64Var(&cfg.accounts, "accounts", 0,
+		"size of the sender pool to draw from and reuse; 0 mints a fresh sender per transaction. Must be at least twice --txs-per-block. Senders are funded once, so a long run eventually drains them and transactions start failing for want of funds: watch the failed count")
 	fs.IntVar(&cfg.txsPerBlock, "txs-per-block", defaultTxsPerBlock, "transactions generated per block")
 	fs.IntVar(&cfg.queueSize, "queue-size", defaultQueueSize, "buffered blocks waiting for executor workers")
+	fs.IntVar(&cfg.gcPercent, "gc-percent", defaultGCPercent, "Go GC target percentage, trading memory for throughput; 0 keeps Go's default, and GOGC overrides it. Bound the heap with GOMEMLIMIT when the host has a memory limit")
 	fs.IntVar(&cfg.builders, "builders", runtime.GOMAXPROCS(0), "parallel block builder goroutines")
 	fs.IntVar(&cfg.prepareWorkers, "prepare-workers", defaultPrepareWorkers(), "parallel block preparation workers for transaction decode and sender recovery")
 	fs.IntVar(&cfg.parseWorkers, "parse-workers", 0, "parallel transaction decode/sender recovery workers inside each prepared block; 0 defaults to 1 when prepare-workers > 1, otherwise GOMAXPROCS")
@@ -141,6 +151,7 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
 	fs.IntVar(&cfg.resultPoolSize, "result-pool-size", 0, "pooled executor BlockResult slots; 0 sizes for in-flight sink results, negative disables pooling")
+	fs.StringVar(&cfg.storageDir, "storage-dir", "", "GigaStorageManager home directory; empty uses a temporary directory removed on exit")
 	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files, removed at shutdown")
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
@@ -211,11 +222,21 @@ func parseConfig(args []string) (config, error) {
 	if cfg.workload == workloadSnapshotRevert && !txGasLimitSet {
 		cfg.txGasLimit = defaultSnapshotRevertTxGasLimit
 	}
-	if cfg.blocks == 0 {
-		return config{}, fmt.Errorf("blocks must be positive")
-	}
 	if cfg.txsPerBlock <= 0 {
 		return config{}, fmt.Errorf("txs-per-block must be positive")
+	}
+	// An unbounded run holds only the queue, so its length is not bounded by memory. It needs a pool
+	// because genesis is committed once, before any block is built, and senders have to be in it.
+	if cfg.blocks == 0 && cfg.accounts == 0 {
+		return config{}, fmt.Errorf("set --blocks for a fixed run, or --accounts to run until interrupted")
+	}
+	// A block draws a contiguous range of pool slots, so a pool smaller than a block would put two
+	// of its transactions on one sender, and the second would carry a nonce the first has not used.
+	// Twice a block's senders, so a recipient drawn half a pool away lands outside the block that
+	// paid it and speculative execution does not conflict on every transaction.
+	if cfg.accounts > 0 && cfg.accounts < 2*uint64(cfg.txsPerBlock) { //nolint:gosec // txsPerBlock > 0 here
+		return config{}, fmt.Errorf("accounts must be at least twice txs-per-block (%d), got %d",
+			2*cfg.txsPerBlock, cfg.accounts)
 	}
 	if cfg.queueSize <= 0 {
 		return config{}, fmt.Errorf("queue-size must be positive")
@@ -256,6 +277,12 @@ func parseConfig(args []string) (config, error) {
 	if cfg.workload == workloadSnapshotRevert && cfg.recipientConflictRate != 0 {
 		return config{}, fmt.Errorf("recipient-conflict-rate is not supported with snapshot-revert workload")
 	}
+	// A pooled run seeds its senders once, up front. same-sender derives its sender from the block
+	// height instead, so that sender is never funded and every transaction fails for want of funds
+	// while the run still reports a throughput number.
+	if cfg.sameSender && cfg.accounts > 0 {
+		return config{}, fmt.Errorf("same-sender cannot be used with an account pool (--accounts)")
+	}
 	if cfg.sameSender && cfg.workload != workloadTransfer {
 		return config{}, fmt.Errorf("same-sender is only supported with transfer workload")
 	}
@@ -265,6 +292,7 @@ func parseConfig(args []string) (config, error) {
 	if cfg.reportInterval < 0 {
 		return config{}, fmt.Errorf("report-interval must be non-negative")
 	}
+	cfg.storageDir = strings.TrimSpace(cfg.storageDir)
 	cfg.resultSink = strings.ToLower(strings.TrimSpace(cfg.resultSink))
 	if cfg.resultSink != resultSinkDiscard && cfg.resultSink != resultSinkFile {
 		return config{}, fmt.Errorf("unsupported result-sink %q", cfg.resultSink)

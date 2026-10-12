@@ -11,7 +11,8 @@ type GenericWAL[T any] interface {
 	// Write will append a new entry to the end of the log.
 	Write(entry T) error
 
-	// TruncateBefore will remove all entries that are before the provided `offset`
+	// TruncateBefore removes every entry below `offset`. An `offset` at or below
+	// the current first entry is a no-op.
 	TruncateBefore(offset uint64) error
 
 	// TruncateAfter will remove all entries that are after the provided `offset`

@@ -107,6 +107,17 @@ func (s *memoryGigaSnapshot) GetCode(address gigatypes.Address) []byte {
 	return s.code[address]
 }
 
+func (s *memoryGigaSnapshot) ReadAccount(address gigatypes.Address) (gigatypes.Account, bool) {
+	if !s.AccountExists(address) {
+		return gigatypes.Account{}, false
+	}
+	return gigatypes.Account{
+		Balance:  s.balances[address],
+		Nonce:    s.nonces[address],
+		CodeHash: s.GetCodeHash(address),
+	}, true
+}
+
 func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
 	return s.height
 }
@@ -147,6 +158,45 @@ func TestGigaSnapshotStateReader(t *testing.T) {
 	require.Equal(t, code, gotCode)
 	gotCode[0] = 0xff
 	require.Equal(t, byte(0x60), snapshot.code[addr][0])
+}
+
+func TestGigaSnapshotStateReaderMissingStateFallback(t *testing.T) {
+	present := testAddress(0xb0)
+	nonceOnly := testAddress(0xb1)
+	absent := testAddress(0xb2)
+	slot := common.HexToHash("0x01")
+
+	snapshot := newMemoryGigaSnapshot(3)
+	snapshot.setBalance(present, big.NewInt(5))
+	snapshot.nonces[nonceOnly] = 2
+
+	fallback := NewMemoryState()
+	for _, addr := range []common.Address{present, nonceOnly, absent} {
+		fallback.SetBalance(addr, big.NewInt(1000))
+		fallback.SetNonce(addr, 77)
+		fallback.SetCode(addr, []byte{0xfe})
+		fallback.SetState(addr, slot, common.HexToHash("0x99"))
+	}
+	reader := gigaSnapshotStateReader{snapshot: snapshot, missingState: fallback}
+
+	require.Equal(t, big.NewInt(5), reader.GetBalance(present))
+	require.Equal(t, uint64(0), reader.GetNonce(present))
+	require.Empty(t, reader.GetCode(present))
+	require.Equal(t, common.Hash{}, reader.GetState(present, slot))
+
+	require.Zero(t, reader.GetBalance(nonceOnly).Sign())
+	require.Equal(t, uint64(2), reader.GetNonce(nonceOnly))
+
+	require.Equal(t, big.NewInt(1000), reader.GetBalance(absent))
+	require.Equal(t, uint64(77), reader.GetNonce(absent))
+	require.Equal(t, []byte{0xfe}, reader.GetCode(absent))
+	require.Equal(t, common.HexToHash("0x99"), reader.GetState(absent, slot))
+
+	noFallback := gigaSnapshotStateReader{snapshot: snapshot}
+	require.Zero(t, noFallback.GetBalance(absent).Sign())
+	require.Equal(t, uint64(0), noFallback.GetNonce(absent))
+	require.Empty(t, noFallback.GetCode(absent))
+	require.Equal(t, common.Hash{}, noFallback.GetState(absent, slot))
 }
 
 func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
@@ -259,14 +309,15 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Nil(t, result)
 	})
 
-	t.Run("missing receipt store", func(t *testing.T) {
+	t.Run("no receipt store commits state without receipts", func(t *testing.T) {
 		store := NewMemoryStore(NewMemoryState())
 		executor := NewExecutor(Config{}, WithStore(store, store.EncodeChangeSet))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, errMissingReceiptStore)
-		require.Nil(t, result)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		result.Release()
 	})
 
 	t.Run("missing encoder", func(t *testing.T) {

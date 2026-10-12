@@ -12,7 +12,7 @@ since account balances must also be fetched to pay fees, account structs also st
 as `sdk.Coins`.
 
 Accounts are exposed externally as an interface, and stored internally as
-either a base account or vesting account. Module clients wishing to add more
+either a base account or module account. Module clients wishing to add more
 account types may do so.
 
 - `0x01 | Address -> ProtocolBuffer(account)`
@@ -67,7 +67,3 @@ message BaseAccount {
   uint64 sequence       = 4;
 }
 ```
-
-### Vesting Account
-
-See [Vesting](05_vesting.md).

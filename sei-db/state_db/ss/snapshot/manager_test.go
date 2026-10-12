@@ -230,6 +230,8 @@ func TestManagerPrepareRefusesExistingStagingDir(t *testing.T) {
 	_, err := manager.Prepare(10)
 	require.Error(t, err)
 	require.DirExists(t, staged.tmpDir, "the first attempt's checkpoint must survive the refusal")
+
+	staged.Abort()
 }
 
 func openManager(t *testing.T, root string, scheduler *controlledScheduler, keepRecent int, external bool) *Manager {

@@ -27,10 +27,6 @@ type (
 	Iterator                  = types.Iterator
 )
 
-// StoreDecoderRegistry defines each of the modules store decoders. Used for ImportExport
-// simulation.
-type StoreDecoderRegistry map[string]func(kvA, kvB kv.Pair) string
-
 // Iterator over all the keys with a certain prefix in ascending order
 func KVStorePrefixIterator(kvs KVStore, prefix []byte) Iterator {
 	return types.KVStorePrefixIterator(kvs, prefix)

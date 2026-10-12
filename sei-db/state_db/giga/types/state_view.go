@@ -53,6 +53,8 @@ type EVMStateView interface {
 
 	// AccountExists reports whether addr has an account in state,
 	// including accounts that have self-destructed in the current block.
+	// It must return true whenever GetBalance, GetNonce or GetCode returns a
+	// non-zero value for addr.
 	AccountExists(addr Address) bool
 
 	// GetStorage returns the value stored at key in addr's storage.
@@ -79,4 +81,15 @@ type EVMStateView interface {
 	// GetCode returns addr's contract code. Returns nil/empty for
 	// accounts with no code.
 	GetCode(addr Address) []byte
+
+	// ReadAccount returns addr's balance, nonce and code hash in one lookup, or false when
+	// AccountExists would. CodeHash is EmptyCodeHash for an account with no code, matching GetCodeHash.
+	ReadAccount(addr Address) (Account, bool)
+}
+
+// Account is an account's balance, nonce and code hash, as returned by ReadAccount.
+type Account struct {
+	Balance  Hash
+	Nonce    uint64
+	CodeHash Hash
 }

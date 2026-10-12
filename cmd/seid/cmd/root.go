@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -15,7 +14,9 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -25,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
@@ -164,7 +164,6 @@ func initRootCmd(
 		rootCmd,
 		app.DefaultNodeHome,
 		newApp,
-		appExport,
 		addModuleInitFlags,
 		tracingProviderOpts,
 	)
@@ -315,61 +314,6 @@ func newApp(
 	return app
 }
 
-// appExport creates a new simapp (optionally at a given height)
-func appExport(
-	db dbm.DB,
-	traceStore io.Writer,
-	height int64,
-	forZeroHeight bool,
-	jailAllowedAddrs []string,
-	appOpts servertypes.AppOptions,
-	file *os.File,
-) (servertypes.ExportedApp, error) {
-	exportableApp, err := getExportableApp(
-		db,
-		traceStore,
-		height,
-		appOpts,
-	)
-	if err != nil {
-		return servertypes.ExportedApp{}, err
-	}
-
-	if file == nil {
-		return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
-	} else {
-		return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, file)
-	}
-}
-
-func getExportableApp(
-	db dbm.DB,
-	traceStore io.Writer,
-	height int64,
-	appOpts servertypes.AppOptions,
-) (*app.App, error) {
-	encCfg := app.MakeEncodingConfig()
-	encCfg.Marshaler = codec.NewProtoCodec(encCfg.InterfaceRegistry)
-
-	var exportableApp *app.App
-
-	homePath, ok := appOpts.Get(flags.FlagHome).(string)
-	if !ok || homePath == "" {
-		return nil, errors.New("application home not set")
-	}
-
-	if height != -1 {
-		exportableApp = app.New(db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
-		if err := exportableApp.LoadHeight(height); err != nil {
-			return nil, err
-		}
-	} else {
-		exportableApp = app.New(db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
-	}
-	return exportableApp, nil
-
-}
-
 func getPrimeNums(lo int, hi int) []int {
 	var primeNums []int
 
@@ -434,7 +378,9 @@ func initAppConfig() (string, interface{}) {
 		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		gigaconfig.ConfigTemplate +
+		giganodeconfig.ConfigTemplate +
 		admin.ConfigTemplate +
+		cosmosmetrics.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###

@@ -67,6 +67,14 @@ func ModulePhysicalKey(moduleName string, key []byte) []byte {
 	return result
 }
 
+// AppendModulePhysicalKey appends the physical key ModulePhysicalKey would build for moduleName
+// and key to dst and returns the extended slice.
+func AppendModulePhysicalKey(dst []byte, moduleName string, key []byte) []byte {
+	dst = append(dst, moduleName...)
+	dst = append(dst, '/')
+	return append(dst, key...)
+}
+
 // StripModulePrefix splits a module-prefixed physical key into its module name
 // and original key. Returns an error if no "/" separator is found.
 func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byte, err error) {
@@ -126,4 +134,19 @@ func PrefixEnd(prefix []byte) []byte {
 		}
 	}
 	return nil
+}
+
+// AppendEVMPhysicalKey appends the physical key EVMPhysicalKey would build for kind and strippedKey
+// to dst and returns the extended slice.
+func AppendEVMPhysicalKey(dst []byte, kind keys.EVMKeyKind, strippedKey []byte) []byte {
+	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
+		kind = EVMKeyAccount
+	}
+	prefixByte, ok := keys.EVMKeyPrefixByte(kind)
+	if !ok {
+		return nil
+	}
+	dst = append(dst, keys.EVMStoreKey...)
+	dst = append(dst, '/', prefixByte)
+	return append(dst, strippedKey...)
 }

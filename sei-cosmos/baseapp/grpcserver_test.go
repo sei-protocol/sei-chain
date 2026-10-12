@@ -5,6 +5,7 @@ import (
 	"net"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -14,7 +15,18 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
+
+type contextQuery struct {
+	testdata.QueryImpl
+	ctx chan context.Context
+}
+
+func (q contextQuery) Echo(ctx context.Context, req *testdata.EchoRequest) (*testdata.EchoResponse, error) {
+	q.ctx <- sdk.UnwrapSDKContext(ctx).Context()
+	return q.QueryImpl.Echo(ctx, req)
+}
 
 // serveTestQuery registers the testdata Query service on app, exposes it on a real
 // grpc.Server built with serverOpts, and returns a client dialled to it.
@@ -24,12 +36,16 @@ import (
 // only if that path is intact, which invoking the interceptor closure directly
 // cannot show.
 func serveTestQuery(t *testing.T, app *BaseApp, serverOpts ...grpc.ServerOption) testdata.QueryClient {
+	return serveTestQueryWithHandler(t, app, testdata.QueryImpl{}, serverOpts...)
+}
+
+func serveTestQueryWithHandler(t *testing.T, app *BaseApp, handler testdata.QueryServer, serverOpts ...grpc.ServerOption) testdata.QueryClient {
 	t.Helper()
 
 	interfaceRegistry := types.NewInterfaceRegistry()
 	testdata.RegisterInterfaces(interfaceRegistry)
 	app.SetInterfaceRegistry(interfaceRegistry)
-	testdata.RegisterQueryServer(app.GRPCQueryRouter(), testdata.QueryImpl{})
+	testdata.RegisterQueryServer(app.GRPCQueryRouter(), handler)
 
 	srv := grpc.NewServer(serverOpts...)
 	app.RegisterGRPCServer(srv)
@@ -85,4 +101,21 @@ func TestRegisterGRPCServerWithoutServerInterceptor(t *testing.T) {
 	res, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, "hello", res.Message)
+}
+
+func TestRegisterGRPCServerThreadsServerContextIntoSDKContext(t *testing.T) {
+	queryCtx := make(chan context.Context, 1)
+	bound := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		return handler(ctx, req)
+	}
+
+	client := serveTestQueryWithHandler(t, setupBaseApp(t), contextQuery{ctx: queryCtx}, grpc.ChainUnaryInterceptor(bound))
+	_, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
+	require.NoError(t, err)
+
+	deadline, ok := (<-queryCtx).Deadline()
+	require.True(t, ok)
+	require.WithinDuration(t, time.Now().Add(time.Minute), deadline, time.Second)
 }

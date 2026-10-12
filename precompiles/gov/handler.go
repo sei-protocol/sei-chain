@@ -292,9 +292,6 @@ func (p PrecompileExecutor) createProposalContent(ctx sdk.Context, proposal Prop
 			"ExecuteContract", "UpdateAdmin", "ClearAdmin", "PinCodes", "UnpinCodes",
 			"UpdateInstantiateConfig":
 			return nil, fmt.Errorf("%s proposals are not supported yet via precompile", proposal.Type)
-		// IBC module proposal types
-		case "ClientUpdate", "IBCUpgrade":
-			return nil, fmt.Errorf("%s proposals are not supported yet via precompile", proposal.Type)
 		default:
 			return nil, err
 		}

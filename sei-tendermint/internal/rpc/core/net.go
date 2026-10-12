@@ -11,7 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// NetInfo returns network info.
+// NetInfo returns network info. NPeers counts connected peers, the same set as
+// PeerConnections; Peers lists every known address, including those learned via PEX.
 // More: https://docs.tendermint.com/master/rpc/#/Info/net_info
 func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
 	peers := map[types.NodeID]coretypes.Peer{}
@@ -36,7 +37,7 @@ func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, 
 	return &coretypes.ResultNetInfo{
 		Listening:       env.IsListening,
 		Listeners:       env.Listeners,
-		NPeers:          len(peers),
+		NPeers:          len(peerConnections),
 		Peers:           slices.Collect(maps.Values(peers)),
 		PeerConnections: slices.Collect(maps.Values(peerConnections)),
 	}, nil

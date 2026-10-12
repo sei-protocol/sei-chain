@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -173,6 +174,12 @@ func (w *dbWorker) flush() (err error) {
 	addImportKVPairs(w.ctx, w.dir, pairCount)
 	w.flushes++
 	w.pairs += int64(pairCount)
+	closeErr := w.batch.Close()
+	// Cleared before the error check, so run() does not close the batch a second time.
+	w.batch = nil
+	if closeErr != nil {
+		return fmt.Errorf("%s close batch: %w", w.dir, closeErr)
+	}
 	w.batch = w.db.NewBatch()
 	w.ltMutations = w.ltMutations[:0]
 	return nil
@@ -185,6 +192,8 @@ func (w *dbWorker) flush() (err error) {
 type KVImporter struct {
 	store   *CommitStore
 	version int64
+	// requireAscendingKeys rejects the import unless physical keys arrive in strictly ascending order.
+	requireAscendingKeys bool
 
 	ingestCh chan rawKVPair
 	// workers is keyed by database directory name, which is what routePhysicalKey answers with. Keying by
@@ -203,14 +212,16 @@ type KVImporter struct {
 
 // NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
 // are passed in rather than fetched off store, because an import writes beneath the view managers and so
-// must be handed the databases explicitly by whoever opened them.
-func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer {
+// must be handed the databases explicitly by whoever opened them. When requireAscendingKeys is set, the
+// import fails unless every physical key is strictly greater than the one before it.
+func NewKVImporter(store *CommitStore, version int64, dbs rawDBs, requireAscendingKeys bool) types.Importer {
 	imp := &KVImporter{
-		store:    store,
-		version:  version,
-		ingestCh: make(chan rawKVPair, ingestChanSize),
-		workers:  make(map[string]*dbWorker, len(dataDBDirs)),
-		done:     make(chan struct{}),
+		store:                store,
+		version:              version,
+		requireAscendingKeys: requireAscendingKeys,
+		ingestCh:             make(chan rawKVPair, ingestChanSize),
+		workers:              make(map[string]*dbWorker, len(dataDBDirs)),
+		done:                 make(chan struct{}),
 	}
 
 	for _, dir := range dataDBDirs {
@@ -257,11 +268,19 @@ func (imp *KVImporter) dispatch() {
 		}
 	}()
 
+	var prevKey []byte
 	for {
 		select {
 		case kv, ok := <-imp.ingestCh:
 			if !ok {
 				return
+			}
+			if imp.requireAscendingKeys {
+				if err := checkAscending(prevKey, kv.Key); err != nil {
+					imp.setErr(err)
+					return
+				}
+				prevKey = kv.Key
 			}
 			dir, err := routePhysicalKey(kv.Key)
 			if err != nil {
@@ -277,6 +296,23 @@ func (imp *KVImporter) dispatch() {
 			return
 		}
 	}
+}
+
+// checkAscending returns an error unless key is strictly greater than prevKey. A nil prevKey means key is
+// the first of the import.
+func checkAscending(prevKey []byte, key []byte) error {
+	if prevKey == nil {
+		return nil
+	}
+	switch cmp := bytes.Compare(prevKey, key); {
+	case cmp == 0:
+		return fmt.Errorf("flatkv import: duplicate physical key %x", key)
+	case cmp > 0:
+		return fmt.Errorf(
+			"flatkv import: physical key %x is below preceding key %x; keys must be in ascending order",
+			key, prevKey)
+	}
+	return nil
 }
 
 func (imp *KVImporter) setErr(err error) {
@@ -301,22 +337,45 @@ func (imp *KVImporter) AddModule(_ string) error {
 	return nil
 }
 
-func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
-	if node.Height != 0 || node.Key == nil || node.Version != imp.version {
-		return
+// AddNode queues node for import. It fails the import and returns an error unless node is a leaf at the
+// import's version with a non-empty key and value. Once the import has failed, it returns that failure.
+func (imp *KVImporter) AddNode(node *types.SnapshotNode) error {
+	if err := imp.getErr(); err != nil {
+		return err
+	}
+	if err := imp.checkNode(node); err != nil {
+		imp.setErr(err)
+		return err
+	}
+	select {
+	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
+	case <-imp.done:
+	}
+	// A worker can fail while the send is pending, and select may still pick the send, so the failure is
+	// read again here rather than reporting the node as accepted.
+	return imp.getErr()
+}
+
+// checkNode returns an error unless node is a row this import can store.
+func (imp *KVImporter) checkNode(node *types.SnapshotNode) error {
+	if node.Height != 0 {
+		return fmt.Errorf("flatkv import: node %x has height %d; only leaves can be imported", node.Key, node.Height)
+	}
+	if len(node.Key) == 0 {
+		return errors.New("flatkv import: node has an empty key")
+	}
+	if node.Version != imp.version {
+		return fmt.Errorf("flatkv import: node %x has version %d; the import is at version %d",
+			node.Key, node.Version, imp.version)
 	}
 	// FlatKV import nodes carry already-serialized physical values. Even an
 	// empty logical misc value has a non-empty serialized header, so a
 	// zero-length physical value is malformed. Reject it instead of writing a
 	// Pebble row that LtHash and verification would both skip.
 	if len(node.Value) == 0 {
-		imp.setErr(fmt.Errorf("flatkv import: empty physical value for key %x", node.Key))
-		return
+		return fmt.Errorf("flatkv import: empty physical value for key %x", node.Key)
 	}
-	select {
-	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
-	case <-imp.done:
-	}
+	return nil
 }
 
 // Abort tears down the worker pipeline without finalizing the import.

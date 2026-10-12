@@ -187,11 +187,17 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 	cp := make(map[common.Address]string, len(k.customPrecompiles))
 	for addr, versioned := range k.customPrecompiles {
 		mostRecentUpgradeHeight := int64(0)
+		earliestUpgradeHeight := int64(0)
+		earliestUpgrade := ""
 		noForkHistory := true
 		for upgrade := range versioned {
 			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
 			if upgradeHeight != 0 {
 				noForkHistory = false
+				if earliestUpgradeHeight == 0 || upgradeHeight < earliestUpgradeHeight {
+					earliestUpgradeHeight = upgradeHeight
+					earliestUpgrade = upgrade
+				}
 			}
 			if height < upgradeHeight {
 				// requested height hasn't seen this upgrade version yet.
@@ -204,6 +210,8 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 		}
 		if noForkHistory {
 			cp[addr] = k.latestUpgrade
+		} else if mostRecentUpgradeHeight == 0 {
+			cp[addr] = earliestUpgrade
 		}
 	}
 	return cp

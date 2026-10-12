@@ -74,7 +74,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(dir),
+		PersistentStateDir: dir,
 		App:                proxyApp,
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,

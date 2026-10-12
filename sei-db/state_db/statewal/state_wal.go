@@ -9,7 +9,7 @@ import (
 // A WAL for state.
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
-// in particular Write and SignalEndOfBlock share write-ordering state that is not internally locked.
+// in particular Write maintains write-ordering state that is not internally locked.
 //
 // Slices are not copied at the call boundary. Changesets passed to Write — and every byte slice reachable
 // through them — must not be modified after the call: the WAL retains them and serializes them
@@ -19,7 +19,7 @@ import (
 type StateWAL interface {
 	controller.PrunableStore
 
-	// Write a set of changes to the WAL.
+	// Write a block's changes to the WAL as a single record.
 	//
 	// This method only schedules the write, it does not block until the write is complete.
 	//
@@ -29,12 +29,9 @@ type StateWAL interface {
 	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
 	// nil or empty.
 	//
-	// Blocks must be written in contiguous ascending order, one at a time:
-	//
-	// - The first block written to an empty WAL may be any number. Every block after it must be exactly one
-	//   greater than the last, so forward jumps are rejected. This survives close and reopen.
-	// - Any number of Writes may target the current block until SignalEndOfBlock; afterwards that block is
-	//   closed and writing to it again is an error.
+	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
+	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
+	// repeats and forward jumps are rejected. This survives close and reopen.
 	//
 	// Violations are reported synchronously and leave the WAL usable.
 	Write(
@@ -44,15 +41,7 @@ type StateWAL interface {
 		cs []*proto.NamedChangeSet,
 	) error
 
-	// Signal that there will be no more writes for the current block number. Writing additional changes for
-	// the same block number after calling this method is an error.
-	//
-	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make
-	// data immediately crash durable.
-	SignalEndOfBlock() error
-
-	// Flush the WAL to disk. Only completed blocks — those for which SignalEndOfBlock has been called — are
-	// made crash durable; changes for a block that has not yet been ended remain buffered and are not flushed.
+	// Flush the WAL to disk, making every block written so far crash durable.
 	Flush() error
 
 	// Get the range of block numbers stored in the WAL.
@@ -88,12 +77,10 @@ type StateWAL interface {
 	// is not. For data written concurrently with this call, whether it is included is unspecified.
 	//
 	// The iterator yields one entry per block in ascending block order. Its Entry() returns (blockNumber,
-	// changesets), where changesets are all the changes written for that block (across one or more Write
-	// calls) combined in write order. Blocks that were never ended with SignalEndOfBlock are not yielded.
-	// The returned changesets, and every byte slice reachable through them, must be treated as read-only.
+	// changesets), where changesets are the changes written for that block. The returned changesets, and
+	// every byte slice reachable through them, must be treated as read-only.
 	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
 
-	// Close the WAL, flushing complete blocks (those ended with SignalEndOfBlock) to disk and releasing
-	// resources. Changes for a block that was not ended with SignalEndOfBlock are discarded.
+	// Close the WAL, flushing the blocks written so far to disk and releasing resources.
 	Close() error
 }

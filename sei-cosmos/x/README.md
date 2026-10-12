@@ -21,10 +21,6 @@ Here are some production-grade modules that can be used in Cosmos SDK applicatio
 
 To learn more about the process of building modules, visit the [building modules reference documentation](../docs/building-modules/README.md).
 
-## IBC
-
-The IBC module for the SDK has moved to its [own repository](https://github.com/cosmos/ibc-go).
-
 ### FeesParams
 
 To query for current fee params:

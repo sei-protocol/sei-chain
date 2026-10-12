@@ -40,7 +40,7 @@ var Consensus = rpc.Register[API](6, "consensus",
 	// Each Consensus stream carries one message type, client to server, one
 	// message per view.
 	rpc.Limit{Rate: 10, Concurrent: 10},
-	rpc.Msg[*apb.ConsensusReq]{MsgSize: 1200 * kB, Window: 1},
+	rpc.Msg[*apb.ConsensusMsg]{MsgSize: 1200 * kB, Window: 1},
 	rpc.Msg[*pb.ConsensusResp]{MsgSize: kB, Window: 1},
 )
 var StreamFullCommitQCs = rpc.Register[API](7, "stream_full_commit_qcs",

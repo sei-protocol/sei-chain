@@ -84,7 +84,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
-				PersistentStateDir: utils.Some(dir),
+				PersistentStateDir: dir,
 				App:                proxyApp,
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
@@ -95,6 +95,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+				ProposalTimeout:        time.Hour,
 				Producer: &producer.Config{
 					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
 					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
@@ -102,6 +103,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
+					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
@@ -158,6 +160,15 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
+			// Covers GigaRouter.ExecutedBlocks — the watch behind
+			// eth_subscribe("newHeads"). It must reach the committed height,
+			// and the block it names must be readable via BlockByNumber.
+			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+				return int64(w.Latest().Number) >= committed
+			})
+			require.NoError(t, err, "router[%v].ExecutedBlocks().Wait()", i)
+			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
+			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed.Latest().Number)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries
@@ -254,7 +265,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(dir),
+		PersistentStateDir: dir,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
@@ -266,12 +277,14 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GigaRouterCommonConfig: commonCfg,
 		ValidatorKey:           validatorKeys[0],
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
+		ProposalTimeout:        time.Hour,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)

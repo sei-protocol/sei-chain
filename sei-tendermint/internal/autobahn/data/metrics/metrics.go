@@ -26,6 +26,25 @@ type stageMetrics[T any] struct {
 	Evict   T
 }
 
+// nextBlockMetrics are the next_block gauges.
+type nextBlockMetrics struct {
+	QC      *prometheus.GaugeInt
+	Receive *prometheus.GaugeInt
+	Execute *prometheus.GaugeInt
+	Certify *prometheus.GaugeInt
+	Evict   *prometheus.GaugeInt
+}
+
+func newNextBlockMetrics() nextBlockMetrics {
+	return nextBlockMetrics{
+		QC:      Global.nextBlockAt("qc"),
+		Receive: Global.nextBlockAt("receive"),
+		Execute: Global.nextBlockAt("execute"),
+		Certify: Global.nextBlockAt("certify"),
+		Evict:   Global.nextBlockAt("evict"),
+	}
+}
+
 func newStageMetrics[T any](gen func(stage string) T) stageMetrics[T] {
 	return stageMetrics[T]{
 		Receive: gen("receive"),
@@ -36,7 +55,7 @@ func newStageMetrics[T any](gen func(stage string) T) stageMetrics[T] {
 }
 
 type Metrics struct {
-	NextBlock    stageMetrics[*prometheus.GaugeInt]
+	NextBlock    nextBlockMetrics
 	BlockLatency stageMetrics[*prometheus.Histogram]
 	TxLatency    stageMetrics[*prometheus.Histogram]
 	GasUsed      *prometheus.CounterInt
@@ -46,7 +65,7 @@ type Metrics struct {
 
 func Get() *Metrics {
 	return &Metrics{
-		NextBlock:    newStageMetrics(Global.nextBlockAt),
+		NextBlock:    newNextBlockMetrics(),
 		BlockLatency: newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
 		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
 		GasUsed:      Global.gasUsedAt(),

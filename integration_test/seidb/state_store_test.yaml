@@ -39,19 +39,19 @@
   verifiers:
     # Verify number of wasm codes at each height
     - type: eval
-      expr: BEGINNING_LIST_CODE_LENGTH == 3
+      expr: BEGINNING_LIST_CODE_LENGTH == 0
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH == 13
+      expr: FIRST_SET_LIST_CODE_LENGTH == 10
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 13
+      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 10
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH == 23
+      expr: SECOND_SET_LIST_CODE_LENGTH == 20
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 23
+      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 20
     - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH == 33
+      expr: THIRD_SET_LIST_CODE_LENGTH == 30
     - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 33
+      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 30
 
 - name: Test state store historical data checking specific wasm codes
   inputs:
@@ -84,10 +84,12 @@
       expr: FIRST_CREATOR_SECOND_SET == CREATOR_ID
     # Verify correct code ids
     # NOTE: Since chain is continually running / stateful, may have remove
+    # Codes are numbered from 1, so index 3 forward over ids 1-10 is 4, and index 3
+    # in reverse over ids 1-20 is 17.
     - type: eval
       expr: FIRST_ID_FIRST_SET == 4
     - type: eval
-      expr: SECOND_ID_FIRST_SET == 20
+      expr: SECOND_ID_FIRST_SET == 17
 
 - name: Test state store iteration through tokenfactory denoms
   inputs:

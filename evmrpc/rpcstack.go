@@ -334,6 +334,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetDeadlineHook(withDeadline)
 	if config.maxRequestBodyBytes > 0 {
 		bodyLimit := config.maxRequestBodyBytes
 		if bodyLimit > math.MaxInt {
@@ -398,6 +399,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetDeadlineHook(withDeadline)
 	readLimit := effectiveMaxRequestBodyBytes(config.readLimit)
 	srv.SetReadLimits(readLimit)
 	// maxConcurrentRequestBytes is passed through raw; rpc.Server.recomputeWSConcurrentBudget
@@ -454,11 +456,11 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSe
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
 func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
-	handler := srv
+	handler := NewWSConnectionHandler(srv)
 	if len(JwtSecret) != 0 {
 		handler = newJWTHandler(JwtSecret, handler)
 	}
-	return NewWSConnectionHandler(handler)
+	return handler
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {

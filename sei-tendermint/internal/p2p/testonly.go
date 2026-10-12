@@ -285,10 +285,13 @@ func (n *TestNode) Connect(ctx context.Context, target *TestNode) error {
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
-	for _, conn := range GetAll(n.Router.peerManager.Conns(), target) {
+	conns := GetAll(n.Router.peerManager.Conns(), target)
+	for _, conn := range conns {
 		conn.Close()
 	}
-	utils.OrPanic(n.WaitForConn(ctx, target, false))
+	for _, conn := range conns {
+		n.WaitForDisconnect(ctx, conn)
+	}
 }
 
 // MakeNode creates a new Node configured for the network with a

@@ -47,6 +47,10 @@ const (
 	EVMKeyMisc                       // Full original key preserved (address mappings, codesize, etc.)
 )
 
+// EVMKeyKindCount is the number of EVMKeyKind values, for sizing an array indexed by kind. It assumes EVMKeyMisc is
+// the last kind.
+const EVMKeyKindCount = int(EVMKeyMisc) + 1
+
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
 // For optimized keys (nonce, code, codehash, storage, balance), keyBytes is the stripped key.
@@ -127,6 +131,28 @@ func BuildEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 	result[0] = prefix
 	copy(result[1:], keyBytes)
 	return result
+}
+
+// PutEVMKey writes kind's prefix and parts into dst, which must be exactly 1 + the total length of parts.
+// It reports false and leaves dst untouched when kind has no prefix.
+func PutEVMKey(dst []byte, kind EVMKeyKind, parts ...[]byte) bool {
+	prefix, ok := EVMKeyPrefixByte(kind)
+	if !ok {
+		return false
+	}
+	total := 1
+	for _, part := range parts {
+		total += len(part)
+	}
+	if len(dst) != total {
+		return false
+	}
+	dst[0] = prefix
+	offset := 1
+	for _, part := range parts {
+		offset += copy(dst[offset:], part)
+	}
+	return true
 }
 
 // InternalKeyLen returns the expected internal key length for a given kind.

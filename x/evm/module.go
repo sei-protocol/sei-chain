@@ -109,10 +109,6 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 	return cli.GetQueryCmd(types.StoreKey)
 }
 
-// ----------------------------------------------------------------------------
-// AppModule
-// ----------------------------------------------------------------------------
-
 // AppModule implements the AppModule interface for the capability module.
 type AppModule struct {
 	AppModuleBasic
@@ -162,41 +158,19 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		return migrations.AddNewParamsAndSetAllToDefaults(ctx, am.keeper)
 	})
 
-	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 4, migrations.RetiredPointerBoundary)
 
 	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
 		return migrations.FixTotalSupply(ctx, am.keeper)
 	})
 
-	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 6, migrations.RetiredPointerBoundary)
 
-	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 7, migrations.RetiredPointerBoundary)
 
-	_ = cfg.RegisterMigration(types.ModuleName, 8, func(ctx sdk.Context) error {
-		if err := migrations.MigrateERCNativePointers(ctx, am.keeper); err != nil {
-			return err
-		}
-		if err := migrations.MigrateERCCW20Pointers(ctx, am.keeper); err != nil {
-			return err
-		}
-		return migrations.MigrateERCCW721Pointers(ctx, am.keeper)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 8, migrations.RetiredPointerBoundary)
 
-	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
-		if err := migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false); err != nil {
-			return err
-		}
-		if err := migrations.MigrateCWERC20Pointers(ctx, am.keeper); err != nil {
-			return err
-		}
-		return migrations.MigrateCWERC721Pointers(ctx, am.keeper)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 9, migrations.RetiredPointerBoundary)
 
 	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
 		return migrations.MigrateCastAddressBalances(ctx, am.keeper)
@@ -218,20 +192,13 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		return migrations.MigrateEip1559MaxFeePerGas(ctx, am.keeper)
 	})
 
-	_ = cfg.RegisterMigration(types.ModuleName, 15, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, false, true)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 15, migrations.RetiredPointerBoundary)
 
 	_ = cfg.RegisterMigration(types.ModuleName, 16, func(ctx sdk.Context) error {
 		return migrations.MigrateBaseFeeOffByOne(ctx, am.keeper)
 	})
 
-	_ = cfg.RegisterMigration(types.ModuleName, 17, func(ctx sdk.Context) error {
-		if err := migrations.MigrateERCCW721Pointers(ctx, am.keeper); err != nil {
-			return err
-		}
-		return migrations.MigrateERCCW1155Pointers(ctx, am.keeper)
-	})
+	_ = cfg.RegisterMigration(types.ModuleName, 17, migrations.RetiredPointerBoundary)
 
 	_ = cfg.RegisterMigration(types.ModuleName, 18, func(ctx sdk.Context) error {
 		return migrations.MigrateDisableRegisterPointer(ctx, am.keeper)
@@ -259,25 +226,6 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 	InitGenesis(ctx, am.keeper, genState)
 
 	return []abci.ValidatorUpdate{}
-}
-
-// ExportGenesis returns the capability module's exported genesis state as raw JSON bytes.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
-	genState := ExportGenesis(ctx, am.keeper)
-	return cdc.MustMarshalJSON(genState)
-}
-
-// ExportGenesisStream returns the evm module's exported genesis state as raw JSON bytes in a streaming fashion.
-func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	ch := ExportGenesisStream(ctx, am.keeper)
-	chRaw := make(chan json.RawMessage)
-	go func() {
-		for genState := range ch {
-			chRaw <- cdc.MustMarshalJSON(genState)
-		}
-		close(chRaw)
-	}()
-	return chRaw
 }
 
 // ConsensusVersion implements ConsensusVersion.

@@ -4,38 +4,16 @@ package distribution
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	distributionv552 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v552"
-	distributionv555 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v555"
-	distributionv562 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v562"
-	distributionv580 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v580"
-	distributionv605 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v605"
-	distributionv606 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v606"
-	distributionv610 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v610"
-	distributionv614 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v614"
-	distributionv620 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v620"
-	distributionv630 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v630"
-	distributionv640 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v640"
-	distributionv65 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v65"
 	distributionv66 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v66"
+	distributionv67 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(distributionv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(distributionv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(distributionv562.NewPrecompile(keepers)),
-		"v5.8.0":      check(distributionv580.NewPrecompile(keepers)),
-		"v6.0.5":      check(distributionv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(distributionv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(distributionv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(distributionv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(distributionv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(distributionv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(distributionv640.NewPrecompile(keepers)),
-		"v6.5":        check(distributionv65.NewPrecompile(keepers)),
 		"v6.6":        check(distributionv66.NewPrecompile(keepers)),
+		"v6.7":        check(distributionv67.NewPrecompile(keepers)),
 	}
 }
 

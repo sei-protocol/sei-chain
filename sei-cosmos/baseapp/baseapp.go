@@ -88,6 +88,10 @@ func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) uint256.Int {
 	return uint256.Int{}
 }
 
+func (app *BaseApp) EvmChainID() uint64 {
+	return 0
+}
+
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
 	// initialized on creation
@@ -481,14 +485,6 @@ func (app *BaseApp) LoadVersion(version int64) error {
 		return fmt.Errorf("failed to load version %d: %w", version, err)
 	}
 	return app.init()
-}
-
-// LoadVersionWithoutInit loads the BaseApp application version, it doesn't call app.init any more,
-// specifically used by export genesis command.
-func (app *BaseApp) LoadVersionWithoutInit(version int64) error {
-	err := app.cms.LoadVersion(version)
-	app.setCheckState(tmproto.Header{})
-	return err
 }
 
 // LastCommitID returns the last CommitID of the multistore.
@@ -1056,6 +1052,12 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 			eventMsgName string // name to use as value in event `message.action`
 			err          error
 		)
+
+		if ctx.IsSimulation() {
+			if err := ctx.Context().Err(); err != nil {
+				return nil, err
+			}
+		}
 
 		msgCtx, msgMsCache := app.CacheTxContext(ctx, [32]byte{})
 		msgCtx = msgCtx.WithMessageIndex(i)

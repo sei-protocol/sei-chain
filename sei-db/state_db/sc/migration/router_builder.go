@@ -3,7 +3,6 @@ package migration
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -12,6 +11,26 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
+
+// RouterOption adjusts how BuildRouter assembles a router.
+type RouterOption func(*routerOptions)
+
+type routerOptions struct {
+	telemetry bool
+}
+
+// WithoutTelemetry makes the router's MigrationManager keep its migration
+// metrics in process, without publishing them on the process-wide OTel instruments.
+func WithoutTelemetry() RouterOption {
+	return func(o *routerOptions) { o.telemetry = false }
+}
+
+func (o routerOptions) migrationMetrics(ctx context.Context, targetVersion uint64) *MigrationMetrics {
+	if !o.telemetry {
+		return newLocalMigrationMetrics()
+	}
+	return NewMigrationMetrics(ctx, targetVersion)
+}
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
 // reads/writes between the memiavl and flatkv backends.
@@ -22,7 +41,12 @@ func BuildRouter(
 	flatKV gigatypes.LiveStateStore,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
 	migrationBatchSize int,
+	options ...RouterOption,
 ) (Router, error) {
+	opts := routerOptions{telemetry: true}
+	for _, apply := range options {
+		apply(&opts)
+	}
 
 	switch writeMode {
 	case types.MemiavlOnly:
@@ -32,7 +56,7 @@ func BuildRouter(
 		}
 		return router, nil
 	case types.MigrateEVM:
-		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
+		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize, opts)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
 		}
@@ -52,7 +76,7 @@ func BuildRouter(
 		}
 		return threadSafe, nil
 	case types.MigrateAllButBank:
-		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
+		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize, opts)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
 		}
@@ -72,7 +96,7 @@ func BuildRouter(
 		}
 		return threadSafe, nil
 	case types.MigrateBank:
-		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
+		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize, opts)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
 		}
@@ -150,6 +174,7 @@ func buildMigrateEVMRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV gigatypes.LiveStateStore,
 	migrationBatchSize int,
+	opts routerOptions,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -168,7 +193,7 @@ func buildMigrateEVMRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
-		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
+		opts.migrationMetrics(ctx, Version1_MigrateEVM),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
@@ -277,6 +302,7 @@ func buildMigrateAllButBankRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV gigatypes.LiveStateStore,
 	migrationBatchSize int,
+	opts routerOptions,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -300,7 +326,7 @@ func buildMigrateAllButBankRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
-		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
+		opts.migrationMetrics(ctx, Version2_MigrateAllButBank),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
@@ -402,6 +428,7 @@ func buildMigrateBankRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV gigatypes.LiveStateStore,
 	migrationBatchSize int,
+	opts routerOptions,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -427,7 +454,7 @@ func buildMigrateBankRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
-		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
+		opts.migrationMetrics(ctx, Version3_FlatKVOnly),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)

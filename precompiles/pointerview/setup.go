@@ -4,36 +4,16 @@ package pointerview
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	pointerviewv552 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v552"
-	pointerviewv555 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v555"
-	pointerviewv562 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v562"
-	pointerviewv605 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v605"
-	pointerviewv606 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v606"
-	pointerviewv610 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v610"
-	pointerviewv614 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v614"
-	pointerviewv620 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v620"
-	pointerviewv630 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v630"
-	pointerviewv640 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v640"
-	pointerviewv65 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v65"
 	pointerviewv66 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v66"
+	pointerviewv67 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(pointerviewv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(pointerviewv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(pointerviewv562.NewPrecompile(keepers)),
-		"v6.0.5":      check(pointerviewv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(pointerviewv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(pointerviewv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(pointerviewv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(pointerviewv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(pointerviewv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(pointerviewv640.NewPrecompile(keepers)),
-		"v6.5":        check(pointerviewv65.NewPrecompile(keepers)),
 		"v6.6":        check(pointerviewv66.NewPrecompile(keepers)),
+		"v6.7":        check(pointerviewv67.NewPrecompile(keepers)),
 	}
 }
 

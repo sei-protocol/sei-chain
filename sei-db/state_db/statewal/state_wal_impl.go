@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
@@ -15,41 +16,30 @@ var _ StateWAL = (*stateWALImpl)(nil)
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
 // state_wal_gc.go is the one exception: it runs on the collector's goroutine, and touches only
-// lastCompletedBlock and the WAL underneath.
+// lastBlock and the WAL underneath.
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
 
-	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
-	// is only ever touched by the single caller, which must not invoke methods concurrently.
-	closed bool
+	// Closed by Close() so subsequent calls fail fast.
+	closed utils.CloseMarker[stateWALImpl]
 
 	// The first fatal error from the underlying WAL that bricked this one, surfaced to the caller by every
 	// subsequent operation. Once set, no operation touches the underlying WAL, so a corrupt WAL never
-	// limps onward. Caller-serialized like closed.
+	// limps onward. A plain field: like hasBlock, it is only ever touched by the single caller, which must
+	// not invoke methods concurrently.
 	fatalErr error
 
-	// The write-ordering contract state and the accumulation buffer below are mutated by Write and
-	// SignalEndOfBlock, which callers must not invoke concurrently.
-
-	// The block number of the most recent Write or SignalEndOfBlock.
-	currentBlock uint64
-	// Whether currentBlock has been finalized by SignalEndOfBlock.
-	currentBlockEnded bool
-	// Whether any block has been observed (this session or recovered from disk).
-	hasCurrentBlock bool
-	// The changesets accumulated for the current block across its Write calls, appended as one record at
-	// end-of-block. Ownership is handed to the WAL at end-of-block and a fresh buffer starts for the next
-	// block, so the serialization goroutine never races the wrapper over the backing array.
-	buf []*proto.NamedChangeSet
-
-	// The highest block that has been ended by SignalEndOfBlock, and so is actually a record in the WAL.
-	// Distinct from currentBlock, which may name a block still accumulating in buf. Atomic because the
-	// garbage collector reads it off-goroutine (GetLatestBlock); the writer is its only mutator.
+	// The highest block number written. Atomic because the garbage collector reads it off-goroutine
+	// (GetLatestBlock); Write is its only mutator.
 	//
-	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
+	// 0 also means nothing has been written yet, so a WAL whose only block is block 0 is
 	// indistinguishable from an empty one.
-	lastCompletedBlock atomic.Uint64
+	lastBlock atomic.Uint64
+
+	// Whether any block has been written (this session or recovered from disk), which is what tells an
+	// empty WAL apart from one holding only block 0. Caller-serialized like fatalErr.
+	hasBlock bool
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -121,17 +111,16 @@ func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
 	}
 	if ok {
-		w.currentBlock = last
-		w.currentBlockEnded = true
-		w.hasCurrentBlock = true
-		w.lastCompletedBlock.Store(last)
+		w.lastBlock.Store(last)
+		w.hasBlock = true
 	}
+	w.closed = utils.MustClose(w, "state WAL")
 	return w, nil
 }
 
-// Write accumulates a set of changes for the given block number in memory.
+// Write appends a block's changesets to the WAL as a single record.
 func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -142,75 +131,38 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 			return fmt.Errorf("write rejected: changeset at index %d is nil", i)
 		}
 	}
-	if err := w.enforceWriteOrdering(blockNumber); err != nil {
+	if err := w.checkBlockOrder(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
-	w.buf = append(w.buf, cs...)
+
+	// Record the new head only once the append succeeds; a failed append bricks the WAL and leaves the
+	// head where it was rather than skipping past a block whose changesets were lost.
+	if err := w.wal.Append(blockNumber, cs); err != nil {
+		return w.fail(fmt.Errorf("failed to append block %d: %w", blockNumber, err))
+	}
+	w.lastBlock.Store(blockNumber)
+	w.hasBlock = true
 	return nil
 }
 
-// SignalEndOfBlock appends the current block's accumulated changesets to the WAL as a single record.
-func (w *stateWALImpl) SignalEndOfBlock() error {
-	if w.closed {
-		return fmt.Errorf("state WAL is closed")
-	}
-	if w.fatalErr != nil {
-		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
-	}
-
-	if !w.hasCurrentBlock || w.currentBlockEnded {
-		return fmt.Errorf("no block in progress to end")
-	}
-
-	// Commit the finalization state only after the append succeeds; a failed append bricks the WAL and
-	// leaves the block in progress rather than silently finalizing a block whose changesets were lost.
-	if err := w.wal.Append(w.currentBlock, w.buf); err != nil {
-		return w.fail(fmt.Errorf("failed to append block %d: %w", w.currentBlock, err))
-	}
-	w.currentBlockEnded = true
-	w.lastCompletedBlock.Store(w.currentBlock)
-	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
-	return nil
-}
-
-// enforceWriteOrdering rejects a Write that violates the block-ordering rules (no decreasing block numbers; no
-// advancing to a new block before the current one is ended) and records the new position when it is allowed.
-func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
-	if !w.hasCurrentBlock {
-		w.currentBlock = blockNumber
-		w.currentBlockEnded = false
-		w.hasCurrentBlock = true
+// checkBlockOrder rejects a block number that breaks the contiguity rule: the first block written to an
+// empty WAL may be any number, and every block after it must be exactly one greater than the last. It
+// only reads the write-ordering state, so a Write that fails downstream of it leaves the head untouched.
+func (w *stateWALImpl) checkBlockOrder(blockNumber uint64) error {
+	if !w.hasBlock {
 		return nil
 	}
-	if blockNumber < w.currentBlock {
-		return fmt.Errorf(
-			"block number %d is less than the current block number %d", blockNumber, w.currentBlock)
+	last := w.lastBlock.Load()
+	if blockNumber != last+1 {
+		return fmt.Errorf("block number %d is not contiguous with the last block written %d (expected %d)",
+			blockNumber, last, last+1)
 	}
-	if blockNumber == w.currentBlock {
-		if w.currentBlockEnded {
-			return fmt.Errorf(
-				"block number %d has already ended; cannot write more changes to it", blockNumber)
-		}
-		return nil
-	}
-	// blockNumber > currentBlock
-	if !w.currentBlockEnded {
-		return fmt.Errorf(
-			"cannot write block %d before calling SignalEndOfBlock for block %d",
-			blockNumber, w.currentBlock)
-	}
-	if blockNumber != w.currentBlock+1 {
-		return fmt.Errorf("block number %d is not contiguous with the current block number %d (expected %d)",
-			blockNumber, w.currentBlock, w.currentBlock+1)
-	}
-	w.currentBlock = blockNumber
-	w.currentBlockEnded = false
 	return nil
 }
 
 // Flush blocks until all previously scheduled writes are durable.
 func (w *stateWALImpl) Flush() error {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -224,7 +176,7 @@ func (w *stateWALImpl) Flush() error {
 
 // GetStoredRange reports the range of complete blocks stored in the WAL.
 func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return false, 0, 0, fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -240,7 +192,7 @@ func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
 // Prune schedules removal of whole underlying files below lowestBlockNumberToKeep. It does not block on
 // completion.
 func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -258,7 +210,7 @@ func (w *stateWALImpl) Iterator(
 	startingBlockNumber uint64,
 	endingBlockNumber uint64,
 ) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
-	if w.closed {
+	if w.closed.IsClosed() {
 		return nil, fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
@@ -277,7 +229,7 @@ func (w *stateWALImpl) Iterator(
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources.
 func (w *stateWALImpl) Close() error {
-	w.closed = true
+	w.closed.Close(w)
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}

@@ -3,36 +3,41 @@ package mvcc
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
-	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/cockroachdb/pebble/v2/batchrepr"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
+var tombstonePayload = []byte(tombstoneVal)
+
+// errBatchClosed is returned by a Batch used after Write or Close.
+var errBatchClosed = errors.New("pebbledb: batch already written or closed")
+
+// Batch accumulates MVCC-encoded writes at a single version in a pebble.Batch.
+// It is single-use: Write commits and releases it, and Close releases it
+// without committing.
 type Batch struct {
-	storage          *pebble.DB
+	pb               *pebble.Batch
 	version          int64
-	ops              []batchOp
 	descending       bool
 	operationMetrics *pebbledbmetrics.OperationMetrics
 	dbName           string
 }
 
-type batchOp struct {
-	key    []byte
-	value  []byte
-	delete bool
-}
-
-// NewBatch creates a new Batch using the supplied MVCC encoding mode.
+// NewBatch creates a new Batch using the supplied MVCC encoding mode. bufSize is
+// the byte capacity to reserve for the encoded batch, as changesetBatchSize
+// computes it; 0 lets Pebble grow the buffer on demand.
 func NewBatch(
 	storage *pebble.DB,
 	version int64,
+	bufSize int,
 	descending bool,
 	dbName string,
 	operationMetrics ...*pebbledbmetrics.OperationMetrics,
@@ -47,31 +52,55 @@ func NewBatch(
 	}
 
 	return &Batch{
-		storage:          storage,
+		pb:               storage.NewBatchWithSize(bufSize),
 		version:          version,
-		ops:              make([]batchOp, 0, 16),
 		descending:       descending,
 		operationMetrics: metrics,
 		dbName:           dbName,
 	}, nil
 }
 
+// Size returns the number of queued writes, or 0 once the batch is released.
 func (b *Batch) Size() int {
-	return len(b.ops)
+	if b.pb == nil {
+		return 0
+	}
+	return int(b.pb.Count())
 }
 
 func (b *Batch) Reset() {
-	b.ops = b.ops[:0]
+	if b.pb != nil {
+		b.pb.Reset()
+	}
+}
+
+// Close releases the underlying pebble.Batch without committing it. It is a
+// no-op on a batch that was already written or closed.
+func (b *Batch) Close() error {
+	if b.pb == nil {
+		return nil
+	}
+	err := b.pb.Close()
+	b.pb = nil
+	return err
 }
 
 func (b *Batch) set(storeKey string, tombstone int64, key, value []byte) error {
-	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
-	prefixedVal := MVCCEncode(value, tombstone, b.descending)
-
-	b.ops = append(b.ops, batchOp{
-		key:   append([]byte(nil), prefixedKey...),
-		value: append([]byte(nil), prefixedVal...),
-	})
+	if b.pb == nil {
+		return errBatchClosed
+	}
+	val := value
+	if tombstone != 0 {
+		val = tombstonePayload
+	}
+	keyLen := mvccEncodedLen(storeKey, key, b.version)
+	valLen := mvccEncodedLen("", val, tombstone)
+	d := b.pb.SetDeferred(keyLen, valLen)
+	encodeMVCCInto(d.Key, storeKey, key, b.version, b.descending)
+	encodeMVCCInto(d.Value, "", val, tombstone, b.descending)
+	if err := d.Finish(); err != nil {
+		return fmt.Errorf("failed to write PebbleDB batch: %w", err)
+	}
 	return nil
 }
 
@@ -80,156 +109,86 @@ func (b *Batch) Set(storeKey string, key, value []byte) error {
 }
 
 func (b *Batch) Delete(storeKey string, key []byte) error {
-	return b.set(storeKey, b.version, key, []byte(tombstoneVal))
+	return b.set(storeKey, b.version, key, nil)
 }
 
-func (b *Batch) Write() error {
-	writeCount := int64(len(b.ops) + 1) // includes latest-version metadata.
-	err := writeBatchOps(b.storage, b.ops, b.dbName, func(batch *pebble.Batch) error {
-		var versionBz [VersionSize]byte
-		binary.LittleEndian.PutUint64(
-			versionBz[:],
-			uint64(b.version), //nolint:gosec // block heights are non-negative and fit in int64
-		)
-		if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
-			return fmt.Errorf("failed to set latest version in batch: %w", err)
-		}
-		return nil
-	})
-	if err == nil && b.operationMetrics != nil {
-		b.operationMetrics.AddWrite(writeCount)
-	}
-	return err
-}
-
-// For writing kv pairs in any order of version
-type RawBatch struct {
-	storage          *pebble.DB
-	ops              []batchOp
-	descending       bool
-	operationMetrics *pebbledbmetrics.OperationMetrics
-	dbName           string
-}
-
-// NewRawBatch creates a new RawBatch using the supplied MVCC encoding mode.
-func NewRawBatch(
-	storage *pebble.DB,
-	descending bool,
-	dbName string,
-	operationMetrics ...*pebbledbmetrics.OperationMetrics,
-) (*RawBatch, error) {
-	var metrics *pebbledbmetrics.OperationMetrics
-	if len(operationMetrics) > 0 {
-		metrics = operationMetrics[0]
-	}
-
-	return &RawBatch{
-		storage:          storage,
-		ops:              make([]batchOp, 0, 16),
-		descending:       descending,
-		operationMetrics: metrics,
-		dbName:           dbName,
-	}, nil
-}
-
-func (b *RawBatch) Size() int {
-	return len(b.ops)
-}
-
-func (b *RawBatch) Reset() {
-	b.ops = b.ops[:0]
-}
-
-func (b *RawBatch) set(storeKey string, tombstone int64, key, value []byte, version int64) error {
-	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version, b.descending)
-	prefixedVal := MVCCEncode(value, tombstone, b.descending)
-
-	b.ops = append(b.ops, batchOp{
-		key:   append([]byte(nil), prefixedKey...),
-		value: append([]byte(nil), prefixedVal...),
-	})
-	return nil
-}
-
-func (b *RawBatch) Set(storeKey string, key, value []byte, version int64) error {
-	return b.set(storeKey, 0, key, value, version)
-}
-
-func (b *RawBatch) Delete(storeKey string, key []byte, version int64) error {
-	return b.set(storeKey, version, key, []byte(tombstoneVal), version)
-}
-
-// HardDelete physically removes the key by encoding it with the batch's version
-// and calling the underlying pebble.Batch.Delete.
+// HardDelete queues a physical delete of the encoded key at the batch's version.
 func (b *Batch) HardDelete(storeKey string, key []byte) error {
-	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
-	b.ops = append(b.ops, batchOp{
-		key:    append([]byte(nil), fullKey...),
-		delete: true,
-	})
+	if b.pb == nil {
+		return errBatchClosed
+	}
+	keyLen := mvccEncodedLen(storeKey, key, b.version)
+	d := b.pb.DeleteDeferred(keyLen)
+	encodeMVCCInto(d.Key, storeKey, key, b.version, b.descending)
+	if err := d.Finish(); err != nil {
+		return fmt.Errorf("failed to delete in PebbleDB batch: %w", err)
+	}
 	return nil
 }
 
-func (b *RawBatch) Write() error {
-	writeCount := int64(len(b.ops))
-	err := writeBatchOps(b.storage, b.ops, b.dbName, nil)
-	if err == nil && b.operationMetrics != nil {
-		b.operationMetrics.AddWrite(writeCount)
+// Write stamps the latest-version marker, commits, and releases the batch.
+func (b *Batch) Write() (err error) {
+	if b.pb == nil {
+		return errBatchClosed
 	}
-	return err
-}
-
-// writeBatchOps applies ops to a new pebble batch in sorted order, records
-// otel metrics, and commits. The optional beforeCommit hook runs on the
-// pebble batch right before commit (used by Batch.Write to stamp the
-// latest-version metadata key).
-func writeBatchOps(
-	storage *pebble.DB,
-	ops []batchOp,
-	dbName string,
-	beforeCommit func(*pebble.Batch) error,
-) (err error) {
 	startTime := time.Now()
-	batchSize := int64(len(ops))
-	defer func() {
-		ctx := context.Background()
-		otelMetrics.batchWriteLatency.Record(
-			ctx,
-			time.Since(startTime).Seconds(),
-			metric.WithAttributes(
-				attribute.Bool("success", err == nil),
-				attribute.String("db", dbName),
-			),
-		)
-		otelMetrics.batchSize.Record(ctx, batchSize, metric.WithAttributes(attribute.String("db", dbName)))
-	}()
+	opCount := int64(b.pb.Count())
+	defer recordBatchMetrics(startTime, opCount, &err, b.dbName)
+	defer func() { err = errors.Join(err, b.Close()) }()
 
-	batch := storage.NewBatch()
-	defer func() {
-		err = errors.Join(err, batch.Close())
-	}()
-	sortBatchOps(ops)
-	for _, op := range ops {
-		if op.delete {
-			if e := batch.Delete(op.key, nil); e != nil {
-				return fmt.Errorf("failed to delete in PebbleDB batch: %w", e)
-			}
-			continue
-		}
-		if e := batch.Set(op.key, op.value, nil); e != nil {
-			return fmt.Errorf("failed to write PebbleDB batch: %w", e)
-		}
+	var versionBz [VersionSize]byte
+	binary.LittleEndian.PutUint64(
+		versionBz[:],
+		uint64(b.version), //nolint:gosec // block heights are non-negative and fit in int64
+	)
+	if err = b.pb.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
+		return fmt.Errorf("failed to set latest version in batch: %w", err)
 	}
-	if beforeCommit != nil {
-		if err := beforeCommit(batch); err != nil {
-			return err
-		}
+	if err = b.pb.Commit(defaultWriteOpts); err != nil {
+		return err
 	}
-	return batch.Commit(defaultWriteOpts)
+	if b.operationMetrics != nil {
+		b.operationMetrics.AddWrite(opCount + 1)
+	}
+	return nil
 }
 
-func sortBatchOps(ops []batchOp) {
-	sort.SliceStable(ops, func(i, j int) bool {
-		return MVCCComparer.Compare(ops[i].key, ops[j].key) < 0
-	})
+// recordBatchMetrics records the otel instruments for a Batch write. err is
+// read at defer time, after any Close error a caller joins into it, so
+// "success" reflects the write's final outcome.
+func recordBatchMetrics(startTime time.Time, opCount int64, err *error, dbName string) {
+	ctx := context.Background()
+	otelMetrics.batchWriteLatency.Record(
+		ctx,
+		time.Since(startTime).Seconds(),
+		metric.WithAttributes(
+			attribute.Bool("success", *err == nil),
+			attribute.String("db", dbName),
+		),
+	)
+	otelMetrics.batchSize.Record(ctx, opCount, metric.WithAttributes(attribute.String("db", dbName)))
+}
+
+// changesetBatchSize returns a pebble batch capacity that holds changesets
+// written at version, plus the latest-version record Write adds, without the
+// buffer having to grow.
+func changesetBatchSize(changesets []*proto.NamedChangeSet, version int64) int {
+	n := batchrepr.HeaderLen + batchRecordSize(len(latestVersionKey), VersionSize)
+	for _, cs := range changesets {
+		for _, pair := range cs.Changeset.Pairs {
+			keyLen := mvccEncodedLen(cs.Name, pair.Key, version)
+			if pair.Value == nil {
+				n += batchRecordSize(keyLen, mvccEncodedLen("", tombstonePayload, version))
+			} else {
+				n += batchRecordSize(keyLen, mvccEncodedLen("", pair.Value, 0))
+			}
+		}
+	}
+	return n
+}
+
+// batchRecordSize returns the room Pebble reserves for one key/value record: a
+// kind byte and both length prefixes at their widest varint encoding.
+func batchRecordSize(keyLen, valueLen int) int {
+	return 1 + 2*binary.MaxVarintLen32 + keyLen + valueLen
 }

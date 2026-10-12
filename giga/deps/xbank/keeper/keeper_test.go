@@ -11,11 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	vesting "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -402,93 +400,21 @@ func (suite *IntegrationTestSuite) TestHasBalance() {
 
 func (suite *IntegrationTestSuite) TestSpendableCoins() {
 	app, ctx := suite.app, suite.ctx
-	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
-	endTime := now.Add(24 * time.Hour)
 
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
 	delCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
 
-	addr1 := sdk.AccAddress([]byte("addr1_______________"))
-	addr2 := sdk.AccAddress([]byte("addr2_______________"))
+	addr := sdk.AccAddress([]byte("addr1_______________"))
 	addrModule := sdk.AccAddress([]byte("moduleAcc___________"))
 
-	macc := app.AccountKeeper.NewAccountWithAddress(ctx, addrModule)
-	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix(), nil)
-	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, addrModule))
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, addr))
+	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr, origCoins))
 
-	app.AccountKeeper.SetAccount(ctx, macc)
-	app.AccountKeeper.SetAccount(ctx, vacc)
-	app.AccountKeeper.SetAccount(ctx, acc)
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr1, origCoins))
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr2, origCoins))
+	suite.Require().Equal(origCoins, app.GigaBankKeeper.SpendableCoins(ctx, addr))
 
-	suite.Require().Equal(origCoins, app.GigaBankKeeper.SpendableCoins(ctx, addr2))
-
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
-	suite.Require().NoError(app.GigaBankKeeper.DelegateCoins(ctx, addr2, addrModule, delCoins))
-	suite.Require().Equal(origCoins.Sub(delCoins), app.GigaBankKeeper.SpendableCoins(ctx, addr1))
-}
-
-func (suite *IntegrationTestSuite) TestVestingAccountSend() {
-	app, ctx := suite.app, suite.ctx
-	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
-	endTime := now.Add(24 * time.Hour)
-
-	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
-	sendCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
-
-	addr1 := sdk.AccAddress([]byte("addr1_______________"))
-	addr2 := sdk.AccAddress([]byte("addr2_______________"))
-
-	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, now.Unix(), endTime.Unix(), nil)
-
-	app.AccountKeeper.SetAccount(ctx, vacc)
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr1, origCoins))
-
-	// require that no coins be sendable at the beginning of the vesting schedule
-	suite.Require().Error(app.GigaBankKeeper.SendCoins(ctx, addr1, addr2, sendCoins))
-
-	// receive some coins
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr1, sendCoins))
-	// require that all vested coins are spendable plus any received
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
-	suite.Require().NoError(app.GigaBankKeeper.SendCoins(ctx, addr1, addr2, sendCoins))
-}
-
-func (suite *IntegrationTestSuite) TestPeriodicVestingAccountSend() {
-	app, ctx := suite.app, suite.ctx
-	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
-	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
-	sendCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
-
-	addr1 := sdk.AccAddress([]byte("addr1_______________"))
-	addr2 := sdk.AccAddress([]byte("addr2_______________"))
-	periods := vesting.Periods{
-		vesting.Period{Length: int64(12 * 60 * 60), Amount: sdk.Coins{sdk.NewInt64Coin("usei", 50)}},
-		vesting.Period{Length: int64(6 * 60 * 60), Amount: sdk.Coins{sdk.NewInt64Coin("usei", 25)}},
-		vesting.Period{Length: int64(6 * 60 * 60), Amount: sdk.Coins{sdk.NewInt64Coin("usei", 25)}},
-	}
-
-	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewPeriodicVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), periods, nil)
-
-	app.AccountKeeper.SetAccount(ctx, vacc)
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr1, origCoins))
-
-	// require that no coins be sendable at the beginning of the vesting schedule
-	suite.Require().Error(app.GigaBankKeeper.SendCoins(ctx, addr1, addr2, sendCoins))
-
-	// receive some coins
-	suite.Require().NoError(apptesting.FundAccount(app.GigaBankKeeper, ctx, addr1, sendCoins))
-
-	// require that all vested coins are spendable plus any received
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
-	suite.Require().NoError(app.GigaBankKeeper.SendCoins(ctx, addr1, addr2, sendCoins))
+	suite.Require().NoError(app.GigaBankKeeper.DelegateCoins(ctx, addr, addrModule, delCoins))
+	suite.Require().Equal(origCoins.Sub(delCoins), app.GigaBankKeeper.SpendableCoins(ctx, addr))
 }
 
 func (suite *IntegrationTestSuite) TestSetDenomMetaData() {

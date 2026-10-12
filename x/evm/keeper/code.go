@@ -6,7 +6,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -56,15 +55,4 @@ func (k *Keeper) GetCodeSize(ctx sdk.Context, addr common.Address) int {
 		return 0
 	}
 	return int(binary.BigEndian.Uint64(bz)) //nolint:gosec
-}
-
-func (k *Keeper) IterateAllCode(ctx sdk.Context, cb func(addr common.Address, code []byte) bool) {
-	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.CodeKeyPrefix).Iterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	for ; iter.Valid(); iter.Next() {
-		evmAddr := common.BytesToAddress(iter.Key())
-		if cb(evmAddr, iter.Value()) {
-			break
-		}
-	}
 }

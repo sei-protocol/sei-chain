@@ -17,12 +17,6 @@ interface IUpgrade {
         string memory name
     ) external view returns (int64 height);
 
-    // Returns the upgraded consensus state stored for the given last height,
-    // or empty bytes if none is stored.
-    function upgradedConsensusState(
-        int64 lastHeight
-    ) external view returns (bytes memory consensusState);
-
     // Returns the consensus versions of app modules. An empty moduleName
     // returns all modules; a specific moduleName returns just that module.
     function moduleVersions(
