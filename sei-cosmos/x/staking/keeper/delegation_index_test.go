@@ -157,10 +157,10 @@ func TestMigrateDelegationByValIndexNoOrphans(t *testing.T) {
 // its validator must traverse the whole delegation keyspace to reach it.
 var maxScanDelegator = sdk.AccAddress(bytes.Repeat([]byte{0xff}, 20))
 
-// TestGRPCQueryValidatorDelegationsIndexedBeyondScanLimit pins the defect the index
-// closes: past query.MaxScanLimit entries the filtered scan reverts, and reading the
-// per-validator prefix answers the same request.
-func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedBeyondScanLimit() {
+// TestGRPCQueryValidatorDelegationsBeyondScanLimit pins the defect the index closes:
+// past query.MaxScanLimit entries the filtered scan reverts, and once the index is
+// ready the same request is answered from the per-validator prefix.
+func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsBeyondScanLimit() {
 	app, ctx := suite.app, suite.ctx
 	querier := keeper.Querier{Keeper: app.StakingKeeper}
 	unreadyDelegationByValIndex(suite.T(), app, ctx)
@@ -186,17 +186,15 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedBeyondScan
 
 	req := &types.QueryValidatorDelegationsRequest{ValidatorAddr: targetVal.String()}
 
-	// Before the migration the indexed query falls through to the scan, so it reverts
-	// exactly as the query does at heights below the one that populated the index.
+	// Before the migration the query scans, so it reverts exactly as it does at
+	// heights below the one that populated the index.
 	_, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), req)
-	suite.Error(err)
-	_, err = querier.ValidatorDelegationsIndexed(sdk.WrapSDKContext(ctx), req)
 	suite.Error(err)
 
 	_, err = app.StakingKeeper.MigrateDelegationByValIndex(ctx)
 	suite.NoError(err)
 
-	res, err := querier.ValidatorDelegationsIndexed(sdk.WrapSDKContext(ctx), req)
+	res, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), req)
 	suite.NoError(err)
 	delegators := make([]string, 0, len(res.DelegationResponses))
 	for _, dr := range res.DelegationResponses {
@@ -204,16 +202,11 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedBeyondScan
 		delegators = append(delegators, dr.Delegation.DelegatorAddress)
 	}
 	suite.Contains(delegators, maxScanDelegator.String())
-
-	// The unindexed query is untouched, so the legacy precompiles that call it keep
-	// the behavior they have today.
-	_, err = querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), req)
-	suite.Error(err)
 }
 
-// TestGRPCQueryValidatorDelegationsIndexedMatchesScan pins that the two read paths
+// TestGRPCQueryValidatorDelegationsIndexMatchesScan pins that the scan and the index
 // agree on a validator small enough for both to answer.
-func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedMatchesScan() {
+func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexMatchesScan() {
 	app, ctx := suite.app, suite.ctx
 	querier := keeper.Querier{Keeper: app.StakingKeeper}
 
@@ -226,7 +219,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidatorDelegationsIndexedMatchesSca
 	_, err = app.StakingKeeper.MigrateDelegationByValIndex(ctx)
 	suite.NoError(err)
 
-	indexed, err := querier.ValidatorDelegationsIndexed(sdk.WrapSDKContext(ctx), req)
+	indexed, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx), req)
 	suite.NoError(err)
 
 	suite.ElementsMatch(scanned.DelegationResponses, indexed.DelegationResponses)

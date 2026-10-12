@@ -377,7 +377,7 @@ func TestV68PopulatesDelegationByValIndex(t *testing.T) {
 		"the index does not hold exactly one entry per delegation")
 
 	querier := stakingkeeper.Querier{Keeper: a.StakingKeeper}
-	res, err := querier.ValidatorDelegationsIndexed(sdk.WrapSDKContext(ctx),
+	res, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx),
 		&stakingtypes.QueryValidatorDelegationsRequest{ValidatorAddr: valAddr.String()})
 	require.NoError(t, err)
 	var delegators []string

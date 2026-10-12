@@ -94,9 +94,65 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 	if req.ValidatorAddr == "" {
 		return nil, status.Error(codes.InvalidArgument, "validator address cannot be empty")
 	}
-	var delegations []types.Delegation
 	ctx := sdk.UnwrapSDKContext(c)
 
+	var (
+		delegations []types.Delegation
+		pageRes     *query.PageResponse
+		err         error
+	)
+	if k.DelegationByValIndexReady(ctx) {
+		delegations, pageRes, err = k.validatorDelegationsFromIndex(ctx, req)
+	} else {
+		delegations, pageRes, err = k.validatorDelegationsFromScan(ctx, req)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	delResponses, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &types.QueryValidatorDelegationsResponse{
+		DelegationResponses: delResponses, Pagination: pageRes}, nil
+}
+
+// validatorDelegationsFromIndex pages over the delegation-by-validator index prefix of
+// the requested validator.
+func (k Querier) validatorDelegationsFromIndex(ctx sdk.Context, req *types.QueryValidatorDelegationsRequest) ([]types.Delegation, *query.PageResponse, error) {
+	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var delegations []types.Delegation
+	store := ctx.KVStore(k.storeKey)
+	valPrefix := types.GetDelegationsByValIndexKey(valAddr)
+	indexStore := prefix.NewStore(store, valPrefix)
+
+	pageRes, err := query.Paginate(ctx, indexStore, req.Pagination, func(key []byte, _ []byte) error {
+		indexKey := append(append([]byte{}, valPrefix...), key...)
+		storeKey := types.GetDelegationKeyFromValIndexKey(indexKey)
+		delegation, err := types.UnmarshalDelegation(k.cdc, store.Get(storeKey))
+		if err != nil {
+			return err
+		}
+		delegations = append(delegations, delegation)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, query.WrapGRPCError(err)
+	}
+	return delegations, pageRes, nil
+}
+
+// validatorDelegationsFromScan filters the whole delegation store for the requested
+// validator. It is the only source at heights before the delegation-by-validator index
+// is ready, and reproduces the results and failures those heights had.
+func (k Querier) validatorDelegationsFromScan(ctx sdk.Context, req *types.QueryValidatorDelegationsRequest) ([]types.Delegation, *query.PageResponse, error) {
+	var delegations []types.Delegation
 	store := ctx.KVStore(k.storeKey)
 	valStore := prefix.NewStore(store, types.DelegationKey)
 
@@ -123,68 +179,9 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 		return true, nil
 	})
 	if err != nil {
-		return nil, query.WrapGRPCError(err)
+		return nil, nil, query.WrapGRPCError(err)
 	}
-
-	delResponses, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	return &types.QueryValidatorDelegationsResponse{
-		DelegationResponses: delResponses, Pagination: pageRes}, nil
-}
-
-// ValidatorDelegationsIndexed queries the delegations of a validator through the
-// delegation-by-validator index. It answers as ValidatorDelegations does until the
-// index is ready.
-func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.QueryValidatorDelegationsRequest) (*types.QueryValidatorDelegationsResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "empty request")
-	}
-
-	if req.ValidatorAddr == "" {
-		return nil, status.Error(codes.InvalidArgument, "validator address cannot be empty")
-	}
-
-	ctx := sdk.UnwrapSDKContext(c)
-	if !k.DelegationByValIndexReady(ctx) {
-		// Before the index is populated the full scan is the only source, and it fails
-		// exactly where this query failed at those heights.
-		return k.ValidatorDelegations(c, req)
-	}
-
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	var delegations []types.Delegation
-	store := ctx.KVStore(k.storeKey)
-	valPrefix := types.GetDelegationsByValIndexKey(valAddr)
-	indexStore := prefix.NewStore(store, valPrefix)
-
-	pageRes, err := query.Paginate(ctx, indexStore, req.Pagination, func(key []byte, _ []byte) error {
-		indexKey := append(append([]byte{}, valPrefix...), key...)
-		storeKey := types.GetDelegationKeyFromValIndexKey(indexKey)
-		delegation, err := types.UnmarshalDelegation(k.cdc, store.Get(storeKey))
-		if err != nil {
-			return err
-		}
-		delegations = append(delegations, delegation)
-		return nil
-	})
-	if err != nil {
-		return nil, query.WrapGRPCError(err)
-	}
-
-	delResponses, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	return &types.QueryValidatorDelegationsResponse{
-		DelegationResponses: delResponses, Pagination: pageRes}, nil
+	return delegations, pageRes, nil
 }
 
 // ValidatorUnbondingDelegations queries unbonding delegations of a validator
