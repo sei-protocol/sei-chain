@@ -389,7 +389,11 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getBlockTransactionCountByNumber` and
   `eth_getBlockTransactionCountByHash`, for the number of transactions in a
   finalized block, resolved the same way as `eth_getBlockByNumber` and
-  `eth_getBlockByHash`.
+  `eth_getBlockByHash`;
+- `eth_getTransactionByBlockNumberAndIndex` and
+  `eth_getTransactionByBlockHashAndIndex`, for the transaction at a position in
+  a finalized block, exactly as the full-transaction `eth_getBlockByNumber` and
+  `eth_getBlockByHash` list it.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -577,9 +581,25 @@ point in the chain. Revisit once superblocks merge lanes into a single
 block; punted for now since a block today is exactly one lane's
 transactions.
 
+A block lists every transaction consensus finalized, including ones the
+executor rejected without running them, because Autobahn orders transactions
+before executing them. Block-based methods (`eth_getBlockBy*`, the block
+transaction counts, and the by-block-and-index lookups) all report that full
+list. Two kinds of rejected transaction have no receipt at the block that lists
+them:
+
+- A transaction that can still succeed later (nonce too high or insufficient
+  funds) has no receipt; `eth_getTransactionReceipt` returns `null` unless it
+  later executes in another block, and then reports that block.
+- A transaction repeated after it already executed keeps its original receipt,
+  so `eth_getTransactionReceipt` and `eth_getTransactionByHash` report the
+  earlier block and index where it ran.
+
+Indexers that pair each listed transaction with a receipt at the same block
+and index should expect these two cases.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
-does not currently print every submitted hash, and there are still no
-by-block-and-index transaction lookups.
+does not currently print every submitted hash.
 There are also no fee-estimation, log, or WebSocket subscription methods.
 Commands that depend on those queries cannot operate normally; raw
 transactions must still provide gas price offline as in the example above.
