@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/hex"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -1511,11 +1512,43 @@ func TestQueryValidatorSlashes(t *testing.T) {
 
 	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
+	methodID := p.GetExecutor().(*distribution.PrecompileExecutor).ValidatorSlashesID
 
-	ret, method := runDistrQuery(t, ctx, testApp, p, p.GetExecutor().(*distribution.PrecompileExecutor).ValidatorSlashesID, val.String(), uint64(1), uint64(10), []byte{})
+	ret, method := runDistrQuery(t, ctx, testApp, p, methodID, val.String(), uint64(1), uint64(10), []byte{})
 	expected, err := method.Outputs.Pack([]distribution.Slash{}, []byte{})
 	require.Nil(t, err)
 	require.Equal(t, expected, ret)
+
+	fraction := sdk.NewDecWithPrec(1, 2)
+	slashes := []distribution.Slash{
+		{ValidatorPeriod: 1, Fraction: fraction.String()},
+		{ValidatorPeriod: 2, Fraction: fraction.String()},
+		{ValidatorPeriod: 3, Fraction: fraction.String()},
+	}
+	for i, slash := range slashes {
+		height := uint64(100 * (i + 1))
+		testApp.DistrKeeper.SetValidatorSlashEvent(ctx, val, height, slash.ValidatorPeriod, distrtypes.NewValidatorSlashEvent(slash.ValidatorPeriod, fraction))
+	}
+
+	for _, tc := range []struct {
+		name           string
+		startingHeight uint64
+		endingHeight   uint64
+		expected       []distribution.Slash
+	}{
+		{"single slash in range", 150, 250, slashes[1:2]},
+		{"range bounds are inclusive", 100, 300, slashes},
+		{"full height range", 0, math.MaxUint64, slashes},
+		{"range below every slash", 1, 99, []distribution.Slash{}},
+		{"range between slashes", 101, 199, []distribution.Slash{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, method := runDistrQuery(t, ctx, testApp, p, methodID, val.String(), tc.startingHeight, tc.endingHeight, []byte{})
+			expected, err := method.Outputs.Pack(tc.expected, []byte{})
+			require.Nil(t, err)
+			require.Equal(t, expected, ret)
+		})
+	}
 }
 
 // TestWithdrawValidatorCommission_InputValidation tests various input validation scenarios

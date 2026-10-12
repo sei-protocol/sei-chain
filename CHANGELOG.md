@@ -211,6 +211,10 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4473](https://github.com/sei-protocol/sei-chain/pull/4473) Backport `release/v6.7`: Make the composite store router an atomic pointer
+* [#4465](https://github.com/sei-protocol/sei-chain/pull/4465) Backport `release/v6.7`: fix(seidb): keep the memIAVL nonce when state sync restores a mid-mig…
+* [#4445](https://github.com/sei-protocol/sei-chain/pull/4445) Backport `release/v6.7`: Update v6.7 changelog in prep to cut v6.7.0
+* [#4444](https://github.com/sei-protocol/sei-chain/pull/4444) Bump version to v6.7.0 in prep for release
 * [#4442](https://github.com/sei-protocol/sei-chain/pull/4442) Backport `release/v6.7`: fix(seidb): fix stale FlatKV migration gauges on snapshotting nodes
 * [#4439](https://github.com/sei-protocol/sei-chain/pull/4439) Backport `release/v6.7`: seidb: add changelog mode and --inspect-plan to speed up EVM digest
 * [#4416](https://github.com/sei-protocol/sei-chain/pull/4416) Remove the conflict markers #4415 left in the v6.7 changelog

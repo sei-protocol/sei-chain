@@ -842,11 +842,14 @@ func TestReadConfigFilterLimits(t *testing.T) {
 func TestReadConfigRateLimiting(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts{})
 	require.NoError(t, err)
-	require.False(t, cfg.RateLimitingEnabled)
+	require.True(t, cfg.RateLimitingEnabled)
 	require.Nil(t, cfg.TrustedProxyCIDRs)
 	require.Equal(t, config.DefaultConfig.IPRateLimitRPS, cfg.IPRateLimitRPS)
 	require.Equal(t, config.DefaultConfig.IPRateLimitBurst, cfg.IPRateLimitBurst)
 	require.GreaterOrEqual(t, cfg.IPRateLimitBurst, cfg.BatchRequestLimit)
+	require.Equal(t, float64(200), cfg.IPRateLimitRPS)
+	require.Equal(t, 200, cfg.IPRateLimitBurst)
+	require.Equal(t, 100, cfg.BatchRequestLimit)
 
 	o := getDefaultOpts()
 	o.rateLimitingEnabled = false
@@ -895,4 +898,26 @@ func TestReadConfigRateLimitingBurstBelowBatchLimitRejected(t *testing.T) {
 	o.batchRequestLimit = 0
 	_, err = config.ReadConfig(&o)
 	require.NoError(t, err)
+}
+
+func TestReadConfigRateLimitingPreSwitchConfigRaisesBurst(t *testing.T) {
+	// Shaped like an [evm] section written by a template that predates
+	// rate_limiting_enabled and batch_request_limit.
+	o := getDefaultOpts()
+	o.rateLimitingEnabled = nil
+	o.batchRequestLimit = nil
+	o.ipRateLimitRPS = float64(200)
+	o.ipRateLimitBurst = 400
+	cfg, err := config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.True(t, cfg.RateLimitingEnabled)
+	require.Equal(t, config.DefaultConfig.BatchRequestLimit, cfg.BatchRequestLimit)
+	require.Equal(t, 400, cfg.IPRateLimitBurst)
+
+	// An explicit burst below the inherited batch limit is raised to it.
+	o.ipRateLimitBurst = 50
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.True(t, cfg.RateLimitingEnabled)
+	require.Equal(t, cfg.BatchRequestLimit, cfg.IPRateLimitBurst)
 }

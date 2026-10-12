@@ -83,7 +83,7 @@ func TestDefaultGRPCConfig(t *testing.T) {
 	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
 	require.Equal(t, DefaultGRPCIPRateLimitRPS, cfg.GRPC.IPRateLimitRPS)
 	require.Equal(t, DefaultGRPCIPRateLimitBurst, cfg.GRPC.IPRateLimitBurst)
-	require.False(t, cfg.GRPC.RateLimitingEnabled)
+	require.True(t, cfg.GRPC.RateLimitingEnabled)
 	require.Nil(t, cfg.GRPC.TrustedProxyCIDRs)
 	require.Equal(t, DefaultGRPCRequestTimeout, cfg.GRPC.RequestTimeout)
 }

@@ -211,7 +211,7 @@ const batchTooLargeResp = `[{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"mess
 
 // HTTP batches over the item limit are rejected.
 func TestBehaviorBatchItemLimitHTTP(t *testing.T) {
-	require.Equal(t, 1000, evmrpcconfig.DefaultConfig.BatchRequestLimit)
+	require.Equal(t, 100, evmrpcconfig.DefaultConfig.BatchRequestLimit)
 	installBehaviorDeadlines(t, ratelimiter.DeadlineConfig{})
 
 	cfg := HTTPConfig{Vhosts: []string{"*"}, CorsAllowedOrigins: []string{"*"}}

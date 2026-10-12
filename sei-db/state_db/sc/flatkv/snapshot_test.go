@@ -361,6 +361,25 @@ func TestSeekSnapshot(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOldestSnapshotAbove(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{0, 10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+	s := &CommitStore{config: config.Config{DataDir: dir}}
+
+	for _, tc := range []struct {
+		version  int64
+		snapshot int64
+		ok       bool
+	}{{0, 10, true}, {5, 10, true}, {10, 20, true}, {20, 0, false}, {25, 0, false}} {
+		snapshot, ok, err := s.OldestSnapshotAbove(tc.version)
+		require.NoError(t, err)
+		require.Equal(t, tc.ok, ok, "version %d", tc.version)
+		require.Equal(t, tc.snapshot, snapshot, "version %d", tc.version)
+	}
+}
+
 func TestReadOnlyAtTargetVersion(t *testing.T) {
 	dir := t.TempDir()
 
@@ -681,7 +700,7 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 // TestRollbackRejectsVersionZero verifies version 0 is refused: it means no state, so there is nothing to roll
 // back to, and it is the one target that would reach PruneAfter's retains-block-zero boundary.
 func TestRollbackRejectsVersionZero(t *testing.T) {
-	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
+	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
 }
 
 // TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
@@ -1404,6 +1423,18 @@ func TestSeekSnapshotEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	_, err := seekSnapshot(dir, 10)
 	require.Error(t, err, "empty dir should not find any snapshot")
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+// A filesystem fault while listing snapshots says nothing about which versions the store holds, so it
+// must not be reported as an unreachable version.
+func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(root, nil, 0600))
+
+	_, err := seekSnapshot(root, 10)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestSeekSnapshotExact(t *testing.T) {
