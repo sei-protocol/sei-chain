@@ -49,6 +49,10 @@ type LiveStateStore interface {
 	// unlike other errors from this store, that one is not fatal and the store stays usable.
 	CheckVersionReachable(targetVersion int64) error
 
+	// OldestSnapshotAbove returns the oldest retained snapshot version above version; ok is false when
+	// there is none. It does not modify the store.
+	OldestSnapshotAbove(version int64) (snapshot int64, ok bool, err error)
+
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.
 	//
