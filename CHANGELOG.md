@@ -34,11 +34,12 @@ sei-chain
   * App-hash breaking (results hash):
     * EVM error text (`vmError`) can differ: e.g. out of gas at a top-level CALL reports `out of gas: out of gas`, and failed deploys may report a different error or a size suffix. Gas used and status are unchanged on the paths covered by Sei's behavior tests.
     * EIP-7702: an authorization that clears an account with no delegation no longer writes code keys, and re-delegating to the same target no longer rewrites them.
+    * A self-destructed account's storage and nonce are cleared even when it never stored code, e.g. a contract that self-destructs in its constructor.
   * JSON-RPC (takes effect when the node runs the new binary):
     * `null` for a required argument is rejected with -32602.
     * HTTP and WebSocket responses no longer end with a trailing newline.
     * prestateTracer omits empty accounts and adds `codeHash`; tracer balance hooks now report balance changes.
-    * On a pruned node "earliest" is the node's earliest available block, and can error if that block's receipts are unavailable; until history is pruned it, like 0x0, returns the synthetic genesis block. On EVM-only (Giga) nodes "earliest" returns the earliest retained block instead of null.
+    * On a pruned node "earliest" is the node's earliest available block, and can error if that block's receipts are unavailable; until history is pruned it, like 0x0, returns the synthetic genesis block.
     * On a pruned node, debug_trace* and eth_getTransactionByBlockNumberAndIndex at "earliest" or 0x0 use the earliest available block, not the genesis initial height.
     * eth_getLogs and filters clamp "earliest" and 0x0 bounds to the earliest available receipts instead of erroring.
     * eth_call, eth_estimateGas and debug_traceCall state overrides cannot move Sei precompiles, and a `code` override at a Sei precompile address is ignored.

@@ -415,8 +415,6 @@ func (e *Executor) executeTx(
 	return txResult, receipt, nil
 }
 
-// rejectedTx builds the failed, zero-gas receipt and result for a transaction the
-// executor did not run.
 // unappliableTx returns the outcome for a transaction that cannot be applied: err, failing
 // the block, or a failed receipt when RejectUnappliableTxs is set.
 func (e *Executor) unappliableTx(
@@ -433,6 +431,8 @@ func (e *Executor) unappliableTx(
 	return txResult, receipt, nil
 }
 
+// rejectedTx builds the failed, zero-gas receipt and result for a transaction the
+// executor did not run.
 func rejectedTx(
 	p PreparedTx,
 	block BlockContext,

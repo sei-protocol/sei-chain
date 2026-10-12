@@ -203,7 +203,7 @@ func (k *Keeper) GetGasPool() *core.GasPool {
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) (*core.Message, error) {
 	gasPrice, overflow := uint256.FromBig(tx.GasPrice())
 	if overflow {
-		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, sender.Hex(), tx.GasPrice().BitLen())
+		return nil, fmt.Errorf("%w: address %v, gasPrice bit length: %d", core.ErrFeeCapVeryHigh, sender.Hex(), tx.GasPrice().BitLen())
 	}
 	gasFeeCap, overflow := uint256.FromBig(tx.GasFeeCap())
 	if overflow {
