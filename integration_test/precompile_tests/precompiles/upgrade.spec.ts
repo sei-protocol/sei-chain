@@ -1,11 +1,10 @@
 /**
  * upgrade precompile (0x…1015) — x/upgrade queries against a live Sei chain.
  *
- * All four methods are views. A local cluster has no scheduled upgrade and no
- * applied plan, so currentPlan is the zero plan, appliedPlan of an unknown
- * name is 0, and upgradedConsensusState is empty bytes. moduleVersions reads
- * the app's real module consensus versions. currentPlan is checked against the
- * upgrade module's own CurrentPlan query.
+ * All three methods are views. A local cluster has no scheduled upgrade and no
+ * applied plan, so currentPlan is the zero plan and appliedPlan of an unknown
+ * name is 0. moduleVersions reads the app's real module consensus versions.
+ * currentPlan is checked against the upgrade module's own CurrentPlan query.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
@@ -75,11 +74,6 @@ describe('upgrade precompile (0x1015)', function () {
         it("appliedPlan('definitely-not-an-upgrade') returns 0", async () => {
             const height: bigint = await upgrade.appliedPlan('definitely-not-an-upgrade');
             expect(height).to.equal(0n);
-        });
-
-        it('upgradedConsensusState(1) returns empty bytes', async () => {
-            const state: string = await upgrade.upgradedConsensusState(1n);
-            expect(state).to.equal('0x');
         });
     });
 
