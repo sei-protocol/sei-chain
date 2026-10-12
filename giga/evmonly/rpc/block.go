@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
+	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -65,6 +66,51 @@ func (api *blockAPI) GetBlockTransactionCountByHash(ctx context.Context, hash co
 	return transactionCount(block), nil
 }
 
+// GetTransactionByBlockNumberAndIndex returns the transaction at index in the
+// block for number, as eth_getBlockByNumber with full transactions lists it. It
+// returns nil for a zero/negative or future height or an index past the end of
+// the block, and an error for a pruned height.
+func (api *blockAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, number ethrpc.BlockNumber, index hexutil.Uint) (*export.RPCTransaction, error) {
+	block, err := api.resolveBlockByNumber(ctx, number)
+	if err != nil || block == nil {
+		return nil, err
+	}
+	return api.transactionAtIndex(ctx, block, index)
+}
+
+// GetTransactionByBlockHashAndIndex returns the transaction at index in the
+// block with the given hash, as eth_getBlockByHash with full transactions lists
+// it. It returns nil if hash is unknown or index is past the end of the block.
+func (api *blockAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, hash common.Hash, index hexutil.Uint) (*export.RPCTransaction, error) {
+	block, err := api.resolveBlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil, err
+	}
+	return api.transactionAtIndex(ctx, block, index)
+}
+
+// transactionAtIndex renders the transaction at index in block, or returns nil
+// if index is past the end of the block.
+func (api *blockAPI) transactionAtIndex(ctx context.Context, block *coretypes.ResultBlock, index hexutil.Uint) (*export.RPCTransaction, error) {
+	i, ok := utils.SafeCast[int](uint(index))
+	if !ok || i >= len(block.Block.Txs) {
+		return nil, nil
+	}
+	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+	if !ok {
+		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
+	}
+	baseFee, err := api.backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
+	chainConfig, err := api.backend.EvmChainConfig()
+	if err != nil {
+		return nil, err
+	}
+	return api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
+}
+
 // transactionCount returns the number of transactions in block, counting every
 // transaction its body carries, as the transactions list of eth_getBlockBy*
 // does.
@@ -117,7 +163,6 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 // logsBloom is always zero; receipt blooms are not aggregated here.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
 	number := block.Block.Height
-	blockHash := common.BytesToHash(block.BlockID.Hash)
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", number, block.Block.Time)
@@ -140,18 +185,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		}
 		// One receipt read per transaction here, not just for the last one:
 		// deferred pending a bulk receipt-load API on the receipt store.
-		for i, raw := range txs {
-			ethtx, err := decodeBlockTx(raw, number, i)
+		for i := range txs {
+			result, err := api.rpcTransaction(ctx, block, i, blockUnix, baseFee, chainConfig)
 			if err != nil {
 				return nil, err
-			}
-			stored, err := receiptFor(ctx, api.store, ethtx.Hash())
-			if err != nil {
-				return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
-			}
-			result := export.NewRPCTransaction(ethtx, blockHash, uint64(number), blockUnix, uint64(i), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
-			if stored != nil {
-				replaceFrom(result, stored)
 			}
 			transactions[i] = result
 		}
@@ -175,6 +212,27 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	result["transactions"] = transactions
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
+	}
+	return result, nil
+}
+
+// rpcTransaction renders the transaction at index in block as a full
+// eth_getBlockBy* transaction entry, taking its sender from the stored receipt
+// when the signature does not resolve one.
+func (api *blockAPI) rpcTransaction(ctx context.Context, block *coretypes.ResultBlock, index int, blockUnix uint64, baseFee *big.Int, chainConfig *params.ChainConfig) (*export.RPCTransaction, error) {
+	number := block.Block.Height
+	ethtx, err := decodeBlockTx(block.Block.Txs[index], number, index)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := receiptFor(ctx, api.store, ethtx.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, index, err)
+	}
+	blockHash := common.BytesToHash(block.BlockID.Hash)
+	result := export.NewRPCTransaction(ethtx, blockHash, uint64(number), blockUnix, uint64(index), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
+	if stored != nil {
+		replaceFrom(result, stored)
 	}
 	return result, nil
 }
