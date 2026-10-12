@@ -67,7 +67,7 @@ type StateWAL interface {
 		// The block of the most recent hash delivered to listeners, or of the last stored block if none has
 		// been delivered since the WAL was opened. The listener's first delivery is for blockNumber+1.
 		blockNumber uint64,
-		// The hash of blockNumber.
+		// The hash of the key-value pairs modified by executing the transactions in block blockNumber.
 		hash [32]byte,
 		// Any error encountered while registering.
 		err error,
@@ -105,10 +105,7 @@ type StateWAL interface {
 	// start and the return of this call. Data written before that instant is included; data written after it
 	// is not. For data written concurrently with this call, whether it is included is unspecified.
 	//
-	// The iterator yields one entry per block in ascending block order. Its Entry() returns (blockNumber,
-	// changesets), where changesets are the changes written for that block, and its GetHash() returns that
-	// block's hash. The returned changesets, and every byte slice reachable through them, must be treated as
-	// read-only.
+	// The iterator yields one entry per block in ascending block order.
 	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (StateWALIterator, error)
 
 	// Close the WAL, flushing the blocks written so far to disk and releasing resources. Hashes not yet delivered
@@ -116,8 +113,8 @@ type StateWAL interface {
 	Close() error
 }
 
-// A callback that receives the hash of a block. Its signature matches AppHashBuilder.ReportBUD(), so that method
-// registers as one directly.
+// A callback that receives the hash of the key-value pairs modified by executing the transactions in a block. Its
+// signature matches AppHashBuilder.ReportBUD(), so that method registers as one directly.
 //
 // The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
 type HashListener func(
@@ -125,7 +122,7 @@ type HashListener func(
 	ctx context.Context,
 	// The block the hash belongs to.
 	blockHeight uint64,
-	// The hash of the block.
+	// The hash of the key-value pairs modified by executing the transactions in the block.
 	hash [32]byte,
 ) error
 
@@ -133,7 +130,7 @@ type HashListener func(
 type StateWALIterator interface {
 	seiwal.Iterator[[]*proto.NamedChangeSet]
 
-	// GetHash returns the hash of the block at the iterator's current position: the same hash delivered to
-	// listeners for that block. It is valid only after Next() returns true.
+	// GetHash returns the hash delivered to listeners for the block at the iterator's current position. It is valid
+	// only after Next() returns true.
 	GetHash() ([32]byte, error)
 }
