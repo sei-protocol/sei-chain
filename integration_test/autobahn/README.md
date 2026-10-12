@@ -378,6 +378,8 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getBalance`, for the current committed EVM balance;
 - `eth_getTransactionCount`, for the current committed nonce;
 - `eth_getCode`, for the current committed contract code at an address;
+- `eth_getStorageAt`, for the current committed value of a contract storage
+  slot;
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
@@ -540,6 +542,17 @@ cast code --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS
 as `eth_getBalance`; an explicit height, an explicit hash, or `earliest`
 returns the same historical-state error. An address with no code, including an
 EOA or an address that was never touched, returns `0x`, as go-ethereum does.
+
+### Read contract storage with `cast storage`
+
+```sh
+cast storage --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS 0
+```
+
+`eth_getStorageAt` accepts the same block tags as `eth_getBalance` and returns
+the same historical-state error for anything else. The slot is a hex number of
+at most 32 bytes, as in go-ethereum. An unset slot, including any slot of an
+address with no contract, returns 32 zero bytes.
 
 Block context for a call is a mix of real and best-effort values: `Number` and
 `GasLimit` are the actual current committed values, but `Coinbase` is always

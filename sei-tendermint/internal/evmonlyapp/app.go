@@ -520,6 +520,14 @@ func (a *evmOnlyApplication) EvmCode(address common.Address) []byte {
 	return slices.Clone(snapshot.GetCode(evmOnlyStoreAddress(address)))
 }
 
+// EvmStorage returns the value at key in address's storage in the most
+// recently committed EVM state, or the zero hash when the slot is unset.
+func (a *evmOnlyApplication) EvmStorage(address common.Address, key common.Hash) common.Hash {
+	snapshot := a.openSettledView()
+	defer snapshot.Close()
+	return snapshot.GetStorage(evmOnlyStoreAddress(address), key)
+}
+
 func (a *evmOnlyApplication) EvmChainID() uint64 {
 	return a.chainID.Uint64()
 }
