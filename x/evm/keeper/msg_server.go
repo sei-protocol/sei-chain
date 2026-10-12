@@ -68,8 +68,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	tx, _ := msg.AsTransaction()
 	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
+	emsg, err := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
+	if err != nil {
+		return nil, err
+	}
 	stateDB := state.NewDBImpl(ctx, &server, false)
-	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
 	// Set when applyEVMMessage returns before Create/Call (no opcode trace).
 	preExecutionFailure := false
@@ -195,28 +198,48 @@ func (k *Keeper) GetGasPool() *core.GasPool {
 	return core.NewGasPool(math.MaxUint64)
 }
 
-func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
-	msg := &core.Message{
+// GetEVMMessage returns the core.Message for tx sent by sender, priced at the
+// current base fee. It fails when a fee or value field does not fit in 256 bits.
+func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) (*core.Message, error) {
+	gasPrice, overflow := uint256.FromBig(tx.GasPrice())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, sender.Hex(), tx.GasPrice().BitLen())
+	}
+	gasFeeCap, overflow := uint256.FromBig(tx.GasFeeCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", core.ErrFeeCapVeryHigh, sender.Hex(), tx.GasFeeCap().BitLen())
+	}
+	gasTipCap, overflow := uint256.FromBig(tx.GasTipCap())
+	if overflow {
+		return nil, fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", core.ErrTipVeryHigh, sender.Hex(), tx.GasTipCap().BitLen())
+	}
+	value, overflow := uint256.FromBig(tx.Value())
+	if overflow {
+		return nil, fmt.Errorf("value exceeds 256 bits: address %v", sender.Hex())
+	}
+	blobGasFeeCap, overflow := uint256.FromBig(tx.BlobGasFeeCap())
+	if overflow {
+		return nil, fmt.Errorf("blobGasFeeCap exceeds 256 bits: address %v", sender.Hex())
+	}
+	if baseFee := k.GetBaseFee(ctx); baseFee != nil {
+		// The effective price is capped at the fee cap, which fits in 256 bits.
+		gasPrice, _ = uint256.FromBig(ethtx.EffectiveGasPrice(baseFee, tx.GasFeeCap(), tx.GasTipCap()))
+	}
+	return &core.Message{
 		Nonce:                 tx.Nonce(),
 		GasLimit:              tx.Gas(),
-		GasPrice:              uint256.MustFromBig(tx.GasPrice()),
-		GasFeeCap:             uint256.MustFromBig(tx.GasFeeCap()),
-		GasTipCap:             uint256.MustFromBig(tx.GasTipCap()),
+		GasPrice:              gasPrice,
+		GasFeeCap:             gasFeeCap,
+		GasTipCap:             gasTipCap,
 		To:                    tx.To(),
-		Value:                 uint256.MustFromBig(tx.Value()),
+		Value:                 value,
 		Data:                  tx.Data(),
 		AccessList:            tx.AccessList(),
 		BlobHashes:            tx.BlobHashes(),
-		BlobGasFeeCap:         uint256.MustFromBig(tx.BlobGasFeeCap()),
+		BlobGasFeeCap:         blobGasFeeCap,
 		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
 		From:                  sender,
-	}
-	// If baseFee provided, set gasPrice to effectiveGasPrice.
-	baseFee := k.GetBaseFee(ctx)
-	if baseFee != nil {
-		msg.GasPrice = uint256.MustFromBig(ethtx.EffectiveGasPrice(baseFee, tx.GasFeeCap(), tx.GasTipCap()))
-	}
-	return msg
+	}, nil
 }
 
 func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp *core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {

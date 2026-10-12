@@ -298,7 +298,10 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 			return nil, sdkerrors.ErrInsufficientFee
 		}
 	}
-	emsg := ek.GetEVMMessage(ctx, etx, sender)
+	emsg, err := ek.GetEVMMessage(ctx, etx, sender)
+	if err != nil {
+		return nil, err
+	}
 	stateDB := state.NewDBImpl(ctx, ek, false)
 	gp := ek.GetGasPool()
 	blockCtx, err := ek.GetVMBlockContext(ctx, gp)
