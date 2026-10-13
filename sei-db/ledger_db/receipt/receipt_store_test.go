@@ -248,3 +248,22 @@ func makeChangeSetEntry(version int64, txHash common.Hash, receipt *types.Receip
 		Changesets: []*proto.NamedChangeSet{ncs},
 	}, nil
 }
+
+// The pebble backend prunes itself and refuses ExternalPruning, so the collector never takes it
+// over. Refused at startup rather than discovered later from a full disk.
+func TestReceiptExternalPruningRejectedOnPebbleBackend(t *testing.T) {
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.ExternalPruning = true
+
+	_, err := receipt.NewReceiptStore(cfg, storetypes.NewKVStoreKey("evm"))
+	require.ErrorContains(t, err, "does not support external pruning")
+}
+
+func TestReceiptIteratorUnsupportedByPebble(t *testing.T) {
+	store, _, _ := setupReceiptStore(t)
+
+	it, err := store.IterateReceipts(0)
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+	require.Nil(t, it)
+}

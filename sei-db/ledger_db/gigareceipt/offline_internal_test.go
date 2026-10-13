@@ -1,9 +1,11 @@
-package receipt
+package gigareceipt
 
 import (
 	"context"
 	"path/filepath"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -12,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// littIdxCfg returns the config the offline entry points expect for a littidx store at dir.
+// littIdxCfg returns the config the offline entry points expect for a store at dir.
 func littIdxCfg(dir string) dbconfig.ReceiptStoreConfig {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = receiptBackendLittIdx
 	cfg.DBDirectory = dir
 	return cfg
 }
@@ -32,10 +33,11 @@ func writeLittIdxReceipts(t *testing.T, dir string, blocks uint64) {
 	topic := common.HexToHash("0xdead")
 	for block := uint64(1); block <= blocks; block++ {
 		txHash := common.BytesToHash([]byte{byte(block)})
-		record := ReceiptRecord{TxHash: txHash, Receipt: makeTestReceipt(txHash, block, 0, addr,
+		record := receipt.ReceiptRecord{TxHash: txHash, Receipt: makeTestReceipt(txHash, block, 0, addr,
 			[]common.Hash{topic})}
 		//nolint:gosec // small test heights
-		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{record}))
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)),
+			[]receipt.ReceiptRecord{record}))
 		requireReceiptVersion(t, store, int64(block)) //nolint:gosec // small test heights
 	}
 	require.NoError(t, store.Close())
@@ -86,7 +88,9 @@ func TestPruneAfterRejectsUnreadableEarliest(t *testing.T) {
 // recorded a version has nothing to roll back, which is not an error.
 func TestPruneAfterAcceptsAbsentMetadata(t *testing.T) {
 	dir := t.TempDir()
-	openBackend(t, dir, receiptBackendLittIdx)
+	store, err := NewReceiptStore(littIdxCfg(dir), nil)
+	require.NoError(t, err)
+	require.NoError(t, store.Close())
 
 	require.NoError(t, PruneAfter(littIdxCfg(dir), 100))
 }
