@@ -354,7 +354,8 @@ func buildGigaRouter(
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
+	// [experiment] buildGigaRouter has no context; the seed bounds each peer with its own timeout.
+	dataState, err := p2p.BuildFullnodeDataState(context.Background(), fnCfg, p2p.NodeSecretKey(nodeKey), blockStore)
 	if err != nil {
 		return nil, err
 	}

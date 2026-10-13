@@ -82,6 +82,16 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 // Whoever opened blockStore must close it after giga.Run returns, or immediately
 // if construction of the GigaRouter fails. data.State never closes it.
 func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
+	registry, err := buildRegistry(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newDataState(registry, blockStore)
+}
+
+// buildRegistry validates the common config and opens the epoch registry under
+// cfg.PersistentStateDir.
+func buildRegistry(cfg *GigaRouterCommonConfig) (*epoch.Registry, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -107,6 +117,10 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
+	return registry, nil
+}
+
+func newDataState(registry *epoch.Registry, blockStore atypes.BlockStore) (*data.State, error) {
 	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)

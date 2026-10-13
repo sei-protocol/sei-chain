@@ -94,6 +94,10 @@ func (s *Store) WriteQC(qc *types.FullCommitQC) error {
 			NextBlock:       gr.First,
 			NextQC:          gr.Next,
 		}
+		// Reads below the first QC must report ErrPruned in this process too, not only after a
+		// reopen: QC and AppQC servers resume a stream from First() on ErrPruned.
+		s.db.SetPruneWatermark(uint64(gr.First))
+		Global.pruneWatermarkAt().Set(utils.Clamp[int64](s.db.GetPruneWatermark()))
 	} else {
 		status.NextQC = gr.Next
 	}
