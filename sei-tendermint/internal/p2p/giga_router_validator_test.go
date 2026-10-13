@@ -66,7 +66,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			proxyApp := proxy.New(app)
+			appHashBuilder := newTestAppHashBuilder(t, genDoc)
+			proxyApp := proxy.New(&reportingTestApp{testApp: app, appHashBuilder: appHashBuilder})
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
 			dir := t.TempDir()
@@ -105,7 +106,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					AllowEmptyBlocks:        false,
 					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
-			}, cfg.nodeKey, dataState)
+			}, cfg.nodeKey, dataState, appHashBuilder)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
 				cfg.nodeKey,
@@ -147,6 +148,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			for _, tx := range allTxs {
 				require.NoError(t, app.WaitForTx(ctx, tx), "WaitForTx")
 			}
+		}
+		// The app hashes reach consensus, which agrees on them.
+		for i, giga := range gigas {
+			first := atypes.GlobalBlockNumber(genDoc.InitialHeight) //nolint:gosec // positive
+			_, err := giga.data.AppQC(ctx, first)
+			require.NoError(t, err, "router[%v].data.AppQC()", i)
 		}
 		// Nodes should agree on the final state.
 		want := apps[0].Snapshot()
@@ -286,7 +293,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			BlockInterval:           time.Second,
 			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
-	}, nodeKeys[0], dataState)
+	}, nodeKeys[0], dataState, nil)
 	require.NoError(t, err)
 
 	localValidator := validatorKeys[0].Public()
@@ -378,7 +385,7 @@ func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
 					},
 				},
 				ValidatorKey: self.validatorKey,
-			}, self.nodeKey, nil)
+			}, self.nodeKey, nil, nil)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.want)
 		})

@@ -14,6 +14,7 @@ import (
 // hashLoggingConfig returns a config whose vault is dir/vault and whose hash log is hashLogDir(dir).
 func hashLoggingConfig(dir string) AppHashBuilderConfig {
 	config := DefaultAppHashBuilderConfig()
+	config.ChainID = testChainID
 	config.HashVaultConfig.Path = filepath.Join(dir, "vault")
 	config.HashLogEnabled = true
 	config.HashLogConfig.Path = hashLogDir(dir)
@@ -30,7 +31,7 @@ func hashLogDir(dir string) string {
 // ends.
 func openHashLoggingBuilder(t *testing.T, dir string) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := NewStandardAppHashBuilder(hashLoggingConfig(dir), testChainID, 1)
+	b, err := NewStandardAppHashBuilder(hashLoggingConfig(dir))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = b.Close() })
 	return b
@@ -98,7 +99,7 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
 	config := hashLoggingConfig(t.TempDir())
 	config.HashLogConfig.Version = ""
-	b, err := NewStandardAppHashBuilder(config, testChainID, 1)
+	b, err := NewStandardAppHashBuilder(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = b.Close() })
 

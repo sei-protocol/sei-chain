@@ -30,6 +30,17 @@ func NewStandardHashVault(config seiwal.Config) (*StandardHashVault, error) {
 	return &StandardHashVault{wal: wal}, nil
 }
 
+// GetRange returns the lowest and highest block heights stored in the vault in config.Path, with ok false if it is
+// empty, without opening the vault. It recovers the vault's files as opening the vault would, and fails while the
+// vault is open.
+func GetRange(config seiwal.Config) (ok bool, lowest uint64, highest uint64, err error) {
+	ok, lowest, highest, err = seiwal.GetRange(config.Path)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("failed to read the hash vault range in %q: %w", config.Path, err)
+	}
+	return ok, lowest, highest, nil
+}
+
 func (v *StandardHashVault) Append(records []*apphash.AppHashData) error {
 	for _, record := range records {
 		if err := v.wal.Append(record.BlockHeight(), serializeRecord(record)); err != nil {

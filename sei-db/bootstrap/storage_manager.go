@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -37,6 +40,9 @@ type GigaStorageManager struct {
 
 	// gc is nil until startGarbageCollector succeeds.
 	gc *controller.StorageGarbageCollector
+
+	// appHashBuilder is nil until openAppHashBuilder succeeds.
+	appHashBuilder builder.AppHashBuilder
 }
 
 // NewGigaStorageManager runs the steps that bring storage up:
@@ -77,8 +83,8 @@ func (m *GigaStorageManager) startGarbageCollector(ctx context.Context, pruningC
 
 // prunableStores returns the opened stores that can join the shared prune cycle. The state stores come
 // from the StateDB that owns them.
-func (m *GigaStorageManager) prunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 5)
+func (m *GigaStorageManager) prunableStores() []controllertypes.PrunableStore {
+	stores := make([]controllertypes.PrunableStore, 0, 6)
 	if m.stateDB != nil {
 		stores = append(stores, m.stateDB.PrunableStores()...)
 	}
@@ -87,6 +93,9 @@ func (m *GigaStorageManager) prunableStores() []controller.PrunableStore {
 	}
 	if m.blockStore != nil {
 		stores = append(stores, m.blockStore)
+	}
+	if m.appHashBuilder != nil {
+		stores = append(stores, m.appHashBuilder)
 	}
 	return stores
 }
@@ -107,6 +116,14 @@ func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
 		return nil
 	}
 	return m.stateDB.WAL()
+}
+
+// AppHashBuilder returns the app hash builder.
+func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.appHashBuilder }
+
+// GigaGenesisHeight returns the first block with an app hash.
+func (m *GigaStorageManager) GigaGenesisHeight() uint64 {
+	return m.cfg.AppHashBuilderConfig.GigaGenesisHeight
 }
 
 // SC returns the state commit store, or nil before the StateDB is open.
@@ -153,6 +170,12 @@ func (m *GigaStorageManager) Close() error {
 		}
 	}
 	errs = errors.Join(errs, timer.Close("state_db", m.closeState))
+	// After the state DB, whose hash listeners report into the builder until they stop.
+	if m.appHashBuilder != nil {
+		if err := timer.Close("app_hash_builder", m.appHashBuilder.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close app hash builder: %w", err))
+		}
+	}
 	logger.Info("Closed storage", timer.Fields()...)
 	return errs
 }

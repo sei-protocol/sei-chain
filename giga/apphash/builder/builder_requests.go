@@ -35,6 +35,12 @@ type pruneRequest struct {
 	blockHeight uint64
 }
 
+// Asks the builder goroutine for its head: the newest block whose app hash is stored, or the block before the giga
+// genesis height if none is.
+type latestBlockRequest struct {
+	reply chan callResult[uint64]
+}
+
 // The reply to a request that returns a result to its caller.
 type callResult[T any] struct {
 	value T

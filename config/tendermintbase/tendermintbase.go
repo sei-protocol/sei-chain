@@ -43,10 +43,9 @@ var notWritableInThisFile = []string{filledFromTheCommandLine, statedAtTheTopOfT
 const statedAtTheTopOfTheFile = "mode"
 
 // removedFromTheNode are the root paths this section does not declare because nothing reads them. The
-// node marks each field deprecated, out-of-process ABCI having been removed along with peer filtering
-// through it, and two of the three state an address and a transport name that a writer would otherwise
-// render into new files.
-var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
+// node marks each field deprecated, and two of them state an address and a transport name that a writer
+// would otherwise render into new files.
+var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers", "hash-vault-disabled-unsafe"}
 
 // nodeRootSchema declares the keys that sit at the root of the node's configuration file.
 //

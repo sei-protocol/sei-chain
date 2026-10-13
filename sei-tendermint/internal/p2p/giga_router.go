@@ -35,7 +35,7 @@ type GigaRouterCommonConfig struct {
 	ValidatorAddrs   map[atypes.PublicKey]GigaNodeAddr
 	GenDoc           *types.GenesisDoc
 	// PersistentStateDir is the absolute on-disk root for durable state
-	// (BlockDB, hashvault, epoch snapshots, and the validator's consensus
+	// (BlockDB, epoch snapshots, and the validator's consensus
 	// persister in sibling subdirs). Required and must already exist.
 	PersistentStateDir string
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
@@ -46,13 +46,20 @@ type GigaRouterCommonConfig struct {
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
 
-	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The guard is
-	// on by default (false); the GigaRouter builds and owns it (see runExecute). Setting this to true
-	// is an explicit, last-resort operator decision to run WITHOUT equivocation protection.
-	HashVaultDisabledUnsafe bool
-
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+
+	// PublishedAppHashBufferSize is how many published app hashes may wait to be pushed to consensus
+	// before the app hash builder blocks.
+	PublishedAppHashBufferSize int
+}
+
+// DefaultGigaRouterCommonConfig returns a GigaRouterCommonConfig holding every default. The fields
+// without a default are left for the caller to set.
+func DefaultGigaRouterCommonConfig() GigaRouterCommonConfig {
+	return GigaRouterCommonConfig{
+		PublishedAppHashBufferSize: 16,
+	}
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.

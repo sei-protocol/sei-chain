@@ -1,9 +1,11 @@
 package gigasim
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
@@ -31,6 +33,9 @@ type executionState struct {
 	// Takes one block hash per block committed, so that the benchmark cannot outrun hashing.
 	hashes *blockHashWaiter
 
+	// Receives the execution hashes of every block committed.
+	appHashes builder.AppHashBuilder
+
 	// The main loop's share of a block's critical path, shared with the run loop because both run on
 	// that goroutine and a timer tracks one goroutine's current phase.
 	lifecycle *metrics.PhaseTimer
@@ -43,6 +48,7 @@ type executionState struct {
 func newExecutionState(
 	config *GigasimConfig,
 	db *giga.StateDB,
+	appHashes builder.AppHashBuilder,
 	metrics *GigasimMetrics,
 	lifecycle *metrics.PhaseTimer,
 ) (*executionState, error) {
@@ -61,6 +67,7 @@ func newExecutionState(
 		view:        view,
 		setupWrites: newStateBatch(config.transactionsPerSuperblock()),
 		hashes:      waiter,
+		appHashes:   appHashes,
 		lifecycle:   lifecycle,
 		metrics:     metrics,
 	}, nil
@@ -120,6 +127,10 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	s.lifecycle.Reset()
 	if err := s.db.CommitStateChanges(blockNum, writes.changeSets); err != nil {
 		return fmt.Errorf("failed to commit block %d to the state DB: %w", blockNum, err)
+	}
+	//nolint:gosec // block numbers are positive
+	if err := reportExecutionHashes(context.Background(), s.appHashes, uint64(blockNum)); err != nil {
+		return err
 	}
 	s.metrics.ReportStateCommit(keys)
 

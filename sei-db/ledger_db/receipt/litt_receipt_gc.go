@@ -1,15 +1,13 @@
 package receipt
 
-import (
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
-)
+import controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 // littReceiptStore joins the shared prune cycle as a contiguous store: it holds every block from its
 // retention floor up to its head, so any height in between can serve a rollback.
 //
 // Only the littidx backend participates. The pebble backend delegates to the state store, which
 // prunes on its own KeepRecent schedule.
-var _ controller.PrunableStore = (*littReceiptStore)(nil)
+var _ controllertypes.PrunableStore = (*littReceiptStore)(nil)
 
 func (s *littReceiptStore) Name() string {
 	return "ReceiptDB"

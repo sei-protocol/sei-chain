@@ -4,6 +4,8 @@ import (
 	"context"
 	"math/rand/v2"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -21,13 +23,19 @@ type gigaFullnodeRouter struct {
 
 // NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
-func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State) (*gigaFullnodeRouter, error) {
+func NewGigaFullnodeRouter(
+	cfg *GigaRouterCommonConfig,
+	key NodeSecretKey,
+	dataState *data.State,
+	appHashBuilder builder.AppHashBuilder,
+) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
+			appHashBuilder:     appHashBuilder,
 			nextCommitEpoch:    dataState.NextCommitEpoch(),
 			anchor:             dataState.Anchor(),
 			service:            giga.NewFullNodeService(dataState),
@@ -60,6 +68,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.Spawn(func() error { return r.runFullnodeSubscriber(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runEvmProxy)

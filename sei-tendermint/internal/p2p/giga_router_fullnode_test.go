@@ -84,7 +84,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 
 	// Fullnodes have no validator key and no Producer config.
 	// App is required for executeBlock but isn't exercised by this test.
-	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState, nil)
 	require.NoError(t, err)
 	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
 	for validator, rpcURL := range urlByValidator {

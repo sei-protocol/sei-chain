@@ -72,7 +72,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 			BlockInterval:           time.Second,
 			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
-	}, nodeKey, dataState)
+	}, nodeKey, dataState, nil)
 	require.NoError(t, err)
 	require.True(t, giga.Mempool().IsPresent(), "validator GigaRouter must expose a mempool so a regression would wait, not take the fullnode shortcut")
 	endpoint := p2p.Endpoint{AddrPort: tcp.TestReserveAddr()}

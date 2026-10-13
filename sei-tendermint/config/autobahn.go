@@ -67,7 +67,7 @@ type AutobahnFileConfig struct {
 	AllowEmptyBlocks bool                 `json:"allow_empty_blocks"`
 	BlockInterval    utils.Duration       `json:"block_interval"`
 	// PersistentStateDir is the on-disk root for Autobahn's durable state
-	// (Giga storage, BlockDB, hashvault, epoch snapshots, and the validator's
+	// (Giga storage, BlockDB, epoch snapshots, and the validator's
 	// consensus persister, each in a subdirectory). A relative path is
 	// resolved against the node's home dir. Required: every Autobahn node
 	// runs on on-disk storage.

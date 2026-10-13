@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel"
 
@@ -322,8 +324,8 @@ func (s *StateDB) WAL() statewal.StateWAL { return s.wal }
 func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return s.checkpointer }
 
 // PrunableStores returns the opened stores that can join a prune cycle.
-func (s *StateDB) PrunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 3)
+func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
+	stores := make([]controllertypes.PrunableStore, 0, 3)
 	if s.sc != nil {
 		stores = append(stores, s.sc)
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -29,7 +31,12 @@ type gigaValidatorRouter struct {
 // NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState);
 // close it if this constructor returns an error.
-func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State) (*gigaValidatorRouter, error) {
+func NewGigaValidatorRouter(
+	cfg *GigaValidatorConfig,
+	key NodeSecretKey,
+	dataState *data.State,
+	appHashBuilder builder.AppHashBuilder,
+) (*gigaValidatorRouter, error) {
 	validatorKey := cfg.ValidatorKey.Public()
 	self, ok := cfg.ValidatorAddrs[validatorKey]
 	if !ok {
@@ -66,6 +73,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			cfg:             &cfg.GigaRouterCommonConfig,
 			key:             key,
 			data:            dataState,
+			appHashBuilder:  appHashBuilder,
 			nextCommitEpoch: dataState.NextCommitEpoch(),
 			anchor:          dataState.Anchor(),
 			service:         giga.NewService(consensusState),
@@ -103,6 +111,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("pushAppHashes", func() error { return r.runPushAppHashes(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -186,6 +187,51 @@ func (a *testApp) Snapshot() testAppState {
 		return s
 	}
 	panic("unreachable")
+}
+
+// reportingTestApp is a testApp that reports each finalized block to an app hash builder: its block hash, the test
+// app's state hash as the state hash, and dummies for the rest.
+type reportingTestApp struct {
+	*testApp
+	appHashBuilder builder.AppHashBuilder
+}
+
+func (a *reportingTestApp) FinalizeBlock(
+	ctx context.Context,
+	req *abci.RequestFinalizeBlock,
+) (*abci.ResponseFinalizeBlock, error) {
+	resp, err := a.testApp.FinalizeBlock(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	height := uint64(req.Header.Height) //nolint:gosec // block heights are positive
+	if err := a.appHashBuilder.ReportBlockHash(ctx, height, shaHash(req.Hash)); err != nil {
+		return nil, err
+	}
+	if err := a.appHashBuilder.ReportStateHash(ctx, height, shaHash(resp.AppHash), nil); err != nil {
+		return nil, err
+	}
+	if err := a.appHashBuilder.ReportBUDHash(ctx, height, shaHash{}); err != nil {
+		return nil, err
+	}
+	if err := a.appHashBuilder.ReportReceiptHash(ctx, height, shaHash{}); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// newTestAppHashBuilder returns an app hash builder for a chain starting at genDoc's initial height, closed when the
+// test ends.
+func newTestAppHashBuilder(t *testing.T, genDoc *types.GenesisDoc) builder.AppHashBuilder {
+	t.Helper()
+	config := builder.DefaultAppHashBuilderConfig()
+	config.GigaGenesisHeight = uint64(genDoc.InitialHeight) //nolint:gosec // positive
+	config.HashVaultConfig.Path = t.TempDir()
+	appHashBuilder, err := builder.NewStandardAppHashBuilder(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, appHashBuilder.Close()) })
+	require.NoError(t, appHashBuilder.SetupComplete(t.Context(), 0))
+	return appHashBuilder
 }
 
 type testNodeCfg struct {

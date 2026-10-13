@@ -196,3 +196,29 @@ func TestGapsRejectedEvenIfPermitted(t *testing.T) {
 	require.Error(t, v.Append(testRecords(5, 5)))
 	require.True(t, config.PermitGaps, "the caller's config is left unchanged")
 }
+
+func TestGetRangeOfEmptyVault(t *testing.T) {
+	ok, _, _, err := GetRange(*seiwal.DefaultConfig(t.TempDir(), "test_app_hash_vault"))
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestGetRangeMatchesBounds(t *testing.T) {
+	dir := t.TempDir()
+	v := openTestVault(t, dir)
+	require.NoError(t, v.Append(testRecords(3, 7)))
+	require.NoError(t, v.Close())
+
+	ok, lowest, highest, err := GetRange(*seiwal.DefaultConfig(dir, "test_app_hash_vault"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(3), lowest)
+	require.Equal(t, uint64(7), highest)
+}
+
+func TestGetRangeFailsWhileVaultIsOpen(t *testing.T) {
+	dir := t.TempDir()
+	openTestVault(t, dir)
+	_, _, _, err := GetRange(*seiwal.DefaultConfig(dir, "test_app_hash_vault"))
+	require.Error(t, err)
+}

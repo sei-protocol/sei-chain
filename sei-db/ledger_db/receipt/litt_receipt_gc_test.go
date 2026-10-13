@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -19,7 +19,10 @@ import (
 // so the only thing that moves the retention floor is the collector call under test. Note that this
 // is the real mechanism rather than a test-only dodge: zeroing PruneIntervalSeconds would silence
 // the local pruner just as well, and would not exercise the flag the collector depends on.
-func setupLittIdxForGC(t *testing.T, keepRecent int) (receipt.ReceiptStore, controller.PrunableStore, sdk.Context) {
+func setupLittIdxForGC(
+	t *testing.T,
+	keepRecent int,
+) (receipt.ReceiptStore, controllertypes.PrunableStore, sdk.Context) {
 	t.Helper()
 	storeKey := storetypes.NewKVStoreKey("evm")
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
@@ -35,7 +38,7 @@ func setupLittIdxForGC(t *testing.T, keepRecent int) (receipt.ReceiptStore, cont
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
-	prunable, ok := store.(controller.PrunableStore)
+	prunable, ok := store.(controllertypes.PrunableStore)
 	require.True(t, ok, "a littidx receipt store must satisfy gc.PrunableStore")
 	return store, prunable, ctx
 }
@@ -53,7 +56,7 @@ func TestReceiptGCExternalPruningDefaultsOff(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
-	prunable, ok := store.(controller.PrunableStore)
+	prunable, ok := store.(controllertypes.PrunableStore)
 	require.True(t, ok)
 	require.False(t, prunable.ExternalPruning())
 

@@ -38,9 +38,9 @@ separators, or length prefixes, for a fixed total of 177 bytes.
 |      9 |    8 | `blockHeight`     | `u64be`   | Defined                                                     |
 |     17 |   32 | `blockHash`       | raw bytes | Defined                                                     |
 |     49 |   32 | `stateHash`       | raw bytes | Defined                                                     |
-|     81 |   32 | `bud`             | raw bytes | **PLACEHOLDER**                                             |
+|     81 |   32 | `budHash`         | raw bytes | **PLACEHOLDER**                                             |
 |    113 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                                             |
-|    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga activation height |
+|    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga genesis height    |
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects
 any input that is not exactly the length that version defines, which is 177 bytes for version 1.
@@ -200,13 +200,14 @@ resulting state.
 entry the block writes, subtract the leaf of its previous value (if any) and add the leaf of its new value
 (unless it was deleted).
 
-### `bud`: PLACEHOLDER
+### `budHash`: PLACEHOLDER
 
-The Block Update Digest: a commitment to the key-value changes produced by executing the block. For now, this
-is SHA-256 over the block's StateWAL entry. Its byte format is intentionally not specified here.
+The BUD hash (Block Update Digest hash): a commitment to the key-value changes produced by executing the
+block. For now, this is SHA-256 over the block's StateWAL entry. Its byte format is intentionally not specified
+here.
 
-**Needs design.** The `bud` will become a Merkle tree schema over the block's changes, so that proofs can be
-built against it. That design is out of scope for this document.
+**Needs design.** The `budHash` will be computed from a Merkle tree schema over the block's changes, so that
+proofs can be built against it. That design is out of scope for this document.
 
 ### `receiptHash`: PLACEHOLDER
 
@@ -218,19 +219,19 @@ A commitment to the transaction receipts produced by executing the block.
 
 The app hash of block `blockHeight - 1`. This chains every app hash to the full history before it.
 
-The giga activation height is the first block whose app hash is computed under this scheme. For that block,
+The giga genesis height is the first block whose app hash is computed under this scheme. For that block,
 `previousAppHash` is 32 zero bytes. Every other height the scheme depends on is derived from it.
 
-**Needs design.** The giga activation height is a chain-wide value that is not yet defined. It is not expected
+**Needs design.** The giga genesis height is a chain-wide value that is not yet defined. It is not expected
 to be block 0, since the chain already exists without this app hash.
 
 ## Open design work
 
 | Item                   | Needed                                                           | Owner        |
 |------------------------|------------------------------------------------------------------|--------------|
-| `bud`                  | A Merkle tree schema over the block's changes, to support proofs | Storage team |
+| `budHash`              | A Merkle tree schema over the block's changes, to support proofs | Storage team |
 | `receiptHash`          | A full definition                                                | EVM team     |
-| Giga activation height | The height of the first block computed under this scheme         | TBD          |
+| Giga genesis height    | The height of the first block computed under this scheme         | TBD          |
 
 ## Test vector
 
@@ -241,7 +242,7 @@ to be block 0, since the chain already exists without this app hash.
 | `blockHeight`     | `0x0102030405060708`                |
 | `blockHash`       | 32 bytes of `0xa1`                  |
 | `stateHash`       | 32 bytes of `0xb2`                  |
-| `bud`             | 32 bytes of `0xc3`                  |
+| `budHash`         | 32 bytes of `0xc3`                  |
 | `receiptHash`     | 32 bytes of `0xd4`                  |
 | `previousAppHash` | 32 bytes of `0xe5`                  |
 

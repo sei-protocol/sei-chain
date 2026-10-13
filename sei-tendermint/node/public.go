@@ -204,7 +204,11 @@ func wrapApplication(
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
 	if conf.MockApp {
-		return NewMockApp(app), nil
+		manager, ok := storage.Get()
+		if !ok {
+			return nil, errors.New("mock app requires giga storage")
+		}
+		return NewMockApp(app, manager.AppHashBuilder()), nil
 	}
 	if conf.AutobahnConfigFile != "" {
 		manager, ok := storage.Get()

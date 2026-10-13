@@ -4,12 +4,13 @@ import (
 	"os"
 	"testing"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/stretchr/testify/require"
 )
@@ -215,7 +216,7 @@ func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
 		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 	}
 
-	prunable, ok := store.(controller.PrunableStore)
+	prunable, ok := store.(controllertypes.PrunableStore)
 	require.True(t, ok)
 	require.NoError(t, prunable.PruneHistory(6)) // retention floor now at block 6
 	require.NoError(t, store.Close())

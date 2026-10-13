@@ -3,13 +3,16 @@ package builder
 import (
 	"context"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
 
 // AppHashBuilder computes the app hash of each block from inputs reported independently, and publishes the app
-// hashes in block order. App hashes start at the giga activation height, which must be a global chain configuration
-// value. No app hash is published below the giga activation height.
+// hashes in block order. App hashes start at the giga genesis height, which must be a global chain configuration
+// value. No app hash is published below the giga genesis height.
 type AppHashBuilder interface {
+	controllertypes.PrunableStore
 
 	// Reports the hash of the block.
 	//
@@ -36,13 +39,13 @@ type AppHashBuilder interface {
 		componentHashes map[string][]byte,
 	) error
 
-	// Reports the Block Update Digest of the block.
+	// Reports the BUD hash (Block Update Digest hash) of the block.
 	//
 	// blockHeight must be one above the previous call's, except on the first call. Illegal input to this method
 	// may not cause it to return an error immediately, since hash data may be ingested asynchronously. Illegal
 	// input will, however, eventually cause the app hash builder to shut down and start returning errors from all
 	// methods.
-	ReportBUD(ctx context.Context, blockHeight uint64, bud [32]byte) error
+	ReportBUDHash(ctx context.Context, blockHeight uint64, budHash [32]byte) error
 
 	// Reports the hash of the transaction receipts produced by executing the block.
 	//
@@ -67,7 +70,7 @@ type AppHashBuilder interface {
 	// Registers listener to receive, in block order, every app hash published after the one returned.
 	//
 	// Returns the newest published app hash, or nil if none has been published (this is possible if the builder
-	// is started at a block height below the giga activation height). A published app hash never changes.
+	// is started at a block height below the giga genesis height). A published app hash never changes.
 	// Errors if listener is nil, or if called before SetupComplete().
 	RegisterListener(
 		ctx context.Context,
@@ -76,16 +79,12 @@ type AppHashBuilder interface {
 		listener func(appHash *apphash.AppHashData),
 	) (*apphash.AppHashData, error)
 
-	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one.
+	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one. No app
+	// hash exists below the giga genesis height, so iteration from a lower height starts there.
 	//
 	// A published app hash never changes. Errors if called before SetupComplete(), or if startingBlockHeight has
 	// been pruned. The iterator errors once the builder stops.
 	Iterator(ctx context.Context, startingBlockHeight uint64) (apphash.AppHashIterator, error)
-
-	// Permits deleting the app hashes below blockHeight.
-	//
-	// They may be deleted at any later time, and the newest published app hash is always kept.
-	Prune(ctx context.Context, blockHeight uint64) error
 
 	// Stops the builder, and returns once its resources are released. A builder stopped by an error has released
 	// them already.

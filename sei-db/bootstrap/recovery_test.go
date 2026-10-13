@@ -40,11 +40,15 @@ func evmBlock(addr, nonce byte) []*proto.NamedChangeSet {
 	}}
 }
 
+// commitBlocks commits blocks 1 through through, reports their execution hashes, and waits until their app
+// hashes are stored.
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+		reportExecutionHashes(t, manager, uint64(block), uint64(block))
 	}
+	awaitAppHashes(t, manager, uint64(through))
 }
 
 // writeReceipts writes one receipt per block into the receipt store, for blocks 1 through through.
@@ -202,23 +206,42 @@ func replaceWALWithBlocks(t *testing.T, cfg *config.GigaStorageConfig, from, thr
 
 func TestRecoveryTarget(t *testing.T) {
 	for _, tc := range []struct {
-		name                                  string
-		blockHeight, stateHeight, receiptHead uint64
-		want                                  uint64
+		name        string
+		blockHeight uint64
+		stateHeight uint64
+		receiptHead uint64
+		appHashHead uint64
+		want        uint64
+		wantErr     bool
 	}{
 		{name: "a fresh node has no height to converge on"},
-		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, want: 5},
-		{name: "receipts can be the lowest", blockHeight: 7, stateHeight: 6, receiptHead: 4, want: 4},
+		{name: "the lowest head wins", blockHeight: 7, stateHeight: 5, receiptHead: 6, appHashHead: 9, want: 5},
+		{name: "receipts can be the lowest",
+			blockHeight: 7, stateHeight: 6, receiptHead: 4, appHashHead: 9, want: 4},
 		// The regression: receipts newly enabled, or a receipt directory recreated after corruption,
 		// leave a head of 0 alongside real block and state history. Folding that 0 into the minimum
 		// collapses the target and skips recovery for the stores that do have history.
-		{name: "an empty receipt store does not collapse the target", blockHeight: 7, stateHeight: 5, want: 5},
-		{name: "a disabled receipt store reads the same as an empty one", blockHeight: 4, stateHeight: 4, want: 4},
+		{name: "an empty receipt store does not collapse the target",
+			blockHeight: 7, stateHeight: 5, appHashHead: 9, want: 5},
+		{name: "a disabled receipt store reads the same as an empty one",
+			blockHeight: 4, stateHeight: 4, appHashHead: 9, want: 4},
 		{name: "an empty state WAL yields no target", blockHeight: 7, receiptHead: 7},
 		{name: "an empty block store yields no target", stateHeight: 7, receiptHead: 7},
+		{name: "the app hash vault can be the lowest", blockHeight: 7, stateHeight: 5, appHashHead: 4, want: 4},
+		// An empty vault's head is the block before the giga genesis height, which holds the stores there.
+		{name: "an empty app hash vault holds the target below a later giga genesis",
+			blockHeight: 7, stateHeight: 7, appHashHead: 3, want: 3},
+		{name: "an empty app hash vault at giga genesis 1 refuses stores holding blocks",
+			blockHeight: 7, stateHeight: 5, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead))
+			got, err := recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead, tc.appHashHead)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -245,9 +268,9 @@ func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	pinner, ok := manager.ReceiptDB().(receipt.VersionPinner)
 	require.True(t, ok)
 	require.NoError(t, pinner.SetLatestVersion(3))
-	// findTargetRecoveryHeight reads the state and receipt directories offline, so both stores have
-	// to be closed for it.
-	closeStateDB(t, manager)
+	// findTargetRecoveryHeight reads the state, receipt and app hash directories offline, so those
+	// stores have to be closed for it.
+	stopForRestart(t, manager)
 	closeReceiptDB(t, manager)
 
 	got, err := manager.findTargetRecoveryHeight()

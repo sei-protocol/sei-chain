@@ -32,11 +32,11 @@ func inputValue(input hashInput, blockHeight uint64, salt byte) [32]byte {
 }
 
 // expectedChain returns the app hash data of blocks first through last, chained from a zero previous app hash at
-// gigaActivationHeight, built from the values inputValue() gives with salt 0.
-func expectedChain(gigaActivationHeight uint64, first uint64, last uint64) []*apphash.AppHashData {
+// gigaGenesisHeight, built from the values inputValue() gives with salt 0.
+func expectedChain(gigaGenesisHeight uint64, first uint64, last uint64) []*apphash.AppHashData {
 	var previous [32]byte
 	var chain []*apphash.AppHashData
-	for height := gigaActivationHeight; height <= last; height++ {
+	for height := gigaGenesisHeight; height <= last; height++ {
 		record := apphash.NewAppHashData(
 			testChainID,
 			height,
@@ -59,20 +59,30 @@ func openTestBuilder(
 	t *testing.T,
 	dir string,
 	chainID uint64,
-	gigaActivationHeight uint64,
+	gigaGenesisHeight uint64,
 ) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := openBuilder(dir, chainID, gigaActivationHeight)
+	b, err := openBuilder(dir, chainID, gigaGenesisHeight)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = b.Close() })
 	return b
 }
 
 // openBuilder opens a builder over the vault in dir.
-func openBuilder(dir string, chainID uint64, gigaActivationHeight uint64) (*StandardAppHashBuilder, error) {
+func openBuilder(dir string, chainID uint64, gigaGenesisHeight uint64) (*StandardAppHashBuilder, error) {
+	config := testConfig(dir, gigaGenesisHeight)
+	config.ChainID = chainID
+	return NewStandardAppHashBuilder(config)
+}
+
+// testConfig returns the default configuration for the test chain, with its hash vault in dir and its giga genesis
+// at gigaGenesisHeight.
+func testConfig(dir string, gigaGenesisHeight uint64) AppHashBuilderConfig {
 	config := DefaultAppHashBuilderConfig()
+	config.ChainID = testChainID
+	config.GigaGenesisHeight = gigaGenesisHeight
 	config.HashVaultConfig.Path = dir
-	return NewStandardAppHashBuilder(config, chainID, gigaActivationHeight)
+	return config
 }
 
 // reportInput reports input's value for blockHeight.
@@ -87,7 +97,7 @@ func reportInput(t *testing.T, b AppHashBuilder, input hashInput, blockHeight ui
 	case stateHashInput:
 		err = b.ReportStateHash(ctx, blockHeight, value, nil)
 	case budInput:
-		err = b.ReportBUD(ctx, blockHeight, value)
+		err = b.ReportBUDHash(ctx, blockHeight, value)
 	case receiptHashInput:
 		err = b.ReportReceiptHash(ctx, blockHeight, value)
 	}
@@ -177,7 +187,7 @@ func requireSameAppHashes(t *testing.T, expected []*apphash.AppHashData, actual 
 	}
 }
 
-// buildChain builds blocks 1 through last on a fresh vault in dir with giga activation height 1, then closes the
+// buildChain builds blocks 1 through last on a fresh vault in dir with giga genesis height 1, then closes the
 // builder.
 func buildChain(t *testing.T, dir string, last uint64) {
 	t.Helper()
@@ -324,37 +334,37 @@ func TestStoredBlocksAboveStorageHeightAreRebuilt(t *testing.T) {
 	requireSameAppHashes(t, expectedChain(1, 1, 12), iterateAll(t, b, 1))
 }
 
-func TestInputsBelowGigaActivationHeightAreDiscarded(t *testing.T) {
-	const gigaActivationHeight = 11
-	b := openTestBuilder(t, t.TempDir(), testChainID, gigaActivationHeight)
+func TestInputsBelowGigaGenesisHeightAreDiscarded(t *testing.T) {
+	const gigaGenesisHeight = 11
+	b := openTestBuilder(t, t.TempDir(), testChainID, gigaGenesisHeight)
 	reportBlocks(t, b, 3, 8)
 	require.NoError(t, b.SetupComplete(context.Background(), 5))
 	anchor, published := registerListener(t, b)
 	require.Nil(t, anchor)
 
 	reportBlocks(t, b, 6, 13)
-	expected := expectedChain(gigaActivationHeight, gigaActivationHeight, 13)
+	expected := expectedChain(gigaGenesisHeight, gigaGenesisHeight, 13)
 	require.Equal(t, [32]byte{}, expected[0].PreviousAppHash())
 	requireSameAppHashes(t, expected, receive(t, published, 3))
-	requireSameAppHashes(t, expected, iterateAll(t, b, gigaActivationHeight))
+	requireSameAppHashes(t, expected, iterateAll(t, b, gigaGenesisHeight))
 }
 
-func TestRestartWithGigaActivationHeight(t *testing.T) {
-	const gigaActivationHeight = 11
+func TestRestartWithGigaGenesisHeight(t *testing.T) {
+	const gigaGenesisHeight = 11
 	dir := t.TempDir()
-	b := openTestBuilder(t, dir, testChainID, gigaActivationHeight)
-	require.NoError(t, b.SetupComplete(context.Background(), gigaActivationHeight-1))
+	b := openTestBuilder(t, dir, testChainID, gigaGenesisHeight)
+	require.NoError(t, b.SetupComplete(context.Background(), gigaGenesisHeight-1))
 	_, published := registerListener(t, b)
-	reportBlocks(t, b, gigaActivationHeight, gigaActivationHeight+3)
+	reportBlocks(t, b, gigaGenesisHeight, gigaGenesisHeight+3)
 	receive(t, published, 4)
 	require.NoError(t, b.Close())
 
-	reopened := openTestBuilder(t, dir, testChainID, gigaActivationHeight)
-	require.NoError(t, reopened.SetupComplete(context.Background(), gigaActivationHeight-1))
+	reopened := openTestBuilder(t, dir, testChainID, gigaGenesisHeight)
+	require.NoError(t, reopened.SetupComplete(context.Background(), gigaGenesisHeight-1))
 	anchor, published := registerListener(t, reopened)
 	require.Nil(t, anchor)
-	reportBlocks(t, reopened, gigaActivationHeight, gigaActivationHeight+4)
-	requireSameAppHashes(t, expectedChain(gigaActivationHeight, gigaActivationHeight, gigaActivationHeight+4),
+	reportBlocks(t, reopened, gigaGenesisHeight, gigaGenesisHeight+4)
+	requireSameAppHashes(t, expectedChain(gigaGenesisHeight, gigaGenesisHeight, gigaGenesisHeight+4),
 		receive(t, published, 5))
 }
 
@@ -431,16 +441,96 @@ func TestIteratorBeyondNewestIsEmpty(t *testing.T) {
 	requireSameAppHashes(t, expectedChain(1, 3, 3), iterateAll(t, b, 3))
 }
 
+func TestIteratorFromBelowGigaGenesisStartsAtIt(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 3)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	_, published := registerListener(t, b)
+	reportBlocks(t, b, 3, 5)
+	receive(t, published, 3)
+
+	requireSameAppHashes(t, expectedChain(3, 3, 5), iterateAll(t, b, 1))
+}
+
 func TestPruneKeepsNewestPublishedAppHash(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	require.NoError(t, b.Prune(context.Background(), 100))
+	require.NoError(t, b.PruneHistory(100))
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	_, published := registerListener(t, b)
 	reportBlocks(t, b, 1, 5)
 	receive(t, published, 5)
-	require.NoError(t, b.Prune(context.Background(), 100))
+	require.NoError(t, b.PruneHistory(100))
 
 	requireSameAppHashes(t, expectedChain(1, 5, 5), iterateAll(t, b, 5))
+}
+
+func TestHeadOfEmptyBuilderPrecedesGigaGenesis(t *testing.T) {
+	dir := t.TempDir()
+	head, err := GetLatestBlock(testConfig(dir, 5))
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), head)
+
+	b := openTestBuilder(t, dir, testChainID, 5)
+	head, err = b.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), head)
+}
+
+func TestHeadIsNewestStoredAppHash(t *testing.T) {
+	dir := t.TempDir()
+	buildChain(t, dir, 3)
+	head, err := GetLatestBlock(testConfig(dir, 1))
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), head)
+
+	b := openTestBuilder(t, dir, testChainID, 1)
+	head, err = b.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), head)
+
+	// Setup below the vault's head keeps the records above it, so the head does not move back.
+	require.NoError(t, b.SetupComplete(context.Background(), 1))
+	head, err = b.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), head)
+}
+
+func TestHeadFollowsStoredAppHashes(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	_, published := registerListener(t, b)
+	reportBlocks(t, b, 1, 4)
+	receive(t, published, 4)
+
+	head, err := b.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), head)
+	require.Equal(t, uint64(1), b.GetRollbackFloor(3))
+	require.Equal(t, uint64(0), b.GetRollbackFloor(4))
+	require.Equal(t, uint64(0), b.GetRollbackFloor(10))
+}
+
+func TestStoppedBuilderReportsNoRollbackFloor(t *testing.T) {
+	dir := t.TempDir()
+	buildChain(t, dir, 4)
+	b := openTestBuilder(t, dir, testChainID, 1)
+	require.Equal(t, uint64(2), b.GetRollbackFloor(2))
+
+	require.NoError(t, b.Close())
+	require.Equal(t, uint64(0), b.GetRollbackFloor(2))
+	_, err := b.GetLatestBlock()
+	require.Error(t, err)
+}
+
+func TestOfflineHeadFailsWhileBuilderIsOpen(t *testing.T) {
+	dir := t.TempDir()
+	openTestBuilder(t, dir, testChainID, 1)
+	_, err := GetLatestBlock(testConfig(dir, 1))
+	require.Error(t, err)
+}
+
+func TestOfflineHeadRejectsZeroGigaGenesisHeight(t *testing.T) {
+	_, err := GetLatestBlock(testConfig(t.TempDir(), 0))
+	require.Error(t, err)
 }
 
 func TestChainIDMismatchFailsStartup(t *testing.T) {
@@ -450,7 +540,7 @@ func TestChainIDMismatchFailsStartup(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestZeroGigaActivationHeightFailsStartup(t *testing.T) {
+func TestZeroGigaGenesisHeightFailsStartup(t *testing.T) {
 	_, err := openBuilder(t.TempDir(), testChainID, 0)
 	require.Error(t, err)
 }

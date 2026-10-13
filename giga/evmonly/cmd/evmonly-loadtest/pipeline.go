@@ -11,6 +11,7 @@ import (
 	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -163,6 +164,9 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	if err := storage.StateDB().CommitStateChanges(1, genesisChanges); err != nil {
 		return fmt.Errorf("commit generated genesis state: %w", err)
 	}
+	if err := reportExecutionHashes(ctx, storage.AppHashBuilder(), 1); err != nil {
+		return err
+	}
 
 	profiles, err := startProfiles(cfg)
 	if err != nil {
@@ -201,7 +205,8 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	for workerID := 0; workerID < cfg.workers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
-			return executeBlocks(groupCtx, workerID, executor, preparedBlocks, metrics)
+			return executeBlocks(
+				groupCtx, workerID, executor, storage.AppHashBuilder(), preparedBlocks, metrics)
 		})
 	}
 
@@ -566,6 +571,8 @@ func executeBlocks(
 	ctx context.Context,
 	workerID int,
 	executor *evmonly.Executor,
+	// Receives the execution hashes of every block executed.
+	appHashBuilder builder.AppHashBuilder,
 	blocks <-chan preparedBlockEnvelope,
 	metrics *loadMetrics,
 ) error {
@@ -589,6 +596,12 @@ func executeBlocks(
 			counts := countTxStatuses(result.Txs)
 			metrics.recordFinished(counts, result.GasUsed, result.OCCStats)
 			result.Release()
+			if err := reportExecutionHashes(ctx, appHashBuilder, block.block.Context.Number); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("worker %d: %w", workerID, err)
+			}
 			metrics.recordResultPoolStats(executor.ResultPoolStats())
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -247,17 +248,17 @@ func buildValidatorGigaConfig(
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
+	common := p2p.DefaultGigaRouterCommonConfig()
+	common.DialInterval = time.Duration(fc.DialInterval)
+	common.ValidatorAddrs = validatorAddrs
+	common.PersistentStateDir = fc.PersistentStateDir
+	common.App = app
+	common.GenDoc = genDoc
+	common.MaxInboundFullnodePeers = resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers)
+	common.EnableEvmProxy = fc.GetEnableEvmProxy()
 	return &p2p.GigaValidatorConfig{
-		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
-			DialInterval:            time.Duration(fc.DialInterval),
-			ValidatorAddrs:          validatorAddrs,
-			PersistentStateDir:      fc.PersistentStateDir,
-			App:                     app,
-			GenDoc:                  genDoc,
-			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
-			EnableEvmProxy:          fc.GetEnableEvmProxy(),
-		},
-		ValidatorKey: validatorKey,
+		GigaRouterCommonConfig: common,
+		ValidatorKey:           validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
 			return genDoc.Autobahn.ViewTimeout
 		},
@@ -291,6 +292,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
+	appHashBuilder builder.AppHashBuilder,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -325,16 +327,13 @@ func buildGigaRouter(
 			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
-		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-		// enable/disable decision through as plain config.
-		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
 			return nil, err
 		}
-		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
+		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState, appHashBuilder)
 		if err != nil {
 			return nil, err
 		}
@@ -349,16 +348,13 @@ func buildGigaRouter(
 		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
-	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-	// enable/disable decision through as plain config.
-	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
 		return nil, err
 	}
-	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
+	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState, appHashBuilder)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +422,7 @@ func buildGigaStorageConfig(
 		storageConfig.WithFullNodeMode()
 	}
 	storageConfig.ReceiptDBConfig.Enable = storage.Receipts
+	storageConfig.AppHashBuilderConfig.ChainID = config.AutobahnEVMOnlyChainID
 	return storageConfig, nil
 }
 
@@ -478,14 +475,14 @@ func buildFullnodeGigaConfig(
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
-	return &p2p.GigaRouterCommonConfig{
-		DialInterval:            time.Duration(fc.DialInterval),
-		ValidatorAddrs:          validatorAddrs,
-		PersistentStateDir:      fc.PersistentStateDir,
-		App:                     app,
-		GenDoc:                  genDoc,
-		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
-	}, nil
+	common := p2p.DefaultGigaRouterCommonConfig()
+	common.DialInterval = time.Duration(fc.DialInterval)
+	common.ValidatorAddrs = validatorAddrs
+	common.PersistentStateDir = fc.PersistentStateDir
+	common.App = app
+	common.GenDoc = genDoc
+	common.MaxInboundFullnodePeers = resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers)
+	return &common, nil
 }
 
 // pacingRate returns the rate limit for a configured pacing interval.
@@ -624,7 +621,7 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(),
+			manager.BlockStore(), manager.AppHashBuilder(),
 		)
 		if err != nil {
 			return nil, closer, noneDB, err

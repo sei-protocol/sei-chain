@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
@@ -13,14 +14,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 )
 
-// OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown.
-// After recovery:
+// OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown: the lowest
+// head among the block store, the state WAL, the receipt store and the app hash vault. After recovery:
 //  1. Every store is at or below the block store's height.
-//  2. Every store other than the block store is on the same height, unless it holds no history at all,
-//     in which case it is left empty to fill forward from that height.
+//  2. Every store other than the block store is on that height, unless it holds no history at all, in which
+//     case it is left empty to fill forward from it.
 //
-// The target is the lowest head among the block store, the state WAL and the receipt store. A target of
-// 0 means there is no height to converge on and nothing is moved.
+// If the block store or the state WAL is empty, no store is moved.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	// Each stage is announced before it runs. Opening a store or reading its head loads that store's
 	// index, which on a large one is minutes of work, and a stage that reported only on completion
@@ -42,7 +42,11 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	// The receipt store opens last because its rollback runs against its files: it is the one store
 	// recovery reaches without opening, so opening it earlier would only be to close it again.
 	logger.Info("Opening the receipt store")
-	return m.openReceiptStore()
+	if err := m.openReceiptStore(); err != nil {
+		return err
+	}
+	logger.Info("Opening the app hash builder")
+	return m.openAppHashBuilder(ctx)
 }
 
 // recoverStores puts the receipt store, the state commit store and the EVM state store (when enabled)
@@ -98,12 +102,8 @@ func (m *GigaStorageManager) openReceiptStore() error {
 	return nil
 }
 
-// findTargetRecoveryHeight returns the height every store is recovered to, read from the heads of the
-// block store, the state WAL and the receipt store. A disabled receipt store reads as 0, which is the
-// same as an empty one: no opinion on the height.
-//
-// The state and receipt heads are read from their directories, which takes the locks their open stores
-// hold, so this must run before either of those stores opens.
+// findTargetRecoveryHeight returns the height recovery brings the stores onto, or 0 if no store is to be moved.
+// It must run before the state DB, the receipt store and the app hash builder open.
 func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	logger.Info("Reading a store head", "store", "block store")
 	blockHeight, err := m.blockStore.GetLatestBlock()
@@ -123,11 +123,20 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 			return 0, fmt.Errorf("read receipt store head: %w", err)
 		}
 	}
-	target := recoveryTarget(blockHeight, stateHeight, receiptHeight)
+	logger.Info("Reading a store head", "store", "app hash vault")
+	appHashHeight, err := builder.GetLatestBlock(*m.cfg.AppHashBuilderConfig)
+	if err != nil {
+		return 0, fmt.Errorf("read app hash vault head: %w", err)
+	}
+	target, err := recoveryTarget(blockHeight, stateHeight, receiptHeight, appHashHeight)
+	if err != nil {
+		return 0, err
+	}
 	logger.Info("Read the store heads recovery converges on",
 		"block_store", blockHeight,
 		"state_wal", stateHeight,
 		"receipt_store", receiptHeight,
+		"app_hash_vault", appHashHeight,
 		"target", target)
 	return int64(target), nil //nolint:gosec // heights fit within int64
 }
@@ -177,15 +186,29 @@ func (m *GigaStorageManager) stateWALHead() (uint64, error) {
 // way an empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an
 // empty WAL, and converging on a target derived from the other stores would discard it with no WAL left
 // to replay it from.
-func recoveryTarget(blockHeight, stateHeight, receiptHeight uint64) uint64 {
+//
+// It errors when the app hash vault's head is 0 while the other stores converge above it, since no
+// rollback reaches below block 1.
+func recoveryTarget(
+	blockHeight uint64,
+	stateHeight uint64,
+	receiptHeight uint64,
+	// The newest block whose app hash the vault holds, or the block before the giga genesis height when
+	// it holds none.
+	appHashHeight uint64,
+) (uint64, error) {
 	if blockHeight == 0 || stateHeight == 0 {
-		return 0
+		return 0, nil
 	}
 	target := min(blockHeight, stateHeight)
 	if receiptHeight > 0 {
 		target = min(target, receiptHeight)
 	}
-	return target
+	if appHashHeight == 0 {
+		return 0, fmt.Errorf("the app hash vault holds no app hash, but the other stores converge on "+
+			"block %d, and recovery cannot roll back to before block 1", target)
+	}
+	return min(target, appHashHeight), nil
 }
 
 // openStateDB opens the state commit store, the EVM state store (when enabled) and the state WAL,
