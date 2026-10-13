@@ -88,15 +88,41 @@ func TestCompositeHistoricalReadBelowFlatKVFloorErrorsWithoutPanic(t *testing.T)
 	require.Error(t, err)
 	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 
-	_, err = cs.Exporter(target)
-	require.Error(t, err)
-	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
+	// The migration had not started at the FlatKV snapshot above the target, so the export is memiavl-only.
+	exp, err := cs.Exporter(target)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.NotContains(t, moduleNamesOf(items), keys.FlatKVStoreKey)
 
 	for _, reachable := range []int64{rollbackFloorKickoff - 1, rollbackFloorKickoff, cs.Version()} {
 		ro, err := cs.LoadVersionReadOnly(reachable)
 		require.NoError(t, err, "version %d must stay reachable", reachable)
 		require.NoError(t, ro.Close())
 	}
+}
+
+func TestCompositeExportBelowFlatKVFloorAfterKickoffFailsLoud(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0x5703)
+	cs := buildFixedModeMigrationStore(t, dir)
+	defer func() { require.NoError(t, cs.Close()) }()
+	for i := 0; i < 20; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
+		_, err := cs.Commit(cs.Version() + 1)
+		require.NoError(t, err)
+	}
+	flatKVStore, ok := cs.loadFlatKV().(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
+	// The migration had started at this height, so FlatKV is in its AppHash and can't be left out.
+	target := int64(rollbackFloorKickoff + 1)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(target), flatkv.ErrVersionUnreachable)
+
+	_, err := cs.Exporter(target)
+	require.Error(t, err)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 }
 
 func rollbackFloorBlocks(seed int64, last int64) map[int64][]*proto.NamedChangeSet {
