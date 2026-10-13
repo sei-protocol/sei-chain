@@ -29,7 +29,9 @@ type ClassLimits struct {
 	SearchIndex            int64 `mapstructure:"search_index"`
 	BlockTxMaterialization int64 `mapstructure:"block_tx_materialization"`
 	LogQuery               int64 `mapstructure:"log_query"`
-	EVMExecution           int64 `mapstructure:"evm_execution"`
+	IterativeRead          int64 `mapstructure:"iterative_read"`
+	VMExecution            int64 `mapstructure:"vm_execution"`
+	ApplicationQuery       int64 `mapstructure:"application_query"`
 	Trace                  int64 `mapstructure:"trace"`
 	Broadcast              int64 `mapstructure:"broadcast"`
 	Subscription           int64 `mapstructure:"subscription"`
@@ -43,7 +45,9 @@ type ClassTimeouts struct {
 	SearchIndex            time.Duration `mapstructure:"search_index"`
 	BlockTxMaterialization time.Duration `mapstructure:"block_tx_materialization"`
 	LogQuery               time.Duration `mapstructure:"log_query"`
-	EVMExecution           time.Duration `mapstructure:"evm_execution"`
+	IterativeRead          time.Duration `mapstructure:"iterative_read"`
+	VMExecution            time.Duration `mapstructure:"vm_execution"`
+	ApplicationQuery       time.Duration `mapstructure:"application_query"`
 	Trace                  time.Duration `mapstructure:"trace"`
 	Broadcast              time.Duration `mapstructure:"broadcast"`
 	Subscription           time.Duration `mapstructure:"subscription"`
@@ -67,7 +71,9 @@ var DefaultConfig = Config{
 		SearchIndex:            16,
 		BlockTxMaterialization: 16,
 		LogQuery:               20,
-		EVMExecution:           20,
+		IterativeRead:          20,
+		VMExecution:            20,
+		ApplicationQuery:       20,
 		Trace:                  20,
 		Broadcast:              50,
 		Subscription:           100,
@@ -78,7 +84,9 @@ var DefaultConfig = Config{
 		SearchIndex:            2 * time.Second,
 		BlockTxMaterialization: 2 * time.Second,
 		LogQuery:               2 * time.Second,
-		EVMExecution:           2 * time.Second,
+		IterativeRead:          2 * time.Second,
+		VMExecution:            2 * time.Second,
+		ApplicationQuery:       2 * time.Second,
 		Trace:                  time.Second,
 		Broadcast:              time.Second,
 		Subscription:           time.Second,
@@ -186,7 +194,9 @@ func limitSettings(limits *ClassLimits) []limitSetting {
 		{ClassSearchIndex, &limits.SearchIndex},
 		{ClassBlockTxMaterialization, &limits.BlockTxMaterialization},
 		{ClassLogQuery, &limits.LogQuery},
-		{ClassEVMExecution, &limits.EVMExecution},
+		{ClassIterativeRead, &limits.IterativeRead},
+		{ClassVMExecution, &limits.VMExecution},
+		{ClassApplicationQuery, &limits.ApplicationQuery},
 		{ClassTrace, &limits.Trace},
 		{ClassBroadcast, &limits.Broadcast},
 		{ClassSubscription, &limits.Subscription},
@@ -205,7 +215,9 @@ func timeoutSettings(timeouts *ClassTimeouts) []timeoutSetting {
 		{ClassSearchIndex, &timeouts.SearchIndex},
 		{ClassBlockTxMaterialization, &timeouts.BlockTxMaterialization},
 		{ClassLogQuery, &timeouts.LogQuery},
-		{ClassEVMExecution, &timeouts.EVMExecution},
+		{ClassIterativeRead, &timeouts.IterativeRead},
+		{ClassVMExecution, &timeouts.VMExecution},
+		{ClassApplicationQuery, &timeouts.ApplicationQuery},
 		{ClassTrace, &timeouts.Trace},
 		{ClassBroadcast, &timeouts.Broadcast},
 		{ClassSubscription, &timeouts.Subscription},
@@ -256,7 +268,11 @@ block_tx_materialization = {{ .RPCAdmission.ClassLimits.BlockTxMaterialization }
 # weight: 10
 log_query = {{ .RPCAdmission.ClassLimits.LogQuery }}
 # weight: 10
-evm_execution = {{ .RPCAdmission.ClassLimits.EVMExecution }}
+iterative_read = {{ .RPCAdmission.ClassLimits.IterativeRead }}
+# weight: 10
+vm_execution = {{ .RPCAdmission.ClassLimits.VMExecution }}
+# weight: 10
+application_query = {{ .RPCAdmission.ClassLimits.ApplicationQuery }}
 # weight: 20
 trace = {{ .RPCAdmission.ClassLimits.Trace }}
 # weight: 2
@@ -271,7 +287,9 @@ normal_read = "{{ .RPCAdmission.ClassTimeouts.NormalRead }}"
 search_index = "{{ .RPCAdmission.ClassTimeouts.SearchIndex }}"
 block_tx_materialization = "{{ .RPCAdmission.ClassTimeouts.BlockTxMaterialization }}"
 log_query = "{{ .RPCAdmission.ClassTimeouts.LogQuery }}"
-evm_execution = "{{ .RPCAdmission.ClassTimeouts.EVMExecution }}"
+iterative_read = "{{ .RPCAdmission.ClassTimeouts.IterativeRead }}"
+vm_execution = "{{ .RPCAdmission.ClassTimeouts.VMExecution }}"
+application_query = "{{ .RPCAdmission.ClassTimeouts.ApplicationQuery }}"
 trace = "{{ .RPCAdmission.ClassTimeouts.Trace }}"
 broadcast = "{{ .RPCAdmission.ClassTimeouts.Broadcast }}"
 subscription = "{{ .RPCAdmission.ClassTimeouts.Subscription }}"

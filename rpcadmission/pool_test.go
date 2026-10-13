@@ -39,8 +39,8 @@ func TestPoolEnforcesGlobalWeightedCapacity(t *testing.T) {
 func TestPoolEnforcesClassCapacityIndependently(t *testing.T) {
 	pool := testPool(t, func(cfg *Config) {
 		cfg.GlobalLimit = 100
-		cfg.ClassLimits.EVMExecution = 10
-		cfg.ClassTimeouts.EVMExecution = 0
+		cfg.ClassLimits.VMExecution = 10
+		cfg.ClassTimeouts.VMExecution = 0
 		cfg.ClassTimeouts.CheapRead = 0
 	})
 
@@ -95,9 +95,9 @@ func TestPermitReleaseIsIdempotent(t *testing.T) {
 func TestPoolReleasesClassCapacityWhenGlobalAdmissionFails(t *testing.T) {
 	pool := testPool(t, func(cfg *Config) {
 		cfg.GlobalLimit = ClassTrace.Weight()
-		cfg.ClassLimits.EVMExecution = ClassEVMExecution.Weight()
+		cfg.ClassLimits.VMExecution = ClassVMExecution.Weight()
 		cfg.ClassTimeouts.Trace = 0
-		cfg.ClassTimeouts.EVMExecution = 0
+		cfg.ClassTimeouts.VMExecution = 0
 	})
 
 	trace, err := pool.AcquireMethod(t.Context(), "debug_traceCall")

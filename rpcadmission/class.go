@@ -6,13 +6,17 @@ import "strings"
 // MethodClass groups RPC methods with similar execution and memory costs.
 type MethodClass string
 
+const normalReadWeight int64 = 2
+
 const (
 	ClassCheapRead              MethodClass = "cheap_read"
 	ClassNormalRead             MethodClass = "normal_read"
 	ClassSearchIndex            MethodClass = "search_index"
 	ClassBlockTxMaterialization MethodClass = "block_tx_materialization"
 	ClassLogQuery               MethodClass = "log_query"
-	ClassEVMExecution           MethodClass = "evm_execution"
+	ClassIterativeRead          MethodClass = "iterative_read"
+	ClassVMExecution            MethodClass = "vm_execution"
+	ClassApplicationQuery       MethodClass = "application_query"
 	ClassTrace                  MethodClass = "trace"
 	ClassBroadcast              MethodClass = "broadcast"
 	ClassSubscription           MethodClass = "subscription"
@@ -24,7 +28,9 @@ var allMethodClasses = []MethodClass{
 	ClassSearchIndex,
 	ClassBlockTxMaterialization,
 	ClassLogQuery,
-	ClassEVMExecution,
+	ClassIterativeRead,
+	ClassVMExecution,
+	ClassApplicationQuery,
 	ClassTrace,
 	ClassBroadcast,
 	ClassSubscription,
@@ -79,15 +85,15 @@ var exactMethodClasses = map[string]MethodClass{
 	"eth_newPendingTransactionFilter": ClassLogQuery,
 	"eth_uninstallFilter":             ClassLogQuery,
 
-	// Methods that execute the EVM without committing a transaction.
-	"eth_call":                  ClassEVMExecution,
-	"eth_createAccessList":      ClassEVMExecution,
-	"eth_estimateGas":           ClassEVMExecution,
-	"eth_estimateGasAfterCalls": ClassEVMExecution,
+	// Methods that execute a virtual machine without committing a transaction.
+	"eth_call":                  ClassVMExecution,
+	"eth_createAccessList":      ClassVMExecution,
+	"eth_estimateGas":           ClassVMExecution,
+	"eth_estimateGasAfterCalls": ClassVMExecution,
 
-	// Transaction submission.
-	"eth_sendRawTransaction": ClassBroadcast,
-	"eth_sendTransaction":    ClassBroadcast,
+	// EVM transaction submission simulates execution before broadcasting.
+	"eth_sendRawTransaction": ClassVMExecution,
+	"eth_sendTransaction":    ClassVMExecution,
 
 	// Long-lived EVM requests.
 	"eth_subscribe":   ClassSubscription,
@@ -99,6 +105,7 @@ var exactMethodClasses = map[string]MethodClass{
 	"lag_status":          ClassCheapRead,
 	"status":              ClassCheapRead,
 	"num_unconfirmed_txs": ClassCheapRead,
+	"abci_query":          ClassApplicationQuery,
 
 	// CometBFT index scans.
 	"block_search": ClassSearchIndex,
@@ -156,8 +163,10 @@ func classifyGRPCMethod(method string) MethodClass {
 		return ClassBroadcast
 	case "Subscribe", "Unsubscribe":
 		return ClassSubscription
-	case "Simulate":
-		return ClassEVMExecution
+	case "Simulate", "StaticCall", "SmartContractState":
+		return ClassVMExecution
+	case "DelegationTotalRewards", "TallyResult":
+		return ClassIterativeRead
 	case "GetBlockByHeight", "GetBlockWithTxs", "GetLatestBlock", "GetLatestValidatorSet", "GetValidatorSetByHeight":
 		return ClassBlockTxMaterialization
 	case "GetTx", "GetTxsEvent":
@@ -172,15 +181,15 @@ func (c MethodClass) Weight() int64 {
 	case ClassCheapRead, ClassSubscription:
 		return 1
 	case ClassNormalRead, ClassBroadcast:
-		return 2
+		return normalReadWeight
 	case ClassSearchIndex, ClassBlockTxMaterialization:
 		return 8
-	case ClassLogQuery, ClassEVMExecution:
+	case ClassLogQuery, ClassIterativeRead, ClassVMExecution, ClassApplicationQuery:
 		return 10
 	case ClassTrace:
 		return 20
 	default:
-		return ClassNormalRead.Weight()
+		return normalReadWeight
 	}
 }
 

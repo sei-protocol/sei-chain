@@ -206,7 +206,7 @@ func TestInitAppConfigIncludesRPCAdmissionDefaults(t *testing.T) {
 	require.NoError(t, v.ReadConfig(bytes.NewReader(buf.Bytes())))
 	require.Equal(t, int64(100), v.GetInt64("rpc_admission.global_limit"))
 	require.Equal(t, int64(20), v.GetInt64("rpc_admission.class_limits.trace"))
-	require.Equal(t, "2s", v.GetString("rpc_admission.class_timeouts.evm_execution"))
+	require.Equal(t, "2s", v.GetString("rpc_admission.class_timeouts.vm_execution"))
 }
 
 // TestInitAppConfigLeavesPrometheusSinkOff pins the two app.toml-generation pipelines to the same
