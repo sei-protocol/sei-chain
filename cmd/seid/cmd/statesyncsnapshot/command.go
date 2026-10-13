@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -41,12 +42,21 @@ func createCmd() *cobra.Command {
 			if out == "" {
 				return errors.New("--out is required")
 			}
+			stdout := cmd.OutOrStdout()
+			if out == "-" {
+				archive, err := takeStdout()
+				if err != nil {
+					return err
+				}
+				defer func() { _ = archive.Close() }()
+				stdout = archive
+			}
 			t, err := resolveTarget(cmd)
 			if err != nil {
 				return err
 			}
 			return withSignals(cmd.Context(), func(ctx context.Context) error {
-				return runCreate(ctx, t, out, height, cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return runCreate(ctx, t, out, height, stdout, cmd.ErrOrStderr())
 			})
 		},
 	}
@@ -112,6 +122,20 @@ func withSignals(parent context.Context, f func(ctx context.Context) error) erro
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return f(ctx)
+}
+
+// takeStdout returns a private handle on standard output and points file descriptor 1 at
+// standard error, so log lines that any logger writes to stdout cannot enter the archive.
+func takeStdout() (*os.File, error) {
+	fd, err := unix.Dup(int(os.Stdout.Fd()))
+	if err != nil {
+		return nil, fmt.Errorf("dup stdout: %w", err)
+	}
+	if err := unix.Dup2(int(os.Stderr.Fd()), int(os.Stdout.Fd())); err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("point stdout at stderr: %w", err)
+	}
+	return os.NewFile(uintptr(fd), "archive"), nil
 }
 
 // printHeight writes the one machine-readable line `{"height":H}`.
