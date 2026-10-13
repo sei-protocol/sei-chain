@@ -472,7 +472,7 @@ func TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported(t *testing.T) {
 	}
 	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes.
+	// 33 is not in gigareceipt.DefaultRewardPercentiles, so this recomputes.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
@@ -495,7 +495,7 @@ func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 	}
 	api := &infoAPI{backend: backend, store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes from receipts.
+	// 33 is not in gigareceipt.DefaultRewardPercentiles, so this recomputes from receipts.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)

@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -320,5 +321,5 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 	if err != nil {
 		return 0, err
 	}
-	return receiptpkg.ComputeBlockStats(records, nil).TotalGasUsed, nil
+	return gigareceipt.ComputeBlockStats(records, nil).TotalGasUsed, nil
 }
