@@ -2,6 +2,7 @@ package app
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -143,6 +144,9 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
+				if err := app.requireStoresDeleted(v68DeletedStores); err != nil {
+					return nil, err
+				}
 				// Proposals must be readable before any module migration walks
 				// the gov store, so the retired IBC records are rewritten first.
 				app.rewriteRetiredIBCProposals(ctx)
@@ -178,6 +182,20 @@ func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
 // carrying the original title and description. The proposal record, its
 // deposits, votes and tally indexes are left untouched. Proposal keys sort by
 // big-endian ID, so the scan stops at RetiredIBCProposalIDLimit.
+// requireStoresDeleted returns an error if the state commitment store still holds a tree for any of
+// names. The store loader deletes them only when upgrade-info.json names the upgrade, which the
+// previous binary writes when it halts at the upgrade height.
+func (app *App) requireStoresDeleted(names []string) error {
+	for _, name := range names {
+		if app.rootStore.HasTree(name) {
+			return fmt.Errorf("store %q was not deleted before the upgrade handler ran: "+
+				"the node must reach the upgrade height on the previous binary so that it writes upgrade-info.json",
+				name)
+		}
+	}
+	return nil
+}
+
 func (app *App) rewriteRetiredIBCProposals(ctx sdk.Context) {
 	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
 	iterator := sdk.KVStorePrefixIterator(store, govtypes.ProposalsKeyPrefix)
