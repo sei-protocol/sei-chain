@@ -229,11 +229,14 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		for _, key := range storageKeys {
 			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
-			oldValue := priorValue
 			if acct.StorageCleared {
-				oldValue = common.Hash{}
-			}
-			if oldValue == newValue {
+				// A clear empties the slot in the store, so after one the write is measured against zero.
+				// The cleared account never read the slot, so its prior is read now.
+				if newValue == (common.Hash{}) {
+					continue
+				}
+				priorValue = s.baseState(addr, key)
+			} else if priorValue == newValue {
 				continue
 			}
 			changes.Storage = append(changes.Storage, StorageChange{
@@ -1022,7 +1025,6 @@ func (s *nativeStateDB) baseAccount(addr common.Address) *nativeAccount {
 }
 
 func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
-	base := s.baseAccount(addr)
 	acct := s.account(addr)
 	if _, ok := acct.Storage[key]; ok {
 		return
@@ -1033,15 +1035,10 @@ func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
 			return
 		}
 	}
-	if _, ok := base.Storage[key]; !ok {
-		if value := s.source.GetState(addr, key); value != (common.Hash{}) {
-			base.Storage[key] = storageValue{value: value}
-		}
-	}
 	if acct.StorageCleared {
 		return
 	}
-	if value := storageHash(base.Storage, key); value != (common.Hash{}) {
+	if value := s.baseState(addr, key); value != (common.Hash{}) {
 		acct.Storage[key] = storageValue{value: value}
 	}
 }
@@ -1055,6 +1052,12 @@ func (s *nativeStateDB) committedState(addr common.Address, key common.Hash) com
 	if acct, ok := s.accounts[addr]; ok && acct.StorageCleared {
 		return common.Hash{}
 	}
+	return s.baseState(addr, key)
+}
+
+// baseState returns the slot's value before the block. A non-zero value is kept in base, so the
+// source is read for it once.
+func (s *nativeStateDB) baseState(addr common.Address, key common.Hash) common.Hash {
 	base := s.baseAccount(addr)
 	if _, ok := base.Storage[key]; !ok {
 		if value := s.source.GetState(addr, key); value != (common.Hash{}) {
