@@ -1,16 +1,16 @@
-package receipt_test
+package gigareceipt_test
 
 import (
 	"testing"
 	"time"
-
-	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/stretchr/testify/require"
 )
@@ -29,12 +29,11 @@ func setupLittIdxForGC(
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = keepRecent
 	cfg.ExternalPruning = true
 
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
@@ -48,11 +47,10 @@ func setupLittIdxForGC(
 func TestReceiptGCExternalPruningDefaultsOff(t *testing.T) {
 	storeKey := storetypes.NewKVStoreKey("evm")
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	require.False(t, cfg.ExternalPruning, "the default must leave retention with the store")
 
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
@@ -62,17 +60,6 @@ func TestReceiptGCExternalPruningDefaultsOff(t *testing.T) {
 
 	_, managed, _ := setupLittIdxForGC(t, 0)
 	require.True(t, managed.ExternalPruning())
-}
-
-// The pebble backend prunes itself and refuses ExternalPruning, so the collector never takes it
-// over. Refused at startup rather than discovered later from a full disk.
-func TestReceiptExternalPruningRejectedOnPebbleBackend(t *testing.T) {
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.DBDirectory = t.TempDir()
-	cfg.ExternalPruning = true
-
-	_, err := receipt.NewReceiptStore(cfg, storetypes.NewKVStoreKey("evm"))
-	require.ErrorContains(t, err, "does not support external pruning")
 }
 
 // The standalone shape, and the one a collector-shaped change is most likely to break: with
@@ -88,12 +75,11 @@ func TestReceiptLocalPrunerAdvancesFloorWithoutCollector(t *testing.T) {
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 2
 	cfg.PruneIntervalSeconds = 1 // the shortest cadence there is; the pruner jitters to 1-2s
 
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
@@ -164,7 +150,8 @@ func TestReceiptGCLatestBlock(t *testing.T) {
 	latest, err = prunable.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
-	require.Equal(t, int64(3), store.LatestVersion(), "the head reported to the collector must agree with the store's own version")
+	require.Equal(t, int64(3), store.LatestVersion(),
+		"the head reported to the collector must agree with the store's own version")
 }
 
 // A contiguous store resolves the window against its own head, and the prune that follows moves the

@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 

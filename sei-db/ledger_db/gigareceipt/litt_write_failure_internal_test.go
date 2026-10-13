@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -103,7 +105,8 @@ func TestWriteFailureLatches(t *testing.T) {
 	require.Eventually(t, func() bool { return s.writeFailure() != nil }, 5*time.Second, time.Millisecond)
 
 	txHash, rcpt := littCtxTestReceipt(2, 0, addr, topic, 1)
-	require.ErrorIs(t, s.SetReceipts(newTestCtxAtHeight(2), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}),
+	require.ErrorIs(t, s.SetReceipts(newTestCtxAtHeight(2),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}),
 		errIndexCommit, "a commit after a failed write must be refused rather than queued")
 	require.ErrorIs(t, s.writeFailure(), errIndexCommit, "reading the failure must not consume it")
 	require.ErrorIs(t, s.Close(), errIndexCommit, "Close must report it too")
@@ -116,7 +119,7 @@ func TestWriteAfterCloseIsRefused(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	txHash, rcpt := littCtxTestReceipt(1, 0, common.HexToAddress("0xfa31"), common.HexToHash("0xfa32"), 1)
-	err := s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
+	err := s.SetReceipts(newTestCtxAtHeight(1), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
 	require.ErrorIs(t, err, ErrStoreClosed)
 }
 
@@ -134,7 +137,7 @@ func TestWriteAfterCloseIsRefusedWithAFullQueue(t *testing.T) {
 	txHash, rcpt := littCtxTestReceipt(1, 0, common.HexToAddress("0xfa41"), common.HexToHash("0xfa42"), 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
+		done <- s.SetReceipts(newTestCtxAtHeight(1), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
 	}()
 	select {
 	case err := <-done:
@@ -158,7 +161,8 @@ func TestWriteRacingCloseIsEitherAppliedOrRefused(t *testing.T) {
 		result := make(chan error, 1)
 		go func() {
 			close(started)
-			result <- s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
+			result <- s.SetReceipts(newTestCtxAtHeight(1),
+				[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
 		}()
 		<-started
 		require.NoError(t, s.Close())
@@ -176,5 +180,6 @@ func TestWriteRacingCloseIsEitherAppliedOrRefused(t *testing.T) {
 func writeOneReceipt(t *testing.T, s *littReceiptStore, block uint64, addr common.Address, topic common.Hash) {
 	t.Helper()
 	txHash, rcpt := littCtxTestReceipt(block, 0, addr, topic, 1)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(block), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(block),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 }

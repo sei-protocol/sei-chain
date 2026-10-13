@@ -7,7 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -93,7 +93,7 @@ func (m *GigaStorageManager) openBlockStore() error {
 func (m *GigaStorageManager) openReceiptStore() error {
 	if m.cfg.ReceiptDBConfig.Enable {
 		// Giga has no legacy receipt KVStore.
-		receiptDB, err := receipt.NewReceiptStore(m.cfg.ReceiptDBConfig, nil)
+		receiptDB, err := gigareceipt.NewReceiptStore(m.cfg.ReceiptDBConfig, nil)
 		if err != nil {
 			return fmt.Errorf("open receipt store: %w", err)
 		}
@@ -118,7 +118,7 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	var receiptHeight uint64
 	if m.cfg.ReceiptDBConfig.Enable {
 		logger.Info("Reading a store head", "store", "receipt store")
-		receiptHeight, err = receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
+		receiptHeight, err = gigareceipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
 		if err != nil {
 			return 0, fmt.Errorf("read receipt store head: %w", err)
 		}
@@ -152,7 +152,7 @@ func (m *GigaStorageManager) requireNoReceiptStoreWhileDisabled() error {
 	if m.cfg.ReceiptDBConfig.Enable {
 		return nil
 	}
-	head, err := receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
+	head, err := gigareceipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
 	if err != nil {
 		return fmt.Errorf("read disabled receipt store head: %w", err)
 	}
@@ -245,7 +245,7 @@ func (m *GigaStorageManager) recoverReceipt(target int64) error {
 		return nil
 	}
 	//nolint:gosec // recoverStores guards target > 0
-	if err := receipt.PruneAfter(m.cfg.ReceiptDBConfig, uint64(target)); err != nil {
+	if err := gigareceipt.PruneAfter(m.cfg.ReceiptDBConfig, uint64(target)); err != nil {
 		return fmt.Errorf("roll the receipt store back to %d: %w", target, err)
 	}
 	return nil

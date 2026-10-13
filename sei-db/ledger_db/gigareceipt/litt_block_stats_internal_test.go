@@ -1,8 +1,10 @@
-package receipt
+package gigareceipt
 
 import (
 	"math/big"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/stretchr/testify/require"
@@ -19,7 +21,7 @@ func TestLittGetBlockStatsWriteRead(t *testing.T) {
 	r2.GasUsed = 20
 
 	ctx := newTestCtxAtHeight(1)
-	require.NoError(t, s.SetReceipts(ctx, []ReceiptRecord{
+	require.NoError(t, s.SetReceipts(ctx, []receipt.ReceiptRecord{
 		{TxHash: txHash1, Receipt: r1, Reward: big.NewInt(100)},
 		{TxHash: txHash2, Receipt: r2}, // no Reward: excluded from the percentile walk
 	}))
@@ -39,7 +41,7 @@ func TestLittGetBlockStatsMissingBlockIsUnsupported(t *testing.T) {
 	defer cleanup()
 
 	_, err := s.GetBlockStats(newTestCtxAtHeight(1), 999)
-	require.ErrorIs(t, err, ErrBlockStatsNotSupported)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }
 
 func TestLittGetBlockStatsBelowRetentionFloorIsNotFound(t *testing.T) {
@@ -49,15 +51,17 @@ func TestLittGetBlockStatsBelowRetentionFloorIsNotFound(t *testing.T) {
 	// pruneBlocksBelow caps its cutoff at the store's head (never prunes the block just written),
 	// so block 1 needs a later block ahead of it before a prune can retire it.
 	txHash1, r1 := littCtxTestReceipt(1, 0, [20]byte{}, [32]byte{}, 0)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash1, Receipt: r1}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1),
+		[]receipt.ReceiptRecord{{TxHash: txHash1, Receipt: r1}}))
 	txHash2, r2 := littCtxTestReceipt(2, 0, [20]byte{}, [32]byte{}, 0)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(2), []ReceiptRecord{{TxHash: txHash2, Receipt: r2}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(2),
+		[]receipt.ReceiptRecord{{TxHash: txHash2, Receipt: r2}}))
 	requireReceiptVersion(t, s, 2)
 
 	require.NoError(t, s.pruneBlocksBelow(2))
 
 	_, err := s.GetBlockStats(newTestCtxAtHeight(1), 1)
-	require.ErrorIs(t, err, ErrNotFound)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
 
 	// The physical key is gone too, not merely masked by the floor check.
 	_, getErr := s.index.Get(blockStatsKey(1))
@@ -70,7 +74,7 @@ func TestLittGetBlockStatsBelowRetentionFloorIsNotFound(t *testing.T) {
 }
 
 // TestLittGetBlockStatsCorruptDataFallsBack verifies an undecodable stats entry answers
-// ErrBlockStatsNotSupported instead of a raw decode error.
+// receipt.ErrBlockStatsNotSupported instead of a raw decode error.
 func TestLittGetBlockStatsCorruptDataFallsBack(t *testing.T) {
 	s, cleanup := setupLittCtxStore(t)
 	defer cleanup()
@@ -78,7 +82,7 @@ func TestLittGetBlockStatsCorruptDataFallsBack(t *testing.T) {
 	require.NoError(t, s.index.Set(blockStatsKey(1), []byte{0x01, 0x02}, dbtypes.WriteOptions{}))
 
 	_, err := s.GetBlockStats(newTestCtxAtHeight(1), 1)
-	require.ErrorIs(t, err, ErrBlockStatsNotSupported)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }
 
 // TestLittGetBlockStatsForEmptyBlockIsZeroNotUnsupported is the case an executed block with no
