@@ -233,3 +233,22 @@ func TestParallelPassLooksAheadTwiceWhatItLastAccepted(t *testing.T) {
 	require.Equal(t, occMinPassLookahead, pass())
 	require.Same(t, buffer, &state.passCumulative[:1][0], "the cumulative-gas buffer is reused")
 }
+
+// A slot written after an earlier transaction cleared its account reports the value it held before
+// the block, not the zero its writer read through the clear.
+func TestMergeReadsPriorOfSlotWrittenAfterClear(t *testing.T) {
+	contract := testAddress(0xc5)
+	key := testHash(0x01)
+	source := NewMemoryState()
+	source.SetState(contract, key, testHash(0x05))
+	state := newBlockSTMState(source)
+
+	state.apply(occTxExecution{changeSet: StateChangeSet{StorageClears: []common.Address{contract}}})
+	state.apply(occTxExecution{changeSet: StateChangeSet{Storage: []StorageChange{
+		{Address: contract, Key: key, Value: testHash(0x07)},
+	}}})
+
+	changes := state.ChangeSet()
+	require.Equal(t, []common.Address{contract}, changes.StorageClears)
+	require.Equal(t, []StorageChange{{Address: contract, Key: key, Value: testHash(0x07), PriorValue: testHash(0x05)}}, changes.Storage)
+}

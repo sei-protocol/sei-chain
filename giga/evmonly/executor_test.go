@@ -1770,6 +1770,68 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 }
 
 // A slot written after its account is cleared reports the value it held before the block, even though
+// Under OCC, where every transaction after the first reruns on what the earlier ones wrote, executing
+// a block still reports each change beside the value its key held before the block.
+func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	counter, clearer, fresh := testAddress(0xc8), testAddress(0xc9), testAddress(0xca)
+	coinbase := blockContext(chainID).Coinbase
+	created := crypto.CreateAddress(sender, 2)
+	slot := testHash(0x01)
+	runtime := storeCode(slot, testHash(0x2a))
+	funded := big.NewInt(10 * testFundedBalanceWei)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, funded)
+	state.SetBalance(counter, big.NewInt(1_000))
+	state.SetCode(counter, counterRuntime(slot))
+	state.SetState(counter, slot, testHash(0x05))
+	state.SetCode(clearer, storeCode(slot, common.Hash{}))
+	state.SetState(clearer, slot, testHash(0x09))
+	executor := NewExecutor(Config{OCCWorkers: 4}, withTestState(state))
+	defer executor.Close()
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(chainID), Txs: [][]byte{
+		signLegacyTx(t, key, chainID, 0, &counter, big.NewInt(10), nil),
+		signLegacyTx(t, key, chainID, 1, &counter, big.NewInt(10), nil),
+		signLegacyTx(t, key, chainID, 2, nil, big.NewInt(0), initCode(runtime)),
+		signLegacyTx(t, key, chainID, 3, &clearer, big.NewInt(0), nil),
+		signLegacyTx(t, key, chainID, 4, &fresh, big.NewInt(5), nil),
+	}})
+	require.NoError(t, err)
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback, result.OCCStats.FallbackReason)
+	require.Positive(t, result.OCCStats.RerunCount)
+	for _, tx := range result.Txs {
+		require.Equal(t, uint64(1), tx.Status)
+	}
+
+	fees := new(big.Int).SetUint64(result.GasUsed * testGasPriceWei)
+	spent := new(big.Int).Add(fees, big.NewInt(25))
+	want := StateChangeSet{
+		Balances: []BalanceChange{
+			{Address: counter, Balance: big.NewInt(1_020), PriorBalance: big.NewInt(1_000)},
+			{Address: fresh, Balance: big.NewInt(5), PriorBalance: big.NewInt(0)},
+			{Address: coinbase, Balance: fees, PriorBalance: big.NewInt(0)},
+			{Address: sender, Balance: new(big.Int).Sub(funded, spent), PriorBalance: funded},
+		},
+		Nonces: []NonceChange{
+			{Address: created, Nonce: 1, PriorNonce: 0},
+			{Address: sender, Nonce: 5, PriorNonce: 0},
+		},
+		Code: []CodeChange{
+			{Address: created, Code: runtime},
+		},
+		Storage: []StorageChange{
+			{Address: counter, Key: slot, Value: testHash(0x07), PriorValue: testHash(0x05)},
+			{Address: clearer, Key: slot, Delete: true, PriorValue: testHash(0x09)},
+		},
+	}
+	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
+}
+
 // nothing read it.
 func TestStateDBStorageClearKeepsPriorValue(t *testing.T) {
 	contract := testAddress(0xc5)
