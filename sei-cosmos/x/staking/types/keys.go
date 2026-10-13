@@ -44,6 +44,7 @@ var (
 	RedelegationByValDstIndexKey     = []byte{0x36} // prefix for each key for an redelegation, by destination validator operator
 	DelegationByValIndexKey          = []byte{0x37} // prefix for each key for a delegation, by validator operator
 	DelegationByValIndexReadyKey     = []byte{0x38} // marker: the delegation-by-validator index is populated
+	DelegationByValIndexCursorKey    = []byte{0x39} // last delegation key indexed while the delegation-by-validator index is backfilled
 
 	UnbondingQueueKey    = []byte{0x41} // prefix for the timestamps in unbonding queue
 	RedelegationQueueKey = []byte{0x42} // prefix for the timestamps in redelegations queue

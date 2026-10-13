@@ -19,6 +19,7 @@ import (
 	authtestutil "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/testutil"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
@@ -37,7 +38,8 @@ import (
 // the base accounts they embed. These tests cover the rewrite of every vesting
 // account type, spending a balance a schedule had locked, the messages both
 // modules served, genesis export over the migrated store, and the handler
-// itself. The handler also populates the staking delegation-by-validator index.
+// itself. The handler also starts the staking delegation-by-validator index
+// backfill, which the staking EndBlocker completes.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
@@ -315,7 +317,7 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 }
 
 // unreadyV68DelegationIndex deletes the delegation-by-validator index and its
-// ready marker, leaving the staking store as v6.7 left it.
+// markers, leaving the staking store as v6.7 left it.
 func unreadyV68DelegationIndex(t *testing.T, a *processblock.App) {
 	t.Helper()
 	store := a.Ctx().KVStore(a.GetKey(stakingtypes.StoreKey))
@@ -329,6 +331,7 @@ func unreadyV68DelegationIndex(t *testing.T, a *processblock.App) {
 		store.Delete(key)
 	}
 	store.Delete(stakingtypes.DelegationByValIndexReadyKey)
+	store.Delete(stakingtypes.DelegationByValIndexCursorKey)
 }
 
 // v68DelegationKeys returns the keys of every stored delegation.
@@ -370,7 +373,14 @@ func TestV68PopulatesDelegationByValIndex(t *testing.T) {
 
 	applyV68(t, a)
 
+	require.False(t, a.StakingKeeper.DelegationByValIndexReady(ctx),
+		"v6.8 populated the index inside the upgrade handler")
+	require.True(t, store.Has(stakingtypes.DelegationByValIndexCursorKey),
+		"v6.8 did not start the index backfill")
+	staking.EndBlocker(ctx, a.StakingKeeper)
+
 	require.True(t, a.StakingKeeper.DelegationByValIndexReady(ctx))
+	require.False(t, store.Has(stakingtypes.DelegationByValIndexCursorKey))
 	delegations := v68DelegationKeys(t, store)
 	require.Contains(t, delegations, string(stakingtypes.GetDelegationKey(delAddr, valAddr)))
 	require.Equal(t, delegations, v68IndexedDelegationKeys(t, store),
