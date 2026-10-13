@@ -333,3 +333,6 @@ bank_transfer_threshold = 1000000000000
 # ERC-20 contract addresses whose balance of each wallet in wallet_addresses is
 # reported under cosmos_wallet_erc20_balance, read from the wallet's EVM address.
 erc20_tokens = []
+
+[giga.storage]
+checkpoint_time_interval = "1m"

@@ -279,3 +279,6 @@ enabled_legacy_sei_apis = [
   "sei_getEVMAddress",
   "sei_getSeiAddress",
 ]
+
+[giga.storage]
+checkpoint_time_interval = "1m"
