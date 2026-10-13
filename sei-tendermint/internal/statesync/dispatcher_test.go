@@ -198,6 +198,38 @@ func TestDispatcherDeliversOneResponsePerRequest(t *testing.T) {
 	}
 }
 
+func TestDispatcherKeepsCallAfterMalformedResponse(t *testing.T) {
+	ts := dispatcherSetup(t)
+	peer := ts.AddPeer(t)
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			if _, err := peer.blockCh.Recv(ctx); err != nil {
+				return fmt.Errorf("blockCh.Recv(): %w", err)
+			}
+			if err := ts.dispatcher.Respond(ctx, &tmproto.LightBlock{}, peer.NodeID); err == nil || errors.Is(err, ErrUnsolicitedResponse) {
+				return fmt.Errorf("malformed Respond() = %v, want a decoding error", err)
+			}
+			block, err := mockLBResp(ctx, peer.NodeID, 1, time.Now()).block.ToProto()
+			if err != nil {
+				return fmt.Errorf("ToProto(): %w", err)
+			}
+			if err := ts.dispatcher.Respond(ctx, block, peer.NodeID); err != nil {
+				return fmt.Errorf("valid Respond(): %w", err)
+			}
+			return nil
+		})
+		lb, err := ts.dispatcher.LightBlock(ctx, 1, peer.NodeID)
+		if err != nil {
+			return fmt.Errorf("LightBlock(): %w", err)
+		}
+		if lb == nil || lb.Height != 1 {
+			return fmt.Errorf("LightBlock() = %v, want block at height 1", lb)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
 func TestDispatcherTimeOutWaitingOnLightBlock(t *testing.T) {
 	ts := dispatcherSetup(t)
 	peer := factory.NodeID(t, "a")

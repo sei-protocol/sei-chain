@@ -101,24 +101,35 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 // represent that the receiver of the request does not have a light block at that height.
 func (d *Dispatcher) Respond(ctx context.Context, lb *tmproto.LightBlock, peer types.NodeID) error {
 	// check that the response came from a request
-	answerCh, ok := d.takeCall(peer)
-	if !ok {
+	if !d.hasCall(peer) {
 		// this can also happen if the response came in after the timeout
 		return ErrUnsolicitedResponse
 	}
 
 	// If lb is nil we take that to mean that the peer didn't have the requested light
 	// block and thus pass on the nil to the caller.
-	if lb == nil {
-		return utils.Send(ctx, answerCh, nil)
+	var block *types.LightBlock
+	if lb != nil {
+		var err error
+		if block, err = types.LightBlockFromProto(lb); err != nil {
+			return err
+		}
 	}
 
-	block, err := types.LightBlockFromProto(lb)
-	if err != nil {
-		return err
+	answerCh, ok := d.takeCall(peer)
+	if !ok {
+		return ErrUnsolicitedResponse
 	}
-
 	return utils.Send(ctx, answerCh, block)
+}
+
+// hasCall reports whether a call to peer is awaiting a response.
+func (d *Dispatcher) hasCall(peer types.NodeID) bool {
+	for calls := range d.calls.Lock() {
+		_, ok := calls[peer]
+		return ok
+	}
+	panic("unreachable")
 }
 
 // takeCall removes the pending call for peer and returns its answer channel,
