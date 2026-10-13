@@ -185,6 +185,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	assert.Equal(t, 5*time.Second, result.DialInterval)
 
 	assert.Equal(t, 3*time.Second, result.ViewTimeout(atypes.View{}))
+	assert.Equal(t, 3*time.Second, result.ProposalTimeout)
 	assert.Equal(t, "/tmp/autobahn-state", result.PersistentStateDir)
 
 	// Verify the validator key is derived from the validator-key seed, not the node key.

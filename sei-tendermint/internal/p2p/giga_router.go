@@ -58,9 +58,10 @@ type GigaRouterCommonConfig struct {
 // GigaValidatorConfig configures a committee-member GigaRouter.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
-	ValidatorKey atypes.SecretKey
-	ViewTimeout  func(atypes.View) time.Duration
-	Producer     *producer.Config
+	ValidatorKey    atypes.SecretKey
+	ViewTimeout     func(atypes.View) time.Duration
+	ProposalTimeout time.Duration
+	Producer        *producer.Config
 }
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by

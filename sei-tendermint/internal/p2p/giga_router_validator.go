@@ -53,6 +53,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
+		ProposalTimeout:    cfg.ProposalTimeout,
 		PersistentStateDir: utils.Some(cfg.PersistentStateDir),
 	}, dataState)
 	if err != nil {

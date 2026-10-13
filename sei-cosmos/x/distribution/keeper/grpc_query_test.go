@@ -3,6 +3,7 @@ package keeper_test
 import (
 	gocontext "context"
 	"fmt"
+	"math"
 	"testing"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
@@ -321,23 +322,170 @@ func (suite *KeeperTestSuite) TestGRPCValidatorSlashes() {
 			},
 			true,
 		},
+		{
+			"request slashes within a height sub-range",
+			func() {
+				req = &types.QueryValidatorSlashesRequest{
+					ValidatorAddress: valAddrs[0].String(),
+					StartingHeight:   2,
+					EndingHeight:     3,
+				}
+				expRes = &types.QueryValidatorSlashesResponse{
+					Slashes: slashes[:2],
+				}
+			},
+			true,
+		},
+		{
+			"request slashes at a single height",
+			func() {
+				req = &types.QueryValidatorSlashesRequest{
+					ValidatorAddress: valAddrs[0].String(),
+					StartingHeight:   4,
+					EndingHeight:     4,
+				}
+				expRes = &types.QueryValidatorSlashesResponse{
+					Slashes: slashes[2:3],
+				}
+			},
+			true,
+		},
+		{
+			"request slashes above every recorded height",
+			func() {
+				req = &types.QueryValidatorSlashesRequest{
+					ValidatorAddress: valAddrs[0].String(),
+					StartingHeight:   6,
+					EndingHeight:     10,
+				}
+				expRes = &types.QueryValidatorSlashesResponse{}
+			},
+			true,
+		},
+		{
+			"request slashes across the full height range",
+			func() {
+				req = &types.QueryValidatorSlashesRequest{
+					ValidatorAddress: valAddrs[0].String(),
+					StartingHeight:   0,
+					EndingHeight:     math.MaxUint64,
+				}
+				expRes = &types.QueryValidatorSlashesResponse{
+					Slashes: slashes,
+				}
+			},
+			true,
+		},
+		{
+			"request slashes within a height sub-range with page limit 1 and count total",
+			func() {
+				req = &types.QueryValidatorSlashesRequest{
+					ValidatorAddress: valAddrs[0].String(),
+					StartingHeight:   3,
+					EndingHeight:     5,
+					Pagination: &query.PageRequest{
+						Limit:      1,
+						CountTotal: true,
+					},
+				}
+				expRes = &types.QueryValidatorSlashesResponse{
+					Slashes:    slashes[1:2],
+					Pagination: &query.PageResponse{Total: 3},
+				}
+			},
+			true,
+		},
 	}
+
+	abciQueryCtx := sdk.WrapSDKContext(ctx.WithIsABCIQuery(true))
 
 	for _, testCase := range testCases {
 		suite.Run(fmt.Sprintf("Case %s", testCase.msg), func() {
 			testCase.malleate()
 
 			slashesRes, err := queryClient.ValidatorSlashes(gocontext.Background(), req)
+			abciRes, abciErr := app.DistrKeeper.ValidatorSlashes(abciQueryCtx, req)
 
 			if testCase.expPass {
 				suite.Require().NoError(err)
 				suite.Require().Equal(expRes.GetSlashes(), slashesRes.GetSlashes())
+
+				suite.Require().NoError(abciErr)
+				suite.requireSlashes(expRes.GetSlashes(), abciRes.GetSlashes())
+
+				if req.Pagination.GetCountTotal() && expRes.GetPagination() != nil {
+					suite.Require().Equal(expRes.GetPagination().GetTotal(), slashesRes.GetPagination().GetTotal())
+					suite.Require().Equal(expRes.GetPagination().GetTotal(), abciRes.GetPagination().GetTotal())
+				}
 			} else {
 				suite.Require().Error(err)
 				suite.Require().Nil(slashesRes)
+
+				suite.Require().Error(abciErr)
+				suite.Require().Nil(abciRes)
 			}
 		})
 	}
+}
+
+func (suite *KeeperTestSuite) TestGRPCValidatorSlashesKeyPagination() {
+	app, ctx, queryClient, valAddrs := suite.app, suite.ctx, suite.queryClient, suite.valAddrs
+
+	slashes := []types.ValidatorSlashEvent{
+		types.NewValidatorSlashEvent(3, sdk.NewDecWithPrec(5, 1)),
+		types.NewValidatorSlashEvent(5, sdk.NewDecWithPrec(5, 1)),
+		types.NewValidatorSlashEvent(7, sdk.NewDecWithPrec(5, 1)),
+		types.NewValidatorSlashEvent(9, sdk.NewDecWithPrec(5, 1)),
+	}
+	for i, slash := range slashes {
+		app.DistrKeeper.SetValidatorSlashEvent(ctx, valAddrs[0], uint64(i+2), slash.ValidatorPeriod, slash)
+	}
+
+	abciQueryCtx := sdk.WrapSDKContext(ctx.WithIsABCIQuery(true))
+	queriers := []struct {
+		name  string
+		query func(*types.QueryValidatorSlashesRequest) (*types.QueryValidatorSlashesResponse, error)
+	}{
+		{"query client", func(req *types.QueryValidatorSlashesRequest) (*types.QueryValidatorSlashesResponse, error) {
+			return queryClient.ValidatorSlashes(gocontext.Background(), req)
+		}},
+		{"abci query", func(req *types.QueryValidatorSlashesRequest) (*types.QueryValidatorSlashesResponse, error) {
+			return app.DistrKeeper.ValidatorSlashes(abciQueryCtx, req)
+		}},
+	}
+
+	for _, querier := range queriers {
+		suite.Run(querier.name, func() {
+			var (
+				collected []types.ValidatorSlashEvent
+				nextKey   []byte
+			)
+			for page := 0; page == 0 || len(nextKey) > 0; page++ {
+				suite.Require().Less(page, len(slashes)+1, "pagination did not terminate")
+
+				res, err := querier.query(&types.QueryValidatorSlashesRequest{
+					ValidatorAddress: valAddrs[0].String(),
+					StartingHeight:   3,
+					EndingHeight:     4,
+					Pagination:       &query.PageRequest{Key: nextKey, Limit: 1},
+				})
+				suite.Require().NoError(err)
+				suite.Require().LessOrEqual(len(res.GetSlashes()), 1)
+
+				collected = append(collected, res.GetSlashes()...)
+				nextKey = res.GetPagination().GetNextKey()
+			}
+			suite.Require().Equal(slashes[1:3], collected)
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) requireSlashes(expected, actual []types.ValidatorSlashEvent) {
+	if len(expected) == 0 {
+		suite.Require().Empty(actual)
+		return
+	}
+	suite.Require().Equal(expected, actual)
 }
 
 func (suite *KeeperTestSuite) TestGRPCDelegationRewards() {

@@ -144,3 +144,10 @@ func GetValidatorSlashEventKey(v sdk.ValAddress, height, period uint64) []byte {
 
 	return append(prefix, periodBz...)
 }
+
+// GetValidatorSlashEventHeight returns the block height from a slash event key
+// relative to GetValidatorSlashEventPrefix.
+func GetValidatorSlashEventHeight(key []byte) uint64 {
+	kv.AssertKeyAtLeastLength(key, 8)
+	return binary.BigEndian.Uint64(key[:8])
+}
