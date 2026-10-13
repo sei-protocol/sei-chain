@@ -158,6 +158,43 @@ func TestDispatcherReturnsNoBlock(t *testing.T) {
 	}
 }
 
+func TestDispatcherDeliversOneResponsePerRequest(t *testing.T) {
+	ts := dispatcherSetup(t)
+	peer := ts.AddPeer(t)
+	for height := range int64(20) {
+		err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			callCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			s.Spawn(func() error {
+				lb, err := ts.dispatcher.LightBlock(callCtx, height+1, peer.NodeID)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					return fmt.Errorf("LightBlock(): %w", err)
+				}
+				if err == nil && lb.Height != height+1 {
+					return fmt.Errorf("LightBlock() height = %v, want %v", lb.Height, height+1)
+				}
+				return nil
+			})
+			if _, err := peer.blockCh.Recv(ctx); err != nil {
+				return fmt.Errorf("blockCh.Recv(): %w", err)
+			}
+			block, err := mockLBResp(ctx, peer.NodeID, height+1, time.Now()).block.ToProto()
+			if err != nil {
+				return fmt.Errorf("ToProto(): %w", err)
+			}
+			if err := ts.dispatcher.Respond(ctx, block, peer.NodeID); err != nil {
+				return fmt.Errorf("first Respond(): %w", err)
+			}
+			cancel()
+			if err := ts.dispatcher.Respond(ctx, block, peer.NodeID); !errors.Is(err, ErrUnsolicitedResponse) {
+				return fmt.Errorf("second Respond() = %v, want %v", err, ErrUnsolicitedResponse)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	}
+}
+
 func TestDispatcherTimeOutWaitingOnLightBlock(t *testing.T) {
 	ts := dispatcherSetup(t)
 	peer := factory.NodeID(t, "a")
