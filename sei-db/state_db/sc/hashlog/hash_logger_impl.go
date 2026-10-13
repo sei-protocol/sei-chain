@@ -3,14 +3,12 @@ package hashlog
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/seilog"
@@ -20,12 +18,13 @@ var _ HashLogger = (*hashLoggerImpl)(nil)
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "hashlog")
 
-// Column names for the hashes a flatKV store publishes: the store-wide root, and one per data
-// database, formed by joining the prefix with that database's name. flatkv.HashTypes builds the list
-// a node declares from these.
+// Column names for the hashes a flatKV store publishes: the store-wide root, one per data database, formed by
+// joining the DB prefix with that database's name, and one per module, formed by joining the module prefix with
+// "<database>/<module>". flatkv.HashTypes builds the list a node declares from the first two.
 const (
-	FlatKVRootHashType = "flatKV/root"
-	FlatKVDBHashPrefix = "flatKV/db/"
+	FlatKVRootHashType     = "flatKV/root"
+	FlatKVDBHashPrefix     = "flatKV/db/"
+	FlatKVModuleHashPrefix = "flatKV/module/"
 )
 
 // The kind of message sent to the control loop.
@@ -42,9 +41,9 @@ const (
 //
 // The control loop gathers and collates hash data. When it gets the changeset for a block, it farms the work of
 // hashing that changeset to the hasher goroutine. When it collects enough data to write to the hash log, it
-// offloads the write to the writer goroutine.
+// offloads the write to the HashLogWriter.
 //
-//	                                            ┌─────writerChan────▶ writer
+//	                                            ┌──────files──────▶ HashLogWriter
 //	ReportHash      ──┐                         │
 //	ReportChangeset ──┴──controlChan──▶ controlLoop ──hashChan──▶ hasher
 //	                                            ▲                   │
@@ -75,46 +74,11 @@ type hashResult struct {
 	hash        []byte
 }
 
-// A message destined for the writer: either a block to append to the current file, or (when rotate is
-// true) a directive to seal the current file and open a fresh one with the given columns. The control
-// loop sends complete blocks ahead of a rotate so they land in the file whose header matches their
-// columns; messages are processed in FIFO order so blocks before a column change go to the old file and
-// blocks after go to the new one.
-type writerMessage struct {
-	log       *HashLog
-	rotate    bool
-	hashTypes []string // rotate: the column set (header) for the new file
-}
-
-// Bookkeeping for a sealed hash log file (owned by the writer goroutine).
-type sealedFileInfo struct {
-	name       string
-	firstBlock uint64
-	lastBlock  uint64
-	size       uint64
-}
-
 // A standard hash logger implementation.
 type hashLoggerImpl struct {
-	// The directory all hash log files are written to.
-	directory string
-
-	// The software version embedded in each file name (sanitized to be filename-safe at construction).
-	version string
-
 	// When true, changeset hashing is disabled: no hasher thread, ReportChangeset is a no-op, and no changeset column is
 	// recorded or awaited.
 	changesetHashingDisabled bool
-
-	// The size a mutable file may reach before it is sealed and a fresh one is opened.
-	targetFileSize uint64
-
-	// The number of most-recent blocks to keep on disk; sealed files older than this window are garbage collected.
-	blocksToRetain uint64
-
-	// A backstop cap on the total size of sealed files; the oldest are garbage collected to stay under it, even
-	// if that retains fewer than blocksToRetain blocks.
-	maxDiskSize uint64
 
 	// The most blocks the control loop will buffer before force-flushing the oldest incomplete block to bound
 	// memory.
@@ -123,8 +87,9 @@ type hashLoggerImpl struct {
 	// For sending work to the control loop (the hub for all caller entry points).
 	controlChan chan controlMessage
 
-	// For sending work to the writer thread.
-	writerChan chan writerMessage
+	// Writes the blocks the control loop completes. Blocks are sent in the order they are emitted, so blocks
+	// before a column change land in the old file and blocks after it in the new one.
+	files *HashLogWriter
 
 	// For dispatching changeset work from the control loop to the hasher. Nil when changeset hashing is disabled.
 	hashChan chan hashWork
@@ -132,8 +97,8 @@ type hashLoggerImpl struct {
 	// For the hasher to return computed changeset hashes to the control loop. Nil when changeset hashing is disabled.
 	hashResultChan chan hashResult
 
-	// The hard-stop context that the hasher, writer, and the control loop's downstream sends all watch. Cancelled
-	// by fail() on a fatal error and by Close() once everything has drained.
+	// The hard-stop context that the hasher and the control loop watch. Cancelled by fail() on a fatal error and by
+	// Close() once everything has drained.
 	ctx context.Context
 
 	// Cancels ctx.
@@ -147,7 +112,7 @@ type hashLoggerImpl struct {
 	// Cancels senderCtx.
 	senderCancel context.CancelFunc
 
-	// Tracks the hasher, writer, and control-loop goroutines so Close() can wait for them to exit.
+	// Tracks the hasher and control-loop goroutines so Close() can wait for them to exit.
 	wg sync.WaitGroup
 
 	// Guarantees the Close() shutdown sequence runs at most once.
@@ -159,31 +124,11 @@ type hashLoggerImpl struct {
 	// The first unrecoverable background-goroutine error, surfaced to the caller by Close().
 	asyncErr atomic.Pointer[error]
 
-	// The following fields are owned exclusively by the writer goroutine.
-
-	// The current mutable file accepting writes.
-	mutableFile *hashLogFile
-
-	// Bookkeeping for sealed files, keyed by file index.
-	sealedFiles map[uint64]*sealedFileInfo
-
-	// The number of bytes currently used by sealed log files.
-	currentDiskSpaceUsed uint64
-
-	// The index of the oldest hash log file currently tracked.
-	lowestLogFileIndex uint64
-
-	// The index of the mutable hash log file (i.e. the latest one).
-	mutableLogFileIndex uint64
-
-	// The highest block number written to disk so far (used for block-count retention).
-	latestBlock uint64
-
 	// The following fields are the control loop's private bookkeeping, owned exclusively by the control loop
 	// goroutine, so they need no synchronization.
 
-	// The ordered set of hash columns recorded per block; the changeset column is prepended when changeset hashing
-	// is enabled. The loop reads len(hashTypes) to decide whether a block is complete.
+	// The hash columns recorded per block, including the changeset column when changeset hashing is enabled. The
+	// loop reads len(hashTypes) to decide whether a block is complete.
 	hashTypes []string
 
 	// The membership set over hashTypes, for deciding whether a reported column already exists.
@@ -221,15 +166,8 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		return nil, fmt.Errorf("invalid hash logger config: %w", err)
 	}
 
-	if err := util.EnsureDirectoryExists(config.Path, true); err != nil {
-		return nil, fmt.Errorf("failed to ensure hash log directory %s: %w", config.Path, err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	senderCtx, senderCancel := context.WithCancel(ctx)
-
-	// The recorded columns are the caller-reported types, with the logger-owned changeset column prepended when
-	// changeset hashing is enabled.
+	// The recorded columns are the caller-reported types, plus the logger-owned changeset column when changeset
+	// hashing is enabled.
 	var hashTypes []string
 	if !config.DisableChangesetHashing {
 		hashTypes = append(hashTypes, ChangesetHashType)
@@ -240,23 +178,25 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		hashTypeSet[hashType] = struct{}{}
 	}
 
+	files, err := NewHashLogWriter(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open hash log writer: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	senderCtx, senderCancel := context.WithCancel(ctx)
+
 	h := &hashLoggerImpl{
-		directory:                config.Path,
-		version:                  sanitizeVersion(config.Version),
 		hashTypes:                hashTypes,
 		hashTypeSet:              hashTypeSet,
 		changesetHashingDisabled: config.DisableChangesetHashing,
-		targetFileSize:           uint64(config.TargetFileSize),
-		blocksToRetain:           uint64(config.BlocksToRetain),
-		maxDiskSize:              uint64(config.MaxDiskSize),
 		maxBufferedBlocks:        uint64(config.MaxBufferedBlocks),
 		controlChan:              make(chan controlMessage, config.ControlBufferSize),
-		writerChan:               make(chan writerMessage, config.WriteBufferSize),
+		files:                    files,
 		ctx:                      ctx,
 		cancel:                   cancel,
 		senderCtx:                senderCtx,
 		senderCancel:             senderCancel,
-		sealedFiles:              make(map[uint64]*sealedFileInfo),
 		pendingBlocks:            make(map[uint64]*HashLog),
 		blocksWithPendingHashes:  make(map[uint64]struct{}),
 	}
@@ -265,94 +205,14 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		h.hashResultChan = make(chan hashResult, config.HashBufferSize)
 	}
 
-	if err := h.scanDirectory(); err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to scan hash log directory: %w", err)
-	}
-
-	mutableFile, err := newHashLogFile(h.directory, h.mutableLogFileIndex, h.version, h.hashTypes)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to create mutable hash log file: %w", err)
-	}
-	h.mutableFile = mutableFile
-
 	if !h.changesetHashingDisabled {
 		h.wg.Add(1)
 		go h.hasher()
 	}
 	h.wg.Add(1)
 	go h.controlLoop()
-	h.wg.Add(1)
-	go h.writer()
 
 	return h, nil
-}
-
-// Scan the directory: seal any orphaned ".hlog.u" files left by a crash, then index the sealed files so the
-// writer can resume rotation and GC where the previous session left off.
-func (h *hashLoggerImpl) scanDirectory() error {
-	entries, err := os.ReadDir(h.directory)
-	if err != nil {
-		return fmt.Errorf("failed to read directory %s: %w", h.directory, err)
-	}
-
-	// First pass: seal orphaned unsealed files.
-	for _, entry := range entries {
-		isHashLog, isSealed := isHashLogFileName(entry.Name())
-		if isHashLog && !isSealed {
-			if err := sealHashLog(filepath.Join(h.directory, entry.Name())); err != nil {
-				return fmt.Errorf("failed to seal orphaned file %s: %w", entry.Name(), err)
-			}
-		}
-	}
-
-	// Re-read the directory now that orphans have been sealed (or removed).
-	entries, err = os.ReadDir(h.directory)
-	if err != nil {
-		return fmt.Errorf("failed to re-read directory %s: %w", h.directory, err)
-	}
-
-	var maxIndex uint64
-	lowestIndex := ^uint64(0)
-	hasSealedFiles := false
-	for _, entry := range entries {
-		parsed, ok := parseFileName(entry.Name())
-		if !ok || !parsed.sealed {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return fmt.Errorf("failed to stat %s: %w", entry.Name(), err)
-		}
-		size := uint64(info.Size()) //nolint:gosec // file size is non-negative
-		h.sealedFiles[parsed.index] = &sealedFileInfo{
-			name:       entry.Name(),
-			firstBlock: parsed.firstBlock,
-			lastBlock:  parsed.lastBlock,
-			size:       size,
-		}
-		h.currentDiskSpaceUsed += size
-		if parsed.index > maxIndex {
-			maxIndex = parsed.index
-		}
-		if parsed.index < lowestIndex {
-			lowestIndex = parsed.index
-		}
-		if parsed.lastBlock > h.latestBlock {
-			h.latestBlock = parsed.lastBlock
-		}
-		hasSealedFiles = true
-	}
-
-	if hasSealedFiles {
-		h.lowestLogFileIndex = lowestIndex
-		h.mutableLogFileIndex = maxIndex + 1
-	} else {
-		h.lowestLogFileIndex = 0
-		h.mutableLogFileIndex = 0
-	}
-	return nil
 }
 
 // RegisterHashType adds a caller-reported hash column. May be called at any time, including after blocks
@@ -573,42 +433,24 @@ func (h *hashLoggerImpl) handleControlMessage(msg controlMessage) {
 	}
 }
 
-// handleColumnChange adds or removes a hash column and rotates to a fresh file whose header reflects the
-// new column set. Complete blocks are flushed to the current file first so they keep the header that
-// matches their columns; the rotation directive is then enqueued behind them, and subsequent blocks land
-// in the new file. Any still-incomplete buffered block carries over and is written to the new file once
-// complete (callers are expected to change columns at block boundaries, where nothing is buffered).
+// handleColumnChange adds or removes a hash column. Blocks complete under the old column set are emitted first, so
+// they are written under it; every block emitted afterwards, including one still incomplete now, is written under
+// the new set.
 func (h *hashLoggerImpl) handleColumnChange(hashType string, add bool) {
 	_, present := h.hashTypeSet[hashType]
 	if add == present {
 		return // already in the desired state; nothing to do (defensive — callers pre-check)
 	}
 
-	// Flush everything that is complete under the current columns to the current file.
 	h.drainComplete()
 
-	// Always build a fresh slice rather than appending in place: the writer may still hold the current
-	// hashTypes backing array (it became the initial file's header), so mutating it would race.
 	if add {
-		updated := make([]string, len(h.hashTypes), len(h.hashTypes)+1)
-		copy(updated, h.hashTypes)
-		h.hashTypes = append(updated, hashType)
+		h.hashTypes = append(h.hashTypes, hashType)
 		h.hashTypeSet[hashType] = struct{}{}
 	} else {
 		delete(h.hashTypeSet, hashType)
-		remaining := make([]string, 0, len(h.hashTypes)-1)
-		for _, t := range h.hashTypes {
-			if t != hashType {
-				remaining = append(remaining, t)
-			}
-		}
-		h.hashTypes = remaining
+		h.hashTypes = slices.DeleteFunc(h.hashTypes, func(t string) bool { return t == hashType })
 	}
-
-	// Direct the writer to seal the current file and open a fresh one with the new header. Pass a copy so a
-	// later column change cannot mutate the slice the writer holds.
-	newColumns := append([]string(nil), h.hashTypes...)
-	h.blockingSendToWriter(writerMessage{rotate: true, hashTypes: newColumns})
 }
 
 // handleHashReport records a caller-reported hash, discarding it if the block has already been flushed.
@@ -724,25 +566,34 @@ func (h *hashLoggerImpl) drainInFlightChangesets() {
 	}
 }
 
-// emit writes a single block to the writer and records it as flushed.
+// emit hands a single block to the writer, with a nil hash for each column the block is missing, and records it as
+// flushed.
 func (h *hashLoggerImpl) emit(blockNumber uint64) {
 	log := h.pendingBlocks[blockNumber]
 	delete(h.pendingBlocks, blockNumber)
 	delete(h.blocksWithPendingHashes, blockNumber)
-	h.blockingSendToWriter(writerMessage{log: log})
+	hashes := make(map[string][]byte, len(h.hashTypes))
+	for _, hashType := range h.hashTypes {
+		hashes[hashType] = log.Hashes[hashType]
+	}
+	if err := h.files.Write(blockNumber, hashes); err != nil {
+		h.fail(err)
+	}
 	h.flushedHighWater = blockNumber
 	h.hasFlushedAtLeastOnce = true
 }
 
-// gracefulDrain flushes all remaining completable work on a clean shutdown, then closes the downstream channels
-// so the hasher and writer drain and exit.
+// gracefulDrain flushes all remaining completable work on a clean shutdown, then closes the hasher's channel and
+// the writer so both drain and exit.
 func (h *hashLoggerImpl) gracefulDrain() {
 	h.drainInFlightChangesets()
 	h.flushCompleteOnShutdown()
 	if !h.changesetHashingDisabled {
 		close(h.hashChan)
 	}
-	close(h.writerChan)
+	if err := h.files.Close(); err != nil {
+		h.fail(err)
+	}
 }
 
 // flushCompleteOnShutdown writes every complete block still buffered, in increasing block order, and discards
@@ -767,164 +618,6 @@ func (h *hashLoggerImpl) flushCompleteOnShutdown() {
 	if discarded > 0 {
 		logger.Info("discarded incomplete blocks on clean shutdown", "count", discarded)
 	}
-}
-
-// blockingSendToWriter delivers a message to the writer, giving up only if the logger is shutting down. A slow
-// writer (slow disk) therefore backpressures the control loop, which backpressures the upstream channels and
-// ultimately the caller — nothing is dropped.
-func (h *hashLoggerImpl) blockingSendToWriter(msg writerMessage) {
-	select {
-	case h.writerChan <- msg:
-	case <-h.ctx.Done():
-	}
-}
-
-func (h *hashLoggerImpl) writer() {
-	defer h.wg.Done()
-	for {
-		select {
-		case <-h.ctx.Done():
-			// Hard stop (error path): leave the mutable file unsealed; it is recovered on next startup.
-			return
-		case msg, ok := <-h.writerChan:
-			if !ok {
-				// Graceful shutdown: seal the final file so a clean shutdown leaves no ".hlog.u" behind.
-				if err := h.sealMutableAndGC(); err != nil {
-					h.fail(err)
-				}
-				return
-			}
-			if msg.rotate {
-				// Column change: seal the current file and open a fresh one with the new header.
-				if err := h.rotateToColumns(msg.hashTypes); err != nil {
-					h.fail(err)
-					return
-				}
-				continue
-			}
-			if err := h.handleWrite(msg.log); err != nil {
-				h.fail(err)
-				return
-			}
-		}
-	}
-}
-
-func (h *hashLoggerImpl) handleWrite(log *HashLog) error {
-	if err := h.mutableFile.write(log); err != nil {
-		return err
-	}
-	if log.BlockNumber > h.latestBlock {
-		h.latestBlock = log.BlockNumber
-	}
-	if h.mutableFile.size >= h.targetFileSize {
-		// Size-based rotation keeps the current column set (the new file has the same header).
-		if err := h.rotateToColumns(h.mutableFile.hashTypes); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// rotateToColumns seals the current mutable file, records its bookkeeping, opens a fresh mutable file
-// with the given columns as its header, and runs GC. An empty current file (no blocks written) is
-// removed by recordSealedFile rather than sealed, and its file index is reused for the new file rather
-// than burned — so a burst of column changes between blocks (e.g. the startup registration of every
-// category) leaves neither orphan files nor index gaps behind. The column set is owned by the writer
-// (mutableFile.hashTypes); the control loop hands new columns in via the rotate message, so the two
-// goroutines never share the slice.
-func (h *hashLoggerImpl) rotateToColumns(columns []string) error {
-	hadBlocks, err := h.recordSealedFile()
-	if err != nil {
-		return err
-	}
-	// Only consume the index if the sealed file actually held blocks. An unwritten file was just removed
-	// and recorded nothing, so reuse its index. The reused index is always > every sealed index (it is
-	// the current mutable index), so this never collides with an existing sealed file.
-	if hadBlocks {
-		h.mutableLogFileIndex++
-	}
-	newFile, err := newHashLogFile(h.directory, h.mutableLogFileIndex, h.version, columns)
-	if err != nil {
-		return fmt.Errorf("failed to open new mutable hash log file: %w", err)
-	}
-	h.mutableFile = newFile
-	h.runGC()
-	return nil
-}
-
-func (h *hashLoggerImpl) sealMutableAndGC() error {
-	if _, err := h.recordSealedFile(); err != nil {
-		return err
-	}
-	h.runGC()
-	return nil
-}
-
-// recordSealedFile seals the current mutable file and, if it held any blocks, adds it to the sealed-file
-// bookkeeping. An empty file is removed by close() and leaves no bookkeeping behind. The returned bool
-// reports whether the file held any blocks (and thus consumed its file index).
-func (h *hashLoggerImpl) recordSealedFile() (bool, error) {
-	hadBlocks := h.mutableFile.hasBlocks
-	idx := h.mutableFile.index
-	first := h.mutableFile.firstBlockIndex
-	last := h.mutableFile.lastBlockIndex
-	size := h.mutableFile.size
-
-	if err := h.mutableFile.close(); err != nil {
-		return false, fmt.Errorf("failed to seal hash log file: %w", err)
-	}
-	if !hadBlocks {
-		return false, nil
-	}
-	h.sealedFiles[idx] = &sealedFileInfo{
-		name:       sealedFileName(idx, first, last, h.version),
-		firstBlock: first,
-		lastBlock:  last,
-		size:       size,
-	}
-	h.currentDiskSpaceUsed += size
-	return true, nil
-}
-
-// runGC deletes the oldest sealed files while either the block-count retention window or the disk-size cap is
-// exceeded. The mutable file is never considered.
-func (h *hashLoggerImpl) runGC() {
-	for h.lowestLogFileIndex < h.mutableLogFileIndex {
-		idx := h.lowestLogFileIndex
-		info, ok := h.sealedFiles[idx]
-		if !ok {
-			// No sealed file at this index (e.g. it was empty and removed); advance past it.
-			h.lowestLogFileIndex++
-			continue
-		}
-
-		// Retain exactly the most-recent blocksToRetain blocks: a file is over the window once its newest block
-		// is more than blocksToRetain-1 behind the latest. Written as an addition to avoid unsigned underflow
-		// when latestBlock < blocksToRetain (in which case nothing is over the window). A zero limit disables
-		// that dimension entirely (no block-count window / no disk cap).
-		overBlockRetention := h.blocksToRetain > 0 && info.lastBlock+h.blocksToRetain <= h.latestBlock
-		overSizeCap := h.maxDiskSize > 0 && h.currentDiskSpaceUsed > h.maxDiskSize
-		if !overBlockRetention && !overSizeCap {
-			break
-		}
-
-		if err := h.deleteSealedFile(idx, info); err != nil {
-			logger.Error("failed to delete sealed hash log file during GC", "index", idx, "error", err)
-			break
-		}
-		h.lowestLogFileIndex++
-	}
-}
-
-func (h *hashLoggerImpl) deleteSealedFile(idx uint64, info *sealedFileInfo) error {
-	path := filepath.Join(h.directory, info.name)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove sealed file %s: %w", path, err)
-	}
-	h.currentDiskSpaceUsed -= info.size
-	delete(h.sealedFiles, idx)
-	return nil
 }
 
 func (h *hashLoggerImpl) fail(err error) {
