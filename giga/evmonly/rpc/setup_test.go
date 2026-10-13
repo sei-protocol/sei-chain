@@ -14,6 +14,7 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -49,6 +50,15 @@ func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBro
 
 func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 	return b.block(ctx, req)
+}
+
+// BlockHash answers from block, as the node's hash index answers what Block would.
+func (b *testBackend) BlockHash(ctx context.Context, req *coretypes.RequestBlockInfo) (tmbytes.HexBytes, error) {
+	block, err := b.block(ctx, req)
+	if err != nil || block == nil || block.Block == nil {
+		return nil, err
+	}
+	return block.BlockID.Hash, nil
 }
 
 func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {

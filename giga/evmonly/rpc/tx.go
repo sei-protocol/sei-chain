@@ -36,11 +36,21 @@ func (api *txAPI) GetTransactionCount(_ context.Context, address common.Address,
 
 // GetTransactionReceipt returns the finalized Ethereum receipt for hash.
 func (api *txAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]any, error) {
-	stored, block, err := api.lookupFinalizedTx(ctx, hash)
+	stored, err := api.lookupStoredReceipt(ctx, hash)
 	if err != nil || stored == nil {
 		return nil, err
 	}
-	return encodeReceipt(hash, stored, common.BytesToHash(block.BlockID.Hash)), nil
+	blockHash, err := api.backend.BlockHash(ctx, receiptHeight(stored))
+	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read receipt block %d: %w", stored.BlockNumber, err)
+	}
+	if blockHash == nil {
+		return nil, nil
+	}
+	return encodeReceipt(hash, stored, common.BytesToHash(blockHash)), nil
 }
 
 // GetTransactionByHash returns hash's transaction as committed in a finalized
@@ -85,22 +95,11 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 // returns a nil receipt with a nil error when hash is unknown or its block is
 // not yet finalized.
 func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *coretypes.ResultBlock, error) {
-	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
-	if errors.Is(err, receiptpkg.ErrNotFound) {
-		return nil, nil, nil
+	stored, err := api.lookupStoredReceipt(ctx, hash)
+	if err != nil || stored == nil {
+		return nil, nil, err
 	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("read transaction receipt: %w", err)
-	}
-	if stored == nil {
-		return nil, nil, errors.New("receipt store returned a nil receipt")
-	}
-	if stored.BlockNumber > math.MaxInt64 {
-		return nil, nil, fmt.Errorf("receipt block number %d exceeds int64", stored.BlockNumber)
-	}
-
-	height := coretypes.Int64(stored.BlockNumber)
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &height})
+	block, err := api.backend.Block(ctx, receiptHeight(stored))
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
 		return nil, nil, nil
 	}
@@ -111,6 +110,31 @@ func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evm
 		return nil, nil, nil
 	}
 	return stored, block, nil
+}
+
+// lookupStoredReceipt returns hash's stored receipt, or nil with a nil error when hash is
+// unknown. It does not check that the receipt's block is finalized.
+func (api *txAPI) lookupStoredReceipt(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, error) {
+	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read transaction receipt: %w", err)
+	}
+	if stored == nil {
+		return nil, errors.New("receipt store returned a nil receipt")
+	}
+	if stored.BlockNumber > math.MaxInt64 {
+		return nil, fmt.Errorf("receipt block number %d exceeds int64", stored.BlockNumber)
+	}
+	return stored, nil
+}
+
+// receiptHeight is the block request for stored's block.
+func receiptHeight(stored *evmtypes.Receipt) *coretypes.RequestBlockInfo {
+	height := coretypes.Int64(stored.BlockNumber)
+	return &coretypes.RequestBlockInfo{Height: &height}
 }
 
 // replaceFrom patches a decoded transaction's From field from its stored

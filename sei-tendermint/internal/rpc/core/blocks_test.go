@@ -5,14 +5,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	dbm "github.com/tendermint/tm-db"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestBlockchainInfo(t *testing.T) {
@@ -115,4 +116,40 @@ func TestBlockResults(t *testing.T) {
 			assert.Equal(t, tc.wantRes, res)
 		}
 	}
+}
+
+// A height whose metadata is stored but whose block does not load (a missing part) has no
+// hash, as Block answers a nil block for it; a height whose block loads has its meta hash.
+func TestBlockHashRequiresLoadableBlock(t *testing.T) {
+	hash := []byte("0123456789abcdef0123456789abcdef")
+	meta := &types.BlockMeta{BlockID: types.BlockID{Hash: hash}}
+	mockstore := &mocks.BlockStore{}
+	mockstore.On("Height").Return(int64(10))
+	mockstore.On("Base").Return(int64(1))
+	mockstore.On("LoadBlockMeta", int64(9)).Return(meta)
+	mockstore.On("LoadBlock", int64(9)).Return((*types.Block)(nil))
+	mockstore.On("LoadBlockMeta", int64(10)).Return(meta)
+	mockstore.On("LoadBlock", int64(10)).Return(&types.Block{})
+	mockstore.On("LoadBlockMeta", int64(8)).Return((*types.BlockMeta)(nil))
+	env := &Environment{BlockStore: mockstore}
+	ctx := t.Context()
+
+	for _, h := range []int64{8, 9} {
+		height := coretypes.Int64(h)
+		got, err := env.BlockHash(ctx, &coretypes.RequestBlockInfo{Height: &height})
+		require.NoError(t, err, "height %d", h)
+		require.Nil(t, got, "height %d", h)
+		block, err := env.Block(ctx, &coretypes.RequestBlockInfo{Height: &height})
+		require.NoError(t, err, "height %d", h)
+		require.Nil(t, block.Block, "height %d", h)
+	}
+
+	height := coretypes.Int64(10)
+	got, err := env.BlockHash(ctx, &coretypes.RequestBlockInfo{Height: &height})
+	require.NoError(t, err)
+	require.Equal(t, meta.BlockID.Hash, got)
+
+	height = 11
+	_, err = env.BlockHash(ctx, &coretypes.RequestBlockInfo{Height: &height})
+	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
 }

@@ -128,6 +128,15 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = state.GlobalBlock(t.Context(), qc1.QC().GlobalRange().First)
 	require.ErrorIs(t, err, types.ErrPruned)
+	_, err = state.GlobalBlockHash(t.Context(), qc1.QC().GlobalRange().First)
+	require.ErrorIs(t, err, types.ErrPruned)
+	for n := qc2.QC().GlobalRange().First; n < qc2.QC().GlobalRange().Next; n++ {
+		gb, err := state.GlobalBlock(t.Context(), n)
+		require.NoError(t, err)
+		h, err := state.GlobalBlockHash(t.Context(), n)
+		require.NoError(t, err)
+		require.Equal(t, gb.Header.Hash(), h)
+	}
 }
 
 // TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark but
@@ -204,6 +213,8 @@ func TestRecoveryAfterPruning(t *testing.T) {
 		_, err = state2.QC(t.Context(), n)
 		require.ErrorIs(t, err, types.ErrPruned)
 		_, err = state2.GlobalBlock(t.Context(), n)
+		require.ErrorIs(t, err, types.ErrPruned)
+		_, err = state2.GlobalBlockHash(t.Context(), n)
 		require.ErrorIs(t, err, types.ErrPruned)
 	}
 	for n := gr2.First; n < gr3.Next; n++ {
