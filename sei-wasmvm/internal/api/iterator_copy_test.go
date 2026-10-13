@@ -8,8 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
-// reuseIterator serves Key and Value from one buffer per field. Next overwrites
-// that buffer, which is the FlatKV iterator contract.
+// reuseIterator serves Key and Value from one buffer per field and overwrites
+// it on Next, which the dbm.Iterator contract permits and raw Pebble iterators do.
 type reuseIterator struct {
 	keys   [][]byte
 	values [][]byte
