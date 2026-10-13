@@ -170,8 +170,11 @@ func TestDispatcherDeliversOneResponsePerRequest(t *testing.T) {
 				if err != nil && !errors.Is(err, context.Canceled) {
 					return fmt.Errorf("LightBlock(): %w", err)
 				}
-				if err == nil && lb.Height != height+1 {
-					return fmt.Errorf("LightBlock() height = %v, want %v", lb.Height, height+1)
+				if err != nil {
+					return nil
+				}
+				if lb == nil || lb.Height != height+1 {
+					return fmt.Errorf("LightBlock() = %v, want block at height %v", lb, height+1)
 				}
 				return nil
 			})

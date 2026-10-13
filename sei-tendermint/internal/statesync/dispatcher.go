@@ -121,8 +121,8 @@ func (d *Dispatcher) Respond(ctx context.Context, lb *tmproto.LightBlock, peer t
 	return utils.Send(ctx, answerCh, block)
 }
 
-// takeCall removes and returns the pending call for peer, so that each call
-// receives at most one response.
+// takeCall removes the pending call for peer and returns its answer channel,
+// so that each call receives at most one response.
 func (d *Dispatcher) takeCall(peer types.NodeID) (chan *types.LightBlock, bool) {
 	for calls := range d.calls.Lock() {
 		answerCh, ok := calls[peer]
