@@ -20,6 +20,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -47,13 +48,14 @@ var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "upgrad
 
 // v68OfflineDeletedStores are the stores v6.8 deletes; the source phase writes
 // a key into each so the target phase can prove the trees are gone.
-var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "transfer"}
+var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer"}
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
 	seedV68OfflineDeletedStores(t, testApp, ctx)
+	seedV68TokenfactoryDenom(t, testApp, ctx)
 	vesting, retained := seedV68OfflineVestingAccounts(t, testApp, ctx)
 	seedV68IBCProposal(t, testApp, ctx, &retained)
 	seedV68UpgradedIBCState(t, testApp, ctx, &retained)
@@ -71,9 +73,10 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, moduleVersions, "oracle")
+	require.Contains(t, moduleVersions, "tokenfactory", "v6.7 module version map does not contain tokenfactory")
 	require.Contains(t, moduleVersions, "vesting", "v6.7 module version map does not contain vesting")
 	// v6.7 dropped the IBC module versions while keeping their stores mounted;
-	// only oracle and vesting still carry a version into v6.8.
+	// only oracle, tokenfactory and vesting still carry a version into v6.8.
 	for _, name := range []string{"capability", "ibc", "transfer"} {
 		require.NotContains(t, moduleVersions, name)
 		require.NotNil(t, testApp.GetKey(name))
@@ -99,7 +102,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 }
 
 // TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose
-// oracle and IBC trees v6.8 deleted.
+// oracle, tokenfactory and IBC trees v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
@@ -118,7 +121,7 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 		closeOfflineUpgradeApp(t, testApp)
 	}()
 	require.NotNil(t, recovered,
-		"v6.7 binary reopened a database whose oracle and IBC trees were deleted")
+		"v6.7 binary reopened a database whose oracle, tokenfactory and IBC trees were deleted")
 	message := fmt.Sprint(recovered)
 	namesDeletedStore := false
 	for _, name := range v68OfflineDeletedStores {
@@ -136,6 +139,20 @@ func seedV68OfflineDeletedStores(t *testing.T, testApp *App, ctx sdk.Context) {
 	for _, name := range v68OfflineDeletedStores {
 		ctx.KVStore(testApp.GetKey(name)).Set([]byte("historical"), []byte("retained"))
 	}
+}
+
+// seedV68TokenfactoryDenom creates a tokenfactory denom with a transfer
+// allowlist and mints a balance of it to its creator.
+func seedV68TokenfactoryDenom(t *testing.T, testApp *App, ctx sdk.Context) {
+	t.Helper()
+	creator := sdk.AccAddress("v68-factory-creator_")
+	testApp.AccountKeeper.SetAccount(ctx, testApp.AccountKeeper.NewAccountWithAddress(ctx, creator))
+	denom, err := testApp.TokenFactoryKeeper.CreateDenom(ctx, creator.String(), "v68")
+	require.NoError(t, err)
+	testApp.BankKeeper.SetDenomAllowList(ctx, denom, banktypes.AllowList{Addresses: []string{creator.String()}})
+	minted := sdk.NewCoins(sdk.NewInt64Coin(denom, 1_000))
+	require.NoError(t, testApp.BankKeeper.MintCoins(ctx, "tokenfactory", minted))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "tokenfactory", creator, minted))
 }
 
 // seedV68IBCProposal stores a passed IBC client update proposal, which v6.8

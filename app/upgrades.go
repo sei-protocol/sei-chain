@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
+	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"golang.org/x/mod/semver"
@@ -22,7 +24,11 @@ var retiredIBCStores = []string{"capability", "ibc", "transfer"}
 
 // v68DeletedStores are the KV stores deleted from the multistore at the v6.8
 // upgrade height. Their module version map entries go with them.
-var v68DeletedStores = append([]string{retiredoracle.ModuleName}, retiredIBCStores...)
+var v68DeletedStores = append([]string{retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
+
+// denomAllowListPrefix is the bank-store prefix under which tokenfactory kept
+// the transfer allowlists of the denoms it created.
+var denomAllowListPrefix = []byte{0x11}
 
 // retiredIBCProposalTypeURLPrefix matches governance proposal content types
 // whose decoders no longer exist.
@@ -156,6 +162,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				app.pruneUpgradedIBCState(ctx)
+				app.pruneDenomAllowLists(ctx)
 				return newVM, nil
 			}
 
@@ -244,6 +251,11 @@ func retiredProposalText(bz []byte) (title, description string) {
 // pruneUpgradedIBCState removes any planned IBC client state the upgrade module recorded.
 func (app *App) pruneUpgradedIBCState(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(upgradetypes.StoreKey)), []byte(upgradedIBCStateKeyPrefix))
+}
+
+// pruneDenomAllowLists removes every denom transfer allowlist from the bank store.
+func (app *App) pruneDenomAllowLists(ctx sdk.Context) {
+	deleteByPrefix(ctx.KVStore(app.GetKey(banktypes.StoreKey)), denomAllowListPrefix)
 }
 
 func deleteByPrefix(store sdk.KVStore, prefix []byte) {
