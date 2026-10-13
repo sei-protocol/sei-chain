@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import (
 	"context"
@@ -23,13 +23,7 @@ import (
 // This is the head the store records rather than the highest block GetRange finds on disk. Bodies are
 // written before the index entries that reach them, so a crash can leave bodies above the head that no
 // lookup finds, and it is the head that says what the store serves.
-//
-// Only a littidx-backed store is supported; any other backend is refused rather than reported as empty.
 func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
-	if err := requireLittIdxStore(cfg); err != nil {
-		return 0, err
-	}
-
 	indexDir := filepath.Join(cfg.DBDirectory, littIndexDirName)
 	// Opening the index would create it. A store that was never written has no head to read, and
 	// creating its directories here would leave a half-made store behind on a failed startup.
@@ -51,13 +45,7 @@ func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
 
 // GetRange reports the lowest and highest block heights present on disk for the receipt store described
 // by cfg, without opening the store. ok is false if no receipts are present.
-//
-// Only a littidx-backed store is supported; any other backend is refused rather than reported as empty.
 func GetRange(cfg dbconfig.ReceiptStoreConfig) (ok bool, lowestBlock uint64, highestBlock uint64, err error) {
-	if err := requireLittIdxStore(cfg); err != nil {
-		return false, 0, 0, err
-	}
-
 	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, littValuesDirName))
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("failed to build littdb config: %w", err)
@@ -103,13 +91,7 @@ func GetRange(cfg dbconfig.ReceiptStoreConfig) (ok bool, lowestBlock uint64, hig
 // It refuses a highestBlockToKeep below the store's retention floor, and one below the oldest receipt still
 // on disk: the former names data that has already been pruned, the latter would leave no receipt at all.
 // Both are checked before any receipt is touched, so a refusal leaves the store's data unchanged.
-//
-// Only a littidx-backed store is supported; any other backend is refused rather than silently left alone.
 func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err error) {
-	if err := requireLittIdxStore(cfg); err != nil {
-		return err
-	}
-
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, littIndexDirName)
 	index, err := pebbledb.Open(context.Background(), &indexCfg)
@@ -189,23 +171,6 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 		return fmt.Errorf("failed to update latest block metadata: %w", err)
 	}
 	return nil
-}
-
-// requireLittIdxStore refuses an offline operation on anything but a littidx receipt store. The other
-// backends keep receipts in a layout these operations cannot read, so they would report a full store as
-// empty rather than fail, and would create littidx's subdirectories inside a directory a live store may
-// be using.
-//
-// It checks both the backend the config asks for and the backend the store directory's marker names as its
-// owner, which catch different mistakes: the config check refuses a caller that asked for the wrong
-// backend, and the marker check refuses a littidx-configured caller pointed at another backend's store. A
-// directory carrying no marker predates the marker file, so the configured backend stands.
-func requireLittIdxStore(cfg dbconfig.ReceiptStoreConfig) error {
-	if backend := normalizeReceiptBackend(cfg.Backend); backend != receiptBackendLittIdx {
-		return fmt.Errorf("offline receipt store operations require the %q backend, but this store is "+
-			"configured for %q", receiptBackendLittIdx, backend)
-	}
-	return requireBackendType(cfg.DBDirectory, receiptBackendLittIdx)
 }
 
 // requireTargetWithinStoredRange refuses a rollback target below the oldest receipt still on disk. Such a

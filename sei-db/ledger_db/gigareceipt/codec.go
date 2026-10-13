@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import (
 	"encoding/binary"
@@ -83,7 +83,8 @@ func decodeReceiptData(raw []byte) (receiptData, error) {
 	switch version := raw[0]; version {
 	case receiptDataV1:
 		if len(raw) < receiptDataV1HeaderLen {
-			return receiptData{}, fmt.Errorf("receipt value too short for v%d: %d < %d", receiptDataV1, len(raw), receiptDataV1HeaderLen)
+			return receiptData{}, fmt.Errorf("receipt value too short for v%d: %d < %d",
+				receiptDataV1, len(raw), receiptDataV1HeaderLen)
 		}
 		return receiptData{
 			Header: TxHeader{

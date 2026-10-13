@@ -1,8 +1,10 @@
-package receipt_test
+package gigareceipt_test
 
 import (
 	"os"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
@@ -10,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +20,6 @@ import (
 // must be set explicitly: the default is pebbledb, which these operations refuse.
 func offlineCfg(dir string) dbconfig.ReceiptStoreConfig {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = dir
 	return cfg
 }
@@ -27,7 +28,7 @@ func offlineCfg(dir string) dbconfig.ReceiptStoreConfig {
 // rather than erroring.
 func TestOfflineGetRangeEmpty(t *testing.T) {
 	cfg := offlineCfg(t.TempDir())
-	ok, lowest, highest, err := receipt.GetRange(cfg)
+	ok, lowest, highest, err := gigareceipt.GetRange(cfg)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.Zero(t, lowest)
@@ -41,7 +42,7 @@ func TestOfflineGetLatestBlockOnAFreshStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := offlineCfg(dir)
 
-	block, err := receipt.GetLatestBlock(cfg)
+	block, err := gigareceipt.GetLatestBlock(cfg)
 	require.NoError(t, err)
 	require.Zero(t, block)
 
@@ -65,13 +66,13 @@ func TestOfflineGetLatestBlock(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	cfg := offlineCfg(dir)
-	block, err := receipt.GetLatestBlock(cfg)
+	block, err := gigareceipt.GetLatestBlock(cfg)
 	require.NoError(t, err)
 	require.Equal(t, uint64(highest), block)
 
 	const keepThrough = 4
-	require.NoError(t, receipt.PruneAfter(cfg, keepThrough))
-	block, err = receipt.GetLatestBlock(cfg)
+	require.NoError(t, gigareceipt.PruneAfter(cfg, keepThrough))
+	block, err = gigareceipt.GetLatestBlock(cfg)
 	require.NoError(t, err)
 	require.Equal(t, uint64(keepThrough), block)
 }
@@ -90,7 +91,7 @@ func TestOfflineGetRange(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	cfg := offlineCfg(dir)
-	ok, lowest, highest, err := receipt.GetRange(cfg)
+	ok, lowest, highest, err := gigareceipt.GetRange(cfg)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(3), lowest)
@@ -114,7 +115,7 @@ func TestOfflinePruneAfter(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	cfg := offlineCfg(dir)
-	require.NoError(t, receipt.PruneAfter(cfg, keepThrough))
+	require.NoError(t, gigareceipt.PruneAfter(cfg, keepThrough))
 
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
@@ -127,7 +128,8 @@ func TestOfflinePruneAfter(t *testing.T) {
 			require.NoErrorf(t, err, "block %d should survive", block)
 			require.Equal(t, block, r.BlockNumber)
 		} else {
-			require.ErrorIsf(t, err, receipt.ErrNotFound, "block %d should have been rolled back", block)
+			require.ErrorIsf(t, err, receipt.ErrNotFound,
+				"block %d should have been rolled back", block)
 		}
 	}
 
@@ -152,7 +154,7 @@ func TestOfflinePruneAfterRemovesBlockStats(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	cfg := offlineCfg(dir)
-	require.NoError(t, receipt.PruneAfter(cfg, keepThrough))
+	require.NoError(t, gigareceipt.PruneAfter(cfg, keepThrough))
 
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
@@ -163,7 +165,8 @@ func TestOfflinePruneAfterRemovesBlockStats(t *testing.T) {
 			require.NoErrorf(t, err, "block %d's stats should survive", block)
 			require.Equal(t, uint32(1), stats.TxCount)
 		} else {
-			require.ErrorIsf(t, err, receipt.ErrBlockStatsNotSupported, "block %d's stats should have been rolled back", block)
+			require.ErrorIsf(t, err, receipt.ErrBlockStatsNotSupported,
+				"block %d's stats should have been rolled back", block)
 		}
 	}
 }
@@ -183,7 +186,7 @@ func TestOfflinePruneAfterNoOp(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	cfg := offlineCfg(dir)
-	require.NoError(t, receipt.PruneAfter(cfg, count+10))
+	require.NoError(t, gigareceipt.PruneAfter(cfg, count+10))
 
 	store, ctx = setupLittIdx(t, dir)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
@@ -205,7 +208,7 @@ func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
 
 	cfg := offlineCfg(dir)
 	cfg.ExternalPruning = true // drive PruneHistory directly, no jittered background pruner racing the test
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	addr := common.HexToAddress("0xc0de")
@@ -220,7 +223,7 @@ func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
 	require.NoError(t, prunable.PruneHistory(6)) // retention floor now at block 6
 	require.NoError(t, store.Close())
 
-	err = receipt.PruneAfter(cfg, 3) // below the floor
+	err = gigareceipt.PruneAfter(cfg, 3) // below the floor
 	require.ErrorContains(t, err, "retention floor")
 
 	// The refusal must not have mutated anything: reopening should show the store exactly as it was.
@@ -248,7 +251,7 @@ func TestOfflinePruneAfterRefusesBelowOldestReceipt(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	cfg := offlineCfg(dir)
-	err := receipt.PruneAfter(cfg, lowest-1)
+	err := gigareceipt.PruneAfter(cfg, lowest-1)
 	require.ErrorContains(t, err, "no receipt would survive")
 
 	// The refusal must leave the receipts in place rather than silently emptying the store while rewinding

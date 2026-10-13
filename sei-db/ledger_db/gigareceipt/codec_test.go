@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import (
 	"encoding/binary"
@@ -14,7 +14,10 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 	}{
 		{
 			name: "typical",
-			data: receiptData{Header: TxHeader{BlockNumber: 1234567, Offset: 42, Length: 100}, Body: []byte("receipt-body")},
+			data: receiptData{
+				Header: TxHeader{BlockNumber: 1234567, Offset: 42, Length: 100},
+				Body:   []byte("receipt-body"),
+			},
 		},
 		{
 			name: "empty body",
@@ -22,7 +25,10 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 		},
 		{
 			name: "max field values",
-			data: receiptData{Header: TxHeader{BlockNumber: ^uint64(0), Offset: ^uint32(0), Length: ^uint32(0)}, Body: []byte{0x00, 0xff}},
+			data: receiptData{
+				Header: TxHeader{BlockNumber: ^uint64(0), Offset: ^uint32(0), Length: ^uint32(0)},
+				Body:   []byte{0x00, 0xff},
+			},
 		},
 		{
 			name: "zeroed metadata (location unknown)",
@@ -48,7 +54,10 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 // field reorder or width change is caught rather than silently corrupting
 // stored receipts.
 func TestReceiptDataWireLayout(t *testing.T) {
-	data := receiptData{Header: TxHeader{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314}, Body: []byte("xyz")}
+	data := receiptData{
+		Header: TxHeader{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314},
+		Body:   []byte("xyz"),
+	}
 	encoded := encodeReceiptData(data)
 
 	require.Equal(t, byte(1), encoded[0], "version byte")
@@ -62,7 +71,10 @@ func TestReceiptDataWireLayout(t *testing.T) {
 // input buffer (no copy), matching how callers unmarshal over litt's shared
 // read buffer.
 func TestDecodeReceiptDataBodyAliasesInput(t *testing.T) {
-	encoded := encodeReceiptData(receiptData{Header: TxHeader{BlockNumber: 5, Offset: 1, Length: 2}, Body: []byte("abc")})
+	encoded := encodeReceiptData(receiptData{
+		Header: TxHeader{BlockNumber: 5, Offset: 1, Length: 2},
+		Body:   []byte("abc"),
+	})
 	got, err := decodeReceiptData(encoded)
 	require.NoError(t, err)
 	require.Same(t, &encoded[receiptDataV1HeaderLen], &got.Body[0])
