@@ -21,13 +21,12 @@ import (
 )
 
 const (
-	fooDenom           = "foo"
-	barDenom           = "bar"
-	factoryDenomPrefix = "factory"
-	initialPower       = int64(100)
-	holder             = "holder"
-	multiPerm          = "multiple permissions account"
-	randomPerm         = "random permission"
+	fooDenom     = "foo"
+	barDenom     = "bar"
+	initialPower = int64(100)
+	holder       = "holder"
+	multiPerm    = "multiple permissions account"
+	randomPerm   = "random permission"
 )
 
 var (

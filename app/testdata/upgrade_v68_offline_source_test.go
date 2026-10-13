@@ -44,7 +44,7 @@ const (
 	v68OfflineProposalDescription       = "Substitute the expired client with 07-tendermint-1"
 )
 
-var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "upgrade"}
+var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "params", "upgrade"}
 
 // v68OfflineDeletedStores are the stores v6.8 deletes; the source phase writes
 // a key into each so the target phase can prove the trees are gone.

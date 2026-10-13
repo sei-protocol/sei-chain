@@ -21,6 +21,7 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
@@ -32,13 +33,14 @@ import (
 
 // v6.8 removes the oracle, tokenfactory and vesting modules. The store loader
 // deletes the oracle, tokenfactory and retired IBC stores at the upgrade height,
-// and the handler deletes the removed modules' version-map entries and the denom
-// transfer allowlists tokenfactory kept in the bank store. Vesting owned no
-// store: its state is the accounts it wrote to the auth account store, which the
-// auth 3 to 4 migration rewrites as the base accounts they embed. These tests
-// cover the rewrite of every vesting account type, spending a balance a schedule
-// had locked, the messages the removed modules served, the allowlist pruning,
-// genesis export over the migrated store, and the handler itself.
+// and the handler deletes the removed modules' version-map entries, the denom
+// transfer allowlists tokenfactory kept in the bank store, and its parameters in
+// the params store. Vesting owned no store: its state is the accounts it wrote
+// to the auth account store, which the auth 3 to 4 migration rewrites as the
+// base accounts they embed. These tests cover the rewrite of every vesting
+// account type, spending a balance a schedule had locked, the messages the
+// removed modules served, the allowlist and parameter pruning, genesis export
+// over the migrated store, and the handler itself.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
@@ -166,7 +168,14 @@ func seedV67VestingState(t *testing.T, a *processblock.App) []v68VestingFixture 
 // v68AccountEntries returns every entry under the account prefix of store.
 func v68AccountEntries(t *testing.T, store sdk.KVStore) map[string][]byte {
 	t.Helper()
-	iterator := sdk.KVStorePrefixIterator(store, authtypes.AddressStoreKeyPrefix)
+	return v68PrefixEntries(t, store, authtypes.AddressStoreKeyPrefix)
+}
+
+// v68PrefixEntries returns every entry of store under prefix, or every entry of
+// store when prefix is empty.
+func v68PrefixEntries(t *testing.T, store sdk.KVStore, prefix []byte) map[string][]byte {
+	t.Helper()
+	iterator := sdk.KVStorePrefixIterator(store, prefix)
 	defer func() {
 		require.NoError(t, iterator.Close())
 	}()
@@ -510,6 +519,32 @@ func TestV68SendsADenomItsAllowListRestricted(t *testing.T) {
 	require.Equal(t, uint32(abci.CodeTypeOK), results[0].Code, results[0].Log)
 	require.Equal(t, sdk.NewInt64Coin(denom, 40), a.BankKeeper.GetBalance(a.Ctx(), recipient, denom))
 	require.Equal(t, sdk.NewInt64Coin(denom, 60), a.BankKeeper.GetBalance(a.Ctx(), holder, denom))
+}
+
+// TestV68PrunesTokenfactoryParams pins that every entry of the tokenfactory
+// parameter subspace is deleted from the params store and that nothing else in
+// the store changes. The subspace holds the parameter v6.7 keeps and a creation
+// fee an older tokenfactory version left behind.
+func TestV68PrunesTokenfactoryParams(t *testing.T) {
+	a := newV68Chain(t)
+	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
+	retired := map[string]string{
+		"tokenfactory/allowlistmaxsize": "2000",
+		"tokenfactory/DenomCreationFee": "[]",
+	}
+	for key, value := range retired {
+		store.Set([]byte(key), []byte(value))
+	}
+	store.Set([]byte("tokenfactoryless"), []byte("unrelated"))
+	kept := v68PrefixEntries(t, store, nil)
+	for key := range retired {
+		delete(kept, key)
+	}
+
+	applyV68(t, a)
+
+	require.Equal(t, kept, v68PrefixEntries(t, store, nil),
+		"v6.8 changed the params store beyond deleting the tokenfactory subspace")
 }
 
 // TestV68RewritesRetiredIBCProposals pins that a stored proposal whose content

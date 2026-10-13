@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -29,6 +30,10 @@ var v68DeletedStores = append([]string{retiredoracle.ModuleName, retiredtokenfac
 // denomAllowListPrefix is the bank-store prefix under which tokenfactory kept
 // the transfer allowlists of the denoms it created.
 var denomAllowListPrefix = []byte{0x11}
+
+// tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
+// parameter subspace.
+var tokenfactoryParamsPrefix = []byte(retiredtokenfactory.ModuleName + "/")
 
 // retiredIBCProposalTypeURLPrefix matches governance proposal content types
 // whose decoders no longer exist.
@@ -163,6 +168,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				app.pruneUpgradedIBCState(ctx)
 				app.pruneDenomAllowLists(ctx)
+				app.pruneTokenfactoryParams(ctx)
 				return newVM, nil
 			}
 
@@ -256,6 +262,11 @@ func (app *App) pruneUpgradedIBCState(ctx sdk.Context) {
 // pruneDenomAllowLists removes every denom transfer allowlist from the bank store.
 func (app *App) pruneDenomAllowLists(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(banktypes.StoreKey)), denomAllowListPrefix)
+}
+
+// pruneTokenfactoryParams removes every parameter of the tokenfactory subspace from the params store.
+func (app *App) pruneTokenfactoryParams(ctx sdk.Context) {
+	deleteByPrefix(ctx.KVStore(app.GetKey(paramstypes.StoreKey)), tokenfactoryParamsPrefix)
 }
 
 func deleteByPrefix(store sdk.KVStore, prefix []byte) {

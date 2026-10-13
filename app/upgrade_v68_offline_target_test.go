@@ -22,6 +22,7 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -134,9 +135,9 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 // requireV68OfflineMigrated checks a reopened migrated database: the upgrade
 // is recorded, the retired module versions and stores are gone, the vesting
 // accounts are rewritten, the retired IBC proposal reads back as a text
-// proposal, the upgraded IBC client record and the denom allowlists are pruned,
-// the IBC voucher balance and supply are intact and spendable, and nothing else
-// in the retained stores changed.
+// proposal, the upgraded IBC client record, the denom allowlists and the
+// tokenfactory parameters are pruned, the IBC voucher balance and supply are
+// intact and spendable, and nothing else in the retained stores changed.
 func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV68OfflineAppliedName(t, testApp, artifact)
@@ -146,6 +147,7 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 	requireV68OfflineProposalRewritten(t, testApp, artifact.Retained)
 	requireV68OfflineUpgradedIBCStatePruned(t, testApp, artifact.Retained)
 	requireV68OfflineDenomAllowListsPruned(t, testApp, artifact.Stores[banktypes.StoreKey])
+	requireV68OfflineTokenfactoryParamsPruned(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineVoucher(t, testApp, artifact.Retained)
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(t, artifact))
 }
@@ -153,8 +155,9 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 // v68OfflineTouchedKey reports the retained-store keys the v6.8 upgrade block
 // is specified to change: the vesting accounts the auth migration rewrites,
 // the rewritten IBC proposal, the pruned upgraded IBC state, the plan, done
-// and version-map entries of the upgrade store, the pruned denom allowlists,
-// and the bank entries block rewards move every block.
+// and version-map entries of the upgrade store, the pruned denom allowlists
+// and tokenfactory parameters, and the bank entries block rewards move every
+// block.
 func v68OfflineTouchedKey(t *testing.T, artifact offlineUpgradeArtifact) func(storeName string, key []byte) bool {
 	t.Helper()
 	rewritten := make(map[string]struct{}, len(artifact.VestingAccounts))
@@ -176,6 +179,8 @@ func v68OfflineTouchedKey(t *testing.T, artifact offlineUpgradeArtifact) func(st
 			return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
 		case banktypes.StoreKey:
 			return v68OfflineBlockRewardKey(key) || bytes.HasPrefix(key, denomAllowListPrefix)
+		case paramstypes.StoreKey:
+			return bytes.HasPrefix(key, tokenfactoryParamsPrefix)
 		}
 		return false
 	}
@@ -337,6 +342,33 @@ func requireV68OfflineNoDenomAllowLists(t *testing.T, testApp *App) {
 		require.NoError(t, iterator.Close())
 	}()
 	require.False(t, iterator.Valid(), "v6.8 left a denom allowlist in the bank store")
+}
+
+// requireV68OfflineTokenfactoryParamsPruned requires the source phase's params
+// snapshot to hold a tokenfactory parameter and the committed params store to
+// hold none.
+func requireV68OfflineTokenfactoryParamsPruned(t *testing.T, testApp *App, sourceParams map[string]string) {
+	t.Helper()
+	recorded := false
+	for encodedKey := range sourceParams {
+		key, err := base64.StdEncoding.DecodeString(encodedKey)
+		require.NoError(t, err)
+		recorded = recorded || bytes.HasPrefix(key, tokenfactoryParamsPrefix)
+	}
+	require.True(t, recorded, "the source phase recorded no tokenfactory parameter")
+	requireV68OfflineNoTokenfactoryParams(t, testApp)
+}
+
+// requireV68OfflineNoTokenfactoryParams requires the committed params store to
+// hold no tokenfactory parameter.
+func requireV68OfflineNoTokenfactoryParams(t *testing.T, testApp *App) {
+	t.Helper()
+	store := testApp.CommitMultiStore().GetCommitKVStore(testApp.GetKey(paramstypes.StoreKey))
+	iterator := sdk.KVStorePrefixIterator(store, tokenfactoryParamsPrefix)
+	defer func() {
+		require.NoError(t, iterator.Close())
+	}()
+	require.False(t, iterator.Valid(), "v6.8 left a tokenfactory parameter in the params store")
 }
 
 func requireV68OfflineVoucher(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {
@@ -581,6 +613,7 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	requireV68OfflineVersionMap(t, reopened, beforeVersions)
 	requireV68OfflineNoRetiredProposals(t, reopened)
 	requireV68OfflineNoDenomAllowLists(t, reopened)
+	requireV68OfflineNoTokenfactoryParams(t, reopened)
 	ctx := offlineUpgradeContext(reopened, reopened.LastBlockHeight(), chainID)
 	require.Empty(t, v68OfflineLegacyVestingAccounts(t, reopened, ctx), "accounts are still stored under a vesting type")
 	for _, address := range legacy {
