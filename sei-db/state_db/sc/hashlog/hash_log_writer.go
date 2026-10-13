@@ -80,7 +80,8 @@ func NewHashLogWriter(config *HashLoggerConfig) (*HashLogWriter, error) {
 // characters outside the legal allow-list is logged and dropped.
 //
 // The hashes map and its slices are read after Write returns, so the caller must not mutate them afterwards.
-// Errors if the writer has stopped. Blocks while the writer is behind.
+// Blocks while the writer is behind. Errors once the writer has stopped; a call concurrent with Close() may
+// instead return nil without writing the block.
 func (w *HashLogWriter) Write(blockNumber uint64, hashes map[string][]byte) error {
 	if err := w.send(writeBlockRequest{blockNumber: blockNumber, hashes: hashes}); err != nil {
 		return fmt.Errorf("failed to write the hashes of block %d: %w", blockNumber, err)
