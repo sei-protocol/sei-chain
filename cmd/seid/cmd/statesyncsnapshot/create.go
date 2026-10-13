@@ -59,7 +59,9 @@ func runCreate(ctx context.Context, t target, out string, height int64, stdout, 
 	if err := copyEpochFiles(t.layout.EpochsDir, filepath.Join(stage, epochsPrefix)); err != nil {
 		return err
 	}
-	warnIfRegistryChanged(t.layout, version, stderr)
+	if err := requireRegistryCoversCheckpoint(t.layout, version); err != nil {
+		return err
+	}
 
 	sources, err := collectSources(stage)
 	if err != nil {
@@ -136,27 +138,30 @@ func copyEpochFiles(src, dst string) error {
 	return nil
 }
 
-// warnIfRegistryChanged reports an epoch registry written after the checkpoint, which may no
-// longer hold the checkpoint's epoch.
-func warnIfRegistryChanged(layout node.AutobahnLayout, version int64, stderr io.Writer) {
+// requireRegistryCoversCheckpoint returns an error if an epoch registry file was written after the
+// checkpoint at version. Such a registry can have dropped the checkpoint's epoch, and a node
+// restored from it cannot verify the CommitQC at the checkpoint height.
+func requireRegistryCoversCheckpoint(layout node.AutobahnLayout, version int64) error {
 	cp, err := os.Stat(filepath.Join(layout.FlatKVDir, flatkv.SnapshotDirName(version)))
 	if err != nil {
-		return
+		return fmt.Errorf("stat checkpoint %d: %w", version, err)
 	}
 	entries, err := os.ReadDir(layout.EpochsDir)
 	if err != nil {
-		return
+		return fmt.Errorf("read epoch dir %s: %w", layout.EpochsDir, err)
 	}
 	for _, e := range entries {
 		info, err := e.Info()
-		if err != nil || info.Size() == 0 {
+		if err != nil {
+			return fmt.Errorf("stat epoch file %s: %w", e.Name(), err)
+		}
+		if info.Size() == 0 || !info.ModTime().After(cp.ModTime().Add(-registryMargin)) {
 			continue
 		}
-		if info.ModTime().After(cp.ModTime().Add(-registryMargin)) {
-			_, _ = fmt.Fprintf(stderr, "WARNING: epoch file %s changed after checkpoint %d (mtime %s, checkpoint %s); the registry may not hold the checkpoint's epoch\n",
-				e.Name(), version, info.ModTime().UTC().Format(time.RFC3339), cp.ModTime().UTC().Format(time.RFC3339))
-		}
+		return fmt.Errorf("epoch file %s changed after checkpoint %d (mtime %s, checkpoint %s), so it may not hold the checkpoint's epoch; retry after the next checkpoint",
+			e.Name(), version, info.ModTime().UTC().Format(time.RFC3339), cp.ModTime().UTC().Format(time.RFC3339))
 	}
+	return nil
 }
 
 // collectSources lists every regular file under stage except LOCK files, sorted by archive path.

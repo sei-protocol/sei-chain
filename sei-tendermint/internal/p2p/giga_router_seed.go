@@ -45,6 +45,7 @@ func seedFromStateSync(ctx context.Context, cfg *GigaRouterCommonConfig, key Nod
 	marker := filepath.Join(cfg.PersistentStateDir, StateSyncRestoredMarker)
 	if _, err := os.Stat(marker); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			warnIfAppAheadOfEmptyBlockStore(cfg, blockStore)
 			return nil
 		}
 		return fmt.Errorf("stat %s: %w", marker, err)
@@ -75,6 +76,19 @@ func seedFromStateSync(ctx context.Context, cfg *GigaRouterCommonConfig, key Nod
 	logger.Warn("BlockStore seeded from state sync; blocks below the seed are not available on this node",
 		"height", h, "first", gr.First, "next", gr.Next, "epoch", qc.QC().Proposal().EpochIndex())
 	return nil
+}
+
+// warnIfAppAheadOfEmptyBlockStore logs when the app has state but the BlockStore has
+// no blocks and no seed is allowed. Such a node fetches blocks from genesis, and makes no
+// progress if every peer has pruned them.
+func warnIfAppAheadOfEmptyBlockStore(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) {
+	height := cfg.App.LastBlockHeight()
+	if blockStore.Status().IsPresent() || height < cfg.GenDoc.InitialHeight {
+		return
+	}
+	logger.Warn("app has state but BlockStore is empty and there is no state sync marker; "+
+		"the node fetches blocks from genesis and makes no progress if peers have pruned them",
+		"app_height", height, "marker", filepath.Join(cfg.PersistentStateDir, StateSyncRestoredMarker))
 }
 
 // fetchCoveringQC asks each configured validator in turn for the CommitQC that
@@ -139,9 +153,10 @@ func verifyCoveringQC(qc *atypes.FullCommitQC, registry *epoch.Registry, h atype
 	if h < gr.First || h >= gr.Next {
 		return fmt.Errorf("QC covers [%d,%d), not %d; the peer may have pruned %d", gr.First, gr.Next, h, h)
 	}
-	ep, err := registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
+	idx := qc.QC().Proposal().EpochIndex()
+	ep, err := registry.EpochByIndex(idx)
 	if err != nil {
-		return fmt.Errorf("registry.EpochByIndex(%d): %w", qc.QC().Proposal().EpochIndex(), err)
+		return fmt.Errorf("the local epoch registry cannot verify a QC of epoch %d; the restored archive must include the epochs/ files: %w", idx, err)
 	}
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)

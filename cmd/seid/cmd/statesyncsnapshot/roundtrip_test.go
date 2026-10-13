@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -99,6 +100,9 @@ func TestCreateRestoreRoundTrip(t *testing.T) {
 	var archive, stderr bytes.Buffer
 	require.NoError(t, runCreate(t.Context(), src, "-", 0, &archive, &stderr))
 	require.Equal(t, `{"height":`+itoa(h)+"}\n", firstLine(stderr.String()))
+	now := time.Now()
+	require.NoError(t, os.Chtimes(filepath.Join(src.layout.EpochsDir, "registry_a.pb"), now, now))
+	require.ErrorContains(t, runCreate(t.Context(), src, "-", 0, io.Discard, io.Discard), "changed after checkpoint")
 	require.NoError(t, s.Close())
 
 	dst := target{layout: testLayout(t), chainID: "chain-a", mode: tmcfg.ModeFull}
