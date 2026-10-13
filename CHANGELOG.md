@@ -30,7 +30,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## Unreleased
 sei-chain
-* Remove the tokenfactory module behind the v6.8 upgrade: module, store, protobuf schema, CLI, wasm bindings, the bank `factory/` denom transfer allowlist and tooling are gone; only the tokenfactory Msg types remain decodable so historical blocks still trace. Existing `factory/` balances stay in bank and remain transferable, but can no longer be minted or burned. App-hash breaking at the upgrade height.
+* [#4536](https://github.com/sei-protocol/sei-chain/pull/4536) Remove the tokenfactory module behind the v6.8 upgrade: module, store, protobuf schema, CLI, wasm bindings, the bank `factory/` denom transfer allowlist and tooling are gone; only the tokenfactory Msg types remain decodable so historical blocks still trace. Existing `factory/` balances stay in bank and remain transferable, but can no longer be minted or burned. App-hash breaking at the upgrade height.
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics
