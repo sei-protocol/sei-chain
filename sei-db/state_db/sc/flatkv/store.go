@@ -816,26 +816,38 @@ func (s *CommitStore) open() (retErr error) {
 }
 
 func (s *CommitStore) acquireFileLock(dir string) error {
-	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
+	fl, err := lockDir(dir)
 	if err != nil {
-		return fmt.Errorf("abs lock path: %w", err)
-	}
-	fl, err := filelock.New(lockPath)
-	if err != nil {
-		return fmt.Errorf("create file lock: %w", err)
-	}
-	locked, err := fl.TryLock()
-	if err != nil {
-		if errors.Is(err, filelock.ErrLocked) {
-			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
-		}
-		return fmt.Errorf("acquire file lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
+		return err
 	}
 	s.fileLock = fl
 	return nil
+}
+
+// lockDir takes the exclusive writer lock on the FlatKV root dir. It returns an error wrapping
+// commonerrors.ErrFileLockUnavailable when another holder has it.
+func lockDir(dir string) (filelock.TryLockerSafe, error) {
+	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
+	if err != nil {
+		return nil, fmt.Errorf("abs lock path: %w", err)
+	}
+	fl, err := filelock.New(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("create file lock: %w", err)
+	}
+	locked, err := fl.TryLock()
+	if err != nil {
+		_ = fl.Destroy()
+		if errors.Is(err, filelock.ErrLocked) {
+			return nil, fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
+		}
+		return nil, fmt.Errorf("acquire file lock: %w", err)
+	}
+	if !locked {
+		_ = fl.Destroy()
+		return nil, fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
+	}
+	return fl, nil
 }
 
 // openPebbleDB creates the directory at cfg.DataDir and opens a bare PebbleDB instance.

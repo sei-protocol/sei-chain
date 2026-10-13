@@ -7,10 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
-	"syscall"
 
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -19,9 +15,6 @@ import (
 )
 
 const (
-	flatkvSnapshotPrefix = "snapshot-"
-	flatkvSnapshotDirLen = len(flatkvSnapshotPrefix) + 20
-
 	// flatkvStateWALName matches the WAL instance name FlatKV opens its state WAL with; it only labels
 	// metrics, and the offline GetRange used here does not emit any, but keep it consistent.
 	flatkvStateWALName = "flatkv"
@@ -164,9 +157,9 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	snapshotVersion, err := strconv.ParseInt(snapshotName[len(flatkvSnapshotPrefix):], 10, 64)
+	snapshotVersion, err := flatkv.ParseSnapshotDirName(snapshotName)
 	if err != nil {
-		return "", fmt.Errorf("parse snapshot version from %q: %w", snapshotName, err)
+		return "", err
 	}
 
 	// Place the temp clone inside dbDir so it is on the exact same mounted
@@ -185,9 +178,8 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 		return "", err
 	}
 
-	srcSnapshotDir := filepath.Join(dbDir, snapshotName)
 	dstSnapshotDir := filepath.Join(tempDir, snapshotName)
-	if err := cloneDirRecursive(srcSnapshotDir, dstSnapshotDir); err != nil {
+	if err := flatkv.PinSnapshot(dbDir, snapshotVersion, dstSnapshotDir); err != nil {
 		return cleanup(fmt.Errorf("clone snapshot %s: %w", snapshotName, err))
 	}
 
@@ -248,68 +240,23 @@ func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error 
 
 func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {
 	if height == 0 {
-		target, err := os.Readlink(filepath.Join(dbDir, "current"))
+		version, err := flatkv.ActiveSnapshotVersion(dbDir)
 		if err != nil {
 			return "", fmt.Errorf("read current symlink: %w", err)
 		}
-		if !isFlatKVSnapshotName(target) {
-			return "", fmt.Errorf("current symlink points to invalid snapshot: %s", target)
-		}
-		return target, nil
+		return flatkv.SnapshotDirName(version), nil
 	}
 
-	snapshots := listFlatKVSnapshots(dbDir)
-	for i := len(snapshots) - 1; i >= 0; i-- {
-		if snapshots[i] <= height {
-			return fmt.Sprintf("%s%020d", flatkvSnapshotPrefix, snapshots[i]), nil
+	versions, err := flatkv.SnapshotVersions(dbDir)
+	if err != nil {
+		return "", err
+	}
+	for i := len(versions) - 1; i >= 0; i-- {
+		if versions[i] <= height {
+			return flatkv.SnapshotDirName(versions[i]), nil
 		}
 	}
 	return "", fmt.Errorf("no snapshot found for target version %d", height)
-}
-
-func listFlatKVSnapshots(dir string) []int64 {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var versions []int64
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !isFlatKVSnapshotName(name) {
-			continue
-		}
-		v, err := strconv.ParseInt(name[len(flatkvSnapshotPrefix):], 10, 64)
-		if err != nil {
-			continue
-		}
-		versions = append(versions, v)
-	}
-	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
-	return versions
-}
-
-func isFlatKVSnapshotName(name string) bool {
-	return strings.HasPrefix(name, flatkvSnapshotPrefix) && len(name) == flatkvSnapshotDirLen
-}
-
-// cloneDirRecursive clones an immutable snapshot directory into dst by
-// hardlinking every regular file. EXDEV is treated as a fatal configuration
-// error: snapshots can be many GB, and the previous behavior of falling back
-// to a byte-copy on tmpfs (the historical $TMPDIR default) routinely OOM'd
-// nodes and exhausted /tmp. Callers must ensure the tool clone dir lives on
-// the same filesystem as the source FlatKV directory.
-//
-// Hardlinking is safe because:
-//   - snapshot-N files are immutable after Pebble Checkpoint + Rename.
-//
-// It also lets the tool survive a concurrent atomicRemoveDir on the source:
-// once we have hardlinks, the inodes persist until we release the temp dir,
-// even if the live node prunes the source snapshot mid-operation.
-func cloneDirRecursive(src, dst string) error {
-	return cloneDirRecursiveWith(src, dst, linkOnly)
 }
 
 // copyDirRecursive clones a mutable directory by byte-copying every regular
@@ -355,31 +302,6 @@ func cloneDirRecursiveWith(src, dst string, cloneFile func(string, string) error
 		}
 	}
 	return nil
-}
-
-// linkOnly hardlinks src to dst and refuses to silently byte-copy if the
-// hardlink fails because of a cross-device boundary. Snapshots can be many
-// GB; falling back to a copy is unsafe (slow, RAM-intensive, fills tmpfs)
-// and is the bug this guard exists to surface. Any other error (including
-// ENOENT from a mid-clone prune) is returned as-is so callers can retry.
-func linkOnly(src, dst string) error {
-	if err := os.Link(src, dst); err != nil {
-		if isCrossDeviceLinkError(err) {
-			return fmt.Errorf("hardlink %s -> %s failed across filesystems; "+
-				"FlatKV tooling requires the temp clone to share a filesystem with the source: %w",
-				src, dst, err)
-		}
-		return err
-	}
-	return nil
-}
-
-func isCrossDeviceLinkError(err error) bool {
-	var linkErr *os.LinkError
-	if errors.As(err, &linkErr) {
-		return errors.Is(linkErr.Err, syscall.EXDEV)
-	}
-	return errors.Is(err, syscall.EXDEV)
 }
 
 func copyFile(src, dst string) error {

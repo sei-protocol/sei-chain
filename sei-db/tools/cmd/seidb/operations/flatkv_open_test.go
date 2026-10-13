@@ -43,6 +43,21 @@ func TestSelectFlatKVSnapshotExplicitHistoricalHeight(t *testing.T) {
 	require.Contains(t, err.Error(), "no snapshot found")
 }
 
+func TestSelectFlatKVSnapshotIgnoresNonCanonicalNames(t *testing.T) {
+	dbDir := t.TempDir()
+	const plusName = "snapshot-+0000000000000000020"
+	require.NoError(t, os.Mkdir(filepath.Join(dbDir, plusName), 0o750))
+	require.NoError(t, os.Mkdir(filepath.Join(dbDir, flatkvSnapshotNameForTest(10)), 0o750))
+
+	got, err := selectFlatKVSnapshot(dbDir, 25)
+	require.NoError(t, err)
+	require.Equal(t, flatkvSnapshotNameForTest(10), got)
+
+	require.NoError(t, os.Symlink(plusName, filepath.Join(dbDir, "current")))
+	_, err = selectFlatKVSnapshot(dbDir, 0)
+	require.ErrorContains(t, err, "invalid snapshot directory name")
+}
+
 func TestPrepareFlatKVToolingCloneHardlinksSnapshotAndCopiesChangelog(t *testing.T) {
 	dbDir := t.TempDir()
 	snapshot := flatkvSnapshotNameForTest(7)
@@ -310,5 +325,5 @@ func newDiskBackedFlatKVStore(t *testing.T, snapshotInterval uint32) (*flatkv.Co
 }
 
 func flatkvSnapshotNameForTest(version int64) string {
-	return fmt.Sprintf("%s%020d", flatkvSnapshotPrefix, version)
+	return flatkv.SnapshotDirName(version)
 }
