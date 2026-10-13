@@ -222,7 +222,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Address:   addr,
 				Code:      cloneBytes(acct.Code),
 				Delete:    len(acct.Code) == 0,
-				PriorCode: base.Code,
+				PriorCode: cloneBytes(base.Code),
 			})
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)

@@ -792,7 +792,7 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 	for change := range ownedChanges(owns, result.changeSet.Code, CodeChange.addr) {
 		shard := s.shard(change.Address)
 		if _, ok := shard.priorCode[change.Address]; !ok {
-			shard.priorCode[change.Address] = change.PriorCode
+			shard.priorCode[change.Address] = cloneBytes(change.PriorCode)
 		}
 		if change.Delete {
 			shard.code[change.Address] = nil
@@ -865,7 +865,7 @@ func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSe
 		if bytes.Equal(code, prior) {
 			continue
 		}
-		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: prior})
+		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: cloneBytes(prior)})
 	}
 	changes.StorageClears = append(changes.StorageClears, sortedAddresses(h.storageClears)...)
 
