@@ -14,7 +14,7 @@ import (
 
 // EpochLength is the number of road indices per epoch.
 // TODO: move on-chain when epoch length becomes configurable.
-const EpochLength types.RoadIndex = 108_000
+const EpochLength types.RoadIndex = 600
 
 // IndexForRoad returns the epoch index containing road.
 func IndexForRoad(road types.RoadIndex) types.EpochIndex {
