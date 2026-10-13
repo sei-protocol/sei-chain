@@ -152,11 +152,9 @@ type ReceiptRecord struct {
 	// KeepExisting makes this record an insert-only write for its transaction hash: it
 	// yields to a stored receipt and to an unconditional record for the same hash.
 	KeepExisting bool
-	// TxOffset and TxLength locate the raw transaction within its block's stored
-	// value in the block store (the sub-range holding this tx). They are written
-	// into the receipt value's metadata prefix so a receipt lookup can find the
-	// transaction bytes. Only meaningful when block compression is off; zero when
-	// unknown.
+	// TxOffset and TxLength locate the transaction within its block's marshalled
+	// proto(Block) body, excluding the block store's value framing. TxLength is 0
+	// when the location is unknown.
 	TxOffset uint32
 	TxLength uint32
 	// Reward is this tx's priority fee (EffectiveGasPrice - base fee), or nil to exclude it from
