@@ -49,9 +49,9 @@ func newBUDFuzzSeeds(f *testing.F) budFuzzSeeds {
 	}
 
 	budlets := []*Budlet{
-		newBudlet("evm/a", []byte{0xaa, 0xbb}, nil, 0),
-		newBudlet("evm/b", nil, []byte{0xbb}, 7),
-		newBudlet("evm/c", []byte{0xcc}, []byte{}, 8),
+		newBudlet("evm/a", []byte{0x00, 0xaa, 0xbb}, []byte{0x00, 0xaa}, 0),
+		newBudlet("evm/b", []byte{0x00, 0xbb, 0xcc}, []byte{0x00, 0xbb}, 7),
+		newBudlet("evm/c", []byte{0x00, 0xcc}, []byte{}, 8),
 	}
 	tree := newTree(budlets...)
 	appHashData := apphash.NewAppHashData(

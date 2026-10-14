@@ -25,12 +25,11 @@ func TestBUDHashCommitsToEveryField(t *testing.T) {
 	original := budHashOf(t, threeBudlets(t))
 
 	replacements := map[string]*Budlet{
-		"key":                       newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, nil, 0),
-		"value":                     newTestBudlet(t, "evm/b", []byte{0x02, 0x04}, nil, 0),
-		"deletion":                  newTestDeletionBudlet(t, "evm/b", nil, 0),
+		"key":                       newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, []byte{}, 0),
+		"value":                     newTestBudlet(t, "evm/b", []byte{0x02, 0x04}, []byte{}, 0),
+		"empty value":               newTestBudlet(t, "evm/b", []byte{}, []byte{}, 0),
 		"previous value":            newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{0x05}, 0),
-		"empty previous value":      newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{}, 0),
-		"not-modified-since height": newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, nil, 1),
+		"not-modified-since height": newTestBudlet(t, "evm/b", []byte{0x02, 0x03}, []byte{}, 1),
 	}
 	for name, replacement := range replacements {
 		t.Run(name, func(t *testing.T) {
@@ -43,18 +42,6 @@ func TestBUDHashCommitsToEveryField(t *testing.T) {
 	t.Run("count", func(t *testing.T) {
 		require.NotEqual(t, original, budHashOf(t, threeBudlets(t)[:2]))
 	})
-}
-
-func TestBUDHashDistinguishesDeletionFromEmptyValue(t *testing.T) {
-	deleted := budHashOf(t, []*Budlet{newTestDeletionBudlet(t, "evm/a", nil, 0)})
-	empty := budHashOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{}, nil, 0)})
-	require.NotEqual(t, deleted, empty)
-}
-
-func TestBUDHashDistinguishesAbsentFromEmptyPreviousValue(t *testing.T) {
-	absent := budHashOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0)})
-	empty := budHashOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, []byte{}, 0)})
-	require.NotEqual(t, absent, empty)
 }
 
 func TestZeroValuesDoNotPanic(t *testing.T) {

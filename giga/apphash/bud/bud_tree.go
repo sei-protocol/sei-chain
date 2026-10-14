@@ -22,8 +22,8 @@ const (
 	budTreeCountOffset   = budTreeVersionOffset + 1
 	budTreeBudletsOffset = budTreeCountOffset + 8
 
-	// minSerializedBudletSize is the length of the shortest serialized budlet: a 1 byte key and an empty value.
-	minSerializedBudletSize = 4 + 1 + 1 + 4 + 8
+	// minSerializedBudletSize is the length of the shortest serialized budlet: a 1 byte key and empty values.
+	minSerializedBudletSize = 4 + 1 + 4 + 4 + 8
 )
 
 // BUDTree is the Merkle tree over one block's budlets, sorted by key.

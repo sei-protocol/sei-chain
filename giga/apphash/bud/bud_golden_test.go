@@ -70,19 +70,10 @@ type budGoldenStateProof struct {
 	AppHash string `json:"appHash"`
 
 	// The value the proof gives at the start height and at every height below the end height.
-	StartValue budGoldenValue `json:"startValue"`
+	StartValue string `json:"startValue"`
 
 	// The value the proof gives at the end height.
-	EndValue budGoldenValue `json:"endValue"`
-}
-
-// budGoldenValue is one recorded value of a key. Byte fields are lowercase hex.
-type budGoldenValue struct {
-	// The value's bytes, empty for a deletion.
-	Value string `json:"value"`
-
-	// Whether the value is a deletion.
-	Deleted bool `json:"deleted"`
+	EndValue string `json:"endValue"`
 }
 
 // budGoldenRecord is one recorded block: its budlets, its serialized BUD tree, its BUD hash, and the BUD proof of each
@@ -109,14 +100,8 @@ type budGoldenBudlet struct {
 	// The budlet's value.
 	Value string `json:"value"`
 
-	// Whether the budlet is a deletion.
-	Deleted bool `json:"deleted"`
-
 	// The budlet's previous value.
 	PreviousValue string `json:"previousValue"`
-
-	// Whether the budlet's key was absent before the block.
-	PreviousDeleted bool `json:"previousDeleted"`
 
 	// The budlet's not-modified-since height, as a decimal string so readers without exact 64-bit JSON numbers keep every
 	// digit.
@@ -263,46 +248,31 @@ func verifyBUDGoldenStateProof(
 	}
 }
 
-// requireBUDGoldenValueAt requires a BUD state proof to give want at height, telling a deletion apart from a write
-// of the empty value.
+// requireBUDGoldenValueAt requires a BUD state proof to give want at height.
 func requireBUDGoldenValueAt(
 	t *testing.T,
 	// The state proof to ask.
 	stateProof *BUDStateProof,
 	// The height to ask about.
 	height uint64,
-	// The value the state proof must give, or nil for a deletion.
+	// The value the state proof must give.
 	want []byte,
 ) {
 	t.Helper()
 
 	value, covered := stateProof.ValueAt(height)
 	require.True(t, covered, "height %d", height)
-	require.Equal(t, want == nil, value == nil, "height %d deletion", height)
 	require.Equal(t, want, value, "height %d", height)
 }
 
-// decodeBUDGoldenValue decodes one recorded value, returning nil for a deletion and a non-nil slice for any write,
-// including a write of the empty value.
-func decodeBUDGoldenValue(t *testing.T, recorded budGoldenValue) []byte {
+// decodeBUDGoldenValue decodes one recorded value. The result is never nil, even when empty, matching what the
+// budlet decoder returns.
+func decodeBUDGoldenValue(t *testing.T, recorded string) []byte {
 	t.Helper()
 
-	value, err := hex.DecodeString(recorded.Value)
-	require.NoError(t, err, "value %q", recorded.Value)
-	switch {
-	case recorded.Deleted:
-		require.Empty(t, value, "deletion value")
-		return nil
-	case value == nil:
-		// A recorded write of the empty value must not become a deletion.
-		return []byte{}
-	}
-	return value
-}
-
-// newBUDGoldenValue returns the golden record of a value, nil for a deletion.
-func newBUDGoldenValue(value []byte) budGoldenValue {
-	return budGoldenValue{Value: hex.EncodeToString(value), Deleted: value == nil}
+	value, err := hex.DecodeString(recorded)
+	require.NoError(t, err, "value %q", recorded)
+	return append([]byte{}, value...)
 }
 
 // newBUDGoldenStateProof returns the golden record of a BUD state proof and the answers it gives.
@@ -321,8 +291,8 @@ func newBUDGoldenStateProof(t *testing.T, stateProof *BUDStateProof) budGoldenSt
 		StartHeight: strconv.FormatUint(stateProof.StartHeight(), 10),
 		EndHeight:   strconv.FormatUint(stateProof.EndHeight(), 10),
 		AppHash:     hex.EncodeToString(appHash[:]),
-		StartValue:  newBUDGoldenValue(startValue),
-		EndValue:    newBUDGoldenValue(endValue),
+		StartValue:  hex.EncodeToString(startValue),
+		EndValue:    hex.EncodeToString(endValue),
 	}
 }
 
@@ -332,9 +302,8 @@ func decodeBUDGoldenBudlet(t *testing.T, recordIndex int, budletIndex int, recor
 
 	key, err := hex.DecodeString(recorded.Key)
 	require.NoError(t, err, "record %d budlet %d key", recordIndex, budletIndex)
-	value := decodeBUDGoldenValue(t, budGoldenValue{Value: recorded.Value, Deleted: recorded.Deleted})
-	previousValue := decodeBUDGoldenValue(t,
-		budGoldenValue{Value: recorded.PreviousValue, Deleted: recorded.PreviousDeleted})
+	value := decodeBUDGoldenValue(t, recorded.Value)
+	previousValue := decodeBUDGoldenValue(t, recorded.PreviousValue)
 	notModifiedSince, err := strconv.ParseUint(recorded.NotModifiedSince, 10, 64)
 	require.NoError(t, err, "record %d budlet %d not-modified-since height", recordIndex, budletIndex)
 
@@ -385,7 +354,7 @@ func recordBUDGoldenFile(t *testing.T) {
 	file.StateProofs = []budGoldenStateProof{
 		newBUDGoldenStateProof(t,
 			newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testNotModifiedSince)),
-		newBUDGoldenStateProof(t, newTestBUDStateProof(t, rng, []byte("value"), nil, 0)),
+		newBUDGoldenStateProof(t, newTestBUDStateProof(t, rng, []byte{}, []byte("previous value"), 0)),
 	}
 	writeBUDGoldenFile(t, budGoldenFilePath(budVersion, budProofVersion, budStateProofVersion), file)
 }
@@ -407,9 +376,7 @@ func newBUDGoldenRecord(t *testing.T, budlets []*Budlet) budGoldenRecord {
 		record.Budlets = append(record.Budlets, budGoldenBudlet{
 			Key:              hex.EncodeToString(budlet.Key()),
 			Value:            hex.EncodeToString(budlet.Value()),
-			Deleted:          budlet.Value() == nil,
 			PreviousValue:    hex.EncodeToString(budlet.PreviousValue()),
-			PreviousDeleted:  budlet.PreviousValue() == nil,
 			NotModifiedSince: strconv.FormatUint(budlet.NotModifiedSince(), 10),
 		})
 		proof, found := tree.BuildBUDProof(budlet.Key())

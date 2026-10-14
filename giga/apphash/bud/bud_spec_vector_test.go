@@ -14,23 +14,23 @@ import (
 // TestBUDSpecVector pins every value of the budlet, BUD tree, BUD hash, and BUD proof test vectors in bud_spec.md.
 func TestBUDSpecVector(t *testing.T) {
 	budlets := []*Budlet{
-		newTestBudlet(t, "evm/a", []byte{0xaa, 0xbb}, nil, 0),
-		newTestDeletionBudlet(t, "evm/b", []byte{0xbb}, 7),
-		newTestBudlet(t, "evm/c", []byte{0xcc}, []byte{}, 8),
+		newTestBudlet(t, "evm/a", []byte{0x00, 0xaa, 0xbb}, []byte{0x00, 0xaa}, 0),
+		newTestBudlet(t, "evm/b", []byte{0x00, 0xbb, 0xcc}, []byte{0x00, 0xbb}, 7),
+		newTestBudlet(t, "evm/c", []byte{0x00, 0xcc}, []byte{}, 8),
 	}
 	serializations := []string{
-		"00000005" + "65766d2f61" + "00" + "00000002" + "aabb" + "01" + "00000000" + "" + "0000000000000000",
-		"00000005" + "65766d2f62" + "01" + "00000000" + "" + "00" + "00000001" + "bb" + "0000000000000007",
-		"00000005" + "65766d2f63" + "00" + "00000001" + "cc" + "00" + "00000000" + "" + "0000000000000008",
+		"00000005" + "65766d2f61" + "00000003" + "00aabb" + "00000002" + "00aa" + "0000000000000000",
+		"00000005" + "65766d2f62" + "00000003" + "00bbcc" + "00000002" + "00bb" + "0000000000000007",
+		"00000005" + "65766d2f63" + "00000002" + "00cc" + "00000000" + "" + "0000000000000008",
 	}
 	leafHashes := []string{
-		"377d389fc54fdd44a82596916704d7a16b64d58aeb1338ad26c9e1fff1600d13",
-		"6eddccfbc096698bc35e0a76ca7d48b09b1dc6962705dd9cc12ec193fd7707f2",
-		"a71d74fa15dd6ba2179fe0f1f1ba64ace69008694375dd4454579aa75681c7f4",
+		"0473228ae7de8d729da1c3829911e44bd8132bb70231601c81284c479194dd60",
+		"e40d5c36c1f33b62926219ab8f643dcb540b86ea6af98731027109764392804c",
+		"905f946a6e3487f06c7b1b525d651e8ee7a48fa5fbe481e50a40d09e79939d7e",
 	}
-	inner01 := "01c14ff18fc0f5d92d66e7ae9bac8da08f8e4e37443856314bfb2c4be4bb05bf"
-	root := "42826a8e6a7b26f4a8d61db2694f601b3c1e33238aa47b36cbcaa299eef0ee12"
-	budHash := "cb9f3601d13115bd8f430f469e52d64709857df23f068bfa2aba3128eea8ebef"
+	inner01 := "329d1fc527f7bc747989903c7a8dc0778cec41b98a695acab12887c02f157b25"
+	root := "bc19858156c6b699dd78dd68213e06fbf347d30a6c5596cb3686902775148282"
+	budHash := "4f3428944c0a960bb22d615446c3badd7790eaa96a2dd4519c14abc1c48cf086"
 	serializedTree := "01" + "0000000000000003" + serializations[0] + serializations[1] + serializations[2]
 	proofs := []string{
 		"01" + "01" + serializations[0] + "0000000000000003" + "0000000000000000" +
@@ -106,9 +106,9 @@ func TestBUDSpecStateProofVector(t *testing.T) {
 	}
 
 	tree, err := NewBUDTree([]*Budlet{
-		newTestBudlet(t, "evm/a", []byte{0xaa, 0xbb}, nil, 0),
-		newTestDeletionBudlet(t, "evm/b", []byte{0xbb}, 7),
-		newTestBudlet(t, "evm/c", []byte{0xcc}, []byte{}, 8),
+		newTestBudlet(t, "evm/a", []byte{0x00, 0xaa, 0xbb}, []byte{0x00, 0xaa}, 0),
+		newTestBudlet(t, "evm/b", []byte{0x00, 0xbb, 0xcc}, []byte{0x00, 0xbb}, 7),
+		newTestBudlet(t, "evm/c", []byte{0x00, 0xcc}, []byte{}, 8),
 	})
 	require.NoError(t, err)
 	appHashData := apphash.NewAppHashData(
@@ -118,15 +118,15 @@ func TestBUDSpecStateProofVector(t *testing.T) {
 	stateProof, err := NewBUDStateProof(appHashData, budProof)
 	require.NoError(t, err)
 
-	budHash9 := "cb9f3601d13115bd8f430f469e52d64709857df23f068bfa2aba3128eea8ebef"
+	budHash9 := "4f3428944c0a960bb22d615446c3badd7790eaa96a2dd4519c14abc1c48cf086"
 	serializedAppHashData := "01" + "1112131415161718" + "0000000000000009" + strings.Repeat("a9", 32) +
 		strings.Repeat("b9", 32) + budHash9 + strings.Repeat("d9", 32) + strings.Repeat("e9", 32)
-	appHash9 := "b5b0ba5ff115aca33794926156e3aeae5c04d2b9a2151d4cea0b3356ea6e3b56"
+	appHash9 := "de4690aca7eee0df79120d1711a1494be8a19bd8e8ae1318333c08cc3ab8a189"
 	serializedBUDProof := "01" + "01" +
-		"00000005" + "65766d2f62" + "01" + "00000000" + "" + "00" + "00000001" + "bb" + "0000000000000007" +
+		"00000005" + "65766d2f62" + "00000003" + "00bbcc" + "00000002" + "00bb" + "0000000000000007" +
 		"0000000000000003" + "0000000000000001" +
-		"377d389fc54fdd44a82596916704d7a16b64d58aeb1338ad26c9e1fff1600d13" +
-		"a71d74fa15dd6ba2179fe0f1f1ba64ace69008694375dd4454579aa75681c7f4"
+		"0473228ae7de8d729da1c3829911e44bd8132bb70231601c81284c479194dd60" +
+		"905f946a6e3487f06c7b1b525d651e8ee7a48fa5fbe481e50a40d09e79939d7e"
 	serializedStateProof := "01" + "000000b1" + serializedAppHashData + serializedBUDProof
 
 	require.Equal(t, serializedAppHashData, hex.EncodeToString(appHashData.Serialize()))
@@ -145,11 +145,11 @@ func TestBUDSpecStateProofVector(t *testing.T) {
 	for _, height := range []uint64{7, 8} {
 		value, covered := deserialized.ValueAt(height)
 		require.True(t, covered, "height %d", height)
-		require.Equal(t, []byte{0xbb}, value, "height %d", height)
+		require.Equal(t, []byte{0x00, 0xbb}, value, "height %d", height)
 	}
 	value, covered := deserialized.ValueAt(9)
 	require.True(t, covered)
-	require.Nil(t, value)
+	require.Equal(t, []byte{0x00, 0xbb, 0xcc}, value)
 	for _, height := range []uint64{6, 10} {
 		_, covered := deserialized.ValueAt(height)
 		require.False(t, covered, "height %d", height)

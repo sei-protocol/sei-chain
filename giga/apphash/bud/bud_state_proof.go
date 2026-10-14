@@ -121,8 +121,8 @@ func (p *BUDStateProof) EndHeight() uint64 {
 	return appHashData.BlockHeight()
 }
 
-// ValueAt returns the value the key held at height, nil if the key was absent, or false when the proof does not
-// cover height. The caller must not mutate the value.
+// ValueAt returns the payload the key held at height, or false when the proof does not cover height. The caller
+// must not mutate the payload.
 func (p *BUDStateProof) ValueAt(
 	// The block height to look up.
 	height uint64,

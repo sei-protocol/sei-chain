@@ -10,14 +10,13 @@ import (
 // Budlet is the 4-tuple (key, value, previous value, not-modified-since height) for one key a block modified: a
 // leaf of that block's BUD tree.
 type Budlet struct {
-	// The key modified. Never empty.
+	// The live state database key the block modified. Never empty.
 	key []byte
 
-	// The key's value after the block, or nil if the key is absent after the block.
+	// The payload the block wrote to the key.
 	value []byte
 
-	// The value this budlet proves the key held at every height in [notModifiedSince, block height), or nil if the key
-	// was absent there.
+	// The payload this budlet proves the key held at every height in [notModifiedSince, block height).
 	previousValue []byte
 
 	// The inclusive lower bound of the heights at which this budlet proves the key held previousValue.
@@ -26,15 +25,14 @@ type Budlet struct {
 
 // NewBudlet returns the budlet for one key a block modified, or an error if a parameter is out of bounds.
 func NewBudlet(
-	// The key modified. Must not be empty or longer than 2^32-1 bytes. Retained, so it must not be mutated
-	// afterward.
-	key []byte,
-	// The key's value after the block, or nil if the key is absent after the block; a non-nil empty value is the
-	// empty value. Must not be longer than 2^32-1 bytes. Retained, so it must not be mutated afterward.
-	value []byte,
-	// The value this budlet proves the key held at every height in [notModifiedSince, block height), or nil if the key
-	// was absent there; a non-nil empty value is the empty value. Must not be longer than 2^32-1 bytes. Retained,
+	// The live state database key the block modified. Must not be empty or longer than 2^32-1 bytes. Retained,
 	// so it must not be mutated afterward.
+	key []byte,
+	// The payload the block wrote to the key. Must not be longer than 2^32-1 bytes. Retained, so it must not be
+	// mutated afterward.
+	value []byte,
+	// The payload this budlet proves the key held at every height in [notModifiedSince, block height). Must not
+	// be longer than 2^32-1 bytes. Retained, so it must not be mutated afterward.
 	previousValue []byte,
 	// The inclusive lower bound of the heights at which this budlet proves the key held previousValue. Must be
 	// below the block's height.
@@ -64,19 +62,18 @@ func DeserializeBudlet(
 	return budlet, nil
 }
 
-// Key returns the key the block modified. The caller must not mutate it.
+// Key returns the live state database key the block modified. The caller must not mutate it.
 func (b *Budlet) Key() []byte {
 	return b.key
 }
 
-// Value returns the key's value after the block, or nil if the key is absent after the block. The caller must not
-// mutate it.
+// Value returns the payload the block wrote to the key. The caller must not mutate it.
 func (b *Budlet) Value() []byte {
 	return b.value
 }
 
-// PreviousValue returns the value the budlet proves the key held at every height in [NotModifiedSince(), block height),
-// or nil if the key was absent there. The caller must not mutate it.
+// PreviousValue returns the payload the budlet proves the key held at every height in [NotModifiedSince(), block
+// height). The caller must not mutate it.
 func (b *Budlet) PreviousValue() []byte {
 	return b.previousValue
 }
@@ -90,32 +87,25 @@ func (b *Budlet) NotModifiedSince() uint64 {
 // Serialize returns the budlet's serialization, which is also the input to its BUD tree leaf hash. The
 // serialization carries no version; it is defined by the BUD version.
 func (b *Budlet) Serialize() []byte {
-	keyLength := uint32(len(b.key)) //nolint:gosec // G115 - the constructors bound the length
-
-	serialized := make([]byte, 0, 4+len(b.key)+1+4+len(b.value)+1+4+len(b.previousValue)+8)
-	serialized = binary.BigEndian.AppendUint32(serialized, keyLength)
-	serialized = append(serialized, b.key...)
-	serialized = appendBudletValue(serialized, b.value)
-	serialized = appendBudletValue(serialized, b.previousValue)
+	serialized := make([]byte, 0, 4+len(b.key)+4+len(b.value)+4+len(b.previousValue)+8)
+	serialized = appendBudletField(serialized, b.key)
+	serialized = appendBudletField(serialized, b.value)
+	serialized = appendBudletField(serialized, b.previousValue)
 	serialized = binary.BigEndian.AppendUint64(serialized, b.notModifiedSince)
 	return serialized
 }
 
-// appendBudletValue appends the serialization of a budlet value: a deletion flag, a length, and the value's bytes.
-func appendBudletValue(
+// appendBudletField appends the serialization of a budlet's key, value, or previous value: its length, then its
+// bytes.
+func appendBudletField(
 	// The bytes to append to.
 	serialized []byte,
-	// The value, or nil for an absent key.
-	value []byte,
+	// The field to append.
+	field []byte,
 ) []byte {
-	if value == nil {
-		serialized = append(serialized, 1)
-	} else {
-		serialized = append(serialized, 0)
-	}
-	valueLength := uint32(len(value)) //nolint:gosec // G115 - the constructors bound the length
-	serialized = binary.BigEndian.AppendUint32(serialized, valueLength)
-	return append(serialized, value...)
+	fieldLength := uint32(len(field)) //nolint:gosec // G115 - the constructors bound the length
+	serialized = binary.BigEndian.AppendUint32(serialized, fieldLength)
+	return append(serialized, field...)
 }
 
 // readBudlet parses the serialized budlet at the start of data, returning it and the bytes after it.
@@ -123,22 +113,15 @@ func readBudlet(
 	// Bytes that start with a serialized budlet.
 	data []byte,
 ) (*Budlet, []byte, error) {
-	if len(data) < 4 {
-		return nil, nil, fmt.Errorf("serialized budlet is %d bytes, too short to hold a key length", len(data))
+	key, data, err := readBudletField(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading key: %w", err)
 	}
-	keyLength := uint64(binary.BigEndian.Uint32(data))
-	data = data[4:]
-	if uint64(len(data)) < keyLength {
-		return nil, nil, fmt.Errorf("serialized budlet ends inside its %d byte key", keyLength)
-	}
-	key := bytes.Clone(data[:keyLength])
-	data = data[keyLength:]
-
-	value, data, err := readBudletValue(data)
+	value, data, err := readBudletField(data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading value: %w", err)
 	}
-	previousValue, data, err := readBudletValue(data)
+	previousValue, data, err := readBudletField(data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading previous value: %w", err)
 	}
@@ -156,34 +139,21 @@ func readBudlet(
 	return budlet, rest, nil
 }
 
-// readBudletValue parses the serialized budlet value at the start of data, returning it and the bytes after it. A
-// deletion is returned as nil, and a written value as non-nil, even when empty.
-func readBudletValue(
-	// Bytes that start with a serialized budlet value.
+// readBudletField parses the serialized key, value, or previous value at the start of data, returning a copy of it
+// and the bytes after it. The copy is never nil, even when empty.
+func readBudletField(
+	// Bytes that start with a serialized budlet field.
 	data []byte,
 ) ([]byte, []byte, error) {
-	if len(data) < 1+4 {
-		return nil, nil, fmt.Errorf("serialized budlet ends before a deletion flag and value length")
+	if len(data) < 4 {
+		return nil, nil, fmt.Errorf("serialized budlet ends before a field length")
 	}
-	deletionFlag := data[0]
-	valueLength := uint64(binary.BigEndian.Uint32(data[1:]))
-	data = data[1+4:]
-	if uint64(len(data)) < valueLength {
-		return nil, nil, fmt.Errorf("serialized budlet ends inside a %d byte value", valueLength)
+	fieldLength := uint64(binary.BigEndian.Uint32(data))
+	data = data[4:]
+	if uint64(len(data)) < fieldLength {
+		return nil, nil, fmt.Errorf("serialized budlet ends inside a %d byte field", fieldLength)
 	}
-
-	switch deletionFlag {
-	case 0:
-		// Never nil, even when empty, so that an empty value is not read back as a deletion.
-		return append([]byte{}, data[:valueLength]...), data[valueLength:], nil
-	case 1:
-		if valueLength != 0 {
-			return nil, nil, fmt.Errorf("serialized deletion has a %d byte value", valueLength)
-		}
-		return nil, data, nil
-	default:
-		return nil, nil, fmt.Errorf("serialized budlet has deletion flag %d, want 0 or 1", deletionFlag)
-	}
+	return append([]byte{}, data[:fieldLength]...), data[fieldLength:], nil
 }
 
 // validate returns an error unless the budlet's key, value, and previous value are within the bounds NewBudlet()

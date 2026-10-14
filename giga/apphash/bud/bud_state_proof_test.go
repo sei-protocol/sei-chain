@@ -61,9 +61,9 @@ func newTestBUDStateProof(
 	t *testing.T,
 	// The source of the other budlets in the block.
 	rng *rand.Rand,
-	// The value written, or nil for a deletion.
+	// The value written.
 	value []byte,
-	// The key's previous value, or nil if it was absent.
+	// The key's previous value.
 	previousValue []byte,
 	// The not-modified-since height of the write.
 	notModifiedSince uint64,
@@ -97,10 +97,8 @@ func TestBUDStateProofValueAt(t *testing.T) {
 	}{
 		"write over a value":         {[]byte("value"), []byte("previous value"), testNotModifiedSince},
 		"write over an empty value":  {[]byte("value"), []byte{}, testNotModifiedSince},
-		"deletion":                   {nil, []byte("previous value"), testNotModifiedSince},
-		"write over an absent key":   {[]byte("value"), nil, testNotModifiedSince},
+		"write of an empty value":    {[]byte{}, []byte("previous value"), testNotModifiedSince},
 		"not modified since genesis": {[]byte("value"), []byte("previous value"), 0},
-		"absent since genesis":       {[]byte("value"), nil, 0},
 		"modified one height below":  {[]byte("value"), []byte("previous value"), testWriteHeight - 1},
 	}
 	for name, testCase := range testCases {
@@ -113,12 +111,10 @@ func TestBUDStateProofValueAt(t *testing.T) {
 			for height := testCase.notModifiedSince; height < testWriteHeight; height++ {
 				value, covered := stateProof.ValueAt(height)
 				require.True(t, covered, "height %d", height)
-				require.Equal(t, testCase.previousValue == nil, value == nil, "height %d", height)
 				require.Equal(t, testCase.previousValue, value, "height %d", height)
 			}
 			value, covered := stateProof.ValueAt(testWriteHeight)
 			require.True(t, covered)
-			require.Equal(t, testCase.value == nil, value == nil)
 			require.Equal(t, testCase.value, value)
 
 			if testCase.notModifiedSince > 0 {
@@ -189,8 +185,8 @@ func TestBUDStateProofSerializationRoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(10))
 	for _, stateProof := range []*BUDStateProof{
 		newTestBUDStateProof(t, rng, []byte("value"), []byte("previous value"), testNotModifiedSince),
-		newTestBUDStateProof(t, rng, nil, []byte{}, testNotModifiedSince),
-		newTestBUDStateProof(t, rng, []byte{}, nil, 0),
+		newTestBUDStateProof(t, rng, []byte{}, []byte("previous value"), testNotModifiedSince),
+		newTestBUDStateProof(t, rng, []byte("value"), []byte{}, 0),
 	} {
 		deserialized, err := DeserializeBUDStateProof(stateProof.Serialize())
 		require.NoError(t, err)
