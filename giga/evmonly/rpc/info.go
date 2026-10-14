@@ -12,6 +12,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -291,13 +292,13 @@ func coversRewardPercentiles(stats receiptpkg.BlockStats, rewardPercentiles []fl
 }
 
 // recomputeBlockStats answers height's BlockStats by reading its receipts directly and running
-// receiptpkg.ComputeBlockStats over exactly rewardPercentiles.
+// gigareceipt.ComputeBlockStats over exactly rewardPercentiles.
 func (api *infoAPI) recomputeBlockStats(ctx context.Context, height int64, rewardPercentiles []float64) (receiptpkg.BlockStats, error) {
 	records, err := api.receiptRecordsForHeight(ctx, height)
 	if err != nil {
 		return receiptpkg.BlockStats{}, err
 	}
-	return receiptpkg.ComputeBlockStats(records, rewardPercentiles), nil
+	return gigareceipt.ComputeBlockStats(records, rewardPercentiles), nil
 }
 
 // receiptRecordsForHeight answers height's receipts via IterateReceipts when the store supports
