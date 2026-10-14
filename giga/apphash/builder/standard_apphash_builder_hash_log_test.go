@@ -31,7 +31,7 @@ func hashLogDir(dir string) string {
 // ends.
 func openHashLoggingBuilder(t *testing.T, dir string) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := NewStandardAppHashBuilder(hashLoggingConfig(dir))
+	b, err := NewStandardAppHashBuilder(t.Context(), hashLoggingConfig(dir))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = b.Close() })
 	return b
@@ -99,7 +99,7 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
 	config := hashLoggingConfig(t.TempDir())
 	config.HashLogConfig.Version = ""
-	b, err := NewStandardAppHashBuilder(config)
+	b, err := NewStandardAppHashBuilder(t.Context(), config)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = b.Close() })
 

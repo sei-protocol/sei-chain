@@ -62,17 +62,22 @@ func openTestBuilder(
 	gigaActivationHeight uint64,
 ) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := openBuilder(dir, chainID, gigaActivationHeight)
+	b, err := openBuilder(t.Context(), dir, chainID, gigaActivationHeight)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = b.Close() })
 	return b
 }
 
 // openBuilder opens a builder over the vault in dir.
-func openBuilder(dir string, chainID uint64, gigaActivationHeight uint64) (*StandardAppHashBuilder, error) {
+func openBuilder(
+	ctx context.Context,
+	dir string,
+	chainID uint64,
+	gigaActivationHeight uint64,
+) (*StandardAppHashBuilder, error) {
 	config := testConfig(dir, gigaActivationHeight)
 	config.ChainID = chainID
-	return NewStandardAppHashBuilder(config)
+	return NewStandardAppHashBuilder(ctx, config)
 }
 
 // testConfig returns the default configuration for the test chain, with its hash vault in dir and its giga activation
@@ -536,12 +541,12 @@ func TestOfflineHeadRejectsZeroGigaActivationHeight(t *testing.T) {
 func TestChainIDMismatchFailsStartup(t *testing.T) {
 	dir := t.TempDir()
 	buildChain(t, dir, 3)
-	_, err := openBuilder(dir, testChainID+1, 1)
+	_, err := openBuilder(t.Context(), dir, testChainID+1, 1)
 	require.Error(t, err)
 }
 
 func TestZeroGigaActivationHeightFailsStartup(t *testing.T) {
-	_, err := openBuilder(t.TempDir(), testChainID, 0)
+	_, err := openBuilder(t.Context(), t.TempDir(), testChainID, 0)
 	require.Error(t, err)
 }
 

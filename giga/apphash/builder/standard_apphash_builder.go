@@ -129,7 +129,7 @@ type startupState struct {
 }
 
 // Opens the builder's hash vault and starts the builder. Errors if the vault holds app hashes of another chain.
-func NewStandardAppHashBuilder(config AppHashBuilderConfig) (*StandardAppHashBuilder, error) {
+func NewStandardAppHashBuilder(ctx context.Context, config AppHashBuilderConfig) (*StandardAppHashBuilder, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid app hash builder config: %w", err)
 	}
@@ -142,7 +142,7 @@ func NewStandardAppHashBuilder(config AppHashBuilderConfig) (*StandardAppHashBui
 		_ = hashVault.Close()
 		return nil, fmt.Errorf("failed to load the app hash builder's startup state: %w", err)
 	}
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(ctx)
 	b := &StandardAppHashBuilder{
 		chainID:              config.ChainID,
 		gigaActivationHeight: config.GigaActivationHeight,
@@ -263,7 +263,7 @@ func (b *StandardAppHashBuilder) ExternalPruning() bool {
 }
 
 func (b *StandardAppHashBuilder) PruneHistory(blockNumber uint64) error {
-	if err := b.submit(context.Background(), pruneRequest{blockHeight: blockNumber}); err != nil {
+	if err := b.submit(b.ctx, pruneRequest{blockHeight: blockNumber}); err != nil {
 		return fmt.Errorf("failed to request pruning below block %d: %w", blockNumber, err)
 	}
 	return nil
@@ -292,7 +292,7 @@ func (b *StandardAppHashBuilder) GetRollbackFloor(rollbackWindow uint64) uint64 
 // none is.
 func (b *StandardAppHashBuilder) GetLatestBlock() (uint64, error) {
 	reply := make(chan callResult[uint64], 1)
-	if err := b.submit(context.Background(), latestBlockRequest{reply: reply}); err != nil {
+	if err := b.submit(b.ctx, latestBlockRequest{reply: reply}); err != nil {
 		return 0, fmt.Errorf("failed to read the app hash builder's head: %w", err)
 	}
 	head, err := awaitReply(b, reply)

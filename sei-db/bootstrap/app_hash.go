@@ -14,7 +14,7 @@ import (
 //
 // It must run after every other store has recovered, and before any block is executed.
 func (m *GigaStorageManager) openAppHashBuilder(ctx context.Context) error {
-	appHashBuilder, err := builder.NewStandardAppHashBuilder(*m.cfg.AppHashBuilderConfig)
+	appHashBuilder, err := builder.NewStandardAppHashBuilder(ctx, *m.cfg.AppHashBuilderConfig)
 	if err != nil {
 		return fmt.Errorf("open app hash builder: %w", err)
 	}
