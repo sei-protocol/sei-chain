@@ -41,6 +41,20 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) []abci.ValidatorUpdate {
 	}()
 
 	updates := k.BlockValidatorUpdates(ctx)
+	wasReady := k.DelegationByValIndexReady(ctx)
 	backfillDelegationByValIndex(ctx, k)
+	auditDelegationByValIndex(ctx, k, wasReady)
 	return updates
+}
+
+// auditDelegationByValIndex audits the delegation-by-validator index on the block it
+// becomes ready and every DelegationByValIndexAuditInterval blocks after. TEST ONLY.
+func auditDelegationByValIndex(ctx sdk.Context, k keeper.Keeper, wasReady bool) {
+	if !k.DelegationByValIndexReady(ctx) {
+		return
+	}
+	if wasReady && ctx.BlockHeight()%keeper.DelegationByValIndexAuditInterval != 0 {
+		return
+	}
+	k.LogDelegationByValIndexAudit(ctx)
 }
