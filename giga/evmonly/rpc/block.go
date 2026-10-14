@@ -314,10 +314,7 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 	if !errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
 		return 0, fmt.Errorf("read block stats for block %d: %w", height, err)
 	}
-	records, err := receiptRecordsFromIterator(ctx, store, height)
-	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
-		records, err = receiptRecordsFromBlock(ctx, store, block)
-	}
+	records, err := blockReceiptRecords(ctx, store, block)
 	if err != nil {
 		return 0, err
 	}
