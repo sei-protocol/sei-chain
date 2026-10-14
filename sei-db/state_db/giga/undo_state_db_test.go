@@ -253,3 +253,13 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 		view.Close()
 	}
 }
+
+func TestUndoStateDBRefusesABlockWithoutItsChangeSet(t *testing.T) {
+	db := newUndoTestHome(t).open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	changeset := []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
+		Pairs: []*proto.KVPair{{Key: nonceKey(common.Address{1}), Value: nonceValue(1)}}}}}
+
+	require.Error(t, db.CommitStateChanges(1, changeset))
+	require.NoError(t, db.CommitStateChanges(1, nil), "a block that changes nothing has nothing to record")
+}

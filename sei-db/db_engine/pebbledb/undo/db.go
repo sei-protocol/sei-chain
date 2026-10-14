@@ -450,12 +450,13 @@ func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, bucket, heig
 		w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
 	}
 	for _, change := range changes.Code {
-		var codeHash []byte
+		// Code is absent only when empty: zero bytes are valid code.
+		var code, codeHash []byte
 		if len(change.PriorCode) != 0 {
-			codeHash = crypto.Keccak256(change.PriorCode)
+			code, codeHash = change.PriorCode, crypto.Keccak256(change.PriorCode)
 		}
 		w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
-		w.add(CodeKeyPrefix[0], change.Address[:], nil, nonZero(change.PriorCode))
+		w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
 	}
 	for _, change := range changes.Storage {
 		w.add(StateKeyPrefix[0], change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))

@@ -230,8 +230,8 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 }
 
 // apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
-// values to the store. As in the state commit store, a zero value is no value, and code carries its
-// code hash.
+// values to the store. As in the state commit store, a zero value is no value, except for code, which
+// is absent only when empty and carries its code hash.
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
 	prev := c.states[len(c.states)-1]
@@ -239,7 +239,7 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 	next := maps.Clone(prev)
 	prior := map[string][]byte{}
 	set := func(key string, value []byte) {
-		if nonZero(value) == nil {
+		if len(value) == 0 || key[0] != CodeKeyPrefix[0] && nonZero(value) == nil {
 			delete(next, key)
 		} else {
 			next[key] = value
@@ -249,7 +249,7 @@ func (c *chain) apply(changes map[string][]byte, async bool) {
 		prior[key] = prev[key]
 		set(key, value)
 		if key[0] == CodeKeyPrefix[0] {
-			set(string(CodeHashKeyPrefix)+key[1:], crypto.Keccak256(nonZero(value)))
+			set(string(CodeHashKeyPrefix)+key[1:], crypto.Keccak256(value))
 		}
 	}
 	c.states = append(c.states, next)
@@ -1105,6 +1105,15 @@ func TestEveryFamilyIsRecorded(t *testing.T) {
 	latest, err := readMarker(db.storage, latestVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
+}
+
+func TestZeroByteCodeIsPresent(t *testing.T) {
+	c := newChain(t, t.TempDir(), 10, 0)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	c.apply(map[string][]byte{codeKey(contract): {0x00}}, false)
+	c.apply(map[string][]byte{codeKey(contract): {0x60, 0x00}}, false)
+	c.requireRead(1, codeKey(contract))
+	c.requireRead(1, string(CodeHashKeyPrefix)+codeKey(contract)[1:])
 }
 
 func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {

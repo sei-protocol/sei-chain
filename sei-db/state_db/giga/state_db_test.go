@@ -3,10 +3,13 @@ package giga
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -188,4 +191,29 @@ func TestOpenViewAtServesNoHeightWithoutAStateStore(t *testing.T) {
 	view, ok := stateDB.OpenViewAt(5)
 	require.False(t, ok)
 	require.Nil(t, view)
+}
+
+// A view over the pebbledb state store pins nothing, so once its height is pruned a read fails rather
+// than reporting every key absent.
+func TestSSViewFailsReadsOnceItsHeightIsPruned(t *testing.T) {
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+	ssCfg.ExternalPruning = true
+	db, err := NewStateDB(t.Context(), flatkvconfig.DefaultTestConfig(t), ssCfg, config.CheckpointConfig{BlockInterval: 1_000})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	addr := common.Address{1}
+	for height := int64(1); height <= 3; height++ {
+		require.NoError(t, db.CommitStateChanges(height, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(uint64(height))}}}}}))
+	}
+	db.SS().WaitForPendingWrites()
+
+	view, ok := db.OpenViewAt(1)
+	require.True(t, ok)
+	defer view.Close()
+	require.Equal(t, uint64(1), view.GetNonce(addr))
+	require.NoError(t, db.SS().PruneHistory(3))
+	require.Panics(t, func() { view.GetNonce(addr) })
 }
