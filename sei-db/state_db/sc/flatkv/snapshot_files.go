@@ -203,8 +203,8 @@ func linkDirContents(src, dst string, link func(oldname, newname string) error) 
 
 // VerifySnapshotDir returns nil when the snapshot directory dir and everything under it are directories
 // or regular files, dir holds every data database, and each one records version as its committed
-// version. version must be at least 1. It opens each database read-only, which leaves a Pebble LOCK file
-// in the database directory.
+// version. version must be at least 1. It does not check the contents against any root hash. It opens
+// each database read-only, which leaves a Pebble LOCK file in the database directory.
 func VerifySnapshotDir(dir string, version int64) error {
 	// A database with no version record reads as 0, so version 0 would accept empty directories.
 	if version < 1 {
