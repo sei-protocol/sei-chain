@@ -27,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -64,18 +65,25 @@ func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, 
 	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
 }
 
+// normalizeEarliest maps 0x0 to the "earliest" tag; Sei treats them alike.
+func normalizeEarliest(number rpc.BlockNumber) rpc.BlockNumber {
+	if number == 0 {
+		return rpc.EarliestBlockNumber
+	}
+	return number
+}
+
 func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
-	switch number {
+	switch normalizeEarliest(number) {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		numberPtr = nil // requesting Block with nil means the latest block
 	case rpc.EarliestBlockNumber:
-		genesisRes, err := tmClient.Genesis(ctx)
+		earliest, err := earliestBlockHeight(ctx, tmClient)
 		if err != nil {
 			return nil, err
 		}
-		TraceTendermintIfApplicable(ctx, "Genesis", []string{}, genesisRes)
-		numberPtr = &genesisRes.Genesis.InitialHeight
+		numberPtr = &earliest
 	default:
 		numberI64 := number.Int64()
 		numberPtr = &numberI64
@@ -83,7 +91,46 @@ func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc
 	return numberPtr, nil
 }
 
-func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
+// resolveHeight returns the block height number selects, with head tags resolving to latest.
+func resolveHeight(ctx context.Context, tmClient client.LocalClient, latest int64, number rpc.BlockNumber) (int64, error) {
+	height, err := getBlockNumber(ctx, tmClient, number)
+	if err != nil {
+		return 0, err
+	}
+	if height == nil {
+		return latest, nil
+	}
+	return *height, nil
+}
+
+// earliestBlockHeight returns the lowest block height this node serves, never below the chain's first block.
+func earliestBlockHeight(ctx context.Context, tmClient client.LocalClient) (int64, error) {
+	if tmClient == nil {
+		return 0, errors.New("tendermint client is not configured")
+	}
+	status, err := tmClient.Status(ctx)
+	if err != nil {
+		return 0, err
+	}
+	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
+	return max(status.SyncInfo.EarliestBlockHeight, firstBlockHeight(tmClient)), nil
+}
+
+// firstBlockHeight returns the height of the chain's first committed block.
+func firstBlockHeight(tmClient client.LocalClient) int64 {
+	return max(tmClient.GenesisInitialHeight(), genesistypes.DefaultGenesisInitialHeight)
+}
+
+// isEarliestBound reports whether a log filter bound is "earliest" or 0x0.
+func isEarliestBound(bound *big.Int) bool {
+	return bound != nil && bound.IsInt64() && normalizeEarliest(rpc.BlockNumber(bound.Int64())) == rpc.EarliestBlockNumber
+}
+
+// getHeightFromBigIntBlockNumber resolves a log filter bound; "earliest" and 0x0 are earliest.
+func getHeightFromBigIntBlockNumber(latest, earliest int64, blockNumber *big.Int) int64 {
+	if isEarliestBound(blockNumber) {
+		return earliest
+	}
 	switch blockNumber.Int64() {
 	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
 		return latest

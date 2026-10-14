@@ -2,6 +2,7 @@ package state
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -30,13 +31,17 @@ func (s *DBImpl) GetCode(addr common.Address) []byte {
 	return s.codeCache[addr]
 }
 
-func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
+func (s *DBImpl) SetCode(addr common.Address, code []byte, reason tracing.CodeChangeReason) []byte {
 	oldCode := s.GetCode(addr)
-	if s.logger != nil && s.logger.OnCodeChange != nil {
+	if s.logger != nil && (s.logger.OnCodeChangeV2 != nil || s.logger.OnCodeChange != nil) {
 		// The SetCode method could be modified to return the old code/hash directly.
 		oldHash := s.GetCodeHash(addr)
-
-		s.logger.OnCodeChange(addr, oldHash, oldCode, common.Hash(crypto.Keccak256(code)), code)
+		newHash := common.Hash(crypto.Keccak256(code))
+		if s.logger.OnCodeChangeV2 != nil {
+			s.logger.OnCodeChangeV2(addr, oldHash, oldCode, newHash, code, reason)
+		} else {
+			s.logger.OnCodeChange(addr, oldHash, oldCode, newHash, code)
+		}
 	}
 
 	s.k.SetCode(s.ctx, addr, code)

@@ -31,13 +31,13 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 	// mock beacon root if replaying
 	if k.EthReplayConfig.Enabled {
 		if beaconRoot := k.ReplayBlock.BeaconRoot(); beaconRoot != nil {
-			blockCtx, err := k.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+			blockCtx, err := k.GetVMBlockContext(ctx, core.NewGasPool(math.MaxUint64))
 			if err != nil {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, k, false)
-			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles(ctx))
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
+			vmenv := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles(ctx))
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, nil)
 			_, err = statedb.Finalize()
 			if err != nil {
 				panic(err)
@@ -46,13 +46,13 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 	}
 	if k.EthBlockTestConfig.Enabled {
 		parentHash := common.BytesToHash(ctx.BlockHeader().LastBlockId.Hash)
-		blockCtx, err := k.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+		blockCtx, err := k.GetVMBlockContext(ctx, core.NewGasPool(math.MaxUint64))
 		if err != nil {
 			panic(err)
 		}
 		statedb := state.NewDBImpl(ctx, k, false)
-		vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles(ctx))
-		core.ProcessParentBlockHash(parentHash, vmenv)
+		vmenv := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), vm.Config{}, k.CustomPrecompiles(ctx))
+		core.ProcessParentBlockHash(parentHash, vmenv, nil)
 		_, err = statedb.Finalize()
 		if err != nil {
 			panic(err)
@@ -91,14 +91,14 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	}
 	var coinbase sdk.AccAddress
 	if k.EthBlockTestConfig.Enabled {
-		blocks := k.BlockTest.Json.Blocks
+		blocks := k.BlockTest.JSON().Blocks
 		block, err := blocks[ctx.BlockHeight()-1].Decode()
 		if err != nil {
 			panic(err)
 		}
-		coinbase = k.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
+		coinbase = k.GetSeiAddressOrDefault(ctx, block.Header().Coinbase)
 	} else if k.EthReplayConfig.Enabled {
-		coinbase = k.GetSeiAddressOrDefault(ctx, k.ReplayBlock.Header_.Coinbase)
+		coinbase = k.GetSeiAddressOrDefault(ctx, k.ReplayBlock.Header().Coinbase)
 		k.SetReplayedHeight(ctx)
 	} else {
 		coinbase = k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)

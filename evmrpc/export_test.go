@@ -138,7 +138,7 @@ func ProfiledTraceBlockParallelForTest(
 	block *ethtypes.Block,
 	metadata []tracersutils.TraceBlockMetadata,
 	config *tracers.TraceConfig,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	signer ethtypes.Signer,
 	blockHash gethcommon.Hash,
 	results []*tracers.TxTraceResult,

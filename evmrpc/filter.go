@@ -682,13 +682,9 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
-	latest, err := a.logFetcher.latestHeight(ctx)
+	earliest, latest, err := a.logFetcher.watermarks.ReceiptRange(ctx)
 	if err != nil {
 		return nil, err
-	}
-	earliest, err := a.logFetcher.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 
 	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
@@ -826,20 +822,18 @@ type LogFetcher struct {
 	watermarks               *WatermarkManager
 }
 
-// ComputeBlockBounds validates that the requested block range lies within the
-// available bounds and returns the effective range, taking incremental
-// pagination into account. The function never widens the range – any request
-// that extends beyond the available history results in an error so we avoid
-// returning truncated data.
+// ComputeBlockBounds returns the effective block range within the available
+// bounds, taking incremental pagination into account. "earliest" and 0x0 mean
+// the earliest available block; other heights outside available history error.
 func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64, error) {
 	begin := latest
 	end := latest
 
 	if crit.FromBlock != nil {
-		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
+		begin = getHeightFromBigIntBlockNumber(latest, earliest, crit.FromBlock)
 	}
 	if crit.ToBlock != nil {
-		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+		end = getHeightFromBigIntBlockNumber(latest, earliest, crit.ToBlock)
 		if crit.FromBlock == nil && begin > end {
 			begin = end
 		}
@@ -892,13 +886,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err := requireReceiptStore(f.k); err != nil {
 		return nil, 0, err
 	}
-	latest, err := f.latestHeight(ctx)
+	earliest, latest, err := f.watermarks.ReceiptRange(ctx)
 	if err != nil {
 		return nil, 0, err
-	}
-	earliest, err := f.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {
@@ -1065,13 +1055,9 @@ func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filte
 			return nil, 0, err
 		}
 
-		latest, hErr := f.latestHeight(ctx)
-		if hErr != nil {
-			return nil, 0, hErr
-		}
-		earliest, eErr := f.earliestHeight(ctx)
-		if eErr != nil {
-			earliest = 0
+		earliest, latest, rErr := f.watermarks.ReceiptRange(ctx)
+		if rErr != nil {
+			return nil, 0, rErr
 		}
 		begin, curEnd, boundsErr := ComputeBlockBounds(latest, earliest, lastToHeight, narrowed)
 		if boundsErr != nil {
@@ -1144,14 +1130,6 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log, limit int64) []*
 	}
 
 	return res
-}
-
-func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
-	return f.watermarks.LatestHeight(ctx)
-}
-
-func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
-	return f.watermarks.EarliestHeight(ctx)
 }
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
@@ -1451,13 +1429,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	// Block range (including open-ended queries) is enforced by FilterAPI.GetLogs
 	// and GetLogsByFilters before this block-by-block fallback runs.
-	latest, err := f.watermarks.LatestHeight(ctx)
+	earliest, latest, err := f.watermarks.ReceiptRange(ctx)
 	if err != nil {
 		return nil, 0, err
-	}
-	earliest, err := f.watermarks.EarliestHeight(ctx)
-	if err != nil {
-		earliest = 0
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {

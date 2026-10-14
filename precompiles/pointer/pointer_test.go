@@ -41,7 +41,7 @@ func TestRetiredPrecompileRejectsCalls(t *testing.T) {
 	_, caller := testkeeper.MockAddressPair()
 	suppliedGas := uint64(10000000)
 	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
-	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
+	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.NewGasPool(suppliedGas))
 
 	for _, name := range []string{
 		"addNativePointer",
@@ -55,7 +55,7 @@ func TestRetiredPrecompileRejectsCalls(t *testing.T) {
 			require.NoError(t, packErr)
 
 			statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-			evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
+			evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
 			ret, _, runErr := precompile.RunAndCalculateGas(
 				evm,
 				caller,
@@ -90,14 +90,14 @@ func TestRetiredPrecompileRejectsValue(t *testing.T) {
 	_, caller := testkeeper.MockAddressPair()
 	suppliedGas := uint64(10000000)
 	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
-	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
+	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.NewGasPool(suppliedGas))
 
 	method := precompile.ABI.Methods["addNativePointer"]
 	inputs, err := method.Inputs.Pack("test")
 	require.NoError(t, err)
 
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
 	_, _, err = precompile.RunAndCalculateGas(
 		evm,
 		caller,

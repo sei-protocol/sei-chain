@@ -9,6 +9,7 @@ import (
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -64,15 +65,15 @@ func signedEVMOnlyCreateTx(t *testing.T, chainID uint64, data []byte, gas uint64
 
 func callMessage(from common.Address, to *common.Address) *ethcore.Message {
 	return &ethcore.Message{
-		From:             from,
-		To:               to,
-		GasLimit:         100_000,
-		GasPrice:         new(big.Int),
-		GasFeeCap:        new(big.Int),
-		GasTipCap:        new(big.Int),
-		Value:            new(big.Int),
-		SkipNonceChecks:  true,
-		SkipFromEOACheck: true,
+		From:                  from,
+		To:                    to,
+		GasLimit:              100_000,
+		GasPrice:              new(uint256.Int),
+		GasFeeCap:             new(uint256.Int),
+		GasTipCap:             new(uint256.Int),
+		Value:                 new(uint256.Int),
+		SkipNonceChecks:       true,
+		SkipTransactionChecks: true,
 	}
 }
 

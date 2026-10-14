@@ -7,13 +7,14 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/types/bal"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	ethutils "github.com/ethereum/go-ethereum/trie/utils"
 	"github.com/holiman/uint256"
 )
 
@@ -384,7 +385,7 @@ func (s *nativeStateDB) GetCode(addr common.Address) []byte {
 	return s.account(addr).Code
 }
 
-func (s *nativeStateDB) SetCode(addr common.Address, code []byte) []byte {
+func (s *nativeStateDB) SetCode(addr common.Address, code []byte, _ tracing.CodeChangeReason) []byte {
 	acct := s.account(addr)
 	prev := cloneBytes(acct.Code)
 	s.recordAccount(addr)
@@ -415,6 +416,10 @@ func (s *nativeStateDB) SubRefund(gas uint64) {
 
 func (s *nativeStateDB) GetRefund() uint64 {
 	return s.refund
+}
+
+func (s *nativeStateDB) GetStateAndCommittedState(addr common.Address, key common.Hash) (common.Hash, common.Hash) {
+	return s.GetState(addr, key), s.GetCommittedState(addr, key)
 }
 
 func (s *nativeStateDB) GetCommittedState(addr common.Address, key common.Hash) common.Hash {
@@ -485,25 +490,26 @@ func (s *nativeStateDB) SetTransientState(addr common.Address, key, value common
 	states[key] = value
 }
 
-func (s *nativeStateDB) SelfDestruct(addr common.Address) uint256.Int {
+// SelfDestruct marks addr as self-destructed.
+func (s *nativeStateDB) SelfDestruct(addr common.Address) {
 	acct := s.account(addr)
-	prev := *acct.Balance.Clone()
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
-	acct.Balance.Clear()
+	// The balance is left alone: the SELFDESTRUCT opcode transfers or burns it
+	// before calling this, and under EIP-8246 deliberately keeps it when the
+	// beneficiary is addr itself, so clearing here would burn funds it preserves.
 	acct.SelfDestructed = true
 	s.markForFinalise(addr)
-	return prev
 }
 
-func (s *nativeStateDB) SelfDestruct6780(addr common.Address) (uint256.Int, bool) {
-	acct := s.account(addr)
-	if !acct.Created {
-		return *acct.Balance.Clone(), false
-	}
-	return s.SelfDestruct(addr), true
+// IsNewContract reports whether addr was created in the current transaction (EIP-6780).
+func (s *nativeStateDB) IsNewContract(addr common.Address) bool {
+	return s.account(addr).Created
 }
+
+// Touch is a no-op; block access lists are not built.
+func (s *nativeStateDB) Touch(common.Address) {}
 
 func (s *nativeStateDB) HasSelfDestructed(addr common.Address) bool {
 	return s.account(addr).SelfDestructed
@@ -584,10 +590,6 @@ func (s *nativeStateDB) Prepare(rules params.Rules, sender, coinbase common.Addr
 	}
 }
 
-func (s *nativeStateDB) PointCache() *ethutils.PointCache {
-	return nil
-}
-
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
@@ -630,11 +632,11 @@ func (s *nativeStateDB) Witness() *stateless.Witness {
 	return nil
 }
 
-func (s *nativeStateDB) AccessEvents() *vm.AccessEvents {
+func (s *nativeStateDB) AccessEvents() *state.AccessEvents {
 	return nil
 }
 
-func (s *nativeStateDB) Finalise(bool) {
+func (s *nativeStateDB) Finalise(params.Rules) *bal.ConstructionBlockAccessList {
 	for addr := range s.finaliseAddrs {
 		acct := s.account(addr)
 		if acct.SelfDestructed {
@@ -656,6 +658,7 @@ func (s *nativeStateDB) Finalise(bool) {
 	s.finaliseTxStorage()
 	clear(s.finaliseAddrs)
 	s.refund = 0
+	return nil
 }
 
 func (s *nativeStateDB) Error() error {
@@ -666,7 +669,7 @@ func (s *nativeStateDB) Commit(uint64, bool, bool) (common.Hash, error) {
 	return common.Hash{}, s.err
 }
 
-func (s *nativeStateDB) SetTxContext(hash common.Hash, index int) {
+func (s *nativeStateDB) SetTxContext(hash common.Hash, index int, _ uint32) {
 	s.txHash = hash
 	s.txIndex = index
 }
@@ -677,7 +680,7 @@ func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint
 	s.txIndexUint = indexUint
 }
 
-func (s *nativeStateDB) Copy() vm.StateDB {
+func (s *nativeStateDB) Copy() vm.SeiStateDB {
 	cp := &nativeStateDB{
 		source:                   s.source,
 		accounts:                 cloneAccounts(s.accounts),
@@ -705,11 +708,11 @@ func (s *nativeStateDB) Copy() vm.StateDB {
 	return cp
 }
 
-func (s *nativeStateDB) IntermediateRoot(bool) common.Hash {
+func (s *nativeStateDB) IntermediateRoot(params.Rules) common.Hash {
 	return common.Hash{}
 }
 
-func (s *nativeStateDB) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
+func (s *nativeStateDB) GetLogs(common.Hash, uint64, common.Hash, uint64) []*ethtypes.Log {
 	return s.Logs()
 }
 
@@ -1446,3 +1449,5 @@ func uint256FromBig(v *big.Int) (*uint256.Int, error) {
 	}
 	return u, nil
 }
+
+var _ vm.SeiStateDB = (*nativeStateDB)(nil)

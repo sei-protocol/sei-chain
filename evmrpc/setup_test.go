@@ -1446,7 +1446,7 @@ func TestEcho(t *testing.T) {
 	require.Nil(t, err)
 	resBody, err := io.ReadAll(res.Body)
 	require.Nil(t, err)
-	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(resBody))
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}", strings.TrimSpace(string(resBody)))
 
 	// Test WS server
 	headers := make(http.Header)
@@ -1457,5 +1457,5 @@ func TestEcho(t *testing.T) {
 	require.Nil(t, conn.WriteMessage(websocket.TextMessage, []byte(body)))
 	_, buf, err := conn.ReadMessage()
 	require.Nil(t, err)
-	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(buf))
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}", strings.TrimSpace(string(buf)))
 }

@@ -301,13 +301,13 @@ func (e *behaviorEnv) traceCall(from, to common.Address, data []byte, value *big
 	}
 	sstore := e.k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(e.k.ChainID(ctx), &sstore)
-	evm := vm.NewEVM(*blockCtx, db, cfg, vm.Config{Tracer: hooks}, e.k.CustomPrecompiles(ctx))
-	evm.SetTxContext(vm.TxContext{Origin: from, GasPrice: big.NewInt(0)})
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, db, cfg, vm.Config{Tracer: hooks}, e.k.CustomPrecompiles(ctx))
+	evm.SetTxContext(vm.TxContext{Origin: from, GasPrice: uint256.NewInt(0)})
 	v := uint256.NewInt(0)
 	if value != nil {
 		v = uint256.MustFromBig(value)
 	}
-	ret, _, err := evm.Call(from, to, data, 1_000_000, v)
+	ret, _, err := evm.Call(from, to, data, vm.NewGasBudget(1_000_000, 0), v)
 	if err != nil {
 		return ret, err
 	}
@@ -343,19 +343,19 @@ func TestBuiltinPrecompileWinsOnCollisionBehavior(t *testing.T) {
 	blockCtx, err := e.k.GetVMBlockContext(e.ctx, e.k.GetGasPool())
 	require.NoError(t, err)
 	cfg := types.DefaultChainConfig().EthereumConfig(e.k.ChainID(e.ctx))
-	custom := map[common.Address]vm.PrecompiledContract{
+	custom := map[common.Address]vm.CustomPrecompiledContract{
 		ecrecoverAddr:  fakePrecompile{calls: &calls},
 		unregisteredSA: fakePrecompile{calls: &calls},
 	}
-	evm := vm.NewEVM(*blockCtx, db, cfg, vm.Config{}, custom)
-	ret, left, err := evm.Call(signerAddr, ecrecoverAddr, input, 10_000, uint256.NewInt(0))
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, db, cfg, vm.Config{}, custom)
+	ret, left, err := evm.Call(signerAddr, ecrecoverAddr, input, vm.NewGasBudget(10_000, 0), uint256.NewInt(0))
 	require.NoError(t, err)
 	require.Equal(t, common.LeftPadBytes(signerAddr.Bytes(), 32), ret)
-	require.Equal(t, uint64(10_000-3000), left)
+	require.Equal(t, uint64(10_000-3000), left.ExecutionGas)
 	require.Equal(t, 0, calls, "custom precompile at builtin address never invoked")
 
 	// non-colliding custom address dispatches to custom contract
-	ret, _, err = evm.Call(signerAddr, unregisteredSA, nil, 10_000, uint256.NewInt(0))
+	ret, _, err = evm.Call(signerAddr, unregisteredSA, nil, vm.NewGasBudget(10_000, 0), uint256.NewInt(0))
 	require.NoError(t, err)
 	require.Equal(t, []byte("fake"), ret)
 	require.Equal(t, 1, calls)

@@ -5,7 +5,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/holiman/uint256"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -28,6 +27,11 @@ func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common
 		return ov.committed[hash.Hex()]
 	}
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
+}
+
+// GetStateAndCommittedState returns the current and the committed value of a slot.
+func (s *DBImpl) GetStateAndCommittedState(addr common.Address, hash common.Hash) (common.Hash, common.Hash) {
+	return s.GetState(addr, hash), s.GetCommittedState(addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
@@ -79,31 +83,28 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 	s.journal = append(s.journal, &transientStorageChange{account: addr, key: key, prevalue: prev})
 }
 
-// debits account's balance. The corresponding credit happens here:
-// https://github.com/sei-protocol/go-ethereum/blob/master/core/vm/instructions.go#L825
-// clear account's state except the transient state (in Ethereum transient states are
-// still available even after self destruction in the same tx)
-func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
+// SelfDestruct marks acc self-destructed; transient state is kept for the rest of the tx.
+func (s *DBImpl) SelfDestruct(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
-	b := s.GetBalance(acc)
-	s.SubBalance(acc, b, tracing.BalanceDecreaseSelfdestruct)
-
+	// The balance is left alone: the SELFDESTRUCT opcode transfers or burns it
+	// before calling this, and under EIP-8246 deliberately keeps it when the
+	// beneficiary is acc itself, so debiting here would burn funds it preserves.
 	// mark account as self-destructed
 	s.MarkAccount(acc, AccountDeleted)
-	return *b
 }
 
-func (s *DBImpl) SelfDestruct6780(acc common.Address) (uint256.Int, bool) {
-	// only self-destruct if acc is newly created in the same block
-	if s.Created(acc) {
-		return s.SelfDestruct(acc), true
-	}
-	return *uint256.NewInt(0), false
+// IsNewContract reports whether the contract at acc was created in the current
+// transaction (EIP-6780).
+func (s *DBImpl) IsNewContract(acc common.Address) bool {
+	return s.Created(acc)
 }
+
+// Touch is a no-op; block access lists are not built.
+func (s *DBImpl) Touch(common.Address) {}
 
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block
@@ -195,22 +196,43 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 		if !bytes.Equal(status, AccountDeleted) {
 			continue
 		}
-		s.clearAccountState(common.HexToAddress(acc))
+		s.clearDestructedAccountState(common.HexToAddress(acc))
 	}
 }
 
+// clearAccountState clears acc's storage, code and nonce if it has stored code.
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
-	// Drop any simulation-local storage override so a recreated/cleared account
-	// reads empty storage rather than the frozen overlay. Journaled so a revert restores the overlay.
+	s.dropStorageOverride(acc)
+	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
+		s.clearStorageCodeAndNonce(acc)
+	}
+}
+
+// clearDestructedAccountState clears a self-destructed account's storage, code and nonce,
+// whether or not code was ever stored.
+func (s *DBImpl) clearDestructedAccountState(acc common.Address) {
+	// The balance is kept; see SelfDestruct.
+	s.k.PrepareReplayedAddr(s.ctx, acc)
+	s.dropStorageOverride(acc)
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
+	s.clearStorageCodeAndNonce(acc)
+}
+
+// dropStorageOverride removes acc's simulation-local storage override, journaled so a
+// revert restores it.
+func (s *DBImpl) dropStorageOverride(acc common.Address) {
+	// A cleared account must read empty storage rather than the frozen overlay.
 	if ov, ok := s.tempState.storageOverrides[acc]; ok {
 		s.journal = append(s.journal, &storageOverrideRemove{account: acc, prev: ov})
 		delete(s.tempState.storageOverrides, acc)
 	}
-	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
-		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
-		s.clearAccountCodeAndNonce(acc)
-	}
+}
+
+// clearStorageCodeAndNonce deletes acc's storage, code and nonce.
+func (s *DBImpl) clearStorageCodeAndNonce(acc common.Address) {
+	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
+	s.clearAccountCodeAndNonce(acc)
 }
 
 func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {

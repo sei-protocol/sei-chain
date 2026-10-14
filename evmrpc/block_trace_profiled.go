@@ -24,7 +24,6 @@ import (
 )
 
 const profiledDefaultTraceTimeout = 5 * time.Second
-const profiledDefaultTraceReexec = uint64(128)
 const maxProfiledTraceWorkers = 16
 
 func (api *DebugAPI) shouldUseProfiledBlockTrace(config *tracers.TraceConfig) bool {
@@ -32,7 +31,7 @@ func (api *DebugAPI) shouldUseProfiledBlockTrace(config *tracers.TraceConfig) bo
 }
 
 func (api *DebugAPI) profiledTraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (interface{}, error) {
-	block, metadata, err := api.backend.BlockByNumber(ctx, number)
+	block, metadata, err := api.backend.BlockWithTraceMetadataByNumber(ctx, number)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +42,7 @@ func (api *DebugAPI) profiledTraceBlockByNumber(ctx context.Context, number rpc.
 }
 
 func (api *DebugAPI) profiledTraceBlockByHash(ctx context.Context, hash gethcommon.Hash, config *tracers.TraceConfig) (interface{}, error) {
-	block, metadata, err := api.backend.BlockByHash(ctx, hash)
+	block, metadata, err := api.backend.BlockWithTraceMetadataByHash(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -66,12 +65,12 @@ func (api *DebugAPI) profiledTraceBlock(
 		return nil, fmt.Errorf("block number exceeds int64: %s", block.Number())
 	}
 
-	parent, _, err := api.backend.BlockByNumber(ctx, rpc.BlockNumber(block.Number().Int64()-1))
+	parent, err := api.backend.BlockByNumber(ctx, rpc.BlockNumber(block.Number().Int64()-1))
 	if err != nil {
 		return nil, err
 	}
 	if parent == nil || parent.Hash() != block.ParentHash() {
-		parent, _, err = api.backend.BlockByHash(ctx, block.ParentHash())
+		parent, err = api.backend.BlockByHash(ctx, block.ParentHash())
 		if err != nil {
 			return nil, err
 		}
@@ -80,11 +79,7 @@ func (api *DebugAPI) profiledTraceBlock(
 		}
 	}
 
-	reexec := profiledDefaultTraceReexec
-	if config != nil && config.Reexec != nil {
-		reexec = *config.Reexec
-	}
-	statedb, release, err := api.backend.StateAtBlock(ctx, parent, reexec, nil, true, false)
+	statedb, release, err := api.backend.StateAtBlock(ctx, parent, nil, true, false)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +118,7 @@ func (api *DebugAPI) profiledTraceBlockSequential(
 	block *gethtypes.Block,
 	metadata []tracersutils.TraceBlockMetadata,
 	config *tracers.TraceConfig,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	blockCtx vm.BlockContext,
 	signer gethtypes.Signer,
 	blockHash gethcommon.Hash,
@@ -174,7 +169,7 @@ func (api *DebugAPI) profiledTraceBlockSequential(
 
 type profiledTxTraceTask struct {
 	index   int
-	statedb vm.StateDB
+	statedb vm.SeiStateDB
 }
 
 func (api *DebugAPI) profiledTraceBlockParallel(
@@ -182,7 +177,7 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 	block *gethtypes.Block,
 	metadata []tracersutils.TraceBlockMetadata,
 	config *tracers.TraceConfig,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	signer gethtypes.Signer,
 	blockHash gethcommon.Hash,
 	results []*tracers.TxTraceResult,
@@ -226,19 +221,19 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 		pend.Wait()
 		return nil, err
 	}
-	evm := vm.NewEVM(mainBlockCtx, statedb, api.backend.ChainConfigAtHeight(block.Number().Int64()), vm.Config{}, api.backend.GetCustomPrecompiles(block.Number().Int64()))
+	evm := vm.NewEVMWithCustomPrecompiles(mainBlockCtx, statedb, api.backend.ChainConfigAtHeight(block.Number().Int64()), vm.Config{}, api.backend.GetCustomPrecompiles(block.Number().Int64()))
 	var failed error
 
 	advanceState := func(i int, tx *gethtypes.Transaction) error {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
-		statedb.SetTxContext(tx.Hash(), i)
+		statedb.SetTxContext(tx.Hash(), i, uint32(i+1)) //nolint:gosec
 		if err := api.backend.PrepareTxNoFlush(statedb, tx); err != nil {
 			return err
 		}
-		if _, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit)); err != nil {
+		if _, err := core.ApplyMessage(evm, msg, core.NewGasPool(msg.GasLimit)); err != nil {
 			return err
 		}
-		statedb.Finalise(evm.ChainConfig().IsEIP158(block.Number()))
+		statedb.Finalise(evm.GetRules())
 		return nil
 	}
 
@@ -332,7 +327,7 @@ func (api *DebugAPI) profiledTraceTx(
 	message *core.Message,
 	txctx *tracers.Context,
 	vmctx vm.BlockContext,
-	statedb vm.StateDB,
+	statedb vm.SeiStateDB,
 	config *tracers.TraceConfig,
 	precompiles vm.PrecompiledContracts,
 	noFlush bool,
@@ -343,7 +338,6 @@ func (api *DebugAPI) profiledTraceTx(
 		tracerMtx *sync.Mutex
 		err       error
 		timeout   = profiledDefaultTraceTimeout
-		usedGas   uint64
 	)
 
 	startingNonce := statedb.GetNonce(message.From)
@@ -376,7 +370,7 @@ func (api *DebugAPI) profiledTraceTx(
 	tracingStateDB := gethstate.NewHookedState(statedb, tracer.Hooks)
 	tracerMtx = &sync.Mutex{}
 	txContext := core.NewEVMTxContext(message)
-	evm := vm.NewEVM(vmctx, tracingStateDB, api.backend.ChainConfigAtHeight(vmctx.BlockNumber.Int64()), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true}, api.backend.GetCustomPrecompiles(vmctx.BlockNumber.Int64()))
+	evm := vm.NewEVMWithCustomPrecompiles(vmctx, tracingStateDB, api.backend.ChainConfigAtHeight(vmctx.BlockNumber.Int64()), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true}, api.backend.GetCustomPrecompiles(vmctx.BlockNumber.Int64()))
 	if precompiles != nil {
 		evm.SetPrecompiles(precompiles)
 	}
@@ -399,7 +393,7 @@ func (api *DebugAPI) profiledTraceTx(
 	}()
 	defer cancel()
 
-	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
+	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex, uint32(txctx.TxIndex+1)) //nolint:gosec
 	var prepareTxErr error
 	prepareStart := time.Now()
 	if noFlush {
@@ -414,7 +408,7 @@ func (api *DebugAPI) profiledTraceTx(
 		return profiledErrorTrace(prepareTxErr, tx, message, txctx, vmctx, config)
 	}
 	executionStart := time.Now()
-	_, err = core.ApplyTransactionWithEVM(message, new(core.GasPool).AddGas(message.GasLimit), statedb, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, evm)
+	_, _, err = core.ApplyTransactionWithEVM(ctx, message, core.NewGasPool(message.GasLimit), statedb, vmctx.BlockNumber, txctx.BlockHash, vmctx.Time, tx, evm)
 	if phaseDurations != nil {
 		phaseDurations.ExecutionNanos = time.Since(executionStart).Nanoseconds()
 	}
@@ -447,7 +441,7 @@ func profiledErrorTrace(err error, tx *gethtypes.Transaction, message *core.Mess
 				"type":    "CALL",
 			}
 			if message.Value != nil {
-				errTrace["value"] = hexutil.Big(*message.Value)
+				errTrace["value"] = (*hexutil.Big)(message.Value.ToBig())
 			}
 			if message.To != nil {
 				errTrace["to"] = message.To.Hex()
@@ -470,7 +464,7 @@ func profiledErrorTrace(err error, tx *gethtypes.Transaction, message *core.Mess
 				"input":    "0x",
 			}
 			if message.Value != nil {
-				action["value"] = hexutil.Big(*message.Value)
+				action["value"] = (*hexutil.Big)(message.Value.ToBig())
 			}
 			if message.To != nil {
 				action["to"] = message.To.Hex()

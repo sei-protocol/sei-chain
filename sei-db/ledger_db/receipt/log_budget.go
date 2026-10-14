@@ -19,11 +19,11 @@ const (
 	//
 	// logHeapStructOverhead covers everything in ethtypes.Log besides Address
 	// and the Topics slice header (both counted separately below): Data's own
-	// slice header (24) plus BlockNumber/TxHash/TxIndex/BlockHash/Index/Removed
-	// and struct padding (100) = 124 on amd64/arm64, where unsafe.Sizeof(Log{})
-	// is 168.
+	// slice header (24) plus BlockNumber/TxHash/TxIndex/BlockHash/BlockTimestamp/
+	// Index/Removed and struct padding (108) = 132 on amd64/arm64, where
+	// unsafe.Sizeof(Log{}) is 176.
 	logHeapPointerOverhead = int64(8)
-	logHeapStructOverhead  = int64(124)
+	logHeapStructOverhead  = int64(132)
 	logTopicsSliceHeader   = int64(24)
 )
 

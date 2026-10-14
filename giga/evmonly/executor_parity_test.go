@@ -916,8 +916,8 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 		return nil, err
 	}
 	stateDB := newGethStateFromMemory(t, initial)
-	evm := vm.NewEVM(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
-	gasPool := new(core.GasPool).AddGas(ctx.GasLimit)
+	evm := vm.NewEVMWithCustomPrecompiles(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
+	gasPool := core.NewGasPool(ctx.GasLimit)
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(ctx.Number), ctx.Time)
 	result := &gethReferenceResult{}
@@ -938,16 +938,16 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 		if err != nil {
 			return nil, err
 		}
-		stateDB.SetTxContext(tx.Hash(), txIndex)
+		stateDB.SetTxContext(tx.Hash(), txIndex, uint32(txIndex+1)) //nolint:gosec
 		evm.SetTxContext(core.NewEVMTxContext(msg))
 		execResult, err := core.ApplyMessage(evm, msg, gasPool)
 		if err != nil {
 			return nil, err
 		}
-		stateDB.Finalise(true)
+		stateDB.Finalise(evm.GetRules())
 
 		txIndexUint := uint(txIndex)
-		txLogs := stateDB.GetLogs(tx.Hash(), ctx.Number, ctx.BlockHash)
+		txLogs := stateDB.GetLogs(tx.Hash(), ctx.Number, ctx.BlockHash, 0)
 		status := ethtypes.ReceiptStatusSuccessful
 		if execResult.Failed() {
 			status = ethtypes.ReceiptStatusFailed
@@ -1003,7 +1003,7 @@ func newGethStateFromMemory(t *testing.T, initial *MemoryState) *gethstate.State
 				seed.SetNonce(addr, acct.Nonce, tracing.NonceChangeUnspecified)
 			}
 			if len(acct.Code) != 0 {
-				seed.SetCode(addr, acct.Code)
+				seed.SetCode(addr, acct.Code, tracing.CodeChangeUnspecified)
 			}
 			for key, value := range acct.Storage {
 				seed.SetState(addr, key, value)
@@ -1011,7 +1011,7 @@ func newGethStateFromMemory(t *testing.T, initial *MemoryState) *gethstate.State
 		}
 		initial.mu.RUnlock()
 	}
-	root, err := seed.Commit(0, true, false)
+	root, err := seed.Commit(params.Rules{IsEIP158: true}, 0)
 	require.NoError(t, err)
 	stateDB, err := gethstate.New(root, db)
 	require.NoError(t, err)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -41,14 +42,14 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	}
 
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
-		return ctx, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
+		return ctx, fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
 	}
 
 	if etx.Value().Sign() < 0 {
 		return ctx, sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
+	intrGas, err := evmtypes.IntrinsicGas(etx)
 	if err != nil {
 		return ctx, err
 	}

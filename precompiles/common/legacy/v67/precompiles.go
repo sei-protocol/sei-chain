@@ -43,7 +43,7 @@ type Precompile struct {
 	executor PrecompileExecutor
 }
 
-var _ vm.PrecompiledContract = &Precompile{}
+var _ vm.CustomPrecompiledContract = &Precompile{}
 
 func NewPrecompile(a abi.ABI, executor PrecompileExecutor, address common.Address, name string) *Precompile {
 	return &Precompile{ABI: a, executor: executor, address: address, name: name}

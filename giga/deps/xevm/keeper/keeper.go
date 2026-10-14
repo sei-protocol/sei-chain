@@ -70,14 +70,14 @@ type Keeper struct {
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
-	CachingDB   *ethstate.CachingDB
+	CodeDB      *ethstate.CodeDB
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
 	receiptStore receipt.ReceiptStore
 
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
-	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
+	latestCustomPrecompiles map[common.Address]vm.CustomPrecompiledContract
 	latestUpgrade           string
 
 	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
@@ -109,10 +109,34 @@ func (ctx *ReplayChainContext) Engine() consensus.Engine {
 
 func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethtypes.Header {
 	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number))) //nolint:gosec
-	if err != nil || res.Header_.Hash() != hash {
+	if err != nil || res.Header().Hash() != hash {
 		return nil
 	}
-	return res.Header_
+	return res.Header()
+}
+
+func (ctx *ReplayChainContext) CurrentHeader() *ethtypes.Header {
+	res, err := ctx.ethClient.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
+func (ctx *ReplayChainContext) GetHeaderByNumber(number uint64) *ethtypes.Header {
+	res, err := ctx.ethClient.HeaderByNumber(context.Background(), new(big.Int).SetUint64(number))
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
+func (ctx *ReplayChainContext) GetHeaderByHash(hash common.Hash) *ethtypes.Header {
+	res, err := ctx.ethClient.HeaderByHash(context.Background(), hash)
+	if err != nil {
+		return nil
+	}
+	return res
 }
 
 func (ctx *ReplayChainContext) Config() *params.ChainConfig {
@@ -150,18 +174,18 @@ func NewKeeper(
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp
 	k.latestUpgrade = latestUpgrade
-	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
+	k.latestCustomPrecompiles = make(map[common.Address]vm.CustomPrecompiledContract, len(cp))
 	for addr, versioned := range cp {
 		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
 	}
 }
 
-func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract {
+func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.CustomPrecompiledContract {
 	if !ctx.IsTracing() {
 		return k.latestCustomPrecompiles
 	}
 	versions := k.GetCustomPrecompilesVersions(ctx)
-	cp := make(map[common.Address]vm.PrecompiledContract, len(k.customPrecompiles))
+	cp := make(map[common.Address]vm.CustomPrecompiledContract, len(k.customPrecompiles))
 	for addr, versioned := range k.customPrecompiles {
 		cp[addr] = versioned[versions[addr]]
 	}
@@ -258,7 +282,7 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 	}
 }
 
-func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
+func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp *core.GasPool) (*vm.BlockContext, error) {
 	coinbase, err := k.GetFeeCollectorAddress(ctx)
 	if err != nil {
 		return nil, err
@@ -271,11 +295,11 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	}
 	rh := crypto.Keccak256Hash(r)
 
-	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
+	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int, rules *params.Rules) {
 		if IsPayablePrecompile(&recipient) {
 			state.TransferWithoutEvents(db, sender, recipient, amount)
 		} else {
-			core.Transfer(db, sender, recipient, amount)
+			core.Transfer(db, sender, recipient, amount, rules)
 		}
 	}
 	var baseFee *big.Int
@@ -494,8 +518,8 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec
 }
 
-func (k *Keeper) GetGasPool() core.GasPool {
-	return math.MaxUint64
+func (k *Keeper) GetGasPool() *core.GasPool {
+	return core.NewGasPool(math.MaxUint64)
 }
 
 func uint64Cmp(a, b uint64) int {

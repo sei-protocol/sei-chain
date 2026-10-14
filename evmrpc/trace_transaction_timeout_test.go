@@ -186,17 +186,31 @@ func (b *slowIterTraceBackend) HeaderByNumber(context.Context, rpc.BlockNumber) 
 	return b.block.Header(), nil
 }
 
-func (b *slowIterTraceBackend) BlockByHash(context.Context, common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b *slowIterTraceBackend) CurrentHeader() *ethtypes.Header {
+	return b.block.Header()
+}
+
+func (b *slowIterTraceBackend) BlockByHash(context.Context, common.Hash) (*ethtypes.Block, error) {
+	return b.block, nil
+}
+
+func (b *slowIterTraceBackend) BlockByNumber(context.Context, rpc.BlockNumber) (*ethtypes.Block, error) {
+	return b.block, nil
+}
+
+func (b *slowIterTraceBackend) BlockWithTraceMetadataByHash(context.Context, common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	return b.block, nil, nil
 }
 
-func (b *slowIterTraceBackend) BlockByNumber(context.Context, rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+func (b *slowIterTraceBackend) BlockWithTraceMetadataByNumber(context.Context, rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	return b.block, nil, nil
 }
 
-func (b *slowIterTraceBackend) GetTransaction(context.Context, common.Hash) (bool, *ethtypes.Transaction, common.Hash, uint64, uint64, error) {
-	return true, b.tx, b.block.Hash(), b.block.NumberU64(), 0, nil
+func (b *slowIterTraceBackend) GetCanonicalTransaction(common.Hash) (bool, *ethtypes.Transaction, common.Hash, uint64, uint64) {
+	return true, b.tx, b.block.Hash(), b.block.NumberU64(), 0
 }
+
+func (b *slowIterTraceBackend) TxIndexDone() bool { return true }
 
 func (b *slowIterTraceBackend) RPCGasCap() uint64 { return 0 }
 
@@ -210,11 +224,11 @@ func (b *slowIterTraceBackend) Engine() consensus.Engine { return nil }
 
 func (b *slowIterTraceBackend) ChainDb() ethdb.Database { return nil }
 
-func (b *slowIterTraceBackend) StateAtBlock(context.Context, *ethtypes.Block, uint64, vm.StateDB, bool, bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *slowIterTraceBackend) StateAtBlock(context.Context, *ethtypes.Block, vm.SeiStateDB, bool, bool) (vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	return nil, func() {}, errors.New("unused")
 }
 
-func (b *slowIterTraceBackend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+func (b *slowIterTraceBackend) GetCustomPrecompiles(int64) map[common.Address]vm.CustomPrecompiledContract {
 	return nil
 }
 
@@ -224,7 +238,7 @@ func (b *slowIterTraceBackend) GetBlockContext(context.Context, *ethtypes.Block,
 	return vm.BlockContext{}, errors.New("unused")
 }
 
-func (b *slowIterTraceBackend) StateAtTransaction(ctx context.Context, _ *ethtypes.Block, _ int, _ uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+func (b *slowIterTraceBackend) StateAtTransaction(ctx context.Context, _ *ethtypes.Block, _ int) (*ethtypes.Transaction, vm.BlockContext, vm.SeiStateDB, tracers.StateReleaseFunc, error) {
 	key := sdk.NewKVStoreKey("evm")
 	sdkCtx := sdk.NewContext(&oneStoreMS{kv: b.store}, tmproto.Header{}, false).WithContext(ctx)
 	iter := sdkCtx.KVStore(key).Iterator(nil, nil)

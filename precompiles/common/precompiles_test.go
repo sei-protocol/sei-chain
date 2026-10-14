@@ -164,23 +164,23 @@ func TestDynamicGasPrecompileOutOfGasInCallFrame(t *testing.T) {
 
 	stateDB := state.NewDBImpl(ctx, k, false)
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-	blockCtx, err := k.GetVMBlockContext(ctx, core.GasPool(1000000))
+	blockCtx, err := k.GetVMBlockContext(ctx, core.NewGasPool(1000000))
 	require.Nil(t, err)
-	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, map[ethcommon.Address]vm.PrecompiledContract{precompileAddr: oog})
+	evm := vm.NewEVMWithCustomPrecompiles(*blockCtx, stateDB, cfg, vm.Config{}, map[ethcommon.Address]vm.CustomPrecompiledContract{precompileAddr: oog})
 
-	ret, leftover, err := evm.Call(caller, precompileAddr, input, 100000, uint256.NewInt(0))
+	ret, leftover, err := evm.Call(caller, precompileAddr, input, vm.NewGasBudget(100000, 0), uint256.NewInt(0))
 	require.Nil(t, ret)
-	require.Equal(t, uint64(0), leftover)
+	require.Equal(t, uint64(0), leftover.ExecutionGas)
 	require.Equal(t, vm.ErrOutOfGas, err)
 	require.Equal(t, ethcommon.Hash{}, stateDB.GetState(caller, slot))
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
 	require.Nil(t, stateDB.Err())
 
 	// The enclosing frame is unaffected and can keep executing.
-	ret, leftover, err = evm.Call(caller, ethcommon.HexToAddress("0x0000000000000000000000000000000000009998"), nil, 50000, uint256.NewInt(0))
+	ret, leftover, err = evm.Call(caller, ethcommon.HexToAddress("0x0000000000000000000000000000000000009998"), nil, vm.NewGasBudget(50000, 0), uint256.NewInt(0))
 	require.Nil(t, err)
 	require.Nil(t, ret)
-	require.Equal(t, uint64(50000), leftover)
+	require.Equal(t, uint64(50000), leftover.ExecutionGas)
 }
 
 // TestDynamicGasPrecompileRepanicsNonGas verifies that only gas-meter panics are

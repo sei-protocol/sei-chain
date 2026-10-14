@@ -29,7 +29,7 @@ func TestState(t *testing.T) {
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
 	statedb.SetState(evmAddr, key, val)
-	statedb.SetCode(evmAddr, []byte("code"))
+	statedb.SetCode(evmAddr, []byte("code"), tracing.CodeChangeUnspecified)
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
 	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, key))
 	// fork the store and overwrite the key
@@ -44,7 +44,7 @@ func TestState(t *testing.T) {
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	// destruct should clear balance, but keep state. Committed state should also be accessible
 	// state would be cleared after finalize
-	statedb.SelfDestruct(evmAddr)
+	selfDestructToSelf(statedb, evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.NotEqual(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, key))
@@ -100,7 +100,7 @@ func TestSetStoragePreservesCodeAndNonce(t *testing.T) {
 	statedb := state.NewDBImpl(ctx, k, true)
 
 	code := []byte("some-contract-bytecode")
-	statedb.SetCode(evmAddr, code)
+	statedb.SetCode(evmAddr, code, tracing.CodeChangeUnspecified)
 	statedb.SetNonce(evmAddr, 7, tracing.NonceChangeUnspecified)
 
 	slot := common.BytesToHash([]byte("slot"))
@@ -229,7 +229,7 @@ func TestCreate(t *testing.T) {
 	val := common.BytesToHash([]byte("def"))
 	tkey := common.BytesToHash([]byte("jkl"))
 	tval := common.BytesToHash([]byte("mno"))
-	statedb.SetCode(evmAddr, []byte("code"))
+	statedb.SetCode(evmAddr, []byte("code"), tracing.CodeChangeUnspecified)
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	statedb.AddBalance(evmAddr, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
@@ -241,7 +241,7 @@ func TestCreate(t *testing.T) {
 	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	// recreate a destructed (in the same tx) account should clear its selfDestructed flag
-	statedb.SelfDestruct(evmAddr)
+	selfDestructToSelf(statedb, evmAddr)
 	require.Nil(t, statedb.Err())
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
 	require.Equal(t, uint256.NewInt(0), statedb.GetBalance(evmAddr))
@@ -265,7 +265,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 	tkey := common.BytesToHash([]byte("jkl"))
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
-	statedb.SetCode(evmAddr, []byte("code"))
+	statedb.SetCode(evmAddr, []byte("code"), tracing.CodeChangeUnspecified)
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10)))
 	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, amt)
@@ -273,13 +273,13 @@ func TestSelfDestructAssociated(t *testing.T) {
 
 	// Selfdestruct6780 should only act if the account is created in the same block
 	statedb.MarkAccount(evmAddr, nil)
-	statedb.SelfDestruct6780(evmAddr)
+	selfDestruct6780(statedb, evmAddr)
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
 	statedb.MarkAccount(evmAddr, state.AccountCreated)
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 
 	// Selfdestruct6780 is equivalent to SelfDestruct if account is created in the same block
-	statedb.SelfDestruct6780(evmAddr)
+	selfDestruct6780(statedb, evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.NotEqual(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, uint256.NewInt(0), statedb.GetBalance(evmAddr))
@@ -334,13 +334,13 @@ func TestEIP6780WithPrefundedAddress(t *testing.T) {
 	require.True(t, statedb.Created(evmAddr), "account should be marked as created after CreateContract")
 
 	// Set some contract state
-	statedb.SetCode(evmAddr, []byte("contract code"))
+	statedb.SetCode(evmAddr, []byte("contract code"), tracing.CodeChangeUnspecified)
 	key := common.BytesToHash([]byte("storage_key"))
 	val := common.BytesToHash([]byte("storage_value"))
 	statedb.SetState(evmAddr, key, val)
 
 	// Now SelfDestruct6780 should work correctly - the key test is that destructed == true
-	_, destructed := statedb.SelfDestruct6780(evmAddr)
+	destructed := selfDestruct6780(statedb, evmAddr)
 	require.True(t, destructed, "SelfDestruct6780 should destruct the contract created in same tx")
 	require.True(t, statedb.HasSelfDestructed(evmAddr), "account should be marked as self-destructed")
 

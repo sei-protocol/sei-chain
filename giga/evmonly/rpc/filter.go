@@ -127,11 +127,7 @@ func (api *filterAPI) indexedRange() (uint64, uint64) {
 	if stored := api.store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
-	// EarliestVersion is 0 until something has pruned the store; blocks start at 1.
-	earliest := uint64(1)
-	if stored := api.store.EarliestVersion(); stored > 1 {
-		earliest = uint64(stored) //nolint:gosec // stored is positive
-	}
+	earliest := uint64(earliestRetainedHeight(api.store)) //nolint:gosec // never below earliestCommittedHeight
 	return earliest, latest
 }
 
@@ -147,19 +143,17 @@ func checkIndexed(fromBlock, toBlock, earliest, latest uint64) error {
 	return nil
 }
 
-// resolveLogBound maps a filter bound to a height: nil and the head tags mean
-// the latest indexed block, and the earliest tag (which decodes to 0) means
-// the retention floor. Other explicit numbers pass through so the caller can
-// check them against the indexed range.
+// resolveLogBound maps a filter bound to a height: nil and head tags are latest,
+// "earliest" and 0x0 are the retention floor, other numbers pass through.
 func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
+	if bound != nil && bound.IsInt64() && (bound.Int64() == ethrpc.EarliestBlockNumber.Int64() || bound.Sign() == 0) {
+		return earliest, nil
+	}
 	if bound == nil || bound.Sign() < 0 {
 		return latest, nil
 	}
 	if !bound.IsUint64() || bound.Uint64() > math.MaxInt64 {
 		return 0, &invalidParamsError{error: fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)}
-	}
-	if bound.Int64() == ethrpc.EarliestBlockNumber.Int64() {
-		return earliest, nil
 	}
 	return bound.Uint64(), nil
 }

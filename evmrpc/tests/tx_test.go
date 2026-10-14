@@ -40,6 +40,7 @@ func TestGetTransactionByHash(t *testing.T) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx3.Hash().Hex())
 			require.Equal(t, "0x0", res["result"].(map[string]any)["transactionIndex"].(string))
 			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
+			require.NotContains(t, res["result"].(map[string]any), "blockTimestamp")
 			res = sendRequestWithNamespace("eth", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx1)).Hex())
 			require.Nil(t, res["result"])
 			res = sendRequestWithNamespace("eth", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx2)).Hex())

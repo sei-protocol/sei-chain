@@ -79,7 +79,7 @@ func TestBehaviorGetDBImplUnwrapsHookedState(t *testing.T) {
 	require.Nil(t, state.GetDBImpl(nil))
 }
 
-// Wrapper-only hooks fire for nonce/code/storage changes.
+// Wrapper-only hooks fire for balance/nonce/code/storage changes.
 func TestBehaviorHookedDBImplWrapperHooksOnly(t *testing.T) {
 	db, addr := newBehaviorDBImpl(t)
 	c := &hookCounts{}
@@ -87,13 +87,13 @@ func TestBehaviorHookedDBImplWrapperHooksOnly(t *testing.T) {
 
 	sdb.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
 	sdb.SubBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
-	require.Equal(t, 0, c.balance) // NOTE: Sei fork's hooked StateDB does not fire OnBalanceChange
+	require.Equal(t, 2, c.balance) // HookedStateDB fires OnBalanceChange for AddBalance and SubBalance
 
 	sdb.SetNonce(addr, 7, tracing.NonceChangeEoACall)
 	require.Equal(t, 1, c.nonce)
 	require.Equal(t, tracing.NonceChangeEoACall, c.lastNonceReason)
 
-	sdb.SetCode(addr, []byte{0x60, 0x00})
+	sdb.SetCode(addr, []byte{0x60, 0x00}, tracing.CodeChangeUnspecified)
 	require.Equal(t, 1, c.code)
 
 	key, val := common.HexToHash("0x01"), common.HexToHash("0x02")
@@ -108,7 +108,7 @@ func TestBehaviorHookedDBImplWrapperHooksOnly(t *testing.T) {
 	require.Equal(t, val, db.GetState(addr, key))
 }
 
-// Hooks on both DBImpl and wrapper fire balance once and nonce/code/storage twice.
+// Hooks on both DBImpl and wrapper fire every balance/nonce/code/storage change twice.
 func TestBehaviorHookedDBImplWithDBImplLogger(t *testing.T) {
 	db, addr := newBehaviorDBImpl(t)
 	c := &hookCounts{}
@@ -116,19 +116,21 @@ func TestBehaviorHookedDBImplWithDBImplLogger(t *testing.T) {
 	db.SetLogger(hooks)
 	sdb := newHookedDBImpl(db, hooks)
 
-	sdb.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
-	require.Equal(t, 1, c.balance)
+	prev := sdb.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
+	require.Equal(t, *uint256.NewInt(20_000_000_000_000), prev)
+	require.Equal(t, 2, c.balance)
 	require.Equal(t, big.NewInt(20_000_000_000_000), c.lastBalancePrev)
 	require.Equal(t, big.NewInt(21_000_000_000_000), c.lastBalanceNew)
-	sdb.SubBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
-	require.Equal(t, 2, c.balance)
+	prev = sdb.SubBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
+	require.Equal(t, *uint256.NewInt(21_000_000_000_000), prev)
+	require.Equal(t, 4, c.balance)
 	require.Equal(t, big.NewInt(21_000_000_000_000), c.lastBalancePrev)
 	require.Equal(t, big.NewInt(20_000_000_000_000), c.lastBalanceNew)
 
 	sdb.SetNonce(addr, 3, tracing.NonceChangeEoACall)
 	require.Equal(t, 2, c.nonce)
 
-	sdb.SetCode(addr, []byte{0x60, 0x00})
+	sdb.SetCode(addr, []byte{0x60, 0x00}, tracing.CodeChangeUnspecified)
 	require.Equal(t, 2, c.code)
 
 	sdb.SetState(addr, common.HexToHash("0x01"), common.HexToHash("0x02"))
@@ -139,7 +141,7 @@ func TestBehaviorHookedDBImplWithDBImplLogger(t *testing.T) {
 	db.SetLogger(c2.hooks())
 	db.AddBalance(addr, uint256.NewInt(1_000_000_000_000), tracing.BalanceChangeTransfer)
 	db.SetNonce(addr, 4, tracing.NonceChangeEoACall)
-	db.SetCode(addr, []byte{0x60, 0x01})
+	db.SetCode(addr, []byte{0x60, 0x01}, tracing.CodeChangeUnspecified)
 	db.SetState(addr, common.HexToHash("0x01"), common.HexToHash("0x03"))
 	require.Equal(t, hookCounts{balance: 1, nonce: 1, code: 1, storage: 1,
 		lastBalancePrev: big.NewInt(20_000_000_000_000), lastBalanceNew: big.NewInt(21_000_000_000_000),

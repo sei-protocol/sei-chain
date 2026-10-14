@@ -82,7 +82,7 @@ func TestPrepare(t *testing.T) {
 			},
 		},
 	}
-	shanghai := params.Rules{ChainID: k.ChainID(ctx), IsShanghai: true}
+	shanghai := params.Rules{IsShanghai: true}
 	statedb.Prepare(
 		shanghai, sender, coinbase, &dest, precompiles, txaccesses,
 	)
@@ -138,7 +138,7 @@ func TestDuplicateSlotsInAccessListRevert(t *testing.T) {
 		},
 	}
 
-	shanghai := params.Rules{ChainID: k.ChainID(ctx), IsShanghai: true}
+	shanghai := params.Rules{IsShanghai: true}
 
 	statedb.Prepare(shanghai, sender, coinbase, &dest, []common.Address{}, txaccesses)
 

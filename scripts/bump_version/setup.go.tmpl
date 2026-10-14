@@ -19,7 +19,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	}
 }
 
-func check(p vm.PrecompiledContract, err error) vm.PrecompiledContract {
+func check(p vm.CustomPrecompiledContract, err error) vm.CustomPrecompiledContract {
 	if err != nil {
 		panic(err)
 	}

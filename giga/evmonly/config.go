@@ -14,9 +14,8 @@ type Config struct {
 	DisableNonceCheck    bool
 	DisableGasPriceCheck bool
 	MinGasPrice          *big.Int
-	// ChainConfig defaults to params.AllDevChainProtocolChanges when nil. Test
-	// and scaffold callers can use the default, but production wiring should pass
-	// the chain's explicit config.
+	// ChainConfig is the EVM chain config; nil means DefaultChainConfig(). Production
+	// wiring should set it explicitly.
 	ChainConfig       *params.ChainConfig
 	CustomPrecompiles precompiles.Registry
 	OCCWorkers        int
@@ -53,4 +52,20 @@ func (c Config) WithDefaults() Config {
 		c.ParseWorkers = defaults.ParseWorkers
 	}
 	return c
+}
+
+// DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the coinbase.
+func DefaultChainConfig() *params.ChainConfig {
+	cfg := *params.AllDevChainProtocolChanges
+	cfg.OsakaTime = nil
+	cfg.BPO1Time = nil
+	cfg.BPO2Time = nil
+	cfg.BPO3Time = nil
+	cfg.BPO4Time = nil
+	cfg.BPO5Time = nil
+	cfg.AmsterdamTime = nil
+	cfg.BogotaTime = nil
+	cfg.UBTTime = nil
+	cfg.SeiCoinbaseReceivesBaseFee = true
+	return &cfg
 }

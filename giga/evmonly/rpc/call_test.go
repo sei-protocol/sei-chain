@@ -58,7 +58,7 @@ func TestCallHappyPath(t *testing.T) {
 	require.Equal(t, from, gotMsg.From)
 	require.Equal(t, &to, gotMsg.To)
 	require.True(t, gotMsg.SkipNonceChecks)
-	require.True(t, gotMsg.SkipFromEOACheck)
+	require.True(t, gotMsg.SkipTransactionChecks)
 	require.Equal(t, uint64(defaultCallGasCap), gotMsg.GasLimit)
 }
 

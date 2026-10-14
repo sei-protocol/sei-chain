@@ -352,6 +352,20 @@ func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
 }
 
+// TestFeeHistoryZeroIsEarliest pins that 0x0 resolves like "earliest".
+func TestFeeHistoryZeroIsEarliest(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(1); h <= 5; h++ {
+		setBlockReceipt(t, store, h, 10, 100)
+	}
+	require.NoError(t, store.PruneHistory(3))
+
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.BlockNumber(0), nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
+}
+
 // TestFeeHistoryRestartsAfterAGenuineInteriorHole verifies an interior ErrNotFound hole restarts
 // the accumulation instead of misattributing a later block's data.
 func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
