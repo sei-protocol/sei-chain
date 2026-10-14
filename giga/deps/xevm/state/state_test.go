@@ -218,6 +218,27 @@ func TestAnySelfDestructed(t *testing.T) {
 	require.False(t, statedb2.AnySelfDestructed())
 }
 
+// TestSelfDestructWithoutCodeClearsStorageAndNonce pins that a self-destructed account with no stored code
+// (e.g. a constructor that self-destructs) has its storage and nonce cleared.
+func TestSelfDestructWithoutCodeClearsStorageAndNonce(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, false)
+	statedb.CreateAccount(evmAddr)
+	key := common.BytesToHash([]byte("abc"))
+	statedb.SetState(evmAddr, key, common.BytesToHash([]byte("def")))
+	statedb.SetNonce(evmAddr, 5, tracing.NonceChangeUnspecified)
+	require.Empty(t, k.GetCode(statedb.Ctx(), evmAddr))
+
+	selfDestructToSelf(statedb, evmAddr)
+	_, err := statedb.Finalize()
+	require.NoError(t, err)
+
+	require.Equal(t, common.Hash{}, k.GetState(statedb.Ctx(), evmAddr, key))
+	require.Equal(t, uint64(0), k.GetNonce(statedb.Ctx(), evmAddr))
+}
+
 func TestCreate(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	ctx = ctx.WithBlockTime(time.Now())
