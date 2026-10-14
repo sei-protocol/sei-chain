@@ -1,12 +1,14 @@
-package receipt_test
+package gigareceipt_test
 
 import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+
 	"github.com/ethereum/go-ethereum/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +69,8 @@ func writeLitBlocks(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, b
 // transactions takes.
 func writeEmptyLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, block uint64) {
 	t.Helper()
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), nil)) //nolint:gosec // small test heights
+	height := int64(block) //nolint:gosec // small test heights
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), nil))
 	// The write may be applied in the background; the head is how a reader learns that it landed.
 	require.Eventually(t, func() bool {
 		return store.LatestVersion() >= int64(block) //nolint:gosec // small test heights
@@ -135,7 +138,7 @@ func TestReceiptIteratorStartsAtRetentionFloor(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	writeLitBlocks(t, store, ctx, []uint64{1, 2, 3}, 2)
-	require.NoError(t, receipt.PruneLittIdx(store, 3))
+	require.NoError(t, gigareceipt.PruneLittIdx(store, 3))
 
 	require.Equal(t, expectedWalk([]uint64{3}, 2), drainReceipts(t, store, 1))
 }
@@ -186,12 +189,4 @@ func TestReceiptIteratorStaysExhausted(t *testing.T) {
 
 	require.NoError(t, it.Close())
 	require.NoError(t, it.Close())
-}
-
-func TestReceiptIteratorUnsupportedByPebble(t *testing.T) {
-	store, _, _ := setupReceiptStore(t)
-
-	it, err := store.IterateReceipts(0)
-	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
-	require.Nil(t, it)
 }

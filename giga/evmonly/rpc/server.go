@@ -65,6 +65,7 @@ type Backend interface {
 	EvmMinGasPrice() (*big.Int, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
+	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmTransactionCount(common.Address) uint64
 }
 

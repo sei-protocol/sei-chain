@@ -1,4 +1,4 @@
-package receipt
+package gigareceipt
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -113,14 +115,14 @@ type littReceiptStore struct {
 // receiptWrite is one block's receipts, waiting to be applied.
 type receiptWrite struct {
 	height   int64
-	receipts []ReceiptRecord
+	receipts []receipt.ReceiptRecord
 }
 
 // writeQueueSampleIntervalSeconds is how often the write queue's depth is read. Sampling on a timer
 // rather than at each send keeps the reading unbiased by the send rate.
 const writeQueueSampleIntervalSeconds = 1
 
-var _ ReceiptStore = (*littReceiptStore)(nil)
+var _ receipt.ReceiptStore = (*littReceiptStore)(nil)
 
 var (
 	receiptLatestVersionKey   = []byte("m:latest")
@@ -128,8 +130,6 @@ var (
 )
 
 const (
-	receiptBackendLittIdx = "littidx"
-
 	littReceiptTableName = "receipts"
 	// littValuesDirName is the store-directory subdirectory holding the littdb
 	// receipt bodies.
@@ -182,7 +182,7 @@ func (s *littReceiptStore) gcFilter(key []byte, isPrimaryKey bool) (bool, error)
 	return binary.BigEndian.Uint64(key[:blockNumLen]) < uint64(floor), nil //nolint:gosec // guarded positive above
 }
 
-func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
 	}
@@ -231,7 +231,8 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	}
 
 	tableConfig := litt.DefaultTableConfig(littReceiptTableName)
-	tableConfig.ShardingFactor = 1 // single shard: flushing one file is cheaper; sharding mainly helps across multiple disks
+	// single shard: flushing one file is cheaper; sharding mainly helps across multiple disks
+	tableConfig.ShardingFactor = 1
 	tableConfig.GCFilter = s.gcFilter
 	receipts, err := values.BuildTable(tableConfig)
 	if err != nil {
@@ -290,7 +291,9 @@ func (s *littReceiptStore) SetLatestVersion(version int64) error {
 	if version <= s.latestVersion.Load() {
 		return nil
 	}
-	if err := s.index.Set(receiptLatestVersionKey, encodeBlockNumber(uint64(version)), dbtypes.WriteOptions{}); err != nil { //nolint:gosec // block heights fit within uint64
+	height := uint64(version) //nolint:gosec // block heights fit within uint64
+	err := s.index.Set(receiptLatestVersionKey, encodeBlockNumber(height), dbtypes.WriteOptions{})
+	if err != nil {
 		return err
 	}
 	s.latestVersion.Store(version)
@@ -302,7 +305,9 @@ func (s *littReceiptStore) SetEarliestVersion(version int64) error {
 	if version <= s.earliestVersion.Load() {
 		return nil
 	}
-	if err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(uint64(version)), dbtypes.WriteOptions{}); err != nil { //nolint:gosec // block heights fit within uint64
+	height := uint64(version) //nolint:gosec // block heights fit within uint64
+	err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(height), dbtypes.WriteOptions{})
+	if err != nil {
 		return err
 	}
 	s.earliestVersion.Store(version)
@@ -310,11 +315,11 @@ func (s *littReceiptStore) SetEarliestVersion(version int64) error {
 }
 
 func (s *littReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	receipt, err := s.GetReceiptFromStore(ctx, txHash)
+	stored, err := s.GetReceiptFromStore(ctx, txHash)
 	if err == nil {
-		return receipt, nil
+		return stored, nil
 	}
-	if !errors.Is(err, ErrNotFound) {
+	if !errors.Is(err, receipt.ErrNotFound) {
 		return nil, err
 	}
 	// Misses are cheap negatives (one keymap lookup); fall back to the legacy
@@ -328,7 +333,7 @@ func (s *littReceiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash
 		return nil, err
 	}
 	if !exists {
-		return nil, ErrNotFound
+		return nil, receipt.ErrNotFound
 	}
 	data, err := decodeReceiptData(val)
 	if err != nil {
@@ -343,7 +348,7 @@ func (s *littReceiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash
 	// Enforce the KeepRecent floor: litt expires values lazily via TTL, so a
 	// pruned block may still be physically present.
 	if s.belowRetentionFloor(r.BlockNumber) {
-		return nil, ErrNotFound
+		return nil, receipt.ErrNotFound
 	}
 	return &r, nil
 }
@@ -354,23 +359,23 @@ func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
 }
 
 // GetBlockStats returns the aggregate stats staged alongside blockNumber's receipts, or
-// ErrBlockStatsNotSupported when none was recorded.
-func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (BlockStats, error) {
+// receipt.ErrBlockStatsNotSupported when none was recorded.
+func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
 	if s.belowRetentionFloor(blockNumber) {
-		return BlockStats{}, ErrNotFound
+		return receipt.BlockStats{}, receipt.ErrNotFound
 	}
 	val, err := s.index.Get(blockStatsKey(blockNumber))
 	if err != nil {
 		if errorutils.IsNotFound(err) {
-			return BlockStats{}, ErrBlockStatsNotSupported
+			return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
 		}
-		return BlockStats{}, err
+		return receipt.BlockStats{}, err
 	}
 	stats, err := decodeBlockStats(val)
 	if err != nil {
-		// A decode failure here reports ErrBlockStatsNotSupported, not the raw error.
+		// A decode failure here reports receipt.ErrBlockStatsNotSupported, not the raw error.
 		logger.Error("failed to decode block stats, falling back", "block", blockNumber, "err", err)
-		return BlockStats{}, ErrBlockStatsNotSupported
+		return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
 	}
 	return stats, nil
 }
@@ -378,7 +383,7 @@ func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (Blo
 // SetReceipts hands the block's receipts to the writer, blocking only when the queue is full, or
 // applies them inline when AsyncWriteBuffer is off. Once a queued write has failed it takes no
 // further block and returns that failure.
-func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
+func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []receipt.ReceiptRecord) error {
 	if s.writes == nil {
 		return s.applyReceipts(ctx.BlockHeight(), receipts)
 	}
@@ -408,18 +413,18 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 // applyReceipts writes a block's receipt bodies, log index and version marker, and reports what it
 // committed. The write itself is writeReceipts; this wrapper is where the count is taken, so a
 // failed write is not counted as one.
-func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord) error {
+func (s *littReceiptStore) applyReceipts(height int64, receipts []receipt.ReceiptRecord) error {
 	if err := s.writeReceipts(height, receipts); err != nil {
 		return err
 	}
 	// The async writer has no request context of its own, so the measurement is unattributed.
-	RecordReceiptsWritten(context.Background(), receipts)
+	receipt.RecordReceiptsWritten(context.Background(), receipts)
 	return nil
 }
 
 // writeReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
 // litt first, so an indexed block always has its values written.
-func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord) error {
+func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.ReceiptRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if height < 0 {
@@ -468,11 +473,11 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord)
 // concatenated, each tx hash a secondary key aliasing its receipt's range) and
 // stages the tag keys onto the index batch. nextPartIndex picks the next free
 // part slot, so a normal block writes part 0 and legacy migration appends.
-func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
+func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, records []receipt.ReceiptRecord) error {
 	sortRecordsByTxIndex(records)
 	// Check physical keys on the writer, including receipts below the retention
 	// floor that LittDB has not collected yet. Reusing those keys is also unsafe.
-	records, err := FilterExistingReceipts(records, func(hash common.Hash) (bool, error) {
+	records, err := receipt.FilterExistingReceipts(records, func(hash common.Hash) (bool, error) {
 		return s.receipts.Exists(hash[:])
 	})
 	if err != nil {
@@ -590,7 +595,13 @@ func (s *littReceiptStore) nextPartIndex(blockNumber uint64) (uint32, error) {
 
 // FilterLogs answers eth_getLogs via the tag index. Both bounds inclusive; for
 // a single block set fromBlock == toBlock.
-func (s *littReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) FilterLogs(
+	ctx sdk.Context,
+	fromBlock uint64,
+	toBlock uint64,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
+) ([]*ethtypes.Log, error) {
 	if fromBlock > toBlock {
 		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
@@ -717,7 +728,8 @@ func (s *littReceiptStore) startPruning() {
 			pruneBefore := s.latestVersion.Load() - s.keepRecent + 1
 			if pruneBefore > 0 {
 				if err := s.pruneBlocksBelow(uint64(pruneBefore)); err != nil {
-					logger.Error("failed to prune littdb receipt store", "before-block", pruneBefore, "err", err)
+					logger.Error("failed to prune littdb receipt store",
+						"before-block", pruneBefore, "err", err)
 				}
 			}
 			// Jittered cadence, matching the other receipt pruners.
@@ -760,7 +772,8 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	if err := s.deleteIndexRange(blockStatsKey(floor), blockStatsKey(cutoff)); err != nil {
 		return err
 	}
-	if err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), dbtypes.WriteOptions{}); err != nil {
+	err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), dbtypes.WriteOptions{})
+	if err != nil {
 		return err
 	}
 	s.earliestVersion.Store(int64(cutoff)) //nolint:gosec // block heights fit within int64
@@ -788,8 +801,8 @@ func (s *littReceiptStore) deleteIndexRange(lower, upper []byte) error {
 
 // groupReceiptRecordsByBlock splits records by block number (dropping entries
 // without a receipt) and returns the block numbers in ascending order.
-func groupReceiptRecordsByBlock(receipts []ReceiptRecord) ([]uint64, map[uint64][]ReceiptRecord) {
-	byBlock := make(map[uint64][]ReceiptRecord)
+func groupReceiptRecordsByBlock(receipts []receipt.ReceiptRecord) ([]uint64, map[uint64][]receipt.ReceiptRecord) {
+	byBlock := make(map[uint64][]receipt.ReceiptRecord)
 	var blockNumbers []uint64
 	for _, record := range receipts {
 		if record.Receipt == nil {
@@ -807,7 +820,7 @@ func groupReceiptRecordsByBlock(receipts []ReceiptRecord) ([]uint64, map[uint64]
 
 // sortRecordsByTxIndex orders a block's records by transaction index (tx hash
 // as tiebreaker), the storage order the tag index relies on.
-func sortRecordsByTxIndex(records []ReceiptRecord) {
+func sortRecordsByTxIndex(records []receipt.ReceiptRecord) {
 	sort.Slice(records, func(i, j int) bool {
 		l, r := records[i].Receipt, records[j].Receipt
 		if l.TransactionIndex != r.TransactionIndex {
@@ -819,7 +832,7 @@ func sortRecordsByTxIndex(records []ReceiptRecord) {
 
 // marshaledReceipt returns the record's pre-marshaled bytes, marshaling the
 // receipt if they were not supplied.
-func marshaledReceipt(record ReceiptRecord) ([]byte, error) {
+func marshaledReceipt(record receipt.ReceiptRecord) ([]byte, error) {
 	if len(record.ReceiptBytes) > 0 {
 		return record.ReceiptBytes, nil
 	}
@@ -827,14 +840,14 @@ func marshaledReceipt(record ReceiptRecord) ([]byte, error) {
 }
 
 // legacyReceiptFromKVStore looks up a receipt in the legacy KV store for
-// receipts that predate this store. Returns ErrNotFound when unavailable.
+// receipts that predate this store. Returns receipt.ErrNotFound when unavailable.
 func legacyReceiptFromKVStore(ctx sdk.Context, storeKey sdk.StoreKey, txHash common.Hash) (*types.Receipt, error) {
 	if storeKey == nil {
-		return nil, ErrNotFound
+		return nil, receipt.ErrNotFound
 	}
 	bz := ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash))
 	if bz == nil {
-		return nil, ErrNotFound
+		return nil, receipt.ErrNotFound
 	}
 	var r types.Receipt
 	if err := r.Unmarshal(bz); err != nil {
