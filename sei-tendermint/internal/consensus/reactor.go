@@ -102,6 +102,8 @@ type Reactor struct {
 	peers       utils.RWMutex[map[types.NodeID]*PeerState]
 	roundState  atomic.Pointer[cstypes.RoundState]
 	readySignal utils.AtomicSend[bool]
+
+	roundStateRefreshInterval time.Duration
 }
 
 // NewReactor returns a reference to a new consensus reactor, which implements
@@ -143,7 +145,8 @@ func NewReactor(
 			vote:   voteCh,
 			votSet: voteSetCh,
 		},
-		cfg: cfg,
+		cfg:                       cfg,
+		roundStateRefreshInterval: 100 * time.Microsecond,
 	}
 	r.roundState.Store(cs.GetRoundState())
 	cs.eventNewRoundStep = r.broadcastNewRoundStepMessage
@@ -182,6 +185,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		if _, err := r.readySignal.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
 			return err
 		}
+		r.roundState.Store(r.state.GetRoundState())
 		r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
 		r.SpawnCritical("broadcastValidBlock", r.broadcastValidBlockRoutine)
 		return r.state.Run(ctx)
@@ -295,7 +299,7 @@ func (r *Reactor) sendNewRoundStepMessage(peerID types.NodeID) {
 }
 
 func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
-	t := time.NewTicker(100 * time.Microsecond)
+	t := time.NewTicker(r.roundStateRefreshInterval)
 	for {
 		if _, err := utils.Recv(ctx, t.C); err != nil {
 			return err
