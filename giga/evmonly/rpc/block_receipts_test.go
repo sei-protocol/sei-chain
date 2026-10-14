@@ -268,7 +268,7 @@ func TestGetBlockReceiptsEndToEnd(t *testing.T) {
 		blockNumber: func() uint64 { return 9 },
 		proxy:       utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

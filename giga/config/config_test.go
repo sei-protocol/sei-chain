@@ -1,13 +1,18 @@
 package config_test
 
 import (
+	"bytes"
 	"testing"
+	"text/template"
 	"time"
 
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/require"
+
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
-	"github.com/stretchr/testify/require"
 )
 
 // TestReadConfigAbsentKeysKeepDefaults pins the section baseline: no [giga] section means the node
@@ -32,21 +37,56 @@ func TestDefaultsMatchTheStorageDefaults(t *testing.T) {
 	require.Equal(t, cp.BlockInterval, s.CheckpointBlockInterval)
 }
 
+// TestRPCDefaultsMatchTheV2EVMRPC holds the [giga.rpc] limits to the v2 EVM RPC's defaults, so
+// both RPCs refuse the same load out of the box.
+func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
+	v2 := evmrpcconfig.DefaultConfig
+	r := gigaconfig.DefaultConfig.RPC
+	require.Equal(t, v2.MaxSubscriptionsNewHead, r.MaxSubscriptionsNewHead)
+	require.Equal(t, v2.MaxConcurrentRequestBytes, r.MaxConcurrentRequestBytes)
+	require.Equal(t, v2.WSAdmissionTimeout, r.WSAdmissionTimeout)
+	require.Equal(t, v2.BatchRequestLimit, r.BatchRequestLimit)
+	require.Equal(t, v2.BatchResponseMaxSize, r.BatchResponseMaxSize)
+	require.Equal(t, v2.MaxOpenConnections, r.MaxWSConnections)
+	require.Equal(t, uint64(100), r.MaxSubscriptionsPerConnection)
+}
+
+// TestConfigTemplateRendersTheDefaults holds the app.toml template to the section: the rendered
+// defaults read back as DefaultConfig.
+func TestConfigTemplateRendersTheDefaults(t *testing.T) {
+	tmpl := template.Must(template.New("giga").Parse(gigaconfig.ConfigTemplate))
+	var rendered bytes.Buffer
+	require.NoError(t, tmpl.Execute(&rendered, struct{ Giga gigaconfig.Config }{gigaconfig.DefaultConfig}))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&rendered))
+	cfg, err := gigaconfig.ReadConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, gigaconfig.DefaultConfig, cfg)
+}
+
 func TestReadConfigReadsEveryKey(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{
-		"giga.storage.mode":                      "full",
-		"giga.storage.receipts":                  "false",
-		"giga.storage.rollback_window":           "250",
-		"giga.storage.lookback_window":           "-1",
-		"giga.storage.prune_interval":            "90s",
-		"giga.storage.checkpoint_time_interval":  "1h",
-		"giga.storage.checkpoint_block_interval": "5000",
-		"giga.execution.min_gas_price":           "7",
-		"giga.execution.occ_workers":             "3",
-		"giga.execution.parse_workers":           "2",
-		"giga.execution.block_result_pool_size":  "4",
-		"giga.execution.evm_rpc_port":            "8600",
-		"giga.execution.evm_ws_port":             "8601",
+		"giga.storage.mode":                         "full",
+		"giga.storage.receipts":                     "false",
+		"giga.storage.rollback_window":              "250",
+		"giga.storage.lookback_window":              "-1",
+		"giga.storage.prune_interval":               "90s",
+		"giga.storage.checkpoint_time_interval":     "1h",
+		"giga.storage.checkpoint_block_interval":    "5000",
+		"giga.execution.min_gas_price":              "7",
+		"giga.execution.occ_workers":                "3",
+		"giga.execution.parse_workers":              "2",
+		"giga.execution.block_result_pool_size":     "4",
+		"giga.execution.evm_rpc_port":               "8600",
+		"giga.execution.evm_ws_port":                "8601",
+		"giga.rpc.max_subscriptions_new_head":       "20",
+		"giga.rpc.max_subscriptions_per_connection": "5",
+		"giga.rpc.max_concurrent_request_bytes":     "4096",
+		"giga.rpc.ws_admission_timeout":             "2s",
+		"giga.rpc.batch_request_limit":              "10",
+		"giga.rpc.batch_response_max_size":          "1000",
+		"giga.rpc.max_ws_connections":               "7",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -67,25 +107,46 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
 		},
+		RPC: gigaconfig.RPCConfig{
+			MaxSubscriptionsNewHead:       20,
+			MaxSubscriptionsPerConnection: 5,
+			MaxConcurrentRequestBytes:     4096,
+			WSAdmissionTimeout:            2 * time.Second,
+			BatchRequestLimit:             10,
+			BatchResponseMaxSize:          1000,
+			MaxWSConnections:              7,
+		},
 	}
 	require.Equal(t, want, cfg)
 }
 
 func TestReadConfigRejectsUnusableValues(t *testing.T) {
 	for name, opts := range map[string]configtest.AppOpts{
-		"unknown mode":            {"giga.storage.mode": "archive"},
-		"non-boolean receipts":    {"giga.storage.receipts": "maybe"},
-		"lookback below -1":       {"giga.storage.lookback_window": "-2"},
-		"zero prune interval":     {"giga.storage.prune_interval": "0s"},
-		"negative occ workers":    {"giga.execution.occ_workers": "-1"},
-		"empty result pool":       {"giga.execution.block_result_pool_size": "0"},
-		"non-numeric gas price":   {"giga.execution.min_gas_price": "cheap"},
-		"negative block interval": {"giga.storage.checkpoint_block_interval": "-1"},
-		"evm rpc port zero":       {"giga.execution.evm_rpc_port": "0"},
-		"evm rpc port too high":   {"giga.execution.evm_rpc_port": "65536"},
-		"evm ws port zero":        {"giga.execution.evm_ws_port": "0"},
-		"evm ws port too high":    {"giga.execution.evm_ws_port": "65536"},
-		"evm ws port is rpc port": {"giga.execution.evm_ws_port": "8545"},
+		"unknown mode":                    {"giga.storage.mode": "archive"},
+		"non-boolean receipts":            {"giga.storage.receipts": "maybe"},
+		"lookback below -1":               {"giga.storage.lookback_window": "-2"},
+		"zero prune interval":             {"giga.storage.prune_interval": "0s"},
+		"negative occ workers":            {"giga.execution.occ_workers": "-1"},
+		"empty result pool":               {"giga.execution.block_result_pool_size": "0"},
+		"non-numeric gas price":           {"giga.execution.min_gas_price": "cheap"},
+		"negative block interval":         {"giga.storage.checkpoint_block_interval": "-1"},
+		"evm rpc port zero":               {"giga.execution.evm_rpc_port": "0"},
+		"evm rpc port too high":           {"giga.execution.evm_rpc_port": "65536"},
+		"evm ws port zero":                {"giga.execution.evm_ws_port": "0"},
+		"evm ws port too high":            {"giga.execution.evm_ws_port": "65536"},
+		"evm ws port is rpc port":         {"giga.execution.evm_ws_port": "8545"},
+		"negative subscription cap":       {"giga.rpc.max_subscriptions_new_head": "-1"},
+		"non-numeric per-connection cap":  {"giga.rpc.max_subscriptions_per_connection": "many"},
+		"negative request bytes":          {"giga.rpc.max_concurrent_request_bytes": "-1"},
+		"negative admission timeout":      {"giga.rpc.ws_admission_timeout": "-1s"},
+		"negative batch limit":            {"giga.rpc.batch_request_limit": "-1"},
+		"negative batch response size":    {"giga.rpc.batch_response_max_size": "-1"},
+		"negative ws connections":         {"giga.rpc.max_ws_connections": "-1"},
+		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
+		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
+		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
+		"non-numeric batch response size": {"giga.rpc.batch_response_max_size": "big"},
+		"non-numeric ws connections":      {"giga.rpc.max_ws_connections": "some"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

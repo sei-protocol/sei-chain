@@ -30,6 +30,13 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagExecutionBlockResultPoolSize,
 		FlagExecutionEvmRpcPort,
 		FlagExecutionEvmWsPort,
+		FlagRPCMaxSubscriptionsNewHead,
+		FlagRPCMaxSubscriptionsPerConnection,
+		FlagRPCMaxConcurrentRequestBytes,
+		FlagRPCWSAdmissionTimeout,
+		FlagRPCBatchRequestLimit,
+		FlagRPCBatchResponseMaxSize,
+		FlagRPCMaxWSConnections,
 	}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)

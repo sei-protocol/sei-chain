@@ -1,5 +1,5 @@
-// Package config defines the [giga] section of app.toml: the storage and execution settings a
-// Giga (Autobahn) node runs with.
+// Package config defines the [giga] section of app.toml: the storage, execution and EVM RPC
+// settings a Giga (Autobahn) node runs with.
 package config
 
 import (
@@ -27,6 +27,7 @@ const (
 type Config struct {
 	Storage   StorageConfig   `mapstructure:"storage"`
 	Execution ExecutionConfig `mapstructure:"execution"`
+	RPC       RPCConfig       `mapstructure:"rpc"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -68,6 +69,28 @@ type ExecutionConfig struct {
 	EvmWsPort int `mapstructure:"evm_ws_port"`
 }
 
+// RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
+// value disables the limit it names.
+type RPCConfig struct {
+	// MaxSubscriptionsNewHead caps open eth_subscribe("newHeads") subscriptions across all
+	// connections.
+	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+	// MaxSubscriptionsPerConnection caps the open subscriptions of a single WebSocket connection.
+	MaxSubscriptionsPerConnection uint64 `mapstructure:"max_subscriptions_per_connection"`
+	// MaxConcurrentRequestBytes caps the total size, in bytes, of WebSocket request frames read
+	// and processed concurrently. Values below the 32 MiB WebSocket message limit act as 32 MiB.
+	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+	// WSAdmissionTimeout is how long a WebSocket connection waits for MaxConcurrentRequestBytes
+	// budget before it is closed; zero uses the go-ethereum default of 30s.
+	WSAdmissionTimeout time.Duration `mapstructure:"ws_admission_timeout"`
+	// BatchRequestLimit caps the number of requests in one JSON-RPC batch.
+	BatchRequestLimit int `mapstructure:"batch_request_limit"`
+	// BatchResponseMaxSize caps the total size, in bytes, of one JSON-RPC batch's responses.
+	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
+	// MaxWSConnections caps simultaneously open WebSocket connections.
+	MaxWSConnections int `mapstructure:"max_ws_connections"`
+}
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -79,6 +102,16 @@ var DefaultConfig = Config{
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
+	},
+	// The same limits the v2 EVM RPC defaults to.
+	RPC: RPCConfig{
+		MaxSubscriptionsNewHead:       10_000,
+		MaxSubscriptionsPerConnection: 100,
+		MaxConcurrentRequestBytes:     128 * 1024 * 1024,
+		WSAdmissionTimeout:            30 * time.Second,
+		BatchRequestLimit:             100,
+		BatchResponseMaxSize:          25 * 1000 * 1000,
+		MaxWSConnections:              2000,
 	},
 }
 
@@ -98,19 +131,26 @@ func defaultStorageConfig() StorageConfig {
 
 // The keys this package's reader resolves.
 const (
-	FlagStorageMode                    = "giga.storage.mode"
-	FlagStorageReceipts                = "giga.storage.receipts"
-	FlagStorageRollbackWindow          = "giga.storage.rollback_window"
-	FlagStorageLookbackWindow          = "giga.storage.lookback_window"
-	FlagStoragePruneInterval           = "giga.storage.prune_interval"
-	FlagStorageCheckpointTimeInterval  = "giga.storage.checkpoint_time_interval"
-	FlagStorageCheckpointBlockInterval = "giga.storage.checkpoint_block_interval"
-	FlagExecutionMinGasPrice           = "giga.execution.min_gas_price"
-	FlagExecutionOCCWorkers            = "giga.execution.occ_workers"
-	FlagExecutionParseWorkers          = "giga.execution.parse_workers"
-	FlagExecutionBlockResultPoolSize   = "giga.execution.block_result_pool_size"
-	FlagExecutionEvmRpcPort            = "giga.execution.evm_rpc_port"
-	FlagExecutionEvmWsPort             = "giga.execution.evm_ws_port"
+	FlagStorageMode                      = "giga.storage.mode"
+	FlagStorageReceipts                  = "giga.storage.receipts"
+	FlagStorageRollbackWindow            = "giga.storage.rollback_window"
+	FlagStorageLookbackWindow            = "giga.storage.lookback_window"
+	FlagStoragePruneInterval             = "giga.storage.prune_interval"
+	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
+	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
+	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
+	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
+	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
+	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
+	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
+	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
+	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
+	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
+	FlagRPCMaxConcurrentRequestBytes     = "giga.rpc.max_concurrent_request_bytes"
+	FlagRPCWSAdmissionTimeout            = "giga.rpc.ws_admission_timeout"
+	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
+	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
+	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -182,6 +222,41 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
+		if cfg.RPC.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsNewHead, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxSubscriptionsPerConnection); v != nil {
+		if cfg.RPC.MaxSubscriptionsPerConnection, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsPerConnection, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxConcurrentRequestBytes); v != nil {
+		if cfg.RPC.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentRequestBytes, err)
+		}
+	}
+	if v := opts.Get(FlagRPCWSAdmissionTimeout); v != nil {
+		if cfg.RPC.WSAdmissionTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCWSAdmissionTimeout, err)
+		}
+	}
+	if v := opts.Get(FlagRPCBatchRequestLimit); v != nil {
+		if cfg.RPC.BatchRequestLimit, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCBatchRequestLimit, err)
+		}
+	}
+	if v := opts.Get(FlagRPCBatchResponseMaxSize); v != nil {
+		if cfg.RPC.BatchResponseMaxSize, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCBatchResponseMaxSize, err)
+		}
+	}
+	if v := opts.Get(FlagRPCMaxWSConnections); v != nil {
+		if cfg.RPC.MaxWSConnections, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -228,6 +303,21 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%s: must differ from %s, both are %d", FlagExecutionEvmWsPort, FlagExecutionEvmRpcPort,
 			c.Execution.EvmWsPort)
 	}
+	if c.RPC.MaxConcurrentRequestBytes < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentRequestBytes, c.RPC.MaxConcurrentRequestBytes)
+	}
+	if c.RPC.WSAdmissionTimeout < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %s", FlagRPCWSAdmissionTimeout, c.RPC.WSAdmissionTimeout)
+	}
+	if c.RPC.BatchRequestLimit < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCBatchRequestLimit, c.RPC.BatchRequestLimit)
+	}
+	if c.RPC.BatchResponseMaxSize < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCBatchResponseMaxSize, c.RPC.BatchResponseMaxSize)
+	}
+	if c.RPC.MaxWSConnections < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
 	return nil
 }
 
@@ -237,7 +327,7 @@ const ConfigTemplate = `
 ###                          Giga Node Configuration                        ###
 ###############################################################################
 
-# Storage and execution settings of a Giga (Autobahn) node. Committee and consensus
+# Storage, execution and EVM RPC settings of a Giga (Autobahn) node. Committee and consensus
 # settings stay in the file named by autobahn-config-file in config.toml.
 
 [giga.storage]
@@ -286,4 +376,31 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
+
+[giga.rpc]
+# Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
+
+# max_subscriptions_new_head caps open eth_subscribe("newHeads") subscriptions across all
+# connections.
+max_subscriptions_new_head = {{ .Giga.RPC.MaxSubscriptionsNewHead }}
+
+# max_subscriptions_per_connection caps the open subscriptions of a single WebSocket connection.
+max_subscriptions_per_connection = {{ .Giga.RPC.MaxSubscriptionsPerConnection }}
+
+# max_concurrent_request_bytes caps the total size, in bytes, of WebSocket request frames read
+# and processed concurrently. Values below the 32 MiB WebSocket message limit act as 32 MiB.
+max_concurrent_request_bytes = {{ .Giga.RPC.MaxConcurrentRequestBytes }}
+
+# ws_admission_timeout is how long a WebSocket connection waits for max_concurrent_request_bytes
+# budget before it is closed; 0 uses the go-ethereum default of 30s.
+ws_admission_timeout = "{{ .Giga.RPC.WSAdmissionTimeout }}"
+
+# batch_request_limit caps the number of requests in one JSON-RPC batch.
+batch_request_limit = {{ .Giga.RPC.BatchRequestLimit }}
+
+# batch_response_max_size caps the total size, in bytes, of one JSON-RPC batch's responses.
+batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
+
+# max_ws_connections caps simultaneously open WebSocket connections.
+max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
 `

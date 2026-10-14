@@ -14,7 +14,7 @@ import (
 
 func TestWebsocketEndToEnd(t *testing.T) {
 	backend := &testBackend{blockNumber: func() uint64 { return 42 }, chainID: func() uint64 { return 713715 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(websocketHandler(handler))
@@ -41,7 +41,7 @@ func TestWebsocketEndToEnd(t *testing.T) {
 
 func TestWebsocketRejectsPlainHTTP(t *testing.T) {
 	backend := &testBackend{blockNumber: func() uint64 { return 42 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(websocketHandler(handler))
