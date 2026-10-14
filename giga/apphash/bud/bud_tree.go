@@ -31,8 +31,8 @@ type BUDTree struct {
 	// The block's budlets, strictly sorted by key.
 	budlets []*Budlet
 
-	// The BUD committing to the tree.
-	bud apphash.BUD
+	// The BUD hash committing to the tree.
+	budHash apphash.BUDHash
 }
 
 // NewBUDTree returns the BUD tree over one block's budlets. It returns an error unless every budlet is one
@@ -49,7 +49,7 @@ func NewBUDTree(
 	}
 	return &BUDTree{
 		budlets: budlets,
-		bud:     hashBUD(uint64(len(budlets)), budTreeRoot(budLeafHashes(budlets))),
+		budHash: computeBUDHash(uint64(len(budlets)), budTreeRoot(budLeafHashes(budlets))),
 	}, nil
 }
 
@@ -93,9 +93,9 @@ func DeserializeBUDTree(
 	return tree, nil
 }
 
-// BUD returns the BUD committing to the tree.
-func (tree *BUDTree) BUD() apphash.BUD {
-	return tree.bud
+// BUDHash returns the BUD hash committing to the tree.
+func (tree *BUDTree) BUDHash() apphash.BUDHash {
+	return tree.budHash
 }
 
 // Budlets returns the tree's budlets, sorted by key. The caller must not mutate them.

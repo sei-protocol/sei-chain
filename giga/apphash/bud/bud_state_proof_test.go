@@ -27,7 +27,7 @@ const (
 )
 
 // newTestWrite returns the app hash data of a block at height holding budlet among random other budlets, and the
-// BUD proof of budlet against that block's BUD.
+// BUD proof of budlet against that block's BUD hash.
 func newTestWrite(
 	t *testing.T,
 	// The source of the other budlets in the block.
@@ -50,7 +50,7 @@ func newTestWrite(
 	require.NoError(t, err)
 	proof, found := tree.BuildBUDProof(budlet.Key())
 	require.True(t, found)
-	appHashData := apphash.NewAppHashData(testChainID, height, [32]byte{0xa1}, [32]byte{0xb2}, tree.BUD(),
+	appHashData := apphash.NewAppHashData(testChainID, height, [32]byte{0xa1}, [32]byte{0xb2}, tree.BUDHash(),
 		[32]byte{0xd4}, [32]byte{0xe5})
 	return appHashData, proof
 }
@@ -131,13 +131,13 @@ func TestBUDStateProofValueAt(t *testing.T) {
 	}
 }
 
-func TestNewBUDStateProofRejectsWrongBUD(t *testing.T) {
+func TestNewBUDStateProofRejectsWrongBUDHash(t *testing.T) {
 	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(8)), budlet, testWriteHeight)
-	wrongBUD := appHashData.BUD()
-	wrongBUD[0] ^= 1
+	wrongBUDHash := appHashData.BUDHash()
+	wrongBUDHash[0] ^= 1
 	wrongAppHashData := apphash.NewAppHashData(appHashData.ChainID(), appHashData.BlockHeight(),
-		appHashData.BlockHash(), appHashData.StateHash(), wrongBUD, appHashData.ReceiptHash(),
+		appHashData.BlockHash(), appHashData.StateHash(), wrongBUDHash, appHashData.ReceiptHash(),
 		appHashData.PreviousAppHash())
 
 	_, err := NewBUDStateProof(wrongAppHashData, budProof)
@@ -157,9 +157,9 @@ func TestNewBUDStateProofRejectsNilAndInvalidParts(t *testing.T) {
 	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(13)), budlet, testWriteHeight)
 	zeroProof := &BUDProof{}
-	// App hash data holding the BUD the zero proof computes, so that only the proof's validity is at fault.
+	// App hash data holding the BUD hash the zero proof computes, so that only the proof's validity is at fault.
 	zeroProofAppHashData := apphash.NewAppHashData(testChainID, testWriteHeight, appHashData.BlockHash(),
-		appHashData.StateHash(), zeroProof.ComputeBUD(), appHashData.ReceiptHash(),
+		appHashData.StateHash(), zeroProof.ComputeBUDHash(), appHashData.ReceiptHash(),
 		appHashData.PreviousAppHash())
 	missingSiblings := *budProof
 	require.NotEmpty(t, missingSiblings.siblings)
@@ -227,7 +227,7 @@ func TestDeserializeBUDStateProofRejectsMalformedInput(t *testing.T) {
 		"short app hash data":  serialize(budStateProofVersion, serializedAppHashData[1:], serializedBUDProof),
 		"missing BUD proof":    serialize(budStateProofVersion, serializedAppHashData, nil),
 		"truncated BUD proof":  valid[:len(valid)-1],
-		"mismatched BUD":       serialize(budStateProofVersion, serializedAppHashData, serializedOtherBUDProof),
+		"mismatched BUD hash":  serialize(budStateProofVersion, serializedAppHashData, serializedOtherBUDProof),
 		"trailing byte":        append(slices.Clone(valid), 0),
 		"malformed app hash":   serialize(budStateProofVersion, []byte{0xff}, serializedBUDProof),
 	}

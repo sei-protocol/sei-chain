@@ -30,17 +30,18 @@ type BUDStateProof struct {
 	// The app hash data of the block that wrote the key.
 	appHashData *apphash.AppHashData
 
-	// The BUD proof of the write, against the BUD in appHashData.
+	// The BUD proof of the write, against the BUD hash in appHashData.
 	budProof *BUDProof
 }
 
 // NewBUDStateProof returns the BUD state proof made of a BUD proof and the app hash data of its block. It returns
-// an error unless the BUD proof computes the BUD in the app hash data and its budlet's not-modified-since height is
-// below the block's height.
+// an error unless the BUD proof computes the BUD hash in the app hash data and its budlet's not-modified-since
+// height is below the block's height.
 func NewBUDStateProof(
 	// The app hash data of the block that wrote the key. Retained, so it must not be mutated afterward.
 	appHashData *apphash.AppHashData,
-	// The BUD proof of the write, against the BUD in appHashData. Retained, so it must not be mutated afterward.
+	// The BUD proof of the write, against the BUD hash in appHashData. Retained, so it must not be mutated
+	// afterward.
 	budProof *BUDProof,
 ) (*BUDStateProof, error) {
 	if appHashData == nil {
@@ -52,7 +53,7 @@ func NewBUDStateProof(
 	if err := budProof.validate(); err != nil {
 		return nil, fmt.Errorf("creating BUD state proof: invalid BUD proof: %w", err)
 	}
-	if computed, want := budProof.ComputeBUD(), appHashData.BUD(); computed != want {
+	if computed, want := budProof.ComputeBUDHash(), appHashData.BUDHash(); computed != want {
 		return nil, fmt.Errorf("creating BUD state proof: BUD proof computes %x, but app hash data holds %x",
 			computed, want)
 	}

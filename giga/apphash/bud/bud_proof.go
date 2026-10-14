@@ -20,7 +20,7 @@ const (
 	budProofPositionSize = 8 + 8
 )
 
-// BUDProof proves that a budlet is a leaf of the BUD tree under a BUD. A BUDProof is immutable; create one with
+// BUDProof proves that a budlet is a leaf of the BUD tree under a BUD hash. A BUDProof is immutable; create one with
 // BUDTree.BuildBUDProof() or DeserializeBUDProof().
 type BUDProof struct {
 	// The budlet proven to be a leaf.
@@ -53,9 +53,9 @@ func DeserializeBUDProof(
 	return proof, nil
 }
 
-// ComputeBUD returns the BUD of the BUD tree the proof places its budlet in. The proof shows that a block wrote
-// the budlet only when the result equals that block's BUD, taken from a trusted source.
-func (p *BUDProof) ComputeBUD() apphash.BUD {
+// ComputeBUDHash returns the BUD hash of the BUD tree the proof places its budlet in. The proof shows that a block
+// wrote the budlet only when the result equals that block's BUD hash, taken from a trusted source.
+func (p *BUDProof) ComputeBUDHash() apphash.BUDHash {
 	node := budLeafHash(&p.budlet)
 	siblings := p.siblings
 	position := p.index
@@ -72,7 +72,7 @@ func (p *BUDProof) ComputeBUD() apphash.BUD {
 		}
 		position /= 2
 	}
-	return hashBUD(p.count, node)
+	return computeBUDHash(p.count, node)
 }
 
 // Budlet returns the budlet the proof is about.

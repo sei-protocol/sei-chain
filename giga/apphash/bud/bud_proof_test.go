@@ -17,7 +17,7 @@ func TestBUDProofVerifiesEveryLeaf(t *testing.T) {
 	for count := 1; count <= 17; count++ {
 		tree, err := NewBUDTree(randomBudlets(t, rng, count))
 		require.NoError(t, err)
-		bud := tree.BUD()
+		budHash := tree.BUDHash()
 
 		for index, budlet := range tree.Budlets() {
 			proof, found := tree.BuildBUDProof(budlet.Key())
@@ -25,7 +25,7 @@ func TestBUDProofVerifiesEveryLeaf(t *testing.T) {
 			require.Equal(t, budlet, proof.Budlet())
 			require.Equal(t, uint64(count), proof.Count())
 			require.Equal(t, uint64(index), proof.Index())
-			require.Equal(t, bud, proof.ComputeBUD(), "count %d index %d", count, index)
+			require.Equal(t, budHash, proof.ComputeBUDHash(), "count %d index %d", count, index)
 
 			deserialized, err := DeserializeBUDProof(proof.Serialize())
 			require.NoError(t, err, "count %d index %d", count, index)
@@ -35,7 +35,7 @@ func TestBUDProofVerifiesEveryLeaf(t *testing.T) {
 }
 
 // TestBUDProofRejectsTampering requires every single-field alteration of a serialized BUD proof either to fail to
-// deserialize or to compute a BUD other than the one claimed.
+// deserialize or to compute a BUD hash other than the one claimed.
 func TestBUDProofRejectsTampering(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	for _, count := range []int{1, 2, 3, 5, 8, 13} {
@@ -45,29 +45,29 @@ func TestBUDProofRejectsTampering(t *testing.T) {
 		for index, budlet := range tree.Budlets() {
 			proof, found := tree.BuildBUDProof(budlet.Key())
 			require.True(t, found)
-			for name, tampered := range tamperedBUDProofClaims(tree.BUD(), proof) {
+			for name, tampered := range tamperedBUDProofClaims(tree.BUDHash(), proof) {
 				deserialized, err := DeserializeBUDProof(tampered.proof.Serialize())
 				if err != nil {
 					continue
 				}
-				require.NotEqual(t, tampered.bud, deserialized.ComputeBUD(),
+				require.NotEqual(t, tampered.budHash, deserialized.ComputeBUDHash(),
 					"count %d index %d: %s", count, index, name)
 			}
 		}
 	}
 }
 
-// budProofClaim is a BUD proof and the BUD it is claimed to compute.
+// budProofClaim is a BUD proof and the BUD hash it is claimed to compute.
 type budProofClaim struct {
-	// The BUD the proof's budlet is claimed to be under.
-	bud apphash.BUD
+	// The BUD hash the proof's budlet is claimed to be under.
+	budHash apphash.BUDHash
 
 	// The proof of the claim.
 	proof *BUDProof
 }
 
 // tamperedBUDProofClaims returns, by name, every single-field alteration of a valid claim.
-func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProofClaim {
+func tamperedBUDProofClaims(budHash apphash.BUDHash, proof *BUDProof) map[string]budProofClaim {
 	claims := make(map[string]budProofClaim)
 	alter := func(name string, change func(claim *budProofClaim)) {
 		proofCopy := *proof
@@ -76,12 +76,12 @@ func tamperedBUDProofClaims(bud apphash.BUD, proof *BUDProof) map[string]budProo
 		proofCopy.budlet.value = bytes.Clone(proof.budlet.value)
 		proofCopy.budlet.previousValue = bytes.Clone(proof.budlet.previousValue)
 		proofCopy.siblings = append([][32]byte(nil), proof.siblings...)
-		claim := budProofClaim{bud: bud, proof: &proofCopy}
+		claim := budProofClaim{budHash: budHash, proof: &proofCopy}
 		change(&claim)
 		claims[name] = claim
 	}
 
-	alter("bud", func(claim *budProofClaim) { claim.bud[0] ^= 1 })
+	alter("BUD hash", func(claim *budProofClaim) { claim.budHash[0] ^= 1 })
 	alter("key", func(claim *budProofClaim) { claim.proof.budlet.key[0] ^= 1 })
 	alter("not-modified-since height", func(claim *budProofClaim) { claim.proof.budlet.notModifiedSince ^= 1 })
 	if proof.budlet.value == nil {

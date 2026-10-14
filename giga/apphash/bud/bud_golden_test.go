@@ -85,7 +85,7 @@ type budGoldenValue struct {
 	Deleted bool `json:"deleted"`
 }
 
-// budGoldenRecord is one recorded block: its budlets, its serialized BUD tree, its BUD, and the BUD proof of each
+// budGoldenRecord is one recorded block: its budlets, its serialized BUD tree, its BUD hash, and the BUD proof of each
 // budlet. Byte fields are lowercase hex.
 type budGoldenRecord struct {
 	// The block's budlets, sorted by key.
@@ -94,8 +94,8 @@ type budGoldenRecord struct {
 	// The block's serialized BUD tree.
 	Tree string `json:"tree"`
 
-	// The block's BUD.
-	BUD string `json:"bud"`
+	// The block's BUD hash.
+	BUDHash string `json:"budHash"`
 
 	// The serialized BUD proof of each budlet, in budlet order.
 	Proofs []string `json:"proofs"`
@@ -165,7 +165,7 @@ func TestCurrentVersionsHaveGoldenFile(t *testing.T) {
 }
 
 // verifyBUDGoldenRecord requires the recorded BUD tree and BUD proofs to deserialize to the recorded budlets and
-// compute the recorded BUD. A record of the current versions must also be reproduced by NewBUDTree() and
+// compute the recorded BUD hash. A record of the current versions must also be reproduced by NewBUDTree() and
 // BuildBUDProof().
 func verifyBUDGoldenRecord(
 	t *testing.T,
@@ -188,8 +188,8 @@ func verifyBUDGoldenRecord(
 	deserializedTree, err := DeserializeBUDTree(serializedTree)
 	require.NoError(t, err, "record %d tree", index)
 	require.Equal(t, budlets, deserializedTree.Budlets(), "record %d deserialized tree", index)
-	bud := deserializedTree.BUD()
-	require.Equal(t, record.BUD, hex.EncodeToString(bud[:]), "record %d BUD", index)
+	budHash := deserializedTree.BUDHash()
+	require.Equal(t, record.BUDHash, hex.EncodeToString(budHash[:]), "record %d BUD hash", index)
 
 	require.Len(t, record.Proofs, len(budlets), "record %d", index)
 	for i, budlet := range budlets {
@@ -198,7 +198,7 @@ func verifyBUDGoldenRecord(
 		deserialized, err := DeserializeBUDProof(serialized)
 		require.NoError(t, err, "record %d budlet %d", index, i)
 		require.Equal(t, budlet, deserialized.Budlet(), "record %d budlet %d", index, i)
-		require.Equal(t, bud, deserialized.ComputeBUD(), "record %d budlet %d", index, i)
+		require.Equal(t, budHash, deserialized.ComputeBUDHash(), "record %d budlet %d", index, i)
 	}
 
 	if !current {
@@ -207,7 +207,7 @@ func verifyBUDGoldenRecord(
 	tree, err := NewBUDTree(budlets)
 	require.NoError(t, err, "record %d", index)
 	require.Equal(t, record.Tree, hex.EncodeToString(tree.Serialize()), "record %d tree", index)
-	require.Equal(t, bud, tree.BUD(), "record %d BUD", index)
+	require.Equal(t, budHash, tree.BUDHash(), "record %d BUD hash", index)
 	for i, budlet := range budlets {
 		proof, found := tree.BuildBUDProof(budlet.Key())
 		require.True(t, found, "record %d budlet %d", index, i)
@@ -396,11 +396,11 @@ func newBUDGoldenRecord(t *testing.T, budlets []*Budlet) budGoldenRecord {
 
 	tree, err := NewBUDTree(budlets)
 	require.NoError(t, err)
-	bud := tree.BUD()
+	budHash := tree.BUDHash()
 	record := budGoldenRecord{
 		Budlets: make([]budGoldenBudlet, 0, len(budlets)),
 		Tree:    hex.EncodeToString(tree.Serialize()),
-		BUD:     hex.EncodeToString(bud[:]),
+		BUDHash: hex.EncodeToString(budHash[:]),
 		Proofs:  make([]string, 0, len(budlets)),
 	}
 	for _, budlet := range budlets {

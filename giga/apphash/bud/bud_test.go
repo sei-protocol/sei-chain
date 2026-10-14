@@ -8,21 +8,21 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
 
-// budOf returns the BUD of the BUD tree over budlets, failing the test if they are not sorted.
-func budOf(t *testing.T, budlets []*Budlet) apphash.BUD {
+// budHashOf returns the BUD hash of the BUD tree over budlets, failing the test if they are not sorted.
+func budHashOf(t *testing.T, budlets []*Budlet) apphash.BUDHash {
 	t.Helper()
 
 	tree, err := NewBUDTree(budlets)
 	require.NoError(t, err)
-	return tree.BUD()
+	return tree.BUDHash()
 }
 
-func TestBUDOfEmptyTree(t *testing.T) {
-	require.Equal(t, hashBUD(0, [32]byte{}), budOf(t, nil))
+func TestBUDHashOfEmptyTree(t *testing.T) {
+	require.Equal(t, computeBUDHash(0, [32]byte{}), budHashOf(t, nil))
 }
 
-func TestBUDCommitsToEveryField(t *testing.T) {
-	original := budOf(t, threeBudlets(t))
+func TestBUDHashCommitsToEveryField(t *testing.T) {
+	original := budHashOf(t, threeBudlets(t))
 
 	replacements := map[string]*Budlet{
 		"key":                       newTestBudlet(t, "evm/bb", []byte{0x02, 0x03}, nil, 0),
@@ -36,24 +36,24 @@ func TestBUDCommitsToEveryField(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			budlets := threeBudlets(t)
 			budlets[1] = replacement
-			require.NotEqual(t, original, budOf(t, budlets))
+			require.NotEqual(t, original, budHashOf(t, budlets))
 		})
 	}
 
 	t.Run("count", func(t *testing.T) {
-		require.NotEqual(t, original, budOf(t, threeBudlets(t)[:2]))
+		require.NotEqual(t, original, budHashOf(t, threeBudlets(t)[:2]))
 	})
 }
 
-func TestBUDDistinguishesDeletionFromEmptyValue(t *testing.T) {
-	deleted := budOf(t, []*Budlet{newTestDeletionBudlet(t, "evm/a", nil, 0)})
-	empty := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{}, nil, 0)})
+func TestBUDHashDistinguishesDeletionFromEmptyValue(t *testing.T) {
+	deleted := budHashOf(t, []*Budlet{newTestDeletionBudlet(t, "evm/a", nil, 0)})
+	empty := budHashOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{}, nil, 0)})
 	require.NotEqual(t, deleted, empty)
 }
 
-func TestBUDDistinguishesAbsentFromEmptyPreviousValue(t *testing.T) {
-	absent := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0)})
-	empty := budOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, []byte{}, 0)})
+func TestBUDHashDistinguishesAbsentFromEmptyPreviousValue(t *testing.T) {
+	absent := budHashOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, nil, 0)})
+	empty := budHashOf(t, []*Budlet{newTestBudlet(t, "evm/a", []byte{0x01}, []byte{}, 0)})
 	require.NotEqual(t, absent, empty)
 }
 
@@ -67,14 +67,14 @@ func TestZeroValuesDoNotPanic(t *testing.T) {
 	require.Error(t, err)
 
 	var tree BUDTree
-	_ = tree.BUD()
+	_ = tree.BUDHash()
 	require.Empty(t, tree.Budlets())
 	_, found := tree.BuildBUDProof([]byte("evm/a"))
 	require.False(t, found)
 	_ = tree.Serialize()
 
 	var proof BUDProof
-	_ = proof.ComputeBUD()
+	_ = proof.ComputeBUDHash()
 	require.NotNil(t, proof.Budlet())
 	require.Zero(t, proof.Count())
 	require.Zero(t, proof.Index())

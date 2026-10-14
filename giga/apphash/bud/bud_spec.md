@@ -2,11 +2,18 @@
 
 **BUD version:** 1. **BUD proof version:** 1. **BUD state proof version:** 1.
 
-This document defines the Block Update Digest (BUD): a 32-byte commitment to the key-value writes a block
-makes. A block's BUD is the `bud` field of its [app hash](../apphash_spec.md). This document
-also defines the serialization of a BUD tree; the BUD proof, which proves that one write is among those a BUD
-commits to; and the BUD state proof, which pairs a BUD proof with its block's app hash data to prove a key's value
-over a range of heights. It does not define where a BUD tree is stored, or how a reader comes to trust an app hash.
+This document defines the Block Update Digest (BUD), a family of formats that commit to the key-value writes a
+block makes and prove them:
+
+- the budlet, one key's write
+- the BUD tree, the Merkle tree over a block's budlets, and its serialization
+- the BUD hash, a 32-byte commitment to a BUD tree, which is the `budHash` field of the block's
+  [app hash](../apphash_spec.md)
+- the BUD proof, which proves that one write is among those a BUD hash commits to
+- the BUD state proof, which pairs a BUD proof with its block's app hash data to prove a key's value over a range
+  of heights
+
+It does not define where a BUD tree is stored, or how a reader comes to trust an app hash.
 
 ## Notation
 
@@ -24,10 +31,11 @@ over a range of heights. It does not define where a BUD tree is stored, or how a
 
 ## Terms
 
+- **BUD:** Block Update Digest, the family of formats this document defines.
 - **budlet:** the 4-tuple (`key`, `value`, `previousValue`, `notModifiedSince`) for one key a block modified.
 - **BUD tree:** the Merkle tree whose leaves are one block's budlets.
-- **BUD:** the hash at the top of a BUD tree.
-- **BUD proof:** a budlet together with the proof that it is a leaf of the BUD tree under a given BUD.
+- **BUD hash:** the hash committing to a BUD tree.
+- **BUD proof:** a budlet together with the proof that it is a leaf of the BUD tree under a given BUD hash.
 - **BUD state proof:** a BUD proof paired with its block's app hash data, proving the key's value over a range of
   heights.
 - **value at a height:** a key's value at height `h` is its value in the state after executing the block at
@@ -169,7 +177,7 @@ Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go).
 ### Purpose
 
 A block's budlets, arranged as a Merkle tree. Whoever holds a block's BUD tree can build a BUD proof for any of its
-budlets, and the tree's root determines the block's BUD.
+budlets, and the tree's root determines the block's BUD hash.
 
 ### Schema
 
@@ -268,19 +276,19 @@ n        0000000000000000
 Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
 [`TestBUDSpecEmptyTreeVector`](bud_spec_vector_test.go).
 
-## BUD
+## BUD hash
 
 ### Purpose
 
-The Block Update Digest: a single hash that commits to every write a block made. It is the `bud` field of the
-block's app hash data, so anyone who trusts a block's app hash can check BUD proofs against it.
+A single hash that commits to every write a block made. It is the `budHash` field of the block's app hash data, so
+anyone who trusts a block's app hash can check BUD proofs against it.
 
 ### Schema
 
 **Version:** BUD version 1.
 
 ```
-BUD = SHA-256("sei-bud" ‖ u8(version) ‖ u64be(n) ‖ R)
+budHash = SHA-256("sei-bud" ‖ u8(version) ‖ u64be(n) ‖ R)
 ```
 
 | Size | Field     | Value                                                                             |
@@ -290,13 +298,13 @@ BUD = SHA-256("sei-bud" ‖ u8(version) ‖ u64be(n) ‖ R)
 |    8 | `n`       | `u64be` of the number of budlets                                                  |
 |   32 | `R`       | the BUD tree root                                                                 |
 
-The domain separates a BUD from every BUD tree node, whose preimages begin with `0x00` or `0x01`, and from
-objects of other kinds that commit to a tree of this shape, which use other domains. The BUD commits to `n` so
-that a BUD proof cannot claim a different `count` and `index` for the same root.
+The domain separates a BUD hash from every BUD tree node, whose preimages begin with `0x00` or `0x01`, and from
+objects of other kinds that commit to a tree of this shape, which use other domains. The BUD hash commits to `n`
+so that a BUD proof cannot claim a different `count` and `index` for the same root.
 
 ### Test vector
 
-The BUD of the BUD tree test vector is `SHA-256` of:
+The BUD hash of the BUD tree test vector is `SHA-256` of:
 
 | Field     | Bytes (hex)                                                        |
 |-----------|--------------------------------------------------------------------|
@@ -311,7 +319,7 @@ which is
 cb9f3601d13115bd8f430f469e52d64709857df23f068bfa2aba3128eea8ebef
 ```
 
-The BUD of a block with no budlets, with `n` = 0 and `R` 32 zero bytes, is
+The BUD hash of a block with no budlets, with `n` = 0 and `R` 32 zero bytes, is
 
 ```
 3eeeba2dfb311dad9e9e46eba984fa855be2b872496b921b19da52b3eb09d5e2
@@ -326,7 +334,7 @@ Verified by [`TestBUDSpecVector`](bud_spec_vector_test.go) and
 
 ### Purpose
 
-Given a block's BUD, a BUD proof proves two facts about one key:
+Given a block's BUD hash, a BUD proof proves two facts about one key:
 
 - the block wrote `value` to the key
 - the key held `previousValue` at every height from `notModifiedSince` up to, but not including, the block's height
@@ -342,7 +350,7 @@ A BUD proof of budlet `b[i]` in a block of `n` budlets holds:
 - `index`: `i`, the budlet's position in key order.
 - `siblings`: the sibling hashes on the way from the budlet's leaf to the root, leaf end first.
 
-The BUD is not part of the proof; the verifier must obtain it from a source it trusts. The serialized proof
+The BUD hash is not part of the proof; the verifier must obtain it from a source it trusts. The serialized proof
 names the BUD version it was built under, which also defines how its budlet is serialized and hashed.
 
 #### Siblings
@@ -387,11 +395,11 @@ order:
 5. an `index` not less than `count`
 6. input that ends before the last sibling
 
-Each rejection is an error, distinct from a proof that decodes but computes the wrong BUD.
+Each rejection is an error, distinct from a proof that decodes but computes the wrong BUD hash.
 
-#### Computing the BUD
+#### Computing the BUD hash
 
-A BUD proof (`budlet`, `count`, `index`, `siblings`) determines a BUD. The decoder has already ensured that:
+A BUD proof (`budlet`, `count`, `index`, `siblings`) determines a BUD hash. The decoder has already ensured that:
 
 - `budlet` satisfies the bounds in [Budlets](#budlets)
 - `index < count`
@@ -401,10 +409,10 @@ A BUD proof (`budlet`, `count`, `index`, `siblings`) determines a BUD. The decod
    - If `p` is odd: `h ← innerHash(siblings[k], h)`, and `k ← k + 1`.
    - Otherwise, if `p + 1 < s`: `h ← innerHash(h, siblings[k])`, and `k ← k + 1`.
    - Then `p ← ⌊p / 2⌋` and `s ← ⌈s / 2⌉`.
-2. The computed BUD is `SHA-256("sei-bud" ‖ u8(1) ‖ u64be(count) ‖ h)`.
+2. The computed BUD hash is `SHA-256("sei-bud" ‖ u8(1) ‖ u64be(count) ‖ h)`.
 
-The proof shows that a block wrote `budlet` when the computed BUD equals that block's BUD, obtained from a source
-the verifier trusts. A mismatch is a failed proof, not an error.
+The proof shows that a block wrote `budlet` when the computed BUD hash equals that block's BUD hash, obtained
+from a source the verifier trusts. A mismatch is a failed proof, not an error.
 
 ### Test vector
 
@@ -468,9 +476,9 @@ The verifier needs no state of its own and executes no blocks.
 
 **Version:** BUD state proof version 1.
 
-A BUD state proof holds a block's app hash data and a BUD proof against the BUD in it. App hash data and its
+A BUD state proof holds a block's app hash data and a BUD proof against the BUD hash in it. App hash data and its
 serialization are defined by the [Giga app hash specification](../apphash_spec.md); its `blockHeight` field is
-the height of the block and its `bud` field the block's BUD.
+the height of the block and its `budHash` field the block's BUD hash.
 
 For budlet `b` in the block at height `C`, the proof shows that the key `b.key` held `b.previousValue` at every
 height from `b.notModifiedSince` through `C − 1`, and `b.value` at `C`.
@@ -493,7 +501,7 @@ decoder find the end of `appHashData` without knowing its size for each app hash
 
 An implementation rejects, as an error, a BUD state proof that does not satisfy both conditions below.
 
-- The BUD [computed](#computing-the-bud) from its BUD proof equals the `bud` of its app hash data.
+- The BUD hash [computed](#computing-the-bud-hash) from its BUD proof equals the `budHash` of its app hash data.
 - `b.notModifiedSince < blockHeight`.
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects, as
@@ -523,7 +531,8 @@ This vector proves the value of `evm/b` from height 7 through height 9, on chain
 block at height 9 is the block of the Budlets test vector. Its `b[1]` deletes `evm/b`, and proves that `evm/b`
 held `bb` over [7, 9).
 
-`BUD9` is the BUD of the BUD test vector, `cb9f3601d13115bd8f430f469e52d64709857df23f068bfa2aba3128eea8ebef`.
+`budHash9` is the BUD hash of the BUD hash test vector,
+`cb9f3601d13115bd8f430f469e52d64709857df23f068bfa2aba3128eea8ebef`.
 
 The app hash data of the block, in hex. `appHashData9` stands for its serialization.
 
@@ -534,7 +543,7 @@ The app hash data of the block, in hex. `appHashData9` stands for its serializat
 | `blockHeight`     | `0000000000000009` |
 | `blockHash`       | 32 bytes of `a9`   |
 | `stateHash`       | 32 bytes of `b9`   |
-| `bud`             | `BUD9`             |
+| `budHash`         | `budHash9`         |
 | `receiptHash`     | 32 bytes of `d9`   |
 | `previousAppHash` | 32 bytes of `e9`   |
 

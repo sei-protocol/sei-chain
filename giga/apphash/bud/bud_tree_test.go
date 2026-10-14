@@ -72,7 +72,7 @@ func TestBUDTreeSerializationRoundTrip(t *testing.T) {
 
 		deserialized, err := DeserializeBUDTree(tree.Serialize())
 		require.NoError(t, err, "count %d", count)
-		require.Equal(t, tree.BUD(), deserialized.BUD(), "count %d", count)
+		require.Equal(t, tree.BUDHash(), deserialized.BUDHash(), "count %d", count)
 		require.Equal(t, tree.Budlets(), deserialized.Budlets(), "count %d", count)
 	}
 }

@@ -41,7 +41,7 @@ func (i hashInput) of(record *apphash.AppHashData) [32]byte {
 	case stateHashInput:
 		return record.StateHash()
 	case budInput:
-		return record.BUD()
+		return record.BUDHash()
 	case receiptHashInput:
 		return record.ReceiptHash()
 	default:

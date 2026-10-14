@@ -55,7 +55,7 @@ func newBUDFuzzSeeds(f *testing.F) budFuzzSeeds {
 	}
 	tree := newTree(budlets...)
 	appHashData := apphash.NewAppHashData(
-		0x1112131415161718, 9, filled(0xa9), filled(0xb9), tree.BUD(), filled(0xd9), filled(0xe9))
+		0x1112131415161718, 9, filled(0xa9), filled(0xb9), tree.BUDHash(), filled(0xd9), filled(0xe9))
 	stateProof, err := NewBUDStateProof(appHashData, buildProof(tree, "evm/b"))
 	require.NoError(f, err)
 
@@ -99,13 +99,13 @@ func FuzzDeserializeBUDTree(f *testing.F) {
 		for _, budlet := range tree.Budlets() {
 			proof, found := tree.BuildBUDProof(budlet.Key())
 			require.True(t, found)
-			require.Equal(t, tree.BUD(), proof.ComputeBUD())
+			require.Equal(t, tree.BUDHash(), proof.ComputeBUDHash())
 		}
 	})
 }
 
 // FuzzDeserializeBUDProof requires DeserializeBUDProof() never to panic, and every BUD proof it accepts to
-// serialize back to the same bytes and compute a BUD.
+// serialize back to the same bytes and compute a BUD hash.
 func FuzzDeserializeBUDProof(f *testing.F) {
 	for _, seed := range newBUDFuzzSeeds(f).proofs {
 		f.Add(seed)
@@ -116,7 +116,7 @@ func FuzzDeserializeBUDProof(f *testing.F) {
 			return
 		}
 		require.Equal(t, data, proof.Serialize())
-		_ = proof.ComputeBUD()
+		_ = proof.ComputeBUDHash()
 	})
 }
 
