@@ -155,7 +155,7 @@ func TestSnapshotVersionsListsOnlyCompleteSnapshots(t *testing.T) {
 	require.Empty(t, versions)
 }
 
-func TestPinSnapshotHardLinksEveryFileAndSkipsLock(t *testing.T) {
+func TestHardLinkSnapshotLinksEveryFileAndSkipsLock(t *testing.T) {
 	s := setupSnapshottingStore(t, 10)
 	defer func() { require.NoError(t, s.Close()) }()
 	commitToEveryDB(t, s, 1)
@@ -164,8 +164,8 @@ func TestPinSnapshotHardLinksEveryFileAndSkipsLock(t *testing.T) {
 	root := s.flatkvDir()
 	src := filepath.Join(root, SnapshotDirName(h))
 	require.NoError(t, os.WriteFile(filepath.Join(src, lockFileName), nil, 0o600))
-	dst := filepath.Join(t.TempDir(), "pin")
-	require.NoError(t, PinSnapshot(root, h, dst))
+	dst := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(root, h, dst))
 
 	srcFiles := regularFiles(t, src)
 	var want []string
@@ -186,14 +186,14 @@ func TestPinSnapshotHardLinksEveryFileAndSkipsLock(t *testing.T) {
 	require.NoError(t, VerifySnapshotDir(dst, h))
 }
 
-func TestPinSnapshotSurvivesPruning(t *testing.T) {
+func TestHardLinkSnapshotSurvivesPruning(t *testing.T) {
 	s := setupSnapshottingStore(t, 0)
 	defer func() { require.NoError(t, s.Close()) }()
 	h := commitToEveryDB(t, s, 1)
 
 	root := s.flatkvDir()
-	dst := filepath.Join(t.TempDir(), "pin")
-	require.NoError(t, PinSnapshot(root, h, dst))
+	dst := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(root, h, dst))
 
 	commitToEveryDB(t, s, 2)
 	commitToEveryDB(t, s, 3)
@@ -201,15 +201,15 @@ func TestPinSnapshotSurvivesPruning(t *testing.T) {
 	require.NoError(t, VerifySnapshotDir(dst, h))
 }
 
-func TestPinSnapshotRefusals(t *testing.T) {
+func TestHardLinkSnapshotRefusals(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, SnapshotDirName(4))
 	require.NoError(t, os.MkdirAll(filepath.Join(src, accountDBDir), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(src, accountDBDir, "000001.sst"), []byte("x"), 0o600))
 
 	t.Run("absent snapshot", func(t *testing.T) {
-		dst := filepath.Join(t.TempDir(), "pin")
-		err := PinSnapshot(root, 5, dst)
+		dst := filepath.Join(t.TempDir(), "linked")
+		err := HardLinkSnapshot(root, 5, dst)
 		require.ErrorIs(t, err, os.ErrNotExist)
 		require.NoDirExists(t, dst)
 	})
@@ -218,7 +218,7 @@ func TestPinSnapshotRefusals(t *testing.T) {
 		dst := t.TempDir()
 		marker := filepath.Join(dst, "keep")
 		require.NoError(t, os.WriteFile(marker, nil, 0o600))
-		require.Error(t, PinSnapshot(root, 4, dst))
+		require.Error(t, HardLinkSnapshot(root, 4, dst))
 		require.FileExists(t, marker)
 	})
 
@@ -227,11 +227,11 @@ func TestPinSnapshotRefusals(t *testing.T) {
 		require.NoError(t, os.Symlink(src, into))
 		for _, dst := range []string{
 			src,
-			filepath.Join(src, "pin"),
-			filepath.Join(src, accountDBDir, "pin"),
-			filepath.Join(into, "pin"),
+			filepath.Join(src, "linked"),
+			filepath.Join(src, accountDBDir, "linked"),
+			filepath.Join(into, "linked"),
 		} {
-			require.ErrorContains(t, PinSnapshot(root, 4, dst), "is inside the snapshot", dst)
+			require.ErrorContains(t, HardLinkSnapshot(root, 4, dst), "is inside the snapshot", dst)
 		}
 		require.Equal(t, []string{filepath.Join(accountDBDir, "000001.sst")}, regularFiles(t, src))
 		entries, err := os.ReadDir(src)
@@ -243,23 +243,23 @@ func TestPinSnapshotRefusals(t *testing.T) {
 		link := filepath.Join(src, "link")
 		require.NoError(t, os.Symlink("000001.sst", link))
 		defer func() { require.NoError(t, os.Remove(link)) }()
-		dst := filepath.Join(t.TempDir(), "pin")
-		err := PinSnapshot(root, 4, dst)
+		dst := filepath.Join(t.TempDir(), "linked")
+		err := HardLinkSnapshot(root, 4, dst)
 		require.ErrorContains(t, err, "not a regular file or a directory")
 		require.NoDirExists(t, dst)
 	})
 }
 
-func TestPinSnapshotPrunedMidPin(t *testing.T) {
+func TestHardLinkSnapshotPrunedMidLink(t *testing.T) {
 	s := setupSnapshottingStore(t, 10)
 	defer func() { require.NoError(t, s.Close()) }()
 	h := commitToEveryDB(t, s, 1)
 	root := s.flatkvDir()
 	src := filepath.Join(root, SnapshotDirName(h))
 
-	dst := filepath.Join(t.TempDir(), "pin")
+	dst := filepath.Join(t.TempDir(), "linked")
 	pruned := false
-	err := pinSnapshotWith(root, h, dst, func(oldname, newname string) error {
+	err := hardLinkSnapshotWith(root, h, dst, func(oldname, newname string) error {
 		if !pruned {
 			pruned = true
 			require.NoError(t, atomicRemoveDir(src))
@@ -270,7 +270,7 @@ func TestPinSnapshotPrunedMidPin(t *testing.T) {
 	require.NoDirExists(t, dst)
 }
 
-func TestPinSnapshotReplacedMidPin(t *testing.T) {
+func TestHardLinkSnapshotReplacedMidLink(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, SnapshotDirName(4))
 	for _, db := range dataDBDirs {
@@ -278,9 +278,9 @@ func TestPinSnapshotReplacedMidPin(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(src, db, "000001.sst"), []byte(db), 0o600))
 	}
 
-	dst := filepath.Join(t.TempDir(), "pin")
+	dst := filepath.Join(t.TempDir(), "linked")
 	replaced := false
-	err := pinSnapshotWith(root, 4, dst, func(oldname, newname string) error {
+	err := hardLinkSnapshotWith(root, 4, dst, func(oldname, newname string) error {
 		if !replaced {
 			replaced = true
 			// What publishSnapshot does when it rewrites a version: a new directory takes the name.
@@ -296,7 +296,7 @@ func TestPinSnapshotReplacedMidPin(t *testing.T) {
 		return os.Link(oldname, newname)
 	})
 	require.ErrorIs(t, err, os.ErrNotExist)
-	require.ErrorContains(t, err, "replaced during the pin")
+	require.ErrorContains(t, err, "replaced while its files were linked")
 	require.NoDirExists(t, dst)
 }
 
@@ -305,8 +305,8 @@ func TestVerifySnapshotDir(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 	commitToEveryDB(t, s, 1)
 	h := commitToEveryDB(t, s, 2)
-	dir := filepath.Join(t.TempDir(), "pin")
-	require.NoError(t, PinSnapshot(s.flatkvDir(), h, dir))
+	dir := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(s.flatkvDir(), h, dir))
 
 	require.NoError(t, VerifySnapshotDir(dir, h))
 	require.ErrorContains(t, VerifySnapshotDir(dir, h+1), "want")
@@ -325,18 +325,18 @@ func TestVerifySnapshotDirRefusesSymlinks(t *testing.T) {
 	s := setupSnapshottingStore(t, 10)
 	h := commitToEveryDB(t, s, 1)
 	parent := t.TempDir()
-	pin := filepath.Join(parent, "pin")
-	require.NoError(t, PinSnapshot(s.flatkvDir(), h, pin))
+	linked := filepath.Join(parent, "linked")
+	require.NoError(t, HardLinkSnapshot(s.flatkvDir(), h, linked))
 	require.NoError(t, s.Close())
-	require.NoError(t, VerifySnapshotDir(pin, h))
+	require.NoError(t, VerifySnapshotDir(linked, h))
 
 	link := filepath.Join(parent, "link")
-	require.NoError(t, os.Symlink("pin", link))
+	require.NoError(t, os.Symlink("linked", link))
 	require.ErrorContains(t, VerifySnapshotDir(link, h), "not a regular file or a directory")
 
-	require.NoError(t, os.Rename(filepath.Join(pin, accountDBDir), filepath.Join(parent, accountDBDir)))
-	require.NoError(t, os.Symlink(filepath.Join("..", accountDBDir), filepath.Join(pin, accountDBDir)))
-	require.ErrorContains(t, VerifySnapshotDir(pin, h), "not a regular file or a directory")
+	require.NoError(t, os.Rename(filepath.Join(linked, accountDBDir), filepath.Join(parent, accountDBDir)))
+	require.NoError(t, os.Symlink(filepath.Join("..", accountDBDir), filepath.Join(linked, accountDBDir)))
+	require.ErrorContains(t, VerifySnapshotDir(linked, h), "not a regular file or a directory")
 }
 
 func TestVerifySnapshotDirRefusesEmptyDatabases(t *testing.T) {
@@ -526,17 +526,17 @@ func TestInstallSnapshotRoundTrip(t *testing.T) {
 	commitToEveryDB(t, src, 1)
 	h := commitToEveryDB(t, src, 2)
 	wantHash := rootHash(src)
-	pin := filepath.Join(t.TempDir(), "pin")
-	require.NoError(t, PinSnapshot(src.flatkvDir(), h, pin))
+	linked := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(src.flatkvDir(), h, linked))
 	commitToEveryDB(t, src, 3)
 	require.NoError(t, src.Close())
 
 	cfg := config.DefaultTestConfig(t)
 	lock, err := LockRoot(cfg.DataDir)
 	require.NoError(t, err)
-	require.NoError(t, lock.InstallSnapshot(pin, h))
+	require.NoError(t, lock.InstallSnapshot(linked, h))
 	require.NoError(t, lock.Unlock())
-	require.NoDirExists(t, pin)
+	require.NoDirExists(t, linked)
 
 	target, err := os.Readlink(filepath.Join(cfg.DataDir, currentLink))
 	require.NoError(t, err)
@@ -551,7 +551,7 @@ func TestInstallSnapshotRoundTrip(t *testing.T) {
 	requireRowsFrom(t, dst, 1)
 	requireRowsFrom(t, dst, 2)
 	_, ok := dst.Get("bank", []byte{'b', 3})
-	require.False(t, ok, "a row written after the pin must not be installed")
+	require.False(t, ok, "a row written after the hard link must not be installed")
 
 	commitToEveryDB(t, dst, 4)
 	require.Equal(t, h+1, dst.Version())
@@ -560,11 +560,11 @@ func TestInstallSnapshotRoundTrip(t *testing.T) {
 func TestInstallSnapshotRefusals(t *testing.T) {
 	src := setupSnapshottingStore(t, 10)
 	h := commitToEveryDB(t, src, 1)
-	newPin := func(t *testing.T) string {
+	newLinked := func(t *testing.T) string {
 		t.Helper()
-		pin := filepath.Join(t.TempDir(), "pin")
-		require.NoError(t, PinSnapshot(src.flatkvDir(), h, pin))
-		return pin
+		linked := filepath.Join(t.TempDir(), "linked")
+		require.NoError(t, HardLinkSnapshot(src.flatkvDir(), h, linked))
+		return linked
 	}
 	defer func() { require.NoError(t, src.Close()) }()
 
@@ -576,9 +576,9 @@ func TestInstallSnapshotRefusals(t *testing.T) {
 			defer func() { require.NoError(t, lock.Unlock()) }()
 			require.NoError(t, os.Mkdir(filepath.Join(root, entry), 0o750))
 
-			pin := newPin(t)
-			require.ErrorContains(t, lock.InstallSnapshot(pin, h), "is not empty")
-			require.DirExists(t, pin)
+			linked := newLinked(t)
+			require.ErrorContains(t, lock.InstallSnapshot(linked, h), "is not empty")
+			require.DirExists(t, linked)
 			_, err = os.Lstat(filepath.Join(root, currentLink))
 			require.ErrorIs(t, err, os.ErrNotExist)
 		})
@@ -590,8 +590,8 @@ func TestInstallSnapshotRefusals(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { require.NoError(t, lock.Unlock()) }()
 
-		pin := newPin(t)
-		require.ErrorContains(t, lock.InstallSnapshot(pin, h+1), "want")
+		linked := newLinked(t)
+		require.ErrorContains(t, lock.InstallSnapshot(linked, h+1), "want")
 		empty, err := lock.Empty()
 		require.NoError(t, err)
 		require.True(t, empty)
@@ -603,11 +603,11 @@ func TestInstallSnapshotRefusals(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { require.NoError(t, lock.Unlock()) }()
 
-		pin := newPin(t)
-		link := filepath.Join(filepath.Dir(pin), "link")
-		require.NoError(t, os.Symlink(filepath.Base(pin), link))
+		linked := newLinked(t)
+		link := filepath.Join(filepath.Dir(linked), "link")
+		require.NoError(t, os.Symlink(filepath.Base(linked), link))
 		require.ErrorContains(t, lock.InstallSnapshot(link, h), "not a regular file or a directory")
-		require.DirExists(t, pin)
+		require.DirExists(t, linked)
 		empty, err := lock.Empty()
 		require.NoError(t, err)
 		require.True(t, empty)
@@ -633,22 +633,22 @@ func TestInstallSnapshotUndoesTheMoveOnFailure(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pin := filepath.Join(t.TempDir(), "pin")
-			require.NoError(t, PinSnapshot(src.flatkvDir(), h, pin))
+			linked := filepath.Join(t.TempDir(), "linked")
+			require.NoError(t, HardLinkSnapshot(src.flatkvDir(), h, linked))
 			root := filepath.Join(t.TempDir(), "flatkv")
 			lock, err := LockRoot(root)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, lock.Unlock()) }()
 
-			err = lock.installSnapshotWith(pin, h, tc.publish)
+			err = lock.installSnapshotWith(linked, h, tc.publish)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "undo")
-			require.NoError(t, VerifySnapshotDir(pin, h), "src is back in place")
+			require.NoError(t, VerifySnapshotDir(linked, h), "src is back in place")
 			empty, err := lock.Empty()
 			require.NoError(t, err)
 			require.True(t, empty, "the root has no snapshot and no current link")
 
-			require.NoError(t, lock.InstallSnapshot(pin, h), "a retry succeeds")
+			require.NoError(t, lock.InstallSnapshot(linked, h), "a retry succeeds")
 			v, err := ActiveSnapshotVersion(root)
 			require.NoError(t, err)
 			require.Equal(t, h, v)
@@ -662,13 +662,13 @@ func TestInstallSnapshotUndoStoppedAfterTheLinksLoadsTheSnapshot(t *testing.T) {
 	src := setupSnapshottingStore(t, 10)
 	h := commitToEveryDB(t, src, 1)
 	wantHash := rootHash(src)
-	pin := filepath.Join(t.TempDir(), "pin")
-	require.NoError(t, PinSnapshot(src.flatkvDir(), h, pin))
+	linked := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(src.flatkvDir(), h, linked))
 	require.NoError(t, src.Close())
 
 	cfg := config.DefaultTestConfig(t)
 	require.NoError(t, os.MkdirAll(cfg.DataDir, 0o750))
-	require.NoError(t, os.Rename(pin, filepath.Join(cfg.DataDir, SnapshotDirName(h))))
+	require.NoError(t, os.Rename(linked, filepath.Join(cfg.DataDir, SnapshotDirName(h))))
 
 	dst, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
@@ -678,7 +678,7 @@ func TestInstallSnapshotUndoStoppedAfterTheLinksLoadsTheSnapshot(t *testing.T) {
 	require.Equal(t, wantHash, rootHash(dst))
 }
 
-func TestPinSnapshotSkipsOnlyLockFiles(t *testing.T) {
+func TestHardLinkSnapshotSkipsOnlyLockFiles(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, SnapshotDirName(9))
 	require.NoError(t, os.MkdirAll(filepath.Join(src, accountDBDir, "nested"), 0o750))
@@ -692,8 +692,8 @@ func TestPinSnapshotSkipsOnlyLockFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(src, rel), []byte(rel), 0o600))
 	}
 
-	dst := filepath.Join(t.TempDir(), "pin")
-	require.NoError(t, PinSnapshot(root, 9, dst))
+	dst := filepath.Join(t.TempDir(), "linked")
+	require.NoError(t, HardLinkSnapshot(root, 9, dst))
 	got := regularFiles(t, dst)
 	for _, rel := range got {
 		require.False(t, strings.HasSuffix(rel, lockFileName), rel)

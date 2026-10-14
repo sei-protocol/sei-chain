@@ -80,36 +80,36 @@ func SnapshotVersions(root string) ([]int64, error) {
 	return versions, nil
 }
 
-// PinSnapshot hard-links every file of the snapshot at version under root into dst, skipping LOCK
+// HardLinkSnapshot hard-links every file of the snapshot at version under root into dst, skipping LOCK
 // files. dst must not exist, it must not be inside the snapshot, and it must be on the same filesystem
-// as root. The pin keeps its content after the store prunes the snapshot, and it is safe to take while
+// as root. The links keep their content after the store prunes the snapshot, and it is safe to call while
 // a store is open on root.
 //
 // It returns an error wrapping os.ErrNotExist when the snapshot is absent, or is pruned or replaced
-// before the pin is complete. On any error it removes dst.
-func PinSnapshot(root string, version int64, dst string) error {
-	return pinSnapshotWith(root, version, dst, os.Link)
+// before every file is linked. On any error it removes dst.
+func HardLinkSnapshot(root string, version int64, dst string) error {
+	return hardLinkSnapshotWith(root, version, dst, os.Link)
 }
 
-// pinSnapshotWith is PinSnapshot with the hard-link call supplied by the caller.
-func pinSnapshotWith(root string, version int64, dst string, link func(oldname, newname string) error) (err error) {
+// hardLinkSnapshotWith is HardLinkSnapshot with the hard-link call supplied by the caller.
+func hardLinkSnapshotWith(root string, version int64, dst string, link func(oldname, newname string) error) (err error) {
 	src := filepath.Join(root, snapshotName(version))
 	before, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("pin snapshot %d: %w", version, err)
+		return fmt.Errorf("hard-link snapshot %d: %w", version, err)
 	}
 	if !before.IsDir() {
-		return fmt.Errorf("pin snapshot %d: %s is not a directory", version, src)
+		return fmt.Errorf("hard-link snapshot %d: %s is not a directory", version, src)
 	}
 	inside, err := pathWithin(src, dst)
 	if err != nil {
-		return fmt.Errorf("pin snapshot %d: resolve %s: %w", version, dst, err)
+		return fmt.Errorf("hard-link snapshot %d: resolve %s: %w", version, dst, err)
 	}
 	if inside {
-		return fmt.Errorf("pin snapshot %d: %s is inside the snapshot", version, dst)
+		return fmt.Errorf("hard-link snapshot %d: %s is inside the snapshot", version, dst)
 	}
 	if err := os.Mkdir(dst, 0o750); err != nil {
-		return fmt.Errorf("pin snapshot %d: create %s: %w", version, dst, err)
+		return fmt.Errorf("hard-link snapshot %d: create %s: %w", version, dst, err)
 	}
 	defer func() {
 		if err != nil {
@@ -118,17 +118,17 @@ func pinSnapshotWith(root string, version int64, dst string, link func(oldname, 
 	}()
 
 	if err := linkDirContents(src, dst, link); err != nil {
-		return fmt.Errorf("pin snapshot %d: %w", version, err)
+		return fmt.Errorf("hard-link snapshot %d: %w", version, err)
 	}
 
-	// A snapshot is replaced by renaming a new directory over its name, so a pin that read from two
+	// A snapshot is replaced by renaming a new directory over its name, so a run that read from two
 	// directories under one name sees a different inode here.
 	after, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("pin snapshot %d: %w", version, err)
+		return fmt.Errorf("hard-link snapshot %d: %w", version, err)
 	}
 	if !os.SameFile(before, after) {
-		return fmt.Errorf("pin snapshot %d: the snapshot was replaced during the pin: %w", version, os.ErrNotExist)
+		return fmt.Errorf("hard-link snapshot %d: the snapshot was replaced while its files were linked: %w", version, os.ErrNotExist)
 	}
 	return nil
 }
@@ -190,7 +190,7 @@ func linkDirContents(src, dst string, link func(oldname, newname string) error) 
 		case mode.IsRegular():
 			if err := link(srcPath, dstPath); err != nil {
 				if errors.Is(err, syscall.EXDEV) {
-					return fmt.Errorf("the pin must be on the same filesystem as the snapshot: %w", err)
+					return fmt.Errorf("dst must be on the same filesystem as the snapshot: %w", err)
 				}
 				return err
 			}
