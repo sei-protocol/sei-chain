@@ -54,13 +54,9 @@ import (
 // The pebble index holds the tag keys (litt_tag_index.go) plus version
 // metadata (m:latest / m:earliest).
 //
-// Durability: a background flusher bounds litt durability lag to
-// littFlushInterval (~one block) without putting fsync on the commit path;
-// Close flushes the remainder. A hard crash can lose up to littFlushInterval of
-// the most recent receipt bodies while the index still lists them — tolerable
-// for auxiliary, non-consensus RPC data, since reads return not-found for a
-// missing body. The tight interval is only affordable because litt flushes its
-// keymap asynchronously off the control loop.
+// Durability: litt is flushed every littFlushInterval and index commits do not
+// fsync, so after a crash either one may hold blocks the other lost. Startup
+// recovery rolls both back to the lower of their heads (see PruneAfter).
 //
 // Retention: tag keys are pruned by block range, reads enforce the retention
 // floor, and receipt bodies are reclaimed once they are both below that floor and
@@ -422,8 +418,8 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []receipt.Receip
 	return nil
 }
 
-// writeReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
-// litt first, so an indexed block always has its values written.
+// writeReceipts writes the receipts to litt, then commits their tag keys, block stats and the new
+// head to the index in one batch.
 func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.ReceiptRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -487,6 +483,9 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	s.writePhases.SetPhase("probe_part_index")
 	partIndex, err := s.nextPartIndex(blockNumber)
 	if err != nil {
+		return err
+	}
+	if err := s.requireNoOrphanedParts(blockNumber, partIndex); err != nil {
 		return err
 	}
 
@@ -576,6 +575,18 @@ func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 		}
 	}
 	return nil
+}
+
+// requireNoOrphanedParts returns an error if a block above the store's head already has parts in litt.
+// Those parts come from a write whose index commit was lost; another part would store the block twice.
+// Startup recovery deletes them.
+func (s *littReceiptStore) requireNoOrphanedParts(blockNumber uint64, existingParts uint32) error {
+	head := s.latestVersion.Load()
+	if existingParts == 0 || int64(blockNumber) <= head { //nolint:gosec // block heights fit within int64
+		return nil
+	}
+	return fmt.Errorf("receipt block %d already has %d part(s) above the store's head %d; "+
+		"restart the node so recovery can remove them", blockNumber, existingParts, head)
 }
 
 // nextPartIndex returns the number of parts already written for the block,

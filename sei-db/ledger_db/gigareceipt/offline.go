@@ -17,20 +17,37 @@ import (
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-// GetLatestBlock reports the head of the receipt store described by cfg — the highest block a lookup
-// reaches — without opening the store. A store that has never recorded a head reads as 0.
-//
-// This is the head the store records rather than the highest block GetRange finds on disk. Bodies are
-// written before the index entries that reach them, so a crash can leave bodies above the head that no
-// lookup finds, and it is the head that says what the store serves.
-func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
+// GetLatestBlock returns the lower of the litt head and the index head of the receipt store described by
+// cfg, without opening the store. It returns 0 when the index has no head, and the index head when litt
+// holds no receipts.
+func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (uint64, error) {
 	indexDir := filepath.Join(cfg.DBDirectory, littIndexDirName)
 	// Opening the index would create it. A store that was never written has no head to read, and
 	// creating its directories here would leave a half-made store behind on a failed startup.
 	if _, statErr := os.Stat(indexDir); os.IsNotExist(statErr) {
 		return 0, nil
 	}
+	indexHead, err := readIndexHead(indexDir)
+	if err != nil || indexHead == 0 {
+		return 0, err
+	}
 
+	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, littValuesDirName))
+	if err != nil {
+		return 0, fmt.Errorf("failed to build littdb config: %w", err)
+	}
+	littHead, ok, err := newestOrOldestBlock(littConfig, true)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return indexHead, nil
+	}
+	return min(indexHead, littHead), nil
+}
+
+// readIndexHead returns the head recorded in the index at indexDir, or 0 if none is recorded.
+func readIndexHead(indexDir string) (head uint64, err error) {
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = indexDir
 	index, err := pebbledb.Open(context.Background(), &indexCfg)
@@ -39,8 +56,8 @@ func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
 	}
 	defer func() { err = errors.Join(err, index.Close()) }()
 
-	block, _, err = readMetaOffline(index, receiptLatestVersionKey)
-	return block, err
+	head, _, err = readMetaOffline(index, receiptLatestVersionKey)
+	return head, err
 }
 
 // GetRange reports the lowest and highest block heights present on disk for the receipt store described
@@ -51,46 +68,41 @@ func GetRange(cfg dbconfig.ReceiptStoreConfig) (ok bool, lowestBlock uint64, hig
 		return false, 0, 0, fmt.Errorf("failed to build littdb config: %w", err)
 	}
 
-	newest, err := offline.NewIterator(littConfig, littReceiptTableName, true)
-	if err != nil {
-		return false, 0, 0, fmt.Errorf("failed to open reverse iterator: %w", err)
-	}
-	highestBlock, ok, err = firstPrimaryKeyHeight(newest)
-	closeErr := newest.Close()
-	if err != nil {
+	highestBlock, ok, err = newestOrOldestBlock(littConfig, true)
+	if err != nil || !ok {
 		return false, 0, 0, err
 	}
-	if closeErr != nil {
-		return false, 0, 0, fmt.Errorf("failed to close reverse iterator: %w", closeErr)
-	}
-	if !ok {
-		return false, 0, 0, nil
-	}
-
-	oldest, err := offline.NewIterator(littConfig, littReceiptTableName, false)
-	if err != nil {
-		return false, 0, 0, fmt.Errorf("failed to open forward iterator: %w", err)
-	}
-	defer func() { _ = oldest.Close() }()
-	lowestBlock, ok, err = firstPrimaryKeyHeight(oldest)
-	if err != nil {
+	lowestBlock, ok, err = newestOrOldestBlock(littConfig, false)
+	if err != nil || !ok {
 		return false, 0, 0, err
 	}
-	if !ok {
-		return false, 0, 0, nil
-	}
-
 	return true, lowestBlock, highestBlock, nil
 }
 
-// PruneAfter deletes every receipt for a block height greater than highestBlockToKeep from the receipt
-// store described by cfg, without opening the store. It rolls back the litt-backed receipt bodies, then
-// deletes the pebble tag-index entries above highestBlockToKeep and moves the store's latest-block metadata
-// back to match. A highestBlockToKeep at or above the store's head is a no-op.
+// newestOrOldestBlock returns the block of the newest receipt part in litt when newest is true, or of the
+// oldest when it is false. ok is false if litt holds no receipts.
+func newestOrOldestBlock(littConfig *litt.Config, newest bool) (block uint64, ok bool, err error) {
+	it, err := offline.NewIterator(littConfig, littReceiptTableName, newest)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to open receipt iterator: %w", err)
+	}
+	block, ok, err = firstPrimaryKeyHeight(it)
+	if closeErr := it.Close(); closeErr != nil && err == nil {
+		err = fmt.Errorf("failed to close receipt iterator: %w", closeErr)
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return block, ok, nil
+}
+
+// PruneAfter rolls back the closed receipt store described by cfg so that litt and the index both end at
+// the lowest of highestBlockToKeep, the litt head and the index head. A store already ending there is
+// left unchanged.
 //
-// It refuses a highestBlockToKeep below the store's retention floor, and one below the oldest receipt still
-// on disk: the former names data that has already been pruned, the latter would leave no receipt at all.
-// Both are checked before any receipt is touched, so a refusal leaves the store's data unchanged.
+// It returns an error without changing anything when that block is below the retention floor, when it is
+// below the oldest receipt in litt while the index has a head, or when the index has a head but litt holds
+// no receipts.
 func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err error) {
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, littIndexDirName)
@@ -106,27 +118,55 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 	if err != nil {
 		return err
 	}
-	if earliestFound && highestBlockToKeep < earliest {
-		return fmt.Errorf("cannot roll back receipt store to block %d: it is below the retention floor "+
-			"(earliest readable block %d); that data has already been pruned", highestBlockToKeep, earliest)
-	}
-
 	latest, latestFound, err := readMetaOffline(index, receiptLatestVersionKey)
 	if err != nil {
 		return err
 	}
-	if !latestFound {
-		// No head has ever been recorded, so there is nothing above highestBlockToKeep to remove.
-		return nil
+	stored, lowest, highest, err := GetRange(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to read the receipt store's block range: %w", err)
 	}
-	if latest <= highestBlockToKeep {
+	if !stored {
+		if latestFound {
+			return fmt.Errorf("cannot roll back receipt store to block %d: the index reports a head at block "+
+				"%d but no receipts are present on disk", highestBlockToKeep, latest)
+		}
 		return nil
 	}
 
-	if err := requireTargetWithinStoredRange(cfg, highestBlockToKeep, latest); err != nil {
-		return err
+	cut := min(highestBlockToKeep, highest)
+	if latestFound {
+		cut = min(cut, latest)
+	}
+	littAboveCut := highest > cut
+	indexAboveCut := latestFound && latest > cut
+	if !littAboveCut && !indexAboveCut {
+		return nil
+	}
+	if earliestFound && cut < earliest {
+		return fmt.Errorf("cannot roll back receipt store to block %d: it is below the retention floor "+
+			"(earliest readable block %d); that data has already been pruned", cut, earliest)
+	}
+	// With no index head no receipt is readable, so deleting every receipt in litt loses nothing.
+	if latestFound && cut < lowest {
+		return fmt.Errorf("cannot roll back receipt store to block %d: the oldest receipt on disk is for "+
+			"block %d, so no receipt would survive; delete %s to discard the store entirely",
+			cut, lowest, cfg.DBDirectory)
 	}
 
+	if littAboveCut {
+		if err := rollBackLitt(cfg, cut); err != nil {
+			return err
+		}
+	}
+	if indexAboveCut {
+		return rollBackIndex(index, cut)
+	}
+	return nil
+}
+
+// rollBackLitt deletes every receipt in litt for a block above highestBlockToKeep. The store must be closed.
+func rollBackLitt(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) error {
 	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, littValuesDirName))
 	if err != nil {
 		return fmt.Errorf("failed to build littdb config: %w", err)
@@ -151,7 +191,12 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 	if err := offline.RollbackLittDB(littConfig, filter); err != nil {
 		return fmt.Errorf("failed to roll back littdb receipts: %w", err)
 	}
+	return nil
+}
 
+// rollBackIndex deletes every tag key and block-stats entry above highestBlockToKeep and sets the index
+// head to highestBlockToKeep.
+func rollBackIndex(index dbtypes.KeyValueDB, highestBlockToKeep uint64) error {
 	rd, ok := index.(rangeDeleter)
 	if !ok {
 		return fmt.Errorf("receipt index %T does not support range delete", index)
@@ -169,34 +214,6 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 	newLatest := encodeBlockNumber(highestBlockToKeep)
 	if err := index.Set(receiptLatestVersionKey, newLatest, dbtypes.WriteOptions{}); err != nil {
 		return fmt.Errorf("failed to update latest block metadata: %w", err)
-	}
-	return nil
-}
-
-// requireTargetWithinStoredRange refuses a rollback target below the oldest receipt still on disk. Such a
-// target retains no receipts, so the caller almost certainly named a height the store never held; a caller
-// that does mean to discard the store entirely can delete its directory. latest is the head the index
-// reports, used only to describe an index that claims receipts the litt store does not have.
-//
-// This must run to completion before the rollback starts: it reads through an offline iterator that holds
-// the same litt directory locks the rollback takes.
-func requireTargetWithinStoredRange(
-	cfg dbconfig.ReceiptStoreConfig,
-	highestBlockToKeep uint64,
-	latest uint64,
-) error {
-	ok, lowestBlock, _, err := GetRange(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to read the receipt store's block range: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("cannot roll back receipt store to block %d: the index reports a head at block "+
-			"%d but no receipts are present on disk", highestBlockToKeep, latest)
-	}
-	if highestBlockToKeep < lowestBlock {
-		return fmt.Errorf("cannot roll back receipt store to block %d: the oldest receipt on disk is for "+
-			"block %d, so no receipt would survive; delete %s to discard the store entirely",
-			highestBlockToKeep, lowestBlock, cfg.DBDirectory)
 	}
 	return nil
 }
