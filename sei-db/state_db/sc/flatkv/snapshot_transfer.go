@@ -58,9 +58,9 @@ func ActiveSnapshotVersion(root string) (int64, error) {
 	return version, nil
 }
 
-// SnapshotVersions returns the versions of the complete snapshots under root in ascending order. Only
-// directories that ParseSnapshotDirName accepts are listed, so a snapshot still being written or removed
-// is not. It is safe to call while a store is open on root.
+// SnapshotVersions returns, in ascending order, the versions of the directories under root whose names
+// ParseSnapshotDirName accepts. A snapshot still being written or removed has a suffix on its name and is
+// not listed. It is safe to call while a store is open on root.
 func SnapshotVersions(root string) ([]int64, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil && !os.IsNotExist(err) {
@@ -248,10 +248,10 @@ func LockRoot(root string) (*RootLock, error) {
 	return &RootLock{root: root, lock: lock}, nil
 }
 
-// lockDir takes the writer lock on the FlatKV root dir and closes the lock file when it cannot. It
-// returns an error wrapping commonerrors.ErrFileLockUnavailable when another holder has the lock.
+// lockDir takes the writer lock on the FlatKV root dir, the one lock both a store and a RootLock take,
+// and closes the lock file when it cannot. It returns an error wrapping
+// commonerrors.ErrFileLockUnavailable when another holder has the lock.
 func lockDir(dir string) (filelock.TryLockerSafe, error) {
-	// Must be the file CommitStore.acquireFileLock takes, so a RootLock and a store exclude each other.
 	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
 	if err != nil {
 		return nil, fmt.Errorf("abs lock path: %w", err)
@@ -298,9 +298,9 @@ func (l *RootLock) Empty() (bool, error) {
 	return true, nil
 }
 
-// Clear removes everything under the root except its lock file. If it stops partway, every snapshot
-// directory left in the root is whole, so a store opened on the root afterwards never loads a snapshot
-// with part of its files removed.
+// Clear removes everything under the root except its lock file. If it stops partway, every directory
+// left under its own name is whole, so a store opened on the root afterwards loads at a version the root
+// held before Clear, or at 0.
 func (l *RootLock) Clear() error {
 	return l.clearWith(os.RemoveAll)
 }
@@ -318,8 +318,11 @@ func (l *RootLock) clearWith(removeAll func(path string) error) error {
 	if err != nil {
 		return fmt.Errorf("read flatkv root %q: %w", l.root, err)
 	}
+	slices.SortStableFunc(entries, func(a, b os.DirEntry) int {
+		return clearRank(a.Name()) - clearRank(b.Name())
+	})
 	for _, entry := range entries {
-		if !entry.IsDir() || !isSnapshotName(entry.Name()) {
+		if !entry.IsDir() || strings.HasSuffix(entry.Name(), removingSuffix) {
 			continue
 		}
 		path := filepath.Join(l.root, entry.Name())
@@ -331,7 +334,7 @@ func (l *RootLock) clearWith(removeAll func(path string) error) error {
 			return fmt.Errorf("clear flatkv root %q: %w", l.root, err)
 		}
 	}
-	// The renames must be durable before any file of a renamed snapshot is removed.
+	// The renames must be durable before any file of a renamed directory is removed.
 	if err := syncDir(l.root); err != nil {
 		return fmt.Errorf("clear flatkv root %q: %w", l.root, err)
 	}
@@ -353,6 +356,24 @@ func (l *RootLock) clearWith(removeAll func(path string) error) error {
 	return nil
 }
 
+// clearRank is the position of the root entry name in the order Clear moves entries aside: the working
+// copy, then the other entries, then the snapshots.
+//
+// Each prefix of that order leaves a root a store opens cleanly: the snapshots and the WAL with no
+// working copy is a restart that clones again, and some of the snapshots alone load the newest of them.
+// Moving the snapshots while a working copy and a WAL remain would leave the store to rebuild from an
+// empty snapshot 0, with a WAL that need not start at block 1.
+func clearRank(name string) int {
+	switch {
+	case name == workingDirName:
+		return 0
+	case isSnapshotName(name):
+		return 2
+	default:
+		return 1
+	}
+}
+
 // InstallSnapshot moves the snapshot directory src into the empty root as the snapshot at version and
 // makes it the current snapshot. src must pass VerifySnapshotDir at version, must be on the same
 // filesystem as the root, and must already be durable: InstallSnapshot syncs only the root directory.
@@ -365,15 +386,15 @@ func (l *RootLock) InstallSnapshot(src string, version int64) error {
 // installSnapshotWith is InstallSnapshot with the step that makes the moved snapshot current supplied by
 // the caller.
 func (l *RootLock) installSnapshotWith(src string, version int64, publish func(root, name string) error) error {
-	if err := VerifySnapshotDir(src, version); err != nil {
-		return fmt.Errorf("install snapshot %d: %w", version, err)
-	}
 	empty, err := l.Empty()
 	if err != nil {
 		return fmt.Errorf("install snapshot %d: %w", version, err)
 	}
 	if !empty {
 		return fmt.Errorf("install snapshot %d: flatkv root %q is not empty", version, l.root)
+	}
+	if err := VerifySnapshotDir(src, version); err != nil {
+		return fmt.Errorf("install snapshot %d: %w", version, err)
 	}
 
 	name := snapshotName(version)
@@ -398,20 +419,19 @@ func publishCurrent(root, name string) error {
 	return syncDir(root)
 }
 
-// undoInstall moves the installed snapshot back to src and removes the current links from the root.
-// Without it, a store opened on the root would adopt the snapshot as an orphan and load it.
+// undoInstall removes the current links from the root and moves the installed snapshot back to src.
 func (l *RootLock) undoInstall(installed, src string) error {
-	// The move goes first: a crash after it leaves a current link to a missing directory, which fails
-	// the next store open, where a snapshot left without a link would be adopted and loaded.
-	if err := os.Rename(installed, src); err != nil {
-		return err
-	}
+	// The links go first. A store opened on a link whose target is missing loads an empty state at
+	// version 0, but a verified snapshot left without a link is adopted and loads at its version.
 	for _, link := range []string{currentPath(l.root), filepath.Join(l.root, currentTmpLink)} {
 		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
-	return nil
+	if err := os.Rename(installed, src); err != nil {
+		return err
+	}
+	return syncDir(l.root)
 }
 
 func syncDir(dir string) error {

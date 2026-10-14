@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -378,65 +379,92 @@ func TestRootLockEmptyAndClear(t *testing.T) {
 	require.FileExists(t, filepath.Join(root, lockFileName))
 }
 
-// TestRootLockClearStoppedLeavesOnlyWholeSnapshots stops Clear at each removal, after it removes part of
-// the path as a crash inside a recursive removal would, and checks that no snapshot dir with part of its
-// files removed is left for a store to load, and that a second Clear empties the root.
-func TestRootLockClearStoppedLeavesOnlyWholeSnapshots(t *testing.T) {
+// TestRootLockClearStoppedLeavesALoadableRoot stops Clear at each removal, after it removes part of the
+// path as a crash inside a recursive removal would. It checks that every directory left under its own
+// name is whole, that a store opened on the root loads a version the root held with that version's hash,
+// and that a second Clear empties the root.
+func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 	errStop := errors.New("stopped")
-	for stopAt := 0; ; stopAt++ {
-		s := setupSnapshottingStore(t, 10)
-		for n := byte(1); n <= 3; n++ {
-			commitToEveryDB(t, s, n)
-		}
-		root := s.flatkvDir()
-		require.NoError(t, s.Close())
-		versions, err := SnapshotVersions(root)
-		require.NoError(t, err)
-		require.GreaterOrEqual(t, len(versions), 3)
-		whole := map[string][]string{}
-		for _, v := range versions {
-			whole[SnapshotDirName(v)] = regularFiles(t, filepath.Join(root, SnapshotDirName(v)))
-		}
-
-		lock, err := LockRoot(root)
-		require.NoError(t, err)
-		calls := 0
-		err = lock.clearWith(func(path string) error {
-			defer func() { calls++ }()
-			if calls != stopAt {
-				return os.RemoveAll(path)
-			}
-			if info, err := os.Lstat(path); err == nil && info.IsDir() {
-				if files := regularFiles(t, path); len(files) > 0 {
-					require.NoError(t, os.Remove(filepath.Join(path, files[0])))
+	// With the large interval the only snapshot is version 0, so the working copy and the WAL hold
+	// every block.
+	for _, interval := range []uint32{1, 10000} {
+		t.Run(fmt.Sprintf("snapshot interval %d", interval), func(t *testing.T) {
+			for stopAt := 0; ; stopAt++ {
+				cfg := config.DefaultTestConfig(t)
+				cfg.SnapshotInterval = interval
+				cfg.SnapshotKeepRecent = 10
+				s := setupTestStoreWithConfig(t, cfg)
+				hashes := map[int64][]byte{0: rootHash(s)}
+				for n := byte(1); n <= 3; n++ {
+					v := commitToEveryDB(t, s, n)
+					hashes[v] = rootHash(s)
 				}
+				root := s.flatkvDir()
+				require.NoError(t, s.Close())
+				whole := map[string][]string{}
+				entries, err := os.ReadDir(root)
+				require.NoError(t, err)
+				for _, entry := range entries {
+					if entry.IsDir() {
+						whole[entry.Name()] = regularFiles(t, filepath.Join(root, entry.Name()))
+					}
+				}
+				require.Contains(t, whole, workingDirName)
+				require.Contains(t, whole, changelogDir)
+
+				lock, err := LockRoot(root)
+				require.NoError(t, err)
+				calls := 0
+				err = lock.clearWith(func(path string) error {
+					defer func() { calls++ }()
+					if calls != stopAt {
+						return os.RemoveAll(path)
+					}
+					if info, err := os.Lstat(path); err == nil && info.IsDir() {
+						if files := regularFiles(t, path); len(files) > 0 {
+							require.NoError(t, os.Remove(filepath.Join(path, files[0])))
+						}
+					}
+					return errStop
+				})
+				if err == nil {
+					require.NoError(t, lock.Unlock())
+					require.Greater(t, stopAt, 3, "every removal was stopped at least once")
+					return
+				}
+				require.ErrorIs(t, err, errStop)
+
+				entries, err = os.ReadDir(root)
+				require.NoError(t, err)
+				for _, entry := range entries {
+					name := entry.Name()
+					if entry.IsDir() && !strings.HasSuffix(name, removingSuffix) {
+						require.Equal(t, whole[name], regularFiles(t, filepath.Join(root, name)),
+							"stop %d: %s keeps its name and must be whole", stopAt, name)
+					}
+				}
+				if target, err := os.Readlink(filepath.Join(root, currentLink)); err == nil {
+					require.DirExists(t, filepath.Join(root, target), "stop %d: the current link has a target", stopAt)
+				}
+				require.NoError(t, lock.Unlock())
+
+				reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
+				require.NoError(t, err)
+				require.NoError(t, reopened.LoadLatest(), "stop %d: the root opens", stopAt)
+				v := reopened.Version()
+				require.Contains(t, hashes, v, "stop %d: the root opens at a version it held", stopAt)
+				require.Equal(t, hashes[v], rootHash(reopened), "stop %d: version %d", stopAt, v)
+				require.NoError(t, reopened.Close())
+
+				lock, err = LockRoot(root)
+				require.NoError(t, err)
+				require.NoError(t, lock.Clear(), "stop %d: a second Clear completes", stopAt)
+				empty, err := lock.Empty()
+				require.NoError(t, err)
+				require.True(t, empty, "stop %d", stopAt)
+				require.NoError(t, lock.Unlock())
 			}
-			return errStop
 		})
-		if err == nil {
-			require.NoError(t, lock.Unlock())
-			require.Greater(t, stopAt, 3, "every removal was stopped at least once")
-			return
-		}
-		require.ErrorIs(t, err, errStop)
-
-		entries, err := os.ReadDir(root)
-		require.NoError(t, err)
-		for _, entry := range entries {
-			if entry.IsDir() && isSnapshotName(entry.Name()) {
-				require.Equal(t, whole[entry.Name()], regularFiles(t, filepath.Join(root, entry.Name())),
-					"stop %d: %s is loadable and must be whole", stopAt, entry.Name())
-			}
-		}
-		if target, err := os.Readlink(filepath.Join(root, currentLink)); err == nil {
-			require.DirExists(t, filepath.Join(root, target), "stop %d: the current link has a target", stopAt)
-		}
-
-		require.NoError(t, lock.Clear(), "stop %d: a second Clear completes", stopAt)
-		empty, err := lock.Empty()
-		require.NoError(t, err)
-		require.True(t, empty, "stop %d", stopAt)
-		require.NoError(t, lock.Unlock())
 	}
 }
 
@@ -557,6 +585,28 @@ func TestInstallSnapshotUndoesTheMoveOnFailure(t *testing.T) {
 			require.Equal(t, h, v)
 		})
 	}
+}
+
+// TestInstallSnapshotUndoStoppedAfterTheLinksLoadsTheSnapshot opens a store on the root an undo leaves
+// when it stops after it removes the links and before it moves the snapshot back.
+func TestInstallSnapshotUndoStoppedAfterTheLinksLoadsTheSnapshot(t *testing.T) {
+	src := setupSnapshottingStore(t, 10)
+	h := commitToEveryDB(t, src, 1)
+	wantHash := rootHash(src)
+	pin := filepath.Join(t.TempDir(), "pin")
+	require.NoError(t, PinSnapshot(src.flatkvDir(), h, pin))
+	require.NoError(t, src.Close())
+
+	cfg := config.DefaultTestConfig(t)
+	require.NoError(t, os.MkdirAll(cfg.DataDir, 0o750))
+	require.NoError(t, os.Rename(pin, filepath.Join(cfg.DataDir, SnapshotDirName(h))))
+
+	dst, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, dst.LoadLatest())
+	defer func() { require.NoError(t, dst.Close()) }()
+	require.Equal(t, h, dst.Version())
+	require.Equal(t, wantHash, rootHash(dst))
 }
 
 func TestPinSnapshotSkipsOnlyLockFiles(t *testing.T) {
