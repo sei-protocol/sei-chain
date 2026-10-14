@@ -91,6 +91,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.batch_request_limit":              "10",
 		"giga.rpc.batch_response_max_size":          "1000",
 		"giga.rpc.max_ws_connections":               "7",
+		"giga.state_sync.enabled":                   "true",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -121,6 +122,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BatchRequestLimit:             10,
 			BatchResponseMaxSize:          1000,
 			MaxWSConnections:              7,
+		},
+		StateSync: gigaconfig.StateSyncConfig{
+			Enabled: true,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -157,6 +161,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},
 		"non-numeric batch response size": {"giga.rpc.batch_response_max_size": "big"},
 		"non-numeric ws connections":      {"giga.rpc.max_ws_connections": "some"},
+		"non-boolean state sync":          {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)
