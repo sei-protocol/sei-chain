@@ -56,7 +56,7 @@ func DeserializeBUDProof(
 // ComputeBUDHash returns the BUD hash of the BUD tree the proof places its budlet in. The proof shows that a block
 // wrote the budlet only when the result equals that block's BUD hash, taken from a trusted source.
 func (p *BUDProof) ComputeBUDHash() apphash.BUDHash {
-	node := budLeafHash(&p.budlet)
+	node, _ := budLeafHash(&p.budlet, nil)
 	siblings := p.siblings
 	position := p.index
 	for size := p.count; size > 1; size = size/2 + size%2 {

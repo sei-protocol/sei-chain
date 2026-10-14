@@ -47,9 +47,11 @@ any input that is not exactly the length that version defines, which is 177 byte
 
 ### Versioning
 
-`version` identifies this specification. It is bumped on any change to the serialization and on any change to
-how any field is computed, including when a placeholder below is replaced by its real definition. A block's
-app hash is always computed under the version in effect at that block.
+`version` identifies this specification. Once the design is formally accepted as final, `version` is bumped on
+any change to the serialization and on any change to how any field is computed. Until then, a change does not
+require a bump: code not yet released to mainnet may not be finalized, and may change without a new version, as
+when a placeholder below is replaced by its real definition. A block's app hash is always computed under the
+version in effect at that block.
 
 ## Fields
 

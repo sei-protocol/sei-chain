@@ -129,17 +129,22 @@ func (tree *BUDTree) Serialize() []byte {
 	serialized = append(serialized, budVersion)
 	serialized = binary.BigEndian.AppendUint64(serialized, uint64(len(tree.budlets)))
 	for _, budlet := range tree.budlets {
-		serialized = append(serialized, budlet.Serialize()...)
+		serialized = budlet.appendSerialized(serialized)
 	}
 	return serialized
 }
 
-// budLeafHash returns the hash of the BUD tree leaf holding budlet.
+// budLeafHash returns the hash of the BUD tree leaf holding budlet, and scratch reused to hold the leaf's
+// preimage, for the caller to pass to the next call.
 func budLeafHash(
 	// The budlet the leaf holds.
 	budlet *Budlet,
-) [32]byte {
-	return sha256.Sum256(append([]byte{budLeafPrefix}, budlet.Serialize()...))
+	// A buffer whose contents are discarded and whose capacity is reused. May be nil.
+	scratch []byte,
+) ([32]byte, []byte) {
+	scratch = append(scratch[:0], budLeafPrefix)
+	scratch = budlet.appendSerialized(scratch)
+	return sha256.Sum256(scratch), scratch
 }
 
 // budInnerHash returns the hash of the BUD tree inner node with children left and right.
@@ -162,8 +167,9 @@ func budLeafHashes(
 	budlets []*Budlet,
 ) [][32]byte {
 	hashes := make([][32]byte, len(budlets))
+	var scratch []byte
 	for i, budlet := range budlets {
-		hashes[i] = budLeafHash(budlet)
+		hashes[i], scratch = budLeafHash(budlet, scratch)
 	}
 	return hashes
 }

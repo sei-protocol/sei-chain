@@ -87,12 +87,23 @@ func (b *Budlet) NotModifiedSince() uint64 {
 // Serialize returns the budlet's serialization, which is also the input to its BUD tree leaf hash. The
 // serialization carries no version; it is defined by the BUD version.
 func (b *Budlet) Serialize() []byte {
-	serialized := make([]byte, 0, 4+len(b.key)+4+len(b.value)+4+len(b.previousValue)+8)
-	serialized = appendBudletField(serialized, b.key)
-	serialized = appendBudletField(serialized, b.value)
-	serialized = appendBudletField(serialized, b.previousValue)
-	serialized = binary.BigEndian.AppendUint64(serialized, b.notModifiedSince)
-	return serialized
+	return b.appendSerialized(make([]byte, 0, b.serializedSize()))
+}
+
+// serializedSize returns the length of the budlet's serialization.
+func (b *Budlet) serializedSize() int {
+	return 4 + len(b.key) + 4 + len(b.value) + 4 + len(b.previousValue) + 8
+}
+
+// appendSerialized appends the budlet's serialization to dst and returns the extended slice.
+func (b *Budlet) appendSerialized(
+	// The bytes to append to.
+	dst []byte,
+) []byte {
+	dst = appendBudletField(dst, b.key)
+	dst = appendBudletField(dst, b.value)
+	dst = appendBudletField(dst, b.previousValue)
+	return binary.BigEndian.AppendUint64(dst, b.notModifiedSince)
 }
 
 // appendBudletField appends the serialization of a budlet's key, value, or previous value: its length, then its
