@@ -50,6 +50,15 @@ This document uses two tag pairs:
 | Logs tree (per receipt) | `0x00` | `0x01` |
 | Receipts tree (per block) | `0x02` | `0x03` |
 
+> This unique-per-tree domain separation may be more than is needed. A logs tree's root never
+> enters the receipts tree as a tree element in its own right — it is embedded as 32 opaque bytes
+> inside `receiptPreimage`, which then gets its own leaf hash under the receipts tree's own tags —
+> so there may be no path for a hash from one tree to be mistaken for one from the other even if
+> both reused the same `0x00`/`0x01` pair. Reusing a single shared pair would also let this
+> commitment be built directly on `sei-tendermint/crypto/merkle.HashFromByteSlices`, Sei's own
+> existing RFC 6962 implementation (leaf `0x00`, node `0x01`, SHA-256, the same largest-power-of-two
+> split used here), instead of a bespoke construction.
+
 ## `receiptHash`
 
 ```
