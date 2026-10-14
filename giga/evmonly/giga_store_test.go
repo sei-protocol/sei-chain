@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -239,7 +240,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, 1, snapshot.closeCount)
 	require.Equal(t, []int64{41}, store.commitBlock)
 	require.Equal(t, [][]*proto.NamedChangeSet{wantChangesets}, store.commits)
-	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7)})
+	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7), PriorBalance: new(uint256.Int).ToBig()})
 	result.Release()
 }
 
@@ -264,8 +265,9 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 	encoder := func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 		for i, recipient := range recipients {
 			require.Contains(t, changes.Balances, BalanceChange{
-				Address: recipient,
-				Balance: big.NewInt(int64(i + 1)),
+				Address:      recipient,
+				Balance:      big.NewInt(int64(i + 1)),
+				PriorBalance: new(uint256.Int).ToBig(),
 			})
 		}
 		return []*proto.NamedChangeSet{}, nil

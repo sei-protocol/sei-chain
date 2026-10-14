@@ -50,6 +50,7 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	_, callErr := env.EvmCall(t.Context(), &ethcore.Message{})
 	_, baseFeeErr := env.EvmBaseFee()
 	_, codeErr := env.EvmCode(address)
+	_, storageErr := env.EvmStorage(address, common.Hash{})
 	_, _, estimateGasErr := env.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0)
 
 	// Verify: nonce/height/chain-id hit Application; the rest error because
@@ -62,5 +63,6 @@ func TestEnvironmentEvmRPCWrappers(t *testing.T) {
 	require.Error(t, callErr)
 	require.Error(t, baseFeeErr)
 	require.Error(t, codeErr)
+	require.Error(t, storageErr)
 	require.Error(t, estimateGasErr)
 }

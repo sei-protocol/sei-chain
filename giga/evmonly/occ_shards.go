@@ -285,8 +285,7 @@ func releaseOCCFragments(fragments *occChangeSetFragments) {
 }
 
 // changeSetIntoParallel writes the block's net state changes, in canonical order, computing each
-// shard's part on the pool. The shards' base-state reads are what the merge mostly spends its time
-// on, and they are independent of each other.
+// shard's part on the pool. The shards are independent of each other.
 func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWorkerPool, changes *StateChangeSet) error {
 	if pool == nil || s.keyCount() < occMinParallelMergeKeys {
 		s.ChangeSetInto(changes)
