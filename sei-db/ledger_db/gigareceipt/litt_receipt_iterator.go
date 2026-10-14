@@ -1,15 +1,17 @@
-package receipt
+package gigareceipt
 
 import (
 	"errors"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var _ ReceiptIterator = (*receiptIterator)(nil)
+var _ receipt.ReceiptIterator = (*receiptIterator)(nil)
 
 // receiptIterator walks a littidx store's receipts. A block is stored as a part key holding
 // its receipts concatenated, each transaction a secondary key aliasing its own receipt, so the
@@ -22,7 +24,7 @@ type receiptIterator struct {
 	txHash common.Hash
 }
 
-func (s *littReceiptStore) IterateReceipts(startBlock uint64) (ReceiptIterator, error) {
+func (s *littReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
 	start := startBlock
 	// Litt expires bodies lazily, so blocks below the floor can still be on disk. Point reads
 	// refuse them (see belowRetentionFloor) and a walk answers the same.
@@ -49,7 +51,7 @@ func (s *littReceiptStore) IterateReceipts(startBlock uint64) (ReceiptIterator, 
 
 // walkFromOldest begins a walk at the oldest data litt holds, positioned at the first block at or
 // above start. It reports an exhausted walk when litt holds no such block.
-func (s *littReceiptStore) walkFromOldest(start uint64) (ReceiptIterator, error) {
+func (s *littReceiptStore) walkFromOldest(start uint64) (receipt.ReceiptIterator, error) {
 	it, err := s.receipts.Iterator(false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open receipt iterator: %w", err)

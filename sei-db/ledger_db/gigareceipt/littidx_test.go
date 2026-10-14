@@ -1,10 +1,12 @@
-package receipt_test
+package gigareceipt_test
 
 import (
 	"fmt"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -13,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -25,12 +27,11 @@ func TestLittIdxSynchronousWriteBuffer(t *testing.T) {
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	cfg.AsyncWriteBuffer = 0
 
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -52,12 +53,11 @@ func setupLittIdxSync(t *testing.T) (receipt.ReceiptStore, sdk.Context) {
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	cfg.AsyncWriteBuffer = 0
 
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store, ctx
@@ -70,7 +70,8 @@ func TestLittIdxRefusesSkippedBlock(t *testing.T) {
 	addr := common.HexToAddress("0xabc")
 	topic := common.HexToHash("0xdead")
 
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1),
+		[]receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
 
 	err := store.SetReceipts(ctx.WithBlockHeight(3), []receipt.ReceiptRecord{litReceipt(3, 0, addr, topic)})
 	require.ErrorContains(t, err, "skips block 2")
@@ -94,8 +95,10 @@ func TestLittIdxAcceptsRepeatedBlock(t *testing.T) {
 	addr := common.HexToAddress("0xabc")
 	topic := common.HexToHash("0xdead")
 
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{litReceipt(1, 1, addr, topic)}))
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1),
+		[]receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1),
+		[]receipt.ReceiptRecord{litReceipt(1, 1, addr, topic)}))
 	require.Equal(t, int64(1), store.LatestVersion())
 }
 
@@ -106,12 +109,11 @@ func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	cfg.AsyncWriteBuffer = 1
 
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -119,8 +121,8 @@ func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
 	const blocks = 8
 	for block := uint64(1); block <= blocks; block++ {
 		record := litReceipt(block, 0, addr, common.HexToHash("0xdead"))
-		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), //nolint:gosec // small test heights
-			[]receipt.ReceiptRecord{record}))
+		height := int64(block) //nolint:gosec // small test heights
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), []receipt.ReceiptRecord{record}))
 		// One queued block plus the one in flight is as far as the store may trail.
 		require.GreaterOrEqual(t, store.LatestVersion(), int64(block)-2) //nolint:gosec // small test heights
 	}
@@ -141,11 +143,10 @@ func setupLittIdxPar(t *testing.T, dir string, parallelism int) (receipt.Receipt
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
 	cfg.LogFilterParallelism = parallelism
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	return store, ctx
 }
@@ -170,14 +171,23 @@ func litReceipt(block uint64, txIndex uint32, addr common.Address, topics ...com
 			BlockNumber:      block,
 			TransactionIndex: txIndex,
 			GasUsed:          21000,
-			Logs:             []*types.Log{{Address: addr.Hex(), Topics: topicHex, Data: []byte{0xde, 0xad}, Index: 0}},
+			Logs: []*types.Log{
+				{Address: addr.Hex(), Topics: topicHex, Data: []byte{0xde, 0xad}, Index: 0},
+			},
 		},
 	}
 }
 
-func writeLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, block uint64, records ...receipt.ReceiptRecord) {
+func writeLitBlock(
+	t *testing.T,
+	store receipt.ReceiptStore,
+	ctx sdk.Context,
+	block uint64,
+	records ...receipt.ReceiptRecord,
+) {
 	t.Helper()
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), records)) //nolint:gosec // small test heights
+	height := int64(block) //nolint:gosec // small test heights
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(height), records))
 	if len(records) == 0 {
 		return
 	}
@@ -198,8 +208,6 @@ func writeLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, bl
 func TestLittIdxReadWrite(t *testing.T) {
 	store, ctx := setupLittIdx(t, t.TempDir())
 	defer func() { _ = store.Close() }()
-
-	require.Equal(t, "littidx", receipt.BackendTypeName(store))
 
 	addr := common.HexToAddress("0xabcd")
 	topic := common.HexToHash("0x1111")
@@ -232,7 +240,8 @@ func TestLittIdxFilterLogs(t *testing.T) {
 	alice := common.HexToHash("0x3333cc")
 	bob := common.HexToHash("0x4444dd")
 
-	writeLitBlock(t, store, ctx, 1, litReceipt(1, 0, addr1, transfer, alice), litReceipt(1, 1, addr1, transfer, bob))
+	writeLitBlock(t, store, ctx, 1,
+		litReceipt(1, 0, addr1, transfer, alice), litReceipt(1, 1, addr1, transfer, bob))
 	writeLitBlock(t, store, ctx, 2, litReceipt(2, 0, addr2, approve, alice))
 	writeLitBlock(t, store, ctx, 3, litReceipt(3, 0, addr1, approve, bob))
 
@@ -242,14 +251,16 @@ func TestLittIdxFilterLogs(t *testing.T) {
 	require.Len(t, logs, 4)
 
 	// AND across topic positions: transfer at 0 AND alice at 1.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice}}}, nil)
+	logs, err = store.FilterLogs(ctx, 1, 3,
+		filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice}}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	require.Equal(t, uint64(1), logs[0].BlockNumber)
 	require.Equal(t, uint(0), logs[0].TxIndex)
 
 	// OR within a topic position: alice or bob at position 1.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice, bob}}}, nil)
+	logs, err = store.FilterLogs(ctx, 1, 3,
+		filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice, bob}}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
 
@@ -265,7 +276,8 @@ func TestLittIdxFilterLogs(t *testing.T) {
 	require.Equal(t, uint64(2), logs[0].BlockNumber)
 
 	// No match.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Addresses: []common.Address{common.HexToAddress("0x9")}}, nil)
+	logs, err = store.FilterLogs(ctx, 1, 3,
+		filters.FilterCriteria{Addresses: []common.Address{common.HexToAddress("0x9")}}, nil)
 	require.NoError(t, err)
 	require.Empty(t, logs)
 }
@@ -343,12 +355,18 @@ func TestLittIdxBlockWideLogIndex(t *testing.T) {
 	mk := func(txIndex uint32, nLogs int) receipt.ReceiptRecord {
 		logs := make([]*types.Log, nLogs)
 		for i := range logs {
-			logs[i] = &types.Log{Address: addr.Hex(), Topics: []string{topic.Hex()}, Index: uint32(i)} //nolint:gosec // small test indices
+			logIndex := uint32(i) //nolint:gosec // small test indices
+			logs[i] = &types.Log{Address: addr.Hex(), Topics: []string{topic.Hex()}, Index: logIndex}
 		}
 		txHash := litTxHash(8, txIndex)
 		return receipt.ReceiptRecord{
-			TxHash:  txHash,
-			Receipt: &types.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8, TransactionIndex: txIndex, Logs: logs},
+			TxHash: txHash,
+			Receipt: &types.Receipt{
+				TxHashHex:        txHash.Hex(),
+				BlockNumber:      8,
+				TransactionIndex: txIndex,
+				Logs:             logs,
+			},
 		}
 	}
 	// tx0: 2 logs, tx1: 1 log, tx2: 3 logs -> contiguous block-wide indices 0..5.
@@ -402,9 +420,8 @@ func TestLittIdxLegacyFallback(t *testing.T) {
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
 
@@ -459,7 +476,7 @@ func TestLittIdxPrune(t *testing.T) {
 		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 	}
 
-	require.NoError(t, receipt.PruneLittIdx(store, 6))
+	require.NoError(t, gigareceipt.PruneLittIdx(store, 6))
 	require.Equal(t, int64(6), store.EarliestVersion())
 
 	// Pruned blocks are invisible (tag entries deleted, read floor enforced).
@@ -507,7 +524,8 @@ func TestLittIdxFilterLogsParallelOrder(t *testing.T) {
 			writeLitBlock(t, store, ctx, b, recs...)
 		}
 
-		logs, err := store.FilterLogs(ctx, 1, blocks, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
+		logs, err := store.FilterLogs(ctx, 1, blocks,
+			filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 		require.NoError(t, err)
 		got := make([]string, len(logs))
 		for i, lg := range logs {

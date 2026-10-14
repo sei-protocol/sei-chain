@@ -1,9 +1,10 @@
-package receipt
+package gigareceipt
 
 import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,10 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 	}{
 		{
 			name: "typical",
-			data: receiptData{Header: TxHeader{BlockNumber: 1234567, Offset: 42, Length: 100}, Body: []byte("receipt-body")},
+			data: receiptData{
+				Header: TxHeader{BlockNumber: 1234567, Offset: 42, Length: 100},
+				Body:   []byte("receipt-body"),
+			},
 		},
 		{
 			name: "empty body",
@@ -22,7 +26,10 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 		},
 		{
 			name: "max field values",
-			data: receiptData{Header: TxHeader{BlockNumber: ^uint64(0), Offset: ^uint32(0), Length: ^uint32(0)}, Body: []byte{0x00, 0xff}},
+			data: receiptData{
+				Header: TxHeader{BlockNumber: ^uint64(0), Offset: ^uint32(0), Length: ^uint32(0)},
+				Body:   []byte{0x00, 0xff},
+			},
 		},
 		{
 			name: "zeroed metadata (location unknown)",
@@ -48,7 +55,10 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 // field reorder or width change is caught rather than silently corrupting
 // stored receipts.
 func TestReceiptDataWireLayout(t *testing.T) {
-	data := receiptData{Header: TxHeader{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314}, Body: []byte("xyz")}
+	data := receiptData{
+		Header: TxHeader{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314},
+		Body:   []byte("xyz"),
+	}
 	encoded := encodeReceiptData(data)
 
 	require.Equal(t, byte(1), encoded[0], "version byte")
@@ -62,7 +72,10 @@ func TestReceiptDataWireLayout(t *testing.T) {
 // input buffer (no copy), matching how callers unmarshal over litt's shared
 // read buffer.
 func TestDecodeReceiptDataBodyAliasesInput(t *testing.T) {
-	encoded := encodeReceiptData(receiptData{Header: TxHeader{BlockNumber: 5, Offset: 1, Length: 2}, Body: []byte("abc")})
+	encoded := encodeReceiptData(receiptData{
+		Header: TxHeader{BlockNumber: 5, Offset: 1, Length: 2},
+		Body:   []byte("abc"),
+	})
 	got, err := decodeReceiptData(encoded)
 	require.NoError(t, err)
 	require.Same(t, &encoded[receiptDataV1HeaderLen], &got.Body[0])
@@ -90,11 +103,38 @@ func TestDecodeReceiptDataErrors(t *testing.T) {
 	})
 }
 
-// TestDecodeReceiptDataLegacyFallback documents that a value whose leading
-// byte isn't receiptDataV1 is treated as a legacy, pre-prefix receipt (a bare
-// marshaled Receipt with no metadata header) rather than an error, so values
-// written before this codec existed keep decoding after an upgrade.
+// TestDecodeReceiptDataRejectsReservedVersions pins that every leading byte below
+// minProtobufTagByte other than a known version is rejected rather than read as legacy.
+func TestDecodeReceiptDataRejectsReservedVersions(t *testing.T) {
+	for version := byte(0); version < minProtobufTagByte; version++ {
+		if version == receiptDataV1 {
+			continue
+		}
+		raw := make([]byte, receiptDataV1HeaderLen+4)
+		raw[0] = version
+		_, err := decodeReceiptData(raw)
+		require.ErrorContains(t, err, "unsupported receipt encoding version", "leading byte 0x%02x", version)
+	}
+}
+
+// TestDecodeReceiptDataLegacyFallback documents that a value whose leading byte is
+// minProtobufTagByte or above is treated as a legacy, pre-prefix receipt (a bare
+// marshaled Receipt with no metadata header), so values written before this codec
+// existed keep decoding after an upgrade.
 func TestDecodeReceiptDataLegacyFallback(t *testing.T) {
+	t.Run("marshaled receipt", func(t *testing.T) {
+		raw, err := (&types.Receipt{TxHashHex: "0xabc", BlockNumber: 7, Status: 1}).Marshal()
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, raw[0], minProtobufTagByte)
+
+		got, err := decodeReceiptData(raw)
+		require.NoError(t, err)
+		require.Equal(t, TxHeader{}, got.Header)
+		var r types.Receipt
+		require.NoError(t, r.Unmarshal(got.Body))
+		require.Equal(t, uint64(7), r.BlockNumber)
+	})
+
 	t.Run("leading byte is a real protobuf tag", func(t *testing.T) {
 		// 0x08 is the wire-format tag for field 1 (varint) — the smallest tag byte a real
 		// marshaled Receipt can start with, and the case closest to colliding with receiptDataV1.

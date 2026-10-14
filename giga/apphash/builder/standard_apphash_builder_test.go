@@ -85,7 +85,7 @@ func reportInput(t *testing.T, b AppHashBuilder, input hashInput, blockHeight ui
 	case blockHashInput:
 		err = b.ReportBlockHash(ctx, blockHeight, value)
 	case stateHashInput:
-		err = b.ReportStateHash(ctx, blockHeight, value)
+		err = b.ReportStateHash(ctx, blockHeight, value, nil)
 	case budInput:
 		err = b.ReportBUD(ctx, blockHeight, value)
 	case receiptHashInput:
@@ -365,7 +365,7 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 
 	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
 	require.Error(t, err)
-	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}))
+	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}, nil))
 	require.Error(t, b.SetupComplete(context.Background(), 0))
 }
 
@@ -469,18 +469,20 @@ const mismatchScenarioEnv = "APPHASH_BUILDER_MISMATCH_SCENARIO"
 // The environment variable naming the vault directory a child test process uses.
 const mismatchDirEnv = "APPHASH_BUILDER_MISMATCH_DIR"
 
-// requireScenarioPanics runs scenario in a child test process and requires it to crash on a changed hash. A panic
-// on the builder goroutine cannot be recovered by the test.
-func requireScenarioPanics(t *testing.T, name string, scenario func(t *testing.T, dir string)) {
+// requireScenarioPanics runs scenario in a child test process and requires it to crash on a changed hash, returning
+// the directory the scenario ran in. A panic on the builder goroutine cannot be recovered by the test.
+func requireScenarioPanics(t *testing.T, name string, scenario func(t *testing.T, dir string)) string {
 	if os.Getenv(mismatchScenarioEnv) == name {
 		scenario(t, os.Getenv(mismatchDirEnv))
-		return
+		require.FailNow(t, "the scenario did not crash")
 	}
+	dir := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$") //nolint:gosec // re-runs this test binary
-	cmd.Env = append(os.Environ(), mismatchScenarioEnv+"="+name, mismatchDirEnv+"="+t.TempDir())
+	cmd.Env = append(os.Environ(), mismatchScenarioEnv+"="+name, mismatchDirEnv+"="+dir)
 	output, err := cmd.CombinedOutput()
 	require.Error(t, err, "the scenario did not crash:\n%s", output)
 	require.Contains(t, string(output), "changed: stored")
+	return dir
 }
 
 func TestChangedInputDuringStartupReplayPanics(t *testing.T) {

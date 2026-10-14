@@ -1,10 +1,12 @@
-package receipt
+package gigareceipt
 
 import (
 	"context"
 	"encoding/binary"
 	"fmt"
 	"sort"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -73,7 +75,15 @@ func littTagTagKey(blockNumber uint64, kindTag []byte) []byte {
 // appendLittTagKey writes a full tag key into dst[:0], reusing its capacity so
 // the write path allocates no per-key slice (pebble's batch.Set copies the key,
 // so the buffer is free to reuse immediately after).
-func appendLittTagKey(dst []byte, blockNumber uint64, kind byte, tag []byte, txIndex, firstLogIndex uint32, txHash common.Hash) []byte {
+func appendLittTagKey(
+	dst []byte,
+	blockNumber uint64,
+	kind byte,
+	tag []byte,
+	txIndex uint32,
+	firstLogIndex uint32,
+	txHash common.Hash,
+) []byte {
 	dst = append(dst, littTagKeyPrefix)
 	dst = binary.BigEndian.AppendUint64(dst, blockNumber)
 	dst = append(dst, kind)
@@ -85,7 +95,7 @@ func appendLittTagKey(dst []byte, blockNumber uint64, kind byte, tag []byte, txI
 
 // addressTag and topicTag build the kind+tag bytes that key membership is
 // matched on; criteriaTagGroups turns filter criteria into tag groups (OR
-// within a group, AND across groups — MatchLog semantics), one group per
+// within a group, AND across groups — receipt.MatchLog semantics), one group per
 // constrained dimension (the address list, each non-empty topic position).
 func addressTag(addressHex string) []byte {
 	addr := common.HexToAddress(addressHex)
@@ -159,7 +169,11 @@ func prefixSuccessor(prefix []byte) []byte {
 // idempotent. firstLogIndex is block-wide within a single call; a block split
 // across calls (legacy migration) restarts it per part — harmless, as the RPC
 // layer recomputes log indices from canonical block data.
-func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
+func (s *littReceiptStore) stageTagKeys(
+	batch dbtypes.Batch,
+	blockNumber uint64,
+	records []receipt.ReceiptRecord,
+) error {
 	scratch := make([]byte, 0, littTagKeyMaxLen)
 	firstLogIndex := uint32(0)
 	for _, record := range records {
@@ -167,7 +181,8 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 		txHash := record.TxHash
 		for _, lg := range record.Receipt.Logs {
 			addr := common.HexToAddress(lg.Address)
-			scratch = appendLittTagKey(scratch[:0], blockNumber, tagKindAddress, addr[:], txIndex, firstLogIndex, txHash)
+			scratch = appendLittTagKey(
+				scratch[:0], blockNumber, tagKindAddress, addr[:], txIndex, firstLogIndex, txHash)
 			if err := batch.Set(scratch, nil); err != nil {
 				return err
 			}
@@ -176,7 +191,9 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 					break
 				}
 				th := common.HexToHash(topic)
-				scratch = appendLittTagKey(scratch[:0], blockNumber, tagKindTopic0+byte(p), th[:], txIndex, firstLogIndex, txHash) //nolint:gosec // p < maxIndexedTopics
+				kind := tagKindTopic0 + byte(p) //nolint:gosec // p < maxIndexedTopics
+				scratch = appendLittTagKey(
+					scratch[:0], blockNumber, kind, th[:], txIndex, firstLogIndex, txHash)
 				if err := batch.Set(scratch, nil); err != nil {
 					return err
 				}
@@ -192,13 +209,21 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 // receipts touch only that block's keys — so a range is fanned across a bounded
 // worker pool (logFilterParallelism) instead of walked one block at a time.
 // This parallelizes both the per-block index scans and the litt body reads,
-// which dominate wide-range latency. Results are exact (MatchLogForQuery re-verifies
+// which dominate wide-range latency. Results are exact (receipt.MatchLogForQuery re-verifies
 // after decode) and stay in (block, txIndex) order via the indexed buffer.
-func (s *littReceiptStore) filterLogsByTags(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
-	if latest := s.latestVersion.Load(); latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
+func (s *littReceiptStore) filterLogsByTags(
+	ctx context.Context,
+	fromBlock uint64,
+	toBlock uint64,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
+) ([]*ethtypes.Log, error) {
+	latest := s.latestVersion.Load()
+	if latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
 		toBlock = uint64(latest) //nolint:gosec // latest is non-negative
 	}
-	if earliest := s.earliestVersion.Load(); earliest > 0 && fromBlock < uint64(earliest) { //nolint:gosec // earliest is non-negative
+	earliest := s.earliestVersion.Load()
+	if earliest > 0 && fromBlock < uint64(earliest) { //nolint:gosec // earliest is non-negative
 		fromBlock = uint64(earliest) //nolint:gosec // earliest is non-negative
 	}
 	if fromBlock > toBlock {
@@ -230,7 +255,8 @@ func (s *littReceiptStore) filterLogsByTags(ctx context.Context, fromBlock, toBl
 			if egCtx.Err() != nil {
 				return nil // group already cancelled; skip without overwriting the cause
 			}
-			blockLogs, err := s.blockLogs(egCtx, fromBlock+uint64(i), groups, crit, budget) //nolint:gosec // i < nBlocks
+			block := fromBlock + uint64(i) //nolint:gosec // i < nBlocks
+			blockLogs, err := s.blockLogs(egCtx, block, groups, crit, budget)
 			if err != nil {
 				return err
 			}
@@ -254,7 +280,13 @@ func (s *littReceiptStore) filterLogsByTags(ctx context.Context, fromBlock, toBl
 
 // blockLogs answers the query for one block: intersect the tag candidates, then
 // point-read and match the surviving receipts. Returns nil when nothing matches.
-func (s *littReceiptStore) blockLogs(ctx context.Context, block uint64, groups [][][]byte, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) blockLogs(
+	ctx context.Context,
+	block uint64,
+	groups [][][]byte,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
+) ([]*ethtypes.Log, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -277,7 +309,8 @@ func (s *littReceiptStore) blockLogs(ctx context.Context, block uint64, groups [
 func (s *littReceiptStore) blockTagCandidates(blockNumber uint64, groups [][][]byte) (map[uint32]littTagRef, error) {
 	if len(groups) == 0 {
 		set := make(map[uint32]littTagRef)
-		err := s.scanTagRange(littTagKindKey(blockNumber, tagKindAddress), littTagKindKey(blockNumber, tagKindAddress+1), set)
+		err := s.scanTagRange(
+			littTagKindKey(blockNumber, tagKindAddress), littTagKindKey(blockNumber, tagKindAddress+1), set)
 		return set, err
 	}
 
@@ -334,10 +367,15 @@ func (s *littReceiptStore) scanTagRange(lower, upper []byte, dst map[uint32]litt
 }
 
 // candidateBlockLogs point-reads the candidate receipts from litt by tx hash,
-// in transaction-index order, and applies the exact MatchLogForQuery predicate. A
+// in transaction-index order, and applies the exact receipt.MatchLogForQuery predicate. A
 // missing receipt is skipped, not an error: litt TTL GC can reclaim a body
 // between the index scan and the read.
-func (s *littReceiptStore) candidateBlockLogs(ctx context.Context, candidates map[uint32]littTagRef, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) candidateBlockLogs(
+	ctx context.Context,
+	candidates map[uint32]littTagRef,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
+) ([]*ethtypes.Log, error) {
 	txIndexes := make([]uint32, 0, len(candidates))
 	for txIndex := range candidates {
 		txIndexes = append(txIndexes, txIndex)
@@ -365,19 +403,19 @@ func (s *littReceiptStore) candidateBlockLogs(ctx context.Context, candidates ma
 		if err != nil {
 			return nil, err
 		}
-		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(data.Body); err != nil {
+		stored := &types.Receipt{}
+		if err := stored.Unmarshal(data.Body); err != nil {
 			return nil, err
 		}
-		for _, rawLog := range receipt.Logs {
+		for _, rawLog := range stored.Logs {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 			if budget.Tripped() {
 				return nil, budget.Err()
 			}
-			lg := convertLog(rawLog, receipt, uint(ref.firstLogIndex))
-			if !MatchLogForQuery(ctx, lg, crit) {
+			lg := convertLog(rawLog, stored, uint(ref.firstLogIndex))
+			if !receipt.MatchLogForQuery(ctx, lg, crit) {
 				continue
 			}
 			if err := budget.Reserve(lg); err != nil {
