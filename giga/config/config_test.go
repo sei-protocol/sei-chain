@@ -16,6 +16,7 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 	cfg, err := gigaconfig.ReadConfig(configtest.AppOpts{})
 	require.NoError(t, err, "an absent [giga] section must read cleanly")
 	require.Equal(t, gigaconfig.DefaultConfig, cfg)
+	require.False(t, cfg.StateSync.Enabled, "giga state sync must be off unless a node turns it on")
 }
 
 // TestDefaultsMatchTheStorageDefaults holds the section's storage defaults against the values
@@ -49,6 +50,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.block_result_pool_size":  "4",
 		"giga.execution.evm_rpc_port":            "8600",
 		"giga.execution.evm_ws_port":             "8601",
+		"giga.state_sync.enabled":                "true",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -70,6 +72,9 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
 		},
+		StateSync: gigaconfig.StateSyncConfig{
+			Enabled: true,
+		},
 	}
 	require.Equal(t, want, cfg)
 }
@@ -90,6 +95,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"evm ws port zero":        {"giga.execution.evm_ws_port": "0"},
 		"evm ws port too high":    {"giga.execution.evm_ws_port": "65536"},
 		"evm ws port is rpc port": {"giga.execution.evm_ws_port": "8545"},
+		"non-boolean state sync":  {"giga.state_sync.enabled": "maybe"},
 	} {
 		_, err := gigaconfig.ReadConfig(opts)
 		require.Error(t, err, name)

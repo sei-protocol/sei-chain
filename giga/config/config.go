@@ -1,5 +1,5 @@
-// Package config defines the [giga] section of app.toml: the storage and execution settings a
-// Giga (Autobahn) node runs with.
+// Package config defines the [giga] section of app.toml: the storage, execution and state sync
+// settings a Giga (Autobahn) node runs with.
 package config
 
 import (
@@ -27,6 +27,7 @@ const (
 type Config struct {
 	Storage   StorageConfig   `mapstructure:"storage"`
 	Execution ExecutionConfig `mapstructure:"execution"`
+	StateSync StateSyncConfig `mapstructure:"state_sync"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -71,6 +72,13 @@ type ExecutionConfig struct {
 	EvmWsPort int `mapstructure:"evm_ws_port"`
 }
 
+// StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
+type StateSyncConfig struct {
+	// Enabled allows the state-sync-snapshot create and restore commands on this node, and the
+	// seed of a restored home on start.
+	Enabled bool `mapstructure:"enabled"`
+}
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -82,6 +90,9 @@ var DefaultConfig = Config{
 		BlockResultPoolSize: 1,
 		EvmRpcPort:          8545,
 		EvmWsPort:           8546,
+	},
+	StateSync: StateSyncConfig{
+		Enabled: false,
 	},
 }
 
@@ -116,6 +127,7 @@ const (
 	FlagExecutionBlockResultPoolSize   = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort            = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort             = "giga.execution.evm_ws_port"
+	FlagStateSyncEnabled               = "giga.state_sync.enabled"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -192,6 +204,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
 		}
 	}
+	if v := opts.Get(FlagStateSyncEnabled); v != nil {
+		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -253,7 +270,7 @@ const ConfigTemplate = `
 ###                          Giga Node Configuration                        ###
 ###############################################################################
 
-# Storage and execution settings of a Giga (Autobahn) node. Committee and consensus
+# Storage, execution and state sync settings of a Giga (Autobahn) node. Committee and consensus
 # settings stay in the file named by autobahn-config-file in config.toml.
 
 [giga.storage]
@@ -307,4 +324,9 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
+
+[giga.state_sync]
+# enabled allows the state-sync-snapshot create and restore commands on this node, and the
+# seed of a restored home on start.
+enabled = {{ .Giga.StateSync.Enabled }}
 `
