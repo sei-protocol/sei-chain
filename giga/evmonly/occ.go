@@ -688,6 +688,15 @@ type blockSTMShard struct {
 	code          map[common.Address][]byte
 	storageClears map[common.Address]struct{}
 	storage       map[storageChangeKey]common.Hash
+
+	// The prior maps hold, for each key the accepted prefix wrote, the value it had before the block:
+	// the prior the first accepted write to it carried. No transaction ahead of that writer wrote the
+	// key, so what it read was the pre-block value. Later writers read an earlier writer's value. A
+	// slot of a cleared address is the exception, since its writers read through the clear.
+	priorBalances map[common.Address]*big.Int
+	priorNonces   map[common.Address]uint64
+	priorCode     map[common.Address][]byte
+	priorStorage  map[storageChangeKey]common.Hash
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
@@ -702,6 +711,10 @@ func newBlockSTMState(source StateReader) *blockSTMState {
 			code:          map[common.Address][]byte{},
 			storageClears: map[common.Address]struct{}{},
 			storage:       map[storageChangeKey]common.Hash{},
+			priorBalances: map[common.Address]*big.Int{},
+			priorNonces:   map[common.Address]uint64{},
+			priorCode:     map[common.Address][]byte{},
+			priorStorage:  map[storageChangeKey]common.Hash{},
 		}
 	}
 	return state
@@ -750,9 +763,15 @@ func (s *blockSTMState) apply(result occTxExecution) {
 
 // applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
 // reports true for. Two callers with disjoint ownership can run concurrently.
+//
+// Results must be applied in block order, each once, for the prior maps to keep the first writer's
+// prior.
 func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 	for change := range ownedChanges(owns, result.changeSet.Balances, BalanceChange.addr) {
 		shard := s.shard(change.Address)
+		if _, ok := shard.priorBalances[change.Address]; !ok {
+			shard.priorBalances[change.Address] = change.PriorBalance
+		}
 		delta := result.commutativeBalanceDeltas[change.Address]
 		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
 		if delta != nil && !normalWrite {
@@ -764,13 +783,21 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 		shard.balances[change.Address] = cloneBig(change.Balance)
 	}
 	for change := range ownedChanges(owns, result.changeSet.Nonces, NonceChange.addr) {
-		s.shard(change.Address).nonces[change.Address] = change.Nonce
+		shard := s.shard(change.Address)
+		if _, ok := shard.priorNonces[change.Address]; !ok {
+			shard.priorNonces[change.Address] = change.PriorNonce
+		}
+		shard.nonces[change.Address] = change.Nonce
 	}
 	for change := range ownedChanges(owns, result.changeSet.Code, CodeChange.addr) {
+		shard := s.shard(change.Address)
+		if _, ok := shard.priorCode[change.Address]; !ok {
+			shard.priorCode[change.Address] = cloneBytes(change.PriorCode)
+		}
 		if change.Delete {
-			s.shard(change.Address).code[change.Address] = nil
+			shard.code[change.Address] = nil
 		} else {
-			s.shard(change.Address).code[change.Address] = cloneBytes(change.Code)
+			shard.code[change.Address] = cloneBytes(change.Code)
 		}
 	}
 	for addr := range ownedChanges(owns, result.changeSet.StorageClears, sameAddress) {
@@ -783,7 +810,12 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 		}
 	}
 	for change := range ownedChanges(owns, result.changeSet.Storage, StorageChange.addr) {
-		s.shard(change.Address).storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
+		shard := s.shard(change.Address)
+		key := storageChangeKey{address: change.Address, key: change.Key}
+		if _, ok := shard.priorStorage[key]; !ok {
+			shard.priorStorage[key] = change.PriorValue
+		}
+		shard.storage[key] = change.Value
 	}
 }
 
@@ -799,51 +831,6 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 	return changes
 }
 
-// baseAccounts serves an account's pre-block fields, reading the row once however many fields a
-// caller asks for. It is scoped to one shard of one merge and is not safe for concurrent use.
-type baseAccounts struct {
-	source StateReader
-	reader baseAccountReader
-	seen   map[common.Address]baseAccount
-}
-
-func newBaseAccounts(source StateReader) *baseAccounts {
-	b := &baseAccounts{source: source, seen: map[common.Address]baseAccount{}}
-	b.reader, _ = source.(baseAccountReader)
-	return b
-}
-
-func (b *baseAccounts) get(addr common.Address) baseAccount {
-	if account, ok := b.seen[addr]; ok {
-		return account
-	}
-	var account baseAccount
-	if b.reader != nil {
-		if read, served := b.reader.ReadAccount(addr); served {
-			account = read
-			b.seen[addr] = account
-			return account
-		}
-	}
-	account = baseAccount{
-		Balance: b.source.GetBalance(addr),
-		Nonce:   b.source.GetNonce(addr),
-		Code:    b.source.GetCode(addr),
-	}
-	b.seen[addr] = account
-	return account
-}
-
-func (b *baseAccounts) balance(addr common.Address) *big.Int {
-	if balance := b.get(addr).Balance; balance != nil {
-		return balance
-	}
-	return new(big.Int)
-}
-
-func (b *baseAccounts) nonce(addr common.Address) uint64 { return b.get(addr).Nonce }
-func (b *baseAccounts) code(addr common.Address) []byte  { return b.get(addr).Code }
-
 // ChangeSetInto writes the block's net state changes, in canonical order, on the calling goroutine.
 func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 	changes.resetForReuse()
@@ -856,34 +843,31 @@ func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 // the address space in canonical order, so appending shard by shard yields a canonically ordered
 // changeset.
 func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSet) {
-	// The three loops below each compare against the same accounts, and balance, nonce and code hash
-	// share one row. Reading per field would resolve that row three times per address.
-	base := newBaseAccounts(source)
-	balanceAddrs := sortedAddressesFromBigMap(h.balances)
-	for _, addr := range balanceAddrs {
-		balance := cloneBig(h.balances[addr])
-		if balance.Cmp(base.balance(addr)) == 0 {
+	for _, addr := range sortedAddresses(h.balances) {
+		balance, prior := h.balances[addr], h.priorBalances[addr]
+		if prior == nil {
+			prior = new(big.Int)
+		}
+		if balance.Cmp(prior) == 0 {
 			continue
 		}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: balance})
+		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: cloneBig(balance), PriorBalance: prior})
 	}
-	nonceAddrs := sortedAddressesFromUint64Map(h.nonces)
-	for _, addr := range nonceAddrs {
-		if h.nonces[addr] == base.nonce(addr) {
+	for _, addr := range sortedAddresses(h.nonces) {
+		nonce, prior := h.nonces[addr], h.priorNonces[addr]
+		if nonce == prior {
 			continue
 		}
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: h.nonces[addr]})
+		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: nonce, PriorNonce: prior})
 	}
-	codeAddrs := sortedAddressesFromBytesMap(h.code)
-	for _, addr := range codeAddrs {
-		code := cloneBytes(h.code[addr])
-		if bytes.Equal(code, base.code(addr)) {
+	for _, addr := range sortedAddresses(h.code) {
+		code, prior := h.code[addr], h.priorCode[addr]
+		if bytes.Equal(code, prior) {
 			continue
 		}
-		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: code, Delete: len(code) == 0})
+		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: cloneBytes(prior)})
 	}
-	storageClearAddrs := sortedAddressesFromSet(h.storageClears)
-	changes.StorageClears = append(changes.StorageClears, storageClearAddrs...)
+	changes.StorageClears = append(changes.StorageClears, sortedAddresses(h.storageClears)...)
 
 	storageKeys := make([]storageChangeKey, 0, len(h.storage))
 	for key := range h.storage {
@@ -896,19 +880,23 @@ func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSe
 		return bytes.Compare(storageKeys[i].key[:], storageKeys[j].key[:]) < 0
 	})
 	for _, key := range storageKeys {
-		value := h.storage[key]
-		baseValue := source.GetState(key.address, key.key)
+		value, prior := h.storage[key], h.priorStorage[key]
 		if _, cleared := h.storageClears[key.address]; cleared {
-			baseValue = common.Hash{}
-		}
-		if value == baseValue {
+			// A clear empties the slot in the store, so the write is measured against zero. Its writers
+			// read through the clear, so the prior is read from the state before the block.
+			if value == (common.Hash{}) {
+				continue
+			}
+			prior = source.GetState(key.address, key.key)
+		} else if value == prior {
 			continue
 		}
 		changes.Storage = append(changes.Storage, StorageChange{
-			Address: key.address,
-			Key:     key.key,
-			Value:   value,
-			Delete:  value == (common.Hash{}),
+			Address:    key.address,
+			Key:        key.key,
+			Value:      value,
+			Delete:     value == (common.Hash{}),
+			PriorValue: prior,
 		})
 	}
 }
@@ -1039,40 +1027,8 @@ type storageChangeKey struct {
 	key     common.Hash
 }
 
-func sortedAddressesFromBigMap(values map[common.Address]*big.Int) []common.Address {
-	addrs := make([]common.Address, 0, len(values))
-	for addr := range values {
-		addrs = append(addrs, addr)
-	}
-	sort.Slice(addrs, func(i, j int) bool {
-		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
-	})
-	return addrs
-}
-
-func sortedAddressesFromUint64Map(values map[common.Address]uint64) []common.Address {
-	addrs := make([]common.Address, 0, len(values))
-	for addr := range values {
-		addrs = append(addrs, addr)
-	}
-	sort.Slice(addrs, func(i, j int) bool {
-		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
-	})
-	return addrs
-}
-
-func sortedAddressesFromBytesMap(values map[common.Address][]byte) []common.Address {
-	addrs := make([]common.Address, 0, len(values))
-	for addr := range values {
-		addrs = append(addrs, addr)
-	}
-	sort.Slice(addrs, func(i, j int) bool {
-		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
-	})
-	return addrs
-}
-
-func sortedAddressesFromSet(values map[common.Address]struct{}) []common.Address {
+// sortedAddresses returns the keys of values in canonical order.
+func sortedAddresses[V any](values map[common.Address]V) []common.Address {
 	addrs := make([]common.Address, 0, len(values))
 	for addr := range values {
 		addrs = append(addrs, addr)
