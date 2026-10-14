@@ -3,6 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -200,13 +201,19 @@ func linkDirContents(src, dst string, link func(oldname, newname string) error) 
 	return nil
 }
 
-// VerifySnapshotDir returns nil when the snapshot directory dir holds every data database and each one
-// records version as its committed version. version must be at least 1. It opens each database
-// read-only, which leaves a Pebble LOCK file in the database directory.
+// VerifySnapshotDir returns nil when the snapshot directory dir and everything under it are directories
+// or regular files, dir holds every data database, and each one records version as its committed
+// version. version must be at least 1. It opens each database read-only, which leaves a Pebble LOCK file
+// in the database directory.
 func VerifySnapshotDir(dir string, version int64) error {
 	// A database with no version record reads as 0, so version 0 would accept empty directories.
 	if version < 1 {
 		return fmt.Errorf("snapshot %s: version %d is below 1", dir, version)
+	}
+	// The checks below follow symlinks but a rename moves the link itself, so a relative link would
+	// pass here and dangle once installed.
+	if err := requireOnlyDirsAndFiles(dir); err != nil {
+		return fmt.Errorf("snapshot %s: %w", dir, err)
 	}
 	for _, name := range dataDBDirs {
 		dbDir := filepath.Join(dir, name)
@@ -226,6 +233,20 @@ func VerifySnapshotDir(dir string, version int64) error {
 		}
 	}
 	return nil
+}
+
+// requireOnlyDirsAndFiles returns an error when dir, or any entry under it, is neither a directory nor a
+// regular file. It does not follow symlinks.
+func requireOnlyDirsAndFiles(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file or a directory", path)
+		}
+		return nil
+	})
 }
 
 // RootLock is the writer lock on a FlatKV root, held without opening a store. While it is held, no store
@@ -299,15 +320,18 @@ func (l *RootLock) Empty() (bool, error) {
 }
 
 // Clear removes everything under the root except its lock file. If it stops partway, every directory
-// left under its own name is whole, so a store opened on the root afterwards loads at a version the root
-// held before Clear, or at 0.
+// left under its own name is whole, and a store opened on the root afterwards loads the snapshot it
+// would have loaded before Clear, or opens empty at version 0.
 func (l *RootLock) Clear() error {
 	return l.clearWith(os.RemoveAll)
 }
 
 // clearWith is Clear with the removal of each path supplied by the caller.
 func (l *RootLock) clearWith(removeAll func(path string) error) error {
-	// The links go first. A store adopts a snapshot dir that has no link, which is safe while the dir
+	if err := l.hideSnapshotsAboveCurrent(removeAll); err != nil {
+		return fmt.Errorf("clear flatkv root %q: %w", l.root, err)
+	}
+	// The links go next. A store adopts a snapshot dir that has no link, which is safe while the dir
 	// is whole, but it takes the version from a link's name without checking that the target exists.
 	for _, link := range []string{currentPath(l.root), filepath.Join(l.root, currentTmpLink)} {
 		if err := removeAll(link); err != nil {
@@ -325,12 +349,7 @@ func (l *RootLock) clearWith(removeAll func(path string) error) error {
 		if !entry.IsDir() || strings.HasSuffix(entry.Name(), removingSuffix) {
 			continue
 		}
-		path := filepath.Join(l.root, entry.Name())
-		trash := path + removingSuffix
-		if err := removeAll(trash); err != nil {
-			return fmt.Errorf("clear flatkv root %q: %w", l.root, err)
-		}
-		if err := os.Rename(path, trash); err != nil {
+		if err := moveAside(filepath.Join(l.root, entry.Name()), removeAll); err != nil {
 			return fmt.Errorf("clear flatkv root %q: %w", l.root, err)
 		}
 	}
@@ -356,13 +375,54 @@ func (l *RootLock) clearWith(removeAll func(path string) error) error {
 	return nil
 }
 
+// hideSnapshotsAboveCurrent moves aside every snapshot dir above the version the current link names, and
+// makes the moves durable. A rollback that stops partway leaves such a snapshot, and once the link is
+// gone a store would adopt it as the newest. Without a readable link it does nothing: the store then
+// adopts the newest snapshot, which Clear moves aside last.
+func (l *RootLock) hideSnapshotsAboveCurrent(removeAll func(path string) error) error {
+	_, active, err := currentSnapshotDir(l.root)
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(l.root)
+	if err != nil {
+		return err
+	}
+	hidden := false
+	for _, entry := range entries {
+		// The store's own parser, so every dir the store would adopt is compared.
+		version, err := parseSnapshotVersion(entry.Name())
+		if !entry.IsDir() || err != nil || version <= active {
+			continue
+		}
+		if err := moveAside(filepath.Join(l.root, entry.Name()), removeAll); err != nil {
+			return err
+		}
+		hidden = true
+	}
+	if !hidden {
+		return nil
+	}
+	return syncDir(l.root)
+}
+
+// moveAside renames the directory path to its -removing name, which a store skips and removes on open,
+// after it removes any dir already under that name.
+func moveAside(path string, removeAll func(path string) error) error {
+	trash := path + removingSuffix
+	if err := removeAll(trash); err != nil {
+		return err
+	}
+	return os.Rename(path, trash)
+}
+
 // clearRank is the position of the root entry name in the order Clear moves entries aside: the working
-// copy, then the other entries, then the snapshots.
+// copy, then the other entries, then the snapshots in ascending order.
 //
 // Each prefix of that order leaves a root a store opens cleanly: the snapshots and the WAL with no
-// working copy is a restart that clones again, and some of the snapshots alone load the newest of them.
-// Moving the snapshots while a working copy and a WAL remain would leave the store to rebuild from an
-// empty snapshot 0, with a WAL that need not start at block 1.
+// working copy is a restart that clones again, and the newest snapshot stays until the last move, so
+// the store keeps loading it. Moving the snapshots while a working copy and a WAL remain would leave the
+// store to rebuild from an empty snapshot 0, with a WAL that need not start at block 1.
 func clearRank(name string) int {
 	switch {
 	case name == workingDirName:

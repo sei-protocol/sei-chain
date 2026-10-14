@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -322,6 +321,24 @@ func TestVerifySnapshotDir(t *testing.T) {
 	require.ErrorContains(t, err, codeDBDir)
 }
 
+func TestVerifySnapshotDirRefusesSymlinks(t *testing.T) {
+	s := setupSnapshottingStore(t, 10)
+	h := commitToEveryDB(t, s, 1)
+	parent := t.TempDir()
+	pin := filepath.Join(parent, "pin")
+	require.NoError(t, PinSnapshot(s.flatkvDir(), h, pin))
+	require.NoError(t, s.Close())
+	require.NoError(t, VerifySnapshotDir(pin, h))
+
+	link := filepath.Join(parent, "link")
+	require.NoError(t, os.Symlink("pin", link))
+	require.ErrorContains(t, VerifySnapshotDir(link, h), "not a regular file or a directory")
+
+	require.NoError(t, os.Rename(filepath.Join(pin, accountDBDir), filepath.Join(parent, accountDBDir)))
+	require.NoError(t, os.Symlink(filepath.Join("..", accountDBDir), filepath.Join(pin, accountDBDir)))
+	require.ErrorContains(t, VerifySnapshotDir(pin, h), "not a regular file or a directory")
+}
+
 func TestVerifySnapshotDirRefusesEmptyDatabases(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range dataDBDirs {
@@ -381,19 +398,43 @@ func TestRootLockEmptyAndClear(t *testing.T) {
 
 // TestRootLockClearStoppedLeavesALoadableRoot stops Clear at each removal, after it removes part of the
 // path as a crash inside a recursive removal would. It checks that every directory left under its own
-// name is whole, that a store opened on the root loads a version the root held with that version's hash,
-// and that a second Clear empties the root.
+// name is whole, that a store opened on the root loads no version above the one it loaded before Clear
+// and has that version's hash, and that a second Clear empties the root.
 func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 	errStop := errors.New("stopped")
-	// With the large interval the only snapshot is version 0, so the working copy and the WAL hold
-	// every block.
-	for _, interval := range []uint32{1, 10000} {
-		t.Run(fmt.Sprintf("snapshot interval %d", interval), func(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		interval uint32
+		// externalWAL opens the store with no WAL of its own, so it loads only what its files hold.
+		externalWAL bool
+		// rewindTo, when not 0, points current at that snapshot and keeps the snapshots above it, as a
+		// rollback that stopped before it removed them leaves the root.
+		rewindTo int64
+	}{
+		{name: "snapshot interval 1", interval: 1},
+		// The only snapshot is version 0, so the working copy and the WAL hold every block.
+		{name: "snapshot interval 10000", interval: 10000},
+		{name: "current below a discarded snapshot", interval: 1, externalWAL: true, rewindTo: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			open := func(t *testing.T, cfg *config.Config) *CommitStore {
+				t.Helper()
+				var s *CommitStore
+				var err error
+				if tc.externalWAL {
+					s, err = NewCommitStore(t.Context(), cfg, nil)
+				} else {
+					s, err = newCommitStoreWithWAL(t.Context(), cfg)
+				}
+				require.NoError(t, err)
+				require.NoError(t, s.LoadLatest())
+				return s
+			}
 			for stopAt := 0; ; stopAt++ {
 				cfg := config.DefaultTestConfig(t)
-				cfg.SnapshotInterval = interval
+				cfg.SnapshotInterval = tc.interval
 				cfg.SnapshotKeepRecent = 10
-				s := setupTestStoreWithConfig(t, cfg)
+				s := open(t, cfg)
 				hashes := map[int64][]byte{0: rootHash(s)}
 				for n := byte(1); n <= 3; n++ {
 					v := commitToEveryDB(t, s, n)
@@ -401,6 +442,18 @@ func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 				}
 				root := s.flatkvDir()
 				require.NoError(t, s.Close())
+				if tc.rewindTo != 0 {
+					require.NoError(t, repointAtSnapshot(root, tc.rewindTo))
+				}
+				before := open(t, cfg)
+				loadedBefore := before.Version()
+				require.NoError(t, before.Close())
+				if tc.rewindTo != 0 {
+					require.Equal(t, tc.rewindTo, loadedBefore)
+					require.DirExists(t, filepath.Join(root, SnapshotDirName(tc.rewindTo+1)),
+						"fixture precondition: a discarded snapshot sits above current")
+				}
+
 				whole := map[string][]string{}
 				entries, err := os.ReadDir(root)
 				require.NoError(t, err)
@@ -410,7 +463,9 @@ func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 					}
 				}
 				require.Contains(t, whole, workingDirName)
-				require.Contains(t, whole, changelogDir)
+				if !tc.externalWAL {
+					require.Contains(t, whole, changelogDir)
+				}
 
 				lock, err := LockRoot(root)
 				require.NoError(t, err)
@@ -448,11 +503,9 @@ func TestRootLockClearStoppedLeavesALoadableRoot(t *testing.T) {
 				}
 				require.NoError(t, lock.Unlock())
 
-				reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
-				require.NoError(t, err)
-				require.NoError(t, reopened.LoadLatest(), "stop %d: the root opens", stopAt)
+				reopened := open(t, cfg)
 				v := reopened.Version()
-				require.Contains(t, hashes, v, "stop %d: the root opens at a version it held", stopAt)
+				require.LessOrEqual(t, v, loadedBefore, "stop %d: no version above the one before Clear", stopAt)
 				require.Equal(t, hashes[v], rootHash(reopened), "stop %d: version %d", stopAt, v)
 				require.NoError(t, reopened.Close())
 
@@ -539,6 +592,22 @@ func TestInstallSnapshotRefusals(t *testing.T) {
 
 		pin := newPin(t)
 		require.ErrorContains(t, lock.InstallSnapshot(pin, h+1), "want")
+		empty, err := lock.Empty()
+		require.NoError(t, err)
+		require.True(t, empty)
+	})
+
+	t.Run("src is a relative symlink", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "flatkv")
+		lock, err := LockRoot(root)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, lock.Unlock()) }()
+
+		pin := newPin(t)
+		link := filepath.Join(filepath.Dir(pin), "link")
+		require.NoError(t, os.Symlink(filepath.Base(pin), link))
+		require.ErrorContains(t, lock.InstallSnapshot(link, h), "not a regular file or a directory")
+		require.DirExists(t, pin)
 		empty, err := lock.Empty()
 		require.NoError(t, err)
 		require.True(t, empty)
