@@ -474,22 +474,18 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		if q.next != n {
 			return nil
 		}
-		// Verify parent hash chain to prevent a malicious producer from
-		// breaking the block chain, which would deadlock header reconstruction.
-		// A mismatch means the producer equivocated (produced a different
-		// chain than we already have). We log it to aid debugging stalled
-		// lanes but do not return an error — the caller should not tear
-		// down the peer connection over an equivocating producer.
-		// parentHash is the in-queue predecessor, or parentOfFirstLaneBlock when the queue is empty.
-		// localTip retained below first is for WAL retention, not this check.
-		want := q.parentHash()
-		if h.ParentHash() != want {
-			logger.Error("parent hash mismatch (producer equivocation)",
-				"lane", lane,
-				slog.Uint64("block", uint64(n)),
-				"got", h.ParentHash(),
-				"want", want)
-			return nil
+		// Parent is checked only while the predecessor is in the suffix.
+		// See blockQueue. A mismatch is logged and dropped; the peer stays up.
+		if q.first < q.next {
+			want := q.q[q.next-1].Msg().Block().Header().Hash()
+			if h.ParentHash() != want {
+				logger.Error("parent hash mismatch (producer equivocation)",
+					"lane", lane,
+					slog.Uint64("block", uint64(n)),
+					"got", h.ParentHash(),
+					"want", want)
+				return nil
+			}
 		}
 		q.pushBack(p)
 		ctrl.Updated()

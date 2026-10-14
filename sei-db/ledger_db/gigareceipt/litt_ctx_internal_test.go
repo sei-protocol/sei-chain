@@ -1,10 +1,12 @@
-package receipt
+package gigareceipt
 
 import (
 	"context"
 	"fmt"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
@@ -39,7 +41,6 @@ func setupLittCtxStore(t *testing.T) (*littReceiptStore, func()) {
 	_, key := newTestContext()
 
 	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	store, err := NewReceiptStore(cfg, key)
@@ -54,12 +55,19 @@ func newTestCtxAtHeight(height uint64) sdk.Context {
 	return ctx.WithBlockHeight(int64(height)) //nolint:gosec // small test heights
 }
 
-func littCtxTestReceipt(block uint64, txIndex uint32, addr common.Address, topic common.Hash, nLogs int) (common.Hash, *types.Receipt) {
+func littCtxTestReceipt(
+	block uint64,
+	txIndex uint32,
+	addr common.Address,
+	topic common.Hash,
+	nLogs int,
+) (common.Hash, *types.Receipt) {
 	var txHash common.Hash
 	copy(txHash[:], fmt.Sprintf("ctxtx-%d-%d", block, txIndex))
 	logs := make([]*types.Log, nLogs)
 	for i := range logs {
-		logs[i] = &types.Log{Address: addr.Hex(), Topics: []string{topic.Hex()}, Index: uint32(i)} //nolint:gosec // small test indices
+		logIndex := uint32(i) //nolint:gosec // small test indices
+		logs[i] = &types.Log{Address: addr.Hex(), Topics: []string{topic.Hex()}, Index: logIndex}
 	}
 	return txHash, &types.Receipt{
 		TxHashHex:        txHash.Hex(),
@@ -76,7 +84,8 @@ func TestBlockLogsReturnsCanceledContextBeforeScanning(t *testing.T) {
 	addr := common.HexToAddress("0xabc1")
 	topic := common.HexToHash("0xdef1")
 	txHash, rcpt := littCtxTestReceipt(1, 0, addr, topic, 1)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 	requireReceiptVersion(t, s, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,7 +104,8 @@ func TestCandidateBlockLogsReturnsCanceledContextBeforeTx(t *testing.T) {
 	addr := common.HexToAddress("0xabc2")
 	topic := common.HexToHash("0xdef2")
 	txHash, rcpt := littCtxTestReceipt(2, 0, addr, topic, 1)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(2), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(2),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 	requireReceiptVersion(t, s, 2)
 
 	candidates, err := s.blockTagCandidates(2, criteriaTagGroups(filters.FilterCriteria{}))
@@ -122,7 +132,8 @@ func TestCandidateBlockLogsCancelsMidLoopOverLogs(t *testing.T) {
 	addr := common.HexToAddress("0xabc3")
 	topic := common.HexToHash("0xdef3")
 	txHash, rcpt := littCtxTestReceipt(3, 0, addr, topic, 5)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(3), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(3),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 	requireReceiptVersion(t, s, 3)
 
 	candidates, err := s.blockTagCandidates(3, criteriaTagGroups(filters.FilterCriteria{}))
@@ -133,7 +144,8 @@ func TestCandidateBlockLogsCancelsMidLoopOverLogs(t *testing.T) {
 	// nil, then the check before log[1] trips.
 	ctx := newCountdownContext(2)
 
-	logs, err := s.candidateBlockLogs(ctx, candidates, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
+	logs, err := s.candidateBlockLogs(ctx, candidates,
+		filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, logs, "no logs should be returned once cancellation trips mid-scan")
 }
@@ -149,16 +161,18 @@ func TestCandidateBlockLogsTripsBudgetMidLoopOverLogs(t *testing.T) {
 	addr := common.HexToAddress("0xabc4")
 	topic := common.HexToHash("0xdef4")
 	txHash, rcpt := littCtxTestReceipt(4, 0, addr, topic, 2)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(4), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(4),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 	requireReceiptVersion(t, s, 4)
 
 	candidates, err := s.blockTagCandidates(4, criteriaTagGroups(filters.FilterCriteria{}))
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 
-	budget := NewLogBudget(1, 0)
-	logs, err := s.candidateBlockLogs(context.Background(), candidates, filters.FilterCriteria{Addresses: []common.Address{addr}}, budget)
-	require.ErrorIs(t, err, ErrTooManyLogs)
+	budget := receipt.NewLogBudget(1, 0)
+	logs, err := s.candidateBlockLogs(context.Background(), candidates,
+		filters.FilterCriteria{Addresses: []common.Address{addr}}, budget)
+	require.ErrorIs(t, err, receipt.ErrTooManyLogs)
 	require.Nil(t, logs)
 }
 
@@ -176,7 +190,8 @@ func TestFilterLogsByTagsPreCanceledContextReturnsEmptyFast(t *testing.T) {
 	topic := common.HexToHash("0xdef5")
 	for block := uint64(1); block <= 5; block++ {
 		txHash, rcpt := littCtxTestReceipt(block, 0, addr, topic, 1)
-		require.NoError(t, s.SetReceipts(newTestCtxAtHeight(block), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+		require.NoError(t, s.SetReceipts(newTestCtxAtHeight(block),
+			[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 		requireReceiptVersion(t, s, int64(block))
 	}
 
@@ -200,7 +215,8 @@ func TestFilterLogsThreadsSDKContext(t *testing.T) {
 	addr := common.HexToAddress("0xabc6")
 	topic := common.HexToHash("0xdef6")
 	txHash, rcpt := littCtxTestReceipt(6, 0, addr, topic, 1)
-	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(6), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(6),
+		[]receipt.ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
 	requireReceiptVersion(t, s, 6)
 
 	crit := filters.FilterCriteria{Addresses: []common.Address{addr}}

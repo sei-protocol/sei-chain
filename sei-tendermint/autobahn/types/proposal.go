@@ -44,7 +44,7 @@ func (m *LaneRange) Next() BlockNumber { return m.next }
 // Len returns the number of blocks in the range.
 func (m *LaneRange) Len() uint64 { return uint64(m.next - m.first) }
 
-// LastHash is the certified lane tip the next block must extend.
+// LastHash is the certified tip of this range.
 // For a non-empty range it is the hash of block Next()-1.
 // For an empty range it is the previous commit's LastHash for this lane,
 // or zero when the lane has never been extended.

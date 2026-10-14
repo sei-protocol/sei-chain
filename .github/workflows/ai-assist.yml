@@ -6,8 +6,8 @@ on:
     types: [ created ]
 jobs:
   assistant:
-    # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.26
-    uses: sei-protocol/uci/.github/workflows/ai-assistant.yml@0dc48cfb58b6c88f528b6def9784524d444ed0f6
+    # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.27
+    uses: sei-protocol/uci/.github/workflows/ai-assistant.yml@a3e422db031508ff0b2adf2e66e5a2860a8858e2
     permissions:
       contents: read
       pull-requests: write
@@ -15,6 +15,6 @@ jobs:
       id-token: write
     secrets: inherit
     with:
-      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.26
-      uci-ref: 0dc48cfb58b6c88f528b6def9784524d444ed0f6
+      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.27
+      uci-ref: a3e422db031508ff0b2adf2e66e5a2860a8858e2
       allowed-team: 'sei-protocol/sei-core'
