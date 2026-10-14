@@ -185,6 +185,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		if _, err := r.readySignal.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
 			return err
 		}
+		// Peer routines read the cache straight away, so it must hold the loaded state.
 		r.roundState.Store(r.state.GetRoundState())
 		r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
 		r.SpawnCritical("broadcastValidBlock", r.broadcastValidBlockRoutine)
