@@ -345,8 +345,20 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 		return hashvault.NewNoopHashVault(), nil
 	}
 	hvCfg := hashvault.DefaultHashVaultConfig()
-	hvCfg.DataDir = filepath.Join(cfg.PersistentStateDir, "hashvault")
+	hvCfg.DataDir = HashVaultDir(cfg.PersistentStateDir)
 	return hashvault.NewPebbleHashVault(ctx, hvCfg)
+}
+
+// HashVaultDir returns the directory of the app-hash equivocation guard in the
+// persistent state dir psd.
+func HashVaultDir(psd string) string {
+	return filepath.Join(psd, "hashvault")
+}
+
+// RestoreMarkerFile returns the path of the marker file that a state sync restore
+// writes in the persistent state dir psd.
+func RestoreMarkerFile(psd string) string {
+	return filepath.Join(psd, "state-sync-restored")
 }
 
 // commitAppHashToVault records the app hash for the given height in the equivocation guard and halts

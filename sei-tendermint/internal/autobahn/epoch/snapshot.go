@@ -17,6 +17,16 @@ const (
 	epochSnapshotPrefix = "registry"
 )
 
+// SnapshotFiles returns the paths of the epoch registry snapshot files that a
+// registry with stateDir keeps.
+func SnapshotFiles(stateDir string) []string {
+	return persist.FilePaths(snapshotDir(stateDir), epochSnapshotPrefix)
+}
+
+func snapshotDir(stateDir string) string {
+	return filepath.Join(stateDir, epochSnapshotDir)
+}
+
 func openEpochSnapshot(
 	stateDir utils.Option[string],
 ) (persist.Persister[*pb.PersistedEpochRegistry], utils.Option[*pb.PersistedEpochRegistry], error) {
@@ -24,7 +34,7 @@ func openEpochSnapshot(
 	if !ok {
 		return persist.NewPersister[*pb.PersistedEpochRegistry](utils.None[string](), epochSnapshotPrefix)
 	}
-	dir := filepath.Join(root, epochSnapshotDir)
+	dir := snapshotDir(root)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, utils.None[*pb.PersistedEpochRegistry](), fmt.Errorf("create epoch snapshot dir %s: %w", dir, err)
 	}
