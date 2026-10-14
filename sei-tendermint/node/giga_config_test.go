@@ -57,7 +57,6 @@ func TestBuildGigaStorageConfigAppliesSection(t *testing.T) {
 	require.Equal(t, time.Second, got.PruningConfig.PruneInterval)
 	require.Equal(t, time.Minute, got.CheckpointConfig.TimeInterval)
 	require.Equal(t, int64(9), got.CheckpointConfig.BlockInterval)
-	require.Equal(t, config.AutobahnEVMOnlyChainID, got.AppHashBuilderConfig.ChainID)
 
 	got, err = buildGigaStorageConfig(t.TempDir(), config.ModeValidator, storage)
 	require.NoError(t, err)

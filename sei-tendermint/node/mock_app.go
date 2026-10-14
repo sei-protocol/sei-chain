@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
@@ -11,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -51,10 +51,11 @@ func (t mockAppTransition) String() string {
 }
 
 type mockAppState struct {
-	nextNonce       map[common.Address]uint64
-	lastBlockHeight int64
-	validators      []abci.ValidatorUpdate
-	nextTransition  mockAppTransition
+	nextNonce        map[common.Address]uint64
+	lastBlockHeight  int64
+	lastBlockAppHash []byte
+	validators       []abci.ValidatorUpdate
+	nextTransition   mockAppTransition
 }
 
 // MockApp is an in-memory ABCI app for EVM transaction load tests.
@@ -63,15 +64,11 @@ type MockApp struct {
 
 	app   abci.Application
 	state utils.RWMutex[*mockAppState]
-
-	// Receives the hashes of every block finalized.
-	appHashBuilder builder.AppHashBuilder
 }
 
-func NewMockApp(app abci.Application, appHashBuilder builder.AppHashBuilder) *MockApp {
+func NewMockApp(app abci.Application) *MockApp {
 	return &MockApp{
-		app:            app,
-		appHashBuilder: appHashBuilder,
+		app: app,
 		state: utils.NewRWMutex(&mockAppState{
 			nextNonce:      map[common.Address]uint64{},
 			nextTransition: mockAppTransitionInitialize,
@@ -93,6 +90,7 @@ func (app *MockApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 		}
 		validators := app.app.GetValidators()
 		state.lastBlockHeight = req.InitialHeight - 1
+		state.lastBlockAppHash = nil
 		state.validators = slices.Clone(validators)
 		state.nextTransition = mockAppTransitionFinalize
 		res.AppHash = nil
@@ -107,7 +105,7 @@ func (app *MockApp) Info() *abci.ResponseInfo {
 	info := app.app.Info()
 	for state := range app.state.RLock() {
 		info.LastBlockHeight = state.lastBlockHeight
-		info.LastBlockAppHash = nil
+		info.LastBlockAppHash = slices.Clone(state.lastBlockAppHash)
 		return info
 	}
 	panic("unreachable")
@@ -156,10 +154,7 @@ func (app *MockApp) ProcessProposal(_ context.Context, req *abci.RequestProcessP
 	return nil, errMockAppProcessProposal
 }
 
-func (app *MockApp) FinalizeBlock(
-	ctx context.Context,
-	req *abci.RequestFinalizeBlock,
-) (*abci.ResponseFinalizeBlock, error) {
+func (app *MockApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	if req.Header == nil {
 		return nil, errMockAppMissingHeader
 	}
@@ -167,38 +162,10 @@ func (app *MockApp) FinalizeBlock(
 	if err != nil {
 		return nil, err
 	}
-	var resp *abci.ResponseFinalizeBlock
 	for state := range app.state.Lock() {
-		resp, err = state.finalizeBlock(req, txs)
+		return state.finalizeBlock(req, txs)
 	}
-	if err != nil {
-		return nil, err
-	}
-	if err := app.reportBlock(ctx, req); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-// reportBlock reports a finalized block to the app hash builder. Only the block hash is real: the mock app commits
-// no state and produces no receipts.
-func (app *MockApp) reportBlock(ctx context.Context, req *abci.RequestFinalizeBlock) error {
-	height := uint64(req.Header.Height) //nolint:gosec // FinalizeBlock requires sequential positive heights
-	var blockHash [32]byte
-	copy(blockHash[:], req.Hash)
-	if err := app.appHashBuilder.ReportBlockHash(ctx, height, blockHash); err != nil {
-		return fmt.Errorf("report the block hash of block %d: %w", height, err)
-	}
-	if err := app.appHashBuilder.ReportStateHash(ctx, height, [32]byte{}, nil); err != nil {
-		return fmt.Errorf("report the state hash of block %d: %w", height, err)
-	}
-	if err := app.appHashBuilder.ReportBUDHash(ctx, height, [32]byte{}); err != nil {
-		return fmt.Errorf("report the BUD hash of block %d: %w", height, err)
-	}
-	if err := app.appHashBuilder.ReportReceiptHash(ctx, height, [32]byte{}); err != nil {
-		return fmt.Errorf("report the receipt hash of block %d: %w", height, err)
-	}
-	return nil
+	panic("unreachable")
 }
 
 func (app *MockApp) Commit(context.Context) (*abci.ResponseCommit, error) {
@@ -260,9 +227,11 @@ func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []m
 		}
 	}
 	state.lastBlockHeight = req.Header.Height
+	state.lastBlockAppHash = mockAppHash(state.lastBlockAppHash, req.Hash)
 	state.nextTransition = mockAppTransitionCommit
 	return &abci.ResponseFinalizeBlock{
 		TxResults: txResults,
+		AppHash:   slices.Clone(state.lastBlockAppHash),
 	}, nil
 }
 
@@ -298,4 +267,11 @@ func parseMockAppTxs(txs [][]byte) ([]mockAppTx, error) {
 		return nil, err
 	}
 	return parsed, nil
+}
+
+func mockAppHash(prevAppHash []byte, blockHash []byte) []byte {
+	h := sha256.New()
+	_, _ = h.Write(prevAppHash)
+	_, _ = h.Write(blockHash)
+	return h.Sum(nil)
 }

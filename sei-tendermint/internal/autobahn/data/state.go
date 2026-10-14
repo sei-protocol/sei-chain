@@ -496,14 +496,6 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
-// NextAppProposal returns the index of the next block whose AppHash is to be pushed.
-func (s *State) NextAppProposal() types.GlobalBlockNumber {
-	for inner := range s.inner.Lock() {
-		return inner.nextAppProposal
-	}
-	panic("unreachable")
-}
-
 // NextAppQC returns the index of the next AppQC to be pushed.
 func (s *State) NextAppQC() types.GlobalBlockNumber {
 	for inner := range s.inner.Lock() {

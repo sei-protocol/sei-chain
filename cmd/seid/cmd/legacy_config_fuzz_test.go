@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -173,6 +174,68 @@ var tmKeys = []tmKey{
 		Key: "moniker", Path: "Moniker",
 		Values: [3]string{"from-file", "from-env", "from-flag"},
 	},
+}
+
+// FuzzHashVaultDisabledUnsafeResolution pins the root-scope kill switch for the
+// app-hash equivocation guard.
+//
+// Two things make it worth its own target. It is a bool whose safe value is the
+// default, so an absent key must resolve false — setting it true removes
+// equivocation protection with only a log banner. And it lives at TOML root scope,
+// before any [section] header: nested under a section it parses as a different key
+// and is silently ignored, which reads as "I disabled the guard" while the guard
+// stays on, and would read the other way round if the scope were ever mishandled.
+// The document is built from the fuzzer's choices rather than taken as free text,
+// so the expected outcome follows from construction instead of being a second
+// input the fuzzer can mutate out of agreement with the first.
+func FuzzHashVaultDisabledUnsafeResolution(f *testing.F) {
+	f.Add(false, false, false)
+	f.Add(true, true, false)  // root scope, true: the guard is off
+	f.Add(true, false, false) // root scope, false
+	f.Add(true, true, true)   // nested under a section: silently ignored
+	f.Add(true, false, true)
+
+	f.Fuzz(func(t *testing.T, present, value, underSection bool) {
+		configtest.Isolate(t)
+		home := configtest.NewHome(t)
+
+		var doc strings.Builder
+		if present {
+			if underSection {
+				doc.WriteString("[p2p]\n")
+			}
+			fmt.Fprintf(&doc, "hash-vault-disabled-unsafe = %t\n", value)
+		}
+		if doc.Len() > 0 {
+			home.WriteConfigTOML(t, []byte(doc.String()))
+		}
+
+		// Root scope is the only placement that resolves. Nested under a section the
+		// key becomes p2p.hash-vault-disabled-unsafe, which nothing reads.
+		wantDisabled := present && value && !underSection
+
+		got := applyLegacy(t, home, nil)
+		if got.err != nil {
+			t.Fatalf("Apply must succeed on a well-formed config.toml, got %v", got.err)
+		}
+		if got.ctx.Config.HashVaultDisabledUnsafe != wantDisabled {
+			t.Fatalf("hash-vault-disabled-unsafe resolved to %v, want %v, from:\n%s",
+				got.ctx.Config.HashVaultDisabledUnsafe, wantDisabled, doc.String())
+		}
+	})
+}
+
+// TestHashVaultDisabledUnsafeDefaultsToEnabledGuard states the default on its own,
+// so the guard's safe value is pinned even if every seed above were removed.
+func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
+	configtest.Isolate(t)
+	got := applyLegacy(t, configtest.NewHome(t), nil)
+	if got.err != nil {
+		t.Fatalf("Apply: %v", got.err)
+	}
+	if got.ctx.Config.HashVaultDisabledUnsafe {
+		t.Fatal("an empty home must leave the app-hash equivocation guard enabled")
+	}
 }
 
 // FuzzApplyPrecedenceTendermint pins the resolution order for Tendermint config:

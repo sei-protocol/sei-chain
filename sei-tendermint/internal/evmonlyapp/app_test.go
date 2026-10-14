@@ -81,55 +81,13 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
 	}
 }
 
-// finalizeAndCommitEVMOnlyTestBlock finalizes and commits req, and returns the
-// block's app hash.
 func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
 	t.Helper()
-	_, err := app.FinalizeBlock(t.Context(), req)
+	response, err := app.FinalizeBlock(t.Context(), req)
 	require.NoError(t, err)
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
-	return evmOnlyTestAppHash(t, app, req.Header.Height)
-}
-
-// evmOnlyTestAppHash returns the app hash of the finalized block height, once
-// it is published. It lands the block's state commit first, since the app hash
-// is built from the committed state.
-func evmOnlyTestAppHash(t *testing.T, app abci.Application, height int64) []byte {
-	t.Helper()
-	evmApp, ok := app.(*evmOnlyApplication)
-	require.True(t, ok)
-	require.NoError(t, evmApp.AwaitCommits())
-	awaitEVMOnlyTestAppHashes(t, evmApp, height)
-	//nolint:gosec // G115: test heights are positive.
-	it, err := evmApp.appHashBuilder.Iterator(t.Context(), uint64(height))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-	found, err := it.Next()
-	require.NoError(t, err)
-	require.True(t, found)
-	appHash := it.Entry().AppHash()
-	return appHash[:]
-}
-
-// awaitEVMOnlyTestAppHashes waits until app has published the app hashes of
-// every block through height.
-func awaitEVMOnlyTestAppHashes(t *testing.T, app *evmOnlyApplication, height int64) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		newest := app.newestAppHash.Load()
-		//nolint:gosec // G115: test heights are positive.
-		return newest != nil && newest.BlockHeight() >= uint64(height)
-	}, 10*time.Second, time.Millisecond, "app hash of block %d not published", height)
-}
-
-// evmOnlyTestStorageConfig returns the Autobahn storage layout under home.
-func evmOnlyTestStorageConfig(t *testing.T, home string) *seidbconfig.GigaStorageConfig {
-	t.Helper()
-	storageConfig, err := seidbconfig.AutobahnStorageConfig(home)
-	require.NoError(t, err)
-	storageConfig.AppHashBuilderConfig.ChainID = evmOnlyTestChainID
-	return storageConfig
+	return response.AppHash
 }
 
 // evmOnlyTestInitCode deploys a contract whose runtime code is the single
@@ -181,7 +139,9 @@ func newEVMOnlyTestAppWithExecution(
 	execution gigaconfig.ExecutionConfig,
 ) abci.Application {
 	t.Helper()
-	return newEVMOnlyTestAppWithStorage(t, validators, execution, evmOnlyTestStorageConfig(t, t.TempDir()))
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	return newEVMOnlyTestAppWithStorage(t, validators, execution, storageConfig)
 }
 
 func newEVMOnlyTestAppWithStorage(
@@ -220,7 +180,9 @@ func openEVMOnlyTestStorage(t *testing.T, storageConfig *seidbconfig.GigaStorage
 // test can reopen the same store the way a restarted process does.
 func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageManager {
 	t.Helper()
-	return openEVMOnlyTestStorage(t, evmOnlyTestStorageConfig(t, home))
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(home)
+	require.NoError(t, err)
+	return openEVMOnlyTestStorage(t, storageConfig)
 }
 
 // closeEVMOnlyTestApp closes storage the way the node does: after the
@@ -232,14 +194,16 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 // lowers its recovery target to the app hashes it holds instead.
 func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
 	t.Helper()
-	evmApp, ok := app.(*evmOnlyApplication)
+	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
-	require.NoError(t, evmApp.AwaitCommits())
+	require.NoError(t, settler.AwaitCommits())
 	height, err := storage.SC().GetLatestVersion()
 	require.NoError(t, err)
-	if uint64(height) >= storage.GigaGenesisHeight() { //nolint:gosec // G115: state heights are non-negative.
-		awaitEVMOnlyTestAppHashes(t, evmApp, height)
-	}
+	require.Eventually(t, func() bool {
+		head, err := storage.AppHashBuilder().GetLatestBlock()
+		require.NoError(t, err)
+		return head >= uint64(height) //nolint:gosec // G115: state heights are non-negative.
+	}, 10*time.Second, time.Millisecond, "app hash of block %d not stored", height)
 	require.NoError(t, storage.Close())
 }
 
@@ -290,7 +254,7 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Empty(t, response.AppHash, "the app hash is published after the block commits")
+	require.Len(t, response.AppHash, common.HashLength)
 	require.Len(t, response.TxResults, 1)
 	require.Positive(t, response.TxResults[0].GasUsed)
 	_, err = app.Commit(t.Context())
@@ -303,7 +267,7 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	)
 	gotBalance = app.EvmBalance(sender, nil)
 	require.Equal(t, wantBalance, gotBalance.ToBig())
-	require.Equal(t, evmOnlyTestAppHash(t, app, 1), app.Info().LastBlockAppHash)
+	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
 	receiptDB := app.(*evmOnlyApplication).storage.ReceiptDB()
 	waitForReceiptVersion(t, receiptDB, 1)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
@@ -314,11 +278,12 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 }
 
 func TestEVMOnlyApplicationFinalizesBlocksWithoutReceiptStore(t *testing.T) {
-	storageConfig := evmOnlyTestStorageConfig(t, t.TempDir())
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
 	storageConfig.ReceiptDBConfig.Enable = false
 	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig)
 	require.Nil(t, app.(*evmOnlyApplication).storage.ReceiptDB())
-	_, err := app.InitChain(&abci.RequestInitChain{
+	_, err = app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
 		ConsensusParams: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{MaxGas: 30_000_000},
@@ -424,12 +389,12 @@ func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	first := newInitializedEVMOnlyTestApp(t)
 	second := newInitializedEVMOnlyTestApp(t)
 
-	_, err := first.FinalizeBlock(t.Context(), request)
+	firstResponse, err := first.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
-	_, err = second.FinalizeBlock(t.Context(), request)
+	secondResponse, err := second.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
 
-	require.Equal(t, evmOnlyTestAppHash(t, first, 1), evmOnlyTestAppHash(t, second, 1))
+	require.Equal(t, firstResponse.AppHash, secondResponse.AppHash)
 }
 
 func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
@@ -460,7 +425,7 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	uncheckedResponse, err := unchecked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
 
-	require.Equal(t, evmOnlyTestAppHash(t, unchecked, 1), evmOnlyTestAppHash(t, checked, 1))
+	require.Equal(t, uncheckedResponse.AppHash, checkedResponse.AppHash)
 	require.Equal(t, uncheckedResponse.TxResults[0].GasUsed, checkedResponse.TxResults[0].GasUsed)
 	_, err = checked.Commit(t.Context())
 	require.NoError(t, err)
@@ -597,16 +562,15 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, block(1))
-	_, err = app.FinalizeBlock(t.Context(), block(2))
+	finalized, err := app.FinalizeBlock(t.Context(), block(2))
 	require.NoError(t, err)
-	finalizedAppHash := evmOnlyTestAppHash(t, app, 2)
 
 	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 
 	info := app.Info()
 	require.Equal(t, int64(2), info.LastBlockHeight)
-	require.Equal(t, finalizedAppHash, info.LastBlockAppHash)
+	require.Equal(t, finalized.AppHash, info.LastBlockAppHash)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, block(3))
 	require.Equal(t, int64(3), app.LastBlockHeight())
 }
@@ -614,9 +578,10 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 // InitChain with an initial height above one seeds the store before any block
 // exists. Crashing there must still allow InitChain to run again.
 func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
-	home := t.TempDir()
-	storageConfig := evmOnlyTestStorageConfig(t, home)
-	storageConfig.AppHashBuilderConfig.GigaGenesisHeight = 5
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	// The chain starts at block 5, so that is the first block with an app hash.
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = 5
 	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
 	require.NoError(t, err)
@@ -639,17 +604,6 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	require.Equal(t, int64(4), app.Info().LastBlockHeight)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(5))
 	require.Equal(t, int64(5), app.LastBlockHeight())
-}
-
-// The app hash builder starts at the block before the giga genesis, so a chain
-// whose first block is above it would leave the builder waiting for blocks that
-// never execute.
-func TestEVMOnlyApplicationRefusesInitialHeightAboveGigaGenesis(t *testing.T) {
-	app := newEVMOnlyTestApp(t, nil)
-	init := evmOnlyTestInitChain()
-	init.InitialHeight = 2
-	_, err := app.InitChain(init)
-	require.Error(t, err)
 }
 
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
@@ -811,7 +765,7 @@ func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
 
 	proposer := newInitializedEVMOnlyTestApp(t)
 	require.True(t, proposer.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).IsOK())
-	_, err := proposer.FinalizeBlock(t.Context(), block)
+	proposed, err := proposer.FinalizeBlock(t.Context(), block)
 	require.NoError(t, err)
 
 	raised := gigaconfig.DefaultConfig.Execution
@@ -820,9 +774,9 @@ func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
 	initChain(strict)
 	require.Equal(t, big.NewInt(2*evmOnlyMinGasPrice), strict.(evmMinGasPricer).EvmMinGasPrice())
 	require.False(t, strict.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).IsOK())
-	_, err = strict.FinalizeBlock(t.Context(), block)
+	followed, err := strict.FinalizeBlock(t.Context(), block)
 	require.NoError(t, err)
-	require.Equal(t, evmOnlyTestAppHash(t, proposer, 1), evmOnlyTestAppHash(t, strict, 1))
+	require.Equal(t, proposed.AppHash, followed.AppHash)
 
 	lowered := gigaconfig.DefaultConfig.Execution
 	lowered.MinGasPrice = 1
@@ -969,7 +923,9 @@ func unwritableEVMChangeSetEncoder(evmonly.StateChangeSet) ([]*proto.NamedChange
 // FinalizeBlock, from read-only calls, and from settling the store, while the
 // store itself stays at the last version that landed.
 func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
-	storage := openEVMOnlyTestStorage(t, evmOnlyTestStorageConfig(t, t.TempDir()))
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder, gigaconfig.DefaultConfig.Execution)
 	require.NoError(t, err)
@@ -986,10 +942,7 @@ func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
 	// Block 1 is unwritable, yet it finalizes and commits: the write has not
 	// been waited for.
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
-	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1, raw))
-	require.NoError(t, err)
-	_, err = app.Commit(t.Context())
-	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
 	require.Equal(t, int64(1), app.LastBlockHeight())
 
 	// The failed write is reported by the next block, and stays reported.

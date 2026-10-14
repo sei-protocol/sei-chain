@@ -241,7 +241,7 @@ func assemble(
 	// run on it, and a timer tracks a single goroutine's current phase.
 	lifecycle := metrics.NewExecutionLoopTimer()
 
-	state, err := newExecutionState(config, storage.StateDB(), storage.AppHashBuilder(), metrics, lifecycle)
+	state, err := newExecutionState(config, storage.StateDB(), metrics, lifecycle)
 	if err != nil {
 		return nil, err
 	}

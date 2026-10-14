@@ -36,7 +36,7 @@ type pruneRequest struct {
 }
 
 // Asks the builder goroutine for its head: the newest block whose app hash is stored, or the block before the giga
-// genesis height if none is.
+// activation height if none is.
 type latestBlockRequest struct {
 	reply chan callResult[uint64]
 }

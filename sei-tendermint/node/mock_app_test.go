@@ -2,6 +2,7 @@ package node
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"math/big"
 	"testing"
 
@@ -10,8 +11,6 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
@@ -28,7 +27,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 
 	tx1, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx2, ethTx2, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
-	app := newTestMockApp(t, abci.BaseApplication{}, 3)
+	app := NewMockApp(abci.BaseApplication{})
 	_, err = app.InitChain(&abci.RequestInitChain{InitialHeight: 3})
 	require.NoError(t, err)
 
@@ -43,7 +42,7 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	require.Equal(t, int64(31_000), res.TxResults[1].GasWanted)
 	require.Equal(t, int64(31_000), res.TxResults[1].GasUsed)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
-	require.Empty(t, res.AppHash)
+	require.NotEmpty(t, res.AppHash)
 
 	checkRes := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: tx2})
 	require.True(t, checkRes.IsEVM)
@@ -57,7 +56,7 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	tx0, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx2, _, _ := buildFastCheckTxBytesForKey(t, key, 2, 31_000)
 	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 41_000)
-	app := newTestMockApp(t, abci.BaseApplication{}, 1)
+	app := NewMockApp(abci.BaseApplication{})
 	_, err = app.InitChain(&abci.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
 
@@ -93,7 +92,7 @@ func TestMockAppFinalizeBlockRecordsParseFailurePerTx(t *testing.T) {
 
 	tx0, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
 	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
-	app := newTestMockApp(t, abci.BaseApplication{}, 1)
+	app := NewMockApp(abci.BaseApplication{})
 	_, err = app.InitChain(&abci.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
 
@@ -113,7 +112,7 @@ func TestMockAppFinalizeBlockRecordsParseFailurePerTx(t *testing.T) {
 }
 
 func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {
-	app := newTestMockApp(t, abci.BaseApplication{}, 4)
+	app := NewMockApp(abci.BaseApplication{})
 	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 4})
 	require.NoError(t, err)
 
@@ -134,7 +133,7 @@ func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {
 }
 
 func TestMockAppChecksTransitions(t *testing.T) {
-	app := newTestMockApp(t, abci.BaseApplication{}, 1)
+	app := NewMockApp(abci.BaseApplication{})
 
 	_, err := app.Commit(t.Context())
 	require.Error(t, err)
@@ -168,7 +167,7 @@ func TestMockAppChecksTransitions(t *testing.T) {
 }
 
 func TestMockAppCommitSetsRetainHeight(t *testing.T) {
-	app := newTestMockApp(t, abci.BaseApplication{}, 10_005)
+	app := NewMockApp(abci.BaseApplication{})
 	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 10_005})
 	require.NoError(t, err)
 
@@ -192,7 +191,7 @@ func TestMockAppCommitSetsRetainHeight(t *testing.T) {
 
 func TestMockAppForwardsInitChainAndIgnoresInitLastHeader(t *testing.T) {
 	inner := &mockAppForwardTarget{}
-	app := newTestMockApp(t, inner, 7)
+	app := NewMockApp(inner)
 	header := &tmproto.Header{Height: 11}
 
 	_, err := app.InitChain(&abci.RequestInitChain{})
@@ -209,39 +208,40 @@ func TestMockAppForwardsInitChainAndIgnoresInitLastHeader(t *testing.T) {
 	require.Equal(t, int64(6), app.LastBlockHeight())
 }
 
-func TestMockAppReportsBlocksToTheAppHashBuilder(t *testing.T) {
-	app, appHashBuilder := newTestMockAppWithBuilder(t, abci.BaseApplication{}, 1)
+func TestMockAppAppHashRollsBlockHashes(t *testing.T) {
+	app := NewMockApp(abci.BaseApplication{})
 	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 1})
 	require.NoError(t, err)
-	published := make(chan *apphash.AppHashData, 2)
-	listener := func(appHash *apphash.AppHashData) { published <- appHash }
-	_, err = appHashBuilder.RegisterListener(t.Context(), listener)
+	require.Empty(t, app.Info().LastBlockAppHash)
+
+	blockHash1 := []byte("block-1")
+	res, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{Height: 1},
+		Hash:   blockHash1,
+	})
+	require.NoError(t, err)
+	wantHash1 := sha256.Sum256(blockHash1)
+	require.Equal(t, wantHash1[:], res.AppHash)
+	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 
-	blockHashes := [][32]byte{{1}, {2}}
-	for i, blockHash := range blockHashes {
-		res, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
-			Header: &tmproto.Header{Height: int64(i) + 1},
-			Hash:   blockHash[:],
-		})
-		require.NoError(t, err)
-		require.Empty(t, res.AppHash)
-		_, err = app.Commit(t.Context())
-		require.NoError(t, err)
-	}
-	for i, blockHash := range blockHashes {
-		appHash := <-published
-		require.Equal(t, uint64(i)+1, appHash.BlockHeight()) //nolint:gosec // small test heights
-		require.Equal(t, blockHash, appHash.BlockHash())
-	}
-	require.Empty(t, app.Info().LastBlockAppHash)
+	blockHash2 := []byte("block-2")
+	res, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{Height: 2},
+		Hash:   blockHash2,
+	})
+	require.NoError(t, err)
+	h := sha256.New()
+	_, _ = h.Write(wantHash1[:])
+	_, _ = h.Write(blockHash2)
+	require.Equal(t, h.Sum(nil), res.AppHash)
 
 	app.InitLastHeader(&tmproto.Header{Height: 5, AppHash: []byte("restored")})
 	require.Equal(t, int64(2), app.LastBlockHeight())
 }
 
 func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
-	app := newTestMockApp(t, mockAppInfoTarget{}, 9)
+	app := NewMockApp(mockAppInfoTarget{})
 	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 9})
 	require.NoError(t, err)
 
@@ -256,7 +256,7 @@ func TestMockAppInfoPreservesWrappedAppMetadata(t *testing.T) {
 
 func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
 	inner := &mockAppValidatorsTarget{validators: []abci.ValidatorUpdate{{Power: 7}}}
-	app := newTestMockApp(t, inner, 1)
+	app := NewMockApp(inner)
 
 	require.Empty(t, app.GetValidators())
 	require.Zero(t, inner.calls)
@@ -274,7 +274,7 @@ func TestMockAppGetValidatorsCachesWrappedAppValidators(t *testing.T) {
 }
 
 func TestMockAppEvmBalanceReturns100ETH(t *testing.T) {
-	app := newTestMockApp(t, abci.BaseApplication{}, 1)
+	app := NewMockApp(abci.BaseApplication{})
 	want := new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000))
 
 	got := app.EvmBalance(common.Address{}, nil)
@@ -350,29 +350,4 @@ func buildFastCheckTxBytesForKey(t *testing.T, key *ecdsa.PrivateKey, nonce uint
 	require.NoError(t, err)
 	addr := ethcrypto.PubkeyToAddress(key.PublicKey)
 	return txBytes, signedTx, addr
-}
-
-// newTestMockApp returns a mock app over inner whose app hash builder starts at gigaGenesisHeight.
-func newTestMockApp(t *testing.T, inner abci.Application, gigaGenesisHeight uint64) *MockApp {
-	t.Helper()
-	app, _ := newTestMockAppWithBuilder(t, inner, gigaGenesisHeight)
-	return app
-}
-
-// newTestMockAppWithBuilder returns a mock app over inner and the app hash builder it reports to, which starts at
-// gigaGenesisHeight and is closed when the test ends.
-func newTestMockAppWithBuilder(
-	t *testing.T,
-	inner abci.Application,
-	gigaGenesisHeight uint64,
-) (*MockApp, builder.AppHashBuilder) {
-	t.Helper()
-	config := builder.DefaultAppHashBuilderConfig()
-	config.GigaGenesisHeight = gigaGenesisHeight
-	config.HashVaultConfig.Path = t.TempDir()
-	appHashBuilder, err := builder.NewStandardAppHashBuilder(config)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, appHashBuilder.Close()) })
-	require.NoError(t, appHashBuilder.SetupComplete(t.Context(), 0))
-	return NewMockApp(inner, appHashBuilder), appHashBuilder
 }

@@ -121,11 +121,6 @@ func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
 // AppHashBuilder returns the app hash builder.
 func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.appHashBuilder }
 
-// GigaGenesisHeight returns the first block with an app hash.
-func (m *GigaStorageManager) GigaGenesisHeight() uint64 {
-	return m.cfg.AppHashBuilderConfig.GigaGenesisHeight
-}
-
 // SC returns the state commit store, or nil before the StateDB is open.
 func (m *GigaStorageManager) SC() *flatkv.CommitStore {
 	if m.stateDB == nil {

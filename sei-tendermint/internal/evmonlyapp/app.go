@@ -1,10 +1,13 @@
 package evmonlyapp
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
 	"math/big"
 	"runtime"
 	"slices"
@@ -18,8 +21,6 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/giga/apphash"
-	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -98,7 +99,6 @@ type evmOnlyApplication struct {
 	execution        gigaconfig.ExecutionConfig
 	minGasPrice      *big.Int
 	storage          *bootstrap.GigaStorageManager
-	appHashBuilder   builder.AppHashBuilder
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
 	executor         utils.Mutex[*utils.Option[*evmonly.Executor]]
@@ -120,9 +120,6 @@ type evmOnlyApplication struct {
 	// field so each application instance has its own last-phase clock.
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
 	finalizePhases *seidbmetrics.PhaseTimer
-	// newestAppHash is the newest app hash appHashBuilder has published, or
-	// nil if it has published none.
-	newestAppHash atomic.Pointer[apphash.AppHashData]
 }
 
 const (
@@ -154,9 +151,9 @@ type evmOnlyCursorState struct {
 var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, blocks and app hashes are owned by storage;
-// execution sizes the executor and prices admission. A storage that already holds committed blocks resumes from
-// its durable cursor, so Info reports the stored height and InitChain is refused.
+// load tests. State, receipts, and blocks are owned by storage; execution sizes the executor
+// and prices admission. A storage that already holds committed blocks resumes from its
+// durable cursor, so Info reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
@@ -164,7 +161,6 @@ func NewEVMOnlyApplication(
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
-	appHashBuilder := storage.AppHashBuilder()
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
@@ -173,7 +169,6 @@ func NewEVMOnlyApplication(
 		execution:        execution,
 		minGasPrice:      evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:          storage,
-		appHashBuilder:   appHashBuilder,
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
@@ -182,11 +177,6 @@ func NewEVMOnlyApplication(
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
-	newestAppHash, err := appHashBuilder.RegisterListener(context.Background(), a.newestAppHash.Store)
-	if err != nil {
-		return nil, fmt.Errorf("follow EVM-only app hashes: %w", err)
-	}
-	a.newestAppHash.Store(newestAppHash)
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
 		return nil, err
@@ -227,8 +217,9 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	)
 }
 
-// encodeCursorChangeSet stages the block's cursor as pending, returning it as
-// the changeset committed with the block's state.
+// encodeCursorChangeSet chains the block into the app hash and stages the
+// resulting cursor as pending, returning it as the changeset committed with
+// the block's state.
 func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]*proto.NamedChangeSet, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
@@ -238,8 +229,13 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		if err != nil {
+			return nil, err
+		}
 		next := evmOnlyCursor{
 			height:    height,
+			appHash:   appHash,
 			blockHash: block.BlockHash,
 			gasLimit:  block.GasLimit,
 		}
@@ -253,12 +249,6 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	if req.InitialHeight <= 0 {
 		return nil, fmt.Errorf("EVM-only initial height must be positive: %d", req.InitialHeight)
-	}
-	//nolint:gosec // G115: InitialHeight is positive, checked above.
-	if gigaGenesisHeight := a.storage.GigaGenesisHeight(); uint64(req.InitialHeight) > gigaGenesisHeight {
-		// Every block from the giga genesis on needs an app hash, so the chain cannot start above it.
-		return nil, fmt.Errorf("EVM-only initial height %d is above the giga genesis height %d",
-			req.InitialHeight, gigaGenesisHeight)
 	}
 	gasLimit, err := evmOnlyGasLimit(req)
 	if err != nil {
@@ -313,20 +303,12 @@ func evmOnlyGasLimit(req *abci.RequestInitChain) (uint64, error) {
 	return gasLimit, nil
 }
 
-// Info reports the last committed block, and the newest published app hash.
-// App hashes are published after their blocks commit, so that app hash can be
-// of an earlier block, and is nil before the giga genesis.
 func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
-	var lastBlockAppHash []byte
-	if newest := a.newestAppHash.Load(); newest != nil {
-		appHash := newest.AppHash()
-		lastBlockAppHash = appHash[:]
-	}
 	for state := range a.cursor.Lock() {
 		return &abci.ResponseInfo{
 			Data:             "evmonly",
 			LastBlockHeight:  state.committed.height,
-			LastBlockAppHash: lastBlockAppHash,
+			LastBlockAppHash: append([]byte(nil), state.committed.appHash[:]...),
 		}
 	}
 	panic("unreachable")
@@ -677,32 +659,17 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			return nil, errors.Join(err, a.abandonPending(executor, height))
 		}
 		defer result.Release()
-		if _, err := a.pendingCursor(height); err != nil {
-			return nil, err
-		}
-		if err := a.reportExecutionHashes(ctx, number, blockHash); err != nil {
+		pending, err := a.pendingCursor(height)
+		if err != nil {
 			return nil, err
 		}
 		a.finalizePhases.SetPhase(finalizePhaseTxResults)
-		// The app hash is published later, through RegisterAppHashListener.
 		return &abci.ResponseFinalizeBlock{
+			AppHash:   append([]byte(nil), pending.appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
 		}, nil
 	}
 	panic("unreachable")
-}
-
-// reportExecutionHashes reports the hashes of an executed block that come from
-// execution rather than from storage: its block hash, and its receipt hash.
-func (a *evmOnlyApplication) reportExecutionHashes(ctx context.Context, height uint64, blockHash common.Hash) error {
-	if err := a.appHashBuilder.ReportBlockHash(ctx, height, blockHash); err != nil {
-		return fmt.Errorf("report EVM-only block hash: %w", err)
-	}
-	// TODO: report the hash of the block's receipts once it is defined.
-	if err := a.appHashBuilder.ReportReceiptHash(ctx, height, [32]byte{}); err != nil {
-		return fmt.Errorf("report EVM-only receipt hash: %w", err)
-	}
-	return nil
 }
 
 // beginBlock checks height is the next block to finalize and returns the
@@ -809,6 +776,76 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 		return ""
 	}
 	return tx.Err.Error()
+}
+
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+	h := sha256.New()
+	w := newEVMOnlyHashWriter(h)
+	w.write(previous[:])
+	w.writeUint64(height)
+	w.write(blockHash[:])
+	w.writeUint64(result.GasUsed)
+	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	for _, changeset := range changesets {
+		w.writeSizedString(changeset.Name)
+		for _, pair := range changeset.Changeset.Pairs {
+			w.writeSized(pair.Key)
+			if pair.Delete {
+				w.writeByte(1)
+			} else {
+				w.writeByte(0)
+			}
+			w.writeSized(pair.Value)
+		}
+	}
+	if err := w.flush(); err != nil {
+		return common.Hash{}, err
+	}
+	return common.BytesToHash(h.Sum(nil)), nil
+}
+
+// evmOnlyHashBufferSize is the buffer between the stream and the hash.
+const evmOnlyHashBufferSize = 32 << 10
+
+// evmOnlyHashWriter buffers the app-hash byte stream into a hash; flush before reading the digest.
+type evmOnlyHashWriter struct {
+	buf     *bufio.Writer
+	scratch [8]byte
+}
+
+func newEVMOnlyHashWriter(h hash.Hash) *evmOnlyHashWriter {
+	return &evmOnlyHashWriter{buf: bufio.NewWriterSize(h, evmOnlyHashBufferSize)}
+}
+
+func (w *evmOnlyHashWriter) write(value []byte) {
+	_, _ = w.buf.Write(value)
+}
+
+func (w *evmOnlyHashWriter) writeByte(value byte) {
+	_ = w.buf.WriteByte(value)
+}
+
+func (w *evmOnlyHashWriter) writeUint64(value uint64) {
+	binary.BigEndian.PutUint64(w.scratch[:], value)
+	_, _ = w.buf.Write(w.scratch[:])
+}
+
+// writeSized writes value behind its length.
+func (w *evmOnlyHashWriter) writeSized(value []byte) {
+	w.writeUint64(uint64(len(value)))
+	_, _ = w.buf.Write(value)
+}
+
+func (w *evmOnlyHashWriter) writeSizedString(value string) {
+	w.writeUint64(uint64(len(value)))
+	_, _ = w.buf.WriteString(value)
+}
+
+func (w *evmOnlyHashWriter) flush() error {
+	return w.buf.Flush()
 }
 
 type evmOnlyFundedState struct{}

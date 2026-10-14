@@ -2,8 +2,8 @@ package bootstrap
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,24 +18,6 @@ const testAppHashChainID uint64 = 713715
 
 // How long a test waits for the app hash builder to publish an app hash.
 const appHashPublishTimeout = 10 * time.Second
-
-// testBlockHash returns the block hash a test reports for blockHeight.
-func testBlockHash(blockHeight uint64) [32]byte {
-	var preimage [8]byte
-	binary.BigEndian.PutUint64(preimage[:], blockHeight)
-	return sha256.Sum256(preimage[:])
-}
-
-// reportExecutionHashes reports the block hash and a zero receipt hash of blocks first through last, the inputs
-// execution reports rather than the state DB.
-func reportExecutionHashes(t *testing.T, manager *GigaStorageManager, first uint64, last uint64) {
-	t.Helper()
-	ctx := context.Background()
-	for height := first; height <= last; height++ {
-		require.NoError(t, manager.AppHashBuilder().ReportBlockHash(ctx, height, testBlockHash(height)))
-		require.NoError(t, manager.AppHashBuilder().ReportReceiptHash(ctx, height, [32]byte{}))
-	}
-}
 
 // awaitAppHashes waits until the manager's builder has stored the app hash of block height.
 func awaitAppHashes(t *testing.T, manager *GigaStorageManager, height uint64) {
@@ -102,7 +84,7 @@ func restartAt(t *testing.T, manager *GigaStorageManager, target int64) {
 	require.NoError(t, manager.openAppHashBuilder(t.Context()))
 }
 
-// The state DB reports each committed block's state hash and BUD, so execution only reports the rest.
+// Storage reports every input of each committed block, with a zero block hash and receipt hash.
 func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.AppHashBuilderConfig.ChainID = testAppHashChainID
@@ -117,7 +99,7 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 		height := uint64(i) + 1 //nolint:gosec // small test heights
 		require.Equal(t, height, appHash.BlockHeight())
 		require.Equal(t, testAppHashChainID, appHash.ChainID())
-		require.Equal(t, testBlockHash(height), appHash.BlockHash())
+		require.Equal(t, [32]byte{}, appHash.BlockHash())
 		require.NotEqual(t, [32]byte{}, appHash.StateHash())
 		require.NotEqual(t, [32]byte{}, appHash.BUD())
 	}
@@ -133,11 +115,20 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 	_, published := listenForAppHashes(t, manager)
 	commitBlocks(t, manager, 3)
 	stored := receiveAppHashes(t, published, 3)
-	// Blocks whose execution hashes never reach the builder, as after a crash before they are reported.
+	// The vault as it stands at block 3 is put back after blocks 4 and 5 commit, as a crash before their app
+	// hashes are stored leaves it.
+	stopForRestart(t, manager)
+	vaultDir := manager.cfg.AppHashBuilderConfig.HashVaultConfig.Path
+	savedVaultDir := filepath.Join(t.TempDir(), "vault")
+	require.NoError(t, os.CopyFS(savedVaultDir, os.DirFS(vaultDir)))
+	restartAt(t, manager, 3)
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
 	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
-
+	awaitAppHashes(t, manager, 5)
 	stopForRestart(t, manager)
+	require.NoError(t, os.RemoveAll(vaultDir))
+	require.NoError(t, os.CopyFS(vaultDir, os.DirFS(savedVaultDir)))
+
 	appHashHead, err := builder.GetLatestBlock(*manager.cfg.AppHashBuilderConfig)
 	require.NoError(t, err)
 	target, err := recoveryTarget(5, 5, 0, appHashHead)
@@ -153,7 +144,6 @@ func TestRestartWithStateAheadOfTheAppHashVault(t *testing.T) {
 
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
 	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
-	reportExecutionHashes(t, manager, 4, 5)
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, uint64(4), rebuilt[0].BlockHeight())
 	require.Equal(t, stored[2].AppHash(), rebuilt[0].PreviousAppHash())
@@ -177,7 +167,6 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
 	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
-	reportExecutionHashes(t, manager, 4, 5)
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())
 	require.Equal(t, stored[4].AppHash(), rebuilt[1].AppHash())

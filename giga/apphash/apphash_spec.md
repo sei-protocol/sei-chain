@@ -40,7 +40,7 @@ separators, or length prefixes, for a fixed total of 177 bytes.
 |     49 |   32 | `stateHash`       | raw bytes | Defined                                                     |
 |     81 |   32 | `budHash`         | raw bytes | **PLACEHOLDER**                                             |
 |    113 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                                             |
-|    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga genesis height    |
+|    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga activation height |
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects
 any input that is not exactly the length that version defines, which is 177 bytes for version 1.
@@ -219,10 +219,10 @@ A commitment to the transaction receipts produced by executing the block.
 
 The app hash of block `blockHeight - 1`. This chains every app hash to the full history before it.
 
-The giga genesis height is the first block whose app hash is computed under this scheme. For that block,
+The giga activation height is the first block whose app hash is computed under this scheme. For that block,
 `previousAppHash` is 32 zero bytes. Every other height the scheme depends on is derived from it.
 
-**Needs design.** The giga genesis height is a chain-wide value that is not yet defined. It is not expected
+**Needs design.** The giga activation height is a chain-wide value that is not yet defined. It is not expected
 to be block 0, since the chain already exists without this app hash.
 
 ## Open design work
@@ -231,7 +231,7 @@ to be block 0, since the chain already exists without this app hash.
 |------------------------|------------------------------------------------------------------|--------------|
 | `budHash`              | A Merkle tree schema over the block's changes, to support proofs | Storage team |
 | `receiptHash`          | A full definition                                                | EVM team     |
-| Giga genesis height    | The height of the first block computed under this scheme         | TBD          |
+| Giga activation height | The height of the first block computed under this scheme         | TBD          |
 
 ## Test vector
 

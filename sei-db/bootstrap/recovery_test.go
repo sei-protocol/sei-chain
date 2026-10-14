@@ -40,13 +40,11 @@ func evmBlock(addr, nonce byte) []*proto.NamedChangeSet {
 	}}
 }
 
-// commitBlocks commits blocks 1 through through, reports their execution hashes, and waits until their app
-// hashes are stored.
+// commitBlocks commits blocks 1 through through, and waits until their app hashes are stored.
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
-		reportExecutionHashes(t, manager, uint64(block), uint64(block))
 	}
 	awaitAppHashes(t, manager, uint64(through))
 }
@@ -228,10 +226,10 @@ func TestRecoveryTarget(t *testing.T) {
 		{name: "an empty state WAL yields no target", blockHeight: 7, receiptHead: 7},
 		{name: "an empty block store yields no target", stateHeight: 7, receiptHead: 7},
 		{name: "the app hash vault can be the lowest", blockHeight: 7, stateHeight: 5, appHashHead: 4, want: 4},
-		// An empty vault's head is the block before the giga genesis height, which holds the stores there.
-		{name: "an empty app hash vault holds the target below a later giga genesis",
+		// An empty vault's head is the block before the giga activation height, which holds the stores there.
+		{name: "an empty app hash vault holds the target below a later giga activation",
 			blockHeight: 7, stateHeight: 7, appHashHead: 3, want: 3},
-		{name: "an empty app hash vault at giga genesis 1 refuses stores holding blocks",
+		{name: "an empty app hash vault at giga activation 1 refuses stores holding blocks",
 			blockHeight: 7, stateHeight: 5, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

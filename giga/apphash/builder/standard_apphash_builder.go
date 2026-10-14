@@ -35,7 +35,7 @@ type StandardAppHashBuilder struct {
 	chainID uint64
 
 	// The first block with an app hash. Its previous app hash is all zeros.
-	gigaGenesisHeight uint64
+	gigaActivationHeight uint64
 
 	// Holds the app hash data of every block built. Closed by the builder goroutine as it exits.
 	vault vault.HashVault
@@ -137,27 +137,27 @@ func NewStandardAppHashBuilder(config AppHashBuilderConfig) (*StandardAppHashBui
 	if err != nil {
 		return nil, fmt.Errorf("failed to open hash vault: %w", err)
 	}
-	startup, err := loadStartupState(hashVault, config.ChainID, config.GigaGenesisHeight)
+	startup, err := loadStartupState(hashVault, config.ChainID, config.GigaActivationHeight)
 	if err != nil {
 		_ = hashVault.Close()
 		return nil, fmt.Errorf("failed to load the app hash builder's startup state: %w", err)
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	b := &StandardAppHashBuilder{
-		chainID:           config.ChainID,
-		gigaGenesisHeight: config.GigaGenesisHeight,
-		vault:             hashVault,
-		hashLog:           openHashLog(config),
-		requests:          make(chan any, config.InputBufferSize),
-		maxBatchSize:      config.MaxBatchSize,
-		ctx:               ctx,
-		cancel:            cancel,
-		vaultHasRecords:   startup.vaultHasRecords,
-		vaultLowest:       startup.vaultLowest,
-		vaultHighest:      startup.vaultHighest,
-		headHeight:        startup.headHeight,
-		headAppHash:       startup.headAppHash,
-		pendingBlocks:     make(map[uint64]*pendingBlock),
+		chainID:              config.ChainID,
+		gigaActivationHeight: config.GigaActivationHeight,
+		vault:                hashVault,
+		hashLog:              openHashLog(config),
+		requests:             make(chan any, config.InputBufferSize),
+		maxBatchSize:         config.MaxBatchSize,
+		ctx:                  ctx,
+		cancel:               cancel,
+		vaultHasRecords:      startup.vaultHasRecords,
+		vaultLowest:          startup.vaultLowest,
+		vaultHighest:         startup.vaultHighest,
+		headHeight:           startup.headHeight,
+		headAppHash:          startup.headAppHash,
+		pendingBlocks:        make(map[uint64]*pendingBlock),
 	}
 	b.wg.Go(b.run)
 	return b, nil
@@ -288,7 +288,7 @@ func (b *StandardAppHashBuilder) GetRollbackFloor(rollbackWindow uint64) uint64 
 	return head - rollbackWindow
 }
 
-// GetLatestBlock returns the newest block whose app hash is stored, or the block before the giga genesis height if
+// GetLatestBlock returns the newest block whose app hash is stored, or the block before the giga activation height if
 // none is.
 func (b *StandardAppHashBuilder) GetLatestBlock() (uint64, error) {
 	reply := make(chan callResult[uint64], 1)
@@ -312,7 +312,7 @@ func (b *StandardAppHashBuilder) Close() error {
 }
 
 // GetLatestBlock returns the head of the builder configured by config without opening it: the newest block whose
-// app hash is stored, or the block before the giga genesis height if none is. It fails while the builder is open.
+// app hash is stored, or the block before the giga activation height if none is. It fails while the builder is open.
 func GetLatestBlock(config AppHashBuilderConfig) (uint64, error) {
 	if err := config.Validate(); err != nil {
 		return 0, fmt.Errorf("invalid app hash builder config: %w", err)
@@ -321,22 +321,22 @@ func GetLatestBlock(config AppHashBuilderConfig) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to read the app hash builder's head: %w", err)
 	}
-	return storedHead(ok, highest, config.GigaGenesisHeight), nil
+	return storedHead(ok, highest, config.GigaActivationHeight), nil
 }
 
-// Returns the newest block whose app hash is stored, or the block before gigaGenesisHeight if none is.
+// Returns the newest block whose app hash is stored, or the block before gigaActivationHeight if none is.
 func storedHead(
 	// Whether the hash vault holds any record.
 	vaultHasRecords bool,
 	// The highest block height in the hash vault. Read only if vaultHasRecords.
 	vaultHighest uint64,
 	// The first block with an app hash.
-	gigaGenesisHeight uint64,
+	gigaActivationHeight uint64,
 ) uint64 {
 	if !vaultHasRecords {
-		return gigaGenesisHeight - 1
+		return gigaActivationHeight - 1
 	}
-	return max(vaultHighest, gigaGenesisHeight-1)
+	return max(vaultHighest, gigaActivationHeight-1)
 }
 
 // Opens the hash log if config enables one. Returns nil if it does not, or if the hash log fails to open, which
@@ -354,14 +354,14 @@ func openHashLog(config AppHashBuilderConfig) *hashlog.HashLogWriter {
 }
 
 // Reads the builder's startup state from hashVault. Its head is the newest stored record if that is at or above
-// gigaGenesisHeight, and the block before gigaGenesisHeight otherwise. Errors if the stored records belong to
+// gigaActivationHeight, and the block before gigaActivationHeight otherwise. Errors if the stored records belong to
 // a chain other than chainID.
 func loadStartupState(
 	hashVault vault.HashVault,
 	chainID uint64,
-	gigaGenesisHeight uint64,
+	gigaActivationHeight uint64,
 ) (startupState, error) {
-	startup := startupState{headHeight: gigaGenesisHeight - 1}
+	startup := startupState{headHeight: gigaActivationHeight - 1}
 	ok, lowest, highest, err := hashVault.Bounds()
 	if err != nil {
 		return startupState{}, fmt.Errorf("failed to read hash vault bounds: %w", err)
@@ -381,7 +381,7 @@ func loadStartupState(
 		return startupState{}, fmt.Errorf("hash vault holds app hashes for chain ID %d, not %d",
 			newest.ChainID(), chainID)
 	}
-	if highest >= gigaGenesisHeight {
+	if highest >= gigaActivationHeight {
 		startup.headHeight = highest
 		startup.headAppHash = newest.AppHash()
 	}
@@ -514,7 +514,8 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 		b.requestedPruneHeight = max(b.requestedPruneHeight, r.blockHeight)
 		return nil
 	case latestBlockRequest:
-		r.reply <- callResult[uint64]{value: storedHead(b.vaultHasRecords, b.vaultHighest, b.gigaGenesisHeight)}
+		head := storedHead(b.vaultHasRecords, b.vaultHighest, b.gigaActivationHeight)
+		r.reply <- callResult[uint64]{value: head}
 		return nil
 	default:
 		return fmt.Errorf("unknown app hash builder request %T", request)
@@ -522,7 +523,7 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 }
 
 // Takes in one report (i.e. one call to a Report*() method): an input's value for one block, and the debugging
-// hashes reported with it. A report below the giga genesis height is ignored. Before setup, a value for a
+// hashes reported with it. A report below the giga activation height is ignored. Before setup, a value for a
 // stored block is checked against the stored record.
 func (b *StandardAppHashBuilder) handleReport(
 	input hashInput,
@@ -530,7 +531,7 @@ func (b *StandardAppHashBuilder) handleReport(
 	value [32]byte,
 	componentHashes map[string][]byte,
 ) error {
-	if blockHeight < b.gigaGenesisHeight {
+	if blockHeight < b.gigaActivationHeight {
 		return nil
 	}
 	tracker := &b.reportTrackers[input]
@@ -608,13 +609,13 @@ func (b *StandardAppHashBuilder) registerListener(
 	return b.newestPublished, nil
 }
 
-// Returns an iterator over the published app hashes from startingBlockHeight, or from the giga genesis height if
+// Returns an iterator over the published app hashes from startingBlockHeight, or from the giga activation height if
 // that is higher. Errors before setup.
 func (b *StandardAppHashBuilder) newIterator(startingBlockHeight uint64) (apphash.AppHashIterator, error) {
 	if !b.setupDone {
 		return nil, fmt.Errorf("cannot iterate app hashes before setup is complete")
 	}
-	startingBlockHeight = max(startingBlockHeight, b.gigaGenesisHeight)
+	startingBlockHeight = max(startingBlockHeight, b.gigaActivationHeight)
 	if b.newestPublished == nil || startingBlockHeight > b.newestPublished.BlockHeight() {
 		return emptyIterator{}, nil
 	}
@@ -652,7 +653,7 @@ func (b *StandardAppHashBuilder) completeSetup(blockHeight uint64) error {
 }
 
 // Used by setup when the storage layer is ahead of the hash vault: builds and stores the app hash of every block
-// after the newest one already known (or from the giga genesis height, if none is stored), using the inputs
+// after the newest one already known (or from the giga activation height, if none is stored), using the inputs
 // reported (i.e. passed to the Report*() methods) before setup. Errors if any of those blocks is missing an input.
 func (b *StandardAppHashBuilder) storeSetupBlocks(
 	// The storage layer's height: the last block every store has applied, and the last block stored here.
@@ -678,25 +679,25 @@ func (b *StandardAppHashBuilder) storeSetupBlocks(
 }
 
 // Used by setup when the hash vault is at or ahead of the storage layer: the next block built is the one after the
-// storage layer's height (or the giga genesis height, if that is higher), and each block built after setup is
+// storage layer's height (or the giga activation height, if that is higher), and each block built after setup is
 // checked against the app hash already stored for it.
 func (b *StandardAppHashBuilder) rewindHead(
 	// The storage layer's height: the last block every store has applied.
 	blockHeight uint64,
 ) error {
-	b.headHeight = max(blockHeight, b.gigaGenesisHeight-1)
+	b.headHeight = max(blockHeight, b.gigaActivationHeight-1)
 	b.headAppHash = [32]byte{}
 	b.newestPublished = nil
-	if !b.vaultHasRecords || b.vaultHighest < b.gigaGenesisHeight {
+	if !b.vaultHasRecords || b.vaultHighest < b.gigaActivationHeight {
 		return nil
 	}
 
-	firstRead := max(b.headHeight, b.gigaGenesisHeight)
+	firstRead := max(b.headHeight, b.gigaActivationHeight)
 	iterator, err := b.vault.Iterator(firstRead, b.vaultHighest)
 	if err != nil {
 		return fmt.Errorf("failed to read stored app hashes from block %d: %w", firstRead, err)
 	}
-	if b.headHeight >= b.gigaGenesisHeight {
+	if b.headHeight >= b.gigaActivationHeight {
 		anchor, err := nextStoredRecord(iterator, b.headHeight)
 		if err != nil {
 			return fmt.Errorf("failed to read the app hash of block %d: %w", b.headHeight,

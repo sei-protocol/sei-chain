@@ -13,11 +13,8 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -61,23 +58,19 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 	require.True(t, res.IsEVM)
 }
 
-func TestWrapApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
+func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
-	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
-	require.NoError(t, err)
-	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
-	wrapped, err := wrapApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
 		},
-	}, app, utils.Some(storage), nil, gigaconfig.DefaultConfig.Execution)
+	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
-	_, ok := wrapped.(*MockApp)
+	_, ok := prepared.(*MockApp)
 	require.True(t, ok)
 }
 

@@ -9,8 +9,8 @@ import (
 )
 
 // AppHashBuilder computes the app hash of each block from inputs reported independently, and publishes the app
-// hashes in block order. App hashes start at the giga genesis height, which must be a global chain configuration
-// value. No app hash is published below the giga genesis height.
+// hashes in block order. App hashes start at the giga activation height, which must be a global chain configuration
+// value. No app hash is published below the giga activation height.
 type AppHashBuilder interface {
 	controllertypes.PrunableStore
 
@@ -70,7 +70,7 @@ type AppHashBuilder interface {
 	// Registers listener to receive, in block order, every app hash published after the one returned.
 	//
 	// Returns the newest published app hash, or nil if none has been published (this is possible if the builder
-	// is started at a block height below the giga genesis height). A published app hash never changes.
+	// is started at a block height below the giga activation height). A published app hash never changes.
 	// Errors if listener is nil, or if called before SetupComplete().
 	RegisterListener(
 		ctx context.Context,
@@ -80,7 +80,7 @@ type AppHashBuilder interface {
 	) (*apphash.AppHashData, error)
 
 	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one. No app
-	// hash exists below the giga genesis height, so iteration from a lower height starts there.
+	// hash exists below the giga activation height, so iteration from a lower height starts there.
 	//
 	// A published app hash never changes. Errors if called before SetupComplete(), or if startingBlockHeight has
 	// been pruned. The iterator errors once the builder stops.

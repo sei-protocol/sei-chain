@@ -193,7 +193,7 @@ func recoveryTarget(
 	blockHeight uint64,
 	stateHeight uint64,
 	receiptHeight uint64,
-	// The newest block whose app hash the vault holds, or the block before the giga genesis height when
+	// The newest block whose app hash the vault holds, or the block before the giga activation height when
 	// it holds none.
 	appHashHeight uint64,
 ) (uint64, error) {

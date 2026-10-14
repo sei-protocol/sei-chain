@@ -13,9 +13,9 @@ type AppHashBuilderConfig struct {
 	// The EVM chain ID committed to by every app hash.
 	ChainID uint64
 
-	// The giga genesis height: the first block with an app hash, whose previous app hash is all zeros. Inputs for
-	// blocks below it are discarded.
-	GigaGenesisHeight uint64
+	// The giga activation height: the first block with an app hash, whose previous app hash is all zeros. Inputs
+	// for blocks below it are discarded.
+	GigaActivationHeight uint64
 
 	// The number of calls that may wait for the builder before callers block. Higher values absorb longer stalls,
 	// at the cost of memory.
@@ -43,20 +43,20 @@ func DefaultAppHashBuilderConfig() AppHashBuilderConfig {
 	hashVault := seiwal.DefaultConfig("", "app_hash_vault")
 	hashVault.FsyncOnFlush = true
 	return AppHashBuilderConfig{
-		ChainID:           0,
-		GigaGenesisHeight: 1,
-		InputBufferSize:   1024,
-		MaxBatchSize:      1024,
-		HashVaultConfig:   *hashVault,
-		HashLogEnabled:    false,
-		HashLogConfig:     *hashlog.DefaultHashLoggerConfig("", ""),
+		ChainID:              0,
+		GigaActivationHeight: 1,
+		InputBufferSize:      1024,
+		MaxBatchSize:         1024,
+		HashVaultConfig:      *hashVault,
+		HashLogEnabled:       false,
+		HashLogConfig:        *hashlog.DefaultHashLoggerConfig("", ""),
 	}
 }
 
 // Returns an error if the configuration is invalid.
 func (c *AppHashBuilderConfig) Validate() error {
-	if c.GigaGenesisHeight == 0 {
-		return fmt.Errorf("giga genesis height must be at least 1")
+	if c.GigaActivationHeight == 0 {
+		return fmt.Errorf("giga activation height must be at least 1")
 	}
 	if c.InputBufferSize <= 0 {
 		return fmt.Errorf("input buffer size must be positive, got %d", c.InputBufferSize)

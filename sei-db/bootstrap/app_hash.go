@@ -33,8 +33,8 @@ func (m *GigaStorageManager) openAppHashBuilder(ctx context.Context) error {
 	return nil
 }
 
-// reportStateHashesToAppHashBuilder registers the app hash builder for the state hash and the BUD hash of every block
-// committed from here on.
+// reportStateHashesToAppHashBuilder registers the app hash builder for the inputs of every block committed from here
+// on.
 func (m *GigaStorageManager) reportStateHashesToAppHashBuilder() error {
 	// The blocks replayed during recovery are hashed asynchronously. Their hashes have to reach the listeners
 	// already registered before the builder registers, since the builder expects nothing at or below the
@@ -51,11 +51,18 @@ func (m *GigaStorageManager) reportStateHashesToAppHashBuilder() error {
 	return nil
 }
 
-// reportStateHash reports a committed block's state hash to the app hash builder. Its signature is
-// gigatypes.HashListener.
+// reportStateHash reports a committed block's state hash to the app hash builder, along with a zero block hash and a
+// zero receipt hash. Its signature is gigatypes.HashListener.
 func (m *GigaStorageManager) reportStateHash(ctx context.Context, blockNumber int64, hash *lthash.BlockHash) error {
 	//nolint:gosec // committed block numbers are non-negative
 	height := uint64(blockNumber)
+	// TODO: report the real block hash and receipt hash once execution reports them.
+	if err := m.appHashBuilder.ReportBlockHash(ctx, height, [32]byte{}); err != nil {
+		return fmt.Errorf("report the block hash of block %d: %w", height, err)
+	}
+	if err := m.appHashBuilder.ReportReceiptHash(ctx, height, [32]byte{}); err != nil {
+		return fmt.Errorf("report the receipt hash of block %d: %w", height, err)
+	}
 	stateHash := hash.Global.Checksum()
 	componentHashes := hashlog.FlatKVComponentHashes(hash)
 	if err := m.appHashBuilder.ReportStateHash(ctx, height, stateHash, componentHashes); err != nil {
