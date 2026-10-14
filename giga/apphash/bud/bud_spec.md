@@ -525,6 +525,10 @@ an error:
 A BUD state proof that satisfies these conditions is consistent, which alone proves nothing. The verifier must
 also authenticate the app hash of its app hash data through a protocol outside this document.
 
+A BUD state proof stays verifiable for as long as its app hash can be authenticated. Verifying a proof from an
+old block therefore requires a mechanism for authenticating old app hashes, including after the validator set
+that signed them has changed. That mechanism is outside the scope of this document.
+
 #### Heights below the tombstone horizon
 
 A BUD state proof covers no height below its budlet's not-modified-since height. Once a deletion falls below the

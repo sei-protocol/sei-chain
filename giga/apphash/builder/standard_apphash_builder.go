@@ -173,7 +173,7 @@ func (b *StandardAppHashBuilder) ReportStateHash(ctx context.Context, blockHeigh
 	return nil
 }
 
-func (b *StandardAppHashBuilder) ReportBUD(ctx context.Context, blockHeight uint64, bud [32]byte) error {
+func (b *StandardAppHashBuilder) ReportBUD(ctx context.Context, blockHeight uint64, bud apphash.BUDHash) error {
 	request := reportRequest{input: budInput, blockHeight: blockHeight, value: bud}
 	if err := b.submit(ctx, request); err != nil {
 		return fmt.Errorf("failed to report the BUD of block %d: %w", blockHeight, err)
