@@ -244,7 +244,6 @@ func TestReactorPeersStartWithLoadedRoundState(t *testing.T) {
 	require.NoError(t, err)
 	cs := newUnloadedState(t, thisConfig, state, kvstore.NewProxy(), store.NewBlockStore(dbm.NewMemDB()))
 	cs.SetPrivValidator(ctx, utils.Some(privVals[0]))
-	require.NoError(t, cs.blockExec.Store().Save(state))
 
 	// The other node runs no consensus reactor, so its peer state stays at height 0.
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
@@ -254,6 +253,7 @@ func TestReactorPeersStartWithLoadedRoundState(t *testing.T) {
 	blocksSub, err := cs.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 		ClientID: testSubscriber,
 		Query:    types.EventQueryNewBlock,
+		Limit:    100,
 	})
 	require.NoError(t, err)
 	network.Start(t)
