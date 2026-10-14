@@ -266,7 +266,7 @@ func (q Keeper) TallyResult(c context.Context, req *types.QueryTallyResultReques
 	case types.StatusDepositPeriod:
 		tallyResult = types.EmptyTallyResult()
 
-	case types.StatusPassed, types.StatusRejected:
+	case types.StatusPassed, types.StatusRejected, types.StatusFailed:
 		tallyResult = proposal.FinalTallyResult
 
 	default:

@@ -320,6 +320,16 @@ func (api *infoAPI) receiptRecordsForHeight(ctx context.Context, height int64) (
 	return receiptRecordsFromBlock(ctx, api.store, block)
 }
 
+// blockReceiptRecords returns the receipts stored for block, in transaction
+// index order.
+func blockReceiptRecords(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) ([]receiptpkg.ReceiptRecord, error) {
+	records, err := receiptRecordsFromIterator(ctx, store, block.Block.Height)
+	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+		return receiptRecordsFromBlock(ctx, store, block)
+	}
+	return records, err
+}
+
 // receiptRecordsFromIterator answers height's receipts by walking IterateReceipts from height,
 // stopping at the first receipt belonging to a later block (or immediately, for an empty block).
 func receiptRecordsFromIterator(ctx context.Context, store receiptpkg.ReceiptStore, height int64) ([]receiptpkg.ReceiptRecord, error) {
