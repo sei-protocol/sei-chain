@@ -34,6 +34,9 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 	}()
 
 	plan, planFound := k.GetUpgradePlan(ctx)
+	if !planFound {
+		plan, planFound = forcedUpgradePlan(k, ctx)
+	}
 
 	if !k.DowngradeVerified() {
 		k.SetDowngradeVerified(true)
@@ -118,6 +121,18 @@ func panicUpgradeNeeded(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 	fmt.Fprintln(os.Stderr, upgradeMsg)
 
 	panic(upgradeMsg)
+}
+
+// forcedUpgradePlan returns the upgrade named in upgrade-info.json when this block is
+// its height and it has not been applied. TEST ONLY: it lets a node replaying mainnet
+// run an upgrade no governance proposal scheduled; never merge it.
+func forcedUpgradePlan(k keeper.Keeper, ctx sdk.Context) (types.Plan, bool) {
+	info, err := k.ReadUpgradeInfoFromDisk()
+	if err != nil || info.Name == "" || info.Height != ctx.BlockHeight() || k.GetDoneHeight(ctx, info.Name) != 0 {
+		return types.Plan{}, false
+	}
+	logger.Info("forcing upgrade from upgrade-info.json", "name", info.Name, "height", info.Height)
+	return types.Plan{Name: info.Name, Height: info.Height}, true
 }
 
 func applyUpgrade(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {

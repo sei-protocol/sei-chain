@@ -50,6 +50,7 @@ func (k Keeper) StartDelegationByValIndexBackfill(ctx sdk.Context) {
 		return
 	}
 	ctx.KVStore(k.storeKey).Set(types.DelegationByValIndexCursorKey, []byte{})
+	logger.Info("delegation index backfill started", "height", ctx.BlockHeight())
 }
 
 // BackfillDelegationByValIndex indexes up to limit stored delegations that follow the
@@ -65,6 +66,7 @@ func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, limit int) (int, e
 	if cursor == nil {
 		return 0, nil
 	}
+	batchStart := time.Now()
 
 	start := types.DelegationKey
 	if len(cursor) > 0 {
@@ -86,10 +88,15 @@ func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, limit int) (int, e
 
 	if iterator.Valid() {
 		store.Set(types.DelegationByValIndexCursorKey, last)
+		logger.Info("delegation index backfill batch", "height", ctx.BlockHeight(), "indexed", indexed,
+			"elapsed", time.Since(batchStart), "cursor", fmt.Sprintf("%X", last), "done", false)
 		return indexed, nil
 	}
 	store.Delete(types.DelegationByValIndexCursorKey)
 	store.Set(types.DelegationByValIndexReadyKey, []byte{})
+	logger.Info("delegation index backfill batch", "height", ctx.BlockHeight(), "indexed", indexed,
+		"elapsed", time.Since(batchStart), "done", true)
+	logger.Info("delegation index ready", "height", ctx.BlockHeight())
 	return indexed, nil
 }
 

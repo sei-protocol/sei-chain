@@ -330,3 +330,26 @@ func TestBinaryVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestForcedUpgradeFromUpgradeInfo(t *testing.T) {
+	s := setupTest(t, 10)
+	const name = "forced"
+	applied := 0
+	s.keeper.SetUpgradeHandler(name, func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		applied++
+		return vm, nil
+	})
+	require.NoError(t, s.keeper.DumpUpgradeInfoToDisk(11, name))
+
+	upgrade.BeginBlocker(s.keeper, s.ctx)
+	VerifyNotDone(t, s.ctx, name)
+
+	atHeight := s.ctx.WithBlockHeight(11)
+	upgrade.BeginBlocker(s.keeper, atHeight)
+	VerifyDone(t, atHeight, name)
+	require.Equal(t, 1, applied)
+
+	upgrade.BeginBlocker(s.keeper, atHeight)
+	upgrade.BeginBlocker(s.keeper, s.ctx.WithBlockHeight(12))
+	require.Equal(t, 1, applied)
+}
