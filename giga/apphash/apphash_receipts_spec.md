@@ -34,7 +34,8 @@ list of byte-string entries `D = [d_0, …, d_{n-1}]`:
 ```
 MTH(tagLeaf, tagNode, {})      = SHA-256()                                       for n = 0
 MTH(tagLeaf, tagNode, {d_0})   = SHA-256(tagLeaf ‖ d_0)                           for n = 1
-MTH(tagLeaf, tagNode, D[0:n])  = SHA-256(tagNode ‖ MTH(D[0:k]) ‖ MTH(D[k:n]))      for n > 1
+MTH(tagLeaf, tagNode, D[0:n])  = SHA-256(tagNode ‖ MTH(tagLeaf, tagNode, D[0:k])
+                                              ‖ MTH(tagLeaf, tagNode, D[k:n]))    for n > 1
 ```
 
 where, for `n > 1`, `k` is the largest power of two strictly less than `n`. This is RFC 6962's
@@ -68,22 +69,26 @@ receiptHash(N) = MTH(0x02, 0x03, [ receiptPreimage(r) for r in receipts(N), in t
 `receipts(N)` is block `N`'s list of transaction receipts. Each entry fed to the tree is:
 
 ```
-receiptPreimage(r) = u8(r.status) ‖ varint(r.gasUsed) ‖ logsRoot(r)
+receiptPreimage(r) = u8(r.status) ‖ varint(r.gasUsed) ‖ varint(r.logCount) ‖ logsRoot(r)
 ```
 
 | Field | Encoding |
 |---|---|
 | `status` | `u8`; `0` = failed, `1` = success |
 | `gasUsed` | `varint`; gas used by this transaction alone, not cumulative across the block |
+| `logCount` | `varint`; `len(r.logs)` — see [Rationale](#logcount) for why this is committed here |
 | `logsRoot` | raw bytes, see below |
 
-`gasUsed` is LEB128, not `u64be`, matching the same choice `blockHash` already makes for
-`totalGasWanted`/`totalGasEstimated` in the App Hash specification: gas figures are almost always
-far smaller than 2⁶⁴, so a realistic value fits in 3–4 bytes instead of a fixed 8. `varint` is
-self-delimiting — every byte but the last has its continuation bit set — so `logsRoot` needs no
-separate marker for where `gasUsed` ends; it simply starts at the first byte whose continuation bit
-is clear. `receiptPreimage` is therefore not a fixed size: it is 34 to 43 bytes, 1 (`status`) plus 1
-to 10 (`varint(gasUsed)`, per the App Hash specification's own bound on `varint`) plus 32
+`gasUsed` and `logCount` are LEB128, not fixed-width, matching the same choice `blockHash` already
+makes for `totalGasWanted`/`totalGasEstimated`/`block_number` in the App Hash specification: these
+figures are almost always far smaller than 2⁶⁴, so a realistic value fits in a few bytes instead of
+a fixed-width field. `varint` is self-delimiting — every byte but the last has its continuation bit
+set, and that last byte (continuation bit clear) is *included* in the value it terminates, not a
+separator before the next field. So `gasUsed`'s varint runs through and including its first
+clear-continuation-bit byte; `logCount`'s varint starts at the byte immediately after that and is
+parsed the same way; `logsRoot` starts immediately after `logCount`'s varint ends. `receiptPreimage`
+is therefore not a fixed size: it is 35 to 53 bytes — 1 (`status`) plus 1 to 10 (`varint(gasUsed)`)
+plus 1 to 10 (`varint(logCount)`), per the App Hash specification's own bound on `varint`, plus 32
 (`logsRoot`). It is not itself a leaf hash — `MTH` applies the receipts tree's leaf tag (`0x02`) when
 hashing it.
 
@@ -93,20 +98,20 @@ hashing it.
 logsRoot(r) = MTH(0x00, 0x01, [ logLeaf(l) for l in r.logs, in emission order ])
 ```
 
-A receipt that emits no logs has `logsRoot(r) = SHA-256()` — the `n = 0` case above. Total log
-count is not part of this commitment: a verifier holding the full log list recovers it for free as
-`len(r.logs)`, and a verifier checking a single log in isolation needs it only as ordinary metadata
-supplied alongside the compact proof, not as consensus-committed data (see
-[Rationale](#do-we-need-log_count)).
+A receipt that emits no logs has `logsRoot(r) = SHA-256()` — the `n = 0` case above. Verifying a
+single log against `logsRoot` in isolation (without the rest of the logs) requires an authenticated
+`len(r.logs)`; that value is committed as `logCount` in `receiptPreimage`, not derived here (see
+[Rationale](#logcount)).
 
 ### `logLeaf`
 
 ```
-logLeaf(l) = l.address ‖ u8(l.topicCount) ‖ topics(l) ‖ l.data
+logLeaf(l)  = l.address ‖ u8(l.topicCount) ‖ topics(l) ‖ l.data
 
-topics(l)  = pad(l.topics, 0) ‖ pad(l.topics, 1) ‖ pad(l.topics, 2) ‖ pad(l.topics, 3)
-pad(t, i)  = t[i]             if i < len(t)
-           = 32 zero bytes    otherwise
+topicCount  = len(l.topics), always 0-4 by EVM LOG0-LOG4 semantics
+topics(l)   = pad(l, 0) ‖ pad(l, 1) ‖ pad(l, 2) ‖ pad(l, 3)
+pad(l, i)   = l.topics[i]     if i < l.topicCount
+            = 32 zero bytes   otherwise
 ```
 
 | Offset | Size | Field | Encoding |
@@ -154,30 +159,33 @@ logsRoot({logLeaf(0), logLeaf(1)}) = c6ab01a590f123c121f3dad8fcc5e8a59ef73156492
 logsRoot({})                       = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
-**Receipt 0** — `status` 1, `gasUsed` 21000 (`varint` = `88a401`), `logsRoot` as
-computed above from the two logs.
+**Receipt 0** — `status` 1, `gasUsed` 21000 (`varint` = `88a401`), `logCount` 2
+(`varint` = `02`), `logsRoot` as computed above from the two logs.
 
 ```
-receiptPreimage(0) = 01 88a401 c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e
+receiptPreimage(0) = 01 88a401 02 c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e
 ```
 
-**Receipt 1** — `status` 0 (failed), `gasUsed` 250000 (`varint` = `90a10f`), no logs.
+**Receipt 1** — `status` 0 (failed), `gasUsed` 250000 (`varint` = `90a10f`),
+`logCount` 0 (`varint` = `00`), no logs.
 
 ```
-receiptPreimage(1) = 00 90a10f e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+receiptPreimage(1) = 00 90a10f 00 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
 ```
-receiptHash({receiptPreimage(0)})                     = 8a260cd83fbaad29b2d7431933769fb1b9f0a9d5a3446e16144a567613ccd77e
-receiptHash({receiptPreimage(0), receiptPreimage(1)}) = a9b25b60ed28b119d076dd14e007bb383442a045b0e01ad2b1defe68773aae69
+receiptHash({receiptPreimage(0)})                     = 86dee5ab9eced226d9f56ab788b3457a1bada8f7010bb0cc5e02fe082c8bc417
+receiptHash({receiptPreimage(0), receiptPreimage(1)}) = b901abdef77024535a360f0abd3fafd95abcd81f52efd23aa6319d48c9916816
 ```
 
 (The single-receipt case above intentionally equals `MTH`'s `n = 1` leaf hash of `receiptPreimage(0)`
 directly — a consistency check anyone re-implementing this can verify independently. Both
-`receiptPreimage` entries above happen to be the same length, 36 bytes, because both 21000 and
-250000 need exactly 3 LEB128 bytes — `1 + 3 + 32`. That's a coincidence of these two example values,
-not a general property: `receiptPreimage` ranges from 34 to 43 bytes depending on `gasUsed`, and
-`MTH` handles that variation the same as it handles any other variable-length tree entry.)
+`receiptPreimage(0)` and `receiptPreimage(1)` happen to be 37 bytes here — `gasUsed` needs 3 LEB128
+bytes either way (21000 and 250000), and `logCount` needs exactly 1 byte either way (2 and 0 are both
+single-byte values), so the lengths coincide even though the field values differ. That's an artifact
+of these particular example values, not a general property: `receiptPreimage` ranges from 35 to 53
+bytes depending on `gasUsed` and `logCount`, and `MTH` handles that variation the same as it handles
+any other variable-length tree entry.)
 
 ## Rationale (non-normative)
 
@@ -209,20 +217,34 @@ algorithm is governed by `appHashData.version`, so an independent per-receipt ve
 redundant. The stored receipt format keeps its own, separate versioning (`receiptDataV1` in
 `sei-db/ledger_db/receipt/codec.go`) — a storage concern, decoupled from this document.
 
-### Do we need `log_count`?
+### `logCount`
 
-No. There are two ways anyone checks a receipt's logs. **Full reveal**: a verifier has the whole
-list and checks it against `logsRoot` — the count falls out for free as `len(logs)`, and a different
-count producing the same root would require an actual hash collision. **Compact proof**: a verifier
-checks one log in isolation, needing the total count as an input to interpret the audit path's
-shape — but that is ordinary metadata supplied alongside the proof, not consensus data. This is
-exactly how RFC 6962 (Certificate Transparency) treats tree size: its Signed Tree Head binds
-`(tree_size, root_hash)` via a *signature*, not by hashing size into the root, and CT needs that
-pairing only to catch a log server showing different parties divergent histories over time (a
-"split view"). This document has no such problem — a given receipt's `logsRoot` is fixed and
-immutable the instant it is produced, authenticated once via the block's app hash. A prover who
-lies about the count when constructing a proof simply computes the wrong candidate root under the
-wrong tree shape, and verification fails; that mismatch is the check.
+Yes for the logs tree, committed as `logCount` in `receiptPreimage` — reversing an earlier draft of
+this document, which argued it wasn't needed. That argument conflated two separate justifications
+for authenticating a Merkle tree's size, and only addressed one of them.
+
+The one it addressed: RFC 6962 (Certificate Transparency) binds `(tree_size, root_hash)` via its
+Signed Tree Head's *signature*, not by hashing size into the root. CT needs that pairing to catch a
+log server showing different parties divergent histories over time (a "split view") — and this
+document doesn't have that problem, since a given receipt's `logsRoot` is fixed and immutable the
+instant it's produced.
+
+The one it missed: an RFC 6962 Merkle audit path (§2.1.1) does not, by itself, authenticate the tree
+size or leaf index it's checked against — those are told to the verifier as ordinary, unauthenticated
+inputs. A party who already holds every log in a receipt (which a prover constructing a proof
+generally does) can reuse real internal-node hashes from the true tree as "sibling" values and
+present them against a *smaller, false* claimed size and a *different* claimed index. The
+verification arithmetic can still land on the true `logsRoot`, with no hash collision required,
+because nothing in that arithmetic checks that the claimed size is the *only* size consistent with
+the root. That lets a prover misstate which position a log sits at, or how many logs a receipt
+emitted — exactly the kind of claim this commitment exists to make unforgeable.
+
+This is fixable either by committing the count directly, or by pointing to an already-authenticated
+source of it elsewhere. The receipts tree has the latter: a block's transaction count is already
+committed via `blockHash`'s own transaction list (`encodePayload`'s `txs`, in
+[`apphash_spec.md`](apphash_spec.md)), so no separate field is needed there. The logs tree has no
+equivalent source — nothing else commits how many logs a given transaction emitted — so `logCount`
+has to be committed directly, in `receiptPreimage`.
 
 ### Deviations from Ethereum, and why
 
@@ -286,5 +308,6 @@ there is no separate expected-length check to perform.
   unmodified receipt store
 - `proto/evm/receipt.proto`, `x/evm/types/receipt.pb.go` — the current stored receipt encoding,
   unaffected by this document
-- RFC 6962 (Certificate Transparency) §2.1 — Merkle Tree Hash construction; §3.2 — Signed Tree Head
-  size/root binding
+- RFC 6962 (Certificate Transparency) §2.1 — Merkle Tree Hash construction; §2.1.1 — Merkle Audit
+  Path (does not itself authenticate tree size or leaf index); §3.2 — Signed Tree Head size/root
+  binding
