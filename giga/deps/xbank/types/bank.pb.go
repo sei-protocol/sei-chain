@@ -418,51 +418,6 @@ func (m *Metadata) GetSymbol() string {
 	return ""
 }
 
-type AllowList struct {
-	// Can be empty for no admin, or a valid sei address
-	Addresses []string `protobuf:"bytes,1,rep,name=addresses,proto3" json:"addresses,omitempty" yaml:"addresses"`
-}
-
-func (m *AllowList) Reset()         { *m = AllowList{} }
-func (m *AllowList) String() string { return proto.CompactTextString(m) }
-func (*AllowList) ProtoMessage()    {}
-func (*AllowList) Descriptor() ([]byte, []int) {
-	return fileDescriptor_dd052eee12edf988, []int{7}
-}
-func (m *AllowList) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *AllowList) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_AllowList.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *AllowList) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AllowList.Merge(m, src)
-}
-func (m *AllowList) XXX_Size() int {
-	return m.Size()
-}
-func (m *AllowList) XXX_DiscardUnknown() {
-	xxx_messageInfo_AllowList.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AllowList proto.InternalMessageInfo
-
-func (m *AllowList) GetAddresses() []string {
-	if m != nil {
-		return m.Addresses
-	}
-	return nil
-}
-
 func init() {
 	proto.RegisterType((*Params)(nil), "seiprotocol.sei-chain.gigabank.Params")
 	proto.RegisterType((*SendEnabled)(nil), "seiprotocol.sei-chain.gigabank.SendEnabled")
@@ -471,7 +426,6 @@ func init() {
 	proto.RegisterType((*Supply)(nil), "seiprotocol.sei-chain.gigabank.Supply")
 	proto.RegisterType((*DenomUnit)(nil), "seiprotocol.sei-chain.gigabank.DenomUnit")
 	proto.RegisterType((*Metadata)(nil), "seiprotocol.sei-chain.gigabank.Metadata")
-	proto.RegisterType((*AllowList)(nil), "seiprotocol.sei-chain.gigabank.AllowList")
 }
 
 func init() { proto.RegisterFile("cosmos/bank/v1beta1/bank.proto", fileDescriptor_dd052eee12edf988) }
@@ -571,35 +525,6 @@ func (this *Supply) Equal(that interface{}) bool {
 	}
 	for i := range this.Total {
 		if !this.Total[i].Equal(&that1.Total[i]) {
-			return false
-		}
-	}
-	return true
-}
-func (this *AllowList) Equal(that interface{}) bool {
-	if that == nil {
-		return this == nil
-	}
-
-	that1, ok := that.(*AllowList)
-	if !ok {
-		that2, ok := that.(AllowList)
-		if ok {
-			that1 = &that2
-		} else {
-			return false
-		}
-	}
-	if that1 == nil {
-		return this == nil
-	} else if this == nil {
-		return false
-	}
-	if len(this.Addresses) != len(that1.Addresses) {
-		return false
-	}
-	for i := range this.Addresses {
-		if this.Addresses[i] != that1.Addresses[i] {
 			return false
 		}
 	}
@@ -933,38 +858,6 @@ func (m *Metadata) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *AllowList) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *AllowList) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *AllowList) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.Addresses) > 0 {
-		for iNdEx := len(m.Addresses) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.Addresses[iNdEx])
-			copy(dAtA[i:], m.Addresses[iNdEx])
-			i = encodeVarintBank(dAtA, i, uint64(len(m.Addresses[iNdEx])))
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
-
 func encodeVarintBank(dAtA []byte, offset int, v uint64) int {
 	offset -= sovBank(v)
 	base := offset
@@ -1116,21 +1009,6 @@ func (m *Metadata) Size() (n int) {
 	l = len(m.Symbol)
 	if l > 0 {
 		n += 1 + l + sovBank(uint64(l))
-	}
-	return n
-}
-
-func (m *AllowList) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.Addresses) > 0 {
-		for _, s := range m.Addresses {
-			l = len(s)
-			n += 1 + l + sovBank(uint64(l))
-		}
 	}
 	return n
 }
@@ -2018,88 +1896,6 @@ func (m *Metadata) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Symbol = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipBank(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthBank
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *AllowList) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowBank
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: AllowList: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AllowList: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Addresses", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowBank
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthBank
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthBank
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Addresses = append(m.Addresses, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
