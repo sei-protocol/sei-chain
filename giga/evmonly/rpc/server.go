@@ -49,6 +49,10 @@ type Backend interface {
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
+	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
+	EvmCodeAt(address common.Address, height int64) ([]byte, error)
+	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
+	EvmTransactionCountAt(address common.Address, height int64) (uint64, error)
 	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
