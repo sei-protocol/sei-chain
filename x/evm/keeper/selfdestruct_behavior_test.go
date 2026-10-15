@@ -126,6 +126,25 @@ func TestSelfDestructBehavior(t *testing.T) {
 		require.Equal(t, uint64(21000+3+5000+2600+25000), r.res.GasUsed)
 	})
 
+	t.Run("b_preexisting_contract_selfdestruct_to_self_keeps_everything", func(t *testing.T) {
+		e := newBehaviorEnv(t, false)
+		e.associateAndFund(key, 1_000_000)
+		code := selfdestructToSelfCode()
+		e.k.SetCode(e.ctx, sdPreexisting, code)
+		e.k.SetState(e.ctx, sdPreexisting, slotHash(0), common.BigToHash(big.NewInt(0x2a)))
+		e.fundEVM(sdPreexisting, 7)
+		supplyBefore := e.supply()
+
+		r := e.runTx(key, e.legacyTx(0, &sdPreexisting, nil, 200_000, bigGwei(1), nil), 0)
+		require.Empty(t, r.res.VmError)
+		require.Equal(t, bigUsei(7), e.balanceWei(sdPreexisting), "balance retained, not burned")
+		require.Equal(t, code, e.k.GetCode(e.ctx, sdPreexisting), "code retained")
+		require.Equal(t, int64(0x2a), e.slot(sdPreexisting, 0).Int64(), "storage retained")
+		require.True(t, r.totalSurplus().IsZero(), "surplus %s", r.totalSurplus())
+		require.True(t, supplyBefore.Equal(e.supply()))
+		require.Equal(t, uint64(21000+2+5000), r.res.GasUsed)
+	})
+
 	t.Run("c_new_contract_selfdestruct_to_self_burns_into_surplus", func(t *testing.T) {
 		e := newBehaviorEnv(t, false)
 		e.associateAndFund(key, 1_000_000)

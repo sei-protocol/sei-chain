@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,17 +219,32 @@ func TestPrecompileCallCodeDelegateCallBehavior(t *testing.T) {
 	// a failing Sei precompile consumes all forwarded gas, unlike a revert
 	require.Equal(t, uint64(386286), r.res.GasUsed)
 
+	// non-zero msg.value: DELEGATECALL sendNative is still rejected and moves no funds; a CALL with the same value succeeds
+	valueScript := common.BigToAddress(big.NewInt(0xc0de10))
+	e.k.SetCode(e.ctx, valueScript, buildScript([]scriptStep{
+		{op: vm.CALL, to: bankAddr, gas: 100_000, value: bigUsei(1), data: bankCalldata(t, "sendNative", recvBech32)},
+		{op: vm.DELEGATECALL, to: bankAddr, gas: 100_000, data: bankCalldata(t, "sendNative", recvBech32)},
+	}))
+	r = e.runTx(key, e.legacyTx(1, &valueScript, bigUsei(2), 1_000_000, bigGwei(1), nil), 1)
+	require.Empty(t, r.res.VmError)
+	require.Equal(t, uint64(1), e.slot(valueScript, 0).Uint64(), "CALL sendNative with value: allowed")
+	require.Equal(t, uint64(0), e.slot(valueScript, 3).Uint64(), "DELEGATECALL sendNative under non-zero msg.value: rejected")
+	require.Equal(t, bigUsei(1), e.balanceWei(valueScript), "only the CALL moved funds")
+	require.Equal(t, bigUsei(1), e.balanceWei(pcRecipient))
+	require.True(t, r.totalSurplus().IsZero())
+
 	// forwarding 50k more gas to a rejected call costs exactly 50k more
 	gasFor := func(nonce uint64, idx int, fwd uint64) uint64 {
 		addr := common.BigToAddress(big.NewInt(0xc0de10 + int64(idx)))
 		e.k.SetCode(e.ctx, addr, buildScript([]scriptStep{{op: vm.DELEGATECALL, to: bankAddr, gas: fwd, data: bankCalldata(t, "sendNative", recvBech32)}}))
-		rr := e.runTx(key, e.legacyTx(nonce, &addr, nil, 1_000_000, bigGwei(1), nil), idx)
+		rr := e.runTx(key, e.legacyTx(nonce, &addr, bigUsei(1), 1_000_000, bigGwei(1), nil), idx)
 		require.Empty(t, rr.res.VmError)
 		require.Equal(t, uint64(0), e.slot(addr, 0).Uint64())
+		require.Equal(t, bigUsei(1), e.balanceWei(addr), "rejected DELEGATECALL moved no funds")
 		return rr.res.GasUsed
 	}
-	g50 := gasFor(1, 1, 50_000)
-	g100 := gasFor(2, 2, 100_000)
+	g50 := gasFor(2, 2, 50_000)
+	g100 := gasFor(3, 3, 100_000)
 	require.Equal(t, uint64(50_000), g100-g50)
 }
 
@@ -374,7 +390,7 @@ func TestPreparePrecompileWarmingBehavior(t *testing.T) {
 	_, sender := keyAddrs(mustKey(t, anvilKey0Hex))
 	cfg := types.DefaultChainConfig().EthereumConfig(e.k.ChainID(e.ctx))
 	rules := cfg.Rules(big.NewInt(e.ctx.BlockHeight()), true, uint64(e.ctx.BlockTime().Unix()))
-	precompiles := append(vm.ActivePrecompiles(rules), bankAddr, soloAddr)
+	precompiles := append(slices.Clone(vm.ActivePrecompiles(rules)), bankAddr, soloAddr)
 	for _, tc := range []struct {
 		name       string
 		ctx        sdk.Context
