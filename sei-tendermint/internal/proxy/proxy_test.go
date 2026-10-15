@@ -185,6 +185,45 @@ func TestEvmCodeDelegatesToASupportingApplication(t *testing.T) {
 	require.Equal(t, addr, gotAddr)
 }
 
+type testEvmStorageReaderApp struct {
+	testApp
+	storage func(common.Address, common.Hash) common.Hash
+}
+
+func (app testEvmStorageReaderApp) EvmStorage(addr common.Address, key common.Hash) common.Hash {
+	return app.storage(addr, key)
+}
+
+func TestEvmStorage(t *testing.T) {
+	addr := common.Address{7}
+	key := common.Hash{3}
+	want := common.Hash{0x2a}
+
+	t.Run("delegates to a supporting application", func(t *testing.T) {
+		var gotAddr common.Address
+		var gotKey common.Hash
+		proxyApp := New(testEvmStorageReaderApp{
+			storage: func(addr common.Address, key common.Hash) common.Hash {
+				gotAddr, gotKey = addr, key
+				return want
+			},
+		})
+
+		got, err := proxyApp.EvmStorage(addr, key)
+
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+		require.Equal(t, addr, gotAddr)
+		require.Equal(t, key, gotKey)
+	})
+
+	t.Run("errors when the application does not support it", func(t *testing.T) {
+		_, err := New(testApp{}).EvmStorage(addr, key)
+
+		require.Error(t, err)
+	})
+}
+
 func TestEvmChainConfigErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
 	proxyApp := New(testApp{})
 

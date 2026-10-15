@@ -77,6 +77,9 @@ type pendingBlock struct {
 
 	// Whether each input has been reported, indexed by hashInput.
 	reported [hashInputCount]bool
+
+	// The debugging hashes reported with the state hash, written to the hash log only. May be nil.
+	componentHashes map[string][]byte
 }
 
 // Returns whether every input has been reported.

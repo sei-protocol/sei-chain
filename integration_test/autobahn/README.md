@@ -378,6 +378,8 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getBalance`, for the current committed EVM balance;
 - `eth_getTransactionCount`, for the current committed nonce;
 - `eth_getCode`, for the current committed contract code at an address;
+- `eth_getStorageAt`, for the current committed value of a contract storage
+  slot;
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
@@ -389,7 +391,17 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getBlockTransactionCountByNumber` and
   `eth_getBlockTransactionCountByHash`, for the number of transactions in a
   finalized block, resolved the same way as `eth_getBlockByNumber` and
-  `eth_getBlockByHash`.
+  `eth_getBlockByHash`;
+- `eth_getBlockReceipts`, for the receipts stored for a finalized block, by
+  height, tag, or hash. Tags resolve to the latest block whose receipts are
+  indexed, and a block whose receipts are not indexed yet returns `null`. Only
+  receipts stored for that block are listed: a rejected transaction with no
+  receipt is skipped, and a repeated transaction's receipt stays with the block
+  where it first executed.
+- `eth_getTransactionByBlockNumberAndIndex` and
+  `eth_getTransactionByBlockHashAndIndex`, for the transaction at a position in
+  a finalized block, exactly as the full-transaction `eth_getBlockByNumber` and
+  `eth_getBlockByHash` list it.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -541,6 +553,17 @@ as `eth_getBalance`; an explicit height, an explicit hash, or `earliest`
 returns the same historical-state error. An address with no code, including an
 EOA or an address that was never touched, returns `0x`, as go-ethereum does.
 
+### Read contract storage with `cast storage`
+
+```sh
+cast storage --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS 0
+```
+
+`eth_getStorageAt` accepts the same block tags as `eth_getBalance` and returns
+the same historical-state error for anything else. The slot is a hex number of
+at most 32 bytes, as in go-ethereum. An unset slot, including any slot of an
+address with no contract, returns 32 zero bytes.
+
 Block context for a call is a mix of real and best-effort values: `Number` and
 `GasLimit` are the actual current committed values, but `Coinbase` is always
 the zero address (this application never sets one, even for committed
@@ -577,9 +600,25 @@ point in the chain. Revisit once superblocks merge lanes into a single
 block; punted for now since a block today is exactly one lane's
 transactions.
 
+A block lists every transaction consensus finalized, including ones the
+executor rejected without running them, because Autobahn orders transactions
+before executing them. Block-based methods (`eth_getBlockBy*`, the block
+transaction counts, and the by-block-and-index lookups) all report that full
+list. Two kinds of rejected transaction have no receipt at the block that lists
+them:
+
+- A transaction that can still succeed later (nonce too high or insufficient
+  funds) has no receipt; `eth_getTransactionReceipt` returns `null` unless it
+  later executes in another block, and then reports that block.
+- A transaction repeated after it already executed keeps its original receipt,
+  so `eth_getTransactionReceipt` and `eth_getTransactionByHash` report the
+  earlier block and index where it ran.
+
+Indexers that pair each listed transaction with a receipt at the same block
+and index should expect these two cases.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
-does not currently print every submitted hash, and there are still no
-by-block-and-index transaction lookups.
+does not currently print every submitted hash.
 There are also no fee-estimation, log, or WebSocket subscription methods.
 Commands that depend on those queries cannot operate normally; raw
 transactions must still provide gas price offline as in the example above.

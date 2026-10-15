@@ -7,6 +7,9 @@ type reportRequest struct {
 	input       hashInput
 	blockHeight uint64
 	value       [32]byte
+
+	// The debugging hashes passed to ReportStateHash(), written to the hash log only. Nil for every other input.
+	componentHashes map[string][]byte
 }
 
 // Asks the builder goroutine to complete setup at the storage layer height blockHeight.

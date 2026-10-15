@@ -86,6 +86,14 @@ func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	return storageConfig, nil
 }
 
+// WithStateStoreBackend has the state store keep its history as backend, in that backend's
+// directory under the home path.
+func (c *GigaStorageConfig) WithStateStoreBackend(backend string) *GigaStorageConfig {
+	c.SSConfig.Backend = backend
+	c.SSConfig.EVMDBDirectory = utils.GetEVMStateStorePath(c.HomePath, backend)
+	return c
+}
+
 func (c *GigaStorageConfig) WithAccountDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
 	c.FlatKVConfig.AccountStoreConfig.MaxSize = sizeInBytes
 	return c

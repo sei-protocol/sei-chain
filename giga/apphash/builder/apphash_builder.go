@@ -19,13 +19,22 @@ type AppHashBuilder interface {
 	// methods.
 	ReportBlockHash(ctx context.Context, blockHeight uint64, blockHash [32]byte) error
 
-	// Reports the state hash after executing the block.
+	// Reports the state hash after executing the block, along with debugging hashes of the state's parts.
 	//
 	// blockHeight must be one above the previous call's, except on the first call. Illegal input to this method
 	// may not cause it to return an error immediately, since hash data may be ingested asynchronously. Illegal
 	// input will, however, eventually cause the app hash builder to shut down and start returning errors from all
 	// methods.
-	ReportStateHash(ctx context.Context, blockHeight uint64, stateHash [32]byte) error
+	ReportStateHash(
+		ctx context.Context,
+		blockHeight uint64,
+		stateHash [32]byte,
+		// Named hashes of the parts of the state, such as each flatKV database and module (see
+		// hashlog.FlatKVComponentHashes()). They exist for debugging only: they are written to the hash
+		// log beside the block's app hash, are never part of the app hash, and have no effect on it. May
+		// be nil. Must not be mutated after the call.
+		componentHashes map[string][]byte,
+	) error
 
 	// Reports the Block Update Digest of the block.
 	//

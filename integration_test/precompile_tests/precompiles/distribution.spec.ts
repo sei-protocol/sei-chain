@@ -16,6 +16,12 @@ import { seiRpc, waitUntil } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
 import { bondedValidators, cosmosQuery, bankBalance } from '../utils/cosmosUtils';
 import {
+    decString,
+    delegatorWithdrawAddress,
+    distributionParams,
+    validatorSlashes,
+} from '../utils/moduleQueries';
+import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
     precompileInterface,
@@ -24,6 +30,30 @@ import {
     expectVmError,
 } from '../utils/precompileUtils';
 import { readRuntimeState, claimPool, RuntimeState } from '../utils/testUtils';
+
+type DistrCoin = { amount: bigint; decimals: bigint; denom: string };
+
+/**
+ * Asserts the shape of a decoded DecCoin array. Non-emptiness is required by
+ * default: the per-coin loop never runs on an empty array, which would leave
+ * the whole assertion vacuous. `mayBeEmpty` opts out where emptiness is a
+ * legitimate chain state rather than a defect.
+ */
+function expectCoinArray(
+    coins: readonly DistrCoin[],
+    label: string,
+    { mayBeEmpty = false }: { mayBeEmpty?: boolean } = {},
+): void {
+    expect(coins, `${label} is an array`).to.be.an('array');
+    if (!mayBeEmpty) {
+        expect(coins.length, `${label} must not be empty`).to.be.greaterThan(0);
+    }
+    for (const coin of coins) {
+        expect(coin.denom, `${label} denom`).to.be.a('string').and.not.equal('');
+        expect(typeof coin.amount, `${label} amount`).to.equal('bigint');
+        expect(coin.decimals, `${label} decimals`).to.equal(18n);
+    }
+}
 
 describe('distribution precompile (0x1007)', function () {
     this.timeout(180 * 1000);
@@ -187,6 +217,166 @@ describe('distribution precompile (0x1007)', function () {
         });
     });
 
+    describe('query methods', () => {
+        it('params matches the distribution module', async () => {
+            const [viaPrecompile, params] = await Promise.all([
+                distribution.params(),
+                distributionParams(),
+            ]);
+            expect(params, 'the distribution module must report params').to.not.equal(undefined);
+            expect(viaPrecompile.communityTax).to.equal(decString(params!.community_tax));
+            expect(viaPrecompile.baseProposerReward).to.equal(
+                decString(params!.base_proposer_reward),
+            );
+            expect(viaPrecompile.bonusProposerReward).to.equal(
+                decString(params!.bonus_proposer_reward),
+            );
+            expect(viaPrecompile.withdrawAddrEnabled).to.equal(params!.withdraw_addr_enabled);
+        });
+
+        it('delegatorValidators includes the fixture validator', async () => {
+            const validators: string[] = await distribution.delegatorValidators(delegator.address);
+            expect(validators).to.include(validator);
+        });
+
+        it('delegatorWithdrawAddress matches the module rather than assuming the default', async () => {
+            const [viaPrecompile, withdrawAddress] = await Promise.all([
+                distribution.delegatorWithdrawAddress(delegator.address) as Promise<string>,
+                delegatorWithdrawAddress(delegator.seiAddress()),
+            ]);
+            expect(viaPrecompile).to.equal(withdrawAddress);
+        });
+
+        it('delegationRewards, validatorOutstandingRewards and validatorCommission are non-empty', async () => {
+            // All three are non-empty by construction: the fixture delegation
+            // keeps accruing to `validator` every block, the validator's own
+            // rewards are never withdrawn here, and its commission rate cannot
+            // be zero (the devnet's min_commission_rate is 5%).
+            const [delegation, outstanding, commission] = await Promise.all([
+                distribution.delegationRewards(delegator.address, validator),
+                distribution.validatorOutstandingRewards(validator),
+                distribution.validatorCommission(validator),
+            ]);
+            expectCoinArray(delegation, 'delegationRewards');
+            expectCoinArray(outstanding, 'validatorOutstandingRewards');
+            expectCoinArray(commission, 'validatorCommission');
+        });
+
+        it('validatorSlashes matches the distribution module over the same height range', async () => {
+            const endingHeight = 1_000_000_000;
+            const [result, moduleSlashes] = await Promise.all([
+                distribution.validatorSlashes(validator, 1, endingHeight, new Uint8Array()),
+                validatorSlashes(validator, 1, endingHeight),
+            ]);
+            const slashes = (result.slashes ?? result[0]) as Array<{
+                validatorPeriod: bigint;
+                fraction: string;
+            }>;
+            expect(slashes.length, 'validatorSlashes count vs the module').to.equal(
+                moduleSlashes.length,
+            );
+            for (let i = 0; i < moduleSlashes.length; i++) {
+                expect(slashes[i].validatorPeriod).to.equal(
+                    BigInt(moduleSlashes[i].validator_period),
+                );
+                expect(slashes[i].fraction).to.equal(decString(moduleSlashes[i].fraction));
+            }
+        });
+
+        it('communityPool returns coins, or nothing when community_tax is 0', async () => {
+            // sei-cosmos defaults community_tax to 0 and the devnet does not
+            // override it, so no reward is ever skimmed into the pool and an
+            // empty pool is the correct answer rather than a defect.
+            expectCoinArray(await distribution.communityPool(), 'communityPool', {
+                mayBeEmpty: true,
+            });
+        });
+    });
+
+    describe('authz', () => {
+        let grantee: EvmAccount;
+        before(async () => {
+            [grantee] = claimPool(runtime, provider, 1, 'distribution:authz-grantee');
+            await associateViaTx(grantee);
+        });
+
+        it('withdrawValidatorCommission from an account that owns no validator reverts', async () => {
+            await expectVmError(
+                (distribution.connect(grantee.wallet) as ethers.Contract).withdrawValidatorCommission({
+                    gasLimit: 500_000,
+                }),
+                'no validator commission to withdraw',
+            );
+        });
+
+        it('withdrawValidatorCommissionWithAuthorization without a grant reverts', async () => {
+            await expectVmError(
+                (distribution.connect(grantee.wallet) as ethers.Contract)
+                    .withdrawValidatorCommissionWithAuthorization(delegator.address, {
+                        gasLimit: 500_000,
+                    }),
+                'authorization not found',
+            );
+        });
+
+        it('grant lets the grantee withdraw rewards; revoke removes the grant', async () => {
+            const expiration = BigInt(Math.floor(Date.now() / 1000) + 86400);
+
+            const grantTx = await (
+                distribution.connect(delegator.wallet) as ethers.Contract
+            ).grantWithdrawAuthorization(grantee.address, expiration, { gasLimit: 500_000 });
+            expect((await grantTx.wait())!.status).to.equal(1);
+
+            // A successful receipt is not proof the rewards moved, so pin the
+            // credit the same way the non-authorized withdraw above does: the
+            // tx's own DelegationRewardsWithdrawn amount must land at the
+            // delegator's configured withdraw address.
+            const targetBefore = await bankBalance(withdrawTarget.seiAddress());
+            const withdrawTx = await (
+                distribution.connect(grantee.wallet) as ethers.Contract
+            ).withdrawDelegationRewardsWithAuthorization(delegator.address, validator, {
+                gasLimit: 2_000_000,
+            });
+            const receipt = await withdrawTx.wait();
+            expect(receipt!.status).to.equal(1);
+
+            const withdrawn = receipt!.logs
+                .map((l: ethers.Log) => {
+                    try {
+                        return distrIface.parseLog({ topics: [...l.topics], data: l.data });
+                    } catch {
+                        return null;
+                    }
+                })
+                .find((p: any) => p?.name === 'DelegationRewardsWithdrawn');
+            expect(withdrawn, 'DelegationRewardsWithdrawn log emitted').to.not.equal(undefined);
+            const withdrawnUsei: bigint = withdrawn!.args[2];
+            await waitUntil(
+                async () => {
+                    const b = await bankBalance(withdrawTarget.seiAddress());
+                    return b === targetBefore + withdrawnUsei ? b : null;
+                },
+                {
+                    timeoutMs: 30_000,
+                    label: 'withdraw address credited by the authorized withdraw',
+                },
+            );
+
+            const revokeTx = await (
+                distribution.connect(delegator.wallet) as ethers.Contract
+            ).revokeWithdrawAuthorization(grantee.address, { gasLimit: 500_000 });
+            expect((await revokeTx.wait())!.status).to.equal(1);
+
+            await expectVmError(
+                (distribution.connect(grantee.wallet) as ethers.Contract)
+                    .withdrawDelegationRewardsWithAuthorization(delegator.address, validator, {
+                        gasLimit: 2_000_000,
+                    }),
+                'authorization not found',
+            );
+        });
+    });
+
     describe('dispatch semantics (via PrecompileCaller)', () => {
         it('rewards responds through a real CALL and under STATICCALL', async () => {
             const data = distrIface.encodeFunctionData('rewards', [delegator.address]);
@@ -202,6 +392,22 @@ describe('distribution precompile (0x1007)', function () {
             const [decoded] = distrIface.decodeFunctionResult('rewards', viaCall as string);
             expect(decoded.rewards[0].validator_address).to.equal(validator);
             expect(viaStatic, 'CALL and STATICCALL return identical bytes').to.equal(viaCall);
+        });
+
+        it('params is callable via STATICCALL', async () => {
+            const data = distrIface.encodeFunctionData('params', []);
+            const [ret, direct] = await Promise.all([
+                caller.staticcallTarget.staticCall(
+                    PRECOMPILE_ADDRESSES.distribution,
+                    data,
+                ) as Promise<string>,
+                distribution.params(),
+            ]);
+            const [decoded] = distrIface.decodeFunctionResult('params', ret);
+            expect(decoded.communityTax).to.equal(direct.communityTax);
+            expect(decoded.baseProposerReward).to.equal(direct.baseProposerReward);
+            expect(decoded.bonusProposerReward).to.equal(direct.bonusProposerReward);
+            expect(decoded.withdrawAddrEnabled).to.equal(direct.withdrawAddrEnabled);
         });
 
         it('write methods are rejected under STATICCALL (readOnly guard)', async () => {

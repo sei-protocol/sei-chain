@@ -15,9 +15,9 @@ func writeArchive(t *testing.T, dir string, index uint64, version string, hashTy
 	file, err := newHashLogFile(dir, index, version, hashTypes)
 	require.NoError(t, err)
 	for _, log := range logs {
-		require.NoError(t, file.write(log))
+		require.NoError(t, file.Write(log))
 	}
-	require.NoError(t, file.close())
+	require.NoError(t, file.Close())
 }
 
 func log(block uint64, hashes map[string][]byte) *HashLog {

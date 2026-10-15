@@ -159,14 +159,14 @@ func (c *StateChangeSet) clone() *StateChangeSet {
 		Storage:       append([]StorageChange(nil), c.Storage...),
 	}
 	for i, change := range c.Balances {
-		cp.Balances[i] = BalanceChange{Address: change.Address, Balance: cloneBig(change.Balance)}
+		change.Balance = cloneBig(change.Balance)
+		change.PriorBalance = cloneBig(change.PriorBalance)
+		cp.Balances[i] = change
 	}
 	for i, change := range c.Code {
-		cp.Code[i] = CodeChange{
-			Address: change.Address,
-			Code:    append([]byte(nil), change.Code...),
-			Delete:  change.Delete,
-		}
+		change.Code = append([]byte(nil), change.Code...)
+		change.PriorCode = append([]byte(nil), change.PriorCode...)
+		cp.Code[i] = change
 	}
 	return cp
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -283,4 +284,32 @@ func TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks(t *testing.T) {
 	for i := 2; i <= 5; i++ {
 		simulateBlock(t, store, storeKeys, i, addrBase)
 	}
+}
+
+// TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff pins the wasm snapshot extension
+// path: a state-sync snapshot of a pre-kickoff height opens its export view after kickoff has created
+// FlatKV, which can't reach that height.
+func TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff(t *testing.T) {
+	store, storeKeys := newTestRootMulti(t, t.TempDir(), autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	addr := newEVMTestData(0xD2)
+	for i := 1; i <= 3; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	const pre = int64(2)
+
+	require.NoError(t, store.SetMigrationBatchSize(100))
+	for i := 4; i <= 6; i++ {
+		simulateCosmosOnlyBlock(t, store, storeKeys, i)
+	}
+
+	_, err := store.scStore.LoadVersion(pre, true)
+	require.ErrorIs(t, err, gigatypes.ErrVersionUnreachable)
+
+	cms, err := store.CacheMultiStoreForExport(pre)
+	require.NoError(t, err)
+	defer cms.(interface{ Close() }).Close()
+	require.Equal(t, []byte{2, 2}, cms.GetKVStore(storeKeys["bank"]).Get([]byte("supply")))
+	require.Equal(t, makeSlot(2, 0xAA), cms.GetKVStore(storeKeys["evm"]).Get(addr.storKey))
 }

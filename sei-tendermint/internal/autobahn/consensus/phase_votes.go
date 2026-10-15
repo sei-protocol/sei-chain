@@ -29,7 +29,9 @@ type votePhase[V any, B comparable, QC any] struct {
 }
 
 // phaseVotes holds the votes of one consensus phase and publishes the QC they form.
+// Votes belong to a single epoch.
 type phaseVotes[V any, B comparable, QC any] struct {
+	epoch types.EpochIndex
 	phase votePhase[V, B, QC]
 	votes *voteAggregator[V, B]
 	qc    utils.AtomicSend[utils.Option[QC]]
@@ -41,6 +43,15 @@ func newPhaseVotes[V any, B comparable, QC any](phase votePhase[V, B, QC]) *phas
 		votes: newVoteAggregator[V, B](),
 		qc:    utils.NewAtomicSend(utils.None[QC]()),
 	}
+}
+
+// adoptEpoch keeps votes for epoch and drops votes collected for any other epoch.
+func (p *phaseVotes[V, B, QC]) adoptEpoch(epoch types.EpochIndex) {
+	if p.epoch == epoch {
+		return
+	}
+	p.epoch = epoch
+	p.votes = newVoteAggregator[V, B]()
 }
 
 // pushVerifiedVote inserts a vote the caller has already verified against c, publishing a QC

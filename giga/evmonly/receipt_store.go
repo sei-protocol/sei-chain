@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -150,7 +151,8 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	}
 	s.mu.Lock()
 	for blockNumber, blockRecords := range byBlock {
-		s.blockStats[blockNumber] = receipt.ComputeBlockStats(blockRecords, receipt.DefaultRewardPercentiles)
+		s.blockStats[blockNumber] = gigareceipt.ComputeBlockStats(
+			blockRecords, gigareceipt.DefaultRewardPercentiles)
 	}
 	if len(byBlock) == 0 && ctx.BlockHeight() > 0 {
 		// An empty block still executed; record it as a real, zero-stat block rather than leaving

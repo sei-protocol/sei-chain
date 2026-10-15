@@ -39,7 +39,6 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
@@ -413,31 +412,6 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}
 		c.mtx.RUnlock()
 		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
-	case Tokenfactory:
-		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
-		// No denoms, let's mint
-		randNum := r.Float64()
-		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
-		switch {
-		case !ok || randNum <= 0.33:
-			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
-			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
-			msgs = []sdk.Msg{&tokenfactorytypes.MsgCreateDenom{
-				Sender:   denomCreatorAddr,
-				Subdenom: subDenom,
-			}}
-			c.TokenFactoryDenomOwner[denomCreatorAddr] = denom
-		case randNum <= 0.66:
-			msgs = []sdk.Msg{&tokenfactorytypes.MsgMint{
-				Sender: denomCreatorAddr,
-				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10)},
-			}}
-		default:
-			msgs = []sdk.Msg{&tokenfactorytypes.MsgBurn{
-				Sender: denomCreatorAddr,
-				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
-			}}
-		}
 	case FailureBankMalformed:
 		var denom string
 		if r.Float64() < 0.5 {
