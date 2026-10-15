@@ -314,10 +314,10 @@ func TestSelfDestructAssociated(t *testing.T) {
 	// association should also be removed
 	_, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
 	require.False(t, ok)
-	// balance in destructed account should be cleared and transferred to coinbase
-	require.Equal(t, uint256.NewInt(0), statedb.GetBalance(evmAddr))
+	// EIP-8246: the destructed account keeps its balance
+	require.Equal(t, uint256.NewInt(1), statedb.GetBalance(evmAddr))
 	fc, _ := k.GetFeeCollectorAddress(statedb.Ctx())
-	require.Equal(t, uint256.NewInt(1), statedb.GetBalance(fc))
+	require.Equal(t, uint256.NewInt(0), statedb.GetBalance(fc))
 }
 
 // TestEIP6780WithPrefundedAddress verifies that EIP-6780 selfdestruct works correctly

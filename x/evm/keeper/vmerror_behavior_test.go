@@ -21,8 +21,8 @@ func TestVMErrorTextBehavior(t *testing.T) {
 	loop := (&bc{}).op(vm.JUMPDEST).push1(0).op(vm.JUMP).bytes()
 	// runtime: CALL(GAS, recipient, 1 wei, 0, 0, 0, 0)
 	callValue := (&bc{}).push1(0).push1(0).push1(0).push1(0).push1(1).push20(vmErrRecipient).op(vm.GAS, vm.CALL).bytes()
-	// initcode: RETURN(0, 24577), one byte over the code size limit
-	tooLarge := (&bc{}).push2(0x6001).push1(0).op(vm.RETURN).bytes()
+	// initcode: RETURN(0, 49153), one byte over the EIP-7954 code size limit
+	tooLarge := (&bc{}).push2(0xc001).push1(0).op(vm.RETURN).bytes()
 	// initcode: RETURN 0xEF
 	efCode := (&bc{}).push1(0xef).push1(0).op(vm.MSTORE8).push1(1).push1(0).op(vm.RETURN).bytes()
 
@@ -38,7 +38,7 @@ func TestVMErrorTextBehavior(t *testing.T) {
 		{name: "call_dynamic_gas_out_of_gas", to: &vmErrCaller, gas: 25_000, want: "out of gas: out of gas"},
 		{name: "create_out_of_gas", gas: 80_000, data: loop, want: "out of gas"},
 		// go-ethereum v1.17 adds the size suffix
-		{name: "create_code_too_large", gas: 6_000_000, data: tooLarge, want: "max code size exceeded: code size 24577 limit 24576"},
+		{name: "create_code_too_large", gas: 12_000_000, data: tooLarge, want: "max code size exceeded: code size 49153 limit 49152"},
 		// code deposit gas is charged before the size check
 		{name: "create_code_too_large_low_gas", gas: 200_000, data: tooLarge, want: "contract creation code storage out of gas"},
 		{name: "create_ef_prefix", gas: 100_000, data: efCode, want: "invalid code: must not begin with 0xef"},

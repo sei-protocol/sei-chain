@@ -178,6 +178,10 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
+	// EIP-8246 keeps a self-destructed account's balance.
+	if types.IsSeiAmsterdam(s.ctx.BlockTime().Unix()) {
+		return
+	}
 	for a, status := range st.transientAccounts {
 		if !bytes.Equal(status, AccountDeleted) {
 			continue

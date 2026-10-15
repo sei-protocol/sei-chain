@@ -54,10 +54,12 @@ func (c Config) WithDefaults() Config {
 	return c
 }
 
-// DefaultChainConfig returns params.AllDevChainProtocolChanges through Prague, with the base fee paid to the coinbase.
+// DefaultChainConfig returns params.AllDevChainProtocolChanges through Osaka plus Sei's Amsterdam subset,
+// with the base fee paid to the coinbase.
 func DefaultChainConfig() *params.ChainConfig {
 	cfg := *params.AllDevChainProtocolChanges
-	cfg.OsakaTime = nil
+	seiAmsterdamTime := uint64(0)
+	cfg.SeiAmsterdamTime = &seiAmsterdamTime
 	cfg.BPO1Time = nil
 	cfg.BPO2Time = nil
 	cfg.BPO3Time = nil

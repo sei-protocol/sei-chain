@@ -2,7 +2,6 @@ package ante
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"math/big"
 
@@ -12,7 +11,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -102,8 +100,8 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		return nil
 	}
 	etx, _ := msg.AsTransaction()
-	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
-		return fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
+	if err := evmtypes.ValidateTxLimits(etx, ctx.BlockTime().Unix()); err != nil {
+		return err
 	}
 
 	if etx.Value().Sign() < 0 {

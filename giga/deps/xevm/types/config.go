@@ -11,6 +11,11 @@ import (
 var CancunTime int64 = 0
 var PragueTime int64 = 0
 
+// OsakaTime and SeiAmsterdamTime activate Osaka and Sei's Amsterdam subset (EIP-7708,
+// 7954, 8024, 8246) with the v6.9 binary; -1 disables.
+var OsakaTime int64 = 0
+var SeiAmsterdamTime int64 = 0
+
 /*
 *
 XXBlock/Time fields indicate upgrade heights/timestamps. For example, a BerlinBlock
@@ -45,6 +50,8 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 		ShanghaiTime:               getUpgradeTimestamp(0),
 		CancunTime:                 getUpgradeTimestamp(cc.CancunTime),
 		PragueTime:                 getUpgradeTimestamp(cc.PragueTime),
+		OsakaTime:                  getUpgradeTimestamp(OsakaTime),
+		SeiAmsterdamTime:           getUpgradeTimestamp(SeiAmsterdamTime),
 		UBTTime:                    getUpgradeTimestamp(cc.VerkleTime),
 		BlobScheduleConfig:         params.DefaultBlobSchedule,
 	}
@@ -63,6 +70,16 @@ func DefaultChainConfig() ChainConfig {
 		VerkleTime:             -1,
 		SeiSstoreSetGasEip2200: DefaultSeiSstoreSetGasEIP2200,
 	}
+}
+
+// IsOsaka reports whether Osaka is active at blockTime.
+func IsOsaka(blockTime int64) bool {
+	return OsakaTime >= 0 && blockTime >= OsakaTime
+}
+
+// IsSeiAmsterdam reports whether Sei's Amsterdam subset is active at blockTime.
+func IsSeiAmsterdam(blockTime int64) bool {
+	return IsOsaka(blockTime) && SeiAmsterdamTime >= 0 && blockTime >= SeiAmsterdamTime
 }
 
 func getUpgradeTimestamp(i int64) *uint64 {

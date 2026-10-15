@@ -1,12 +1,8 @@
 package ante
 
 import (
-	"fmt"
-
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
@@ -41,8 +37,8 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		}
 	}
 
-	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
-		return ctx, fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
+	if err := evmtypes.ValidateTxLimits(etx, ctx.BlockTime().Unix()); err != nil {
+		return ctx, err
 	}
 
 	if etx.Value().Sign() < 0 {
