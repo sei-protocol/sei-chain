@@ -73,15 +73,18 @@ type ExecutionConfig struct {
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
-// value disables the limit it names.
+// value disables the limit it names, except where a field says otherwise.
 type RPCConfig struct {
 	// MaxSubscriptionsNewHead caps open eth_subscribe("newHeads") subscriptions across all
 	// connections.
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 	// MaxSubscriptionsPerConnection caps the open subscriptions of a single WebSocket connection.
 	MaxSubscriptionsPerConnection uint64 `mapstructure:"max_subscriptions_per_connection"`
+	// MaxRequestBodyBytes caps the size, in bytes, of one HTTP request body or WebSocket message.
+	// It must be positive.
+	MaxRequestBodyBytes int `mapstructure:"max_request_body_bytes"`
 	// MaxConcurrentRequestBytes caps the total size, in bytes, of WebSocket request frames read
-	// and processed concurrently. Values below the 32 MiB WebSocket message limit act as 32 MiB.
+	// and processed concurrently. Values below MaxRequestBodyBytes act as MaxRequestBodyBytes.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
 	// WSAdmissionTimeout is how long a WebSocket connection waits for MaxConcurrentRequestBytes
 	// budget before it is closed; zero uses the go-ethereum default of 30s.
@@ -110,6 +113,7 @@ var DefaultConfig = Config{
 	RPC: RPCConfig{
 		MaxSubscriptionsNewHead:       10_000,
 		MaxSubscriptionsPerConnection: 100,
+		MaxRequestBodyBytes:           5 * 1024 * 1024,
 		MaxConcurrentRequestBytes:     128 * 1024 * 1024,
 		WSAdmissionTimeout:            30 * time.Second,
 		BatchRequestLimit:             100,
@@ -151,6 +155,7 @@ const (
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
+	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
 	FlagRPCMaxConcurrentRequestBytes     = "giga.rpc.max_concurrent_request_bytes"
 	FlagRPCWSAdmissionTimeout            = "giga.rpc.ws_admission_timeout"
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
@@ -242,6 +247,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsPerConnection, err)
 		}
 	}
+	if v := opts.Get(FlagRPCMaxRequestBodyBytes); v != nil {
+		if cfg.RPC.MaxRequestBodyBytes, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxRequestBodyBytes, err)
+		}
+	}
 	if v := opts.Get(FlagRPCMaxConcurrentRequestBytes); v != nil {
 		if cfg.RPC.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxConcurrentRequestBytes, err)
@@ -318,6 +328,9 @@ func (c Config) Validate() error {
 	if c.Execution.EvmWsPort == c.Execution.EvmRpcPort {
 		return fmt.Errorf("%s: must differ from %s, both are %d", FlagExecutionEvmWsPort, FlagExecutionEvmRpcPort,
 			c.Execution.EvmWsPort)
+	}
+	if c.RPC.MaxRequestBodyBytes < 1 {
+		return fmt.Errorf("%s: must be positive, got %d", FlagRPCMaxRequestBodyBytes, c.RPC.MaxRequestBodyBytes)
 	}
 	if c.RPC.MaxConcurrentRequestBytes < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxConcurrentRequestBytes, c.RPC.MaxConcurrentRequestBytes)
@@ -408,8 +421,12 @@ max_subscriptions_new_head = {{ .Giga.RPC.MaxSubscriptionsNewHead }}
 # max_subscriptions_per_connection caps the open subscriptions of a single WebSocket connection.
 max_subscriptions_per_connection = {{ .Giga.RPC.MaxSubscriptionsPerConnection }}
 
+# max_request_body_bytes caps the size, in bytes, of one HTTP request body or WebSocket message.
+# It must be positive.
+max_request_body_bytes = {{ .Giga.RPC.MaxRequestBodyBytes }}
+
 # max_concurrent_request_bytes caps the total size, in bytes, of WebSocket request frames read
-# and processed concurrently. Values below the 32 MiB WebSocket message limit act as 32 MiB.
+# and processed concurrently. Values below max_request_body_bytes act as max_request_body_bytes.
 max_concurrent_request_bytes = {{ .Giga.RPC.MaxConcurrentRequestBytes }}
 
 # ws_admission_timeout is how long a WebSocket connection waits for max_concurrent_request_bytes

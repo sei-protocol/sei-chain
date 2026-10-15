@@ -44,6 +44,7 @@ func TestRPCDefaultsMatchTheV2EVMRPC(t *testing.T) {
 	v2 := evmrpcconfig.DefaultConfig
 	r := gigaconfig.DefaultConfig.RPC
 	require.Equal(t, v2.MaxSubscriptionsNewHead, r.MaxSubscriptionsNewHead)
+	require.Equal(t, v2.MaxRequestBodyBytes, int64(r.MaxRequestBodyBytes))
 	require.Equal(t, v2.MaxConcurrentRequestBytes, r.MaxConcurrentRequestBytes)
 	require.Equal(t, v2.WSAdmissionTimeout, r.WSAdmissionTimeout)
 	require.Equal(t, v2.BatchRequestLimit, r.BatchRequestLimit)
@@ -84,6 +85,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.evm_ws_port":                "8601",
 		"giga.rpc.max_subscriptions_new_head":       "20",
 		"giga.rpc.max_subscriptions_per_connection": "5",
+		"giga.rpc.max_request_body_bytes":           "2048",
 		"giga.rpc.max_concurrent_request_bytes":     "4096",
 		"giga.rpc.ws_admission_timeout":             "2s",
 		"giga.rpc.batch_request_limit":              "10",
@@ -113,6 +115,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
 			MaxSubscriptionsPerConnection: 5,
+			MaxRequestBodyBytes:           2048,
 			MaxConcurrentRequestBytes:     4096,
 			WSAdmissionTimeout:            2 * time.Second,
 			BatchRequestLimit:             10,
@@ -141,6 +144,9 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"evm ws port is rpc port":         {"giga.execution.evm_ws_port": "8545"},
 		"negative subscription cap":       {"giga.rpc.max_subscriptions_new_head": "-1"},
 		"non-numeric per-connection cap":  {"giga.rpc.max_subscriptions_per_connection": "many"},
+		"zero request body size":          {"giga.rpc.max_request_body_bytes": "0"},
+		"negative request body size":      {"giga.rpc.max_request_body_bytes": "-1"},
+		"non-numeric request body size":   {"giga.rpc.max_request_body_bytes": "huge"},
 		"negative request bytes":          {"giga.rpc.max_concurrent_request_bytes": "-1"},
 		"negative admission timeout":      {"giga.rpc.ws_admission_timeout": "-1s"},
 		"negative batch limit":            {"giga.rpc.batch_request_limit": "-1"},

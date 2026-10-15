@@ -20,8 +20,12 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// noRPCLimits disables every limit the handler enforces.
-var noRPCLimits = gigaconfig.RPCConfig{}
+// testRequestBodyBytes is the request size limit the handler runs under in tests. Unlike the other
+// limits it cannot be disabled.
+var testRequestBodyBytes = gigaconfig.DefaultConfig.RPC.MaxRequestBodyBytes
+
+// noRPCLimits disables every limit the handler can run without.
+var noRPCLimits = gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes}
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int

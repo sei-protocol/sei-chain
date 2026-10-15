@@ -126,6 +126,8 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigac
 	}
 	rpcServer := ethrpc.NewServer()
 	rpcServer.SetBatchLimits(limits.BatchRequestLimit, limits.BatchResponseMaxSize)
+	rpcServer.SetHTTPBodyLimit(limits.MaxRequestBodyBytes)
+	rpcServer.SetReadLimits(int64(limits.MaxRequestBodyBytes))
 	rpcServer.SetWSConcurrentRequestBytes(limits.MaxConcurrentRequestBytes)
 	rpcServer.SetWSAdmissionTimeout(limits.WSAdmissionTimeout)
 	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
