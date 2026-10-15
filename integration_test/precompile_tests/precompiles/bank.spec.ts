@@ -14,8 +14,9 @@ import { EvmAccount, associateViaTx } from '../utils/evmUtils';
 import {
     bankBalance,
     bankSupplyOf,
+    cosmosQuery,
+    denomWithMetadata,
     generateSeiAddress,
-    createTokenfactoryDenom,
 } from '../utils/cosmosUtils';
 import { bankParams } from '../utils/moduleQueries';
 import {
@@ -39,7 +40,7 @@ describe('bank precompile (0x1001)', function () {
     let admin: EvmAccount;
     let bank: ethers.Contract;
     let caller: ethers.Contract;
-    /** Tokenfactory denom minted by the denomMetadata test, reused by denomsMetadata. */
+    /** Denom whose metadata the denomMetadata test checked, reused by denomsMetadata. */
     let metadataDenom = '';
 
     before(() => {
@@ -170,9 +171,9 @@ describe('bank precompile (0x1001)', function () {
             const before: bigint = await bank.supply('usei');
 
             // totalSupply sends no page limit, so the bank module's default of
-            // 100 applies. Supply is keyed by denom and every factory/… denom
-            // this suite mints sorts before usei, so on a long-lived devnet usei
-            // is not on page one and only walking the pages finds it.
+            // 100 applies. Supply is keyed by denom, so on a devnet holding more
+            // than a page of denoms that sort before usei, only walking the pages
+            // finds it.
             let pageKey: Uint8Array = new Uint8Array();
             let usei: { amount: bigint; denom: string } | undefined;
             for (let page = 0; page < 50 && usei === undefined; page++) {
@@ -207,22 +208,25 @@ describe('bank precompile (0x1001)', function () {
             expect(viaPrecompile.defaultSendEnabled).to.equal(true);
         });
 
-        it('denomMetadata returns tokenfactory metadata for a created denom', async () => {
-            // Fresh devnets may not register usei metadata (see name/symbol above);
-            // tokenfactory always writes name/symbol/base/display = the full denom
-            // and a single exponent-0 unit, which is the fixture this query needs.
-            metadataDenom = await createTokenfactoryDenom(
-                runtime.funded.adminMnemonic,
-                `bnk${Date.now().toString(36)}`,
+        it('denomMetadata matches the bank module for a denom carrying metadata', async () => {
+            // Fresh devnets may not register usei metadata (see name/symbol above),
+            // so the fixture is a denom the bank module does hold metadata for.
+            metadataDenom = await denomWithMetadata();
+            const qc = await cosmosQuery();
+            const [meta, want] = await Promise.all([
+                bank.denomMetadata(metadataDenom),
+                qc.bank.denomMetadata(metadataDenom),
+            ]);
+            expect(meta.base).to.equal(want.base);
+            expect(meta.name).to.equal(want.name);
+            expect(meta.symbol).to.equal(want.symbol);
+            expect(meta.display).to.equal(want.display);
+            expect(meta.denomUnits.length, 'precompile vs bank module denom units').to.equal(
+                want.denomUnits.length,
             );
-            const meta = await bank.denomMetadata(metadataDenom);
-            expect(meta.base).to.equal(metadataDenom);
-            expect(meta.name).to.equal(metadataDenom);
-            expect(meta.symbol).to.equal(metadataDenom);
-            expect(meta.display).to.equal(metadataDenom);
-            expect(meta.denomUnits.length, 'tokenfactory writes one denom unit').to.be.greaterThan(0);
-            expect(meta.denomUnits[0].denom).to.equal(metadataDenom);
-            expect(Number(meta.denomUnits[0].exponent)).to.equal(0);
+            expect(meta.denomUnits.length, 'metadata carries at least one denom unit').to.be.greaterThan(0);
+            expect(meta.denomUnits[0].denom).to.equal(want.denomUnits[0].denom);
+            expect(Number(meta.denomUnits[0].exponent)).to.equal(want.denomUnits[0].exponent);
         });
 
         it('denomsMetadata pages until it reaches the denom denomMetadata just returned', async () => {
