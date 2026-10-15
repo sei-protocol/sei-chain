@@ -137,6 +137,32 @@ func TestRecoveryRollsTheIndexBackToTheLittHead(t *testing.T) {
 	replayAndRequireEachBlockOnce(t, s, 5, 6)
 }
 
+// When litt lost blocks at or above the retention floor, recovery still rolls the index back to the
+// litt head instead of refusing to start, and replay restores the lost blocks.
+func TestRecoveryRollsTheIndexBackBelowTheRetentionFloor(t *testing.T) {
+	dir := t.TempDir()
+	writeLittIdxReceipts(t, dir, 6)
+	s := openStore(t, dir)
+	require.NoError(t, s.pruneBlocksBelow(6))
+	require.NoError(t, s.Close())
+	require.NoError(t, LoseLittAbove(dir, 5))
+
+	head, err := GetLatestBlock(littIdxCfg(dir))
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), head)
+	require.NoError(t, PruneAfter(littIdxCfg(dir), head))
+
+	s = openStore(t, dir)
+	require.Equal(t, int64(5), s.LatestVersion())
+	require.Equal(t, int64(6), s.EarliestVersion())
+	ctx, _ := newTestContext()
+	require.NoError(t, s.SetReceipts(ctx.WithBlockHeight(6), []receipt.ReceiptRecord{crashRecord(6)}))
+	requireReceiptVersion(t, s, 6)
+	got, err := s.GetReceipt(ctx, crashRecord(6).TxHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(6), got.BlockNumber)
+}
+
 // PruneAfter rolls the index back to the litt head even when highestBlockToKeep is above both heads.
 func TestPruneAfterAboveBothHeadsRollsTheIndexBack(t *testing.T) {
 	dir := t.TempDir()
@@ -173,6 +199,23 @@ func TestPruneAfterRefusesAnIndexHeadWithEmptyLitt(t *testing.T) {
 	require.NoError(t, LoseLittAbove(dir, 0))
 
 	require.ErrorContains(t, PruneAfter(littIdxCfg(dir), 3), "no receipts are present on disk")
+}
+
+// A write for a block below the head is refused, so the newest part in litt is always the highest block.
+func TestWriteRefusesABlockBelowTheHead(t *testing.T) {
+	cfg := littIdxCfg(t.TempDir())
+	cfg.AsyncWriteBuffer = 0
+	ctx, storeKey := newTestContext()
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{crashRecord(1)}))
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{crashRecord(2)}))
+
+	late := makeTestReceipt(common.HexToHash("0x1a7e"), 1, 1, crashAddr, []common.Hash{crashTopic})
+	err = store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{{TxHash: common.HexToHash("0x1a7e"), Receipt: late}})
+	require.ErrorContains(t, err, "below the store's head 2")
 }
 
 // A write to a block above the head that already has a part in litt is refused, leaving the head and

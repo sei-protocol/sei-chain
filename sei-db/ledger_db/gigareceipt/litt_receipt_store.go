@@ -39,7 +39,7 @@ import (
 // Giga opens this store, and only Giga. It requires every write to be contiguous
 // with the head the store opened on — the property Giga establishes by converging
 // its stores onto one height at startup — and refuses a write that skips a block
-// (see requireNoSkippedBlock()).
+// or lands below the head (see requireNoSkippedBlock and requireNoBlockBelowHead).
 //
 // Receipt bytes live in litt's immutable append-only segments — large values
 // never enter LSM compaction, and expired data is reclaimed by dropping whole
@@ -436,6 +436,9 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []receipt.Receip
 	if err := s.requireNoSkippedBlock(blockNumbers); err != nil {
 		return err
 	}
+	if err := s.requireNoBlockBelowHead(blockNumbers); err != nil {
+		return err
+	}
 
 	// Closes the stage in flight, so the gap until the next write is charged to neither.
 	defer s.writePhases.Reset()
@@ -575,6 +578,17 @@ func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 		}
 	}
 	return nil
+}
+
+// requireNoBlockBelowHead refuses a write for a block below the store's head. Recovery takes the newest
+// part in litt as the litt head, which holds only while blocks are written in ascending order.
+// blockNumbers must be sorted ascending.
+func (s *littReceiptStore) requireNoBlockBelowHead(blockNumbers []uint64) error {
+	head := s.latestVersion.Load()
+	if head <= 0 || int64(blockNumbers[0]) >= head { //nolint:gosec // block heights fit within int64
+		return nil
+	}
+	return fmt.Errorf("receipt write for block %d is below the store's head %d", blockNumbers[0], head)
 }
 
 // requireNoOrphanedParts returns an error if a block above the store's head already has parts in litt.

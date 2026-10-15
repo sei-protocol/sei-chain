@@ -100,9 +100,9 @@ func newestOrOldestBlock(littConfig *litt.Config, newest bool) (block uint64, ok
 // the lowest of highestBlockToKeep, the litt head and the index head. A store already ending there is
 // left unchanged.
 //
-// It returns an error without changing anything when that block is below the retention floor, when it is
-// below the oldest receipt in litt while the index has a head, or when the index has a head but litt holds
-// no receipts.
+// It returns an error without changing anything when litt would be rolled back below the retention floor,
+// when that block is below the oldest receipt in litt while the index has a head, or when the index has a
+// head but litt holds no receipts.
 func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err error) {
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, littIndexDirName)
@@ -143,7 +143,8 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 	if !littAboveCut && !indexAboveCut {
 		return nil
 	}
-	if earliestFound && cut < earliest {
+	// Rolling back only the index below the floor is allowed: litt lost those blocks, and replay rewrites them.
+	if littAboveCut && earliestFound && cut < earliest {
 		return fmt.Errorf("cannot roll back receipt store to block %d: it is below the retention floor "+
 			"(earliest readable block %d); that data has already been pruned", cut, earliest)
 	}
