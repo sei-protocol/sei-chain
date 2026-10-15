@@ -194,40 +194,86 @@ func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
+// App nonces are read without the mempool lock, so inserts proceed meanwhile.
 func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
+	var unsettled map[common.Address]uint64
 	for m, ctrl := range mp.inner.Lock() {
-		if m.closed || n < m.first {
-			return
+		unsettled = m.pruneBlocks(ctrl, n)
+	}
+	if len(unsettled) == 0 {
+		return
+	}
+	stale := s.unexecutedSenders(unsettled)
+	if len(stale) == 0 {
+		return
+	}
+	// An insert between the locked sections may build on tracking reset here. That tx
+	// fails its nonce check at execution, like the sequenced txs the reset already covers.
+	for m := range mp.inner.Lock() {
+		if !m.closed {
+			m.resetTracking(stale)
 		}
-		ctrl.Updated()
-		for m.first < min(n, m.next) {
-			b := m.blocks[m.first]
-			delete(m.blocks, m.first)
-			m.first += 1
-			for _, hash := range b.evmHashes {
-				delete(m.evmTxs, hash)
-			}
-			for addr, wantNonce := range b.evmNonces {
-				if wantNonce == m.evmNonces[addr] {
-					// Happy path: all account's txs got executed.
-					delete(m.evmNonces, addr)
-				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
-					// Some txs have not been executed - reset account tracking.
-					// NOTE: app execution is not synchronized with mempool, so nonce could have already
-					// proceeded past wantNonce and that is expected.
-					delete(m.evmNonces, addr)
-					delete(m.nextBlock.evmNonces, addr)
-					for _, x := range m.blocks {
-						delete(x.evmNonces, addr)
-					}
-				}
-			}
+	}
+}
+
+// pruneBlocks removes lane blocks <n and the tracking of senders whose txs all got
+// executed. It returns the nonce that every other sender of a pruned block expects.
+func (m *mempoolInner) pruneBlocks(ctrl *utils.WatchCtrl, n types.BlockNumber) map[common.Address]uint64 {
+	if m.closed || n < m.first {
+		return nil
+	}
+	ctrl.Updated()
+	var unsettled map[common.Address]uint64
+	for m.first < min(n, m.next) {
+		b := m.blocks[m.first]
+		delete(m.blocks, m.first)
+		m.first += 1
+		for _, hash := range b.evmHashes {
+			delete(m.evmTxs, hash)
 		}
-		// n > m.next shouldn't really happen,
-		// because local mempool is the only source of local lane blocks,
-		// but we handle it gracefully anyway.
-		m.next = max(m.next, n)
-		m.signalHead()
+		for addr, wantNonce := range b.evmNonces {
+			if wantNonce == m.evmNonces[addr] {
+				// Happy path: all account's txs got executed.
+				delete(m.evmNonces, addr)
+				continue
+			}
+			if unsettled == nil {
+				unsettled = map[common.Address]uint64{}
+			}
+			// Blocks are pruned in order, so the sender's highest expected nonce wins.
+			unsettled[addr] = wantNonce
+		}
+	}
+	// n > m.next shouldn't really happen,
+	// because local mempool is the only source of local lane blocks,
+	// but we handle it gracefully anyway.
+	m.next = max(m.next, n)
+	m.signalHead()
+	return unsettled
+}
+
+// unexecutedSenders returns the senders whose app nonce is below the nonce they expect.
+func (s *State) unexecutedSenders(wantNonces map[common.Address]uint64) []common.Address {
+	var stale []common.Address
+	for addr, wantNonce := range wantNonces {
+		// NOTE: app execution is not synchronized with mempool, so nonce could have already
+		// proceeded past wantNonce and that is expected.
+		if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
+			stale = append(stale, addr)
+		}
+	}
+	return stale
+}
+
+// resetTracking drops the tracked nonces of addrs.
+func (m *mempoolInner) resetTracking(addrs []common.Address) {
+	for _, addr := range addrs {
+		// Some txs have not been executed - reset account tracking.
+		delete(m.evmNonces, addr)
+		delete(m.nextBlock.evmNonces, addr)
+		for _, x := range m.blocks {
+			delete(x.evmNonces, addr)
+		}
 	}
 }
 
