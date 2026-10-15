@@ -23,7 +23,7 @@ const testChainID uint64 = 713715
 const publishTimeout = 10 * time.Second
 
 // Every input, in a fixed order.
-var allInputs = []hashInput{blockHashInput, stateHashInput, budInput, receiptHashInput}
+var allInputs = []hashInput{blockHashInput, stateHashInput, budHashInput, receiptHashInput}
 
 // inputValue returns the value tests report for input at blockHeight. A different salt gives a different value.
 func inputValue(input hashInput, blockHeight uint64, salt byte) [32]byte {
@@ -45,7 +45,7 @@ func expectedChain(gigaActivationHeight uint64, first uint64, last uint64) []*ap
 			height,
 			inputValue(blockHashInput, height, 0),
 			inputValue(stateHashInput, height, 0),
-			inputValue(budInput, height, 0),
+			inputValue(budHashInput, height, 0),
 			inputValue(receiptHashInput, height, 0),
 			previous,
 		)
@@ -124,7 +124,7 @@ func reportInput(t *testing.T, b AppHashBuilder, input hashInput, blockHeight ui
 		err = b.ReportBlockHash(ctx, blockHeight, value)
 	case stateHashInput:
 		err = b.ReportStateHash(ctx, blockHeight, value, nil)
-	case budInput:
+	case budHashInput:
 		err = b.ReportBUDHash(ctx, blockHeight, value)
 	case receiptHashInput:
 		err = b.ReportReceiptHash(ctx, blockHeight, value)
@@ -256,7 +256,7 @@ func TestWaitsForEveryInput(t *testing.T) {
 	// Each input reports its blocks in a burst, so the inputs run far apart.
 	reportInputBlocks(t, b, stateHashInput, 1, 5)
 	reportInputBlocks(t, b, blockHashInput, 1, 5)
-	reportInputBlocks(t, b, budInput, 1, 5)
+	reportInputBlocks(t, b, budHashInput, 1, 5)
 	requireNothingPublished(t, published)
 
 	reportInputBlocks(t, b, receiptHashInput, 1, 3)
@@ -347,7 +347,7 @@ func TestSetupFailsWhenABlockCannotBeComputed(t *testing.T) {
 	b := openTestBuilder(t, dir, testChainID, 1)
 	reportInputBlocks(t, b, blockHashInput, 6, 8)
 	reportInputBlocks(t, b, stateHashInput, 6, 8)
-	reportInputBlocks(t, b, budInput, 6, 8)
+	reportInputBlocks(t, b, budHashInput, 6, 8)
 	require.Error(t, b.SetupComplete(context.Background(), 8))
 
 	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
@@ -417,9 +417,9 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 
 func TestFirstReportAfterSetupMustFollowStorageHeight(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	reportInputBlocks(t, b, budInput, 1, 3)
+	reportInputBlocks(t, b, budHashInput, 1, 3)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	reportInput(t, b, budInput, 4, 0)
+	reportInput(t, b, budHashInput, 4, 0)
 
 	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
 	require.Error(t, err)
@@ -565,7 +565,7 @@ func TestChangedBlockAboveStorageHeightPanics(t *testing.T) {
 		reportInputBlocks(t, b, blockHashInput, 4, 4)
 		reportInputBlocks(t, b, stateHashInput, 4, 4)
 		reportInputBlocks(t, b, receiptHashInput, 4, 4)
-		reportInput(t, b, budInput, 4, 1)
+		reportInput(t, b, budHashInput, 4, 1)
 		// The changed block crashes the process before it is published.
 		receive(t, published, 1)
 	})

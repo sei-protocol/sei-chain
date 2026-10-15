@@ -42,7 +42,7 @@ type GigaStorageManager struct {
 	// gc is nil until startGarbageCollector succeeds.
 	gc *controller.StorageGarbageCollector
 
-	// appHashBuilder is nil until openAppHashBuilder succeeds.
+	// appHashBuilder is nil until openAppHashBuilder opens it.
 	appHashBuilder builder.AppHashBuilder
 
 	// appHashVault holds the app hashes appHashBuilder stores. It is nil until openAppHashBuilder opens it.
@@ -52,7 +52,7 @@ type GigaStorageManager struct {
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
-//  3. OpenDBWithRecovery: bring every store onto one height.
+//  3. OpenDBWithRecovery: bring every store onto one height, then open the app hash builder at that height.
 //  4. Start the garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {

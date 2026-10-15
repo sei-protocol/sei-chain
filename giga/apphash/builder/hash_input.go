@@ -13,7 +13,7 @@ type hashInput uint8
 const (
 	blockHashInput   hashInput = 0
 	stateHashInput   hashInput = 1
-	budInput         hashInput = 2
+	budHashInput     hashInput = 2
 	receiptHashInput hashInput = 3
 	hashInputCount             = 4
 )
@@ -24,8 +24,8 @@ func (i hashInput) String() string {
 		return "block hash"
 	case stateHashInput:
 		return "state hash"
-	case budInput:
-		return "BUD"
+	case budHashInput:
+		return "BUD hash"
 	case receiptHashInput:
 		return "receipt hash"
 	default:
@@ -40,8 +40,8 @@ func (i hashInput) of(record *apphash.AppHashData) [32]byte {
 		return record.BlockHash()
 	case stateHashInput:
 		return record.StateHash()
-	case budInput:
-		return record.BUD()
+	case budHashInput:
+		return record.BUDHash()
 	case receiptHashInput:
 		return record.ReceiptHash()
 	default:

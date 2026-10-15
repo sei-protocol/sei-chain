@@ -21,7 +21,7 @@ const (
 	previousAppHashColumn = "previousAppHash"
 	blockHashColumn       = "blockHash"
 	stateHashColumn       = "stateHash"
-	budColumn             = "bud"
+	budHashColumn         = "budHash"
 	receiptHashColumn     = "receiptHash"
 )
 
@@ -177,7 +177,7 @@ func (b *StandardAppHashBuilder) ReportStateHash(
 }
 
 func (b *StandardAppHashBuilder) ReportBUDHash(ctx context.Context, blockHeight uint64, budHash [32]byte) error {
-	request := reportRequest{input: budInput, blockHeight: blockHeight, value: budHash}
+	request := reportRequest{input: budHashInput, blockHeight: blockHeight, value: budHash}
 	if err := b.submit(ctx, request); err != nil {
 		return fmt.Errorf("failed to report the BUD hash of block %d: %w", blockHeight, err)
 	}
@@ -694,7 +694,7 @@ func (b *StandardAppHashBuilder) buildRecord(blockHeight uint64, block *pendingB
 		blockHeight,
 		block.values[blockHashInput],
 		block.values[stateHashInput],
-		block.values[budInput],
+		block.values[budHashInput],
 		block.values[receiptHashInput],
 		b.headAppHash,
 	)
@@ -716,7 +716,7 @@ func (b *StandardAppHashBuilder) writeToHashLog(record *apphash.AppHashData, com
 	hashes[previousAppHashColumn] = hashBytes(record.PreviousAppHash())
 	hashes[blockHashColumn] = hashBytes(record.BlockHash())
 	hashes[stateHashColumn] = hashBytes(record.StateHash())
-	hashes[budColumn] = hashBytes(record.BUD())
+	hashes[budHashColumn] = hashBytes(record.BUDHash())
 	hashes[receiptHashColumn] = hashBytes(record.ReceiptHash())
 	if err := b.hashLog.Write(record.BlockHeight(), hashes); err != nil {
 		logger.Error("failed to write to the app hash log; disabling hash logging", "err", err)

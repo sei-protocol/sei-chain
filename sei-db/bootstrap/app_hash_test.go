@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
@@ -104,7 +105,7 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 		require.Equal(t, testAppHashChainID, appHash.ChainID())
 		require.Equal(t, [32]byte{}, appHash.BlockHash())
 		require.NotEqual(t, [32]byte{}, appHash.StateHash())
-		require.NotEqual(t, [32]byte{}, appHash.BUD())
+		require.NotEqual(t, [32]byte{}, appHash.BUDHash())
 	}
 	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
@@ -173,4 +174,24 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 	rebuilt := receiveAppHashes(t, published, 2)
 	require.Equal(t, stored[3].AppHash(), rebuilt[0].AppHash())
 	require.Equal(t, stored[4].AppHash(), rebuilt[1].AppHash())
+}
+
+// Registering the builder fails when the state hashes would not start right after the state height, rather than
+// leaving the builder to stop on its first report.
+func TestRegisteringBuilderFailsWhenStateHashesAreOutOfLine(t *testing.T) {
+	manager, _ := openManager(t, disableSS)
+	commitBlocks(t, manager, 3)
+	stopForRestart(t, manager)
+	reconverge(t, manager, 3)
+
+	appHashConfig := manager.cfg.AppHashBuilderConfig
+	hashVault, err := vault.NewStandardHashVault(
+		appHashConfig.HashVaultConfig, appHashConfig.ChainID, appHashConfig.GigaActivationHeight)
+	require.NoError(t, err)
+	manager.appHashVault = hashVault
+	appHashBuilder, err := builder.NewStandardAppHashBuilder(t.Context(), *appHashConfig, hashVault)
+	require.NoError(t, err)
+	manager.appHashBuilder = appHashBuilder
+
+	require.ErrorContains(t, manager.reportStateHashesToAppHashBuilder(2), "state commit store")
 }

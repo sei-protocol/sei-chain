@@ -60,7 +60,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
-	require.Equal(t, filledHash(0xc3), ahd.BUD())
+	require.Equal(t, filledHash(0xc3), ahd.BUDHash())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
@@ -93,7 +93,7 @@ func TestRoundTrip(t *testing.T) {
 	require.Equal(t, original.BlockHeight(), decoded.BlockHeight())
 	require.Equal(t, original.BlockHash(), decoded.BlockHash())
 	require.Equal(t, original.StateHash(), decoded.StateHash())
-	require.Equal(t, original.BUD(), decoded.BUD())
+	require.Equal(t, original.BUDHash(), decoded.BUDHash())
 	require.Equal(t, original.ReceiptHash(), decoded.ReceiptHash())
 	require.Equal(t, original.PreviousAppHash(), decoded.PreviousAppHash())
 	require.Equal(t, mustSerialize(t, original), mustSerialize(t, decoded))
@@ -113,8 +113,8 @@ func TestEveryFieldAffectsHash(t *testing.T) {
 			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
 		"stateHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), other,
 			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
-		"bud": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2), other,
-			filledHash(0xd4), filledHash(0xe5)),
+		"budHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2),
+			other, filledHash(0xd4), filledHash(0xe5)),
 		"receiptHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
 			filledHash(0xb2), filledHash(0xc3), other, filledHash(0xe5)),
 		"previousAppHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
@@ -165,7 +165,7 @@ func TestZeroAppHashData(t *testing.T) {
 	require.Equal(t, uint64(4), ahd.BlockHeight())
 	require.Equal(t, [32]byte{}, ahd.BlockHash())
 	require.Equal(t, [32]byte{}, ahd.StateHash())
-	require.Equal(t, [32]byte{}, ahd.BUD())
+	require.Equal(t, [32]byte{}, ahd.BUDHash())
 	require.Equal(t, [32]byte{}, ahd.ReceiptHash())
 	require.Equal(t, [32]byte{}, ahd.PreviousAppHash())
 	require.Equal(t, [32]byte{}, ahd.AppHash())

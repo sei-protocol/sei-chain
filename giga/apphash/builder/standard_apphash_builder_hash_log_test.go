@@ -43,15 +43,15 @@ func testComponentHashes(blockHeight uint64) map[string][]byte {
 }
 
 // reportLoggedBlock reports every input for blockHeight, with testComponentHashes() alongside the state hash. The
-// BUD is reported with budSalt.
-func reportLoggedBlock(t *testing.T, b AppHashBuilder, blockHeight uint64, budSalt byte) {
+// BUD hash is reported with budHashSalt.
+func reportLoggedBlock(t *testing.T, b AppHashBuilder, blockHeight uint64, budHashSalt byte) {
 	t.Helper()
 	ctx := context.Background()
 	stateHash := inputValue(stateHashInput, blockHeight, 0)
 	require.NoError(t, b.ReportStateHash(ctx, blockHeight, stateHash, testComponentHashes(blockHeight)))
 	reportInput(t, b, blockHashInput, blockHeight, 0)
 	reportInput(t, b, receiptHashInput, blockHeight, 0)
-	reportInput(t, b, budInput, blockHeight, budSalt)
+	reportInput(t, b, budHashInput, blockHeight, budHashSalt)
 }
 
 // loggedRow returns the hash log row the builder writes for record when componentHashes was reported with it.
@@ -61,7 +61,7 @@ func loggedRow(record *apphash.AppHashData, componentHashes map[string][]byte) m
 		previousAppHashColumn: hashBytes(record.PreviousAppHash()),
 		blockHashColumn:       hashBytes(record.BlockHash()),
 		stateHashColumn:       hashBytes(record.StateHash()),
-		budColumn:             hashBytes(record.BUD()),
+		budHashColumn:         hashBytes(record.BUDHash()),
 		receiptHashColumn:     hashBytes(record.ReceiptHash()),
 	}
 	for name, hash := range componentHashes {
@@ -125,7 +125,7 @@ func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 		4,
 		inputValue(blockHashInput, 4, 0),
 		inputValue(stateHashInput, 4, 0),
-		inputValue(budInput, 4, 1),
+		inputValue(budHashInput, 4, 1),
 		inputValue(receiptHashInput, 4, 0),
 		expectedChain(1, 3, 3)[0].AppHash(),
 	)
