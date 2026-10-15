@@ -27,10 +27,6 @@ var retiredIBCStores = []string{"capability", "ibc", "transfer"}
 // upgrade height. Their module version map entries go with them.
 var v68DeletedStores = append([]string{retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
 
-// denomAllowListPrefix is the bank-store prefix under which tokenfactory kept
-// the transfer allowlists of the denoms it created.
-var denomAllowListPrefix = []byte{0x11}
-
 // tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
 // parameter subspace.
 var tokenfactoryParamsPrefix = []byte(retiredtokenfactory.ModuleName + "/")
@@ -45,6 +41,10 @@ const retiredIBCProposalTypeURLPrefix = "/ibc."
 // cannot carry IBC content and are not decoded. The bound keeps the upgrade
 // block's work independent of how many proposals are submitted before it.
 const RetiredIBCProposalIDLimit uint64 = 1000
+
+// RetiredPrefixDeleteLimit is the most keys the v6.8 upgrade deletes under one
+// retired store prefix.
+const RetiredPrefixDeleteLimit = 1000
 
 // upgradedIBCStateKeyPrefix is the upgrade-store prefix under which the cosmos
 // upgrade module recorded planned IBC client state before IBC was retired.
@@ -259,9 +259,10 @@ func (app *App) pruneUpgradedIBCState(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(upgradetypes.StoreKey)), []byte(upgradedIBCStateKeyPrefix))
 }
 
-// pruneDenomAllowLists removes every denom transfer allowlist from the bank store.
+// pruneDenomAllowLists deletes the denom transfer allowlists tokenfactory kept in
+// the bank store, up to RetiredPrefixDeleteLimit of them.
 func (app *App) pruneDenomAllowLists(ctx sdk.Context) {
-	deleteByPrefix(ctx.KVStore(app.GetKey(banktypes.StoreKey)), denomAllowListPrefix)
+	deleteByPrefix(ctx.KVStore(app.GetKey(banktypes.StoreKey)), banktypes.DenomAllowListPrefix)
 }
 
 // pruneTokenfactoryParams removes every parameter of the tokenfactory subspace from the params store.
@@ -269,10 +270,14 @@ func (app *App) pruneTokenfactoryParams(ctx sdk.Context) {
 	deleteByPrefix(ctx.KVStore(app.GetKey(paramstypes.StoreKey)), tokenfactoryParamsPrefix)
 }
 
+// deleteByPrefix deletes the first RetiredPrefixDeleteLimit keys under prefix in
+// store and leaves any others in place.
 func deleteByPrefix(store sdk.KVStore, prefix []byte) {
 	iterator := sdk.KVStorePrefixIterator(store, prefix)
 	var keys [][]byte
-	for ; iterator.Valid(); iterator.Next() {
+	// Anyone may have written keys under the prefix before the upgrade, so the
+	// upgrade block's work must not grow with how many there are.
+	for ; iterator.Valid() && len(keys) < RetiredPrefixDeleteLimit; iterator.Next() {
 		keys = append(keys, iterator.Key())
 	}
 	if err := iterator.Close(); err != nil {

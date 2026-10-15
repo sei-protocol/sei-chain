@@ -178,7 +178,7 @@ func v68OfflineTouchedKey(t *testing.T, artifact offlineUpgradeArtifact) func(st
 			}
 			return len(key) > 0 && (key[0] == upgradetypes.PlanByte || key[0] == upgradetypes.DoneByte || key[0] == upgradetypes.VersionMapByte)
 		case banktypes.StoreKey:
-			return v68OfflineBlockRewardKey(key) || bytes.HasPrefix(key, denomAllowListPrefix)
+			return v68OfflineBlockRewardKey(key) || bytes.HasPrefix(key, banktypes.DenomAllowListPrefix)
 		case paramstypes.StoreKey:
 			return bytes.HasPrefix(key, tokenfactoryParamsPrefix)
 		}
@@ -326,7 +326,7 @@ func requireV68OfflineDenomAllowListsPruned(t *testing.T, testApp *App, sourceBa
 	for encodedKey := range sourceBank {
 		key, err := base64.StdEncoding.DecodeString(encodedKey)
 		require.NoError(t, err)
-		recorded = recorded || bytes.HasPrefix(key, denomAllowListPrefix)
+		recorded = recorded || bytes.HasPrefix(key, banktypes.DenomAllowListPrefix)
 	}
 	require.True(t, recorded, "the source phase recorded no denom allowlist")
 	requireV68OfflineNoDenomAllowLists(t, testApp)
@@ -337,7 +337,7 @@ func requireV68OfflineDenomAllowListsPruned(t *testing.T, testApp *App, sourceBa
 func requireV68OfflineNoDenomAllowLists(t *testing.T, testApp *App) {
 	t.Helper()
 	store := testApp.CommitMultiStore().GetCommitKVStore(testApp.GetKey(banktypes.StoreKey))
-	iterator := sdk.KVStorePrefixIterator(store, denomAllowListPrefix)
+	iterator := sdk.KVStorePrefixIterator(store, banktypes.DenomAllowListPrefix)
 	defer func() {
 		require.NoError(t, iterator.Close())
 	}()

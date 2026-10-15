@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -519,6 +520,42 @@ func TestV68SendsADenomItsAllowListRestricted(t *testing.T) {
 	require.Equal(t, uint32(abci.CodeTypeOK), results[0].Code, results[0].Log)
 	require.Equal(t, sdk.NewInt64Coin(denom, 40), a.BankKeeper.GetBalance(a.Ctx(), recipient, denom))
 	require.Equal(t, sdk.NewInt64Coin(denom, 60), a.BankKeeper.GetBalance(a.Ctx(), holder, denom))
+}
+
+// TestV68DenomAllowListPruneIsBounded pins that v6.8 deletes at most
+// app.RetiredPrefixDeleteLimit denom transfer allowlists, in key order, and that
+// an allowlist it leaves in the bank store does not restrict a send of its denom.
+func TestV68DenomAllowListPruneIsBounded(t *testing.T) {
+	a := newV68Chain(t)
+	holder := a.NewSignableAccount("v68/overflow-allowlisted-holder")
+	a.FundAccount(holder, v68VestingBalance)
+	denoms := make([]string, app.RetiredPrefixDeleteLimit+1)
+	for i := range denoms {
+		denoms[i] = fmt.Sprintf("factory/%s/overflow%04d", holder, i)
+		v68SeedDenomAllowList(t, a, denoms[i], holder.String())
+	}
+	kept := denoms[len(denoms)-1]
+	a.FundAccountWithDenom(holder, 100, kept)
+	recipient := a.NewAccount()
+	a.RunBlock([]signing.Tx{})
+
+	applyV68ToCommitStore(t, a)
+	a.RunBlock([]signing.Tx{})
+
+	left := v68PrefixEntries(t, a.Ctx().KVStore(a.GetKey(banktypes.StoreKey)), []byte{0x11})
+	require.Len(t, left, 1, "v6.8 did not delete exactly app.RetiredPrefixDeleteLimit denom allowlists")
+	require.Contains(t, left, string(v68DenomAllowListKey(kept)))
+
+	results := a.RunBlockDetailed([]signing.Tx{
+		a.Sign(holder, v68TxFee, &banktypes.MsgSend{
+			FromAddress: holder.String(),
+			ToAddress:   recipient.String(),
+			Amount:      sdk.NewCoins(sdk.NewInt64Coin(kept, 40)),
+		}),
+	})
+	require.Len(t, results, 1)
+	require.Equal(t, uint32(abci.CodeTypeOK), results[0].Code, results[0].Log)
+	require.Equal(t, sdk.NewInt64Coin(kept, 40), a.BankKeeper.GetBalance(a.Ctx(), recipient, kept))
 }
 
 // TestV68PrunesTokenfactoryParams pins that every entry of the tokenfactory
