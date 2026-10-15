@@ -748,7 +748,7 @@ func (b *StandardAppHashBuilder) writeToHashLog(record *apphash.AppHashData, com
 	hashes[previousAppHashColumn] = hashBytes(record.PreviousAppHash())
 	hashes[blockHashColumn] = hashBytes(record.BlockHash())
 	hashes[stateHashColumn] = hashBytes(record.StateHash())
-	hashes[budColumn] = hashBytes(record.BUD())
+	hashes[budColumn] = hashBytes(record.BUDHash())
 	hashes[receiptHashColumn] = hashBytes(record.ReceiptHash())
 	if err := b.hashLog.Write(record.BlockHeight(), hashes); err != nil {
 		logger.Error("failed to write to the app hash log; disabling hash logging", "err", err)
