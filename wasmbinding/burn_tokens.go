@@ -29,7 +29,8 @@ func LegacyBurnTokensHandler(burner wasmtypes.Burner) wasmkeeper.MessageHandlerF
 			return nil, nil, wasmtypes.ErrUnknownMsg
 		}
 		amount := parsed.BurnTokens.Amount
-		if err := amount.Validate(); err != nil || !amount.IsPositive() {
+		// Validate dereferences the amount, which is nil when the message leaves it out.
+		if amount.Amount.IsNil() || amount.Validate() != nil || !amount.IsPositive() {
 			return nil, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "burn_tokens amount %s", amount)
 		}
 		if !strings.HasPrefix(amount.Denom, "factory/"+contractAddr.String()+"/") {

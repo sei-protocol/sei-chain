@@ -51,6 +51,7 @@ func TestLegacyBurnTokensRefusesWhatItCannotBurn(t *testing.T) {
 		{"another creator's denom", legacyBurnTokens(foreign, "1"), sdkerrors.ErrUnauthorized},
 		{"a native denom", legacyBurnTokens("usei", "1"), sdkerrors.ErrUnauthorized},
 		{"a zero amount", legacyBurnTokens(own, "0"), sdkerrors.ErrInvalidCoins},
+		{"a missing amount", wasmvmtypes.CosmosMsg{Custom: []byte(fmt.Sprintf(`{"burn_tokens":{"amount":{"denom":%q}}}`, own))}, sdkerrors.ErrInvalidCoins},
 		{"more than the balance", legacyBurnTokens(own, "101"), sdkerrors.ErrInsufficientFunds},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
