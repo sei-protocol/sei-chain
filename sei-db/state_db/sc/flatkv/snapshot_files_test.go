@@ -270,6 +270,30 @@ func TestHardLinkSnapshotPrunedMidLink(t *testing.T) {
 	require.NoDirExists(t, dst)
 }
 
+func TestHardLinkSnapshotRefusesAPartlyPrunedSnapshot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permission that stops the prune partway")
+	}
+	s := setupSnapshottingStore(t, 10)
+	defer func() { require.NoError(t, s.Close()) }()
+	h := commitToEveryDB(t, s, 1)
+	commitToEveryDB(t, s, 2)
+	root := s.flatkvDir()
+
+	// A database the prune cannot empty, so the removal stops with the other databases gone.
+	stuck := filepath.Join(root, SnapshotDirName(h), dataDBDirs[0])
+	require.NoError(t, os.Chmod(stuck, 0o500))
+	t.Cleanup(func() {
+		_ = os.Chmod(stuck, 0o750)
+		_ = os.Chmod(filepath.Join(root, SnapshotDirName(h)+removingSuffix, dataDBDirs[0]), 0o750)
+	})
+	pruneSnapshotsByCount(t.Context(), root, 0, false, s.Version())
+
+	dst := filepath.Join(t.TempDir(), "linked")
+	require.ErrorIs(t, HardLinkSnapshot(root, h, dst), os.ErrNotExist)
+	require.NoDirExists(t, dst)
+}
+
 func TestHardLinkSnapshotReplacedMidLink(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, SnapshotDirName(4))
