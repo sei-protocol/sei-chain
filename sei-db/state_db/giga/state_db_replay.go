@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
@@ -76,6 +77,14 @@ func (s *StateDB) discardStateAbove(wal storedWALRange, target int64) error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
+	// Records above target describe blocks that are executed again, possibly differently. The log
+	// needs no snapshot to drop them, and none to replay from: it holds no current state.
+	if usesUndoLog(s.ssCfg) {
+		if err := undo.DiscardStateAbove(s.ssCfg.EVMDBDirectory, s.ssCfg, target); err != nil {
+			return fmt.Errorf("the EVM undo-log state store cannot reach %d: %w", target, err)
+		}
+		return nil
+	}
 	if _, err := evm.DiscardStateAbove(
 		s.ssCfg, s.ssSnapshotRoot(), target, wal.first); err != nil {
 		return fmt.Errorf("the EVM state store cannot reach %d: %w", target, err)
@@ -92,7 +101,8 @@ func (s *StateDB) dropSnapshotsAbove(target int64) error {
 	if err := flatkv.DropSnapshotsAbove(s.flatkvCfg.DataDir, target); err != nil {
 		return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
 	}
-	if !s.ssCfg.Enable {
+	// The undo log keeps no snapshots.
+	if !s.ssCfg.Enable || usesUndoLog(s.ssCfg) {
 		return nil
 	}
 	if err := evm.DropSnapshotsAbove(s.ssSnapshotRoot(), target); err != nil {
