@@ -3,8 +3,6 @@ package builder
 import (
 	"context"
 
-	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
-
 	"github.com/sei-protocol/sei-chain/giga/apphash"
 )
 
@@ -12,7 +10,6 @@ import (
 // hashes in block order. App hashes start at the giga activation height, which must be a global chain configuration
 // value. No app hash is published below the giga activation height.
 type AppHashBuilder interface {
-	controllertypes.PrunableStore
 
 	// Reports the hash of the block.
 	//

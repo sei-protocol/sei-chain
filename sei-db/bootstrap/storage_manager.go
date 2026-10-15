@@ -9,6 +9,7 @@ import (
 	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -43,6 +44,9 @@ type GigaStorageManager struct {
 
 	// appHashBuilder is nil until openAppHashBuilder succeeds.
 	appHashBuilder builder.AppHashBuilder
+
+	// appHashVault holds the app hashes appHashBuilder stores. It is nil until openAppHashBuilder opens it.
+	appHashVault vault.HashVault
 }
 
 // NewGigaStorageManager runs the steps that bring storage up:
@@ -94,8 +98,8 @@ func (m *GigaStorageManager) prunableStores() []controllertypes.PrunableStore {
 	if m.blockStore != nil {
 		stores = append(stores, m.blockStore)
 	}
-	if m.appHashBuilder != nil {
-		stores = append(stores, m.appHashBuilder)
+	if m.appHashVault != nil {
+		stores = append(stores, m.appHashVault)
 	}
 	return stores
 }
@@ -120,6 +124,9 @@ func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
 
 // AppHashBuilder returns the app hash builder.
 func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.appHashBuilder }
+
+// AppHashVault returns the hash vault the app hash builder stores app hashes in.
+func (m *GigaStorageManager) AppHashVault() vault.HashVault { return m.appHashVault }
 
 // SC returns the state commit store, or nil before the StateDB is open.
 func (m *GigaStorageManager) SC() *flatkv.CommitStore {
@@ -169,6 +176,12 @@ func (m *GigaStorageManager) Close() error {
 	if m.appHashBuilder != nil {
 		if err := timer.Close("app_hash_builder", m.appHashBuilder.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close app hash builder: %w", err))
+		}
+	}
+	// After the builder, which stores into it until it stops.
+	if m.appHashVault != nil {
+		if err := timer.Close("app_hash_vault", m.appHashVault.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close app hash vault: %w", err))
 		}
 	}
 	logger.Info("Closed storage", timer.Fields()...)

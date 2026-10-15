@@ -31,9 +31,9 @@ func hashLogDir(dir string) string {
 // ends.
 func openHashLoggingBuilder(t *testing.T, dir string) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := NewStandardAppHashBuilder(t.Context(), hashLoggingConfig(dir))
+	b, err := openBuilderWithConfig(t.Context(), hashLoggingConfig(dir))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = closeBuilder(b) })
 	return b
 }
 
@@ -89,7 +89,7 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 		reportLoggedBlock(t, b, height, 0)
 	}
 	receive(t, published, 3)
-	require.NoError(t, b.Close())
+	require.NoError(t, closeBuilder(b))
 
 	for _, record := range expectedChain(1, 1, 3) {
 		requireLoggedRow(t, dir, record)
@@ -99,9 +99,9 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
 	config := hashLoggingConfig(t.TempDir())
 	config.HashLogConfig.Version = ""
-	b, err := NewStandardAppHashBuilder(t.Context(), config)
+	b, err := openBuilderWithConfig(t.Context(), config)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = closeBuilder(b) })
 
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	_, published := registerListener(t, b)

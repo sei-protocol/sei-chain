@@ -23,7 +23,7 @@ const appHashPublishTimeout = 10 * time.Second
 func awaitAppHashes(t *testing.T, manager *GigaStorageManager, height uint64) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		head, err := manager.AppHashBuilder().GetLatestBlock()
+		head, err := manager.AppHashVault().GetLatestBlock()
 		require.NoError(t, err)
 		return head >= height
 	}, appHashPublishTimeout, time.Millisecond, "the app hash of block %d was not stored", height)
@@ -56,19 +56,22 @@ func receiveAppHashes(t *testing.T, published <-chan *apphash.AppHashData, count
 	return received
 }
 
-// closeAppHashBuilder closes the app hash builder and drops it from the manager, leaving the manager as it was
-// before the builder opened.
+// closeAppHashBuilder closes the app hash builder and then its hash vault, and drops both from the manager, leaving
+// the manager as it was before the builder opened.
 func closeAppHashBuilder(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
-	if manager.appHashBuilder == nil {
-		return
+	if manager.appHashBuilder != nil {
+		require.NoError(t, manager.appHashBuilder.Close())
+		manager.appHashBuilder = nil
 	}
-	require.NoError(t, manager.appHashBuilder.Close())
-	manager.appHashBuilder = nil
+	if manager.appHashVault != nil {
+		require.NoError(t, manager.appHashVault.Close())
+		manager.appHashVault = nil
+	}
 }
 
-// stopForRestart closes the state DB and then the app hash builder, in the order Close() does: the state DB's hash
-// listeners report into the builder until the state DB stops.
+// stopForRestart closes the state DB and then the app hash builder and its vault, in the order Close() does: the state
+// DB's hash listeners report into the builder until the state DB stops.
 func stopForRestart(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
 	closeStateDB(t, manager)
@@ -103,7 +106,7 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 		require.NotEqual(t, [32]byte{}, appHash.StateHash())
 		require.NotEqual(t, [32]byte{}, appHash.BUD())
 	}
-	head, err := manager.AppHashBuilder().GetLatestBlock()
+	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), head)
 }
@@ -161,7 +164,7 @@ func TestRestartWithTheAppHashVaultAheadOfState(t *testing.T) {
 
 	newest, published := listenForAppHashes(t, manager)
 	require.Equal(t, stored[2].AppHash(), newest.AppHash())
-	head, err := manager.AppHashBuilder().GetLatestBlock()
+	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(5), head, "the app hashes above the recovered height are kept")
 

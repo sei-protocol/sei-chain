@@ -5,16 +5,24 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
-// openAppHashBuilder opens the app hash builder, connects the state DB's hashes to it, and completes its setup at
-// the height recovery left the state on.
+// openAppHashBuilder opens the hash vault and the app hash builder over it, connects the state DB's hashes to the
+// builder, and completes its setup at the height recovery left the state on.
 //
 // It must run after every other store has recovered, and before any block is executed.
 func (m *GigaStorageManager) openAppHashBuilder(ctx context.Context) error {
-	appHashBuilder, err := builder.NewStandardAppHashBuilder(ctx, *m.cfg.AppHashBuilderConfig)
+	appHashConfig := m.cfg.AppHashBuilderConfig
+	hashVault, err := vault.NewStandardHashVault(
+		appHashConfig.HashVaultConfig, appHashConfig.ChainID, appHashConfig.GigaActivationHeight)
+	if err != nil {
+		return fmt.Errorf("open hash vault: %w", err)
+	}
+	m.appHashVault = hashVault
+	appHashBuilder, err := builder.NewStandardAppHashBuilder(ctx, *m.cfg.AppHashBuilderConfig, hashVault)
 	if err != nil {
 		return fmt.Errorf("open app hash builder: %w", err)
 	}

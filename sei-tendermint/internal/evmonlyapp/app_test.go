@@ -200,7 +200,7 @@ func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.
 	height, err := storage.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		head, err := storage.AppHashBuilder().GetLatestBlock()
+		head, err := storage.AppHashVault().GetLatestBlock()
 		require.NoError(t, err)
 		return head >= uint64(height) //nolint:gosec // G115: state heights are non-negative.
 	}, 10*time.Second, time.Millisecond, "app hash of block %d not stored", height)

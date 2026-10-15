@@ -27,8 +27,8 @@ const (
 
 var _ AppHashBuilder = (*StandardAppHashBuilder)(nil)
 
-// StandardAppHashBuilder is an AppHashBuilder that stores app hashes in a StandardHashVault it owns, and closes the
-// vault when it stops.
+// StandardAppHashBuilder is an AppHashBuilder that stores app hashes in a hash vault it is given. The caller owns
+// the vault, and closes it after the builder.
 type StandardAppHashBuilder struct {
 
 	// The EVM chain ID committed to by every app hash.
@@ -37,7 +37,7 @@ type StandardAppHashBuilder struct {
 	// The first block with an app hash. Its previous app hash is all zeros.
 	gigaActivationHeight uint64
 
-	// Holds the app hash data of every block built. Closed by the builder goroutine as it exits.
+	// Holds the app hash data of every block built.
 	vault vault.HashVault
 
 	// Receives each app hash built, as a debugging aid. Nil if hash logging is disabled or has failed. Owned by the
@@ -59,8 +59,8 @@ type StandardAppHashBuilder struct {
 	// Tracks the builder goroutine, which Close() waits for.
 	wg sync.WaitGroup
 
-	// The error from closing the hash vault. Set by the builder goroutine as it exits, and read by Close() once it
-	// has exited.
+	// The error from closing the vault iterators the builder goroutine holds. Set by the builder goroutine as it
+	// exits, and read by Close() once it has exited.
 	closeErr error
 
 	// Every field below is owned by the builder goroutine.
@@ -69,13 +69,10 @@ type StandardAppHashBuilder struct {
 	// Report*() method) is checked against its input's tracker before its value is used.
 	reportTrackers [hashInputCount]reportTracker
 
-	// Whether the vault holds any record.
-	vaultHasRecords bool
-
-	// The lowest block height in the vault. Valid only if vaultHasRecords.
+	// The lowest block height the vault knows.
 	vaultLowest uint64
 
-	// The highest block height in the vault. Valid only if vaultHasRecords.
+	// The highest block height the vault knows.
 	vaultHighest uint64
 
 	// Whether SetupComplete() has succeeded.
@@ -100,25 +97,16 @@ type StandardAppHashBuilder struct {
 
 	// Called with each published app hash, in registration order.
 	listeners []func(appHash *apphash.AppHashData)
-
-	// The highest height passed to PruneHistory(). Applied as blocks are published.
-	requestedPruneHeight uint64
-
-	// The height most recently passed to the vault's Prune().
-	appliedPruneHeight uint64
 }
 
 // What the vault says about the builder's state at startup: its bounds, and the block the next block built chains
 // from.
 type startupState struct {
 
-	// Whether the vault holds any record.
-	vaultHasRecords bool
-
-	// The lowest block height in the vault. Valid only if vaultHasRecords.
+	// The lowest block height the vault knows.
 	vaultLowest uint64
 
-	// The highest block height in the vault. Valid only if vaultHasRecords.
+	// The highest block height the vault knows.
 	vaultHighest uint64
 
 	// The newest block whose app hash is known. The next block built chains from it.
@@ -128,18 +116,18 @@ type startupState struct {
 	headAppHash [32]byte
 }
 
-// Opens the builder's hash vault and starts the builder. Errors if the vault holds app hashes of another chain.
-func NewStandardAppHashBuilder(ctx context.Context, config AppHashBuilderConfig) (*StandardAppHashBuilder, error) {
+// Starts the builder over hashVault, which must stay open until the builder is closed. Errors if the vault holds app
+// hashes of another chain.
+func NewStandardAppHashBuilder(
+	ctx context.Context,
+	config AppHashBuilderConfig,
+	hashVault vault.HashVault,
+) (*StandardAppHashBuilder, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid app hash builder config: %w", err)
 	}
-	hashVault, err := vault.NewStandardHashVault(config.HashVaultConfig)
+	startup, err := loadStartupState(hashVault, config.ChainID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open hash vault: %w", err)
-	}
-	startup, err := loadStartupState(hashVault, config.ChainID, config.GigaActivationHeight)
-	if err != nil {
-		_ = hashVault.Close()
 		return nil, fmt.Errorf("failed to load the app hash builder's startup state: %w", err)
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -152,7 +140,6 @@ func NewStandardAppHashBuilder(ctx context.Context, config AppHashBuilderConfig)
 		maxBatchSize:         config.MaxBatchSize,
 		ctx:                  ctx,
 		cancel:               cancel,
-		vaultHasRecords:      startup.vaultHasRecords,
 		vaultLowest:          startup.vaultLowest,
 		vaultHighest:         startup.vaultHighest,
 		headHeight:           startup.headHeight,
@@ -253,55 +240,6 @@ func (b *StandardAppHashBuilder) Iterator(
 	return it, nil
 }
 
-func (b *StandardAppHashBuilder) Name() string {
-	return "AppHashVault"
-}
-
-// ExternalPruning is unconditionally true: the builder prunes only when told to.
-func (b *StandardAppHashBuilder) ExternalPruning() bool {
-	return true
-}
-
-func (b *StandardAppHashBuilder) PruneHistory(blockNumber uint64) error {
-	if err := b.submit(b.ctx, pruneRequest{blockHeight: blockNumber}); err != nil {
-		return fmt.Errorf("failed to request pruning below block %d: %w", blockNumber, err)
-	}
-	return nil
-}
-
-// PruneSnapshots does nothing: the builder keeps no snapshots.
-func (b *StandardAppHashBuilder) PruneSnapshots(uint64) error {
-	return nil
-}
-
-// GetRollbackFloor returns head - rollbackWindow, where head is GetLatestBlock(). It returns 0 when the window is
-// deeper than the head, or when the builder has stopped.
-func (b *StandardAppHashBuilder) GetRollbackFloor(rollbackWindow uint64) uint64 {
-	head, err := b.GetLatestBlock()
-	if err != nil {
-		logger.Error("failed to read the app hash builder's head; reporting a rollback floor of 0", "err", err)
-		return 0
-	}
-	if head <= rollbackWindow {
-		return 0
-	}
-	return head - rollbackWindow
-}
-
-// GetLatestBlock returns the newest block whose app hash is stored, or the block before the giga activation height if
-// none is.
-func (b *StandardAppHashBuilder) GetLatestBlock() (uint64, error) {
-	reply := make(chan callResult[uint64], 1)
-	if err := b.submit(b.ctx, latestBlockRequest{reply: reply}); err != nil {
-		return 0, fmt.Errorf("failed to read the app hash builder's head: %w", err)
-	}
-	head, err := awaitReply(b, reply)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read the app hash builder's head: %w", err)
-	}
-	return head, nil
-}
-
 func (b *StandardAppHashBuilder) Close() error {
 	b.cancel(fmt.Errorf("app hash builder is closed"))
 	b.wg.Wait()
@@ -311,32 +249,17 @@ func (b *StandardAppHashBuilder) Close() error {
 	return nil
 }
 
-// GetLatestBlock returns the head of the builder configured by config without opening it: the newest block whose
-// app hash is stored, or the block before the giga activation height if none is. It fails while the builder is open.
+// GetLatestBlock returns the head of the builder configured by config without opening it: the highest block its
+// hash vault knows. It fails while the builder is open.
 func GetLatestBlock(config AppHashBuilderConfig) (uint64, error) {
 	if err := config.Validate(); err != nil {
 		return 0, fmt.Errorf("invalid app hash builder config: %w", err)
 	}
-	ok, _, highest, err := vault.GetRange(config.HashVaultConfig)
+	_, highest, err := vault.GetBounds(config.HashVaultConfig, config.GigaActivationHeight)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read the app hash builder's head: %w", err)
 	}
-	return storedHead(ok, highest, config.GigaActivationHeight), nil
-}
-
-// Returns the newest block whose app hash is stored, or the block before gigaActivationHeight if none is.
-func storedHead(
-	// Whether the hash vault holds any record.
-	vaultHasRecords bool,
-	// The highest block height in the hash vault. Read only if vaultHasRecords.
-	vaultHighest uint64,
-	// The first block with an app hash.
-	gigaActivationHeight uint64,
-) uint64 {
-	if !vaultHasRecords {
-		return gigaActivationHeight - 1
-	}
-	return max(vaultHighest, gigaActivationHeight-1)
+	return highest, nil
 }
 
 // Opens the hash log if config enables one. Returns nil if it does not, or if the hash log fails to open, which
@@ -353,42 +276,30 @@ func openHashLog(config AppHashBuilderConfig) *hashlog.HashLogWriter {
 	return hashLog
 }
 
-// Reads the builder's startup state from hashVault. Its head is the newest stored record if that is at or above
-// gigaActivationHeight, and the block before gigaActivationHeight otherwise. Errors if the stored records belong to
-// a chain other than chainID.
-func loadStartupState(
-	hashVault vault.HashVault,
-	chainID uint64,
-	gigaActivationHeight uint64,
-) (startupState, error) {
-	startup := startupState{headHeight: gigaActivationHeight - 1}
-	ok, lowest, highest, err := hashVault.Bounds()
+// Reads the builder's startup state from hashVault. Its head is the highest block the vault knows. Errors if the
+// vault's records belong to a chain other than chainID.
+func loadStartupState(hashVault vault.HashVault, chainID uint64) (startupState, error) {
+	lowest, highest, err := hashVault.Bounds()
 	if err != nil {
 		return startupState{}, fmt.Errorf("failed to read hash vault bounds: %w", err)
 	}
-	if !ok {
-		return startup, nil
-	}
-	startup.vaultHasRecords = true
-	startup.vaultLowest = lowest
-	startup.vaultHighest = highest
-
 	newest, err := readStoredRecord(hashVault, highest)
 	if err != nil {
-		return startupState{}, fmt.Errorf("failed to read the newest stored app hash: %w", err)
+		return startupState{}, fmt.Errorf("failed to read the newest app hash: %w", err)
 	}
 	if newest.ChainID() != chainID {
 		return startupState{}, fmt.Errorf("hash vault holds app hashes for chain ID %d, not %d",
 			newest.ChainID(), chainID)
 	}
-	if highest >= gigaActivationHeight {
-		startup.headHeight = highest
-		startup.headAppHash = newest.AppHash()
-	}
-	return startup, nil
+	return startupState{
+		vaultLowest:  lowest,
+		vaultHighest: highest,
+		headHeight:   highest,
+		headAppHash:  newest.AppHash(),
+	}, nil
 }
 
-// Returns the record stored in hashVault at blockHeight.
+// Returns hashVault's record of blockHeight.
 func readStoredRecord(hashVault vault.HashVault, blockHeight uint64) (*apphash.AppHashData, error) {
 	it, err := hashVault.Iterator(blockHeight, blockHeight)
 	if err != nil {
@@ -442,7 +353,8 @@ func awaitReply[T any](b *StandardAppHashBuilder, reply <-chan callResult[T]) (T
 	}
 }
 
-// The builder goroutine. Runs requests until Close() or a request fails, then closes the hash vault and hash log.
+// The builder goroutine. Runs requests until Close() or a request fails, then closes its vault iterators and the
+// hash log.
 func (b *StandardAppHashBuilder) run() {
 	defer b.closeStores()
 	for {
@@ -510,13 +422,6 @@ func (b *StandardAppHashBuilder) handleRequest(request any) error {
 		it, err := b.newIterator(r.startingBlockHeight)
 		r.reply <- callResult[apphash.AppHashIterator]{value: it, err: err}
 		return nil
-	case pruneRequest:
-		b.requestedPruneHeight = max(b.requestedPruneHeight, r.blockHeight)
-		return nil
-	case latestBlockRequest:
-		head := storedHead(b.vaultHasRecords, b.vaultHighest, b.gigaActivationHeight)
-		r.reply <- callResult[uint64]{value: head}
-		return nil
 	default:
 		return fmt.Errorf("unknown app hash builder request %T", request)
 	}
@@ -541,7 +446,7 @@ func (b *StandardAppHashBuilder) handleReport(
 	tracker.startingPointKnown = true
 	tracker.nextHeight = blockHeight + 1
 
-	if !b.setupDone && b.vaultHasRecords && blockHeight <= b.vaultHighest {
+	if !b.setupDone && blockHeight <= b.vaultHighest {
 		if err := b.compareStoredInput(input, tracker, blockHeight, value); err != nil {
 			return fmt.Errorf("failed to check the %s of block %d against the hash vault: %w",
 				input, blockHeight, err)
@@ -688,7 +593,7 @@ func (b *StandardAppHashBuilder) rewindHead(
 	b.headHeight = max(blockHeight, b.gigaActivationHeight-1)
 	b.headAppHash = [32]byte{}
 	b.newestPublished = nil
-	if !b.vaultHasRecords || b.vaultHighest < b.gigaActivationHeight {
+	if b.vaultHighest < b.gigaActivationHeight {
 		return nil
 	}
 
@@ -758,9 +663,6 @@ func (b *StandardAppHashBuilder) publishCompleteBlocks() error {
 		for _, listener := range b.listeners {
 			listener(record)
 		}
-	}
-	if err := b.applyPrune(); err != nil {
-		return fmt.Errorf("failed to apply the requested prune: %w", err)
 	}
 	return nil
 }
@@ -835,29 +737,12 @@ func (b *StandardAppHashBuilder) appendToVault(records []*apphash.AppHashData) e
 	if err := b.vault.Append(records); err != nil {
 		return fmt.Errorf("failed to append app hashes through block %d to the hash vault: %w", last, err)
 	}
-	if !b.vaultHasRecords {
-		b.vaultHasRecords = true
-		b.vaultLowest = records[0].BlockHeight()
-	}
 	b.vaultHighest = last
 	return nil
 }
 
-// Passes the requested prune height on to the vault, capped so the newest published app hash is kept.
-func (b *StandardAppHashBuilder) applyPrune() error {
-	target := min(b.requestedPruneHeight, b.newestPublished.BlockHeight())
-	if target <= b.appliedPruneHeight {
-		return nil
-	}
-	if err := b.vault.Prune(target); err != nil {
-		return fmt.Errorf("failed to prune app hashes below block %d: %w", target, err)
-	}
-	b.appliedPruneHeight = target
-	return nil
-}
-
-// Closes the vault iterators the builder goroutine holds, the hash log, and the hash vault, and records the error
-// for Close(). A hash log failure is logged rather than recorded, since the hash log is a debugging aid.
+// Closes the vault iterators the builder goroutine holds and the hash log, and records the error for Close(). A hash
+// log failure is logged rather than recorded, since the hash log is a debugging aid.
 func (b *StandardAppHashBuilder) closeStores() {
 	if b.hashLog != nil {
 		if err := b.hashLog.Close(); err != nil {
@@ -865,7 +750,7 @@ func (b *StandardAppHashBuilder) closeStores() {
 		}
 		b.hashLog = nil
 	}
-	b.closeErr = errors.Join(b.closeIterators(), b.vault.Close())
+	b.closeErr = b.closeIterators()
 }
 
 // Closes every vault iterator the builder goroutine holds.

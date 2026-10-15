@@ -30,17 +30,6 @@ type iteratorRequest struct {
 	reply               chan callResult[apphash.AppHashIterator]
 }
 
-// Asks the builder goroutine to permit deleting the app hashes below blockHeight.
-type pruneRequest struct {
-	blockHeight uint64
-}
-
-// Asks the builder goroutine for its head: the newest block whose app hash is stored, or the block before the giga
-// activation height if none is.
-type latestBlockRequest struct {
-	reply chan callResult[uint64]
-}
-
 // The reply to a request that returns a result to its caller.
 type callResult[T any] struct {
 	value T

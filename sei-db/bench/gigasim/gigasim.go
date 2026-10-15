@@ -629,7 +629,7 @@ func (g *GigaSim) closePipeline() error {
 	var err error
 	if highest := g.HighestBlock(); highest > 0 {
 		//nolint:gosec // block numbers are positive
-		err = awaitAppHash(g.storage.AppHashBuilder(), uint64(highest))
+		err = awaitAppHash(g.storage.AppHashVault(), uint64(highest))
 	}
 	err = errors.Join(err, g.storage.Close())
 	g.stopStorage()

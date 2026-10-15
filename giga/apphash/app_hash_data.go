@@ -43,6 +43,10 @@ type AppHashData struct {
 	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format.
 	// It is not itself serialized.
 	appHash [32]byte
+
+	// Whether this is the record of the block before the giga activation height, whose hashes are all zeros by
+	// definition. Such a record cannot be serialized.
+	zeroHash bool
 }
 
 // Construct a new AppHashData object at the current schema version.
@@ -74,8 +78,24 @@ func NewAppHashData(
 		receiptHash:     receiptHash,
 		previousAppHash: previousAppHash,
 	}
-	ahd.appHash = sha256.Sum256(append([]byte(appHashDomain), ahd.Serialize()...))
+	ahd.appHash = sha256.Sum256(append([]byte(appHashDomain), ahd.canonicalBytes()...))
 	return ahd
+}
+
+// Construct the record of the block before gigaActivationHeight. Every hash it holds, its app hash included, is all
+// zeros. It cannot be serialized.
+func NewZeroAppHashData(
+	// The EVM chain ID of the chain the block belongs to.
+	chainID uint64,
+	// The first block whose app hash is computed. Must be at least 1.
+	gigaActivationHeight uint64,
+) *AppHashData {
+	return &AppHashData{
+		version:     appHashVersion,
+		chainID:     chainID,
+		blockHeight: gigaActivationHeight - 1,
+		zeroHash:    true,
+	}
 }
 
 // Version returns the version of the app hash schema.
@@ -119,7 +139,8 @@ func (ahd *AppHashData) PreviousAppHash() [32]byte {
 	return ahd.previousAppHash
 }
 
-// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format.
+// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format, or all zeros for
+// a record built by NewZeroAppHashData().
 func (ahd *AppHashData) AppHash() [32]byte {
 	return ahd.appHash
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 )
 
 const testChainID uint64 = 713715
@@ -64,7 +67,7 @@ func openTestBuilder(
 	t.Helper()
 	b, err := openBuilder(t.Context(), dir, chainID, gigaActivationHeight)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = closeBuilder(b) })
 	return b
 }
 
@@ -77,7 +80,27 @@ func openBuilder(
 ) (*StandardAppHashBuilder, error) {
 	config := testConfig(dir, gigaActivationHeight)
 	config.ChainID = chainID
-	return NewStandardAppHashBuilder(ctx, config)
+	return openBuilderWithConfig(ctx, config)
+}
+
+// openBuilderWithConfig opens the hash vault config.HashVaultConfig names, and a builder over it. closeBuilder()
+// closes both.
+func openBuilderWithConfig(ctx context.Context, config AppHashBuilderConfig) (*StandardAppHashBuilder, error) {
+	hashVault, err := vault.NewStandardHashVault(
+		config.HashVaultConfig, config.ChainID, config.GigaActivationHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open hash vault: %w", err)
+	}
+	b, err := NewStandardAppHashBuilder(ctx, config, hashVault)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("failed to open app hash builder: %w", err), hashVault.Close())
+	}
+	return b, nil
+}
+
+// closeBuilder closes b, then the hash vault it was opened over.
+func closeBuilder(b *StandardAppHashBuilder) error {
+	return errors.Join(b.Close(), b.vault.Close())
 }
 
 // testConfig returns the default configuration for the test chain, with its hash vault in dir and its giga activation
@@ -188,8 +211,16 @@ func requireSameAppHashes(t *testing.T, expected []*apphash.AppHashData, actual 
 	t.Helper()
 	require.Len(t, actual, len(expected))
 	for i := range expected {
-		require.Equal(t, expected[i].Serialize(), actual[i].Serialize(), "app hash %d", i)
+		require.Equal(t, mustSerialize(t, expected[i]), mustSerialize(t, actual[i]), "app hash %d", i)
 	}
+}
+
+// mustSerialize returns the serialization of appHash.
+func mustSerialize(t *testing.T, appHash *apphash.AppHashData) []byte {
+	t.Helper()
+	data, err := appHash.Serialize()
+	require.NoError(t, err)
+	return data
 }
 
 // buildChain builds blocks 1 through last on a fresh vault in dir with giga activation height 1, then closes the
@@ -201,7 +232,7 @@ func buildChain(t *testing.T, dir string, last uint64) {
 	_, published := registerListener(t, b)
 	reportBlocks(t, b, 1, last)
 	receive(t, published, int(last))
-	require.NoError(t, b.Close())
+	require.NoError(t, closeBuilder(b))
 }
 
 func TestBuildsChainFromEmptyVault(t *testing.T) {
@@ -362,7 +393,7 @@ func TestRestartWithGigaActivationHeight(t *testing.T) {
 	_, published := registerListener(t, b)
 	reportBlocks(t, b, gigaActivationHeight, gigaActivationHeight+3)
 	receive(t, published, 4)
-	require.NoError(t, b.Close())
+	require.NoError(t, closeBuilder(b))
 
 	reopened := openTestBuilder(t, dir, testChainID, gigaActivationHeight)
 	require.NoError(t, reopened.SetupComplete(context.Background(), gigaActivationHeight-1))
@@ -382,16 +413,6 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 	require.Error(t, err)
 	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}, nil))
 	require.Error(t, b.SetupComplete(context.Background(), 0))
-}
-
-func TestFailedBuilderReleasesHashVault(t *testing.T) {
-	dir := t.TempDir()
-	b := openTestBuilder(t, dir, testChainID, 1)
-	reportInput(t, b, blockHashInput, 4, 0)
-	reportInput(t, b, blockHashInput, 6, 0)
-	b.wg.Wait()
-
-	openTestBuilder(t, dir, testChainID, 1)
 }
 
 func TestFirstReportAfterSetupMustFollowStorageHeight(t *testing.T) {
@@ -456,74 +477,18 @@ func TestIteratorFromBelowGigaActivationStartsAtIt(t *testing.T) {
 	requireSameAppHashes(t, expectedChain(3, 3, 5), iterateAll(t, b, 1))
 }
 
-func TestPruneKeepsNewestPublishedAppHash(t *testing.T) {
-	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	require.NoError(t, b.PruneHistory(100))
-	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
-	reportBlocks(t, b, 1, 5)
-	receive(t, published, 5)
-	require.NoError(t, b.PruneHistory(100))
-
-	requireSameAppHashes(t, expectedChain(1, 5, 5), iterateAll(t, b, 5))
-}
-
-func TestHeadOfEmptyBuilderPrecedesGigaActivation(t *testing.T) {
-	dir := t.TempDir()
-	head, err := GetLatestBlock(testConfig(dir, 5))
-	require.NoError(t, err)
-	require.Equal(t, uint64(4), head)
-
-	b := openTestBuilder(t, dir, testChainID, 5)
-	head, err = b.GetLatestBlock()
+func TestOfflineHeadOfEmptyVaultPrecedesGigaActivation(t *testing.T) {
+	head, err := GetLatestBlock(testConfig(t.TempDir(), 5))
 	require.NoError(t, err)
 	require.Equal(t, uint64(4), head)
 }
 
-func TestHeadIsNewestStoredAppHash(t *testing.T) {
+func TestOfflineHeadIsNewestStoredAppHash(t *testing.T) {
 	dir := t.TempDir()
 	buildChain(t, dir, 3)
 	head, err := GetLatestBlock(testConfig(dir, 1))
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), head)
-
-	b := openTestBuilder(t, dir, testChainID, 1)
-	head, err = b.GetLatestBlock()
-	require.NoError(t, err)
-	require.Equal(t, uint64(3), head)
-
-	// Setup below the vault's head keeps the records above it, so the head does not move back.
-	require.NoError(t, b.SetupComplete(context.Background(), 1))
-	head, err = b.GetLatestBlock()
-	require.NoError(t, err)
-	require.Equal(t, uint64(3), head)
-}
-
-func TestHeadFollowsStoredAppHashes(t *testing.T) {
-	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	_, published := registerListener(t, b)
-	reportBlocks(t, b, 1, 4)
-	receive(t, published, 4)
-
-	head, err := b.GetLatestBlock()
-	require.NoError(t, err)
-	require.Equal(t, uint64(4), head)
-	require.Equal(t, uint64(1), b.GetRollbackFloor(3))
-	require.Equal(t, uint64(0), b.GetRollbackFloor(4))
-	require.Equal(t, uint64(0), b.GetRollbackFloor(10))
-}
-
-func TestStoppedBuilderReportsNoRollbackFloor(t *testing.T) {
-	dir := t.TempDir()
-	buildChain(t, dir, 4)
-	b := openTestBuilder(t, dir, testChainID, 1)
-	require.Equal(t, uint64(2), b.GetRollbackFloor(2))
-
-	require.NoError(t, b.Close())
-	require.Equal(t, uint64(0), b.GetRollbackFloor(2))
-	_, err := b.GetLatestBlock()
-	require.Error(t, err)
 }
 
 func TestOfflineHeadFailsWhileBuilderIsOpen(t *testing.T) {
