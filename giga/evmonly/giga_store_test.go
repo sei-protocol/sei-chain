@@ -12,9 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
+
+// The giga state DB must take each block's change set, or its undo log would silently go without it.
+var _ historyStore = (*giga.StateDB)(nil)
 
 type recordingGigaStore struct {
 	snapshot    gigatypes.StateView

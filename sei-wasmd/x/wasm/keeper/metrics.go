@@ -4,9 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -88,62 +86,30 @@ func must[V any](v V, err error) V {
 
 func recordContractInstantiateDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractInstantiateDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_instantiate_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "instantiate")
 }
 
 func recordContractExecuteDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractExecuteDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_execute_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "execute")
 }
 
 func recordContractMigrateDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractMigrateDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_migrate_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "migrate")
 }
 
 func recordContractSudoDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractSudoDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_sudo_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "sudo")
 }
 
 func recordContractQuerySmartDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractQuerySmartDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_query_smart_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "query-smart")
 }
 
 func recordContractQueryRawDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractQueryRawDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_query_raw_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "query-raw")
 }
 
-func recordContractQuerySmartInvocation(contractAddress string) {
-	// No OTel counter here: it would be redundant with wasm_contract_query_smart_duration's
-	// count, which is recorded unconditionally on every QuerySmart call just like this one.
-	// TODO(PLT-910): remove once wasm_contract_query_smart_duration verified
-	telemetry.IncrCounterWithLabels(
-		[]string{"wasm", "contract", "query-smart", "invocation"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddress)},
-	)
-}
-
-func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string, gasUsed uint64) {
-	// contract_address omitted on the OTel histogram: unlike the legacy Prometheus sink, the
-	// OTel SDK has no series expiration, so a per-contract label here would retain one series
-	// per distinct contract address queried for the process lifetime.
+func recordContractQuerySmartGasUsed(ctx context.Context, gasUsed uint64) {
 	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
-	// TODO(PLT-910): remove once wasm_contract_query_smart_gas_used verified
-	telemetry.SetGaugeWithLabels(
-		[]string{"wasm", "contract", "query-smart", "gas-used"},
-		float32(gasUsed),
-		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddress)},
-	)
 }
 
 const (

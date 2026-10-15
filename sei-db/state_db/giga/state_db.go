@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -43,8 +44,12 @@ type StateDB struct {
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
 
-	// ss is nil when the EVM state store is disabled.
+	// ss is nil when the EVM state store is disabled or keeps its history as an undo log.
 	ss *evm.EVMStateStore
+
+	// undo is the EVM state store when it keeps its history as an undo log, and nil otherwise. At
+	// most one of ss and undo is open.
+	undo *undo.Database
 
 	// The checkpoint schedule SC and SS take their snapshot boundaries from.
 	checkpointer *controller.CheckpointScheduler
@@ -107,6 +112,9 @@ func NewStateDB(
 	s.startCheckpointSchedule(checkpointCfg)
 
 	if err := s.catchUpToWAL(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.resumeUndoLog(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -204,6 +212,9 @@ func (s *StateDB) openSS() error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
+	if usesUndoLog(s.ssCfg) {
+		return s.openUndoLog()
+	}
 	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
 	if err != nil {
 		return fmt.Errorf("open EVM state store: %w", err)
@@ -211,6 +222,35 @@ func (s *StateDB) openSS() error {
 	s.ss = ss
 	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), s.ssCfg, nil); err != nil {
 		return fmt.Errorf("start EVM state store snapshot manager: %w", err)
+	}
+	return nil
+}
+
+// usesUndoLog reports whether cfg opens the EVM state store as an undo log.
+func usesUndoLog(cfg config.StateStoreConfig) bool {
+	return cfg.Enable && cfg.Backend == config.PebbleDBUndoBackend
+}
+
+// openUndoLog opens the EVM state store as an undo log. It takes no snapshots: every block its log
+// covers is readable directly, and it reads current state from SC rather than restoring any.
+func (s *StateDB) openUndoLog() error {
+	db, err := undo.OpenDB(s.ssCfg.EVMDBDirectory, s.ssCfg)
+	if err != nil {
+		return fmt.Errorf("open EVM undo-log state store: %w", err)
+	}
+	s.undo = db
+	return nil
+}
+
+// resumeUndoLog binds the undo log to SC's current block, which answers every read the log holds no
+// later record for. It runs once SC is on the WAL head: the log cannot replay the WAL, whose blocks
+// carry no prior values, so a log left behind SC stops serving the history below SC's height.
+func (s *StateDB) resumeUndoLog() error {
+	if s.undo == nil {
+		return nil
+	}
+	if err := s.undo.Resume(s.sc.Version(), s.sc.OpenView()); err != nil {
+		return fmt.Errorf("resume the EVM undo-log state store: %w", err)
 	}
 	return nil
 }
@@ -294,6 +334,12 @@ func (s *StateDB) Close() error {
 			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
 		}
 	}
+	// Before SC: the undo log holds a view of SC's current block until it closes.
+	if s.undo != nil {
+		if err := timer.Close("ss", s.undo.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close EVM undo-log state store: %w", err))
+		}
+	}
 	if s.sc != nil {
 		if err := timer.Close("sc", s.sc.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state commit store: %w", err))
@@ -311,8 +357,11 @@ func (s *StateDB) Close() error {
 // SC returns the state commit store.
 func (s *StateDB) SC() *flatkv.CommitStore { return s.sc }
 
-// SS returns the EVM state store, or nil when it is disabled.
+// SS returns the EVM state store, or nil when it is disabled or kept as an undo log.
 func (s *StateDB) SS() *evm.EVMStateStore { return s.ss }
+
+// UndoSS returns the EVM state store when it is kept as an undo log, and nil otherwise.
+func (s *StateDB) UndoSS() *undo.Database { return s.undo }
 
 // WAL returns the state WAL. It is the one this StateDB opened, and is not replaced for the StateDB's
 // lifetime.
@@ -333,21 +382,34 @@ func (s *StateDB) PrunableStores() []controller.PrunableStore {
 	if s.ss != nil {
 		stores = append(stores, s.ss)
 	}
+	if s.undo != nil {
+		stores = append(stores, s.undo)
+	}
 	return stores
 }
 
-// CommitStateChanges writes a block to the state WAL, the state commit store and the EVM state store,
-// in that order. Callers must not run two commits at once.
+// CommitStateChanges is CommitStateChangesWithPrior without the block's change set. It fails for a
+// block that changes state when the EVM state store is an undo log, which needs the change set.
+func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+	return s.CommitStateChangesWithPrior(blockNum, changeset, nil)
+}
+
+// CommitStateChangesWithPrior writes a block to the state WAL, the state commit store and the EVM
+// state store, in that order. Callers must not run two commits at once. changes is the block's change
+// set, which an undo-log EVM state store keeps the replaced values from; nil only when changeset is empty.
 //
 // The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
 // what makes a slow store on the commit path attributable to that store.
-func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+func (s *StateDB) CommitStateChangesWithPrior(blockNum int64, changeset []*proto.NamedChangeSet, changes *gigatypes.StateChangeSet) error {
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
 		// future that the WAL has no way to recognize as a mistake.
 		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
 	}
-
+	if s.undo != nil && changes == nil && len(changeset) != 0 {
+		// The undo log would advance past the block with no record of what it replaced.
+		return fmt.Errorf("commit block %d: the undo-log EVM state store needs the block's change set", blockNum)
+	}
 	// Ends the phase in flight, so the gap until the next commit is not charged to the last store.
 	defer s.commitPhases.Reset()
 
@@ -370,6 +432,12 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 			return fmt.Errorf("commit block %d to the EVM state store: %w", blockNum, err)
 		}
 	}
+	// The undo log takes SC's view along with the block. Opened before the next commit, it describes
+	// exactly this block, which is what the log answers reads from until a later block replaces it.
+	if s.undo != nil {
+		s.commitPhases.SetPhase("enqueue_ss")
+		s.undo.ApplyBlock(blockNum, changes, s.sc.OpenView())
+	}
 
 	return nil
 }
@@ -378,11 +446,35 @@ func (s *StateDB) OpenView() gigatypes.StateView {
 	return s.sc.OpenView()
 }
 
-// OpenViewAt panics. Serving a past height requires the historical state DB, which is not wired into
-// StateDB.
+// OpenViewAt returns a view of the state after blockNum served from the EVM state store's history,
+// and false when the store does not hold blockNum or no EVM state store is open.
+//
+// A view over the undo log pins SC's view of the log's head and the history it reads until it is
+// closed, holding back SC's flushes and pruning, so it must be closed promptly. A view over the
+// pebbledb state store pins nothing, and its reads fail once its height is pruned.
 func (s *StateDB) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
-	panic(fmt.Sprintf(
-		"giga: OpenViewAt(%d) is not implemented: the historical state DB is not wired in", blockNum))
+	switch {
+	case s.undo != nil:
+		view, ok := s.undo.OpenView(blockNum)
+		if !ok {
+			return nil, false
+		}
+		return &historicalView{height: blockNum, read: view.Get, release: view.Close}, true
+	case s.ss != nil:
+		if blockNum < s.ss.GetEarliestVersion() || blockNum > s.ss.GetLatestVersion() {
+			return nil, false
+		}
+		read := func(key []byte) ([]byte, error) {
+			value, err := s.ss.Get(evm.EVMStoreKey, blockNum, key)
+			// The view pins nothing, and a read below the earliest version finds nothing rather than failing.
+			if err == nil && blockNum < s.ss.GetEarliestVersion() {
+				return nil, fmt.Errorf("height %d was pruned", blockNum)
+			}
+			return value, err
+		}
+		return &historicalView{height: blockNum, read: read, release: func() {}}, true
+	}
+	return nil, false
 }
 
 // RegisterHashListener forwards to the state commit store, which is the layer that hashes blocks and
