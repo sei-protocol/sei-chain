@@ -86,8 +86,8 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // SelfDestruct marks acc self-destructed; transient state is kept for the rest of the tx.
 func (s *DBImpl) SelfDestruct(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
-	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
-		// remove the association
+	// EIP-8246 keeps the balance, so keep the association that holds it.
+	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok && !types.IsSeiAmsterdam(s.ctx.BlockTime().Unix()) {
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
 	// The balance is left alone: the SELFDESTRUCT opcode transfers or burns it

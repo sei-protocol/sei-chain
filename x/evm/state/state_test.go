@@ -277,9 +277,10 @@ func TestSelfDestructAssociated(t *testing.T) {
 	require.Equal(t, uint256.NewInt(1), statedb.GetBalance(evmAddr))
 	statedb.Finalize()
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
-	// association should also be removed
-	_, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
-	require.False(t, ok)
+	// EIP-8246: the association is kept with the balance
+	gotSei, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
+	require.True(t, ok)
+	require.Equal(t, seiAddr, gotSei)
 	// EIP-8246: the destructed account keeps its balance
 	require.Equal(t, uint256.NewInt(1), statedb.GetBalance(evmAddr))
 	fc, _ := k.GetFeeCollectorAddress(statedb.Ctx())
