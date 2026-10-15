@@ -1,6 +1,8 @@
 package evmonlyapp
 
 import (
+	"context"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -10,8 +12,15 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -138,7 +147,7 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
-func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
+func TestEVMOnlyApplicationEvmCallHandlesCommitBoundary(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)
 
@@ -150,10 +159,66 @@ func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.NoError(t, evmApp.AwaitCommits())
 
-	_, err = evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = evmApp.EvmCall(ctx, callMessage(common.Address{}, nil))
+	require.True(t, errors.Is(err, context.Canceled))
 
-	require.Error(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	result, err := evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil))
+	require.NoError(t, err)
+	require.False(t, result.Failed())
+}
+
+func TestEVMOnlyApplicationAnswersCallsWhileNextBlockExecutes(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	encodes := 0
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storage := openEVMOnlyTestStorage(t, storageConfig)
+	encoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
+	stallSecondEncode := func(changes evmonly.StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		encodes++
+		if encodes == 2 {
+			close(entered)
+			<-release
+		}
+		return encoder(changes)
+	}
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, stallSecondEncode, gigaconfig.DefaultConfig.Execution)
+	require.NoError(t, err)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	evmApp := app.(*evmOnlyApplication)
+
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			_, err := app.FinalizeBlock(ctx, evmOnlyTestBlock(2))
+			return err
+		})
+		if _, _, err := utils.RecvOrClosed(ctx, entered); err != nil {
+			return err
+		}
+		defer close(release)
+		result, err := evmApp.EvmCall(ctx, callMessage(common.Address{}, nil))
+		if err != nil {
+			return err
+		}
+		if result.Failed() {
+			return result.Err
+		}
+		_, _, err = evmApp.EvmEstimateGas(ctx, callMessage(common.Address{}, nil), 0)
+		return err
+	})
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
 }
 
 func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {

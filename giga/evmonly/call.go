@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // callTimeout bounds how long a Call may run before its EVM is cancelled,
@@ -19,10 +20,6 @@ var callTimeout = 60 * time.Second
 // committed state and returns the execution result. It persists no state
 // change.
 func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Message) (*core.ExecutionResult, error) {
-	chainConfig := e.chainConfig(blockCtx)
-	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
-		return nil, err
-	}
 	if e.stateStore == nil {
 		return nil, errMissingStateStore
 	}
@@ -35,6 +32,18 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
 	defer snapshot.Close()
+	return e.CallOnSnapshot(ctx, blockCtx, snapshot, msg)
+}
+
+// CallOnSnapshot executes a read-only call on a caller-owned snapshot.
+func (e *Executor) CallOnSnapshot(ctx context.Context, blockCtx BlockContext, snapshot gigatypes.StateView, msg *core.Message) (*core.ExecutionResult, error) {
+	chainConfig := e.chainConfig(blockCtx)
+	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
 	defer e.releaseStateDB(stateDB)
