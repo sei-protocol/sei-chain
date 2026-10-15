@@ -42,8 +42,6 @@ type LoadTestClient struct {
 	Validators []stakingtypes.Validator
 	// DelegationMap is a map of delegator -> validator -> delegated amount
 	DelegationMap map[string]map[string]int
-	// Tokenfactory specific variables
-	TokenFactoryDenomOwner map[string]string
 	// Only one admin message can go in per block
 	generatedAdminMessageForBlock bool
 	// Messages that has to be sent from the admin account
@@ -80,7 +78,6 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		GrpcConns:                     grpcConns,
 		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConns[0]),
 		DelegationMap:                 map[string]map[string]int{},
-		TokenFactoryDenomOwner:        map[string]string{},
 		generatedAdminMessageForBlock: false,
 		isAdminMessageMapping:         map[string]bool{CollectRewards: true, DistributeRewards: true},
 		mtx:                           &sync.RWMutex{},
