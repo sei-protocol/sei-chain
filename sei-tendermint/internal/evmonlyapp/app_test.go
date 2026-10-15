@@ -135,6 +135,20 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	return app
 }
 
+// newUndoLogEVMOnlyTestApp returns an initialized application whose state store
+// keeps EVM history as an undo log.
+func newUndoLogEVMOnlyTestApp(t *testing.T) *evmOnlyApplication {
+	t.Helper()
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	storageConfig.WithFullNodeMode().WithStateStoreBackend(seidbconfig.PebbleDBUndoBackend)
+	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig).(*evmOnlyApplication)
+	require.NotNil(t, app.storage.StateDB().UndoSS())
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	return app
+}
+
 func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
 	return newEVMOnlyTestAppWithExecution(t, validators, gigaconfig.DefaultConfig.Execution)
@@ -829,6 +843,90 @@ func TestEVMOnlyApplicationServesStoredStorage(t *testing.T) {
 	require.Equal(t, common.BigToHash(big.NewInt(0x2a)), storageReader.EvmStorage(contract, slot))
 	require.Equal(t, common.Hash{}, storageReader.EvmStorage(contract, common.Hash{}))
 	require.Equal(t, common.Hash{}, storageReader.EvmStorage(sender, slot))
+}
+
+// A node keeping EVM history as an undo log serves every past height it holds with the state the
+// chain had then.
+func TestEVMOnlyApplicationServesHistoryFromTheUndoLog(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	type accounts struct {
+		senderBalance, recipientBalance *big.Int
+		senderNonce                     uint64
+	}
+	observe := func() accounts {
+		senderBalance, recipientBalance := app.EvmBalance(sender, nil), app.EvmBalance(recipient, nil)
+		return accounts{
+			senderBalance:    senderBalance.ToBig(),
+			recipientBalance: recipientBalance.ToBig(),
+			senderNonce:      app.EvmNonce(sender),
+		}
+	}
+	const blocks = 11
+	history := []accounts{observe()}
+	for height := int64(1); height <= blocks; height++ {
+		nonce := uint64(height - 1) //nolint:gosec // positive
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, nonce)))
+		history = append(history, observe())
+	}
+	// The undo log applies blocks behind the commit; until it has, their history is not held.
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+
+	for height, want := range history {
+		nonce, err := app.EvmNonceAt(sender, int64(height))
+		require.NoError(t, err)
+		require.Equal(t, want.senderNonce, nonce, "sender nonce at %d", height)
+		senderBalance, err := app.EvmBalanceAt(sender, int64(height))
+		require.NoError(t, err)
+		require.Equal(t, want.senderBalance, senderBalance.ToBig(), "sender balance at %d", height)
+		recipientBalance, err := app.EvmBalanceAt(recipient, int64(height))
+		require.NoError(t, err)
+		require.Equal(t, want.recipientBalance, recipientBalance.ToBig(), "recipient balance at %d", height)
+	}
+	require.Equal(t, uint64(blocks), history[blocks].senderNonce)
+}
+
+// Contract storage written in a block is visible from that block on, and a slot is unset at every
+// height before the write.
+func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+
+	// Each contract's constructor stores a value at slot 1 as it is deployed.
+	deploy := func(height int64, value byte) common.Address {
+		initCode := append([]byte{0x60, value, 0x60, 0x01, 0x55}, evmOnlyTestInitCode...)
+		raw, sender := signedEVMOnlyTestCreateTxWithInitCode(t, evmOnlyTestChainID, initCode)
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height, raw))
+		return crypto.CreateAddress(sender, 0)
+	}
+	first := deploy(1, 0x2a)
+	second := deploy(2, 0x2b)
+
+	// The undo log applies blocks behind the commit; until it has, their history is not held.
+	require.NoError(t, app.AwaitCommits())
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+	slot := common.BigToHash(big.NewInt(1))
+	for _, tc := range []struct {
+		contract common.Address
+		height   int64
+		want     common.Hash
+	}{
+		{first, 0, common.Hash{}},
+		{first, 1, common.BigToHash(big.NewInt(0x2a))},
+		{first, 2, common.BigToHash(big.NewInt(0x2a))},
+		{second, 0, common.Hash{}},
+		{second, 1, common.Hash{}},
+		{second, 2, common.BigToHash(big.NewInt(0x2b))},
+	} {
+		got, err := app.EvmStorageAt(tc.contract, slot, tc.height)
+		require.NoError(t, err, "contract %s at %d", tc.contract, tc.height)
+		require.Equal(t, tc.want, got, "contract %s at %d", tc.contract, tc.height)
+	}
+	_, err := app.EvmStorageAt(first, slot, 3)
+	require.Error(t, err)
 }
 
 // Every FinalizeBlock stage is charged to a phase, so the timer's total is the

@@ -45,22 +45,25 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 	}
 }
 
-func TestGetTransactionCountRejectsHistoricalState(t *testing.T) {
+func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend := &testBackend{transactionCount: func(common.Address) uint64 {
-		t.Fatal("historical lookup reached the backend")
-		return 0
+	api := &txAPI{backend: &testBackend{
+		blockNumber:      func() uint64 { return 9 },
+		transactionCount: func(common.Address) uint64 { return 9 },
+		transactionCountAt: func(got common.Address, height int64) (uint64, error) {
+			require.Equal(t, address, got)
+			return uint64(height), nil //nolint:gosec // test heights are small
+		},
 	}}
-	api := &txAPI{backend: backend}
 
-	for _, tag := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(8),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false),
-		{},
-	} {
+	for height, want := range map[ethrpc.BlockNumber]hexutil.Uint64{ethrpc.EarliestBlockNumber: 0, 8: 8, 9: 9} {
+		got, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
+		require.NoError(t, err)
+		require.Equal(t, want, *got, "block %d", height)
+	}
+	for _, tag := range []ethrpc.BlockNumberOrHash{ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false), {}} {
 		_, err := api.GetTransactionCount(t.Context(), address, tag)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+		require.ErrorIs(t, err, errBlockHashUnsupported)
 	}
 }
 

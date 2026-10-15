@@ -10,10 +10,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 )
 
 var (
 	errHistoricalStateUnsupported = errors.New("historical state is not supported by EVM-only RPC")
+	errBlockHashUnsupported       = errors.New("state queries by block hash are not supported by EVM-only RPC")
+	errBlockAboveHead             = errors.New("block is above the latest block")
 	errStorageKeyInvalid          = errors.New("hex string invalid")
 	errStorageKeyTooLong          = errors.New("hex string too long, want at most 32 bytes")
 )
@@ -22,39 +25,78 @@ type stateAPI struct {
 	backend Backend
 }
 
-// GetBalance returns the address balance from the current committed EVM state.
+// GetBalance returns the address balance in the committed EVM state after block.
 func (api *stateAPI) GetBalance(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Big, error) {
-	if err := requireCurrentState(block); err != nil {
-		return nil, err
-	}
-	balance := api.backend.EvmBalance(address)
-	return (*hexutil.Big)(balance.ToBig()), nil
-}
-
-// GetCode returns the contract code at address from the current committed EVM
-// state. An account without code yields empty bytes, encoded as "0x".
-func (api *stateAPI) GetCode(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	if err := requireCurrentState(block); err != nil {
-		return nil, err
-	}
-	code, err := api.backend.EvmCode(address)
+	height, latest, err := stateHeight(api.backend, block)
 	if err != nil {
 		return nil, err
 	}
-	return code, nil
+	var balance uint256.Int
+	if latest {
+		balance = api.backend.EvmBalance(address)
+	} else if balance, err = api.backend.EvmBalanceAt(address, height); err != nil {
+		return nil, err
+	}
+	return (*hexutil.Big)(balance.ToBig()), nil
 }
 
-// GetStorageAt returns the 32-byte value at hexKey in address's storage from
-// the current committed EVM state. An unset slot yields 32 zero bytes.
+// GetCode returns the contract code at address in the committed EVM state after
+// block. An account without code yields empty bytes, encoded as "0x".
+func (api *stateAPI) GetCode(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	height, latest, err := stateHeight(api.backend, block)
+	if err != nil {
+		return nil, err
+	}
+	if latest {
+		return api.backend.EvmCode(address)
+	}
+	return api.backend.EvmCodeAt(address, height)
+}
+
+// stateHeight returns the block a state query reads: the latest committed state for a latest tag
+// and for the latest block's own number, or the numbered block.
+func stateHeight(backend Backend, block ethrpc.BlockNumberOrHash) (height int64, latest bool, err error) {
+	number, ok := block.Number()
+	switch {
+	case !ok:
+		return 0, false, errBlockHashUnsupported
+	case isLatestTag(number):
+		return 0, true, nil
+	}
+	// Every tag but earliest, which is 0, is a latest tag, so number is non-negative.
+	head := backend.EvmBlockNumber()
+	if uint64(number) > head { //nolint:gosec // non-negative
+		return 0, false, fmt.Errorf("%w: block %d, latest %d", errBlockAboveHead, number, head)
+	}
+	return number.Int64(), uint64(number) == head, nil //nolint:gosec // non-negative
+}
+
+// isLatestTag reports whether number is a tag answered from the latest committed state.
+func isLatestTag(number ethrpc.BlockNumber) bool {
+	switch number {
+	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
+		return true
+	}
+	return false
+}
+
+// GetStorageAt returns the 32-byte value at hexKey in address's storage in the
+// committed EVM state after block. An unset slot yields 32 zero bytes.
 func (api *stateAPI) GetStorageAt(_ context.Context, address common.Address, hexKey string, block ethrpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	if err := requireCurrentState(block); err != nil {
+	height, latest, err := stateHeight(api.backend, block)
+	if err != nil {
 		return nil, err
 	}
 	key, err := decodeStorageKey(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode storage key: %w", err)
 	}
-	value, err := api.backend.EvmStorage(address, key)
+	var value common.Hash
+	if latest {
+		value, err = api.backend.EvmStorage(address, key)
+	} else {
+		value, err = api.backend.EvmStorageAt(address, key, height)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -81,14 +123,8 @@ func decodeStorageKey(s string) (common.Hash, error) {
 }
 
 func requireCurrentState(block ethrpc.BlockNumberOrHash) error {
-	number, ok := block.Number()
-	if !ok {
+	if number, ok := block.Number(); !ok || !isLatestTag(number) {
 		return errHistoricalStateUnsupported
 	}
-	switch number {
-	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
-		return nil
-	default:
-		return errHistoricalStateUnsupported
-	}
+	return nil
 }
