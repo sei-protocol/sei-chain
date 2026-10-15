@@ -27,10 +27,10 @@ type AppHashData struct {
 	// The hash of the state lattice hash.
 	stateHash [32]byte
 
-	// The "Block Update Digest", aka the hash of
-	// the key-value pairs that changed as a result
-	// of executing this block.
-	bud [32]byte
+	// The BUD hash: the hash of the key-value
+	// pairs that changed as a result of
+	// executing this block.
+	budHash BUDHash
 
 	// The hash of the transaction receipts
 	// produced by executing this block.
@@ -45,6 +45,9 @@ type AppHashData struct {
 	appHash [32]byte
 }
 
+// BUDHash is the hash committing to the key-value changes produced by executing a block.
+type BUDHash [32]byte
+
 // Construct a new AppHashData object at the current schema version.
 func NewAppHashData(
 	// The EVM chain ID of the chain the block belongs to.
@@ -55,10 +58,10 @@ func NewAppHashData(
 	blockHash [32]byte,
 	// The hash of the state lattice hash.
 	stateHash [32]byte,
-	// The "Block Update Digest", aka the hash of
-	// the key-value pairs that changed as a result
-	// of executing this block.
-	bud [32]byte,
+	// The BUD hash: the hash of the key-value
+	// pairs that changed as a result of
+	// executing this block.
+	budHash BUDHash,
 	// The hash of the transaction receipts produced by executing this block.
 	receiptHash [32]byte,
 	// The app hash of block (blockHeight-1), or all 0s if this is the first block.
@@ -70,7 +73,7 @@ func NewAppHashData(
 		blockHeight:     blockHeight,
 		blockHash:       blockHash,
 		stateHash:       stateHash,
-		bud:             bud,
+		budHash:         budHash,
 		receiptHash:     receiptHash,
 		previousAppHash: previousAppHash,
 	}
@@ -103,10 +106,9 @@ func (ahd *AppHashData) StateHash() [32]byte {
 	return ahd.stateHash
 }
 
-// BUD returns the "Block Update Digest", aka the hash of the key-value pairs that changed as a result of executing
-// this block.
-func (ahd *AppHashData) BUD() [32]byte {
-	return ahd.bud
+// BUDHash returns the BUD hash: the hash of the key-value pairs that changed as a result of executing this block.
+func (ahd *AppHashData) BUDHash() BUDHash {
+	return ahd.budHash
 }
 
 // ReceiptHash returns the hash of the transaction receipts produced by executing this block.
