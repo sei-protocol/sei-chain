@@ -241,10 +241,18 @@ func (b *StandardAppHashBuilder) Iterator(
 }
 
 func (b *StandardAppHashBuilder) Close() error {
+	var sweepErr error
+	reply := make(chan callResult[struct{}], 1)
+	// A builder already stopped refuses the request, and has nothing left to store.
+	if b.submit(context.Background(), closeRequest{reply: reply}) == nil {
+		if _, err := awaitReply(b, reply); err != nil {
+			sweepErr = fmt.Errorf("failed to store the queued app hashes: %w", err)
+		}
+	}
 	b.cancel(fmt.Errorf("app hash builder is closed"))
 	b.wg.Wait()
-	if b.closeErr != nil {
-		return fmt.Errorf("failed to close app hash builder: %w", b.closeErr)
+	if err := errors.Join(sweepErr, b.closeErr); err != nil {
+		return fmt.Errorf("failed to close app hash builder: %w", err)
 	}
 	return nil
 }
@@ -353,8 +361,8 @@ func awaitReply[T any](b *StandardAppHashBuilder, reply <-chan callResult[T]) (T
 	}
 }
 
-// The builder goroutine. Runs requests until Close() or a request fails, then closes its vault iterators and the
-// hash log.
+// The builder goroutine. Runs requests until a closeRequest, Close() or a failed request, then closes its vault
+// iterators and the hash log.
 func (b *StandardAppHashBuilder) run() {
 	defer b.closeStores()
 	for {
@@ -362,9 +370,13 @@ func (b *StandardAppHashBuilder) run() {
 		case <-b.ctx.Done():
 			return
 		case request := <-b.requests:
-			if err := b.runBatch(request); err != nil {
+			closing, err := b.runBatch(request)
+			if err != nil {
 				logger.Error("app hash builder stopped", "err", err)
 				b.cancel(err)
+				return
+			}
+			if closing {
 				return
 			}
 		}
@@ -372,16 +384,19 @@ func (b *StandardAppHashBuilder) run() {
 }
 
 // Runs first and the requests queued behind it, at most maxBatchSize in all, then publishes the blocks they
-// completed.
-func (b *StandardAppHashBuilder) runBatch(first any) error {
+// completed. A closeRequest ends the batch, and closing reports that one was run.
+func (b *StandardAppHashBuilder) runBatch(first any) (closing bool, err error) {
+	if closeReq, ok := first.(closeRequest); ok {
+		return true, b.publishBeforeClosing(closeReq)
+	}
 	if err := b.handleRequest(first); err != nil {
-		return fmt.Errorf("failed to handle %T: %w", first, err)
+		return false, fmt.Errorf("failed to handle %T: %w", first, err)
 	}
 	for count := 1; count < b.maxBatchSize; count++ {
 		var request any
 		select {
 		case <-b.ctx.Done():
-			return nil
+			return false, nil
 		case request = <-b.requests:
 		default:
 		}
@@ -389,12 +404,25 @@ func (b *StandardAppHashBuilder) runBatch(first any) error {
 			// No request is queued.
 			break
 		}
+		if closeReq, ok := request.(closeRequest); ok {
+			return true, b.publishBeforeClosing(closeReq)
+		}
 		if err := b.handleRequest(request); err != nil {
-			return fmt.Errorf("failed to handle %T: %w", request, err)
+			return false, fmt.Errorf("failed to handle %T: %w", request, err)
 		}
 	}
 	if err := b.publishCompleteBlocks(); err != nil {
-		return fmt.Errorf("failed to publish app hashes: %w", err)
+		return false, fmt.Errorf("failed to publish app hashes: %w", err)
+	}
+	return false, nil
+}
+
+// Stores and publishes the blocks completed so far, and replies to closeReq with the result.
+func (b *StandardAppHashBuilder) publishBeforeClosing(closeReq closeRequest) error {
+	err := b.publishCompleteBlocks()
+	closeReq.reply <- callResult[struct{}]{err: err}
+	if err != nil {
+		return fmt.Errorf("failed to publish app hashes before closing: %w", err)
 	}
 	return nil
 }

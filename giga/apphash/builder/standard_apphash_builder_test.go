@@ -515,6 +515,21 @@ func TestZeroGigaActivationHeightFailsStartup(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCloseStoresQueuedAppHashes(t *testing.T) {
+	dir := t.TempDir()
+	b := openTestBuilder(t, dir, testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	reportBlocks(t, b, 1, 5)
+	require.NoError(t, closeBuilder(b))
+
+	head, err := GetLatestBlock(testConfig(dir, 1))
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), head)
+	reopened := openTestBuilder(t, dir, testChainID, 1)
+	require.NoError(t, reopened.SetupComplete(context.Background(), 5))
+	requireSameAppHashes(t, expectedChain(1, 1, 5), iterateAll(t, reopened, 1))
+}
+
 func TestCloseStopsBuilder(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
 	require.NoError(t, b.Close())

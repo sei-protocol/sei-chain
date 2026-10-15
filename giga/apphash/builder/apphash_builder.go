@@ -83,10 +83,8 @@ type AppHashBuilder interface {
 	// been pruned. The iterator errors once the builder stops.
 	Iterator(ctx context.Context, startingBlockHeight uint64) (apphash.AppHashIterator, error)
 
-	// Stops the builder, and returns once its resources are released. A builder stopped by an error has released
-	// them already.
-	//
-	// This method does not flush data, and may cause in-flight work to be dropped. Every iterator must be closed
-	// first.
+	// Stores and publishes the app hash of every block whose inputs were all reported before the call, then stops
+	// the builder and returns once its resources are released. A report made concurrently with the call may or may
+	// not be stored. A builder stopped by an error stores nothing more. Every iterator must be closed first.
 	Close() error
 }
