@@ -11,13 +11,10 @@ import (
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
-	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 )
 
 func RegisterCustomPlugins(
 	epoch *epochkeeper.Keeper,
-	tokenfactory *tokenfactorykeeper.Keeper,
 	_ *authkeeper.AccountKeeper,
 	router wasmkeeper.MessageRouter,
 	bankKeeper wasmtypes.Burner,
@@ -26,9 +23,8 @@ func RegisterCustomPlugins(
 	stakingKeeper stakingkeeper.Keeper,
 ) []wasmkeeper.Option {
 	epochHandler := epochwasm.NewEpochWasmQueryHandler(epoch)
-	tokenfactoryHandler := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(tokenfactory)
 	evmHandler := evmwasm.NewEVMQueryHandler(evmKeeper)
-	wasmQueryPlugin := NewQueryPlugin(epochHandler, tokenfactoryHandler, evmHandler, stakingKeeper)
+	wasmQueryPlugin := NewQueryPlugin(epochHandler, evmHandler, stakingKeeper)
 
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),
