@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
+	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/statesyncsnapshot"
 	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -153,6 +154,7 @@ func initRootCmd(
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
+		statesyncsnapshot.Cmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
