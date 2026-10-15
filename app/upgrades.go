@@ -169,6 +169,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.pruneUpgradedIBCState(ctx)
 				app.pruneDenomAllowLists(ctx)
 				app.pruneTokenfactoryParams(ctx)
+				app.StakingKeeper.StartDelegationByValIndexBackfill(ctx)
 				return newVM, nil
 			}
 
