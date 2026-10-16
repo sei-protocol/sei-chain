@@ -787,8 +787,7 @@ func New(
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
 
 	if enableCustomEVMPrecompiles {
-		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
-		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
+		app.EvmKeeper.SetCustomPrecompiles(precompiles.GetCustomPrecompiles(app.GetPrecompileKeepers()))
 	}
 
 	// NOTE: Any module instantiated in the module manager that is later modified

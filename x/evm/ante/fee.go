@@ -76,7 +76,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		return ctx, err
 	}
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
 	// run stateless checks before charging gas (mimicking Geth behavior)

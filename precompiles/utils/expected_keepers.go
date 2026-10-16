@@ -5,7 +5,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -19,7 +18,6 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	"github.com/sei-protocol/sei-chain/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -127,18 +125,6 @@ type EVMKeeper interface {
 	SetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string, addr common.Address) error
 	GetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string) (addr common.Address, version uint16, exists bool)
 	SetCode(ctx sdk.Context, addr common.Address, code []byte)
-	UpsertERCNativePointer(
-		ctx sdk.Context, evm *vm.EVM, token string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
-	UpsertERCCW20Pointer(
-		ctx sdk.Context, evm *vm.EVM, cw20Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
-	UpsertERCCW721Pointer(
-		ctx sdk.Context, evm *vm.EVM, cw721Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
-	UpsertERCCW1155Pointer(
-		ctx sdk.Context, evm *vm.EVM, cw1155Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, err error)
 	GetEVMGasLimitFromCtx(ctx sdk.Context) uint64
 	GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uint64
 }
