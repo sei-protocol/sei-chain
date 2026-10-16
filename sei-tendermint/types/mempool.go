@@ -10,11 +10,10 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-// ErrTxInCache is returned when the mempool rejects a tx it has already seen. The errors below
-// wrap it to say why the tx was rejected.
-var ErrTxInCache = errors.New("tx already exists in cache")
-
 var (
+	// ErrTxInCache is returned when the mempool rejects a tx it has already seen. The errors below
+	// wrap it to say why the tx was rejected.
+	ErrTxInCache = errors.New("tx already exists in cache")
 	// ErrTxInMempool is returned when the tx is already in the mempool or is being checked.
 	ErrTxInMempool = fmt.Errorf("%w: tx is pending", ErrTxInCache)
 	// ErrTxNonceTooLow is returned when the tx's nonce is below the sender's lowest pending nonce.
