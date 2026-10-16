@@ -2,6 +2,7 @@ package rootmulti
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -242,6 +243,59 @@ func TestRootMultiAutoKickoff_RestartResumesMigrateEVM(t *testing.T) {
 	mode, _ = store.GetWriteMode()
 	require.Equal(t, sctypes.EVMMigrated, mode,
 		"after completion a restart must derive evm_migrated")
+}
+
+func TestRootMultiMigrateCosmosGateClosedAfterEVMComplete(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	addr := newEVMTestData(0xA1)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateEVM, mode,
+		"gate closed must not reuse the positive batch size to start MigrateCosmos")
+}
+
+func TestRootMultiMigrateCosmosGateOpenStartsFromLiveAndRestartedState(t *testing.T) {
+	for _, restartAfterEVM := range []bool{false, true} {
+		t.Run(fmt.Sprintf("restart_after_evm_%v", restartAfterEVM), func(t *testing.T) {
+			dir := t.TempDir()
+			store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+			addr := newEVMTestData(0xA2)
+			simulateBlock(t, store, storeKeys, 1, addr)
+			require.NoError(t, store.SetMigrationBatchSize(100))
+			for i := 2; i <= 4; i++ {
+				simulateBlock(t, store, storeKeys, i, addr)
+			}
+
+			if restartAfterEVM {
+				store, storeKeys = restartRootMultiWithConfig(t, store, dir, autoModeConfig())
+				mode, ok := store.GetWriteMode()
+				require.True(t, ok)
+				require.Equal(t, sctypes.EVMMigrated, mode)
+			}
+			defer func() { require.NoError(t, store.Close()) }()
+
+			require.NoError(t, store.SetMigrationBatchSize(2, true))
+			mode, ok := store.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, mode)
+
+			simulateBlock(t, store, storeKeys, 5, addr)
+			got, ok := store.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, got)
+		})
+	}
 }
 
 // TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks proves the
