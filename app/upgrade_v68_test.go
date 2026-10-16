@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
@@ -668,6 +669,21 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 
 	require.Equal(t, kept, v68PrefixEntries(t, store, nil),
 		"v6.8 changed the params store beyond deleting the tokenfactory subspace")
+}
+
+// TestV68EnablesMigrateCosmos pins that the upgrade allows the SC store to
+// start MigrateCosmos once its EVM migration is complete.
+func TestV68EnablesMigrateCosmos(t *testing.T) {
+	a := newV68Chain(t)
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+	subspace.Set(a.Ctx(), migration.KeyMigrateCosmosEnabled, false)
+
+	applyV68(t, a)
+
+	var enabled bool
+	subspace.Get(a.Ctx(), migration.KeyMigrateCosmosEnabled, &enabled)
+	require.True(t, enabled, "v6.8 must enable MigrateCosmos")
 }
 
 // TestV68RewritesRetiredIBCProposals pins that a stored proposal whose content

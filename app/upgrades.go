@@ -170,6 +170,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.pruneDenomAllowLists(ctx)
 				app.pruneTokenfactoryParams(ctx)
 				app.StakingKeeper.StartDelegationByValIndexBackfill(ctx)
+				app.enableMigrateCosmos(ctx)
 				return newVM, nil
 			}
 

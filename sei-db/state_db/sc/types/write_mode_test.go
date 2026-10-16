@@ -10,9 +10,7 @@ var allModes = []WriteMode{
 	MemiavlOnly,
 	MigrateEVM,
 	EVMMigrated,
-	MigrateAllButBank,
-	AllMigratedButBank,
-	MigrateBank,
+	MigrateCosmos,
 	FlatKVOnly,
 	TestOnlyDualWrite,
 	Auto,
@@ -37,8 +35,8 @@ func TestParseWriteMode(t *testing.T) {
 }
 
 // TestValidateTransitionExhaustive checks every (from, to) pair of write
-// modes. Exactly six edges are legal: the three steady-state -> migration
-// steps and the three migration -> completion steps. Everything else,
+// modes. Exactly four edges are legal: the steady-state -> migration
+// steps and the migration -> completion steps. Everything else,
 // including same-mode pairs (handled as no-ops by callers before invoking
 // ValidateTransition), must be rejected.
 //
@@ -51,12 +49,10 @@ func TestValidateTransitionExhaustive(t *testing.T) {
 		to   WriteMode
 	}
 	legal := map[edge]bool{
-		{MemiavlOnly, MigrateEVM}:               true,
-		{EVMMigrated, MigrateAllButBank}:        true,
-		{AllMigratedButBank, MigrateBank}:       true,
-		{MigrateEVM, EVMMigrated}:               true,
-		{MigrateAllButBank, AllMigratedButBank}: true,
-		{MigrateBank, FlatKVOnly}:               true,
+		{MemiavlOnly, MigrateEVM}:    true,
+		{EVMMigrated, MigrateCosmos}: true,
+		{MigrateEVM, EVMMigrated}:    true,
+		{MigrateCosmos, FlatKVOnly}:  true,
 	}
 
 	legalSeen := 0
@@ -78,9 +74,8 @@ func TestValidateTransitionExhaustive(t *testing.T) {
 // completed migration (the second half of the SetWriteMode safety check).
 func TestIsMigrationMode(t *testing.T) {
 	migrationModes := map[WriteMode]bool{
-		MigrateEVM:        true,
-		MigrateAllButBank: true,
-		MigrateBank:       true,
+		MigrateEVM:    true,
+		MigrateCosmos: true,
 	}
 	for _, mode := range allModes {
 		require.Equal(t, migrationModes[mode], mode.IsMigrationMode(), "IsMigrationMode(%q)", mode)

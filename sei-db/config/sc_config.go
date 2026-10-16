@@ -66,17 +66,19 @@ type StateCommitConfig struct {
 
 	// WriteMode is the fixed write routing mode used only when WriteModeEnableAuto
 	// is false. Valid values: memiavl_only, migrate_evm, evm_migrated,
-	// migrate_all_but_bank, all_migrated_but_bank, migrate_bank, flatkv_only,
-	// test_only_dual_write, auto. Defaults to memiavl_only — the safe
-	// pre-migration fallback for a node that has explicitly opted out of auto.
+	// migrate_cosmos, flatkv_only, test_only_dual_write, auto. Defaults to
+	// memiavl_only — the safe pre-migration fallback for a node that has
+	// explicitly opted out of auto.
 	WriteMode types.WriteMode `mapstructure:"write-mode"`
 
 	// WriteModeEnableAuto, when true (the default), forces the node to run in
 	// auto and ignores any explicit WriteMode: the effective mode is derived at
 	// startup from the persisted migration metadata (memiavl_only before
 	// migration has started, migrate_evm while EVM keys are still draining,
-	// evm_migrated once complete), and raising the NumKeysToMigratePerBlock gov
-	// param above 0 advances an auto store from memiavl_only to migrate_evm.
+	// evm_migrated once EVM completes, migrate_cosmos while the remaining modules
+	// are draining, and flatkv_only once complete), and raising the
+	// NumKeysToMigratePerBlock gov param above 0 advances an auto store to the
+	// next migration once that migration is enabled.
 	//
 	// Defaulting to true (and treating an absent config key as true) is what
 	// lets the existing fleet participate: nodes provisioned by older binaries

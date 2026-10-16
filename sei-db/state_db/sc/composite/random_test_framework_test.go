@@ -35,10 +35,8 @@ import (
 )
 
 // randomTestStores is the set of module stores the randomized workload writes
-// to. It deliberately spans the three routing classes the production routers
-// distinguish: bank/ (stays on memiavl the longest), a generic non-bank /
-// non-evm module (staking/, migrates in the MigrateAllButBank step), and evm/
-// (migrates first, uses structurally-valid EVM keys).
+// to. It deliberately spans the production routing classes: evm/ migrates
+// first, while bank/ and staking/ migrate together during MigrateCosmos.
 var randomTestStores = []string{keys.BankStoreKey, keys.StakingStoreKey, keys.EVMStoreKey}
 
 // =============================================================================
@@ -726,13 +724,6 @@ func steadyStatePlacement(mode types.WriteMode) func(store string) backendPlacem
 				return inFlatKVOnly
 			}
 			return inMemiavlOnly
-		}
-	case types.AllMigratedButBank:
-		return func(store string) backendPlacement {
-			if store == keys.BankStoreKey {
-				return inMemiavlOnly
-			}
-			return inFlatKVOnly
 		}
 	case types.TestOnlyDualWrite:
 		return func(store string) backendPlacement {
