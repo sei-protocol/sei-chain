@@ -39,8 +39,7 @@ import (
 )
 
 const (
-	// setupTimeout bounds everything TestMain does before m.Run, which runs
-	// outside the go test alarm.
+	// setupTimeout bounds TestMain's setup, which runs outside the go test timeout.
 	setupTimeout = 30 * time.Minute
 
 	// Cluster lifecycle (TestMain).
@@ -67,9 +66,8 @@ const (
 	// progressTxAccountBase is past the 4_000 deterministic senders EVMOnlyLoad
 	// uses, so a later progress tx is a nonce-0 transfer from a funded account.
 	progressTxAccountBase = 1_000_000
-	// prebuiltImagesEnv selects the -ci make targets, which run the already
-	// present sei-chain/localnode and sei-chain/rpcnode images and build/seid
-	// instead of rebuilding them.
+	// prebuiltImagesEnv selects the -ci make targets, which reuse the prebuilt
+	// sei-chain/localnode and sei-chain/rpcnode images and build/seid.
 	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
 
 	// Fault-tolerance subtests. Execution height is read from each
@@ -214,23 +212,19 @@ func runMake(ctx context.Context, env []string, target string) error {
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("%w (%v)", ctxErr, err)
-		}
-		return err
+	err := cmd.Run()
+	if err != nil && ctx.Err() != nil {
+		return fmt.Errorf("%w: %w", ctx.Err(), err)
 	}
-	return nil
+	return err
 }
 
 // pause waits for d, returning ctx's error if ctx ends first.
 func pause(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-timer.C:
+	case <-time.After(d):
 		return nil
 	}
 }
@@ -319,7 +313,6 @@ func setupFullnodeNode(ctx context.Context) error {
 	if prebuiltImages() {
 		target += "-ci"
 	}
-	// Not bound to ctx: the process lives for the whole suite.
 	cmd := exec.Command("make", target)
 	cmd.Env = append(os.Environ(), "AUTOBAHN=true", fmt.Sprintf("CLUSTER_SIZE=%d", clusterSize))
 	cmd.Stdout = os.Stdout
