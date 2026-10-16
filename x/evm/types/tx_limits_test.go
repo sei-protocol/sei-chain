@@ -25,13 +25,14 @@ func TestValidateTxLimits(t *testing.T) {
 	}{
 		{name: "gas at EIP-7825 cap", to: &to, gas: params.MaxTxGas},
 		{name: "gas over EIP-7825 cap", to: &to, gas: params.MaxTxGas + 1, wantErr: core.ErrGasLimitTooHigh},
-		{name: "initcode at limit", gas: 1_000_000, data: params.MaxInitCodeSizeSeiAmsterdam},
-		{name: "initcode over limit", gas: 1_000_000, data: params.MaxInitCodeSizeSeiAmsterdam + 1, wantErr: vm.ErrMaxInitCodeSizeExceeded},
-		{name: "large calldata to a contract", to: &to, gas: 1_000_000, data: params.MaxInitCodeSizeSeiAmsterdam + 1},
+		{name: "initcode at limit", gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam},
+		{name: "initcode over limit", gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam + 1, wantErr: vm.ErrMaxInitCodeSizeExceeded},
+		{name: "large calldata to a contract", to: &to, gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam + 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			etx := ethtypes.NewTx(&ethtypes.LegacyTx{To: tc.to, Gas: tc.gas, GasPrice: big.NewInt(1), Data: make([]byte, tc.data)})
-			err := types.ValidateTxLimits(etx, 0)
+			rules := types.EthereumRules(0)
+			err := types.ValidateTxLimits(etx, &rules)
 			if tc.wantErr == nil {
 				require.NoError(t, err)
 				return
@@ -42,11 +43,8 @@ func TestValidateTxLimits(t *testing.T) {
 }
 
 func TestForkActivation(t *testing.T) {
-	require.True(t, types.IsOsaka(0))
-	require.True(t, types.IsSeiAmsterdam(0))
-	cfg := types.DefaultChainConfig().EthereumConfig(big.NewInt(1))
-	require.NoError(t, cfg.CheckConfigForkOrder())
-	rules := cfg.Rules(big.NewInt(1), true, 0)
+	require.NoError(t, types.DefaultChainConfig().EthereumConfig(big.NewInt(1)).CheckConfigForkOrder())
+	rules := types.EthereumRules(0)
 	require.True(t, rules.IsPrague)
 	require.True(t, rules.IsOsaka)
 	require.True(t, rules.IsSeiAmsterdam)

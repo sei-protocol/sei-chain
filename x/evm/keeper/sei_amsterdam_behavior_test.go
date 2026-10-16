@@ -1,12 +1,14 @@
 package keeper_test
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 )
@@ -76,19 +78,19 @@ func TestSeiAmsterdamBehavior(t *testing.T) {
 	t.Run("eip7954_code_size_limit", func(t *testing.T) {
 		for _, tc := range []struct {
 			name    string
-			size    uint16
+			size    int64
 			vmError string
 		}{
-			{name: "at_limit", size: 0xc000},
-			{name: "over_limit", size: 0xc001, vmError: "max code size exceeded: code size 49153 limit 49152"},
+			{name: "at_limit", size: params.MaxCodeSizeAmsterdam},
+			{name: "over_limit", size: params.MaxCodeSizeAmsterdam + 1, vmError: "max code size exceeded: code size 65537 limit 65536"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				e := newBehaviorEnv(t, false)
 				sender := e.associateAndFund(key, 1_000_000)
 				// initcode: RETURN(0, size)
-				initcode := (&bc{}).push2(tc.size).push1(0).op(vm.RETURN).bytes()
+				initcode := (&bc{}).push32(big.NewInt(tc.size)).push1(0).op(vm.RETURN).bytes()
 
-				r := e.runTx(key, e.legacyTx(0, nil, nil, 12_000_000, bigGwei(1), initcode), 0)
+				r := e.runTx(key, e.legacyTx(0, nil, nil, 16_000_000, bigGwei(1), initcode), 0)
 				require.Equal(t, tc.vmError, r.res.VmError)
 				code := e.k.GetCode(e.ctx, crypto.CreateAddress(sender, 0))
 				if tc.vmError == "" {

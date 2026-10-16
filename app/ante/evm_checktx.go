@@ -100,7 +100,8 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		return nil
 	}
 	etx, _ := msg.AsTransaction()
-	if err := evmtypes.ValidateTxLimits(etx, ctx.BlockTime().Unix()); err != nil {
+	rules := evmtypes.EthereumRules(ctx.BlockTime().Unix())
+	if err := evmtypes.ValidateTxLimits(etx, &rules); err != nil {
 		return err
 	}
 

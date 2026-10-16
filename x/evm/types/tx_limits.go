@@ -9,20 +9,14 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// MaxInitCodeSize returns the initcode size limit at blockTime (EIP-3860, raised by Sei's EIP-7954).
-func MaxInitCodeSize(blockTime int64) int {
-	if IsSeiAmsterdam(blockTime) {
-		return params.MaxInitCodeSizeSeiAmsterdam
-	}
-	return params.MaxInitCodeSize
-}
-
 // ValidateTxLimits checks etx's initcode size and, under Osaka, its EIP-7825 gas cap.
-func ValidateTxLimits(etx *ethtypes.Transaction, blockTime int64) error {
-	if limit := MaxInitCodeSize(blockTime); etx.To() == nil && len(etx.Data()) > limit {
-		return fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(etx.Data()), limit)
+func ValidateTxLimits(etx *ethtypes.Transaction, rules *params.Rules) error {
+	if etx.To() == nil {
+		if err := vm.CheckMaxInitCodeSize(rules, uint64(len(etx.Data()))); err != nil {
+			return err
+		}
 	}
-	if IsOsaka(blockTime) && etx.Gas() > params.MaxTxGas {
+	if rules.IsOsaka && etx.Gas() > params.MaxTxGas {
 		return fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, etx.Gas())
 	}
 	return nil

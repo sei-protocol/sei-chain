@@ -37,7 +37,8 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		}
 	}
 
-	if err := evmtypes.ValidateTxLimits(etx, ctx.BlockTime().Unix()); err != nil {
+	rules := evmtypes.EthereumRules(ctx.BlockTime().Unix())
+	if err := evmtypes.ValidateTxLimits(etx, &rules); err != nil {
 		return ctx, err
 	}
 

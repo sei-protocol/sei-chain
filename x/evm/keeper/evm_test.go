@@ -182,7 +182,7 @@ func TestNegativeTransfer(t *testing.T) {
 	zeroVal := sdk.NewInt(0)
 	req2 := &types.MsgInternalEVMCall{
 		Sender: attackerAddr.String(),
-		Data:   make([]byte, params.MaxInitCodeSize+1),
+		Data:   make([]byte, params.MaxInitCodeSizeAmsterdam+1),
 		Value:  &zeroVal,
 	}
 

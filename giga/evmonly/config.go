@@ -58,14 +58,13 @@ func (c Config) WithDefaults() Config {
 // with the base fee paid to the coinbase.
 func DefaultChainConfig() *params.ChainConfig {
 	cfg := *params.AllDevChainProtocolChanges
-	seiAmsterdamTime := uint64(0)
-	cfg.SeiAmsterdamTime = &seiAmsterdamTime
 	cfg.BPO1Time = nil
 	cfg.BPO2Time = nil
 	cfg.BPO3Time = nil
 	cfg.BPO4Time = nil
 	cfg.BPO5Time = nil
 	cfg.AmsterdamTime = nil
+	cfg.SeiAmsterdamTime = cfg.OsakaTime
 	cfg.BogotaTime = nil
 	cfg.UBTTime = nil
 	cfg.SeiCoinbaseReceivesBaseFee = true

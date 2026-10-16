@@ -24,8 +24,8 @@ func TestBasicDecorator(t *testing.T) {
 		return ctx, nil
 	})
 	require.NotNil(t, err) // expect out of gas err
-	dataTooLarge := make([]byte, params.MaxInitCodeSizeSeiAmsterdam+1)
-	for i := 0; i <= params.MaxInitCodeSizeSeiAmsterdam; i++ {
+	dataTooLarge := make([]byte, params.MaxInitCodeSizeAmsterdam+1)
+	for i := 0; i <= params.MaxInitCodeSizeAmsterdam; i++ {
 		dataTooLarge[i] = 1
 	}
 	msg, _ = types.NewMsgEVMTransaction(&ethtx.LegacyTx{Data: dataTooLarge})

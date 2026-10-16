@@ -50,8 +50,8 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 		ShanghaiTime:               getUpgradeTimestamp(0),
 		CancunTime:                 getUpgradeTimestamp(cc.CancunTime),
 		PragueTime:                 getUpgradeTimestamp(cc.PragueTime),
-		OsakaTime:                  getUpgradeTimestamp(OsakaTime),
-		SeiAmsterdamTime:           getUpgradeTimestamp(SeiAmsterdamTime),
+		OsakaTime:                  getUpgradeTimestamp(cc.OsakaTime),
+		SeiAmsterdamTime:           getUpgradeTimestamp(cc.SeiAmsterdamTime),
 		UBTTime:                    getUpgradeTimestamp(cc.VerkleTime),
 		BlobScheduleConfig:         params.DefaultBlobSchedule,
 	}
@@ -67,19 +67,16 @@ func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
 		CancunTime:             CancunTime,
 		PragueTime:             PragueTime,
+		OsakaTime:              OsakaTime,
+		SeiAmsterdamTime:       SeiAmsterdamTime,
 		VerkleTime:             -1,
 		SeiSstoreSetGasEip2200: DefaultSeiSstoreSetGasEIP2200,
 	}
 }
 
-// IsOsaka reports whether Osaka is active at blockTime.
-func IsOsaka(blockTime int64) bool {
-	return OsakaTime >= 0 && blockTime >= OsakaTime
-}
-
-// IsSeiAmsterdam reports whether Sei's Amsterdam subset is active at blockTime.
-func IsSeiAmsterdam(blockTime int64) bool {
-	return IsOsaka(blockTime) && SeiAmsterdamTime >= 0 && blockTime >= SeiAmsterdamTime
+// EthereumRules returns the go-ethereum fork rules active at blockTime.
+func EthereumRules(blockTime int64) params.Rules {
+	return DefaultChainConfig().EthereumConfig(nil).Rules(utils.Big0, true, uint64(blockTime)) //nolint:gosec
 }
 
 func getUpgradeTimestamp(i int64) *uint64 {

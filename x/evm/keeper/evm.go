@@ -80,8 +80,12 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if ctx.IsEVM() && !ctx.EVMEntryViaWasmdPrecompile() {
 		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
 	}
-	if limit := types.MaxInitCodeSize(ctx.BlockTime().Unix()); to == nil && len(data) > limit {
-		return nil, fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(data), limit)
+	// the state transition runs fee-charged, which skips geth's initcode size check
+	if to == nil {
+		rules := types.EthereumRules(ctx.BlockTime().Unix())
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(data))); err != nil {
+			return nil, err
+		}
 	}
 	if to != nil && to.Cmp(common.HexToAddress(solo.SoloAddress)) == 0 {
 		return nil, errors.New("cannot call Solo precompile via CosmWasm")
