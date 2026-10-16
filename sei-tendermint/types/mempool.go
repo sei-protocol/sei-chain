@@ -10,6 +10,9 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
+// ErrTxInCache is returned when the mempool has already seen the tx.
+var ErrTxInCache = errors.New("tx already exists in cache")
+
 // TxHash is the fixed length array hash used as an index.
 type TxHash crypto.Hash
 

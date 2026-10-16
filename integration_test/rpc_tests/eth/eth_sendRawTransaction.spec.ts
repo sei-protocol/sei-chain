@@ -99,10 +99,10 @@ describe('eth_sendRawTransaction', function () {
 
             const replayRes = await rawSei('eth_sendRawTransaction', [signed.raw]);
             expect(replayRes.error, 'replay must be rejected').to.not.equal(undefined);
-            // Sei dedups in the mempool cache ("tx already exists in cache") before the nonce
-            // check, so accept that alongside the canonical nonce/replay rejection reasons.
+            // Sei dedups in the mempool cache ("already known") before the nonce check, so accept
+            // that alongside the canonical nonce/replay rejection reasons.
             expect(replayRes.error!.message, 'replay rejection reason').to.match(
-                /incorrect account sequence|nonce too low|already known|tx already exists in cache/i,
+                /incorrect account sequence|nonce too low|already known/i,
             );
         });
 

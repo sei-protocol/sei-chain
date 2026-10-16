@@ -12,6 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -247,6 +248,28 @@ func TestSendRawTransactionSlowOnCometUsesBroadcastTxCommit(t *testing.T) {
 	require.Equal(t, tx.Hash(), hash)
 	require.Equal(t, 0, tmClient.syncCount)
 	require.Equal(t, 1, tmClient.commitCount)
+}
+
+// inCacheClient rejects every broadcast the way the mempool rejects a tx it has already seen.
+type inCacheClient struct {
+	*MockClient
+}
+
+func (c *inCacheClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
+	return nil, tmtypes.ErrTxInCache
+}
+
+func (c *inCacheClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	return nil, tmtypes.ErrTxInCache
+}
+
+func TestSendRawTransactionAlreadyInCacheReturnsAlreadyKnown(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	for _, slow := range []bool{false, true} {
+		sendAPI := newTestSendAPI(&inCacheClient{MockClient: &MockClient{}}, evmrpc.NewSendConfig(slow, false, false))
+		_, err := sendAPI.SendRawTransaction(t.Context(), hexutil.Bytes(ethTxBytes))
+		require.ErrorIs(t, err, txpool.ErrAlreadyKnown, "slow=%v", slow)
+	}
 }
 
 func mustSignTestTx(t *testing.T) ([]byte, *ethtypes.Transaction) {

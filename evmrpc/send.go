@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -22,6 +23,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -140,7 +142,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if s.sendConfig.slow && !s.sendConfig.autobahn {
 		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
 		if broadcastError != nil {
-			err = broadcastError
+			err = toEthBroadcastError(broadcastError)
 		} else if res == nil {
 			err = errors.New("missing broadcast response")
 		} else if res.CheckTx.Code != 0 {
@@ -149,7 +151,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	} else {
 		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
 		if broadcastError != nil {
-			err = broadcastError
+			err = toEthBroadcastError(broadcastError)
 		} else if res == nil {
 			err = errors.New("missing broadcast response")
 		} else if res.Code != 0 {
@@ -157,6 +159,14 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		}
 	}
 	return
+}
+
+// toEthBroadcastError maps a broadcast error to its Ethereum txpool equivalent, if it has one.
+func toEthBroadcastError(err error) error {
+	if errors.Is(err, tmtypes.ErrTxInCache) {
+		return txpool.ErrAlreadyKnown
+	}
+	return err
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {

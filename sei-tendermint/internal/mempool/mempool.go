@@ -21,7 +21,7 @@ import (
 var logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
 // ErrTxInCache is returned to the client if we saw tx earlier.
-var ErrTxInCache = errors.New("tx already exists in cache")
+var ErrTxInCache = types.ErrTxInCache
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
 var ErrTxTooLarge = errors.New("tx too large")
