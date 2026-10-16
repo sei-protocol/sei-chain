@@ -11,6 +11,11 @@ import (
 var CancunTime int64 = 0
 var PragueTime int64 = 0
 
+// OsakaTime and SeiAmsterdamTime activate Osaka and Sei's Amsterdam subset (EIP-7708,
+// 7954, 8024, 8246) with the v6.9 binary; -1 disables.
+var OsakaTime int64 = 0
+var SeiAmsterdamTime int64 = 0
+
 /*
 *
 XXBlock/Time fields indicate upgrade heights/timestamps. For example, a BerlinBlock
@@ -45,6 +50,8 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 		ShanghaiTime:               getUpgradeTimestamp(0),
 		CancunTime:                 getUpgradeTimestamp(cc.CancunTime),
 		PragueTime:                 getUpgradeTimestamp(cc.PragueTime),
+		OsakaTime:                  getUpgradeTimestamp(cc.OsakaTime),
+		SeiAmsterdamTime:           getUpgradeTimestamp(cc.SeiAmsterdamTime),
 		UBTTime:                    getUpgradeTimestamp(cc.VerkleTime),
 		BlobScheduleConfig:         params.DefaultBlobSchedule,
 	}
@@ -60,9 +67,16 @@ func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
 		CancunTime:             CancunTime,
 		PragueTime:             PragueTime,
+		OsakaTime:              OsakaTime,
+		SeiAmsterdamTime:       SeiAmsterdamTime,
 		VerkleTime:             -1,
 		SeiSstoreSetGasEip2200: DefaultSeiSstoreSetGasEIP2200,
 	}
+}
+
+// EthereumRules returns the go-ethereum fork rules active at blockTime.
+func EthereumRules(blockTime int64) params.Rules {
+	return DefaultChainConfig().EthereumConfig(nil).Rules(utils.Big0, true, uint64(blockTime)) //nolint:gosec
 }
 
 func getUpgradeTimestamp(i int64) *uint64 {

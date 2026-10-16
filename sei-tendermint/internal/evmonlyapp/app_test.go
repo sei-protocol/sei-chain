@@ -15,6 +15,7 @@ import (
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -305,6 +306,45 @@ func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
 
 	require.True(t, response.IsErr())
+}
+
+// The executor refuses a tx over the EIP-7825 cap once Osaka is scheduled, so admission has to as well.
+func TestEVMOnlyApplicationAppliesTheEIP7825GasCap(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	for _, tc := range []struct {
+		name      string
+		osakaTime *uint64
+		gas       uint64
+		ok        bool
+	}{
+		{name: "at_cap", osakaTime: new(uint64), gas: params.MaxTxGas, ok: true},
+		{name: "over_cap", osakaTime: new(uint64), gas: params.MaxTxGas + 1},
+		{name: "over_cap_osaka_unscheduled", gas: params.MaxTxGas + 1, ok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newInitializedEVMOnlyTestApp(t)
+			app.(*evmOnlyApplication).chainConfig.OsakaTime = tc.osakaTime
+			tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+				Gas:      tc.gas,
+				GasPrice: big.NewInt(evmOnlyMinGasPrice),
+				To:       &recipient,
+			})
+			signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+
+			response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+
+			require.Equal(t, tc.ok, response.IsOK(), response.Log)
+			if !tc.ok {
+				require.Contains(t, response.Log, ethcore.ErrGasLimitTooHigh.Error())
+			}
+		})
+	}
 }
 
 // A zero priority fee is valid EIP-1559, and admitting on tx.GasPrice() — the

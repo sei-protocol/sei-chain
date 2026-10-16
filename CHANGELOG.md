@@ -43,6 +43,9 @@ sei-chain
     * On a pruned node, debug_trace* and eth_getTransactionByBlockNumberAndIndex at "earliest" or 0x0 use the earliest available block, not the genesis initial height.
     * eth_getLogs and filters clamp "earliest" and 0x0 bounds to the earliest available receipts instead of erroring.
     * eth_call, eth_estimateGas and debug_traceCall state overrides cannot move Sei precompiles, and a `code` override at a Sei precompile address is ignored.
+* Activate Osaka and Sei's Amsterdam subset (CON-528) with the v6.9 binary. App-hash breaking; minor-version upgrade only.
+  * Osaka: CLZ (EIP-7939), MODEXP input bounds and repricing (EIP-7823, EIP-7883), P256VERIFY precompile at 0x100 (EIP-7951), and a 2^24 per-transaction gas cap enforced in CheckTx and execution (EIP-7825).
+  * Amsterdam subset: ETH transfer logs (EIP-7708), 64 KiB code and 128 KiB initcode limits (EIP-7954), DUPN/SWAPN/EXCHANGE (EIP-8024), and SELFDESTRUCT no longer burns, so a self-destructed account keeps its balance (EIP-8246).
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics

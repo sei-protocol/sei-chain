@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -81,8 +80,12 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if ctx.IsEVM() && !ctx.EVMEntryViaWasmdPrecompile() {
 		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
 	}
-	if to == nil && len(data) > params.MaxInitCodeSize {
-		return nil, fmt.Errorf("%w: code size %v, limit %v", vm.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
+	// the state transition runs fee-charged, which skips geth's initcode size check
+	if to == nil {
+		rules := types.EthereumRules(ctx.BlockTime().Unix())
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(data))); err != nil {
+			return nil, err
+		}
 	}
 	if to != nil && to.Cmp(common.HexToAddress(solo.SoloAddress)) == 0 {
 		return nil, errors.New("cannot call Solo precompile via CosmWasm")

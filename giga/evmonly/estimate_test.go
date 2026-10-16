@@ -167,7 +167,11 @@ func TestExecutorEstimateGasTimesOutOnUnboundedExecution(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
 	store := NewMemoryStore(state)
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+	// Pre-Osaka, so the EIP-7825 gas cap does not end the loop before the timeout.
+	cfg := DefaultChainConfig()
+	cfg.OsakaTime = nil
+	cfg.SeiAmsterdamTime = nil
+	executor := NewExecutor(Config{ChainConfig: cfg}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
 
 	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
 	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
