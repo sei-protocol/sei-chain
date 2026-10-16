@@ -28,7 +28,6 @@ const (
 	FailureDexInvalid    string = "failure_dex_invalid"
 	Dex                  string = "dex"
 	Staking              string = "staking"
-	Tokenfactory         string = "tokenfactory"
 	Limit                string = "limit"
 	Market               string = "market"
 	WasmMintNft          string = "wasm_mint_nft"

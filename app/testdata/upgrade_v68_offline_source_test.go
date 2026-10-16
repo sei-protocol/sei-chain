@@ -20,7 +20,9 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -43,21 +45,23 @@ const (
 	v68OfflineProposalDescription       = "Substitute the expired client with 07-tendermint-1"
 )
 
-var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "upgrade"}
+var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "params", "upgrade"}
 
 // v68OfflineDeletedStores are the stores v6.8 deletes; the source phase writes
 // a key into each so the target phase can prove the trees are gone.
-var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "transfer"}
+var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer"}
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
 	seedV68OfflineDeletedStores(t, testApp, ctx)
+	seedV68TokenfactoryDenom(t, testApp, ctx)
 	vesting, retained := seedV68OfflineVestingAccounts(t, testApp, ctx)
 	seedV68IBCProposal(t, testApp, ctx, &retained)
 	seedV68UpgradedIBCState(t, testApp, ctx, &retained)
 	seedV68Voucher(t, testApp, ctx, &retained)
+	seedV68OfflineDelegations(testApp, ctx)
 	requireV68OfflineBalancesLocked(t, testApp, ctx, retained)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
@@ -71,9 +75,10 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, moduleVersions, "oracle")
+	require.Contains(t, moduleVersions, "tokenfactory", "v6.7 module version map does not contain tokenfactory")
 	require.Contains(t, moduleVersions, "vesting", "v6.7 module version map does not contain vesting")
 	// v6.7 dropped the IBC module versions while keeping their stores mounted;
-	// only oracle and vesting still carry a version into v6.8.
+	// only oracle, tokenfactory and vesting still carry a version into v6.8.
 	for _, name := range []string{"capability", "ibc", "transfer"} {
 		require.NotContains(t, moduleVersions, name)
 		require.NotNil(t, testApp.GetKey(name))
@@ -99,7 +104,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 }
 
 // TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose
-// oracle and IBC trees v6.8 deleted.
+// oracle, tokenfactory and IBC trees v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
@@ -118,7 +123,7 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 		closeOfflineUpgradeApp(t, testApp)
 	}()
 	require.NotNil(t, recovered,
-		"v6.7 binary reopened a database whose oracle and IBC trees were deleted")
+		"v6.7 binary reopened a database whose oracle, tokenfactory and IBC trees were deleted")
 	message := fmt.Sprint(recovered)
 	namesDeletedStore := false
 	for _, name := range v68OfflineDeletedStores {
@@ -136,6 +141,20 @@ func seedV68OfflineDeletedStores(t *testing.T, testApp *App, ctx sdk.Context) {
 	for _, name := range v68OfflineDeletedStores {
 		ctx.KVStore(testApp.GetKey(name)).Set([]byte("historical"), []byte("retained"))
 	}
+}
+
+// seedV68TokenfactoryDenom creates a tokenfactory denom with a transfer
+// allowlist and mints a balance of it to its creator.
+func seedV68TokenfactoryDenom(t *testing.T, testApp *App, ctx sdk.Context) {
+	t.Helper()
+	creator := sdk.AccAddress("v68-factory-creator_")
+	testApp.AccountKeeper.SetAccount(ctx, testApp.AccountKeeper.NewAccountWithAddress(ctx, creator))
+	denom, err := testApp.TokenFactoryKeeper.CreateDenom(ctx, creator.String(), "v68")
+	require.NoError(t, err)
+	testApp.BankKeeper.SetDenomAllowList(ctx, denom, banktypes.AllowList{Addresses: []string{creator.String()}})
+	minted := sdk.NewCoins(sdk.NewInt64Coin(denom, 1_000))
+	require.NoError(t, testApp.BankKeeper.MintCoins(ctx, "tokenfactory", minted))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "tokenfactory", creator, minted))
 }
 
 // seedV68IBCProposal stores a passed IBC client update proposal, which v6.8
@@ -185,6 +204,20 @@ func seedV68Voucher(t *testing.T, testApp *App, ctx sdk.Context, retained *offli
 	retained.VoucherHolder = holder.String()
 	retained.VoucherAmount = voucher.Amount.String()
 	retained.VoucherSupply = testApp.BankKeeper.GetSupply(ctx, voucher.Denom).Amount.String()
+}
+
+// seedV68OfflineDelegations stores delegations to two validators, which v6.7
+// writes without any delegation-by-validator index entry.
+func seedV68OfflineDelegations(testApp *App, ctx sdk.Context) {
+	validators := []sdk.ValAddress{
+		sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
+		sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
+	}
+	for i := 0; i < 3; i++ {
+		delegator := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+		testApp.StakingKeeper.SetDelegation(ctx,
+			stakingtypes.NewDelegation(delegator, validators[i%len(validators)], sdk.NewDec(int64(i+1))))
+	}
 }
 
 // seedV68OfflineVestingAccounts writes one account of every vesting type

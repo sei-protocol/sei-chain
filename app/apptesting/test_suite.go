@@ -110,11 +110,6 @@ func (s *KeeperTestHelper) SetupValidator(bondStatus stakingtypes.BondStatus) sd
 	return valAddr
 }
 
-// SetupTokenFactory sets up a token module account for the TokenFactoryKeeper.
-func (s *KeeperTestHelper) SetupTokenFactory() {
-	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
-}
-
 // EndBlock ends the block.
 func (s *KeeperTestHelper) EndBlock() {
 	legacyabci.EndBlock(s.Ctx, s.Ctx.BlockHeight(), 0, s.App.EndBlockKeepers)

@@ -97,6 +97,36 @@ func TestInitGenesis(t *testing.T) {
 	require.Equal(t, abcivals, vals)
 }
 
+func TestInitGenesisIndexesDelegationsByValidator(t *testing.T) {
+	app, ctx, addrs := bootstrapGenesisTest(t, 2)
+	store := ctx.KVStore(app.StakingKeeper.GetStoreKey())
+	store.Delete(types.DelegationByValIndexReadyKey)
+
+	valTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 1)
+	params := app.StakingKeeper.GetParams(ctx)
+	pk, err := codectypes.NewAnyWithValue(PKs[0])
+	require.NoError(t, err)
+	valAddr := sdk.ValAddress(addrs[0])
+	validator := types.Validator{
+		OperatorAddress: valAddr.String(),
+		ConsensusPubkey: pk,
+		Status:          types.Bonded,
+		Tokens:          valTokens,
+		DelegatorShares: valTokens.ToDec(),
+		Description:     types.NewDescription("hoop", "", "", "", ""),
+	}
+	validators := append(app.StakingKeeper.GetAllValidators(ctx), validator)
+	require.NoError(t, apptesting.FundModuleAccount(app.BankKeeper, ctx, types.BondedPoolName,
+		sdk.NewCoins(sdk.NewCoin(params.BondDenom, valTokens.MulRaw(int64(len(validators)))))))
+	delegation := types.NewDelegation(addrs[1], valAddr, valTokens.ToDec())
+
+	staking.InitGenesis(ctx, app.StakingKeeper, app.AccountKeeper, app.BankKeeper,
+		types.NewGenesisState(params, validators, []types.Delegation{delegation}))
+
+	require.True(t, app.StakingKeeper.DelegationByValIndexReady(ctx))
+	require.True(t, store.Has(types.GetDelegationByValIndexKey(addrs[1], valAddr)))
+}
+
 func TestInitGenesis_PoolsBalanceMismatch(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.NewContext(false, tmproto.Header{})

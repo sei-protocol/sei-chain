@@ -19,7 +19,6 @@ import (
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 var ModuleKeys = sdk.NewKVStoreKeys(
@@ -27,7 +26,7 @@ var ModuleKeys = sdk.NewKVStoreKeys(
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey, seidbkeys.FeegrantStoreKey,
 	evidencetypes.StoreKey,
-	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
+	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey,
 )
 
 var Modules = []string{
@@ -44,7 +43,6 @@ var Modules = []string{
 	"params",
 	"slashing",
 	"staking",
-	"tokenfactory",
 	"upgrade",
 	"wasm"}
 
