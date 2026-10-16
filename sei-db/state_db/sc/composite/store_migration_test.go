@@ -1206,7 +1206,7 @@ func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) 
 
 // TestComposite_MigrateCosmos_RollbackAcrossCompletionBoundary is the
 // memiavl-side mirror of TestComposite_MigrateEVM_RollbackAcrossActivationBoundary.
-// Once MigrateCosmos completes (version 2) a store with memiavl still
+// Once MigrateCosmos completes (version 3) a store with memiavl still
 // open latches memiavlHashExcluded=true and drops memiavl's per-store infos
 // from the commit info (the flatkv_only shape). Rolling back below the
 // completion boundary must re-include memiavl, or the in-process
@@ -1233,9 +1233,9 @@ func TestComposite_MigrateCosmos_RollbackAcrossCompletionBoundary(t *testing.T) 
 
 	// Drive to completion while staying in currentWriteMode
 	// MigrateCosmos (do NOT flip to FlatKVOnly), so the rollback exercises the
-	// latch reset rather than a mode change. Reaching version 2 latches
+	// latch reset rather than a mode change. Reaching version 3 latches
 	// memiavlHashExcluded=true and drops memiavl from the commit info.
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
 	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
 		"once MigrateCosmos completes, memiavl infos are excluded (latches memiavlHashExcluded)")
 
@@ -1271,7 +1271,7 @@ func TestComposite_Auto_RollbackAcrossMigrateCosmosCompletionAfterRestart(t *tes
 	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
 	require.Greater(t, len(target.info.StoreInfos), 1,
 		"sanity: an in-progress MigrateCosmos still carries memiavl's store infos")
-	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
 	require.NoError(t, cs.Close())
 
 	cs = openAutoStore(t, dir, batch)
@@ -1589,7 +1589,7 @@ func TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoMigrateCosmos(t *testing.
 	cs := openAutoStore(t, dir, batch)
 	walkToMigrateCosmos(t, cs, workload)
 	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
-	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
 	require.NoError(t, cs.Close())
 
 	pinned := pinnedConfig(types.FlatKVOnly)

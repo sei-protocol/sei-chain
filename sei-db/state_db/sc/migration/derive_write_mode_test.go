@@ -51,9 +51,11 @@ func TestDeriveWriteMode(t *testing.T) {
 		{name: "v0 persisted NotStarted boundary", boundary: notStarted, want: types.MemiavlOnly},
 		{name: "v1 steady", version: uintPtr(Version1_MigrateEVM), want: types.EVMMigrated},
 		{name: "v1 in-flight", version: uintPtr(Version1_MigrateEVM), boundary: inFlight, want: types.MigrateCosmos},
-		{name: "v2 steady", version: uintPtr(Version2_FlatKVOnly), want: types.FlatKVOnly},
-		{name: "v2 in-flight is corrupt", version: uintPtr(Version2_FlatKVOnly), boundary: inFlight, wantErr: true},
-		{name: "unknown version", version: uintPtr(3), wantErr: true},
+		{name: "v3 steady", version: uintPtr(Version3_FlatKVOnly), want: types.FlatKVOnly},
+		{name: "v3 in-flight is corrupt", version: uintPtr(Version3_FlatKVOnly), boundary: inFlight, wantErr: true},
+		{name: "v2 all-but-bank layout is unknown", version: uintPtr(2), wantErr: true},
+		{name: "v2 all-but-bank in-flight is unknown", version: uintPtr(2), boundary: inFlight, wantErr: true},
+		{name: "unknown version", version: uintPtr(4), wantErr: true},
 		{name: "corrupt boundary bytes", boundary: []byte{0xFF, 0xFF}, wantErr: true},
 	}
 
@@ -99,9 +101,9 @@ func TestIsModeComplete(t *testing.T) {
 	}{
 		{name: "MigrateEVM no version key", mode: types.MigrateEVM, want: false},
 		{name: "MigrateEVM at target", mode: types.MigrateEVM, version: uintPtr(Version1_MigrateEVM), want: true},
-		{name: "MigrateEVM past target", mode: types.MigrateEVM, version: uintPtr(Version2_FlatKVOnly), want: true},
+		{name: "MigrateEVM past target", mode: types.MigrateEVM, version: uintPtr(Version3_FlatKVOnly), want: true},
 		{name: "MigrateCosmos below target", mode: types.MigrateCosmos, version: uintPtr(Version1_MigrateEVM), want: false},
-		{name: "MigrateCosmos at target", mode: types.MigrateCosmos, version: uintPtr(Version2_FlatKVOnly), want: true},
+		{name: "MigrateCosmos at target", mode: types.MigrateCosmos, version: uintPtr(Version3_FlatKVOnly), want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

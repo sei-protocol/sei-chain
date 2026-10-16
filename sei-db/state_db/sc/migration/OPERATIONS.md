@@ -2,7 +2,7 @@
 
 This document is the operational companion to [README.md](README.md). README explains *what* the migration is and *how* the data path is wired; this document explains *what can go wrong*, *how to detect it*, *how to repair it*, and *what tooling needs to exist* to make MigrateEVM (V0 -> V1) safe to operate in production and reproducible in CI.
 
-It is deliberately scoped to **MigrateEVM only** (the V0 -> V1 transition that moves the `evm/` module from memiavl to flatkv). The same framework will apply to MigrateCosmos (V1 -> V2) but that is out of scope for the first iteration.
+It is deliberately scoped to **MigrateEVM only** (the V0 -> V1 transition that moves the `evm/` module from memiavl to flatkv). The same framework will apply to MigrateCosmos (V1 -> V3) but that is out of scope for the first iteration.
 
 ---
 

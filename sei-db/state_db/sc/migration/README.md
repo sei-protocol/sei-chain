@@ -1,6 +1,6 @@
 # Migration
 
-This package owns the multi-phase migration of state from `memiavl` to `flatkv`. The migration is split into three versions (V0, V1, V2) connected by two transitions, each of which moves a slice of the keyspace (`evm/`, then every remaining module) from the old backend to the new one. While a migration is in progress, [`BuildRouter`](router_builder.go) produces a per-mode `ModuleRouter` that decides, on a per-store basis, whether reads and writes go through the [`MigrationManager`](migration_manager.go) or directly to a single backend; `BuildRouter` always wraps its result in [`NewThreadSafeRouter`](thread_safe_router.go) before returning. The two terminal states (V0 and V2) are reached by *not* calling `BuildRouter` at all: the bootstrap layer detects them and writes directly to the single backend that owns all state in that steady state.
+This package owns the multi-phase migration of state from `memiavl` to `flatkv`. The migration is split into three versions (V0, V1, V3) connected by two transitions, each of which moves a slice of the keyspace (`evm/`, then every remaining module) from the old backend to the new one. While a migration is in progress, [`BuildRouter`](router_builder.go) produces a per-mode `ModuleRouter` that decides, on a per-store basis, whether reads and writes go through the [`MigrationManager`](migration_manager.go) or directly to a single backend; `BuildRouter` always wraps its result in [`NewThreadSafeRouter`](thread_safe_router.go) before returning. The two terminal states (V0 and V3) are reached by *not* calling `BuildRouter` at all: the bootstrap layer detects them and writes directly to the single backend that owns all state in that steady state.
 
 ## State machine
 
@@ -9,12 +9,14 @@ stateDiagram-v2
     direction LR
     v0: Version 0 (memiavl only)
     v1: Version 1 (EVMMigrated)
-    v2: Version 2 (flatkv only)
+    v3: Version 3 (flatkv only)
     v0 --> v1: MigrateEVM
-    v1 --> v2: MigrateCosmos
+    v1 --> v3: MigrateCosmos
 ```
 
-V0 and V2 are lowercase data-layout descriptors: they describe the shape of state on disk but have no associated `WriteMode` constant because no migration is in progress. V1 is a steady state that shares a name with the `WriteMode` value that produces it (`EVMMigrated`).
+V0 and V3 are lowercase data-layout descriptors: they describe the shape of state on disk but have no associated `WriteMode` constant because no migration is in progress. V1 is a steady state that shares a name with the `WriteMode` value that produces it (`EVMMigrated`).
+
+Version 2 is unassigned. v6.7 persists it for a store whose `bank/` data is still in memiavl, so `DeriveWriteMode` refuses such a store as an unknown version instead of reading it as flatkv only.
 
 ## Phases
 
@@ -36,7 +38,7 @@ The first transition. A `ModuleRouter` routes `evm/` keys through the [`Migratio
 
 Steady state after the EVM migration completes. The `ModuleRouter` sends `evm/` keys directly to flatkv and routes everything else to memiavl; the `MigrationManager` is no longer in the data path for this version. See `WriteMode = EVMMigrated` in [write_mode.go](write_mode.go), built by `buildEVMMigratedRouter` in [router_builder.go](router_builder.go). On disk this maps to `Version1_MigrateEVM` in [migration_versions.go](migration_versions.go).
 
-### MigrateCosmos (V1 -> V2)
+### MigrateCosmos (V1 -> V3)
 
 ```mermaid
 flowchart LR
@@ -47,11 +49,11 @@ flowchart LR
     manager -->|migrated keys| flatkv
 ```
 
-The final transition. The `ModuleRouter` routes `evm/` directly to flatkv (already migrated in V1) and every other module through the [`MigrationManager`](migration_manager.go) so its keys are walked across in batches. When the boundary cursor reaches the end and the version bumps, the node has fully landed in V2. See `WriteMode = MigrateCosmos` in [write_mode.go](write_mode.go), built by `buildMigrateCosmosRouter` in [router_builder.go](router_builder.go).
+The final transition. The `ModuleRouter` routes `evm/` directly to flatkv (already migrated in V1) and every other module through the [`MigrationManager`](migration_manager.go) so its keys are walked across in batches. When the boundary cursor reaches the end and the version bumps, the node has fully landed in V3. See `WriteMode = MigrateCosmos` in [write_mode.go](write_mode.go), built by `buildMigrateCosmosRouter` in [router_builder.go](router_builder.go).
 
-### Version 2: post-migration (V2)
+### Version 3: post-migration (V3)
 
-Terminal state. All reads and writes go directly to flatkv; the migration package is not in the data path. Bootstrap detects "DB is at `Version2_FlatKVOnly`" via `IsAtVersion` and stops calling [`BuildRouter`](router_builder.go), so no router or manager is constructed for nodes that have completed both migrations. See `Version2_FlatKVOnly` in [migration_versions.go](migration_versions.go).
+Terminal state. All reads and writes go directly to flatkv; the migration package is not in the data path. Bootstrap detects "DB is at `Version3_FlatKVOnly`" via `IsAtVersion` and stops calling [`BuildRouter`](router_builder.go), so no router or manager is constructed for nodes that have completed both migrations. See `Version3_FlatKVOnly` in [migration_versions.go](migration_versions.go).
 
 ## Migration manager and routers
 

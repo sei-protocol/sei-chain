@@ -103,7 +103,7 @@ type CompositeCommitStore struct {
 
 	// memiavlHashExcluded is a sticky one-way flag mirroring
 	// latticeAppendLatched on the memiavl side: once the final migration's
-	// completion (migration version Version2_FlatKVOnly) has been observed,
+	// completion (migration version Version3_FlatKVOnly) has been observed,
 	// memiavl's per-store infos are permanently excluded from the commit info
 	// without re-reading flatkv. See shouldIncludeMemiavlInfos for the gating
 	// rules.
@@ -1238,14 +1238,14 @@ func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHa
 // shouldIncludeMemiavlInfos reports whether memiavl's per-store infos
 // belong in the commit info (and therefore the AppHash). Memiavl
 // participates until MigrateCosmos completes, i.e. until the persisted
-// migration version reaches Version2_FlatKVOnly; from that commit on, a
+// migration version reaches Version3_FlatKVOnly; from that commit on, a
 // store with memiavl still open must produce the same commit info as a
 // configured flatkv_only store (memIAVL == nil), or the two configurations
 // fork.
 //
 // The gate is keyed on persisted migration metadata, not on
 // currentWriteMode: write-mode derivation auto-advances on restart
-// (version 2 on disk derives FlatKVOnly) while live peers stay in
+// (version 3 on disk derives FlatKVOnly) while live peers stay in
 // MigrateCosmos until their transition trigger fires, so a mode-keyed
 // answer would differ between a live and a restarted node at the same
 // height. The metadata read sees pending (uncommitted) writes, so the
@@ -1254,8 +1254,8 @@ func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHa
 // advances are part of block execution.
 //
 // The per-call metadata read is scoped to the only states that can observe
-// version 2: MigrateCosmos (the migration that produces it) and FlatKVOnly
-// (which the SetWriteMode gate only admits once version 2 is persisted).
+// version 3: MigrateCosmos (the migration that produces it) and FlatKVOnly
+// (which the SetWriteMode gate only admits once version 3 is persisted).
 // Every earlier mode includes memiavl unconditionally, and the result is
 // one-way latched once exclusion is observed (mirroring latticeAppendLatched).
 func (cs *CompositeCommitStore) shouldIncludeMemiavlInfos() bool {
@@ -1546,7 +1546,7 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	//     rollback to a pre-activation height (memiavl-only AppHash, no
 	//     evm_lattice) must stop appending the lattice.
 	//   - memiavlHashExcluded: set after MigrateCosmos completes
-	//     (version 2); a rollback below completion must re-include memiavl's
+	//     (version 3); a rollback below completion must re-include memiavl's
 	//     per-store infos, which the AppHash still carries at that height.
 	// Without these resets the in-process post-rollback commit info (the hash
 	// `seid rollback` prints and rootmulti caches in rs.lastCommitInfo)
@@ -1590,10 +1590,10 @@ func (cs *CompositeCommitStore) requireRollbackReachable(targetVersion int64) er
 // exported version instead of trusting nil-ness:
 //
 //   - Auto: flatkv may be open but pre-consensus (interrupted transition
-//     windows, seeded snapshots), memiavl may be open past version 2.
+//     windows, seeded snapshots), memiavl may be open past version 3.
 //   - MigrateEVM: flatkv is open from LoadVersion but only joins the hash
 //     once the boundary advances; older versions predate flatkv entirely.
-//   - MigrateCosmos: memiavl leaves the hash at the version-2 commit while
+//   - MigrateCosmos: memiavl leaves the hash at the version-3 commit while
 //     remaining open.
 //
 // Every other fixed mode has presence == participation: configured

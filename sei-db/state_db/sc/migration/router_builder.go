@@ -258,7 +258,7 @@ func buildEVMMigratedRouter(
 	return moduleRouter, nil
 }
 
-/* Data flow: MigrateCosmos (1 -> 2)
+/* Data flow: MigrateCosmos (1 -> 3)
 
                        ┌──────────────┐                                  ┌─────────┐
 ──all-modules────────▶ │ moduleRouter │                                  │ memIAVL │
@@ -275,7 +275,7 @@ func buildEVMMigratedRouter(
                         └────────────────────────────evm/────────────────────┘
 */
 
-// Build a router for handling write mode MigrateCosmos. Migrates from version 1 to version 2.
+// Build a router for handling write mode MigrateCosmos. Migrates from version 1 to version 3.
 func buildMigrateCosmosRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
@@ -298,13 +298,13 @@ func buildMigrateCosmosRouter(
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
 		Version1_MigrateEVM,
-		Version2_FlatKVOnly,
+		Version3_FlatKVOnly,
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), nonEVMModules),
-		opts.migrationMetrics(ctx, Version2_FlatKVOnly),
+		opts.migrationMetrics(ctx, Version3_FlatKVOnly),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
@@ -328,14 +328,14 @@ func buildMigrateCosmosRouter(
 	return moduleRouter, nil
 }
 
-/* Data flow: FlatKVOnly (2)
+/* Data flow: FlatKVOnly (3)
 
                        ┌─────────────┐                                  ┌────────┐
 ──all-modules────────▶ │ passthrough │ ──────────all-modules──────────▶ │ flatKV │
                        └─────────────┘                                  └────────┘
 */
 
-// Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 2.
+// Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 3.
 func buildFlatKVOnlyRouter(
 	flatKV gigatypes.LiveStateStore,
 ) (Router, error) {

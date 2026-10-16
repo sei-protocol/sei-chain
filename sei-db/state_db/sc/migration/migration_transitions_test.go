@@ -187,7 +187,7 @@ func TestMigrateEVM(t *testing.T) {
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
 
-// TestMigrateCosmos verifies the V1 -> V2 data migration. At the start, evm/
+// TestMigrateCosmos verifies the V1 -> V3 data migration. At the start, evm/
 // data lives in flatkv and every other module lives in memiavl. At the end,
 // every module lives in flatkv and memiavl is empty.
 func TestMigrateCosmos(t *testing.T) {
@@ -217,7 +217,7 @@ func TestMigrateCosmos(t *testing.T) {
 
 	// --- Phase 1: EVMMigrated setup ---
 	// Lay down v1 state: evm/ in flatKV, everything else in memiavl. Drives
-	// roughly equal load across all real modules so the V1 -> V2 migration is
+	// roughly equal load across all real modules so the V1 -> V3 migration is
 	// meaningful.
 	evmMigratedRouter, err := BuildRouter(t.Context(), types.EVMMigrated, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err, "build EVMMigrated router")
@@ -318,7 +318,7 @@ func TestMigrateCosmos(t *testing.T) {
 	// All oracle data must be reachable through the migration router.
 	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
 
-	// After v2 every key in the oracle lives in flatKV.
+	// After v3 every key in the oracle lives in flatKV.
 	totalKeyCount := int64(keysInUse.Len())
 
 	// Key count check.
@@ -336,8 +336,8 @@ func TestMigrateCosmos(t *testing.T) {
 	// Migration version check.
 	flatKVVersion, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
 	require.True(t, found, "migration version key must be present in flatKV after migration")
-	require.Equal(t, uint64(Version2_FlatKVOnly), flatKVVersion,
-		"flatKV migration version should be Version2_FlatKVOnly")
+	require.Equal(t, uint64(Version3_FlatKVOnly), flatKVVersion,
+		"flatKV migration version should be Version3_FlatKVOnly")
 
 	// Migration boundary check. The boundary key tracks the in-progress
 	// migration cursor. On the final migration block it is deleted in the
@@ -347,7 +347,7 @@ func TestMigrateCosmos(t *testing.T) {
 	require.False(t, found,
 		"migration boundary key must be cleared from flatKV after migration completes")
 
-	// Placement check. After v2, every module's keys must be in flatKV and
+	// Placement check. After v3, every module's keys must be in flatKV and
 	// absent from memiavl, including bank/.
 	flatKVStores := make(map[string]bool, len(keys.MemIAVLStoreKeys))
 	for _, s := range keys.MemIAVLStoreKeys {
