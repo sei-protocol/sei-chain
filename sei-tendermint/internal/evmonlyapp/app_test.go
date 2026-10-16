@@ -904,11 +904,15 @@ func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
 	}
 	first := deploy(1, 0x2a)
 	second := deploy(2, 0x2b)
+	slot := common.BigToHash(big.NewInt(1))
+
+	// The newest block reads straight after its commit, before the undo log has applied it.
+	got, err := app.EvmStorageAt(second, slot, 2)
+	require.NoError(t, err)
+	require.Equal(t, common.BigToHash(big.NewInt(0x2b)), got)
 
 	// The undo log applies blocks behind the commit; until it has, their history is not held.
-	require.NoError(t, app.AwaitCommits())
 	app.storage.StateDB().UndoSS().WaitForPendingWrites()
-	slot := common.BigToHash(big.NewInt(1))
 	for _, tc := range []struct {
 		contract common.Address
 		height   int64
@@ -925,8 +929,21 @@ func TestEVMOnlyApplicationServesStorageHistoryFromTheUndoLog(t *testing.T) {
 		require.NoError(t, err, "contract %s at %d", tc.contract, tc.height)
 		require.Equal(t, tc.want, got, "contract %s at %d", tc.contract, tc.height)
 	}
-	_, err := app.EvmStorageAt(first, slot, 3)
+	_, err = app.EvmStorageAt(first, slot, 3)
 	require.Error(t, err)
+
+	// A read at block 2 stays at block 2 once block 3, which overwrites the slot, is finalized.
+	overwrite := append([]byte{0x60, 0x2c, 0x60, 0x01, 0x55}, evmOnlyTestInitCode...)
+	raw, sender := signedEVMOnlyTestCreateTxWithInitCode(t, evmOnlyTestChainID, overwrite)
+	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(3, raw))
+	require.NoError(t, err)
+	third := crypto.CreateAddress(sender, 0)
+	got, err = app.EvmStorageAt(third, slot, 2)
+	require.NoError(t, err)
+	require.Equal(t, common.Hash{}, got)
+	got, err = app.EvmStorageAt(third, slot, 3)
+	require.NoError(t, err)
+	require.Equal(t, common.BigToHash(big.NewInt(0x2c)), got)
 }
 
 // Every FinalizeBlock stage is charged to a phase, so the timer's total is the
