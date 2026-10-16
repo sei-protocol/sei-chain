@@ -767,7 +767,7 @@ func (s *blockSTMState) apply(result occTxExecution) {
 // Results must be applied in block order, each once, for the prior maps to keep the first writer's
 // prior.
 func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
-	for change := range ownedChanges(owns, result.changeSet.Balances, BalanceChange.addr) {
+	for change := range ownedChanges(owns, result.changeSet.Balances, balanceChangeAddr) {
 		shard := s.shard(change.Address)
 		if _, ok := shard.priorBalances[change.Address]; !ok {
 			shard.priorBalances[change.Address] = change.PriorBalance
@@ -782,14 +782,14 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 		}
 		shard.balances[change.Address] = cloneBig(change.Balance)
 	}
-	for change := range ownedChanges(owns, result.changeSet.Nonces, NonceChange.addr) {
+	for change := range ownedChanges(owns, result.changeSet.Nonces, nonceChangeAddr) {
 		shard := s.shard(change.Address)
 		if _, ok := shard.priorNonces[change.Address]; !ok {
 			shard.priorNonces[change.Address] = change.PriorNonce
 		}
 		shard.nonces[change.Address] = change.Nonce
 	}
-	for change := range ownedChanges(owns, result.changeSet.Code, CodeChange.addr) {
+	for change := range ownedChanges(owns, result.changeSet.Code, codeChangeAddr) {
 		shard := s.shard(change.Address)
 		if _, ok := shard.priorCode[change.Address]; !ok {
 			shard.priorCode[change.Address] = cloneBytes(change.PriorCode)
@@ -809,7 +809,7 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 			}
 		}
 	}
-	for change := range ownedChanges(owns, result.changeSet.Storage, StorageChange.addr) {
+	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {
 		shard := s.shard(change.Address)
 		key := storageChangeKey{address: change.Address, key: change.Key}
 		if _, ok := shard.priorStorage[key]; !ok {
@@ -819,11 +819,11 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 	}
 }
 
-func (c BalanceChange) addr() common.Address      { return c.Address }
-func (c NonceChange) addr() common.Address        { return c.Address }
-func (c CodeChange) addr() common.Address         { return c.Address }
-func (c StorageChange) addr() common.Address      { return c.Address }
-func sameAddress(a common.Address) common.Address { return a }
+func balanceChangeAddr(c BalanceChange) common.Address { return c.Address }
+func nonceChangeAddr(c NonceChange) common.Address     { return c.Address }
+func codeChangeAddr(c CodeChange) common.Address       { return c.Address }
+func storageChangeAddr(c StorageChange) common.Address { return c.Address }
+func sameAddress(a common.Address) common.Address      { return a }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
 	var changes StateChangeSet
@@ -833,7 +833,7 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 
 // ChangeSetInto writes the block's net state changes, in canonical order, on the calling goroutine.
 func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
-	changes.resetForReuse()
+	changes.Reset()
 	for i := range s.shards {
 		s.shards[i].changeSetInto(s.source, changes)
 	}
