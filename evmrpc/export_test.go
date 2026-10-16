@@ -16,7 +16,9 @@ import (
 	cosmoclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // HoldSimulationSlotsForTest occupies simulation request slots until the returned function is called.
@@ -166,4 +168,10 @@ func (i *InfoAPI) GasPriceHelperForTest(ctx context.Context, baseFee *big.Int, t
 // CalculateGasUsedRatioForTest exposes calculateGasUsedRatio for integration tests in evmrpc_test.
 func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight int64) (float64, error) {
 	return i.calculateGasUsedRatio(ctx, blockHeight)
+}
+
+// EncodeReceiptForTest exposes encodeReceipt, the eth_getTransactionReceipt encoder, so tests can
+// compare eth_getBlockReceipts bodies against it.
+func EncodeReceiptForTest(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) cosmoclient.TxConfig, receipt *evmtypes.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) (map[string]any, error) {
+	return encodeReceipt(ctxProvider, txConfigProvider, receipt, k, block, false, globalBlockCache, cacheCreationMutex)
 }

@@ -357,6 +357,11 @@ func getTxHashesFromBlock(
 	if err != nil {
 		return nil, err
 	}
+	return typedTxHashesOf(block, txs), nil
+}
+
+// typedTxHashesOf returns the hash of each message in txs, in order.
+func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHash {
 	txHashes := []typedTxHash{}
 	for _, tx := range txs {
 		switch tx.msg.(type) {
@@ -367,7 +372,7 @@ func getTxHashesFromBlock(
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes, nil
+	return txHashes
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
