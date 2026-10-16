@@ -994,6 +994,12 @@ func warnStateStoreStaysAhead(target, ssVersion int64, reason error) {
 // provided in a path. The StoreKey is then used to perform a lookup and return
 // a Store. If the Store is wrapped in an inter-block cache, it will be unwrapped
 // prior to being returned. If the StoreKey does not exist, nil is returned.
+// HasTree reports whether the state commitment store holds a tree named name, whether or not a
+// store is mounted for it.
+func (rs *Store) HasTree(name string) bool {
+	return rs.scStore.HasTree(name)
+}
+
 func (rs *Store) GetStoreByName(name string) types.Store {
 	key := rs.storeKeys[name]
 	if key == nil {

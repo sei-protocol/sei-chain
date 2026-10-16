@@ -2680,3 +2680,37 @@ func TestNewCompositeCommitStoreKeepsFlatKVKeepRecent(t *testing.T) {
 func TestPrecedesMigrationFalseWithoutLaterSnapshot(t *testing.T) {
 	require.False(t, precedesMigration(&failingEVMStore{}, 5))
 }
+
+func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {
+	cases := []struct {
+		mode    types.WriteMode
+		upgrade *proto.TreeNameUpgrade
+		refused bool
+	}{
+		{types.MemiavlOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, false},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.MintStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/%s", tc.mode, tc.upgrade), func(t *testing.T) {
+			cs := setupComposite(t, tc.mode)
+			removed := tc.upgrade.Name
+			if tc.upgrade.RenameFrom != "" {
+				removed = tc.upgrade.RenameFrom
+			}
+			require.True(t, cs.HasTree(removed))
+
+			err := cs.ApplyUpgrades([]*proto.TreeNameUpgrade{tc.upgrade})
+			if tc.refused {
+				require.ErrorContains(t, err, "its data is in flatkv")
+				require.True(t, cs.HasTree(removed), "a refused upgrade changed memiavl")
+				return
+			}
+			require.NoError(t, err)
+			require.False(t, cs.HasTree(removed))
+		})
+	}
+}

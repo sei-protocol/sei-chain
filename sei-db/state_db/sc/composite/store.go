@@ -939,14 +939,60 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 	return nil
 }
 
-// ApplyUpgrades applies store upgrades (only applicable to memIAVL Cosmos backend). Data in
-// flatKV is not affected by this method.
+// ApplyUpgrades applies store upgrades to the memIAVL backend. It returns an error, and applies
+// nothing, if an upgrade deletes or renames a store whose data the write mode routes to flatKV.
 func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
+	if err := cs.requireUpgradesLeaveFlatKV(upgrades); err != nil {
+		return err
+	}
 	if cs.memIAVL == nil {
 		return nil
 	}
 
 	return cs.memIAVL.ApplyUpgrades(upgrades)
+}
+
+// requireUpgradesLeaveFlatKV returns an error if any upgrade deletes or renames a store whose data
+// the current write mode routes to flatKV. flatKV has no store-level delete or rename, so applying
+// such an upgrade to memIAVL alone would leave the store's flatKV data behind.
+func (cs *CompositeCommitStore) requireUpgradesLeaveFlatKV(upgrades []*proto.TreeNameUpgrade) error {
+	mode := cs.loadWriteMode()
+	for _, upgrade := range upgrades {
+		var name string
+		switch {
+		case upgrade.Delete:
+			name = upgrade.Name
+		case upgrade.RenameFrom != "":
+			name = upgrade.RenameFrom
+		default:
+			continue
+		}
+		if routesToFlatKV(mode, name) {
+			return fmt.Errorf("cannot delete or rename store %q in write mode %q: its data is in flatkv", name, mode)
+		}
+	}
+	return nil
+}
+
+// routesToFlatKV reports whether mode routes some or all of the named store's data to flatKV.
+func routesToFlatKV(mode types.WriteMode, name string) bool {
+	switch mode {
+	case types.MigrateEVM, types.EVMMigrated, types.TestOnlyDualWrite:
+		return name == keys.EVMStoreKey
+	case types.MigrateAllButBank, types.AllMigratedButBank:
+		return name != keys.BankStoreKey && keys.IsMemIAVLStoreKey(name)
+	case types.MigrateBank:
+		return keys.IsMemIAVLStoreKey(name)
+	case types.FlatKVOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// HasTree reports whether the memIAVL backend holds a tree named name.
+func (cs *CompositeCommitStore) HasTree(name string) bool {
+	return cs.memIAVL != nil && cs.memIAVL.HasTree(name)
 }
 
 // Commit commits the current state to all active backends at version, the height the caller is

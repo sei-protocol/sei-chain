@@ -131,6 +131,10 @@ type Committer interface {
 	// must not be used after Close.
 	GetChildStoreByName(name string) CommitKVStore
 
+	// HasTree reports whether the working state holds a memiavl tree named
+	// name, whether or not any store is mounted for it.
+	HasTree(name string) bool
+
 	// Copy returns an in-memory snapshot of the current committer state.
 	// O(1) for memiavl. Returns nil when the backend can't produce one
 	// (e.g. flatkv) — callers should treat nil as "snapshot unavailable"
