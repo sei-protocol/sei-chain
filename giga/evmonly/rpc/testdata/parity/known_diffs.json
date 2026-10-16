@@ -1,0 +1,108 @@
+[
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.baseFeePerGas",
+    "reason": "The EVM-only RPC reports Backend.EvmBaseFee, the current base fee, for every block; it has no per-height base fee. Production EVM-only blocks execute at a constant zero base fee, so this shows only when the fixture's base fee changes between blocks."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.baseFeePerGas",
+    "reason": "Same as eth_getBlockByNumber result.baseFeePerGas: the current base fee is reported for every block."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.transactions[*].gasPrice",
+    "reason": "A dynamic-fee transaction's gasPrice is its effective price, which the EVM-only RPC computes from the current base fee rather than its block's."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.transactions[*].gasPrice",
+    "reason": "Same as eth_getBlockByNumber result.transactions[*].gasPrice."
+  },
+  {
+    "method": "eth_getTransactionByHash",
+    "path": "result.gasPrice",
+    "reason": "Same as eth_getBlockByNumber result.transactions[*].gasPrice."
+  },
+  {
+    "method": "eth_getTransactionByBlockNumberAndIndex",
+    "path": "result.gasPrice",
+    "reason": "Same as eth_getBlockByNumber result.transactions[*].gasPrice."
+  },
+  {
+    "method": "eth_getTransactionByBlockHashAndIndex",
+    "path": "result.gasPrice",
+    "reason": "Same as eth_getBlockByNumber result.transactions[*].gasPrice."
+  },
+  {
+    "method": "eth_feeHistory",
+    "path": "result.baseFeePerGas",
+    "evmOnly": "\"0x0\"",
+    "reason": "The EVM-only RPC reports a zero base fee for every block in fee history."
+  },
+  {
+    "method": "eth_feeHistory",
+    "path": "result.reward",
+    "reason": "The EVM-only RPC's reward percentiles are of effective gas price, where v2's are of the priority fee; the two agree only at a zero base fee."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.logsBloom",
+    "evmOnly": "\"0x0000000000",
+    "reason": "The EVM-only RPC does not aggregate receipt blooms into the block bloom and always reports zero."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.logsBloom",
+    "evmOnly": "\"0x0000000000",
+    "reason": "Same as eth_getBlockByNumber result.logsBloom."
+  },
+  {
+    "method": "eth_getBlockByNumber",
+    "path": "result.size",
+    "reason": "size is the consensus block's encoded size, and a v2 block carries each transaction in a Cosmos envelope where an EVM-only block carries raw RLP."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "result.size",
+    "reason": "Same as eth_getBlockByNumber result.size."
+  },
+  {
+    "method": "eth_getBlockReceipts",
+    "path": "error",
+    "evmOnly": "does not exist/is not available",
+    "reason": "The EVM-only RPC does not implement eth_getBlockReceipts."
+  },
+  {
+    "method": "eth_getBalance",
+    "path": "error",
+    "evmOnly": "historical state is not supported",
+    "reason": "The EVM-only RPC serves state only at the latest block."
+  },
+  {
+    "method": "eth_getBalance",
+    "path": "result",
+    "params": ["\"0x27f7b8b8b5a4e71e8e9aa671f4e4031e3773303f\"", "\"latest\""],
+    "reason": "The coinbase is v2's fee collector (keeper.GetCoinbaseAddress on every chain), which distribution empties every block; the EVM-only executor keeps go-ethereum's coinbase credit."
+  },
+  {
+    "method": "eth_getStorageAt",
+    "path": "error",
+    "evmOnly": "does not exist/is not available",
+    "reason": "The EVM-only RPC does not implement eth_getStorageAt."
+  },
+  {
+    "method": "eth_getBlockByHash",
+    "path": "error",
+    "v2": "block not found",
+    "evmOnly": "result null",
+    "reason": "For an unknown hash v2 returns a 'block not found' error; the EVM-only RPC returns null, as go-ethereum does."
+  },
+  {
+    "method": "eth_getTransactionReceipt",
+    "path": "result.to",
+    "v2": "<absent>",
+    "evmOnly": "null",
+    "reason": "For a contract creation v2 omits to; the EVM-only RPC sets it to null, as go-ethereum does."
+  }
+]
