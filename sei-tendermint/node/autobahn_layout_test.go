@@ -1,8 +1,11 @@
 package node
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +46,7 @@ func TestResolveAutobahnLayout(t *testing.T) {
 	require.Equal(t, []string{filepath.Join(psd, "blockdb")}, layout.BlockDBDirs)
 	require.Equal(t, want.ReceiptDBConfig.DBDirectory, layout.ReceiptStoreDir)
 	require.Equal(t, want.SSConfig.EVMDBDirectory, layout.StateStoreDir)
+	require.Equal(t, want.SSConfig.EVMDBDirectory+"-snapshots", layout.StateStoreSnapshotDir)
 	require.Equal(t, filepath.Join(psd, "hashvault"), layout.HashVaultDir)
 	require.Equal(t, filepath.Join(psd, "state-sync-restored"), layout.RestoreMarkerFile)
 }
@@ -84,4 +88,64 @@ func TestResolveAutobahnLayoutEpochRegistryFiles(t *testing.T) {
 func TestResolveAutobahnLayoutRequiresAutobahnConfig(t *testing.T) {
 	_, err := ResolveAutobahnLayout(&config.Config{BaseConfig: config.BaseConfig{RootDir: t.TempDir()}}, gigaconfig.DefaultConfig.Storage)
 	require.Error(t, err)
+}
+
+// TestAutobahnLayoutCoversWhatAFullnodeStoresOpen requires every entry that a fullnode's storage
+// manager and epoch registry create under the persistent state dir to be a layout path, inside one,
+// or a parent of one. A new store under that dir fails here until state sync decides whether
+// restore must require it empty or create must pack it.
+func TestAutobahnLayoutCoversWhatAFullnodeStoresOpen(t *testing.T) {
+	conf := layoutConfig(t, filepath.Join("data", "autobahn"))
+	storage := gigaconfig.DefaultConfig.Storage
+	storage.Receipts = true
+	layout, err := ResolveAutobahnLayout(conf, storage)
+	require.NoError(t, err)
+
+	fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
+	require.NoError(t, err)
+	manager, err := openAutobahnStorageManager(t.Context(), conf.RootDir, conf.Mode, fc, storage)
+	require.NoError(t, err)
+	committee, _ := atypes.GenCommittee(utils.TestRng(), 4)
+	_, err = epoch.NewRegistry(committee, 1, time.Time{}, utils.Some(layout.PersistentStateDir))
+	require.NoError(t, err)
+	require.NoError(t, manager.Close())
+
+	storeDirs := append([]string{layout.FlatKVDir, layout.ReceiptStoreDir, layout.StateStoreDir, layout.StateStoreSnapshotDir}, layout.BlockDBDirs...)
+	for _, dir := range storeDirs {
+		info, err := os.Stat(dir)
+		require.NoError(t, err, "the storage manager did not create %s", dir)
+		require.True(t, info.IsDir())
+	}
+	dirs := append(storeDirs, layout.HashVaultDir)
+	files := append([]string{layout.RestoreMarkerFile}, layout.EpochRegistryFiles...)
+	isParent := func(path string) bool {
+		for _, p := range append(slices.Clone(dirs), files...) {
+			if strings.HasPrefix(p, path+string(filepath.Separator)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	var uncovered []string
+	err = filepath.WalkDir(layout.PersistentStateDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case path == layout.PersistentStateDir || slices.Contains(files, path):
+			return nil
+		case slices.Contains(dirs, path):
+			return fs.SkipDir
+		case d.IsDir() && isParent(path):
+			return nil
+		}
+		uncovered = append(uncovered, path)
+		if d.IsDir() {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, uncovered, "add these paths to AutobahnLayout, or state here why state sync ignores them")
 }
