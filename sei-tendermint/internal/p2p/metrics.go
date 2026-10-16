@@ -52,6 +52,13 @@ type Metrics struct {
 	gigaConns prometheus.GaugeIntVec `metrics_labels:"direction"`
 	// Counts established giga p2p connections.
 	gigaNewConns prometheus.CounterIntVec `metrics_labels:"direction"`
+
+	// Counts EVM RPC requests forwarded to a shard owner, by owner and outcome.
+	evmProxyRequests prometheus.CounterIntVec `metrics_labels:"owner, outcome"`
+	// Duration of an EVM RPC request forwarded to a shard owner, in seconds.
+	evmProxyRequestSeconds prometheus.HistogramVec `metrics_labels:"owner" metrics_buckets:"exp(0.001, 2, 15)"`
+	// Counts TCP connections opened to a shard owner's EVM RPC.
+	evmProxyNewConns prometheus.CounterIntVec `metrics_labels:"owner"`
 }
 
 type metricsLabelCache struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -90,6 +91,13 @@ type AutobahnFileConfig struct {
 	// Useful for loadtesting (to compare enabled/disabled performance).
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
+	// EvmProxyMaxConnsPerOwner caps the HTTP connections this node keeps to
+	// each shard owner's EVM RPC when it forwards EVM transactions.
+	// Absent ⇒ p2p.DefaultEvmProxyMaxConnsPerOwner.
+	EvmProxyMaxConnsPerOwner utils.Option[uint64] `json:"evm_proxy_max_conns_per_owner,omitzero"`
+	// EvmProxyTimeout bounds one forward to a shard owner, including the wait
+	// for a free connection. Absent ⇒ p2p.DefaultEvmProxyTimeout.
+	EvmProxyTimeout utils.Option[utils.Duration] `json:"evm_proxy_timeout,omitzero"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig.
 	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
 	// for field semantics). Omitted from JSON when empty.
@@ -101,6 +109,11 @@ const AutobahnEVMOnlyChainID uint64 = 713715
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
+}
+
+// GetEvmProxyTimeout returns EvmProxyTimeout as a time.Duration.
+func (c *AutobahnFileConfig) GetEvmProxyTimeout() utils.Option[time.Duration] {
+	return utils.MapOpt(c.EvmProxyTimeout, utils.Duration.Duration)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
@@ -137,6 +150,12 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.PersistentStateDir == "" {
 		return errors.New("persistent_state_dir must not be empty")
+	}
+	if v, ok := fc.EvmProxyMaxConnsPerOwner.Get(); ok && v == 0 {
+		return errors.New("evm_proxy_max_conns_per_owner must be > 0 when set")
+	}
+	if v, ok := fc.EvmProxyTimeout.Get(); ok && v <= 0 {
+		return errors.New("evm_proxy_timeout must be > 0 when set")
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
