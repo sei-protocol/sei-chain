@@ -436,8 +436,15 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum := b.ConvertBlockNumber(bn)
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	// A nil height makes blockByNumberRespectingWatermarks resolve to the safe latest.
+	var heightPtr *int64
+	switch bn {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber:
+	default:
+		blockNum := b.ConvertBlockNumber(bn)
+		heightPtr = &blockNum
+	}
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, nil, err
 	}

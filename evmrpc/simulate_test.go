@@ -980,6 +980,64 @@ func (c *fixedBlockClient) Validators(context.Context, *int64, *int, *int) (*cor
 	return &coretypes.ResultValidators{}, nil
 }
 
+// heightBlockClient serves an empty block at every height up to latest.
+type heightBlockClient struct {
+	fixedBlockClient
+	latest int64
+}
+
+func (c *heightBlockClient) Block(_ context.Context, height *int64) (*coretypes.ResultBlock, error) {
+	h := c.latest
+	if height != nil {
+		h = *height
+	}
+	if h > c.latest {
+		return nil, fmt.Errorf("height %d is above latest %d", h, c.latest)
+	}
+	return &coretypes.ResultBlock{
+		Block: &tmtypes.Block{Header: mockBlockHeader(h), LastCommit: &tmtypes.Commit{Height: h}},
+	}, nil
+}
+
+func (c *heightBlockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	return &coretypes.ResultBlockResults{Height: *height}, nil
+}
+
+func (c *heightBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{LatestBlockHeight: c.latest, EarliestBlockHeight: 1},
+	}, nil
+}
+
+func TestBlockByNumberResolvesLatestToSafeLatest(t *testing.T) {
+	const safeLatest = int64(42)
+
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(safeLatest + 1)
+	// The receipt store trails the block store and app state by one block.
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), safeLatest)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(height)
+	}
+	tmClient := &heightBlockClient{latest: safeLatest + 1}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend := evmrpc.NewBackend(
+		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+		testApp.BaseApp, testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+	)
+
+	for _, bn := range []rpc.BlockNumber{rpc.LatestBlockNumber, rpc.SafeBlockNumber, rpc.FinalizedBlockNumber} {
+		ethBlock, _, err := backend.BlockByNumber(context.Background(), bn)
+		require.NoError(t, err, bn.String())
+		require.Equal(t, safeLatest, ethBlock.Number().Int64(), bn.String())
+	}
+}
+
 func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.T) {
 	const (
 		v67UpgradeHeight = int64(200)
