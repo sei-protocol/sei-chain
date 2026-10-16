@@ -441,6 +441,11 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if tx.Type() == ethtypes.BlobTxType {
 		return nil, common.Address{}, fmt.Errorf("blob transactions are not supported")
 	}
+	// Gated on Osaka being scheduled rather than active: a tx admitted before
+	// the fork can land in a block after it, where the executor refuses it.
+	if a.chainConfig.OsakaTime != nil && tx.Gas() > params.MaxTxGas {
+		return nil, common.Address{}, fmt.Errorf("%w (cap: %d, tx: %d)", ethcore.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+	}
 	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
 	// that is the fee cap, so admitting on it let through transactions the
 	// executor then refused — and an executor refusal is a node panic, not a
