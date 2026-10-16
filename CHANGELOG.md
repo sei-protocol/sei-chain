@@ -30,6 +30,19 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.7
 sei-chain
+* [#4520](https://github.com/sei-protocol/sei-chain/pull/4520) Backport `release/v6.7`: Export known peer address count as a Prometheus gauge
+* [#4515](https://github.com/sei-protocol/sei-chain/pull/4515) Backport `release/v6.7`: Count only connected peers in /net_info n_peers
+* [#4508](https://github.com/sei-protocol/sei-chain/pull/4508) Backport `release/v6.7`: Fix pruning issue in SS causing huge disk spike
+* [#4507](https://github.com/sei-protocol/sei-chain/pull/4507) Backport `release/v6.7`: Initialize app from last header when a frozen node restarts
+* [#4506](https://github.com/sei-protocol/sei-chain/pull/4506) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.1 patch
+* [#4503](https://github.com/sei-protocol/sei-chain/pull/4503) Backport `release/v6.7`: Refuse pinned write modes that disagree with persisted migration
+* [#4502](https://github.com/sei-protocol/sei-chain/pull/4502) Backport `release/v6.7`: Guard FlatKV rollback floor
+* [#4499](https://github.com/sei-protocol/sei-chain/pull/4499) Backport `release/v6.7`: Resolve composite iteration duplicates to memiavl, matching Read
+* [#4489](https://github.com/sei-protocol/sei-chain/pull/4489) Backport `release/v6.7`: Remove genesis export
+* [#4486](https://github.com/sei-protocol/sei-chain/pull/4486) Backport `release/v6.7`: Re-derive the composite write mode on rollback
+* [#4485](https://github.com/sei-protocol/sei-chain/pull/4485) Backport `release/v6.7`: Make the composite store flatKV and write mode atomic
+* [#4482](https://github.com/sei-protocol/sei-chain/pull/4482) Bump version to v6.7.1 in prep for patch release
+* [#4474](https://github.com/sei-protocol/sei-chain/pull/4474) Backport `release/v6.7`: Validate module names in the memiavl snapshot importer
 * [#4473](https://github.com/sei-protocol/sei-chain/pull/4473) Backport `release/v6.7`: Make the composite store router an atomic pointer
 * [#4465](https://github.com/sei-protocol/sei-chain/pull/4465) Backport `release/v6.7`: fix(seidb): keep the memIAVL nonce when state sync restores a mid-mig…
 * [#4445](https://github.com/sei-protocol/sei-chain/pull/4445) Backport `release/v6.7`: Update v6.7 changelog in prep to cut v6.7.0
