@@ -132,6 +132,24 @@ func (app *Proxy) EvmCode(addr common.Address) ([]byte, error) {
 	return reader.EvmCode(addr), nil
 }
 
+// evmStorageReader is implemented by applications that can read contract
+// storage from their current EVM state.
+type evmStorageReader interface {
+	EvmStorage(common.Address, common.Hash) common.Hash
+}
+
+// EvmStorage returns the value at key in addr's storage in the wrapped
+// application's current EVM state. It errors if that application does not
+// expose EVM storage.
+func (app *Proxy) EvmStorage(addr common.Address, key common.Hash) (common.Hash, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_storage", "sync"))()
+	reader, ok := app.app.(evmStorageReader)
+	if !ok {
+		return common.Hash{}, fmt.Errorf("application does not expose EVM storage")
+	}
+	return reader.EvmStorage(addr, key), nil
+}
+
 // evmChainConfigProvider is implemented by applications that expose the EVM
 // chain configuration they execute against.
 type evmChainConfigProvider interface {

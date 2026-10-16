@@ -449,12 +449,27 @@ func (rs *Store) validateSSReadVersion(version int64) error {
 	return nil
 }
 
+// exportVersionLoader is implemented by SC stores that can open a historical view for state-sync export
+// at heights their generic read-only load refuses.
+type exportVersionLoader interface {
+	LoadVersionReadOnlyForExport(version int64) (sctypes.Committer, error)
+}
+
+var _ exportVersionLoader = (*composite.CompositeCommitStore)(nil)
+
+func (rs *Store) loadSCVersionForExport(version int64) (sctypes.Committer, error) {
+	if loader, ok := rs.scStore.(exportVersionLoader); ok {
+		return loader.LoadVersionReadOnlyForExport(version)
+	}
+	return rs.scStore.LoadVersion(version, true)
+}
+
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
 	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
 	// Open SC stores for wasm snapshot, this op is blocking and could take a long time
-	scStore, err := rs.scStore.LoadVersion(version, true)
+	scStore, err := rs.loadSCVersionForExport(version)
 	if err != nil {
 		return nil, err
 	}
@@ -678,8 +693,8 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
 	// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
 	// wrong, because that lock is what stops another process from deleting the view's working directory, and
-	// holding a second reference purely to close it is deferred to a follow-up. Only `seid export --height N`
-	// reaches this, a one-shot command that exits immediately and is itself slated for removal.
+	// holding a second reference purely to close it is deferred to a follow-up. No seid command loads a
+	// non-zero version through here.
 	sc, err := rs.scStore.LoadVersion(version, false)
 	if err != nil {
 		return err

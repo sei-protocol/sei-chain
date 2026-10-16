@@ -41,28 +41,3 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, stakingKeeper types.Stak
 
 	keeper.SetParams(ctx, data.Params)
 }
-
-// ExportGenesis writes the current store values
-// to a genesis file, which can be imported again
-// with InitGenesis
-func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) (data *types.GenesisState) {
-	params := keeper.GetParams(ctx)
-	signingInfos := make([]types.SigningInfo, 0)
-	missedBlocks := make([]types.ValidatorMissedBlockArray, 0)
-	keeper.IterateValidatorSigningInfos(ctx, func(address sdk.ConsAddress, info types.ValidatorSigningInfo) (stop bool) {
-		bechAddr := address.String()
-		signingInfos = append(signingInfos, types.SigningInfo{
-			Address:              bechAddr,
-			ValidatorSigningInfo: info,
-		})
-
-		localMissedBlocks, found := keeper.GetValidatorMissedBlocks(ctx, address)
-		if !found {
-			return false
-		}
-		missedBlocks = append(missedBlocks, localMissedBlocks)
-		return false
-	})
-
-	return types.NewGenesisState(params, signingInfos, missedBlocks)
-}

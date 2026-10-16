@@ -57,11 +57,9 @@ import (
 // which triggers rebroadcasting to peers:
 //   - Votes (prepareVote, commitVote, timeoutVote): YES — rebroadcast via sendUpdates
 //   - TimeoutQC: YES — rebroadcast via myTimeoutQC watch
-//   - CommitQC: NO — used locally for view justification but not rebroadcast;
-//     the runtime tip comes from ConsensusSpec, while the WAL stores only
-//     Index. CommitQCs are served via StreamCommitQCs from the data
-//     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
-//     sync faster after cluster-wide outages.
+//   - CommitQC: NO — used locally for view justification but not rebroadcast.
+//     The tip comes from avail's ConsensusSpec, and avail serves CommitQCs on
+//     StreamCommitQCs. The WAL stores only Index.
 type persistedInner struct {
 	Index     types.RoadIndex
 	PrepareQC utils.Option[*types.PrepareQC]

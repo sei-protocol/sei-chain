@@ -58,7 +58,7 @@ func runSteadyStateScenario(t *testing.T, mode types.WriteMode) {
 	verifyCommitInfo(t, cs, hasFlatKV)
 	verifyProofRouting(t, cs, oracle, placement)
 	if hasFlatKV {
-		require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+		require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()),
 			"steady-state flatkv must pass full-scan LtHash verification")
 	}
 
@@ -116,7 +116,7 @@ func runSteadyStateScenario(t *testing.T, mode types.WriteMode) {
 	verifyKeyCounts(t, clone, oracle, placement)
 	verifyFlatKVRows(t, clone, oracle, placement)
 	if hasFlatKV {
-		require.NoError(t, flatkv.VerifyLtHash(clone.flatKV),
+		require.NoError(t, flatkv.VerifyLtHash(clone.loadFlatKV()),
 			"state-sync clone flatkv must pass full-scan LtHash verification")
 	}
 
@@ -318,7 +318,7 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	verifyFlatKVRows(t, cs, oracle, succPlacement)
 	assertFlatKVMapsExercised(t, oracle, succPlacement)
 	verifyMigrationMetadata(t, cs, true, false)
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()),
 		"post-migration flatkv must pass full-scan LtHash verification")
 
 	// --- Phase 4: flip to the successor steady-state mode and re-verify. ---

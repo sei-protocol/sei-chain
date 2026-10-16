@@ -104,7 +104,7 @@ func TestLoadVersionReadOnlyDoesNotReportMigrationVersion(t *testing.T) {
 		}))
 		_, err = cs2.Commit(cs2.Version() + 1)
 		require.NoError(t, err)
-		if _, done := cs2.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey)); done {
+		if _, done := cs2.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationVersionKey)); done {
 			break
 		}
 		midMigrationVersion = cs2.Version()

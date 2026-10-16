@@ -14,8 +14,8 @@ const (
 	blockHeightOffset     = chainIDOffset + 8
 	blockHashOffset       = blockHeightOffset + 8
 	stateHashOffset       = blockHashOffset + 32
-	budOffset             = stateHashOffset + 32
-	receiptHashOffset     = budOffset + 32
+	budHashOffset         = stateHashOffset + 32
+	receiptHashOffset     = budHashOffset + 32
 	previousAppHashOffset = receiptHashOffset + 32
 
 	// serializedSize is the length of the canonical format.
@@ -31,7 +31,7 @@ func (ahd *AppHashData) Serialize() []byte {
 	data = binary.BigEndian.AppendUint64(data, ahd.blockHeight)
 	data = append(data, ahd.blockHash[:]...)
 	data = append(data, ahd.stateHash[:]...)
-	data = append(data, ahd.bud[:]...)
+	data = append(data, ahd.budHash[:]...)
 	data = append(data, ahd.receiptHash[:]...)
 	data = append(data, ahd.previousAppHash[:]...)
 	return data
@@ -53,8 +53,8 @@ func Deserialize(data []byte) (*AppHashData, error) {
 		binary.BigEndian.Uint64(data[chainIDOffset:blockHeightOffset]),
 		binary.BigEndian.Uint64(data[blockHeightOffset:blockHashOffset]),
 		[32]byte(data[blockHashOffset:stateHashOffset]),
-		[32]byte(data[stateHashOffset:budOffset]),
-		[32]byte(data[budOffset:receiptHashOffset]),
+		[32]byte(data[stateHashOffset:budHashOffset]),
+		BUDHash(data[budHashOffset:receiptHashOffset]),
 		[32]byte(data[receiptHashOffset:previousAppHashOffset]),
 		[32]byte(data[previousAppHashOffset:serializedSize]),
 	), nil

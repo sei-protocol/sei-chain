@@ -4,47 +4,40 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestExportImportGenesis(t *testing.T) {
+func TestInitGenesis(t *testing.T) {
 	keeper := &testkeeper.EVMTestApp.EvmKeeper
-	origctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
-	ctx := origctx.WithMultiStore(origctx.MultiStore().CacheMultiStore())
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
-	keeper.SetAddressMapping(ctx, seiAddr, evmAddr)
 	_, codeAddr := testkeeper.MockAddressPair()
-	keeper.SetCode(ctx, codeAddr, []byte("abcde"))
-	keeper.SetState(ctx, codeAddr, common.BytesToHash([]byte("123")), common.BytesToHash([]byte("456")))
-	keeper.SetNonce(ctx, evmAddr, 2)
-	keeper.MockReceipt(ctx, common.BytesToHash([]byte("789")), &types.Receipt{TxType: 2})
-	keeper.SetBlockBloom(ctx, []ethtypes.Bloom{{1}})
-	keeper.SetERC20CW20Pointer(ctx, "cw20addr", codeAddr)
-	genesis := evm.ExportGenesis(ctx, keeper)
-	assert.NoError(t, genesis.Validate())
-	param := genesis.GetParams()
-	assert.Equal(t, types.DefaultParams().PriorityNormalizer, param.PriorityNormalizer)
-	assert.Equal(t, types.DefaultParams().BaseFeePerGas, param.BaseFeePerGas)
-	assert.Equal(t, types.DefaultParams().MinimumFeePerGas, param.MinimumFeePerGas)
-	assert.Equal(t, types.DefaultParams().MaximumFeePerGas, param.MaximumFeePerGas)
-	assert.Equal(t, types.DefaultParams().WhitelistedCwCodeHashesForDelegateCall, param.WhitelistedCwCodeHashesForDelegateCall)
-	assert.Equal(t, types.DefaultParams().MaxDynamicBaseFeeUpwardAdjustment, param.MaxDynamicBaseFeeUpwardAdjustment)
-	assert.Equal(t, types.DefaultParams().MaxDynamicBaseFeeDownwardAdjustment, param.MaxDynamicBaseFeeDownwardAdjustment)
-	evm.InitGenesis(origctx, keeper, *genesis)
-	require.Equal(t, evmAddr, keeper.GetEVMAddressOrDefault(origctx, seiAddr))
-	require.Equal(t, keeper.GetCode(ctx, codeAddr), keeper.GetCode(origctx, codeAddr))
-	require.Equal(t, keeper.GetCodeHash(ctx, codeAddr), keeper.GetCodeHash(origctx, codeAddr))
-	require.Equal(t, keeper.GetCodeSize(ctx, codeAddr), keeper.GetCodeSize(origctx, codeAddr))
-	require.Equal(t, keeper.GetState(ctx, codeAddr, common.BytesToHash([]byte("123"))), keeper.GetState(origctx, codeAddr, common.BytesToHash([]byte("123"))))
-	require.Equal(t, keeper.GetNonce(ctx, evmAddr), keeper.GetNonce(origctx, evmAddr))
-	_, err := keeper.GetReceipt(origctx, common.BytesToHash([]byte("789")))
-	require.Nil(t, err)
-	require.Equal(t, keeper.GetBlockBloom(ctx), keeper.GetBlockBloom(origctx))
-	_, _, exists := keeper.GetERC20CW20Pointer(origctx, "cw20addr")
-	require.True(t, exists)
+	slot, value := common.BytesToHash([]byte("123")), common.BytesToHash([]byte("456"))
+	genesis := types.GenesisState{
+		Params:              types.DefaultParams(),
+		AddressAssociations: []*types.AddressAssociation{{SeiAddress: seiAddr.String(), EthAddress: evmAddr.Hex()}},
+		Codes:               []*types.Code{{Address: codeAddr.Hex(), Code: []byte("abcde")}},
+		States:              []*types.ContractState{{Address: codeAddr.Hex(), Key: slot.Bytes(), Value: value.Bytes()}},
+		Nonces:              []*types.Nonce{{Address: evmAddr.Hex(), Nonce: 2}},
+		Serialized: []*types.Serialized{
+			{Prefix: []byte("prefix"), Key: []byte("key"), Value: []byte("prefixed")},
+			{Prefix: []byte("unprefixed"), Value: []byte("whole key")},
+		},
+	}
+	require.NoError(t, genesis.Validate())
+
+	evm.InitGenesis(ctx, keeper, genesis)
+
+	require.Equal(t, types.DefaultParams(), keeper.GetParams(ctx))
+	require.Equal(t, evmAddr, keeper.GetEVMAddressOrDefault(ctx, seiAddr))
+	require.Equal(t, []byte("abcde"), keeper.GetCode(ctx, codeAddr))
+	require.Equal(t, value, keeper.GetState(ctx, codeAddr, slot))
+	require.Equal(t, uint64(2), keeper.GetNonce(ctx, evmAddr))
+	store := ctx.KVStore(keeper.GetStoreKey())
+	require.Equal(t, []byte("prefixed"), store.Get([]byte("prefixkey")))
+	require.Equal(t, []byte("whole key"), store.Get([]byte("unprefixed")))
 }

@@ -25,7 +25,6 @@ const (
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey
 	EpochStoreKey        = "epoch"        // x/epoch/types.StoreKey
-	TokenfactoryStoreKey = "tokenfactory" // x/tokenfactory/types.StoreKey
 )
 
 // MemIAVLStoreKeys is the canonical list of module KV store keys that are
@@ -48,7 +47,6 @@ var MemIAVLStoreKeys = []string{
 	EVMStoreKey,
 	WasmStoreKey,
 	EpochStoreKey,
-	TokenfactoryStoreKey,
 }
 
 // memIAVLStoreKeySet is MemIAVLStoreKeys materialized as a set for O(1)

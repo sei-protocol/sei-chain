@@ -361,6 +361,25 @@ func TestSeekSnapshot(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOldestSnapshotAbove(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{0, 10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+	s := &CommitStore{config: config.Config{DataDir: dir}}
+
+	for _, tc := range []struct {
+		version  int64
+		snapshot int64
+		ok       bool
+	}{{0, 10, true}, {5, 10, true}, {10, 20, true}, {20, 0, false}, {25, 0, false}} {
+		snapshot, ok, err := s.OldestSnapshotAbove(tc.version)
+		require.NoError(t, err)
+		require.Equal(t, tc.ok, ok, "version %d", tc.version)
+		require.Equal(t, tc.snapshot, snapshot, "version %d", tc.version)
+	}
+}
+
 func TestReadOnlyAtTargetVersion(t *testing.T) {
 	dir := t.TempDir()
 
@@ -681,7 +700,7 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 // TestRollbackRejectsVersionZero verifies version 0 is refused: it means no state, so there is nothing to roll
 // back to, and it is the one target that would reach PruneAfter's retains-block-zero boundary.
 func TestRollbackRejectsVersionZero(t *testing.T) {
-	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
+	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
 }
 
 // TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
@@ -1404,6 +1423,18 @@ func TestSeekSnapshotEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	_, err := seekSnapshot(dir, 10)
 	require.Error(t, err, "empty dir should not find any snapshot")
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+// A filesystem fault while listing snapshots says nothing about which versions the store holds, so it
+// must not be reported as an unreachable version.
+func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(root, nil, 0600))
+
+	_, err := seekSnapshot(root, 10)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestSeekSnapshotExact(t *testing.T) {
@@ -1890,10 +1921,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	require.NoError(t, s2.Close())
 }
 
-// TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
-// tidwall/wal auto-truncates corrupted segments on open, so the observable effect
-// is entry loss. When catchup needs those entries to reach the requested version,
-// LoadVersion fails with a version mismatch.
+// A corrupted state WAL fails the store's construction.
 func TestWALSegmentCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -1909,18 +1937,6 @@ func TestWALSegmentCorruption(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB}) // v2
 	require.NoError(t, s.Close())
 
-	// Simulate a torn commit: rewind accountDB's version record to v1 so the
-	// store's watermark drops to v1 and catchup needs to replay v2 from the WAL.
-	workingAccount := filepath.Join(dbDir, "working", accountDBDir)
-	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = workingAccount
-	metaCfg.EnableMetrics = false
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, mdb.Close())
-
-	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.
 	walDir := filepath.Join(dbDir, changelogDir)
 	entries, err := os.ReadDir(walDir)
 	require.NoError(t, err)
@@ -1939,14 +1955,10 @@ func TestWALSegmentCorruption(t *testing.T) {
 	}
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
-	// Request version 2: the watermark says v1, the WAL auto-truncated (empty), so v2 is unreachable.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
-	require.NoError(t, err)
-	require.Error(t, s2.LoadLatest(),
-		"opening must fail loudly rather than silently skipping the corrupted WAL segment")
-	require.NoError(t, s2.Close())
+	_, err = newCommitStoreWithWAL(context.Background(), cfg2)
+	require.ErrorContains(t, err, "invalid magic prefix")
 }
 
 // =============================================================================

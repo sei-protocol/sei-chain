@@ -100,6 +100,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
+	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	"github.com/sei-protocol/sei-chain/app/upgrades/kvrepair"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -139,9 +140,6 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
-	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -206,7 +204,6 @@ var (
 		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
-		tokenfactorymodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -220,7 +217,6 @@ var (
 		govtypes.ModuleName:            {authtypes.Burner},
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -229,7 +225,7 @@ var (
 	// retiredModuleAccounts are module accounts whose modules no longer exist
 	// but whose deterministic addresses stay blocked so funds cannot be sent
 	// to an account nothing can sign for.
-	retiredModuleAccounts = []string{"transfer"}
+	retiredModuleAccounts = []string{"transfer", retiredtokenfactory.ModuleName}
 
 	// kvStoreKeyNames is the canonical, in-order list of module KV store
 	// names mounted on the SeiDB / memiavl backend. It is the single source
@@ -244,7 +240,6 @@ var (
 		evidencetypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
-		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	}
 
@@ -380,8 +375,6 @@ type App struct {
 	GigaEvmKeeper  gigaevmkeeper.Keeper
 
 	EpochKeeper epochmodulekeeper.Keeper
-
-	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
 	BeginBlockKeepers legacyabci.BeginBlockKeepers
 	EndBlockKeepers   legacyabci.EndBlockKeepers
@@ -583,22 +576,12 @@ func New(
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
 
-	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
-		appCodec,
-		app.keys[tokenfactorytypes.StoreKey],
-		app.GetSubspace(tokenfactorytypes.ModuleName),
-		app.AccountKeeper,
-		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
-		app.DistrKeeper,
-	)
-
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
 			&app.EpochKeeper,
-			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
 			app.MsgServiceRouter(),
 			app.BankKeeper,
@@ -812,7 +795,6 @@ func New(
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		epochModule,
-		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
@@ -862,7 +844,6 @@ func New(
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
 		authz.ModuleName,
-		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
@@ -1047,7 +1028,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "1.1.1beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{tokenfactorytypes.StoreKey},
+			Added: []string{retiredtokenfactory.ModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
@@ -2384,11 +2365,6 @@ func cloneDuration(duration *time.Duration) *time.Duration {
 	return &cloned
 }
 
-// LoadHeight loads a particular height
-func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersionWithoutInit(height)
-}
-
 // ModuleAccountAddrs returns all the app's module account addresses.
 func (app *App) ModuleAccountAddrs() map[string]bool {
 	modAccAddrs := make(map[string]bool)
@@ -2706,7 +2682,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
-	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
 	paramsKeeper.Subspace(migration.SubspaceName).WithKeyTable(migration.ParamKeyTable())
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 

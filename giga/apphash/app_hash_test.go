@@ -52,7 +52,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
-	require.Equal(t, filledHash(0xc3), ahd.BUD())
+	require.Equal(t, BUDHash(filledHash(0xc3)), ahd.BUDHash())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
@@ -74,6 +74,17 @@ func TestHashGoldenVector(t *testing.T) {
 	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
 }
 
+func TestDeserializeGoldenVector(t *testing.T) {
+	serialized, err := hex.DecodeString(goldenSerialization)
+	require.NoError(t, err)
+
+	decoded, err := Deserialize(serialized)
+	require.NoError(t, err)
+	require.Equal(t, goldenData(), decoded)
+	hash := decoded.AppHash()
+	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
+}
+
 func TestRoundTrip(t *testing.T) {
 	original := goldenData()
 
@@ -85,7 +96,7 @@ func TestRoundTrip(t *testing.T) {
 	require.Equal(t, original.BlockHeight(), decoded.BlockHeight())
 	require.Equal(t, original.BlockHash(), decoded.BlockHash())
 	require.Equal(t, original.StateHash(), decoded.StateHash())
-	require.Equal(t, original.BUD(), decoded.BUD())
+	require.Equal(t, original.BUDHash(), decoded.BUDHash())
 	require.Equal(t, original.ReceiptHash(), decoded.ReceiptHash())
 	require.Equal(t, original.PreviousAppHash(), decoded.PreviousAppHash())
 	require.Equal(t, original.Serialize(), decoded.Serialize())
@@ -105,8 +116,8 @@ func TestEveryFieldAffectsHash(t *testing.T) {
 			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
 		"stateHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), other,
 			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
-		"bud": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2), other,
-			filledHash(0xd4), filledHash(0xe5)),
+		"budHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2),
+			other, filledHash(0xd4), filledHash(0xe5)),
 		"receiptHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
 			filledHash(0xb2), filledHash(0xc3), other, filledHash(0xe5)),
 		"previousAppHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),

@@ -171,9 +171,27 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
+// IsTransaction returns true for methods that mutate state; all other
+// staking methods are views.
+func (PrecompileExecutor) IsTransaction(method string) bool {
+	switch method {
+	case DelegateMethod, RedelegateMethod, UndelegateMethod, GrantStakingMethod, DelegateWithAuthzMethod,
+		RedelegateWithAuthzMethod, UndelegateWithAuthzMethod, RevokeStakingMethod, CreateValidatorMethod, EditValidatorMethod:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall staking")
+	}
+	if !p.IsTransaction(method.Name) {
+		// Queries must not mutate state even when the underlying querier has
+		// side effects (e.g. Pool creates a missing pool module account), so
+		// run every view on a branched context and discard the writes.
+		ctx, _ = ctx.CacheContext()
 	}
 	switch method.Name {
 	case DelegateMethod:
@@ -1295,6 +1313,9 @@ func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, a
 	srcValidatorStr := args[1].(string)
 	dstValidatorStr := args[2].(string)
 	nextKey := args[3].([]byte)
+	if err := validateRedelegationsFilter(delegatorStr, srcValidatorStr, dstValidatorStr); err != nil {
+		return nil, 0, err
+	}
 
 	request := &stakingtypes.QueryRedelegationsRequest{
 		DelegatorAddr:    delegatorStr,
@@ -1339,6 +1360,20 @@ func (p PrecompileExecutor) redelegations(ctx sdk.Context, method *abi.Method, a
 		return nil, 0, err
 	}
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+// validateRedelegationsFilter rejects filter combinations the staking querier does not
+// honour. It supports delegator, srcValidator and dstValidator together, srcValidator
+// alone, and delegator alone.
+func validateRedelegationsFilter(delegator, srcValidator, dstValidator string) error {
+	switch {
+	case delegator != "" && srcValidator != "" && dstValidator != "":
+	case delegator == "" && srcValidator != "" && dstValidator == "":
+	case delegator != "" && srcValidator == "" && dstValidator == "":
+	default:
+		return errors.New("unsupported redelegations filter: set delegator, srcValidator and dstValidator; srcValidator only; or delegator only")
+	}
+	return nil
 }
 
 func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {

@@ -13,7 +13,6 @@ import (
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
 
-	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -44,6 +43,10 @@ var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 const sortPoolQueueSize = 65536
 
 var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
+
+// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
+// version from its retained snapshots and WAL.
+var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
 
 // CommitStore implements gigatypes.LiveStateStore for EVM state.
 //
@@ -488,6 +491,11 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes
 	if s.readOnly {
 		return nil, errReadOnly
 	}
+	if targetVersion != 0 {
+		if err := s.CheckVersionReachable(targetVersion); err != nil {
+			return nil, err
+		}
+	}
 
 	lazyLock := s.fileLock == nil
 	if lazyLock {
@@ -807,23 +815,9 @@ func (s *CommitStore) open() (retErr error) {
 }
 
 func (s *CommitStore) acquireFileLock(dir string) error {
-	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
+	fl, err := lockDir(dir)
 	if err != nil {
-		return fmt.Errorf("abs lock path: %w", err)
-	}
-	fl, err := filelock.New(lockPath)
-	if err != nil {
-		return fmt.Errorf("create file lock: %w", err)
-	}
-	locked, err := fl.TryLock()
-	if err != nil {
-		if errors.Is(err, filelock.ErrLocked) {
-			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
-		}
-		return fmt.Errorf("acquire file lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
+		return err
 	}
 	s.fileLock = fl
 	return nil

@@ -543,12 +543,6 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 
 	chain.StopNode(t)
 
-	currentGenesis := chain.Export(t, v67RunningSeid, "v67-export")
-	for _, module := range retiredModuleNames {
-		require.NotContains(t, currentGenesis.AppState, module,
-			"v6.7 export unexpectedly contains retired module %s", module)
-	}
-
 	releaseGenesis := chain.Export(t, chain.ReleaseBinary(t), "v66-export-after-v67")
 	for _, module := range retiredModuleNames {
 		require.Contains(t, releaseGenesis.AppState, module,
@@ -1511,31 +1505,6 @@ func committedModuleVersionExists(t *testing.T, a *processblock.App, module stri
 	store := a.CommitMultiStore().GetCommitKVStore(key)
 	require.NotNil(t, store, "upgrade store is not in the commit multistore")
 	return store.Has(append([]byte{upgradetypes.VersionMapByte}, []byte(module)...))
-}
-
-// The retired stores survive the upgrade, but no module claims them, so genesis
-// export cannot emit them. An opaque write made before the upgrade is still in
-// the store after export, and is absent from the exported genesis document.
-func TestV67RetainedStateIsAbsentFromExportedGenesis(t *testing.T) {
-	a := newV67Chain(t)
-	for _, store := range retiredStoreKeys {
-		a.Ctx().KVStore(a.GetKey(store)).Set([]byte("seeded"), []byte("pre-upgrade"))
-	}
-
-	applyV67(t, a)
-	a.RunBlock([]signing.Tx{})
-
-	exported, err := a.ExportAppStateAndValidators(false, nil)
-	require.NoError(t, err)
-
-	var genesis map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(exported.AppState, &genesis))
-	for _, store := range retiredStoreKeys {
-		require.Equal(t, []byte("pre-upgrade"), a.Ctx().KVStore(a.GetKey(store)).Get([]byte("seeded")),
-			"the %s state must still be in the store, or its absence from the export proves nothing", store)
-		require.NotContains(t, genesis, store,
-			"an exported genesis with a %s section would need a module to import it", store)
-	}
 }
 
 // retiredModuleNames are the modules v6.7 removes from the module manager and

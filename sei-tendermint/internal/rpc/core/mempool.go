@@ -353,6 +353,12 @@ func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
 	return env.App.EvmCode(address)
 }
 
+// EvmStorage returns the value at key in address's storage in the current
+// committed EVM state.
+func (env *Environment) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
+	return env.App.EvmStorage(address, key)
+}
+
 // EvmCall executes msg as a read-only call against the current committed EVM
 // state, without creating a transaction or persisting any state change.
 func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {

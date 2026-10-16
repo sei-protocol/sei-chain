@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net/http/httptest"
 	"testing"
 
@@ -167,5 +168,98 @@ func TestHandlerServesGetCode(t *testing.T) {
 	require.JSONEq(t, `"0x"`, string(raw))
 
 	err = client.CallContext(t.Context(), &got, "eth_getCode", contract, "0x1")
+	require.ErrorContains(t, err, errHistoricalStateUnsupported.Error())
+}
+
+func TestGetStorageAt(t *testing.T) {
+	address := common.HexToAddress("0x5000000000000000000000000000000000000005")
+	value := common.BigToHash(big.NewInt(0x2a))
+	latest := ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber)
+	backendErr := errors.New("no storage reader")
+
+	for _, tc := range []struct {
+		name       string
+		key        string
+		block      ethrpc.BlockNumberOrHash
+		backendErr error
+		wantKey    common.Hash
+		wantErr    error
+	}{
+		// Current-state tags all read the current committed state.
+		{name: "latest", key: "0x1", block: latest, wantKey: common.BigToHash(big.NewInt(1))},
+		{name: "safe", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber), wantKey: common.BigToHash(big.NewInt(1))},
+		{name: "finalized", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber), wantKey: common.BigToHash(big.NewInt(1))},
+		{name: "pending", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber), wantKey: common.BigToHash(big.NewInt(1))},
+		// Keys decode as go-ethereum does: optional prefix, odd length, left-padded to 32 bytes.
+		{name: "full 32-byte key", key: common.HexToHash("0xabcd").Hex(), block: latest, wantKey: common.HexToHash("0xabcd")},
+		{name: "odd-length key", key: "0x123", block: latest, wantKey: common.BigToHash(big.NewInt(0x123))},
+		{name: "unprefixed key", key: "ff", block: latest, wantKey: common.BigToHash(big.NewInt(0xff))},
+		{name: "uppercase prefix", key: "0X1", block: latest, wantKey: common.BigToHash(big.NewInt(1))},
+		{name: "empty key is slot zero", key: "0x", block: latest},
+		// Historical state, malformed keys, and backend failures are errors.
+		{name: "earliest", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantErr: errHistoricalStateUnsupported},
+		{name: "explicit height", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(7), wantErr: errHistoricalStateUnsupported},
+		{name: "block hash", key: "0x1", block: ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true), wantErr: errHistoricalStateUnsupported},
+		{name: "neither number nor hash", key: "0x1", wantErr: errHistoricalStateUnsupported},
+		{name: "non-hex key", key: "0xzz", block: latest, wantErr: errStorageKeyInvalid},
+		{name: "doubled prefix", key: "0x0X1", block: latest, wantErr: errStorageKeyInvalid},
+		{name: "key longer than 32 bytes", key: "0x01" + common.Hash{}.Hex()[2:], block: latest, wantErr: errStorageKeyTooLong},
+		{name: "backend error", key: "0x1", block: latest, backendErr: backendErr, wantKey: common.BigToHash(big.NewInt(1)), wantErr: backendErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			read := false
+			api := &stateAPI{backend: &testBackend{
+				storage: func(gotAddress common.Address, gotKey common.Hash) (common.Hash, error) {
+					read = true
+					require.Equal(t, address, gotAddress)
+					require.Equal(t, tc.wantKey, gotKey)
+					return value, tc.backendErr
+				},
+			}}
+
+			got, err := api.GetStorageAt(t.Context(), address, tc.key, tc.block)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, got)
+				require.Equal(t, tc.backendErr != nil, read)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, read)
+			require.Equal(t, hexutil.Bytes(value[:]), got)
+		})
+	}
+}
+
+func TestHandlerServesGetStorageAt(t *testing.T) {
+	contract := common.HexToAddress("0x6000000000000000000000000000000000000006")
+	slot := common.BigToHash(big.NewInt(1))
+	backend := &testBackend{
+		storage: func(address common.Address, key common.Hash) (common.Hash, error) {
+			if address == contract && key == slot {
+				return common.BigToHash(big.NewInt(0x2a)), nil
+			}
+			return common.Hash{}, nil
+		},
+	}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var got hexutil.Bytes
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x1", "latest"))
+	require.Equal(t, common.BigToHash(big.NewInt(0x2a)).Hex(), got.String())
+
+	// An unset slot answers 32 zero bytes, matching geth, rather than null or "0x".
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x2", "latest"))
+	require.Equal(t, common.Hash{}.Hex(), got.String())
+
+	err = client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x1", "0x1")
 	require.ErrorContains(t, err, errHistoricalStateUnsupported.Error())
 }

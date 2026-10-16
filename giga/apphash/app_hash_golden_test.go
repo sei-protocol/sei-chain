@@ -53,8 +53,8 @@ type goldenRecord struct {
 	// The hash of the state lattice hash.
 	StateHash string `json:"stateHash"`
 
-	// The Block Update Digest.
-	BUD string `json:"bud"`
+	// The BUD hash.
+	BUDHash string `json:"budHash"`
 
 	// The hash of the transaction receipts.
 	ReceiptHash string `json:"receiptHash"`
@@ -112,7 +112,7 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 	require.NoError(t, err, "record %d blockHeight", index)
 	blockHash := decodeGoldenHash(t, index, "blockHash", record.BlockHash)
 	stateHash := decodeGoldenHash(t, index, "stateHash", record.StateHash)
-	bud := decodeGoldenHash(t, index, "bud", record.BUD)
+	budHash := decodeGoldenHash(t, index, "budHash", record.BUDHash)
 	receiptHash := decodeGoldenHash(t, index, "receiptHash", record.ReceiptHash)
 	previousAppHash := decodeGoldenHash(t, index, "previousAppHash", record.PreviousAppHash)
 	appHash := decodeGoldenHash(t, index, "appHash", record.AppHash)
@@ -126,7 +126,7 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 	require.Equal(t, blockHeight, decoded.BlockHeight(), "record %d", index)
 	require.Equal(t, blockHash, decoded.BlockHash(), "record %d", index)
 	require.Equal(t, stateHash, decoded.StateHash(), "record %d", index)
-	require.Equal(t, bud, decoded.BUD(), "record %d", index)
+	require.Equal(t, BUDHash(budHash), decoded.BUDHash(), "record %d", index)
 	require.Equal(t, receiptHash, decoded.ReceiptHash(), "record %d", index)
 	require.Equal(t, previousAppHash, decoded.PreviousAppHash(), "record %d", index)
 	require.Equal(t, serialization, decoded.Serialize(), "record %d", index)
@@ -134,7 +134,7 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 
 	if version == appHashVersion {
 		constructed := NewAppHashData(
-			chainID, blockHeight, blockHash, stateHash, bud, receiptHash, previousAppHash)
+			chainID, blockHeight, blockHash, stateHash, budHash, receiptHash, previousAppHash)
 		require.Equal(t, serialization, constructed.Serialize(), "record %d", index)
 		require.Equal(t, appHash, constructed.AppHash(), "record %d", index)
 	}
@@ -207,10 +207,11 @@ func buildGoldenChain() []*AppHashData {
 	for i := uint64(0); i < goldenChainLength; i++ {
 		blockHash := randomHash()
 		stateHash := randomHash()
-		bud := randomHash()
+		budHash := randomHash()
 		receiptHash := randomHash()
 
-		ahd := NewAppHashData(chainID, startHeight+i, blockHash, stateHash, bud, receiptHash, previousAppHash)
+		ahd := NewAppHashData(
+			chainID, startHeight+i, blockHash, stateHash, budHash, receiptHash, previousAppHash)
 		chain = append(chain, ahd)
 		previousAppHash = ahd.AppHash()
 	}
@@ -221,7 +222,7 @@ func buildGoldenChain() []*AppHashData {
 func newGoldenRecord(ahd *AppHashData) goldenRecord {
 	blockHash := ahd.BlockHash()
 	stateHash := ahd.StateHash()
-	bud := ahd.BUD()
+	budHash := ahd.BUDHash()
 	receiptHash := ahd.ReceiptHash()
 	previousAppHash := ahd.PreviousAppHash()
 	appHash := ahd.AppHash()
@@ -230,7 +231,7 @@ func newGoldenRecord(ahd *AppHashData) goldenRecord {
 		BlockHeight:     strconv.FormatUint(ahd.BlockHeight(), 10),
 		BlockHash:       hex.EncodeToString(blockHash[:]),
 		StateHash:       hex.EncodeToString(stateHash[:]),
-		BUD:             hex.EncodeToString(bud[:]),
+		BUDHash:         hex.EncodeToString(budHash[:]),
 		ReceiptHash:     hex.EncodeToString(receiptHash[:]),
 		PreviousAppHash: hex.EncodeToString(previousAppHash[:]),
 		Serialization:   hex.EncodeToString(ahd.Serialize()),

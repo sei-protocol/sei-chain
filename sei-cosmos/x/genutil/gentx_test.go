@@ -16,7 +16,6 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
@@ -67,7 +66,11 @@ func (suite *GenTxTestSuite) setAccountBalance(addr sdk.AccAddress, amount int64
 	err := apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr, sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, amount)})
 	suite.Require().NoError(err)
 
-	bankGenesisState := suite.app.BankKeeper.ExportGenesis(suite.ctx)
+	bankGenesisState := banktypes.DefaultGenesisState()
+	bankGenesisState.Balances = []banktypes.Balance{{
+		Address: addr.String(),
+		Coins:   sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, amount)},
+	}}
 	bankGenesis, err := suite.encodingConfig.Amino.MarshalAsJSON(bankGenesisState) // TODO switch this to use Marshaler
 	suite.Require().NoError(err)
 
@@ -179,10 +182,7 @@ func (suite *GenTxTestSuite) TestValidateAccountInGenesis() {
 			suite.SetupTest()
 			cdc := suite.encodingConfig.Marshaler
 
-			suite.app.StakingKeeper.SetParams(suite.ctx, stakingtypes.DefaultParams())
-			stakingGenesisState := staking.ExportGenesis(suite.ctx, suite.app.StakingKeeper)
-			suite.Require().Equal(stakingGenesisState.Params, stakingtypes.DefaultParams())
-			stakingGenesis, err := cdc.MarshalAsJSON(stakingGenesisState) // TODO switch this to use Marshaler
+			stakingGenesis, err := cdc.MarshalAsJSON(stakingtypes.DefaultGenesisState()) // TODO switch this to use Marshaler
 			suite.Require().NoError(err)
 			appGenesisState[stakingtypes.ModuleName] = stakingGenesis
 

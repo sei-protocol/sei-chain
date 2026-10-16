@@ -27,6 +27,7 @@ func TestDefaultsMatchTheStorageDefaults(t *testing.T) {
 	require.True(t, s.Receipts)
 	require.Equal(t, gc.RollbackWindow, s.RollbackWindow)
 	require.Equal(t, gc.LookbackWindow, s.LookbackWindow)
+	require.Equal(t, seidbconfig.DefaultStateStoreConfig().Backend, s.StateStoreBackend)
 	require.Equal(t, gc.PruneInterval, s.PruneInterval)
 	require.Equal(t, cp.TimeInterval, s.CheckpointTimeInterval)
 	require.Equal(t, cp.BlockInterval, s.CheckpointBlockInterval)
@@ -38,6 +39,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.storage.receipts":                  "false",
 		"giga.storage.rollback_window":           "250",
 		"giga.storage.lookback_window":           "-1",
+		"giga.storage.state_store_backend":       "undolog",
 		"giga.storage.prune_interval":            "90s",
 		"giga.storage.checkpoint_time_interval":  "1h",
 		"giga.storage.checkpoint_block_interval": "5000",
@@ -55,6 +57,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			Receipts:                false,
 			RollbackWindow:          250,
 			LookbackWindow:          -1,
+			StateStoreBackend:       seidbconfig.PebbleDBUndoBackend,
 			PruneInterval:           90 * time.Second,
 			CheckpointTimeInterval:  time.Hour,
 			CheckpointBlockInterval: 5000,
@@ -76,6 +79,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"unknown mode":            {"giga.storage.mode": "archive"},
 		"non-boolean receipts":    {"giga.storage.receipts": "maybe"},
 		"lookback below -1":       {"giga.storage.lookback_window": "-2"},
+		"unknown backend":         {"giga.storage.state_store_backend": "rocksdb"},
 		"zero prune interval":     {"giga.storage.prune_interval": "0s"},
 		"negative occ workers":    {"giga.execution.occ_workers": "-1"},
 		"empty result pool":       {"giga.execution.block_result_pool_size": "0"},

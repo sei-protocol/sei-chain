@@ -624,7 +624,7 @@ func DefaultRPCConfig() *RPCConfig {
 
 		IPRateLimitRPS:      200,
 		IPRateLimitBurst:    400,
-		RateLimitingEnabled: false,
+		RateLimitingEnabled: true,
 		TrustedProxyCIDRs:   nil,
 	}
 }

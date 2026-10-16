@@ -20,7 +20,16 @@ import { fundAdminOnSei, generateMnemonic, seiAddressFromMnemonic } from '../uti
 import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
 import { ADDRESS } from '../utils/format';
 
-const POOL_SIZE = 48;
+/**
+ * Size of the single-use account pool. Demand is the sum of every `claimPool`
+ * count across `precompiles/`, which phase 3 leaves at 29:
+ *
+ *     rg -o 'claimPool\(runtime, provider, (\d+)' -r '$1' precompiles | paste -sd+ | bc
+ *
+ * The headroom is deliberate — exhaustion throws from `claimPool` partway
+ * through a run, so it is cheaper to over-fund than to re-bootstrap.
+ */
+const POOL_SIZE = 80;
 const POOL_FUND_WEI = ethers.parseEther('5');
 
 describe('precompile_tests bootstrap', function () {

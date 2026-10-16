@@ -30,6 +30,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## Unreleased
 sei-chain
+* [#4536](https://github.com/sei-protocol/sei-chain/pull/4536) Remove the tokenfactory module behind the v6.8 upgrade: module, store, params, protobuf schema, CLI, wasm bindings, the bank `factory/` denom transfer allowlist and tooling are gone; only the tokenfactory Msg types remain decodable so historical blocks still trace. Existing `factory/` balances stay in bank but can no longer be minted or burned, and denoms that had a transfer allowlist become freely transferable. The upgrade deletes at most 1,000 allowlists from the bank store and leaves any beyond that in place, unenforced. App-hash breaking at the upgrade height.
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics
@@ -211,6 +212,10 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4473](https://github.com/sei-protocol/sei-chain/pull/4473) Backport `release/v6.7`: Make the composite store router an atomic pointer
+* [#4465](https://github.com/sei-protocol/sei-chain/pull/4465) Backport `release/v6.7`: fix(seidb): keep the memIAVL nonce when state sync restores a mid-mig…
+* [#4445](https://github.com/sei-protocol/sei-chain/pull/4445) Backport `release/v6.7`: Update v6.7 changelog in prep to cut v6.7.0
+* [#4444](https://github.com/sei-protocol/sei-chain/pull/4444) Bump version to v6.7.0 in prep for release
 * [#4442](https://github.com/sei-protocol/sei-chain/pull/4442) Backport `release/v6.7`: fix(seidb): fix stale FlatKV migration gauges on snapshotting nodes
 * [#4439](https://github.com/sei-protocol/sei-chain/pull/4439) Backport `release/v6.7`: seidb: add changelog mode and --inspect-plan to speed up EVM digest
 * [#4416](https://github.com/sei-protocol/sei-chain/pull/4416) Remove the conflict markers #4415 left in the v6.7 changelog

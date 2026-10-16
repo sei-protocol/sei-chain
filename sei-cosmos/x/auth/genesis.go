@@ -26,17 +26,3 @@ func InitGenesis(ctx sdk.Context, ak keeper.AccountKeeper, data types.GenesisSta
 
 	ak.GetModuleAccount(ctx, types.FeeCollectorName)
 }
-
-// ExportGenesis returns a GenesisState for a given context and keeper
-func ExportGenesis(ctx sdk.Context, ak keeper.AccountKeeper) *types.GenesisState {
-	params := ak.GetParams(ctx)
-
-	var genAccounts types.GenesisAccounts
-	ak.IterateAccounts(ctx, func(account types.AccountI) bool {
-		genAccount := account.(types.GenesisAccount)
-		genAccounts = append(genAccounts, genAccount)
-		return false
-	})
-
-	return types.NewGenesisState(params, genAccounts)
-}

@@ -108,51 +108,6 @@ func (suite *GenesisTestSuite) TestInitGenesis() {
 	}
 }
 
-func (suite *GenesisTestSuite) TestExportGenesis() {
-	pk := ed25519.GenPrivKey()
-
-	testCases := []struct {
-		msg       string
-		malleate  func()
-		expPass   bool
-		posttests func()
-	}{
-		{
-			"success",
-			func() {
-				suite.keeper.SetEvidence(suite.ctx, &types.Equivocation{
-					Height:           1,
-					Power:            100,
-					Time:             time.Now().UTC(),
-					ConsensusAddress: pk.PubKey().Address().String(),
-				})
-			},
-			true,
-			func() {},
-		},
-	}
-
-	for _, tc := range testCases {
-		suite.Run(fmt.Sprintf("Case %s", tc.msg), func() {
-			suite.SetupTest()
-
-			tc.malleate()
-
-			if tc.expPass {
-				suite.NotPanics(func() {
-					evidence.ExportGenesis(suite.ctx, suite.keeper)
-				})
-			} else {
-				suite.Panics(func() {
-					evidence.ExportGenesis(suite.ctx, suite.keeper)
-				})
-			}
-
-			tc.posttests()
-		})
-	}
-}
-
 func TestGenesisTestSuite(t *testing.T) {
 	suite.Run(t, new(GenesisTestSuite))
 }
