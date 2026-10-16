@@ -978,8 +978,12 @@ func (c *heightBlockClient) Block(_ context.Context, height *int64) (*coretypes.
 	}, nil
 }
 
-func (c *heightBlockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
-	return &coretypes.ResultBlockResults{Height: *height}, nil
+func (c *heightBlockClient) BlockResults(ctx context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	block, err := c.Block(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+	return &coretypes.ResultBlockResults{Height: block.Block.Height}, nil
 }
 
 func (c *heightBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, error) {
