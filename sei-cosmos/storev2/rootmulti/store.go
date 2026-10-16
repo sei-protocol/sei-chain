@@ -841,8 +841,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos ...bool
 	if !ok {
 		return nil
 	}
-	migrateAllAllowed := len(allowMigrateCosmos) > 0 && allowMigrateCosmos[0]
-	if mode != sctypes.MemiavlOnly && !(migrateAllAllowed && (mode == sctypes.MigrateEVM || mode == sctypes.EVMMigrated)) {
+	if !hasNextMigration(mode, len(allowMigrateCosmos) > 0 && allowMigrateCosmos[0]) {
 		return nil
 	}
 	// Only an auto store may be advanced at runtime; a node pinned to a fixed
@@ -902,6 +901,20 @@ func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos ...bool
 	}
 
 	return nil
+}
+
+// hasNextMigration reports whether SetMigrationBatchSize may start a migration
+// from mode: migrate_evm from memiavl_only, and migrate_cosmos from migrate_evm
+// or evm_migrated when allowMigrateCosmos is set.
+func hasNextMigration(mode sctypes.WriteMode, allowMigrateCosmos bool) bool {
+	switch mode {
+	case sctypes.MemiavlOnly:
+		return true
+	case sctypes.MigrateEVM, sctypes.EVMMigrated:
+		return allowMigrateCosmos
+	default:
+		return false
+	}
 }
 
 // shouldLogMigrationSkip reports whether a skipped kick-off at batchSize has
