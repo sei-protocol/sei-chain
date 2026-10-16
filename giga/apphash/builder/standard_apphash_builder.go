@@ -199,7 +199,7 @@ func (b *StandardAppHashBuilder) ReportStateHash(
 	return nil
 }
 
-func (b *StandardAppHashBuilder) ReportBUD(ctx context.Context, blockHeight uint64, bud [32]byte) error {
+func (b *StandardAppHashBuilder) ReportBUD(ctx context.Context, blockHeight uint64, bud apphash.BUDHash) error {
 	request := reportRequest{input: budInput, blockHeight: blockHeight, value: bud}
 	if err := b.submit(ctx, request); err != nil {
 		return fmt.Errorf("failed to report the BUD of block %d: %w", blockHeight, err)
@@ -748,7 +748,7 @@ func (b *StandardAppHashBuilder) writeToHashLog(record *apphash.AppHashData, com
 	hashes[previousAppHashColumn] = hashBytes(record.PreviousAppHash())
 	hashes[blockHashColumn] = hashBytes(record.BlockHash())
 	hashes[stateHashColumn] = hashBytes(record.StateHash())
-	hashes[budColumn] = hashBytes(record.BUD())
+	hashes[budColumn] = hashBytes(record.BUDHash())
 	hashes[receiptHashColumn] = hashBytes(record.ReceiptHash())
 	if err := b.hashLog.Write(record.BlockHeight(), hashes); err != nil {
 		logger.Error("failed to write to the app hash log; disabling hash logging", "err", err)

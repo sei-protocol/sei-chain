@@ -60,7 +60,7 @@ func loggedRow(record *apphash.AppHashData, componentHashes map[string][]byte) m
 		previousAppHashColumn: hashBytes(record.PreviousAppHash()),
 		blockHashColumn:       hashBytes(record.BlockHash()),
 		stateHashColumn:       hashBytes(record.StateHash()),
-		budColumn:             hashBytes(record.BUD()),
+		budColumn:             hashBytes(record.BUDHash()),
 		receiptHashColumn:     hashBytes(record.ReceiptHash()),
 	}
 	for name, hash := range componentHashes {
