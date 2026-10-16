@@ -390,20 +390,35 @@ func openAutobahnStorageManager(
 	fc *config.AutobahnFileConfig,
 	storage gigaconfig.StorageConfig,
 ) (*bootstrap.GigaStorageManager, error) {
-	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	_, storageConfig, err := autobahnStorageConfig(rootDir, nodeMode, fc, storage)
 	if err != nil {
 		return nil, err
 	}
+	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+}
+
+// autobahnStorageConfig returns Autobahn's persistent state dir, created if absent,
+// and the Giga storage config laid out in it for nodeMode unless storage pins a mode.
+func autobahnStorageConfig(
+	rootDir string,
+	nodeMode string,
+	fc *config.AutobahnFileConfig,
+	storage gigaconfig.StorageConfig,
+) (string, *seidbconfig.GigaStorageConfig, error) {
+	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	if err != nil {
+		return "", nil, err
+	}
 	storageConfig, err := buildGigaStorageConfig(directory, nodeMode, storage)
 	if err != nil {
-		return nil, fmt.Errorf("build Autobahn storage config: %w", err)
+		return "", nil, fmt.Errorf("build Autobahn storage config: %w", err)
 	}
 	blockConfig, err := fc.BlockDB.LittBlockConfig(filepath.Join(directory, "blockdb"))
 	if err != nil {
-		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
+		return "", nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
-	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	return directory, storageConfig, nil
 }
 
 // buildGigaStorageConfig returns the store configs for directory with the [giga.storage]
