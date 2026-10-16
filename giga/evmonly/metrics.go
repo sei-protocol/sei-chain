@@ -20,11 +20,17 @@ var (
 	occMeter = otel.Meter("giga_evmonly")
 
 	executionMetrics = struct {
-		txsExecuted metric.Int64Counter
+		txsExecuted    metric.Int64Counter
+		plainTransfers metric.Int64Counter
 	}{
 		txsExecuted: must(occMeter.Int64Counter(
 			"giga_evmonly_txs_executed_total",
 			metric.WithDescription("EVM-only transactions executed per block, by outcome (success, reverted, failed)"),
+			metric.WithUnit("{transaction}"),
+		)),
+		plainTransfers: must(occMeter.Int64Counter(
+			"giga_evmonly_plain_transfers_total",
+			metric.WithDescription("EVM-only transactions applied as plain value transfers without the EVM, speculative executions included"),
 			metric.WithUnit("{transaction}"),
 		)),
 	}
@@ -137,6 +143,17 @@ func recordTxExecutionStats(ctx context.Context, txs []TxResult) {
 	for _, status := range txExecutionStatuses {
 		executionMetrics.txsExecuted.Add(ctx, counts[status], txExecutionStatusAttr(status))
 	}
+}
+
+// recordPlainTransfers emits how many transactions of a finished block were
+// applied through the plain-transfer path.
+func recordPlainTransfers(ctx context.Context, count uint64) {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+		}
+	}()
+	executionMetrics.plainTransfers.Add(ctx, int64(count)) //nolint:gosec // bounded by the block's transaction count
 }
 
 // occLabelUnknown is the value every label vocabulary in this file collapses an
