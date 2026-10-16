@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -250,25 +252,40 @@ func TestSendRawTransactionSlowOnCometUsesBroadcastTxCommit(t *testing.T) {
 	require.Equal(t, 1, tmClient.commitCount)
 }
 
-// inCacheClient rejects every broadcast the way the mempool rejects a tx it has already seen.
-type inCacheClient struct {
+// rejectingClient fails every broadcast with err.
+type rejectingClient struct {
 	*MockClient
+	err error
 }
 
-func (c *inCacheClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
-	return nil, tmtypes.ErrTxInCache
+func (c *rejectingClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
+	return nil, c.err
 }
 
-func (c *inCacheClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
-	return nil, tmtypes.ErrTxInCache
+func (c *rejectingClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	return nil, c.err
 }
 
-func TestSendRawTransactionAlreadyInCacheReturnsAlreadyKnown(t *testing.T) {
+func TestSendRawTransactionMapsMempoolRejections(t *testing.T) {
 	ethTxBytes, _ := mustSignTestTx(t)
-	for _, slow := range []bool{false, true} {
-		sendAPI := newTestSendAPI(&inCacheClient{MockClient: &MockClient{}}, evmrpc.NewSendConfig(slow, false, false))
-		_, err := sendAPI.SendRawTransaction(t.Context(), hexutil.Bytes(ethTxBytes))
-		require.ErrorIs(t, err, txpool.ErrAlreadyKnown, "slow=%v", slow)
+	for _, tc := range []struct {
+		mempoolErr error
+		want       error
+	}{
+		{tmtypes.ErrTxInMempool, txpool.ErrAlreadyKnown},
+		{tmtypes.ErrTxNonceTooLow, core.ErrNonceTooLow},
+		{tmtypes.ErrTxReplacementUnderpriced, txpool.ErrReplaceUnderpriced},
+		{tmtypes.ErrTxInsufficientFunds, core.ErrInsufficientFunds},
+		{tmtypes.ErrTxInCache, tmtypes.ErrTxInCache},
+	} {
+		for _, slow := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%v/slow=%v", tc.mempoolErr, slow), func(t *testing.T) {
+				client := &rejectingClient{MockClient: &MockClient{}, err: tc.mempoolErr}
+				sendAPI := newTestSendAPI(client, evmrpc.NewSendConfig(slow, false, false))
+				_, err := sendAPI.SendRawTransaction(t.Context(), hexutil.Bytes(ethTxBytes))
+				require.ErrorIs(t, err, tc.want)
+			})
+		}
 	}
 }
 

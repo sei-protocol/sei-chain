@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
@@ -161,12 +162,20 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-// toEthBroadcastError maps a broadcast error to its Ethereum txpool equivalent, if it has one.
+// toEthBroadcastError maps a mempool rejection to its Ethereum equivalent, if it has one.
 func toEthBroadcastError(err error) error {
-	if errors.Is(err, tmtypes.ErrTxInCache) {
+	switch {
+	case errors.Is(err, tmtypes.ErrTxInMempool):
 		return txpool.ErrAlreadyKnown
+	case errors.Is(err, tmtypes.ErrTxNonceTooLow):
+		return core.ErrNonceTooLow
+	case errors.Is(err, tmtypes.ErrTxReplacementUnderpriced):
+		return txpool.ErrReplaceUnderpriced
+	case errors.Is(err, tmtypes.ErrTxInsufficientFunds):
+		return core.ErrInsufficientFunds
+	default:
+		return err
 	}
-	return err
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {

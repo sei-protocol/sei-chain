@@ -10,8 +10,22 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-// ErrTxInCache is returned when the mempool has already seen the tx.
+// ErrTxInCache is returned when the mempool rejects a tx it has already seen. The errors below
+// wrap it to say why the tx was rejected.
 var ErrTxInCache = errors.New("tx already exists in cache")
+
+var (
+	// ErrTxInMempool is returned when the tx is already in the mempool or is being checked.
+	ErrTxInMempool = fmt.Errorf("%w: tx is pending", ErrTxInCache)
+	// ErrTxNonceTooLow is returned when the tx's nonce is below the sender's lowest pending nonce.
+	ErrTxNonceTooLow = fmt.Errorf("%w: nonce too low", ErrTxInCache)
+	// ErrTxReplacementUnderpriced is returned when the mempool holds a tx with the same nonce
+	// and at least the same priority.
+	ErrTxReplacementUnderpriced = fmt.Errorf("%w: replacement transaction underpriced", ErrTxInCache)
+	// ErrTxInsufficientFunds is returned when the tx would replace a ready tx with the same nonce
+	// but the sender cannot afford it.
+	ErrTxInsufficientFunds = fmt.Errorf("%w: insufficient funds", ErrTxInCache)
+)
 
 // TxHash is the fixed length array hash used as an index.
 type TxHash crypto.Hash
