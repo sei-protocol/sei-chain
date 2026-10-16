@@ -100,11 +100,11 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 			return 0, 0, fmt.Errorf("block %s not found", crit.BlockHash)
 		}
 		height := uint64(block.Block.Height) //nolint:gosec // block heights are positive
-		earliest, latest := api.indexedRange()
+		earliest, latest := indexedRange(api.backend, api.store)
 		return height, height, checkIndexed(height, height, earliest, latest)
 	}
 
-	earliest, latest := api.indexedRange()
+	earliest, latest := indexedRange(api.backend, api.store)
 	fromBlock, err := resolveLogBound(crit.FromBlock, earliest, latest)
 	if err != nil {
 		return 0, 0, err
@@ -122,14 +122,14 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 // indexedRange returns the inclusive height range the receipt store can
 // answer for: from its retention floor to the lower of the committed head and
 // the last block whose receipts it has indexed.
-func (api *filterAPI) indexedRange() (uint64, uint64) {
-	latest := api.backend.EvmBlockNumber()
-	if stored := api.store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
+func indexedRange(backend Backend, store receiptpkg.ReceiptStore) (uint64, uint64) {
+	latest := backend.EvmBlockNumber()
+	if stored := store.LatestVersion(); stored >= 0 && uint64(stored) < latest { //nolint:gosec // stored is non-negative
 		latest = uint64(stored) //nolint:gosec // stored is non-negative
 	}
 	// EarliestVersion is 0 until something has pruned the store; blocks start at 1.
 	earliest := uint64(1)
-	if stored := api.store.EarliestVersion(); stored > 1 {
+	if stored := store.EarliestVersion(); stored > 1 {
 		earliest = uint64(stored) //nolint:gosec // stored is positive
 	}
 	return earliest, latest

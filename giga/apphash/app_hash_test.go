@@ -32,7 +32,7 @@ func goldenData() *AppHashData {
 }
 
 // mustSerialize returns the serialization of ahd.
-func mustSerialize(t *testing.T, ahd *AppHashData) []byte {
+func mustSerialize(t testing.TB, ahd *AppHashData) []byte {
 	t.Helper()
 	data, err := ahd.Serialize()
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
-	require.Equal(t, filledHash(0xc3), ahd.BUDHash())
+	require.Equal(t, BUDHash(filledHash(0xc3)), ahd.BUDHash())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
@@ -79,6 +79,17 @@ func TestSerializeIsDeterministic(t *testing.T) {
 func TestHashGoldenVector(t *testing.T) {
 	hash := goldenData().AppHash()
 
+	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
+}
+
+func TestDeserializeGoldenVector(t *testing.T) {
+	serialized, err := hex.DecodeString(goldenSerialization)
+	require.NoError(t, err)
+
+	decoded, err := Deserialize(serialized)
+	require.NoError(t, err)
+	require.Equal(t, goldenData(), decoded)
+	hash := decoded.AppHash()
 	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
 }
 
@@ -165,7 +176,7 @@ func TestZeroAppHashData(t *testing.T) {
 	require.Equal(t, uint64(4), ahd.BlockHeight())
 	require.Equal(t, [32]byte{}, ahd.BlockHash())
 	require.Equal(t, [32]byte{}, ahd.StateHash())
-	require.Equal(t, [32]byte{}, ahd.BUDHash())
+	require.Equal(t, BUDHash{}, ahd.BUDHash())
 	require.Equal(t, [32]byte{}, ahd.ReceiptHash())
 	require.Equal(t, [32]byte{}, ahd.PreviousAppHash())
 	require.Equal(t, [32]byte{}, ahd.AppHash())

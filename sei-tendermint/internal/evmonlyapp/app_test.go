@@ -96,13 +96,20 @@ var evmOnlyTestInitCode = []byte{0x60, 0xfe, 0x60, 0x00, 0x53, 0x60, 0x01, 0x60,
 
 func signedEVMOnlyTestCreateTx(t *testing.T, chainID uint64) ([]byte, common.Address) {
 	t.Helper()
+	return signedEVMOnlyTestCreateTxWithInitCode(t, chainID, evmOnlyTestInitCode)
+}
+
+// signedEVMOnlyTestCreateTxWithInitCode signs a contract creation running
+// initCode from a fresh sender, returning the raw tx and that sender.
+func signedEVMOnlyTestCreateTxWithInitCode(t *testing.T, chainID uint64, initCode []byte) ([]byte, common.Address) {
+	t.Helper()
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(evmOnlyMinGasPrice),
 		Gas:      100_000,
-		Data:     evmOnlyTestInitCode,
+		Data:     initCode,
 	})
 	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
 	require.NoError(t, err)
@@ -813,6 +820,35 @@ func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
 	got[0] = 0x00
 	require.Equal(t, []byte{0xfe}, codeReader.EvmCode(contract))
 	require.Empty(t, codeReader.EvmCode(sender))
+}
+
+func TestEVMOnlyApplicationServesStoredStorage(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	// Stores 0x2a at slot 1, then deploys evmOnlyTestInitCode's runtime code.
+	initCode := append([]byte{0x60, 0x2a, 0x60, 0x01, 0x55}, evmOnlyTestInitCode...)
+	raw, sender := signedEVMOnlyTestCreateTxWithInitCode(t, evmOnlyTestChainID, initCode)
+	contract := crypto.CreateAddress(sender, 0)
+	storageReader := app.(*evmOnlyApplication)
+	slot := common.BigToHash(big.NewInt(1))
+	require.Equal(t, common.Hash{}, storageReader.EvmStorage(contract, slot))
+
+	response, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, response.TxResults, 1)
+	require.Equal(t, uint32(0), response.TxResults[0].Code)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	require.Equal(t, common.BigToHash(big.NewInt(0x2a)), storageReader.EvmStorage(contract, slot))
+	require.Equal(t, common.Hash{}, storageReader.EvmStorage(contract, common.Hash{}))
+	require.Equal(t, common.Hash{}, storageReader.EvmStorage(sender, slot))
 }
 
 // Every FinalizeBlock stage is charged to a phase, so the timer's total is the

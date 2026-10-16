@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
+	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
@@ -18,7 +20,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtestutil "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/testutil"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
+	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
@@ -28,18 +35,22 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// v6.8 removes the oracle and vesting modules. The store loader deletes the
-// oracle store at the upgrade height, and the handler deletes both modules'
-// version-map entries. Vesting owned no store: its state is the accounts it
-// wrote to the auth account store, which the auth 3 to 4 migration rewrites as
-// the base accounts they embed. These tests cover the rewrite of every vesting
-// account type, spending a balance a schedule had locked, the messages both
-// modules served, genesis export over the migrated store, and the handler
-// itself.
+// v6.8 removes the oracle, tokenfactory and vesting modules. The store loader
+// deletes the oracle, tokenfactory and retired IBC stores at the upgrade height,
+// and the handler deletes the removed modules' version-map entries, the denom
+// transfer allowlists tokenfactory kept in the bank store, and its parameters in
+// the params store. Vesting owned no store: its state is the accounts it wrote
+// to the auth account store, which the auth 3 to 4 migration rewrites as the
+// base accounts they embed. These tests cover the rewrite of every vesting
+// account type, spending a balance a schedule had locked, the messages the
+// removed modules served, the allowlist and parameter pruning, genesis export
+// over the migrated store, and the handler itself. The handler also starts the
+// staking delegation-by-validator index backfill, which the staking EndBlocker
+// completes.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
-var v68RemovedStoreModules = []string{"capability", "ibc", "oracle", "transfer"}
+var v68RemovedStoreModules = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer"}
 
 const (
 	v68UpgradeName = "v6.8"
@@ -49,6 +60,8 @@ const (
 	v68VestingEndTime int64 = 32_503_680_000
 	v68VestingBalance int64 = 1_000_000_000
 	v68VestingModule        = "vesting"
+	// v68TokenfactoryVersionBefore is the tokenfactory consensus version v6.7 records.
+	v68TokenfactoryVersionBefore uint64 = 5
 	// v68AuthVersionBefore and v68AuthVersion are the auth consensus versions
 	// on either side of the upgrade.
 	v68AuthVersionBefore uint64 = 3
@@ -105,12 +118,14 @@ type v68VestingFixture struct {
 }
 
 // seedV67VersionMap records in the version map what every chain upgrading from
-// v6.7 carries: auth at its v6.7 consensus version, oracle, and vesting.
+// v6.7 carries: auth and tokenfactory at their v6.7 consensus versions, oracle,
+// and vesting.
 func seedV67VersionMap(t *testing.T, a *processblock.App) {
 	t.Helper()
 	versionMap := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	versionMap[authtypes.ModuleName] = v68AuthVersionBefore
 	versionMap[retiredoracle.ModuleName] = 1
+	versionMap[retiredtokenfactory.ModuleName] = v68TokenfactoryVersionBefore
 	versionMap[v68VestingModule] = 1
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
 }
@@ -159,7 +174,14 @@ func seedV67VestingState(t *testing.T, a *processblock.App) []v68VestingFixture 
 // v68AccountEntries returns every entry under the account prefix of store.
 func v68AccountEntries(t *testing.T, store sdk.KVStore) map[string][]byte {
 	t.Helper()
-	iterator := sdk.KVStorePrefixIterator(store, authtypes.AddressStoreKeyPrefix)
+	return v68PrefixEntries(t, store, authtypes.AddressStoreKeyPrefix)
+}
+
+// v68PrefixEntries returns every entry of store under prefix, or every entry of
+// store when prefix is empty.
+func v68PrefixEntries(t *testing.T, store sdk.KVStore, prefix []byte) map[string][]byte {
+	t.Helper()
+	iterator := sdk.KVStorePrefixIterator(store, prefix)
 	defer func() {
 		require.NoError(t, iterator.Close())
 	}()
@@ -238,14 +260,16 @@ func TestV68RewritesVestingAccountsAsBaseAccounts(t *testing.T) {
 
 	versionsAfter := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	require.NotContains(t, versionsAfter, retiredoracle.ModuleName)
+	require.NotContains(t, versionsAfter, retiredtokenfactory.ModuleName)
 	require.NotContains(t, versionsAfter, v68VestingModule)
 	require.Equal(t, v68AuthVersion, versionsAfter[authtypes.ModuleName])
 	delete(versionsBefore, retiredoracle.ModuleName)
+	delete(versionsBefore, retiredtokenfactory.ModuleName)
 	delete(versionsBefore, v68VestingModule)
 	delete(versionsBefore, authtypes.ModuleName)
 	delete(versionsAfter, authtypes.ModuleName)
 	require.Equal(t, versionsBefore, versionsAfter,
-		"v6.8 changed a module version other than removing oracle and vesting and moving auth")
+		"v6.8 changed a module version other than removing oracle, tokenfactory and vesting and moving auth")
 }
 
 // TestV68ConvertedAccountSpendsTheBalanceItsScheduleLocked delivers a bank send
@@ -310,6 +334,87 @@ func TestV68ApplyUpgradeTwice(t *testing.T) {
 		"second ApplyUpgrade changed the done height")
 	require.Equal(t, onceAppVersion+1, a.AppVersion(),
 		"second ApplyUpgrade is not a no-op: ApplyUpgrade increments protocol version on every call")
+}
+
+// unreadyV68DelegationIndex deletes the delegation-by-validator index and its
+// markers, leaving the staking store as v6.7 left it.
+func unreadyV68DelegationIndex(t *testing.T, a *processblock.App) {
+	t.Helper()
+	store := a.Ctx().KVStore(a.GetKey(stakingtypes.StoreKey))
+	iterator := sdk.KVStorePrefixIterator(store, stakingtypes.DelegationByValIndexKey)
+	var keys [][]byte
+	for ; iterator.Valid(); iterator.Next() {
+		keys = append(keys, iterator.Key())
+	}
+	require.NoError(t, iterator.Close())
+	for _, key := range keys {
+		store.Delete(key)
+	}
+	store.Delete(stakingtypes.DelegationByValIndexReadyKey)
+	store.Delete(stakingtypes.DelegationByValIndexCursorKey)
+}
+
+// v68DelegationKeys returns the keys of every stored delegation.
+func v68DelegationKeys(t *testing.T, store sdk.KVStore) map[string]struct{} {
+	t.Helper()
+	return v68PrefixKeys(t, store, stakingtypes.DelegationKey, func(key []byte) []byte { return key })
+}
+
+// v68IndexedDelegationKeys returns the delegation key every index entry points at.
+func v68IndexedDelegationKeys(t *testing.T, store sdk.KVStore) map[string]struct{} {
+	t.Helper()
+	return v68PrefixKeys(t, store, stakingtypes.DelegationByValIndexKey, stakingtypes.GetDelegationKeyFromValIndexKey)
+}
+
+func v68PrefixKeys(t *testing.T, store sdk.KVStore, prefix []byte, resolve func([]byte) []byte) map[string]struct{} {
+	t.Helper()
+	iterator := sdk.KVStorePrefixIterator(store, prefix)
+	defer func() { require.NoError(t, iterator.Close()) }()
+	keys := map[string]struct{}{}
+	for ; iterator.Valid(); iterator.Next() {
+		keys[string(resolve(iterator.Key()))] = struct{}{}
+	}
+	return keys
+}
+
+func TestV68PopulatesDelegationByValIndex(t *testing.T) {
+	a := newV68Chain(t)
+	unreadyV68DelegationIndex(t, a)
+	ctx := a.Ctx()
+	store := ctx.KVStore(a.GetKey(stakingtypes.StoreKey))
+
+	validators := a.StakingKeeper.GetAllValidators(ctx)
+	require.NotEmpty(t, validators)
+	valAddr := validators[0].GetOperator()
+	delAddr := a.NewAccount()
+	a.StakingKeeper.SetDelegation(ctx, stakingtypes.NewDelegation(delAddr, valAddr, sdk.NewDec(68)))
+	require.False(t, store.Has(stakingtypes.GetDelegationByValIndexKey(delAddr, valAddr)),
+		"a delegation written before v6.8 is indexed")
+
+	applyV68(t, a)
+
+	require.False(t, a.StakingKeeper.DelegationByValIndexReady(ctx),
+		"v6.8 populated the index inside the upgrade handler")
+	require.True(t, store.Has(stakingtypes.DelegationByValIndexCursorKey),
+		"v6.8 did not start the index backfill")
+	staking.EndBlocker(ctx, a.StakingKeeper)
+
+	require.True(t, a.StakingKeeper.DelegationByValIndexReady(ctx))
+	require.False(t, store.Has(stakingtypes.DelegationByValIndexCursorKey))
+	delegations := v68DelegationKeys(t, store)
+	require.Contains(t, delegations, string(stakingtypes.GetDelegationKey(delAddr, valAddr)))
+	require.Equal(t, delegations, v68IndexedDelegationKeys(t, store),
+		"the index does not hold exactly one entry per delegation")
+
+	querier := stakingkeeper.Querier{Keeper: a.StakingKeeper}
+	res, err := querier.ValidatorDelegations(sdk.WrapSDKContext(ctx),
+		&stakingtypes.QueryValidatorDelegationsRequest{ValidatorAddr: valAddr.String()})
+	require.NoError(t, err)
+	var delegators []string
+	for _, response := range res.DelegationResponses {
+		delegators = append(delegators, response.Delegation.DelegatorAddress)
+	}
+	require.Contains(t, delegators, delAddr.String())
 }
 
 // TestV68RejectsOracleTxsWithoutCharging pins that retired oracle transactions
@@ -386,6 +491,183 @@ func TestV68RejectsTheVestingMessageWithoutCharging(t *testing.T) {
 	check := a.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
 	require.Equal(t, retiredvesting.ErrDeprecated.ABCICode(), check.Code, check.Log)
 	require.Equal(t, retiredvesting.ErrDeprecated.Codespace(), check.Codespace)
+}
+
+// TestV68RejectsTokenfactoryTxsWithoutCharging delivers and checks a signed
+// transaction of every tokenfactory message after v6.8. Each decodes as its
+// retired type, which fails validation, so it is refused before any fee is taken.
+func TestV68RejectsTokenfactoryTxsWithoutCharging(t *testing.T) {
+	a := newV68Chain(t)
+	signer := a.NewSignableAccount("v68/tokenfactory-admin")
+	a.FundAccount(signer, v68VestingBalance)
+	a.RunBlock([]signing.Tx{})
+	applyV68ToCommitStore(t, a)
+	a.RunBlock([]signing.Tx{})
+
+	denom := "factory/" + signer.String() + "/v68"
+	retired := []struct {
+		name string
+		msg  sdk.Msg
+	}{
+		{"create denom", &retiredtokenfactory.MsgCreateDenom{Sender: signer.String(), Subdenom: "v68"}},
+		{"update denom", &retiredtokenfactory.MsgUpdateDenom{Sender: signer.String(), Denom: denom, AllowList: &banktypes.AllowList{Addresses: []string{signer.String()}}}},
+		{"mint", &retiredtokenfactory.MsgMint{Sender: signer.String(), Amount: sdk.NewInt64Coin(denom, 1)}},
+		{"burn", &retiredtokenfactory.MsgBurn{Sender: signer.String(), Amount: sdk.NewInt64Coin(denom, 1)}},
+		{"change admin", &retiredtokenfactory.MsgChangeAdmin{Sender: signer.String(), Denom: denom, NewAdmin: signer.String()}},
+		{"set denom metadata", &retiredtokenfactory.MsgSetDenomMetadata{Sender: signer.String(), Metadata: banktypes.Metadata{
+			Base: denom, Display: denom, DenomUnits: []*banktypes.DenomUnit{{Denom: denom}},
+		}}},
+	}
+	for _, retired := range retired {
+		t.Run(retired.name, func(t *testing.T) {
+			tx := a.Sign(signer, v68TxFee, retired.msg)
+			balanceBefore := a.BankKeeper.GetBalance(a.Ctx(), signer, "usei")
+
+			results := a.RunBlockDetailed([]signing.Tx{tx})
+			require.Len(t, results, 1)
+			require.Equal(t, retiredtokenfactory.ErrDeprecated.ABCICode(), results[0].Code, results[0].Log)
+			require.Equal(t, retiredtokenfactory.ErrDeprecated.Codespace(), results[0].Codespace)
+			require.Equal(t, balanceBefore, a.BankKeeper.GetBalance(a.Ctx(), signer, "usei"),
+				"the refused tokenfactory message was charged a fee")
+
+			txBytes, err := processblock.TxConfig.TxEncoder()(tx)
+			require.NoError(t, err)
+			check := a.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+			require.Equal(t, retiredtokenfactory.ErrDeprecated.ABCICode(), check.Code, check.Log)
+			require.Equal(t, retiredtokenfactory.ErrDeprecated.Codespace(), check.Codespace)
+		})
+	}
+}
+
+// v68DenomAllowListKey returns the bank-store key under which tokenfactory kept
+// the transfer allowlist of denom.
+func v68DenomAllowListKey(denom string) []byte {
+	return append(append([]byte{0x11}, denom...), denom...)
+}
+
+// v68SeedDenomAllowList stores a transfer allowlist for denom naming addresses,
+// the way tokenfactory wrote one.
+func v68SeedDenomAllowList(t *testing.T, a *processblock.App, denom string, addresses ...string) {
+	t.Helper()
+	allowList, err := (&banktypes.AllowList{Addresses: addresses}).Marshal()
+	require.NoError(t, err)
+	a.Ctx().KVStore(a.GetKey(banktypes.StoreKey)).Set(v68DenomAllowListKey(denom), allowList)
+}
+
+// TestV68PrunesDenomAllowLists pins that every denom transfer allowlist is
+// deleted from the bank store, while the balance and metadata of the denoms they
+// restricted are kept.
+func TestV68PrunesDenomAllowLists(t *testing.T) {
+	a := newV68Chain(t)
+	ctx := a.Ctx()
+	holder := a.NewAccount()
+	restricted := "factory/" + holder.String() + "/restricted"
+	unrestricted := "factory/" + holder.String() + "/unrestricted"
+	v68SeedDenomAllowList(t, a, restricted, holder.String())
+	v68SeedDenomAllowList(t, a, unrestricted)
+	a.FundAccountWithDenom(holder, 100, restricted)
+	metadata := banktypes.Metadata{Base: restricted, Display: restricted, DenomUnits: []*banktypes.DenomUnit{{Denom: restricted}}}
+	a.BankKeeper.SetDenomMetaData(ctx, metadata)
+
+	applyV68(t, a)
+
+	iterator := sdk.KVStorePrefixIterator(ctx.KVStore(a.GetKey(banktypes.StoreKey)), []byte{0x11})
+	defer iterator.Close()
+	require.False(t, iterator.Valid(), "v6.8 left a denom allowlist in the bank store")
+	require.Equal(t, sdk.NewInt64Coin(restricted, 100), a.BankKeeper.GetBalance(ctx, holder, restricted))
+	stored, found := a.BankKeeper.GetDenomMetaData(ctx, restricted)
+	require.True(t, found)
+	require.Equal(t, metadata, stored)
+}
+
+// TestV68SendsADenomItsAllowListRestricted delivers, after v6.8, a bank send of
+// a factory denom to an address its allowlist did not name.
+func TestV68SendsADenomItsAllowListRestricted(t *testing.T) {
+	a := newV68Chain(t)
+	holder := a.NewSignableAccount("v68/allowlisted-holder")
+	a.FundAccount(holder, v68VestingBalance)
+	denom := "factory/" + holder.String() + "/restricted"
+	a.FundAccountWithDenom(holder, 100, denom)
+	v68SeedDenomAllowList(t, a, denom, holder.String())
+	recipient := a.NewAccount()
+	a.RunBlock([]signing.Tx{})
+
+	applyV68ToCommitStore(t, a)
+	a.RunBlock([]signing.Tx{})
+
+	results := a.RunBlockDetailed([]signing.Tx{
+		a.Sign(holder, v68TxFee, &banktypes.MsgSend{
+			FromAddress: holder.String(),
+			ToAddress:   recipient.String(),
+			Amount:      sdk.NewCoins(sdk.NewInt64Coin(denom, 40)),
+		}),
+	})
+	require.Len(t, results, 1)
+	require.Equal(t, uint32(abci.CodeTypeOK), results[0].Code, results[0].Log)
+	require.Equal(t, sdk.NewInt64Coin(denom, 40), a.BankKeeper.GetBalance(a.Ctx(), recipient, denom))
+	require.Equal(t, sdk.NewInt64Coin(denom, 60), a.BankKeeper.GetBalance(a.Ctx(), holder, denom))
+}
+
+// TestV68DenomAllowListPruneIsBounded pins that v6.8 deletes at most
+// app.RetiredPrefixDeleteLimit denom transfer allowlists, in key order, and that
+// an allowlist it leaves in the bank store does not restrict a send of its denom.
+func TestV68DenomAllowListPruneIsBounded(t *testing.T) {
+	a := newV68Chain(t)
+	holder := a.NewSignableAccount("v68/overflow-allowlisted-holder")
+	a.FundAccount(holder, v68VestingBalance)
+	denoms := make([]string, app.RetiredPrefixDeleteLimit+1)
+	for i := range denoms {
+		denoms[i] = fmt.Sprintf("factory/%s/overflow%04d", holder, i)
+		v68SeedDenomAllowList(t, a, denoms[i], holder.String())
+	}
+	kept := denoms[len(denoms)-1]
+	a.FundAccountWithDenom(holder, 100, kept)
+	recipient := a.NewAccount()
+	a.RunBlock([]signing.Tx{})
+
+	applyV68ToCommitStore(t, a)
+	a.RunBlock([]signing.Tx{})
+
+	left := v68PrefixEntries(t, a.Ctx().KVStore(a.GetKey(banktypes.StoreKey)), []byte{0x11})
+	require.Len(t, left, 1, "v6.8 did not delete exactly app.RetiredPrefixDeleteLimit denom allowlists")
+	require.Contains(t, left, string(v68DenomAllowListKey(kept)))
+
+	results := a.RunBlockDetailed([]signing.Tx{
+		a.Sign(holder, v68TxFee, &banktypes.MsgSend{
+			FromAddress: holder.String(),
+			ToAddress:   recipient.String(),
+			Amount:      sdk.NewCoins(sdk.NewInt64Coin(kept, 40)),
+		}),
+	})
+	require.Len(t, results, 1)
+	require.Equal(t, uint32(abci.CodeTypeOK), results[0].Code, results[0].Log)
+	require.Equal(t, sdk.NewInt64Coin(kept, 40), a.BankKeeper.GetBalance(a.Ctx(), recipient, kept))
+}
+
+// TestV68PrunesTokenfactoryParams pins that every entry of the tokenfactory
+// parameter subspace is deleted from the params store and that nothing else in
+// the store changes. The subspace holds the parameter v6.7 keeps and a creation
+// fee an older tokenfactory version left behind.
+func TestV68PrunesTokenfactoryParams(t *testing.T) {
+	a := newV68Chain(t)
+	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
+	retired := map[string]string{
+		"tokenfactory/allowlistmaxsize": "2000",
+		"tokenfactory/DenomCreationFee": "[]",
+	}
+	for key, value := range retired {
+		store.Set([]byte(key), []byte(value))
+	}
+	store.Set([]byte("tokenfactoryless"), []byte("unrelated"))
+	kept := v68PrefixEntries(t, store, nil)
+	for key := range retired {
+		delete(kept, key)
+	}
+
+	applyV68(t, a)
+
+	require.Equal(t, kept, v68PrefixEntries(t, store, nil),
+		"v6.8 changed the params store beyond deleting the tokenfactory subspace")
 }
 
 // TestV68RewritesRetiredIBCProposals pins that a stored proposal whose content
@@ -524,14 +806,16 @@ func TestV68CrossVersion(t *testing.T) {
 	upgradetest.RunCrossVersion(t, seedV67State, verifyV68State)
 }
 
-// seedV67State records the v6.7 version map, which carries oracle and vesting
-// with auth at consensus version 3, requires v6.7 to serve the vesting command,
-// and delivers a bank send before the upgrade.
+// seedV67State records the v6.7 version map, which carries oracle, tokenfactory
+// and vesting with auth at consensus version 3, requires v6.7 to serve the
+// vesting command, and delivers a bank send before the upgrade.
 func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 
 	versions := v68ModuleVersions(t, chain)
 	require.Contains(t, versions, retiredoracle.ModuleName, "v6.7 module version map does not carry oracle")
+	require.Equal(t, v68TokenfactoryVersionBefore, versions[retiredtokenfactory.ModuleName],
+		"v6.7 module version map does not carry tokenfactory")
 	require.Equal(t, uint64(1), versions[v68VestingModule], "v6.7 module version map does not carry vesting")
 	require.Equal(t, v68AuthVersionBefore, versions[authtypes.ModuleName])
 	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
@@ -572,13 +856,14 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		want[name] = version
 	}
 	delete(want, retiredoracle.ModuleName)
+	delete(want, retiredtokenfactory.ModuleName)
 	delete(want, v68VestingModule)
 	want[authtypes.ModuleName] = v68AuthVersion
 	want[govtypes.ModuleName] = v68GovVersion
 	after := v68ModuleVersions(t, chain)
 	chain.Record(t, "module_versions_after", after)
 	require.Equal(t, want, after,
-		"v6.8 changed the version map beyond removing oracle and vesting, moving auth to %d and moving gov to %d",
+		"v6.8 changed the version map beyond removing oracle, tokenfactory and vesting, moving auth to %d and moving gov to %d",
 		v68AuthVersion, v68GovVersion)
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.8 upgrade store still carries the vesting version-map entry")
@@ -590,7 +875,10 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		"http://127.0.0.1:26657/abci_query?path=%2Fstore%2Foracle%2Fkey")
 	require.NotContains(t, oracleStore.Combined(), retiredoracle.ErrDeprecated.Error())
 	require.Contains(t, oracleStore.Combined(), "no such store: oracle")
-	for _, store := range []string{"ibc", "transfer", "capability"} {
+	tokenfactoryCommand := chain.Seid("", "q", retiredtokenfactory.ModuleName)
+	require.Error(t, tokenfactoryCommand.Err)
+	require.Contains(t, tokenfactoryCommand.Combined(), `unknown command "tokenfactory"`)
+	for _, store := range []string{"ibc", "transfer", "capability", retiredtokenfactory.ModuleName} {
 		raw := chain.Binary("", "curl", "-s",
 			"http://127.0.0.1:26657/abci_query?path=%2Fstore%2F"+store+"%2Fkey")
 		require.Contains(t, raw.Combined(), "no such store: "+store)

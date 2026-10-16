@@ -29,7 +29,7 @@ type AppHashData struct {
 
 	// The BUD hash (Block Update Digest hash): a commitment to the key-value pairs that changed as a result of
 	// executing this block.
-	budHash [32]byte
+	budHash BUDHash
 
 	// The hash of the transaction receipts
 	// produced by executing this block.
@@ -48,6 +48,9 @@ type AppHashData struct {
 	zeroHash bool
 }
 
+// BUDHash is the hash committing to the key-value changes produced by executing a block.
+type BUDHash [32]byte
+
 // Construct a new AppHashData object at the current schema version.
 func NewAppHashData(
 	// The EVM chain ID of the chain the block belongs to.
@@ -60,7 +63,7 @@ func NewAppHashData(
 	stateHash [32]byte,
 	// The BUD hash (Block Update Digest hash): a commitment to the key-value pairs that changed as a result of
 	// executing this block.
-	budHash [32]byte,
+	budHash BUDHash,
 	// The hash of the transaction receipts produced by executing this block.
 	receiptHash [32]byte,
 	// The app hash of block (blockHeight-1), or all 0s if this is the first block.
@@ -123,7 +126,7 @@ func (ahd *AppHashData) StateHash() [32]byte {
 
 // BUDHash returns the BUD hash (Block Update Digest hash): a commitment to the key-value pairs that changed as a
 // result of executing this block.
-func (ahd *AppHashData) BUDHash() [32]byte {
+func (ahd *AppHashData) BUDHash() BUDHash {
 	return ahd.budHash
 }
 

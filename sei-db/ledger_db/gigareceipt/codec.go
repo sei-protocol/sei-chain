@@ -11,37 +11,37 @@ import (
 //
 //	[version:1][blockNumber:8 BE][offset:4 BE][length:4 BE][receiptBody...]
 //
-// blockNumber selects the block; (offset, length) is the sub-range of that
-// block's stored value holding the transaction (only meaningful when block
-// compression is off — zero otherwise). The leading version byte lets the
-// encoding evolve: decodeReceiptData dispatches on it, so a future layout can
-// be introduced without breaking readers of older values.
+// blockNumber selects the block; (offset, length) is the transaction's sub-range
+// within that block's marshalled proto(Block) body, excluding the block store's
+// value framing. A length of 0 means the location is unknown. The leading version
+// byte lets the encoding evolve: decodeReceiptData dispatches on it, so a future
+// layout can be introduced without breaking readers of older values.
 //
 // decodeReceiptData also tolerates legacy values written before this prefix
-// existed (a raw marshaled Receipt, with no header at all): see the invariant
-// documented on receiptDataV1 and on decodeReceiptData.
+// existed (a raw marshaled Receipt, with no header at all): see
+// minProtobufTagByte and decodeReceiptData.
 const (
-	// receiptDataV1 is the current receipt value encoding version. Deliberately 1: a legacy,
-	// pre-prefix value is a raw marshaled protobuf Receipt, whose leading byte is always a real
-	// wire-format tag, (field_number<<3)|wire_type. Protobuf field numbers start at 1, so the
-	// smallest possible tag byte is (1<<3)|0 = 8 (field 1, varint) — no valid tag byte can equal 1.
-	// That makes the version byte unambiguous: 1 always means "v1 metadata prefix present", and
-	// decodeReceiptData treats every other value as a legacy body rather than an error.
+	// receiptDataV1 is the current receipt value encoding version.
 	receiptDataV1 byte = 1
+
+	// minProtobufTagByte is the smallest leading byte of a marshaled protobuf message: the tag
+	// (field_number<<3)|wire_type for field 1, wire type 0. No legacy receipt starts below it, so
+	// leading bytes 0x00-0x07 are reserved for encoding versions.
+	minProtobufTagByte byte = 1 << 3
 
 	// Field widths of the v1 metadata prefix.
 	versionLen     = 1 // version byte
 	blockNumberLen = 8 // uint64 block number
-	txOffsetLen    = 4 // uint32 tx offset within the block value
-	txLengthLen    = 4 // uint32 tx length within the block value
+	txOffsetLen    = 4 // uint32 tx offset within the block body
+	txLengthLen    = 4 // uint32 tx length within the block body
 
 	// receiptDataV1HeaderLen is the fixed prefix width for v1.
 	receiptDataV1HeaderLen = versionLen + blockNumberLen + txOffsetLen + txLengthLen
 )
 
-// TxHeader is the metadata header describing where a transaction's raw bytes
-// live in the block store: the block number, and the (offset, length) sub-range
-// of that block's stored value that holds the transaction. Zero-valued when unknown.
+// TxHeader locates a transaction's raw bytes in the block store: its block number,
+// and its (offset, length) within that block's marshalled proto(Block) body,
+// excluding the block store's value framing. Length is 0 when the location is unknown.
 type TxHeader struct {
 	BlockNumber uint64
 	Offset      uint32
@@ -66,22 +66,19 @@ func encodeReceiptData(d receiptData) []byte {
 	return buf
 }
 
-// decodeReceiptData parses a stored receipt value, dispatching on the leading
-// version byte. Body aliases the input slice (no copy); a caller that retains
-// it past the lifetime of the backing buffer must copy it first.
+// decodeReceiptData parses a stored receipt value, dispatching on its leading byte. Body
+// aliases the input slice; a caller that retains it past the backing buffer's lifetime must
+// copy it first.
 //
-// A leading byte other than receiptDataV1 is treated as a legacy, pre-prefix
-// value rather than an error: raw is a bare marshaled Receipt, written before
-// this metadata prefix existed, so it is returned as-is as Body with a zero
-// TxHeader (location unknown). This dispatch is unambiguous, and safe against
-// ever misreading a legacy value as v1 or vice versa: see the invariant on
-// receiptDataV1 above (no real protobuf tag byte can equal 1).
+// A leading byte of minProtobufTagByte or above marks a legacy value, a bare marshaled
+// Receipt with no metadata prefix, returned whole as Body with a zero TxHeader. A reserved
+// leading byte that is not a known version is rejected.
 func decodeReceiptData(raw []byte) (receiptData, error) {
 	if len(raw) == 0 {
 		return receiptData{}, fmt.Errorf("empty receipt value")
 	}
-	switch version := raw[0]; version {
-	case receiptDataV1:
+	switch version := raw[0]; {
+	case version == receiptDataV1:
 		if len(raw) < receiptDataV1HeaderLen {
 			return receiptData{}, fmt.Errorf("receipt value too short for v%d: %d < %d",
 				receiptDataV1, len(raw), receiptDataV1HeaderLen)
@@ -94,6 +91,8 @@ func decodeReceiptData(raw []byte) (receiptData, error) {
 			},
 			Body: raw[receiptDataV1HeaderLen:],
 		}, nil
+	case version < minProtobufTagByte:
+		return receiptData{}, fmt.Errorf("unsupported receipt encoding version %d", version)
 	default:
 		return receiptData{Body: raw}, nil
 	}

@@ -105,7 +105,7 @@ func TestAppHashesBuiltFromCommittedBlocks(t *testing.T) {
 		require.Equal(t, testAppHashChainID, appHash.ChainID())
 		require.Equal(t, [32]byte{}, appHash.BlockHash())
 		require.NotEqual(t, [32]byte{}, appHash.StateHash())
-		require.NotEqual(t, [32]byte{}, appHash.BUDHash())
+		require.NotEqual(t, apphash.BUDHash{}, appHash.BUDHash())
 	}
 	head, err := manager.AppHashVault().GetLatestBlock()
 	require.NoError(t, err)
