@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -387,7 +388,7 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
 		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		ctx = withCapturedConsensusParams(ctx, mc, blockHeight)
-		removeFutureGovernanceActivation(ctx, a, version)
+		removeFutureActivations(ctx, a, version)
 		return ctx.WithBlockHeight(blockHeight)
 	})
 	s.Run(
@@ -428,7 +429,7 @@ func testBlock(
 			)
 			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			ctx = withCapturedConsensusParams(ctx, mc, blockHeight)
-			removeFutureGovernanceActivation(ctx, a, version)
+			removeFutureActivations(ctx, a, version)
 			return ctx.WithBlockHeight(blockHeight)
 		},
 	)
@@ -460,9 +461,12 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 	return ctx
 }
 
-func removeFutureGovernanceActivation(ctx sdk.Context, a *app.App, version string) {
+// removeFutureActivations clears the markers genesis sets for features that mainnet
+// only turns on at a later upgrade than version.
+func removeFutureActivations(ctx sdk.Context, a *app.App, version string) {
 	if semver.Compare(version, "v6.8") < 0 {
 		ctx.KVStore(a.GetKey(govtypes.StoreKey)).Delete(govtypes.IncrementalTallyEnabledKey)
+		ctx.KVStore(a.GetKey(stakingtypes.StoreKey)).Delete(stakingtypes.DelegationByValIndexReadyKey)
 	}
 }
 

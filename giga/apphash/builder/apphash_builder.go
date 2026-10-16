@@ -42,7 +42,7 @@ type AppHashBuilder interface {
 	// may not cause it to return an error immediately, since hash data may be ingested asynchronously. Illegal
 	// input will, however, eventually cause the app hash builder to shut down and start returning errors from all
 	// methods.
-	ReportBUD(ctx context.Context, blockHeight uint64, bud [32]byte) error
+	ReportBUD(ctx context.Context, blockHeight uint64, bud apphash.BUDHash) error
 
 	// Reports the hash of the transaction receipts produced by executing the block.
 	//
