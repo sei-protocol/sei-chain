@@ -7,7 +7,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -30,24 +29,26 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 			records = append(records, record)
 		}
 	}
+	indexReceiptRecords(records)
 	return records, nil
 }
 
 // encodeReceiptRecord builds the record for transaction i, and reports false when the transaction
-// stores no receipt. Records are independent of each other, so a caller holding a worker pool may
-// build them in parallel.
+// stores no receipt. The record's TransactionIndex is left for indexReceiptRecords. Records are
+// independent of each other, so a caller holding a worker pool may build them in parallel.
 func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receipt.ReceiptRecord, bool, error) {
 	ethReceipt := result.Receipts[i]
 	if ethReceipt == nil {
 		return receipt.ReceiptRecord{}, false, fmt.Errorf("receipt %d is nil", i)
 	}
 	txResult := result.Txs[i]
-	// A rejection the sender can still cure (nonce too high, insufficient funds)
-	// leaves the hash unclaimed so a later execution can store its receipt.
-	if txResult.Rejected && !errors.Is(txResult.Err, core.ErrNonceTooLow) {
+	// A rejected transaction never ran, and an Ethereum block could not have included it, so it
+	// stores no receipt: its hash keeps the receipt of the block that does execute it, earlier or
+	// later.
+	if txResult.Rejected {
 		return receipt.ReceiptRecord{}, false, nil
 	}
-	transactionIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
+	unadjustedIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
 	if !ok {
 		return receipt.ReceiptRecord{}, false, fmt.Errorf("receipt %d transaction index %d exceeds uint32", i, ethReceipt.TransactionIndex)
 	}
@@ -56,16 +57,16 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 		return receipt.ReceiptRecord{}, false, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
 	}
 	stored := &evmtypes.Receipt{
-		TxType:            uint32(ethReceipt.Type),
-		CumulativeGasUsed: ethReceipt.CumulativeGasUsed,
-		TxHashHex:         ethReceipt.TxHash.Hex(),
-		GasUsed:           ethReceipt.GasUsed,
-		BlockNumber:       blockNumber,
-		TransactionIndex:  transactionIndex,
-		Status:            status,
-		From:              txResult.Sender.Hex(),
-		Logs:              evmtypes.NewLogsFromEth(ethReceipt.Logs),
-		LogsBloom:         append([]byte(nil), ethReceipt.Bloom[:]...),
+		TxType:                     uint32(ethReceipt.Type),
+		CumulativeGasUsed:          ethReceipt.CumulativeGasUsed,
+		TxHashHex:                  ethReceipt.TxHash.Hex(),
+		GasUsed:                    ethReceipt.GasUsed,
+		BlockNumber:                blockNumber,
+		UnadjustedTransactionIndex: unadjustedIndex,
+		Status:                     status,
+		From:                       txResult.Sender.Hex(),
+		Logs:                       evmtypes.NewLogsFromEth(ethReceipt.Logs),
+		LogsBloom:                  append([]byte(nil), ethReceipt.Bloom[:]...),
 	}
 	if ethReceipt.EffectiveGasPrice != nil {
 		stored.EffectiveGasPrice = ethReceipt.EffectiveGasPrice.Uint64()
@@ -85,10 +86,17 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int) (receip
 	if ethReceipt.EffectiveGasPrice != nil {
 		reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
 	}
-	return receipt.ReceiptRecord{
-		TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
-		KeepExisting: txResult.Rejected,
-	}, true, nil
+	return receipt.ReceiptRecord{TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward}, true, nil
+}
+
+// indexReceiptRecords sets each record's TransactionIndex to its position among a block's records,
+// skipping the transactions that store no receipt as if the block did not hold them.
+func indexReceiptRecords(records []receipt.ReceiptRecord) {
+	var index uint32
+	for i := range records {
+		records[i].Receipt.TransactionIndex = index
+		index++
+	}
 }
 
 // receiptRecordsParallel builds the block's records across the executor's worker pool, returning
@@ -132,6 +140,7 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 			compacted = append(compacted, records[i])
 		}
 	}
+	indexReceiptRecords(compacted)
 	return compacted, nil
 }
 

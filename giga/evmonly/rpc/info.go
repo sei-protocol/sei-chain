@@ -371,8 +371,8 @@ func receiptRecordsFromBlock(ctx context.Context, store receiptpkg.ReceiptStore,
 			return nil, fmt.Errorf("read receipt %s for block %d: %w", hash, height, err)
 		}
 		// A replayed transaction keeps the receipt of its original execution, which
-		// belongs to another block's stats; a curable rejection has none at all.
-		if stored == nil || stored.BlockNumber != uint64(height) || uint64(stored.TransactionIndex) != uint64(i) { //nolint:gosec // G115: height and index are non-negative.
+		// belongs to another block or position; a rejected one has none at all.
+		if stored == nil || stored.BlockNumber != uint64(height) || uint64(unadjustedIndex(stored)) != uint64(i) { //nolint:gosec // G115: height and index are non-negative.
 			continue
 		}
 		records = append(records, receiptRecordFor(hash, stored))

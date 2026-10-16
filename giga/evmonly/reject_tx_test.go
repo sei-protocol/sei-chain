@@ -9,6 +9,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 // TestExecutorRejectsSpentNonceWithoutFailingBlock turns a spent nonce into a
@@ -60,6 +62,56 @@ func TestExecutorRejectsSpentNonceWithoutFailingBlock(t *testing.T) {
 		state.ApplyChangeSet(result.ChangeSet)
 		require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
 		require.Equal(t, uint64(2), state.GetNonce(sender))
+	})
+}
+
+// TestExecutorStoresNoReceiptForRejectedTx runs a block whose second of three transactions is
+// rejected: it stores no receipt, and the third is stored at index 1, as if the block held two
+// transactions, with its position in the block kept as its unadjusted index.
+func TestExecutorStoresNoReceiptForRejectedTx(t *testing.T) {
+	forEachExecutionPath(t, func(t *testing.T, cfg Config) {
+		chainID := big.NewInt(testChainID)
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		recipient := testAddress(0xa6)
+		state := NewMemoryState()
+		state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(testFundedBalanceWei))
+		store := NewMemoryStore(state)
+		receipts := NewMemoryReceiptStore()
+		executor := NewExecutor(cfg, withTestStores(store, receipts, store.EncodeChangeSet))
+		t.Cleanup(executor.Close)
+
+		txs := [][]byte{
+			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil),
+			signLegacyTx(t, key, chainID, 5, &recipient, big.NewInt(1), nil),
+			signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(1), nil),
+		}
+		block := blockContext(chainID)
+		block.Number = 1
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: txs})
+		require.NoError(t, err)
+		defer result.Release()
+		requireOCCRan(t, cfg, result)
+		require.True(t, result.Txs[1].Rejected)
+		require.ErrorIs(t, result.Txs[1].Err, core.ErrNonceTooHigh)
+
+		ctx := newReceiptContext(t.Context(), 1)
+		_, err = receipts.GetReceipt(ctx, decodeTx(t, txs[1]).Hash())
+		require.ErrorIs(t, err, receipt.ErrNotFound)
+		for _, want := range []struct {
+			tx         int
+			index      uint32
+			unadjusted uint32
+		}{{tx: 0, index: 0, unadjusted: 0}, {tx: 2, index: 1, unadjusted: 2}} {
+			stored, err := receipts.GetReceipt(ctx, decodeTx(t, txs[want.tx]).Hash())
+			require.NoError(t, err)
+			require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), stored.Status)
+			require.Equal(t, want.index, stored.TransactionIndex)
+			require.Equal(t, want.unadjusted, stored.UnadjustedTransactionIndex)
+		}
+		stats, err := receipts.GetBlockStats(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, uint32(2), stats.TxCount)
 	})
 }
 

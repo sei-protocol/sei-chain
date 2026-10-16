@@ -98,6 +98,14 @@ including for empty blocks. A receipt failure leaves state unchanged so the
 block can be retried. A state failure can leave receipts behind, but retrying
 the block overwrites them. `ResultSink` runs only after both stores succeed.
 
+Only executed transactions store receipts. A transaction rejected under
+`RejectUnappliableTxs` never ran, and an Ethereum block could not have included
+it, so it stores none, and the EVM-only RPC leaves it out of block responses. A
+stored receipt's `TransactionIndex` counts only the block's stored receipts, as
+if the rejected transactions were absent, and `UnadjustedTransactionIndex` keeps
+its position among every transaction in the block. `BlockResult` still carries a
+receipt for each transaction at its position.
+
 `ExecuteBlock` advances the state store's version itself, independently of any
 ABCI `Commit`, so what the store holds after a restart is decided by the
 storage layer (which flushes asynchronously and re-executes blocks from

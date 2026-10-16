@@ -516,25 +516,17 @@ func TestEncodeBlockReceiptReadError(t *testing.T) {
 	})
 	api := &blockAPI{backend: backend, store: store}
 
-	t.Run("hash only", func(t *testing.T) {
-		// Test: hash-only encoding recomputes gasUsed from the block's receipts.
-		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+	for _, fullTx := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fullTx=%t", fullTx), func(t *testing.T) {
+			// Test: listing the block's transactions reads each one's receipt.
+			got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, fullTx)
 
-		// Verify: wrapped receipt error.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-		require.ErrorContains(t, err, "for block 4")
-	})
-
-	t.Run("full tx", func(t *testing.T) {
-		// Test: full-tx encoding reads a receipt per transaction.
-		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
-
-		// Verify: wrapped receipt error names the index.
-		require.Nil(t, got)
-		require.ErrorIs(t, err, want)
-		require.ErrorContains(t, err, "read transaction receipt at block 4 index 0")
-	})
+			// Verify: wrapped receipt error names the block.
+			require.Nil(t, got)
+			require.ErrorIs(t, err, want)
+			require.ErrorContains(t, err, "for block 4")
+		})
+	}
 }
 
 func TestEncodeBlockMissingReceiptLeavesGasUsedZero(t *testing.T) {
@@ -658,11 +650,11 @@ func TestGetBlockTransactionCountByHash(t *testing.T) {
 
 // TestGetBlockTransactionCountMatchesGetBlockTransactions pins that both count
 // methods equal the length of eth_getBlockByNumber's transactions list, which
-// covers every transaction in the block body, including one whose receipt is
-// not stored in this block.
+// leaves out a transaction with no receipt in the block once the receipt store
+// covers it, and holds the whole body until then.
 func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	twoTxBlock, _, _, twoTxStore := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
+	twoTxBlock, tx1, _, twoTxStore := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
 	_, raw := testSignedTransaction(t)
 	noReceiptBlock := &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
@@ -671,6 +663,11 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
 		},
 	}
+	firstOnlyStore := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, firstOnlyStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash:  tx1.Hash(),
+		Receipt: &evmtypes.Receipt{TxHashHex: tx1.Hash().Hex(), BlockNumber: 9, GasUsed: 21_000, CumulativeGasUsed: 21_000},
+	}}))
 
 	for _, tc := range []struct {
 		name  string
@@ -679,7 +676,8 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 		want  hexutil.Uint
 	}{
 		{name: "transactions with receipts", block: twoTxBlock, store: twoTxStore, want: 2},
-		{name: "transaction without a receipt", block: noReceiptBlock, store: evmonly.NewMemoryReceiptStore(), want: 1},
+		{name: "transaction without a receipt", block: twoTxBlock, store: firstOnlyStore, want: 1},
+		{name: "receipts not yet stored", block: noReceiptBlock, store: evmonly.NewMemoryReceiptStore(), want: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
@@ -704,6 +702,33 @@ func TestGetBlockTransactionCountMatchesGetBlockTransactions(t *testing.T) {
 			require.Len(t, encoded["transactions"], int(tc.want))
 		})
 	}
+}
+
+// failingStatsReceiptStore fails every GetBlockStats with err on an otherwise real store.
+type failingStatsReceiptStore struct {
+	receipt.ReceiptStore
+	err error
+}
+
+func (s failingStatsReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+	return receipt.BlockStats{}, s.err
+}
+
+func TestGetBlockTransactionCountPropagatesStatsReadErrors(t *testing.T) {
+	block, _, _, store := multiTxBlock(t, 9, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
+	want := errors.New("block stats unavailable")
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
+	api := &blockAPI{backend: backend, store: failingStatsReceiptStore{ReceiptStore: store, err: want}}
+
+	// Test: the receipt store covers the block but cannot read its stats.
+	got, err := api.GetBlockTransactionCountByNumber(t.Context(), ethrpc.LatestBlockNumber)
+
+	// Verify: the failure is returned rather than a count built some other way.
+	require.Nil(t, got)
+	require.ErrorIs(t, err, want)
+	require.ErrorContains(t, err, "for block 9")
 }
 
 func TestGetBlockTransactionCountEndToEnd(t *testing.T) {
@@ -938,8 +963,12 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 	baseFeeErr := errors.New("no base fee")
 	chainConfigErr := errors.New("no chain config")
 	receiptErr := errors.New("receipt db closed")
+	// The store covers block 4 and answers only by hash, so listing the block reads each
+	// transaction's receipt.
+	coveringMemory := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, coveringMemory.SetLatestVersion(4))
 	failingReceipts := stubReceiptStore{
-		ReceiptStore: evmonly.NewMemoryReceiptStore(),
+		ReceiptStore: hashOnlyReceiptStore{ReceiptStore: coveringMemory},
 		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 			return nil, receiptErr
 		},
@@ -969,7 +998,7 @@ func TestGetTransactionByBlockAndIndexSurfacesRenderErrors(t *testing.T) {
 			wantErr: chainConfigErr,
 		},
 		{name: "undecodable transaction", block: blockWith(tmtypes.Txs{[]byte("not-an-rlp-tx")}, validTime), wantErrContains: "decode transaction at block 4 index 0"},
-		{name: "receipt read error", block: blockWith(tmtypes.Txs{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "read transaction receipt at block 4 index 0"},
+		{name: "receipt read error", block: blockWith(tmtypes.Txs{raw}, validTime), store: failingReceipts, wantErr: receiptErr, wantErrContains: "for block 4"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
