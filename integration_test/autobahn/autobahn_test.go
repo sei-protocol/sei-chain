@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -206,9 +207,11 @@ func setup() error {
 }
 
 // runMake runs `make <target>` from the current directory, streaming output.
-// The process is killed when ctx ends.
+// The process and its children are killed when ctx ends.
 func runMake(ctx context.Context, env []string, target string) error {
 	cmd := exec.CommandContext(ctx, "make", target)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -247,7 +250,7 @@ func setupCluster(ctx context.Context) error {
 	}
 	// Count created containers (they exist immediately post-compose-up) to
 	// determine how many launch.complete entries to wait for.
-	expected, err := countSeiContainers()
+	expected, err := countSeiContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
 	}
@@ -271,8 +274,8 @@ func setupCluster(ctx context.Context) error {
 
 // countSeiContainers returns the number of sei-node-* containers that exist
 // (running or not yet started).
-func countSeiContainers() (int, error) {
-	out, err := exec.Command("docker", "ps", "-a",
+func countSeiContainers(ctx context.Context) (int, error) {
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-a",
 		"--filter", "name=sei-node-",
 		"--format", "{{.Names}}").Output()
 	if err != nil {
@@ -302,7 +305,7 @@ func setupFullnodeNode(ctx context.Context) error {
 	// Discover the cluster size from docker so the rpc-node's autobahn config
 	// covers exactly the validators that came up — non-four-node test runs
 	// would otherwise produce a mismatched committee.
-	clusterSize, err := countSeiContainers()
+	clusterSize, err := countSeiContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
 	}
@@ -329,7 +332,7 @@ func setupFullnodeNode(ctx context.Context) error {
 	// Phase 1: wait for the container to exist and run. Anything `make` does
 	// before `docker run` (image build, pull) lands here, not in the boot budget.
 	startDeadline := time.Now().Add(fullnodeStartTimeout)
-	for !fullnodeRunning() {
+	for !fullnodeRunning(ctx) {
 		select {
 		case err := <-exited:
 			return fmt.Errorf("make %s exited before %s was running: %v", target, fullnodeContainer, err)
@@ -351,7 +354,7 @@ func setupFullnodeNode(ctx context.Context) error {
 			return fmt.Errorf("make %s exited while %s was booting: %v", target, fullnodeContainer, err)
 		default:
 		}
-		if fullnodeRunning() && fullnodeEVMReady() {
+		if fullnodeRunning(ctx) && fullnodeEVMReady() {
 			fmt.Println("fullnode sidecar is ready")
 			return nil
 		}
@@ -362,8 +365,8 @@ func setupFullnodeNode(ctx context.Context) error {
 	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting", fullnodeBootTimeout)
 }
 
-func fullnodeRunning() bool {
-	out, err := exec.Command("docker", "ps",
+func fullnodeRunning(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, "docker", "ps",
 		"--filter", "name="+fullnodeContainer,
 		"--filter", "status=running",
 		"--format", "{{.Names}}").Output()
@@ -402,7 +405,7 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 		return nil, err
 	}
 	out, err := exec.Command("docker", "exec", container,
-		"curl", "-sf", "-X", "POST",
+		"curl", "-sf", "--max-time", "10", "-X", "POST",
 		"-H", "content-type: application/json",
 		"--data", string(body),
 		evmRPCURLOnContainerLocalhost).Output()
