@@ -278,10 +278,14 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		// Get all tx hashes for the block
 		height := block.Block.Height
 
-		txHashes, err := getTxHashesFromBlock(ctxProvider, a.txConfigProvider, a.keeper, block, false, a.cacheCreationMutex, a.globalBlockCache)
+		msgs, err := filterTransactions(a.keeper, ctxProvider, a.txConfigProvider, block, false, a.cacheCreationMutex, a.globalBlockCache)
 		if err != nil {
 			return nil, err
 		}
+		txHashes := typedTxHashesOf(block, msgs)
+		// Every receipt is placed from this one walk; a walk per receipt makes the call quadratic
+		// in the block's transaction count.
+		positions := evmTxPositions(ctxProvider(height), block, msgs, a.keeper, a.cacheCreationMutex, a.globalBlockCache)
 
 		// Get tx receipts for all hashes in parallel, with a hard cap on the
 		// goroutine fan-out, so a block with a very large number of txs
@@ -309,7 +313,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					}
 					return err
 				}
-				encodedReceipt, err := encodeReceipt(groupCtxProvider, a.txConfigProvider, receipt, a.keeper, block, false, a.globalBlockCache, a.cacheCreationMutex)
+				encodedReceipt, err := encodeReceiptAt(receipt, block, positions)
 				if err != nil {
 					return err
 				}
