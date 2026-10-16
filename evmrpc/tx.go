@@ -487,6 +487,7 @@ func evmTxPositions(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexe
 		if !ok {
 			continue
 		}
+		// A transaction with several messages takes the position of its first one.
 		if _, seen := positions[msg.index]; !seen {
 			positions[msg.index] = evmTxPosition{index: evmTxIndex, tx: etx, logIndexOffset: logIndex}
 		}
@@ -506,12 +507,11 @@ func encodeReceipt(
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) (map[string]any, error) {
-	ctx := ctxProvider(block.Block.Height)
 	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, cacheCreationMutex, globalBlockCache)
 	if err != nil {
 		return nil, err
 	}
-	positions := evmTxPositions(ctx, block, msgs, k, cacheCreationMutex, globalBlockCache)
+	positions := evmTxPositions(ctxProvider(block.Block.Height), block, msgs, k, cacheCreationMutex, globalBlockCache)
 	return encodeReceiptAt(receipt, block, positions)
 }
 
@@ -520,8 +520,8 @@ func encodeReceipt(
 func encodeReceiptAt(receipt *types.Receipt, block *coretypes.ResultBlock, positions map[int]evmTxPosition) (map[string]any, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
-	position, foundTx := positions[int(receipt.TransactionIndex)]
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
+	position, foundTx := positions[int(receipt.TransactionIndex)]
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}

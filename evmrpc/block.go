@@ -283,8 +283,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 			return nil, err
 		}
 		txHashes := typedTxHashesOf(block, msgs)
-		// Every receipt is placed from this one walk; a walk per receipt makes the call quadratic
-		// in the block's transaction count.
+		// Place every receipt from one walk; a walk per receipt is quadratic in the block's tx count.
 		positions := evmTxPositions(ctxProvider(height), block, msgs, a.keeper, a.cacheCreationMutex, a.globalBlockCache)
 
 		// Get tx receipts for all hashes in parallel, with a hard cap on the
