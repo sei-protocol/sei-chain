@@ -17,6 +17,7 @@ var (
 	errHistoricalStateUnsupported = errors.New("historical state is not supported by EVM-only RPC")
 	errBlockHashUnsupported       = errors.New("state queries by block hash are not supported by EVM-only RPC")
 	errBlockAboveHead             = errors.New("block is above the latest block")
+	errBlockTagUnsupported        = errors.New("block tag is not supported by EVM-only RPC")
 	errStorageKeyInvalid          = errors.New("hex string invalid")
 	errStorageKeyTooLong          = errors.New("hex string too long, want at most 32 bytes")
 )
@@ -53,8 +54,8 @@ func (api *stateAPI) GetCode(_ context.Context, address common.Address, block et
 	return api.backend.EvmCodeAt(address, height)
 }
 
-// stateHeight returns the block a state query reads: the latest committed state for a latest tag
-// and for the latest block's own number, or the numbered block.
+// stateHeight returns the block a state query reads: the latest committed state for a latest tag,
+// or the numbered block, with earliest as block 0.
 func stateHeight(backend Backend, block ethrpc.BlockNumberOrHash) (height int64, latest bool, err error) {
 	number, ok := block.Number()
 	switch {
@@ -62,13 +63,16 @@ func stateHeight(backend Backend, block ethrpc.BlockNumberOrHash) (height int64,
 		return 0, false, errBlockHashUnsupported
 	case isLatestTag(number):
 		return 0, true, nil
+	case number == ethrpc.EarliestBlockNumber:
+		return 0, false, nil
+	case number < 0:
+		return 0, false, fmt.Errorf("%w: %d", errBlockTagUnsupported, number)
 	}
-	// Every tag but earliest, which is 0, is a latest tag, so number is non-negative.
 	head := backend.EvmBlockNumber()
 	if uint64(number) > head { //nolint:gosec // non-negative
 		return 0, false, fmt.Errorf("%w: block %d, latest %d", errBlockAboveHead, number, head)
 	}
-	return number.Int64(), uint64(number) == head, nil //nolint:gosec // non-negative
+	return number.Int64(), false, nil
 }
 
 // isLatestTag reports whether number is a tag answered from the latest committed state.

@@ -39,12 +39,15 @@ func TestGetBalance(t *testing.T) {
 	}
 }
 
-// A numbered block below the head is read from history; the head's own number is the latest state.
+// A numbered block, the head's own included, is read at that block rather than from the latest state.
 func TestGetBalanceReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.Address{1}
 	api := &stateAPI{backend: &testBackend{
 		blockNumber: func() uint64 { return 9 },
-		balance:     func(common.Address) uint256.Int { return *uint256.NewInt(900) },
+		balance: func(common.Address) uint256.Int {
+			t.Fatal("a numbered block read the latest state")
+			return uint256.Int{}
+		},
 		balanceAt: func(got common.Address, height int64) (uint256.Int, error) {
 			require.Equal(t, address, got)
 			return *uint256.NewInt(uint64(height) * 100), nil //nolint:gosec // test heights are small
@@ -58,6 +61,8 @@ func TestGetBalanceReadsNumberedBlocksFromHistory(t *testing.T) {
 	}
 	_, err := api.GetBalance(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(10))
 	require.ErrorIs(t, err, errBlockAboveHead)
+	_, err = api.GetBalance(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(-6))
+	require.ErrorIs(t, err, errBlockTagUnsupported)
 }
 
 func TestGetBalanceRejectsABlockHash(t *testing.T) {
@@ -241,13 +246,16 @@ func TestGetStorageAt(t *testing.T) {
 	}
 }
 
-// A numbered block below the head is read from history; the head's own number is the latest state.
+// A numbered block, the head's own included, is read at that block rather than from the latest state.
 func TestGetStorageAtReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.Address{1}
 	slot := common.BigToHash(big.NewInt(1))
 	api := &stateAPI{backend: &testBackend{
 		blockNumber: func() uint64 { return 9 },
-		storage:     func(common.Address, common.Hash) (common.Hash, error) { return common.Hash{9}, nil },
+		storage: func(common.Address, common.Hash) (common.Hash, error) {
+			t.Fatal("a numbered block read the latest state")
+			return common.Hash{}, nil
+		},
 		storageAt: func(gotAddress common.Address, gotKey common.Hash, height int64) (common.Hash, error) {
 			require.Equal(t, address, gotAddress)
 			require.Equal(t, slot, gotKey)

@@ -471,19 +471,14 @@ func (a *evmOnlyApplication) AwaitCommits() error {
 	return executor.AwaitCommits()
 }
 
-// awaitSettled waits for every block finalized so far to commit. A failed
-// commit is logged once rather than returned: the stores still hold a
+// openSettledView opens a store view that holds every block finalized so far.
+// A failed commit is logged once rather than returned: the view is still a
 // consistent version, and the failure halts the node through the next
 // FinalizeBlock.
-func (a *evmOnlyApplication) awaitSettled() {
+func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
 	if err := a.AwaitCommits(); err != nil && !a.settleFailureLogged.Swap(true) {
 		logger.Error("EVM-only block commit failed; serving the last committed state", "err", err)
 	}
-}
-
-// openSettledView opens a store view that holds every block finalized so far.
-func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
-	a.awaitSettled()
 	return a.storage.StateDB().OpenView()
 }
 
@@ -509,10 +504,15 @@ func evmOnlyBalance(view gigatypes.StateView, address common.Address) uint256.In
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 
-// evmStateAt opens the committed EVM state after height from the state store, once every block
-// finalized so far has committed, and fails when the store does not hold that height.
+// evmStateAt opens the committed EVM state after height: the settled view when it stands at height,
+// and the state store's history otherwise. It fails when neither holds that height.
 func (a *evmOnlyApplication) evmStateAt(height int64) (gigatypes.StateView, error) {
-	a.awaitSettled()
+	// The newest block is read from the settled view, since the state store applies blocks behind it.
+	view := a.openSettledView()
+	if view.GetBlockHeight() == height {
+		return view, nil
+	}
+	view.Close()
 	view, ok := a.storage.StateDB().OpenViewAt(height)
 	if !ok {
 		return nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)

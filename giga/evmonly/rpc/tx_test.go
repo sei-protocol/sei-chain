@@ -48,8 +48,11 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	api := &txAPI{backend: &testBackend{
-		blockNumber:      func() uint64 { return 9 },
-		transactionCount: func(common.Address) uint64 { return 9 },
+		blockNumber: func() uint64 { return 9 },
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("a numbered block read the latest state")
+			return 0
+		},
 		transactionCountAt: func(got common.Address, height int64) (uint64, error) {
 			require.Equal(t, address, got)
 			return uint64(height), nil //nolint:gosec // test heights are small
