@@ -381,27 +381,6 @@ func TestNewRevertError(t *testing.T) {
 	require.Equal(t, "0x", err.ErrorData())
 }
 
-func TestConvertBlockNumber(t *testing.T) {
-	tmClient := &MockClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, func(i int64) sdk.Context {
-		if i == evmrpc.LatestCtxHeight {
-			return sdk.Context{}.WithBlockHeight(1000)
-		}
-		return sdk.Context{}
-	}, nil, nil)
-	backend := evmrpc.NewBackend(func(i int64) sdk.Context {
-		if i == evmrpc.LatestCtxHeight {
-			return sdk.Context{}.WithBlockHeight(1000)
-		}
-		return sdk.Context{}
-	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
-	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
-	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
-	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
-	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
-	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
-}
-
 func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	// Set up a test context with a height before v6.2.0 upgrade
 	// For pacific-1 chain, we need to set a height that's before the v6.2.0 upgrade
@@ -1031,8 +1010,8 @@ func TestBlockByNumberResolvesLatestToSafeLatest(t *testing.T) {
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
 	)
 
-	for _, bn := range []rpc.BlockNumber{rpc.LatestBlockNumber, rpc.SafeBlockNumber, rpc.FinalizedBlockNumber} {
-		ethBlock, _, err := backend.BlockByNumber(context.Background(), bn)
+	for _, bn := range []rpc.BlockNumber{rpc.LatestBlockNumber, rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.PendingBlockNumber} {
+		ethBlock, _, err := backend.BlockByNumber(t.Context(), bn)
 		require.NoError(t, err, bn.String())
 		require.Equal(t, safeLatest, ethBlock.Number().Int64(), bn.String())
 	}
