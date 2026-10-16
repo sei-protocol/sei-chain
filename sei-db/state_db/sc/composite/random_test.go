@@ -440,7 +440,7 @@ func TestRandomMigration_MigrateCosmos(t *testing.T) {
 		predecessorMode: types.EVMMigrated,
 		migrationMode:   types.MigrateCosmos,
 		successorMode:   types.FlatKVOnly,
-		targetVersion:   uint64(migration.Version3_FlatKVOnly),
+		targetVersion:   uint64(migration.Version2_FlatKVOnly),
 		migratingStores: []string{keys.BankStoreKey, keys.StakingStoreKey},
 	})
 }

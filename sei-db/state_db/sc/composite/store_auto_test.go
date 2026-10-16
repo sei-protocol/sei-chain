@@ -180,9 +180,9 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 
 	// Walk the rest of the chain. The workload only writes bank/ and evm/, so
-	// MigrateCosmos drains the bank store and lands directly in version 3.
+	// MigrateCosmos drains the bank store and lands directly in version 2.
 	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 200)
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 200)
 	require.NoError(t, cs.SetWriteMode(types.FlatKVOnly))
 	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode())
 
@@ -504,7 +504,7 @@ func TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly(t *testing.T) {
 
 // TestComposite_Auto_MemiavlLeavesHashAtVersion3 pins the memiavl side of
 // the commit-info gate: memiavl's StoreInfos drop out of the commit info
-// at the commit that persists migration version 3 (MigrateCosmos
+// at the commit that persists migration version 2 (MigrateCosmos
 // complete) — while the effective mode is still MigrateCosmos, before any
 // FlatKVOnly transition — and the exclusion is restart-independent (a
 // reopened store derives FlatKVOnly and reports the identical commit
@@ -532,12 +532,12 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
 
 	// Drive to completion one block at a time: on every commit where
-	// version 3 is not yet persisted, memiavl (which still carries
+	// version 2 is not yet persisted, memiavl (which still carries
 	// unmigrated state) must stay in the hash. The exclusion must kick in
-	// exactly at the version-3 commit, while the mode is still MigrateCosmos.
+	// exactly at the version-2 commit, while the mode is still MigrateCosmos.
 	sawMidFlight := false
 	for i := 0; i < 200; i++ {
-		done, err := migration.IsAtVersion(flatKVReaderFor(cs), migration.Version3_FlatKVOnly)
+		done, err := migration.IsAtVersion(flatKVReaderFor(cs), migration.Version2_FlatKVOnly)
 		require.NoError(t, err)
 		if done {
 			break
@@ -553,7 +553,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 		"test must observe at least one mid-flight MigrateCosmos commit; lower the batch size")
 	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
-		"memiavl StoreInfos must leave the commit info at the version-3 commit, before the mode flips")
+		"memiavl StoreInfos must leave the commit info at the version-2 commit, before the mode flips")
 	preRestart := cs.LastCommitInfo()
 	require.NoError(t, cs.Close())
 

@@ -205,7 +205,7 @@ func TestEVMMigrated(t *testing.T) {
 }
 
 // Test the FlatKVOnly steady-state router. This is the post-MigrateCosmos
-// terminal version 3 schema: every module routes to flatKV and there is no
+// terminal version 2 schema: every module routes to flatKV and there is no
 // migration manager (or memiavl) in the data path. Bootstrap will pass nil
 // for memiavl in this mode in production, and this test does the same.
 func TestFlatKVOnly(t *testing.T) {
