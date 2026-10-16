@@ -67,6 +67,9 @@ type Backend interface {
 	EvmProxyEnabled() bool
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmTransactionCount(common.Address) uint64
+	// EvmNextPendingNonce returns the nonce after the transactions the
+	// local mempool holds for the address.
+	EvmNextPendingNonce(common.Address) uint64
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

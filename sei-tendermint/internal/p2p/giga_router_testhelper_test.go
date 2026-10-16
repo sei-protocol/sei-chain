@@ -7,15 +7,26 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	dbm "github.com/tendermint/tm-db"
+	"golang.org/x/time/rate"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -201,6 +212,75 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
 		EVMRPC:   *utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))),
+	}
+}
+
+// newTestGigaConfig returns a router config over a fresh testApp and on-disk
+// state in a test temp dir, plus the BlockStore to pass to BuildDataState.
+func newTestGigaConfig(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr, genDoc *types.GenesisDoc) (*GigaRouterCommonConfig, *testApp, atypes.BlockStore) {
+	t.Helper()
+	app := newTestApp()
+	dir := t.TempDir()
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+	// (zero overrides); p2p can't import config (import cycle).
+	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	require.NoError(t, err, "littblock.DefaultConfig")
+	littCfg.Litt.Fsync = true
+	db, err := littblock.NewBlockDB(littCfg)
+	require.NoError(t, err, "littblock.NewBlockDB")
+	blockStore, err := blockstore.New(db)
+	require.NoError(t, err, "blockstore.New")
+	t.Cleanup(func() { _ = blockStore.Close() })
+	// In giga mode the CometBFT handshaker is skipped; the router's
+	// runExecute calls InitChain itself on fresh start.
+	return &GigaRouterCommonConfig{
+		// Aggressive dialing rate to speed up startup.
+		DialInterval:       100 * time.Millisecond,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: dir,
+		App:                proxy.New(app),
+		GenDoc:             genDoc,
+		EnableEvmProxy:     true,
+	}, app, blockStore
+}
+
+// spawnTestRouter runs giga behind a p2p Router that listens on node.addr.
+func spawnTestRouter(ctx context.Context, t *testing.T, s scope.Scope, name string, node *testNodeCfg, chainID string, giga GigaRouter) {
+	t.Helper()
+	nodeInfo := makeInfo(node.nodeKey)
+	nodeInfo.ListenAddr = node.addr.String()
+	nodeInfo.Network = chainID
+	e := Endpoint{AddrPort: node.addr}
+	router, err := NewRouter(
+		node.nodeKey,
+		func() *types.NodeInfo { return &nodeInfo },
+		dbm.NewMemDB(),
+		&RouterOptions{
+			SelfAddress:              utils.Some(e.NodeAddress(node.nodeKey.Public().NodeID())),
+			Endpoint:                 e,
+			Connection:               conn.DefaultMConnConfig(),
+			IncomingConnectionWindow: utils.Some(time.Duration(0)),
+			MaxAcceptRate:            rate.Inf,
+			MaxDialRate:              rate.Limit(30),
+			Giga:                     utils.Some(giga),
+		},
+	)
+	require.NoError(t, err, "NewRouter[%v]", name)
+	s.SpawnBgNamed(fmt.Sprintf("router[%v]", name), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
+	s.SpawnBgNamed(fmt.Sprintf("giga[%v]", name), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
+}
+
+// testProducerConfig fills blocks of up to maxTxs transactions of txGas each,
+// every 100ms, and produces no empty blocks.
+func testProducerConfig(txGas, maxTxs uint64) *producer.Config {
+	return &producer.Config{
+		MaxGasWantedPerBlock:    txGas * maxTxs,
+		MaxGasEstimatedPerBlock: txGas * maxTxs,
+		MaxTxsPerBlock:          maxTxs,
+		MaxTxsPerSecond:         utils.None[uint64](),
+		BlockInterval:           100 * time.Millisecond,
+		AllowEmptyBlocks:        false,
+		MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 	}
 }
 

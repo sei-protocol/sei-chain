@@ -2,7 +2,9 @@ package giga
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
@@ -170,6 +173,111 @@ func TestDataClientServer(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestClientGetBlockSpreadsAcrossPeers runs one fullnode service with a
+// GetBlock client on each of several peers, the way a fullnode block-syncs
+// from every committee member. Every peer must serve some heights: the shared
+// fetch queue spreads them, so throughput is not capped by one connection's
+// GetBlock rate limit.
+func TestClientGetBlockSpreadsAcrossPeers(t *testing.T) {
+	const peers = 3
+	const qcs = 6
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	newDataState := func() *data.State {
+		store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+		return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
+	}
+	client := NewFullNodeService(newDataState())
+	servers := make([]*Service, peers)
+	served := make([]atomic.Int64, peers)
+	for i := range servers {
+		servers[i] = NewFullNodeService(newDataState())
+	}
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(client.data.Run(ctx)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(client.Run(ctx)) })
+		for i, server := range servers {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(server.data.Run(ctx)) })
+			xConn, yConn := conn.NewTestConn()
+			rpcServer := rpc.NewServer[API]()
+			rpcClient := rpc.NewClient[API]()
+			s.SpawnBg(func() error { return utils.IgnoreCancel(rpcServer.Run(ctx, xConn)) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(rpcClient.Run(ctx, yConn)) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(server.serverPing(ctx, rpcServer)) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(server.serverStreamFullCommitQCs(ctx, rpcServer)) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(server.serverStreamAppQCs(ctx, rpcServer)) })
+			s.SpawnBg(func() error { return utils.IgnoreCancel(serveCountedGetBlock(ctx, server, rpcServer, &served[i])) })
+			s.SpawnBg(func() error {
+				return utils.IgnoreCancel(client.RunClient(ctx, rpcClient, keys[i].Public(), true))
+			})
+		}
+
+		prev := utils.None[*types.CommitQC]()
+		for range qcs {
+			qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, prev)
+			for _, server := range servers {
+				if err := server.data.PushQC(ctx, qc, blocks); err != nil {
+					return fmt.Errorf("server.data.PushQC(): %w", err)
+				}
+			}
+			prev = utils.Some(qc.QC())
+		}
+		start := time.Now()
+		first := registry.FirstBlock()
+		next := servers[0].data.NextBlock()
+		for n := first; n < next; n++ {
+			want, err := servers[0].data.GlobalBlock(ctx, n)
+			if err != nil {
+				return fmt.Errorf("server.data.GlobalBlock(%v): %w", n, err)
+			}
+			got, err := client.data.GlobalBlock(ctx, n)
+			if err != nil {
+				return fmt.Errorf("client.data.GlobalBlock(%v): %w", n, err)
+			}
+			if err := utils.TestDiff(want, got); err != nil {
+				return fmt.Errorf("block %v: %w", n, err)
+			}
+		}
+		elapsed := time.Since(start)
+		oneConnMax := float64(GetBlock.Limit.Concurrent) + float64(GetBlock.Limit.Rate)*elapsed.Seconds()
+		t.Logf("synced %v blocks in %v; one connection serves at most %.0f in that time", next-first, elapsed, oneConnMax)
+		for i := range served {
+			t.Logf("peer %v served %v blocks", i, served[i].Load())
+			if served[i].Load() == 0 {
+				return fmt.Errorf("peer %v served no blocks", i)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// serveCountedGetBlock serves GetBlock from x's data state and counts every
+// block it returns. A height the peer does not hold yet gets an empty reply.
+func serveCountedGetBlock(ctx context.Context, x *Service, server rpc.Server[API], served *atomic.Int64) error {
+	return GetBlock.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.GetBlockResp, *pb.GetBlockReq]) error {
+		reqRaw, err := stream.Recv(ctx)
+		if err != nil {
+			return fmt.Errorf("stream.Recv(): %w", err)
+		}
+		req, err := GetBlockReqConv.Decode(reqRaw)
+		if err != nil {
+			return fmt.Errorf("GetBlockReqConv.Decode(): %w", err)
+		}
+		block, err := x.data.TryBlock(req.GlobalNumber)
+		if errors.Is(err, types.ErrNotFound) {
+			return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
+		}
+		if err != nil {
+			return fmt.Errorf("TryBlock(%d): %w", req.GlobalNumber, err)
+		}
+		served.Add(1)
+		return stream.Send(ctx, GetBlockRespConv.Encode(utils.Some(block)))
+	})
 }
 
 func fetchCount(resource, reason string) int64 {

@@ -1,21 +1,19 @@
 package p2p
 
 import (
+	"context"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -57,28 +55,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	app := newTestApp()
-	proxyApp := proxy.New(app)
-
-	dir := t.TempDir()
-	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
-	// (zero overrides); p2p can't import config (import cycle).
-	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
-	require.NoError(t, err)
-	littCfg.Litt.Fsync = true
-	db, err := littblock.NewBlockDB(littCfg)
-	require.NoError(t, err)
-	blockStore, err := blockstore.New(db)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = blockStore.Close() })
-	cfg := &GigaRouterCommonConfig{
-		DialInterval:       time.Second,
-		ValidatorAddrs:     addrs,
-		PersistentStateDir: dir,
-		App:                proxyApp,
-		GenDoc:             genDoc,
-		EnableEvmProxy:     true,
-	}
+	cfg, _, blockStore := newTestGigaConfig(t, addrs, genDoc)
 	dataState, err := BuildDataState(cfg, blockStore)
 	require.NoError(t, err)
 
@@ -125,4 +102,113 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	rb, err := router.BlockByHash(t.Context(), atypes.BlockHeaderHash{})
 	require.NoError(t, err)
 	require.Nil(t, rb.Block)
+}
+
+// TestGigaRouter_FullnodeSyncsFromEveryCommitteeMember runs a fullnode beside a
+// validator cluster. The fullnode holds a block-sync connection to every
+// committee member at once, each validator serves it from one inbound fullnode
+// slot, and the fullnode executes the same chain as the validators.
+func TestGigaRouter_FullnodeSyncsFromEveryCommitteeMember(t *testing.T) {
+	const maxTxsPerBlock = 20
+	const blocksPerLane = 5
+	const txGasUsed = 21_000
+
+	ctx := t.Context()
+	rng := utils.TestRng()
+	_, keys := atypes.GenCommittee(rng, 4)
+	var validators []*testNodeCfg
+	addrs := map[atypes.PublicKey]GigaNodeAddr{}
+	for _, key := range keys {
+		v := &testNodeCfg{validatorKey: key, nodeKey: makeKey(rng), addr: tcp.TestReserveAddr()}
+		validators = append(validators, v)
+		addrs[key.Public()] = v.GigaNodeAddr()
+	}
+	fullnode := &testNodeCfg{nodeKey: makeKey(rng), addr: tcp.TestReserveAddr()}
+	genDoc := &types.GenesisDoc{
+		ChainID:       "giga-router-fullnode-sync-test",
+		InitialHeight: rng.Int63n(100000) + 1,
+		AppState:      testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		var validatorRouters []*gigaValidatorRouter
+		var validatorApps []*testApp
+		var allTxs [][]byte
+		for i, v := range validators {
+			cfg, app, blockStore := newTestGigaConfig(t, addrs, genDoc)
+			// One slot: the fullnode is the only non-committee peer.
+			cfg.MaxInboundFullnodePeers = 1
+			dataState, err := BuildDataState(cfg, blockStore)
+			require.NoError(t, err, "BuildDataState[%v]", i)
+			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: *cfg,
+				ValidatorKey:           v.validatorKey,
+				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+				ProposalTimeout:        time.Hour,
+				Producer:               testProducerConfig(txGasUsed, maxTxsPerBlock),
+			}, v.nodeKey, dataState)
+			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
+			spawnTestRouter(ctx, t, s, fmt.Sprint(i), v, genDoc.ChainID, giga)
+			validatorRouters = append(validatorRouters, giga)
+			validatorApps = append(validatorApps, app)
+			var txs [][]byte
+			for range maxTxsPerBlock * blocksPerLane {
+				tx := utils.GenBytes(rng, 100)
+				txs = append(txs, tx)
+				allTxs = append(allTxs, tx)
+			}
+			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
+				for _, tx := range txs {
+					if _, err := giga.producer.InsertTx(ctx, tx); err != nil {
+						return fmt.Errorf("producer.InsertTx(): %w", err)
+					}
+				}
+				return nil
+			})
+		}
+		cfg, fullnodeApp, blockStore := newTestGigaConfig(t, addrs, genDoc)
+		dataState, err := BuildDataState(cfg, blockStore)
+		require.NoError(t, err, "BuildDataState[fullnode]")
+		fullnodeRouter, err := NewGigaFullnodeRouter(cfg, fullnode.nodeKey, dataState)
+		require.NoError(t, err, "NewGigaFullnodeRouter")
+		spawnTestRouter(ctx, t, s, "fullnode", fullnode, genDoc.ChainID, fullnodeRouter)
+
+		// The fullnode executes every transaction and ends in the validators' state.
+		for _, app := range append(validatorApps, fullnodeApp) {
+			for _, tx := range allTxs {
+				require.NoError(t, app.WaitForTx(ctx, tx), "WaitForTx")
+			}
+		}
+		require.NoError(t, utils.TestDiff(validatorApps[0].Snapshot(), fullnodeApp.Snapshot()), "fullnode state mismatch")
+
+		// The fullnode holds an outbound connection to every committee member
+		// at once, and every validator serves it from its fullnode pool.
+		connectedToAll := func() bool {
+			for i, v := range validators {
+				if _, ok := fullnodeRouter.poolOut.Get(v.validatorKey.Public()); !ok {
+					return false
+				}
+				if _, ok := validatorRouters[i].poolIn.Get(fullnode.nodeKey.Public()); !ok {
+					return false
+				}
+			}
+			return true
+		}
+		if err := utils.WithTimeout(ctx, 30*time.Second, func(ctx context.Context) error {
+			for !connectedToAll() {
+				if err := utils.Sleep(ctx, 10*time.Millisecond); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("fullnode is not connected to every committee member: %w", err)
+		}
+		for i, giga := range validatorRouters {
+			require.Equal(t, int64(1), giga.inboundFullnodeCount.Load(), "router[%v].inboundFullnodeCount", i)
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
