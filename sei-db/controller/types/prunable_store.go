@@ -1,4 +1,4 @@
-package controller
+package types
 
 // PrunableStore is a store whose old data may be dropped by the StorageGarbageCollector.
 //

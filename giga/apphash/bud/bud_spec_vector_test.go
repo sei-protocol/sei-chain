@@ -129,9 +129,9 @@ func TestBUDSpecStateProofVector(t *testing.T) {
 		"905f946a6e3487f06c7b1b525d651e8ee7a48fa5fbe481e50a40d09e79939d7e"
 	serializedStateProof := "01" + "000000b1" + serializedAppHashData + serializedBUDProof
 
-	require.Equal(t, serializedAppHashData, hex.EncodeToString(appHashData.Serialize()))
+	require.Equal(t, serializedAppHashData, hex.EncodeToString(mustSerializeAppHashData(t, appHashData)))
 	require.Equal(t, serializedBUDProof, hex.EncodeToString(budProof.Serialize()))
-	require.Equal(t, serializedStateProof, hex.EncodeToString(stateProof.Serialize()))
+	require.Equal(t, serializedStateProof, hex.EncodeToString(mustSerializeBUDStateProof(t, stateProof)))
 
 	deserialized, err := DeserializeBUDStateProof(decodeSpecHex(t, serializedStateProof))
 	require.NoError(t, err)

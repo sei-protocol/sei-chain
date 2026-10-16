@@ -194,11 +194,23 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 
 // closeEVMOnlyTestApp closes storage the way the node does: after the
 // application has landed every block commit it started.
+//
+// It also waits for the app hash of every committed block. A test's block
+// store is empty, so a reopen skips recovery, and the app hash builder resumes
+// at the state's height only when it holds the app hashes up to it. A node
+// lowers its recovery target to the app hashes it holds instead.
 func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
 	t.Helper()
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
 	require.NoError(t, settler.AwaitCommits())
+	height, err := storage.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		head, err := storage.AppHashVault().GetLatestBlock()
+		require.NoError(t, err)
+		return head >= uint64(height) //nolint:gosec // G115: state heights are non-negative.
+	}, 10*time.Second, time.Millisecond, "app hash of block %d not stored", height)
 	require.NoError(t, storage.Close())
 }
 
@@ -573,8 +585,11 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 // InitChain with an initial height above one seeds the store before any block
 // exists. Crashing there must still allow InitChain to run again.
 func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
-	home := t.TempDir()
-	storage := openEVMOnlyTestStorageAt(t, home)
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	// The chain starts at block 5, so that is the first block with an app hash.
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = 5
+	storage := openEVMOnlyTestStorage(t, storageConfig)
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()), gigaconfig.DefaultConfig.Execution)
 	require.NoError(t, err)
 	init := evmOnlyTestInitChain()
@@ -582,7 +597,12 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
 
-	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
+	closeEVMOnlyTestApp(t, app, storage)
+	storage = openEVMOnlyTestStorage(t, storageConfig)
+	app, err = NewEVMOnlyApplication(
+		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()),
+		gigaconfig.DefaultConfig.Execution)
+	require.NoError(t, err)
 	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 
 	require.Equal(t, int64(0), app.Info().LastBlockHeight)

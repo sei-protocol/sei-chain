@@ -77,6 +77,6 @@ func TestZeroValuesDoNotPanic(t *testing.T) {
 	_, covered := stateProof.ValueAt(0)
 	require.False(t, covered)
 	_ = stateProof.AppHash()
-	_, err = DeserializeBUDStateProof(stateProof.Serialize())
+	_, err = DeserializeBUDStateProof(mustSerializeBUDStateProof(t, &stateProof))
 	require.Error(t, err)
 }
