@@ -19,18 +19,14 @@ import (
 	"github.com/holiman/uint256"
 	"golang.org/x/net/netutil"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/seilog"
 )
 
-const (
-	shutdownWait = 5 * time.Second
-	// maxWSConns bounds concurrently open WebSocket connections; each one is
-	// hijacked and held with its own goroutine until the peer disconnects.
-	maxWSConns = 2000
-)
+const shutdownWait = 5 * time.Second
 
 // wsAllowedOrigins accepts WebSocket upgrades from any Origin header. WebSocket
 // is exempt from the browser same-origin policy, so this is the only origin
@@ -79,9 +75,9 @@ type Server struct {
 }
 
 // Start binds the EVM-only JSON-RPC HTTP listener on port and WebSocket listener on wsPort, on
-// all interfaces, and returns their server.
-func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int) (*Server, error) {
-	rpcServer, err := newHandler(backend, receiptStore)
+// all interfaces, and returns their server enforcing limits.
+func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int, limits gigaconfig.RPCConfig) (*Server, error) {
+	rpcServer, err := newHandler(backend, receiptStore, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -98,13 +94,18 @@ func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort 
 		rpcServer.Stop()
 		return nil, fmt.Errorf("listen for EVM-only WebSocket RPC on %s: %w", wsListenAddress, err)
 	}
+	if limits.MaxWSConnections > 0 {
+		// Each WebSocket connection is hijacked and held with its own goroutine
+		// until the peer disconnects.
+		wsListener = netutil.LimitListener(wsListener, limits.MaxWSConnections)
+	}
 	return &Server{
 		listener: listener,
 		http: &http.Server{
 			Handler:           rpcServer,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		wsListener: netutil.LimitListener(wsListener, maxWSConns),
+		wsListener: wsListener,
 		ws: &http.Server{
 			Handler:           websocketHandler(rpcServer),
 			ReadHeaderTimeout: 5 * time.Second,
@@ -119,11 +120,16 @@ func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
 	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
-func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Server, error) {
+func newHandler(backend Backend, receiptStore receipt.ReceiptStore, limits gigaconfig.RPCConfig) (*ethrpc.Server, error) {
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
 	}
 	rpcServer := ethrpc.NewServer()
+	rpcServer.SetBatchLimits(limits.BatchRequestLimit, limits.BatchResponseMaxSize)
+	rpcServer.SetHTTPBodyLimit(limits.MaxRequestBodyBytes)
+	rpcServer.SetReadLimits(int64(limits.MaxRequestBodyBytes))
+	rpcServer.SetWSConcurrentRequestBytes(limits.MaxConcurrentRequestBytes)
+	rpcServer.SetWSAdmissionTimeout(limits.WSAdmissionTimeout)
 	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only send RPC: %w", err)
 	}
@@ -151,7 +157,8 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	if err := rpcServer.RegisterName("net", &netAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only net RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore}); err != nil {
+	subscriptions := newSubscriptionLimiter(limits.MaxSubscriptionsNewHead, limits.MaxSubscriptionsPerConnection)
+	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore, limits: subscriptions}); err != nil {
 		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
 	return rpcServer, nil
