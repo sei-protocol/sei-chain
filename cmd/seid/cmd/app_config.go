@@ -7,6 +7,7 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	"github.com/sei-protocol/sei-chain/rpcadmission"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
@@ -39,6 +40,7 @@ type CustomAppConfig struct {
 	LightInvariance seiapp.LightInvarianceConfig   `mapstructure:"light_invariance"`
 	Admin           admin.Config                   `mapstructure:"admin_server"`
 	CosmosMetrics   cosmosmetrics.Config           `mapstructure:"cosmos_metrics"`
+	RPCAdmission    rpcadmission.Config            `mapstructure:"rpc_admission"`
 }
 
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
@@ -61,5 +63,6 @@ func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Con
 		LightInvariance: seiapp.DefaultLightInvarianceConfig,
 		Admin:           admin.DefaultConfig,
 		CosmosMetrics:   cosmosmetrics.DefaultConfig,
+		RPCAdmission:    rpcadmission.DefaultConfig,
 	}
 }
