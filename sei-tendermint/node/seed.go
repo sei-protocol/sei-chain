@@ -200,6 +200,7 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) (err error) {
 	}
 
 	if n.config.RPC.PprofListenAddress != "" {
+		applyPprofProfileRates(n.config.RPC)
 		rpcCtx, rpcCancel := context.WithCancel(ctx)
 		srv := &http.Server{
 			Addr:              n.config.RPC.PprofListenAddress,

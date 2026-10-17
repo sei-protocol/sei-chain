@@ -278,6 +278,14 @@ tls-key-file = "{{ .RPC.TLSKeyFile }}"
 # pprof listen address (https://golang.org/pkg/net/http/pprof)
 pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 
+# Mutex profile fraction for /debug/pprof/mutex: on average 1/n mutex contention
+# events are reported. Applies only when pprof-laddr is set. 0 disables it.
+pprof-mutex-profile-fraction = {{ .RPC.PprofMutexProfileFraction }}
+
+# Block profile rate for /debug/pprof/block: one blocking event is sampled per n
+# nanoseconds spent blocked. Applies only when pprof-laddr is set. 0 disables it.
+pprof-block-profile-rate = {{ .RPC.PprofBlockProfileRate }}
+
 # timeout for any read request
 timeout-read = "{{ .RPC.TimeoutRead }}"
 

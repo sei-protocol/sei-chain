@@ -526,6 +526,16 @@ type RPCConfig struct {
 	// pprof listen address (https://golang.org/pkg/net/http/pprof)
 	PprofListenAddress string `mapstructure:"pprof-laddr"`
 
+	// PprofMutexProfileFraction is the rate passed to runtime.SetMutexProfileFraction
+	// when the pprof server is enabled: on average 1/n mutex contention events are
+	// reported. 0 leaves mutex profiling off.
+	PprofMutexProfileFraction int `mapstructure:"pprof-mutex-profile-fraction"`
+
+	// PprofBlockProfileRate is the rate passed to runtime.SetBlockProfileRate when the
+	// pprof server is enabled: one blocking event is sampled per n nanoseconds spent
+	// blocked. 0 leaves block profiling off.
+	PprofBlockProfileRate int `mapstructure:"pprof-block-profile-rate"`
+
 	// Lag threshold determines the threshold for whether the /lag_status endpoint returns OK or not
 	LagThreshold int64 `mapstructure:"lag-threshold"`
 
@@ -602,6 +612,9 @@ func DefaultRPCConfig() *RPCConfig {
 		TLSKeyFile:   "",
 		LagThreshold: 300,
 
+		PprofMutexProfileFraction: 0,
+		PprofBlockProfileRate:     0,
+
 		TimeoutRead:       10 * time.Second,
 		TimeoutReadHeader: 10 * time.Second,
 		TimeoutWrite:      30 * time.Second,
@@ -654,6 +667,12 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.LagThreshold < 0 {
 		return errors.New("lag-threshold can't be negative")
+	}
+	if cfg.PprofMutexProfileFraction < 0 {
+		return errors.New("pprof-mutex-profile-fraction can't be negative")
+	}
+	if cfg.PprofBlockProfileRate < 0 {
+		return errors.New("pprof-block-profile-rate can't be negative")
 	}
 	if cfg.TimeoutReadHeader < 0 {
 		return errors.New("timeout-read-header can't be negative")

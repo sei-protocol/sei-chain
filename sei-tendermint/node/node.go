@@ -596,6 +596,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// Start Internal Services
 
 	if n.config.RPC.PprofListenAddress != "" {
+		applyPprofProfileRates(n.config.RPC)
 		signal := make(chan struct{})
 		srv := &http.Server{
 			Addr:              n.config.RPC.PprofListenAddress,
