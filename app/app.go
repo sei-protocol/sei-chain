@@ -114,6 +114,7 @@ import (
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/execpause"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -325,6 +326,7 @@ type gigaBlockCache struct {
 	blockCtx    vm.BlockContext
 	chainConfig *ethparams.ChainConfig
 	baseFee     *big.Int
+	minimumFee  *big.Int
 }
 
 func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBlockCache, error) {
@@ -337,11 +339,13 @@ func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBloc
 	sstore := keeper.GetSstoreSetGasEIP2200(ctx)
 	chainConfig := evmtypes.DefaultChainConfig().EthereumConfigWithSstore(chainID, &sstore)
 	baseFee := keeper.GetBaseFee(ctx)
+	minimumFee := keeper.GetMinimumFeePerGas(ctx).TruncateInt().BigInt()
 	return &gigaBlockCache{
 		chainID:     chainID,
 		blockCtx:    *blockCtx,
 		chainConfig: chainConfig,
 		baseFee:     baseFee,
+		minimumFee:  minimumFee,
 	}, nil
 }
 
@@ -1727,6 +1731,10 @@ func (app *App) flushCommittedStateForUpgradeExit() {
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool, preDecoded []sdk.Tx) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+	if execpause.Acquire(len(txs)) {
+		defer execpause.Release()
+		logger.Info("pausing CheckTx during execution", "txs", len(txs), "height", req.Height)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			panicMsg := fmt.Sprintf("%v", r)
@@ -1863,7 +1871,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	defer stateDB.Cleanup()
 
 	// Run validation checks (fee/nonce/balance - stateless checks done earlier)
-	validation := app.validateGigaEVMTx(ctx, stateDB, ethTx, sender, seiAddr, isAssociated)
+	validation := app.validateGigaEVMTx(ctx, stateDB, ethTx, sender, seiAddr, isAssociated, cache.baseFee, cache.minimumFee)
 
 	if validation.err != nil {
 		// v2 rejects fee/nonce/balance failures in its ante chain, whose
@@ -1906,11 +1914,13 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	blockCtx := cache.blockCtx
 	cfg := cache.chainConfig
 
-	// Create Giga executor VM
-	gigaExecutor := gigaexecutor.NewGethExecutor(blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
-
-	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
-	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+	// A plain EOA transfer writes the same nonce, balances, and fee as the EVM
+	// interpreter, without the interpreter setup.
+	execResult, execErr := trySimpleEOATransfer(stateDB, ethTx, sender, cache.blockCtx.Coinbase, gasFee)
+	if execErr == errNotSimpleTransfer {
+		gigaExecutor := gigaexecutor.NewGethExecutor(blockCtx, stateDB, cfg, vm.Config{}, gigaprecompiles.AllCustomPrecompilesFailFast)
+		execResult, execErr = gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+	}
 
 	// Self-destruct requires iterating the store, unsupported by giga. Fallback to v2.
 	if stateDB.AnySelfDestructed() {
@@ -2742,6 +2752,56 @@ type gigaValidationResult struct {
 //  5. Tip <= fee cap check
 //  6. Set-code tx validation
 //  7. Balance check
+var errNotSimpleTransfer = errors.New("not a simple eoa transfer")
+
+// trySimpleEOATransfer applies a 21000-gas EOA-to-EOA transfer with the same
+// state writes as StateTransition.Execute when the fee was already charged:
+// sender nonce + 1, value moved, and the fee credited to the block coinbase.
+// Anything else returns errNotSimpleTransfer before mutating state.
+func trySimpleEOATransfer(stateDB *gigaevmstate.DBImpl, ethTx *ethtypes.Transaction, sender, coinbase common.Address, gasFee *big.Int) (*core.ExecutionResult, error) {
+	if ethTx.To() == nil || ethTx.Gas() != 21_000 || len(ethTx.Data()) != 0 || len(ethTx.AccessList()) != 0 {
+		return nil, errNotSimpleTransfer
+	}
+	if ethTx.Type() == ethtypes.BlobTxType || ethTx.Type() == ethtypes.SetCodeTxType {
+		return nil, errNotSimpleTransfer
+	}
+	to := *ethTx.To()
+	if hasLeadingZeroPrefix(to) || len(stateDB.GetCode(to)) != 0 {
+		return nil, errNotSimpleTransfer
+	}
+	fee, feeOverflow := uint256.FromBig(gasFee)
+	if feeOverflow {
+		return nil, errNotSimpleTransfer
+	}
+	var amt *uint256.Int
+	if value := ethTx.Value(); value != nil && value.Sign() != 0 {
+		if value.Sign() < 0 {
+			return nil, errNotSimpleTransfer
+		}
+		converted, overflow := uint256.FromBig(value)
+		if overflow {
+			return nil, errNotSimpleTransfer
+		}
+		amt = converted
+	}
+
+	stateDB.SetNonce(sender, ethTx.Nonce()+1, tracing.NonceChangeEoACall)
+	if amt != nil {
+		core.Transfer(stateDB, sender, to, amt)
+	}
+	stateDB.AddBalance(coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
+	return &core.ExecutionResult{UsedGas: 21_000}, nil
+}
+
+func hasLeadingZeroPrefix(addr common.Address) bool {
+	for i := 0; i < 18; i++ {
+		if addr[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (app *App) validateGigaEVMTx(
 	ctx sdk.Context,
 	stateDB *gigaevmstate.DBImpl,
@@ -2749,10 +2809,14 @@ func (app *App) validateGigaEVMTx(
 	sender common.Address,
 	seiAddr sdk.AccAddress,
 	isAssociated bool,
+	baseFee *big.Int,
+	minimumFee *big.Int,
 ) gigaValidationResult {
-	baseFee := app.GigaEvmKeeper.GetBaseFee(ctx)
 	if baseFee == nil {
 		baseFee = new(big.Int)
+	}
+	if minimumFee == nil {
+		minimumFee = new(big.Int)
 	}
 
 	currentNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
@@ -2770,7 +2834,6 @@ func (app *App) validateGigaEVMTx(
 	}
 
 	// Fee cap below minimum fee
-	minimumFee := app.GigaEvmKeeper.GetMinimumFeePerGas(ctx).TruncateInt().BigInt()
 	if ethTx.GasFeeCap().Cmp(minimumFee) < 0 {
 		return gigaValidationResult{
 			err: &abci.ExecTxResult{
