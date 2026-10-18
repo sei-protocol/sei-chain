@@ -20,7 +20,6 @@ const (
 	GovStoreKey          = "gov"          // sei-cosmos/x/gov/types.StoreKey
 	ParamsStoreKey       = "params"       // sei-cosmos/x/params/types.StoreKey
 	UpgradeStoreKey      = "upgrade"      // sei-cosmos/x/upgrade/types.StoreKey
-	FeegrantStoreKey     = "feegrant"     // retained for historical state access
 	EvidenceStoreKey     = "evidence"     // sei-cosmos/x/evidence/types.StoreKey
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey
@@ -42,7 +41,6 @@ var MemIAVLStoreKeys = []string{
 	GovStoreKey,
 	ParamsStoreKey,
 	UpgradeStoreKey,
-	FeegrantStoreKey,
 	EvidenceStoreKey,
 	EVMStoreKey,
 	WasmStoreKey,

@@ -49,7 +49,7 @@ var v68OfflineSourceStores = []string{authtypes.StoreKey, "bank", "gov", "params
 
 // v68OfflineDeletedStores are the stores v6.8 deletes; the source phase writes
 // a key into each so the target phase can prove the trees are gone.
-var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer"}
+var v68OfflineDeletedStores = []string{"capability", "feegrant", "ibc", "oracle", "tokenfactory", "transfer"}
 
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
@@ -77,9 +77,10 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.Contains(t, moduleVersions, "oracle")
 	require.Contains(t, moduleVersions, "tokenfactory", "v6.7 module version map does not contain tokenfactory")
 	require.Contains(t, moduleVersions, "vesting", "v6.7 module version map does not contain vesting")
-	// v6.7 dropped the IBC module versions while keeping their stores mounted;
-	// only oracle, tokenfactory and vesting still carry a version into v6.8.
-	for _, name := range []string{"capability", "ibc", "transfer"} {
+	// v6.7 dropped the feegrant and IBC module versions while keeping their
+	// stores mounted; only oracle, tokenfactory and vesting still carry a version
+	// into v6.8.
+	for _, name := range []string{"capability", "feegrant", "ibc", "transfer"} {
 		require.NotContains(t, moduleVersions, name)
 		require.NotNil(t, testApp.GetKey(name))
 	}
@@ -104,7 +105,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 }
 
 // TestV68OfflineUpgradeReopen verifies that v6.7 cannot reopen a database whose
-// oracle, tokenfactory and IBC trees v6.8 deleted.
+// feegrant, oracle, tokenfactory and IBC trees v6.8 deleted.
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
@@ -123,7 +124,7 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 		closeOfflineUpgradeApp(t, testApp)
 	}()
 	require.NotNil(t, recovered,
-		"v6.7 binary reopened a database whose oracle, tokenfactory and IBC trees were deleted")
+		"v6.7 binary reopened a database whose feegrant, oracle, tokenfactory and IBC trees were deleted")
 	message := fmt.Sprint(recovered)
 	namesDeletedStore := false
 	for _, name := range v68OfflineDeletedStores {
