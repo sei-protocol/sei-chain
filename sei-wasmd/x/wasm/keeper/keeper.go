@@ -17,6 +17,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
@@ -170,6 +171,15 @@ func (k Keeper) getInstantiateAccessConfig(ctx sdk.Context) types.AccessType {
 	var a types.AccessType
 	k.paramSpace.Get(ctx, types.ParamStoreKeyInstantiateAccess, &a)
 	return a
+}
+
+// msgExecuteContractDisabled reports whether governance has disabled MsgExecuteContract.
+func (k Keeper) msgExecuteContractDisabled(ctx sdk.Context) bool {
+	var disabled bool
+	// Charges no gas and reads a missing key as false, so executions, including replays
+	// of blocks from before this param existed, keep their original gas and outcome.
+	k.paramSpace.GetIfExists(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), types.ParamStoreKeyMsgExecuteContractDisabled, &disabled)
+	return disabled
 }
 
 // GetParams returns the total set of wasm parameters.

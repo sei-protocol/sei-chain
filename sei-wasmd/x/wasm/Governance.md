@@ -45,6 +45,7 @@ govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.wasmKeeper, e
 Settings via sdk `params` module: 
 - `code_upload_access` - who can upload a wasm binary: `Nobody`, `Everybody`, `OnlyAddress`
 - `instantiate_default_permission` - platform default, who can instantiate a wasm binary when the code owner has not set it 
+- `msg_execute_contract_disabled` - when `true`, every `MsgExecuteContract` fails, whether sent directly, wrapped in an authz `MsgExec`, or dispatched by a contract. Contract calls that do not go through `MsgExecuteContract`, such as the EVM wasmd precompile and `ExecuteContractProposal`, are not affected.
 
 See [params.go](https://github.com/CosmWasm/wasmd/blob/master/x/wasm/types/params.go)
 
@@ -56,7 +57,8 @@ See [params.go](https://github.com/CosmWasm/wasmd/blob/master/x/wasm/types/param
         "code_upload_access": {
           "permission": "Everybody"
         },
-        "instantiate_default_permission": "Everybody"
+        "instantiate_default_permission": "Everybody",
+        "msg_execute_contract_disabled": false
       }
     },  
 ```
@@ -147,6 +149,36 @@ wasmd tx gov submit-proposal param-change <proposal-json-file> --from validator 
       "subspace": "wasm",
       "key": "instantiateAccess",
       "value": "Everybody"
+    }
+  ],
+  "deposit": ""
+}
+```
+* Reject every `MsgExecuteContract`
+```json
+{
+  "title": "Foo",
+  "description": "Bar",
+  "changes": [
+    {
+      "subspace": "wasm",
+      "key": "msgExecuteContractDisabled",
+      "value": true
+    }
+  ],
+  "deposit": ""
+}
+```
+* Accept `MsgExecuteContract` again
+```json
+{
+  "title": "Foo",
+  "description": "Bar",
+  "changes": [
+    {
+      "subspace": "wasm",
+      "key": "msgExecuteContractDisabled",
+      "value": false
     }
   ],
   "deposit": ""

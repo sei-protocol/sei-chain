@@ -93,6 +93,9 @@ var (
 
 	// ErrExceedMaxCallDepth error if max query stack size is exceeded
 	ErrExceedMaxCallDepth = sdkErrors.Register(DefaultCodespace, 30, "max call depth exceeded")
+
+	// ErrMsgExecuteContractDisabled error when governance has disabled MsgExecuteContract
+	ErrMsgExecuteContractDisabled = sdkErrors.Register(DefaultCodespace, 31, "MsgExecuteContract is disabled")
 )
 
 type ErrNoSuchContract struct {
