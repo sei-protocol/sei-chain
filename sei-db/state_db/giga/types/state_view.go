@@ -48,6 +48,25 @@ type StateView interface {
 	Close()
 }
 
+// RawStateView is a StateView that also serves the stored rows themselves, read by physical key.
+type RawStateView interface {
+	StateView
+
+	// GetRaw returns the bytes the store holds under a physical key, and whether the key was found. The
+	// bytes are the stored row as is, metadata included, and are not decoded.
+	GetRaw(
+		// The physical key: the module name, "/", then the key.
+		key []byte,
+	) ([]byte, bool)
+
+	// BatchGetRaw returns, for each found physical key, the bytes the store holds under it, keyed by
+	// string(key). Keys that are not found are absent from the map. Values are as GetRaw() returns them.
+	BatchGetRaw(
+		// The physical keys to read, each in the form GetRaw() takes.
+		keys [][]byte,
+	) map[string][]byte
+}
+
 // EVMStateView is the EVM-specific read surface embedded by StateView, and carries the same contract.
 type EVMStateView interface {
 

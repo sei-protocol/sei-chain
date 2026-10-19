@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -13,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-var _ gigatypes.StateView = (*flatKVStateView)(nil)
+var _ gigatypes.RawStateView = (*flatKVStateView)(nil)
 
 // flatKVStateView serves the Giga read API from one committed block.
 type flatKVStateView struct {
@@ -81,6 +82,30 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 	default:
 		panic(fmt.Sprintf("flatkv: Get unsupported key type: %v", kind))
 	}
+}
+
+// GetRaw returns the bytes stored under a physical key in this block, and whether it was found.
+func (v *flatKVStateView) GetRaw(key []byte) ([]byte, bool) {
+	return v.readRow(v.storeViewFor(key), key)
+}
+
+// BatchGetRaw returns the bytes stored in this block under each found physical key, keyed by string(key).
+func (v *flatKVStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
+	keysByStore := make(map[view.View][][]byte)
+	for _, key := range keys {
+		dbView := v.storeViewFor(key)
+		keysByStore[dbView] = append(keysByStore[dbView], key)
+	}
+	values := make(map[string][]byte, len(keys))
+	for dbView, storeKeys := range keysByStore {
+		found, err := dbView.BatchGet(storeKeys)
+		if err != nil {
+			panic(fmt.Sprintf("flatkv: %s batch read of %d keys at height %d: %v",
+				dbView.Name(), len(storeKeys), v.blockView.BlockHeight(), err))
+		}
+		maps.Copy(values, found)
+	}
+	return values
 }
 
 // AccountExists reports whether addr has an account in this block.
@@ -268,6 +293,26 @@ func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, key
 	// physKey, and a buffer that may still be read must not go back to the pool.
 	physKeyBufs.Put(buf)
 	return value, found
+}
+
+// storeViewFor returns the view of the store that holds physKey.
+func (v *flatKVStateView) storeViewFor(physKey []byte) view.View {
+	dbDir, err := routePhysicalKey(physKey)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: route raw key %x at height %d: %v", physKey, v.blockView.BlockHeight(), err))
+	}
+	switch dbDir {
+	case accountDBDir:
+		return v.blockView.AccountView()
+	case codeDBDir:
+		return v.blockView.CodeView()
+	case storageDBDir:
+		return v.blockView.StorageView()
+	case miscDBDir:
+		return v.blockView.MiscView()
+	default:
+		panic(fmt.Sprintf("flatkv: raw key %x routes to unknown store %q", physKey, dbDir))
+	}
 }
 
 // readRow returns the bytes stored under physKey, without deserializing them.
