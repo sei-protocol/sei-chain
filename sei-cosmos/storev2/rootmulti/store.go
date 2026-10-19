@@ -799,37 +799,15 @@ func (rs *Store) SetInitialVersion(version int64) error {
 	return nil
 }
 
-// SetMigrationBatchSize forwards the governance-controlled number of keys
-// to migrate per block to the SC store, and — when migration has been
-// requested (batch size > 0) while an auto store is ready for its next
-// migration — starts the next transition. The optional second argument allows
-// the post-EVM MigrateCosmos transition; callers that omit it leave it closed.
-//
-// The kick-off only fires for an auto-configured store. A node pinned to a
-// fixed mode never transitions at runtime: fixed modes other than
-// memiavl_only do not report a memiavl_only effective mode, and a node
-// pinned to fixed memiavl_only is deliberately excluded here — it is opting
-// out of the migration and will intentionally diverge from the network at
-// the activation height. We log that loudly and skip rather than calling
-// SetWriteMode (which rejects fixed configs) and swallowing the error,
-// which would hide the divergence.
-//
-// The kick-off is level-triggered, not edge-triggered: it fires whenever
-// batchSize > 0 and the effective mode is still memiavl_only. This is the
-// determinism contract SetWriteMode requires — every (auto) node reads the
-// same gov param at the same height and transitions together; the
-// transition is not persisted until the next commit, so a node crashing in
-// that window re-derives memiavl_only on restart and re-fires, while a node
-// past the persisted boundary derives the in-flight mode directly and the
-// guard makes the re-fire a no-op.
-//
-// The app calls this from BeginBlock. Forwarding the batch size to the SC
-// store first means the migration router installed by a transition already
-// observes the new rate. SetWriteMode only swaps the composite store's router
-// — it does not rebuild rootmulti's cached views or require an empty write
-// buffer — so it is safe to call mid-block without orphaning the block's live
-// cache-multi-store.
-func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos ...bool) error {
+// SetMigrationBatchSize forwards the governance-controlled number of keys to
+// migrate per block to the SC store. When batchSize > 0 and an auto store is
+// ready for its next migration, it also starts that migration: migrate_evm
+// from memiavl_only, and, when allowMigrateCosmos is set, migrate_cosmos once
+// the EVM migration is complete. A store pinned to a fixed write mode never
+// advances. The app calls this from BeginBlock.
+func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos bool) error {
+	// Forwarding first means a router installed by the transition below
+	// already observes the new rate.
 	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
@@ -841,55 +819,97 @@ func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos ...bool
 	if !ok {
 		return nil
 	}
-	if !hasNextMigration(mode, len(allowMigrateCosmos) > 0 && allowMigrateCosmos[0]) {
+	ready, err := rs.readyForNextMigration(mode, allowMigrateCosmos)
+	if err != nil || !ready {
+		return err
+	}
+	if !rs.mayAdvanceWriteMode(mode, batchSize) {
 		return nil
 	}
-	// Only an auto store may be advanced at runtime; a node pinned to a fixed
-	// mode must not.
-	configured, hasConfigured := rs.ConfiguredWriteMode()
-	if !hasConfigured {
-		// The underlying SC store does not expose a configured mode, so we
-		// cannot tell whether this is an auto store. Don't assume a deliberate
-		// opt-out — skip with a distinct message so it isn't mistaken for the
-		// pinned-memiavl_only case below during debugging.
-		if !rs.shouldLogMigrationSkip(batchSize) {
-			return nil
+	// Level-triggered: the transition is not persisted until the next commit,
+	// so a node that crashes before then derives the earlier mode on restart
+	// and starts the transition again on the next block, together with its
+	// peers.
+	return rs.startNextMigration(mode)
+}
+
+// readyForNextMigration reports whether an SC store in mode has a migration
+// to start: migrate_evm from memiavl_only, and, when allowMigrateCosmos is
+// set, migrate_cosmos from evm_migrated or from a completed migrate_evm.
+func (rs *Store) readyForNextMigration(mode sctypes.WriteMode, allowMigrateCosmos bool) (bool, error) {
+	switch mode {
+	case sctypes.MemiavlOnly:
+		return true, nil
+	case sctypes.EVMMigrated:
+		return allowMigrateCosmos, nil
+	case sctypes.MigrateEVM:
+		if !allowMigrateCosmos {
+			return false, nil
 		}
+		return rs.isEVMMigrationComplete()
+	default:
+		return false, nil
+	}
+}
+
+// isEVMMigrationComplete reports whether the SC store's EVM migration has
+// moved every EVM key to flatkv.
+func (rs *Store) isEVMMigrationComplete() (bool, error) {
+	reporter, ok := rs.scStore.(writeModeCompletionReporter)
+	if !ok {
+		return false, fmt.Errorf("SC store %T does not report migration completion", rs.scStore)
+	}
+	complete, err := reporter.IsWriteModeComplete(sctypes.MigrateEVM)
+	if err != nil {
+		return false, fmt.Errorf("failed to check EVM migration completion: %w", err)
+	}
+	return complete, nil
+}
+
+// mayAdvanceWriteMode reports whether the SC store is configured as auto and
+// so may change its write mode at runtime. It logs the skip, once per batch
+// size, when it may not.
+//
+// A node pinned to a fixed mode opts out of the migration and diverges from
+// the network once its peers advance. It is logged loudly and skipped, rather
+// than calling SetWriteMode (which rejects fixed configs) and swallowing the
+// error, which would hide the divergence.
+func (rs *Store) mayAdvanceWriteMode(mode sctypes.WriteMode, batchSize int) bool {
+	configured, hasConfigured := rs.ConfiguredWriteMode()
+	if hasConfigured && configured == sctypes.Auto {
+		return true
+	}
+	if !rs.shouldLogMigrationSkip(batchSize) {
+		return false
+	}
+	if !hasConfigured {
+		// Without a configured mode there is no evidence of a deliberate
+		// opt-out, so this is not reported as the pinned case below.
 		logger.Info(
 			"migration requested (batch size > 0) but the SC store does not expose a "+
 				"configured write mode; skipping migration kick-off",
 			"effectiveWriteMode", mode, "batchSize", batchSize)
-		return nil
+		return false
 	}
-	if configured != sctypes.Auto {
-		if !rs.shouldLogMigrationSkip(batchSize) {
-			return nil
-		}
-		logger.Error(
-			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
-				"mode by configuration; skipping migration kick-off. This node opts out of "+
-				"the migration and will intentionally diverge from the network at the activation "+
-				"height — set sc-write-mode-enable-auto = true (the default) to participate.",
-			"effectiveWriteMode", mode, "configuredWriteMode", configured, "batchSize", batchSize)
-		return nil
-	}
+	logger.Error(
+		"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
+			"mode by configuration; skipping migration kick-off. This node opts out of "+
+			"the migration and will intentionally diverge from the network at the activation "+
+			"height — set sc-write-mode-enable-auto = true (the default) to participate.",
+		"effectiveWriteMode", mode, "configuredWriteMode", configured, "batchSize", batchSize)
+	return false
+}
+
+// startNextMigration moves an auto SC store from mode into its next migration.
+// It is safe to call mid-block: SetWriteMode only swaps the composite store's
+// router, so the block's live cache-multi-store keeps its views.
+func (rs *Store) startNextMigration(mode sctypes.WriteMode) error {
 	switch mode {
 	case sctypes.MemiavlOnly:
 		if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
 			return fmt.Errorf("failed to start EVM migration (memiavl_only -> migrate_evm): %w", err)
 		}
 	case sctypes.MigrateEVM:
-		reporter, ok := rs.scStore.(writeModeCompletionReporter)
-		if !ok {
-			return nil
-		}
-		complete, err := reporter.IsWriteModeComplete(sctypes.MigrateEVM)
-		if err != nil {
-			return fmt.Errorf("failed to check EVM migration completion: %w", err)
-		}
-		if !complete {
-			return nil
-		}
 		if err := rs.SetWriteMode(sctypes.EVMMigrated); err != nil {
 			return fmt.Errorf("failed to finish EVM migration mode (migrate_evm -> evm_migrated): %w", err)
 		}
@@ -899,22 +919,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos ...bool
 			return fmt.Errorf("failed to start full migration (evm_migrated -> migrate_cosmos): %w", err)
 		}
 	}
-
 	return nil
-}
-
-// hasNextMigration reports whether SetMigrationBatchSize may start a migration
-// from mode: migrate_evm from memiavl_only, and migrate_cosmos from migrate_evm
-// or evm_migrated when allowMigrateCosmos is set.
-func hasNextMigration(mode sctypes.WriteMode, allowMigrateCosmos bool) bool {
-	switch mode {
-	case sctypes.MemiavlOnly:
-		return true
-	case sctypes.MigrateEVM, sctypes.EVMMigrated:
-		return allowMigrateCosmos
-	default:
-		return false
-	}
 }
 
 // shouldLogMigrationSkip reports whether a skipped kick-off at batchSize has
