@@ -11,22 +11,24 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
 
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func TestValidateTxLimits(t *testing.T) {
 	to := common.HexToAddress("0x1")
 	for _, tc := range []struct {
-		name    string
-		to      *common.Address
-		gas     uint64
-		data    int
-		wantErr error
+		name     string
+		to       *common.Address
+		gas      uint64
+		data     int
+		wantErr  *sdkerrors.Error
+		wantText error
 	}{
 		{name: "gas at EIP-7825 cap", to: &to, gas: params.MaxTxGas},
-		{name: "gas over EIP-7825 cap", to: &to, gas: params.MaxTxGas + 1, wantErr: core.ErrGasLimitTooHigh},
+		{name: "gas over EIP-7825 cap", to: &to, gas: params.MaxTxGas + 1, wantErr: sdkerrors.ErrOutOfGas, wantText: core.ErrGasLimitTooHigh},
 		{name: "initcode at limit", gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam},
-		{name: "initcode over limit", gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam + 1, wantErr: vm.ErrMaxInitCodeSizeExceeded},
+		{name: "initcode over limit", gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam + 1, wantErr: sdkerrors.ErrTxTooLarge, wantText: vm.ErrMaxInitCodeSizeExceeded},
 		{name: "large calldata to a contract", to: &to, gas: 1_000_000, data: params.MaxInitCodeSizeAmsterdam + 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -38,6 +40,10 @@ func TestValidateTxLimits(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, err, tc.wantErr)
+			codespace, code, log := sdkerrors.ABCIInfo(err, false)
+			require.Equal(t, tc.wantErr.Codespace(), codespace)
+			require.Equal(t, tc.wantErr.ABCICode(), code)
+			require.Contains(t, log, tc.wantText.Error())
 		})
 	}
 }
