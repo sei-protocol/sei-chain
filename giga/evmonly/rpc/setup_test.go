@@ -12,12 +12,20 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+// testRequestBodyBytes is the request size limit the handler runs under in tests. Unlike the other
+// limits it cannot be disabled.
+var testRequestBodyBytes = gigaconfig.DefaultConfig.RPC.MaxRequestBodyBytes
+
+// noRPCLimits disables every limit the handler can run without.
+var noRPCLimits = gigaconfig.RPCConfig{MaxRequestBodyBytes: testRequestBodyBytes}
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int

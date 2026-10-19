@@ -81,7 +81,7 @@ func TestHandlerServesGetBalance(t *testing.T) {
 			return *uint256.NewInt(42)
 		},
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -164,7 +164,7 @@ func TestHandlerServesGetCode(t *testing.T) {
 		blockNumber: func() uint64 { return 5 },
 		codeAt:      func(common.Address, int64) ([]byte, error) { return nil, nil },
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -290,7 +290,7 @@ func TestHandlerServesGetStorageAt(t *testing.T) {
 			return common.Hash{}, nil
 		},
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

@@ -73,7 +73,7 @@ func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 func TestGetTransactionCountEndToEnd(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{transactionCount: func(common.Address) uint64 { return 3 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -130,7 +130,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -403,7 +403,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
 		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -429,7 +429,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 }
 
 func TestHandlerRequiresReceiptStore(t *testing.T) {
-	_, err := newHandler(&testBackend{}, nil)
+	_, err := newHandler(&testBackend{}, nil, noRPCLimits)
 	require.EqualError(t, err, "EVM-only RPC requires a receipt store")
 }
 

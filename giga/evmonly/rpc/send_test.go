@@ -29,7 +29,7 @@ func TestSendRawTransaction(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

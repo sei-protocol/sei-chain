@@ -408,6 +408,29 @@ The public EVM JSON-RPC surface intentionally contains only:
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
 
+### Request and WebSocket limits
+
+The same methods are served over WebSocket on port 8546
+(`giga.execution.evm_ws_port`), which also serves `eth_subscribe("newHeads")`.
+The `[giga.rpc]` section of `app.toml` sets the limits the server enforces,
+with the same defaults as the regular EVM RPC; `0` disables a limit unless
+the row says otherwise:
+
+| Key | Default | Limit |
+| --- | --- | --- |
+| `max_subscriptions_new_head` | 10000 | open `newHeads` subscriptions across all connections |
+| `max_subscriptions_per_connection` | 100 | open subscriptions on one WebSocket connection |
+| `max_request_body_bytes` | 5242880 (5 MiB) | size of one HTTP request body (larger ones get HTTP 413) or WebSocket message (closes the connection with code 1009); must be positive |
+| `max_concurrent_request_bytes` | 134217728 (128 MiB) | WebSocket request bytes read and processed at once; values below `max_request_body_bytes` act as `max_request_body_bytes` |
+| `ws_admission_timeout` | `30s` | how long a WebSocket connection waits for that byte budget before it is closed with error `-32005`; `0` means 30s |
+| `batch_request_limit` | 100 | requests in one JSON-RPC batch |
+| `batch_response_max_size` | 25000000 | bytes of responses in one JSON-RPC batch |
+| `max_ws_connections` | 2000 | open WebSocket connections; further connections wait |
+
+A subscription refused by either cap returns an error, and its slot frees when
+the client unsubscribes or the connection closes. A connection is identified by
+its remote address, so clients behind one proxy connection share its cap.
+
 ### Fetch balances with `cast`
 
 `eth_getBalance` accepts `latest`, `safe`, `finalized`, and `pending`; all four

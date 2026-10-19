@@ -27,7 +27,7 @@ func TestBlockNumber(t *testing.T) {
 
 func TestBlockNumberEndToEnd(t *testing.T) {
 	backend := &testBackend{blockNumber: func() uint64 { return 42 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -49,7 +49,7 @@ func TestChainId(t *testing.T) {
 
 func TestChainIdEndToEnd(t *testing.T) {
 	backend := &testBackend{chainID: func() uint64 { return 713715 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -71,7 +71,7 @@ func TestSyncing(t *testing.T) {
 }
 
 func TestSyncingEndToEnd(t *testing.T) {
-	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

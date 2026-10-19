@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/protobuf/proto"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -148,6 +149,7 @@ type nodeImpl struct {
 	evmOnlyRPC        *evmonlyrpc.Server
 	evmOnlyRPCPort    int
 	evmOnlyWSPort     int
+	evmOnlyRPCLimits  gigaconfig.RPCConfig
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -264,6 +266,7 @@ func makeNode(
 		gigaStorageManager: gigaStorageManager,
 		evmOnlyRPCPort:     opts.giga.Execution.EvmRpcPort,
 		evmOnlyWSPort:      opts.giga.Execution.EvmWsPort,
+		evmOnlyRPCLimits:   opts.giga.RPC,
 
 		nodeKey: nodeKey,
 
@@ -713,7 +716,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 			return errors.New("autobahn rpc requires giga storage")
 		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort)
+			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
 			if err != nil {
 				return err
 			}
