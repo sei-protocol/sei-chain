@@ -227,7 +227,7 @@ func TestMigrateCosmosGate(t *testing.T) {
 			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.MaxNumKeysToMigratePerBlock)
 			subspace.Set(ctx, migration.KeyMigrateCosmosEnabled, tc.enabled)
 
-			for height := int64(1); height <= 5; height++ {
+			runBlock := func(height int64) {
 				_, err := a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
 					Header: &tmproto.Header{ChainID: "sei-test", Height: height, Time: time.Now()},
 				})
@@ -235,10 +235,27 @@ func TestMigrateCosmosGate(t *testing.T) {
 				_, err = a.Commit(bg)
 				require.NoError(t, err)
 			}
+			for height := int64(1); height <= 5; height++ {
+				runBlock(height)
+			}
 
 			mode, ok := a.rootStore.GetWriteMode()
 			require.True(t, ok)
 			require.Equal(t, tc.wantMode, mode)
+			if tc.enabled {
+				return
+			}
+
+			// Opening the gate must start MigrateCosmos on the first block that
+			// reads it, which shows the EVM migration was already complete and
+			// only the closed gate held the store in migrate_evm. The write
+			// lands with block 6's commit, so block 7 is that first block.
+			subspace.Set(a.NewUncachedContext(false, tmproto.Header{}), migration.KeyMigrateCosmosEnabled, true)
+			runBlock(6)
+			runBlock(7)
+			mode, ok = a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, mode)
 		})
 	}
 }
