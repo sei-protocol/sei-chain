@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/app"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
@@ -66,8 +67,9 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NotEmpty(t, res.Logs)
 
 		// Verify the events (Delegate event + DelegationRewardsWithdrawn event)
-		require.Len(t, res.Logs, 2)
-		log := res.Logs[0]
+		logs := requirePaymentLogs(t, res.Logs, evmAddr, delegateAmount)
+		require.Len(t, logs, 2)
+		log := logs[0]
 
 		// Check event signature
 		expectedSig := pcommon.DelegateEventSig
@@ -105,10 +107,11 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NotEmpty(t, res.Logs)
 
 		// Verify we have 2 logs: Delegate event and DelegationRewardsWithdrawn event
-		require.Len(t, res.Logs, 2)
+		logs := requirePaymentLogs(t, res.Logs, evmAddr, delegateAmount)
+		require.Len(t, logs, 2)
 
 		// The second log should be the DelegationRewardsWithdrawn event
-		rewardsLog := res.Logs[1]
+		rewardsLog := logs[1]
 
 		// Check event signature for DelegationRewardsWithdrawn
 		expectedSig := pcommon.DelegationRewardsWithdrawnEventSig
@@ -370,8 +373,9 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NotEmpty(t, res.Logs)
 
 		// Verify the event
-		require.Len(t, res.Logs, 1)
-		log := res.Logs[0]
+		logs := requirePaymentLogs(t, res.Logs, validatorEvmAddr, delegateAmount)
+		require.Len(t, logs, 1)
+		log := logs[0]
 
 		// Check event signature
 		expectedSig := pcommon.ValidatorCreatedEventSig
@@ -490,3 +494,20 @@ func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.
 }
 
 // setupValidator is already defined in staking_test.go
+
+// requirePaymentLogs checks that logs open with the EIP-7708 Transfer logs for a payment of amount from
+// payer to the staking precompile and its refund, and returns the logs after them.
+func requirePaymentLogs(t *testing.T, logs []*evmtypes.Log, payer common.Address, amount *big.Int) []*evmtypes.Log {
+	t.Helper()
+	precompile := common.HexToAddress(staking.StakingAddress)
+	require.GreaterOrEqual(t, len(logs), 2)
+	for i, want := range []*ethtypes.Log{
+		ethtypes.EthTransferLog(payer, precompile, uint256.MustFromBig(amount)),
+		ethtypes.EthTransferLog(precompile, payer, uint256.MustFromBig(amount)),
+	} {
+		require.Equal(t, want.Address.Hex(), logs[i].Address)
+		require.Equal(t, []string{want.Topics[0].Hex(), want.Topics[1].Hex(), want.Topics[2].Hex()}, logs[i].Topics)
+		require.Equal(t, want.Data, logs[i].Data)
+	}
+	return logs[2:]
+}

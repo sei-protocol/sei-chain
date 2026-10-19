@@ -313,7 +313,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp *core.GasPool) (*vm.Block
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int, rules *params.Rules) {
 		if IsPayablePrecompile(&recipient) {
-			state.TransferWithoutEvents(db, sender, recipient, amount)
+			state.TransferWithoutEvents(db, sender, recipient, amount, rules)
 		} else {
 			core.Transfer(db, sender, recipient, amount, rules)
 		}

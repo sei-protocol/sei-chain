@@ -13,6 +13,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -156,6 +157,20 @@ func TestRun(t *testing.T) {
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
+
+	// EIP-7708 Transfer logs: the payment to the precompile, its refund, then the send itself
+	sent := uint256.NewInt(10_000_000_000_100)
+	wantLogs := []*ethtypes.Log{
+		ethtypes.EthTransferLog(senderEVMAddr, addr, sent),
+		ethtypes.EthTransferLog(addr, senderEVMAddr, sent),
+		ethtypes.EthTransferLog(senderEVMAddr, evmAddr, sent),
+	}
+	require.Len(t, res.Logs, len(wantLogs))
+	for i, want := range wantLogs {
+		require.Equal(t, want.Address.Hex(), res.Logs[i].Address)
+		require.Equal(t, []string{want.Topics[0].Hex(), want.Topics[1].Hex(), want.Topics[2].Hex()}, res.Logs[i].Topics)
+		require.Equal(t, want.Data, res.Logs[i].Data)
+	}
 
 	evts := ctx.EventManager().ABCIEvents()
 

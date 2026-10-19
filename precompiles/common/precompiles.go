@@ -281,7 +281,7 @@ func ValidateNonPayable(value *big.Int) error {
 	return nil
 }
 
-func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Coin, error) {
+func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, evm *vm.EVM) (sdk.Coin, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	if !wei.IsZero() {
 		return sdk.Coin{}, fmt.Errorf("selected precompile function does not allow payment with non-zero wei remainder: received %s", value)
@@ -292,35 +292,34 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 	if err := bankKeeper.SendCoins(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, sdk.NewCoins(coin)); err != nil {
 		return sdk.Coin{}, err
 	}
-	if hooks != nil {
-		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-		if hooks.OnEnter != nil {
-			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
-		}
-		if hooks.OnExit != nil {
-			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
-		}
-	}
+	recordRefund(ctx, precompileAddr, payer, value, evmKeeper, hooks, evm)
 	return coin, nil
 }
 
-func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Int, sdk.Int, error) {
+func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper putils.BankKeeper, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, evm *vm.EVM) (sdk.Int, sdk.Int, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	// refund payer because the following precompile logic will debit the payments from payer's account
 	// this creates a new event manager to avoid surfacing these as cosmos events
 	if err := bankKeeper.SendCoinsAndWei(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, usei, wei); err != nil {
 		return sdk.Int{}, sdk.Int{}, err
 	}
-	if hooks != nil {
-		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-		if hooks.OnEnter != nil {
-			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
-		}
-		if hooks.OnExit != nil {
-			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
-		}
-	}
+	recordRefund(ctx, precompileAddr, payer, value, evmKeeper, hooks, evm)
 	return usei, wei, nil
+}
+
+// recordRefund traces a payment refund as a CALL frame from the precompile to the payer and emits its
+// EIP-7708 Transfer log inside that frame.
+func recordRefund(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, evmKeeper putils.EVMKeeper, hooks *tracing.Hooks, evm *vm.EVM) {
+	newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	from, to := evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer)
+	depth := evm.GetDepth()
+	if hooks != nil && hooks.OnEnter != nil {
+		hooks.OnEnter(depth+1, byte(vm.CALL), from, to, []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
+	}
+	EmitTransferLog(evm, from, to, value)
+	if hooks != nil && hooks.OnExit != nil {
+		hooks.OnExit(depth+1, []byte{}, 0, nil, false)
+	}
 }
 
 /*
