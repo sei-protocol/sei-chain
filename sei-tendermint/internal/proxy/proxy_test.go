@@ -2,11 +2,14 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -377,6 +380,64 @@ func TestEvmHistoryReads(t *testing.T) {
 
 			_, err = tc.read(New(testApp{}))
 			require.ErrorIs(t, err, errNoEVMHistory)
+		})
+	}
+}
+
+// tracedAt is the error testEvmTracerApp answers a state read with, naming what it was asked for.
+type tracedAt int64
+
+func (h tracedAt) Error() string { return fmt.Sprintf("traced at %d", int64(h)) }
+
+// testEvmTracerApp answers each tracing read with a value derived from its input.
+type testEvmTracerApp struct {
+	testApp
+}
+
+func (testEvmTracerApp) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	return vm.BlockContext{BlockNumber: header.Number}, nil
+}
+
+func (testEvmTracerApp) EvmStateAt(_ context.Context, height int64) (vm.StateDB, func(), error) {
+	return nil, nil, tracedAt(height)
+}
+
+func (testEvmTracerApp) EvmStateBeforeTx(_ context.Context, _ *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	return nil, nil, tracedAt(len(txs))
+}
+
+func TestEvmTracerReads(t *testing.T) {
+	header := &ethtypes.Header{Number: big.NewInt(5)}
+	for _, tc := range []struct {
+		name    string
+		read    func(*Proxy) error
+		wantErr error
+	}{
+		{"block context", func(p *Proxy) error {
+			blockCtx, err := p.EvmBlockContext(header)
+			if err == nil && blockCtx.BlockNumber.Cmp(header.Number) != 0 {
+				return fmt.Errorf("block context for block %s", blockCtx.BlockNumber)
+			}
+			return err
+		}, nil},
+		{"state after a block", func(p *Proxy) error {
+			_, _, err := p.EvmStateAt(t.Context(), 5)
+			return err
+		}, tracedAt(5)},
+		{"state before a transaction", func(p *Proxy) error {
+			_, _, err := p.EvmStateBeforeTx(t.Context(), header, [][]byte{{1}, {2}})
+			return err
+		}, tracedAt(2)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.read(New(testEvmTracerApp{}))
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+
+			require.ErrorIs(t, tc.read(New(testApp{})), errNoEVMTracing)
 		})
 	}
 }

@@ -39,6 +39,9 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagRPCBatchRequestLimit,
 		FlagRPCBatchResponseMaxSize,
 		FlagRPCMaxWSConnections,
+		FlagRPCMaxConcurrentTraceCalls,
+		FlagRPCTraceTimeout,
+		FlagRPCMaxTraceStructLogBytes,
 	}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)

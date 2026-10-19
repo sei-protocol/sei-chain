@@ -10,6 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/prometheus/client_golang/prometheus"
@@ -204,6 +206,51 @@ func (app *Proxy) EvmStorageAt(addr common.Address, key common.Hash, height int6
 		return common.Hash{}, errNoEVMHistory
 	}
 	return reader.EvmStorageAt(addr, key, height)
+}
+
+// evmTracer is implemented by applications that rebuild the EVM state and
+// block context a past transaction executed with, for tracing.
+type evmTracer interface {
+	EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error)
+	EvmStateAt(context.Context, int64) (vm.StateDB, func(), error)
+	EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error)
+}
+
+var errNoEVMTracing = errors.New("application does not support EVM tracing")
+
+// EvmBlockContext returns the block context the wrapped application executed
+// header's block at. It errors if that application does not support tracing.
+func (app *Proxy) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_block_context", "sync"))()
+	tracer, ok := app.app.(evmTracer)
+	if !ok {
+		return vm.BlockContext{}, errNoEVMTracing
+	}
+	return tracer.EvmBlockContext(header)
+}
+
+// EvmStateAt returns the wrapped application's EVM state after height and the
+// function that releases it. It errors if that application does not support
+// tracing.
+func (app *Proxy) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_state_at", "sync"))()
+	tracer, ok := app.app.(evmTracer)
+	if !ok {
+		return nil, nil, errNoEVMTracing
+	}
+	return tracer.EvmStateAt(ctx, height)
+}
+
+// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of
+// header's block executed against, and the function that releases it. It
+// errors if the wrapped application does not support tracing.
+func (app *Proxy) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_state_before_tx", "sync"))()
+	tracer, ok := app.app.(evmTracer)
+	if !ok {
+		return nil, nil, errNoEVMTracing
+	}
+	return tracer.EvmStateBeforeTx(ctx, header, txs)
 }
 
 // evmChainConfigProvider is implemented by applications that expose the EVM

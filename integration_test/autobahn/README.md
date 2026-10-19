@@ -403,7 +403,10 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getTransactionByBlockNumberAndIndex` and
   `eth_getTransactionByBlockHashAndIndex`, for the transaction at a position in
   a finalized block, exactly as the full-transaction `eth_getBlockByNumber` and
-  `eth_getBlockByHash` list it.
+  `eth_getBlockByHash` list it;
+- `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, and
+  `debug_traceBlockByHash`, which trace execution with go-ethereum's tracers
+  (see [Trace transactions](#trace-transactions-with-debug_trace)).
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -426,10 +429,46 @@ the row says otherwise:
 | `batch_request_limit` | 100 | requests in one JSON-RPC batch |
 | `batch_response_max_size` | 25000000 | bytes of responses in one JSON-RPC batch |
 | `max_ws_connections` | 2000 | open WebSocket connections; further connections wait |
+| `max_concurrent_trace_calls` | 10 | `debug_trace*` calls running at once; a call past it is refused |
+| `trace_timeout` | `30s` | how long one `debug_trace*` call may run |
+| `max_trace_struct_log_bytes` | 33554432 (32 MiB) | output of the default struct logger for each traced transaction |
 
 A subscription refused by either cap returns an error, and its slot frees when
 the client unsubscribes or the connection closes. A connection is identified by
 its remote address, so clients behind one proxy connection share its cap.
+
+### Trace transactions with `debug_trace*`
+
+`debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, and
+`debug_traceBlockByHash` run go-ethereum's tracing API, so requests and
+responses have go-ethereum's shape. Without a `tracer` they return the default
+step-by-step struct log; the named tracers are go-ethereum's native ones:
+`callTracer`, `flatCallTracer`, `prestateTracer`, `4byteTracer`, `muxTracer`,
+and `noopTracer`. JavaScript tracers are refused.
+
+A traced transaction is replayed against the state it executed on: the state
+after the previous block, with the block's earlier transactions applied. That
+state comes from the EVM state store, so tracing a mined transaction or a block
+needs a full node, and fails once the block is pruned. A validator can still
+run `debug_traceCall` against the latest block.
+
+- `debug_traceTransaction` takes a mined transaction's hash; an unknown hash
+  returns error `-32602`.
+- `debug_traceCall` traces a call against the state after the named block, by
+  number, hash, or tag; `txIndex` traces it before that transaction of the
+  block instead. `pending` is refused, as are state and block overrides, which
+  `eth_call` does not take either.
+- `debug_traceBlockByNumber` and `debug_traceBlockByHash` return one
+  `{txHash, result}` entry per transaction the block stored a receipt for, in
+  execution order. A transaction the block rejected before it ran has no
+  receipt and changed nothing, so it is skipped. Tags resolve to the latest
+  block whose receipts are indexed, and a block whose receipts are not indexed
+  yet returns an error.
+
+```sh
+curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"debug_traceTransaction","params":["0xYOUR_TX_HASH",{"tracer":"callTracer"}]}'
+```
 
 ### Fetch balances with `cast`
 
