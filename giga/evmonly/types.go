@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -144,44 +145,14 @@ type BlockResultPoolStats struct {
 	OverflowAllocations uint64
 }
 
-// StateChangeSet is the deterministic EVM-native state output for a block.
-// Values are post-block values, not deltas, each beside the value it replaced.
-// Store-specific encoders must retain StorageClears as prefix-clear operations
-// and apply them before Storage.
-type StateChangeSet struct {
-	Balances      []BalanceChange
-	Nonces        []NonceChange
-	Code          []CodeChange
-	StorageClears []common.Address
-	Storage       []StorageChange
-}
-
-type BalanceChange struct {
-	Address      common.Address
-	Balance      *big.Int
-	PriorBalance *big.Int
-}
-
-type NonceChange struct {
-	Address    common.Address
-	Nonce      uint64
-	PriorNonce uint64
-}
-
-type CodeChange struct {
-	Address   common.Address
-	Delete    bool
-	Code      []byte
-	PriorCode []byte
-}
-
-type StorageChange struct {
-	Address    common.Address
-	Key        common.Hash
-	Delete     bool
-	Value      common.Hash
-	PriorValue common.Hash
-}
+// StateChangeSet and its entry types are shared with the state store.
+type (
+	StateChangeSet = gigatypes.StateChangeSet
+	BalanceChange  = gigatypes.BalanceChange
+	NonceChange    = gigatypes.NonceChange
+	CodeChange     = gigatypes.CodeChange
+	StorageChange  = gigatypes.StorageChange
+)
 
 // TxResult is the minimum per-transaction output needed for receipts, RPC, and
 // runtime result reporting.
