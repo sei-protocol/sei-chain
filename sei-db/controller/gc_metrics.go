@@ -5,6 +5,8 @@ import (
 	"math"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -57,7 +59,12 @@ var (
 
 // recordCycle records one cycle's decisions: each store's rollback floor and the cut lines taken from
 // them.
-func recordCycle(stores []PrunableStore, decisions []storeDecision, snapshotCutLine uint64, historyCutLine uint64) {
+func recordCycle(
+	stores []controllertypes.PrunableStore,
+	decisions []storeDecision,
+	snapshotCutLine uint64,
+	historyCutLine uint64,
+) {
 	ctx := context.Background()
 	gcPruneCycles.Add(ctx, 1)
 	gcSnapshotCutLine.Record(ctx, clampToInt64(snapshotCutLine))
@@ -68,7 +75,7 @@ func recordCycle(stores []PrunableStore, decisions []storeDecision, snapshotCutL
 }
 
 // recordStorePrune records how long one store took to prune in a cycle, and whether it failed.
-func recordStorePrune(store PrunableStore, elapsed time.Duration, err error) {
+func recordStorePrune(store controllertypes.PrunableStore, elapsed time.Duration, err error) {
 	ctx := context.Background()
 	gcStorePruneDuration.Record(ctx, elapsed.Seconds(), storeAttribute(store))
 	if err != nil {
@@ -76,7 +83,7 @@ func recordStorePrune(store PrunableStore, elapsed time.Duration, err error) {
 	}
 }
 
-func storeAttribute(store PrunableStore) metric.MeasurementOption {
+func storeAttribute(store controllertypes.PrunableStore) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String("store", store.Name()))
 }
 

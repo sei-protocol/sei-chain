@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
@@ -34,14 +36,13 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "undo")
 
-var _ controller.PrunableStore = (*Database)(nil)
+var _ controllertypes.PrunableStore = (*Database)(nil)
 
 const (
 	// cacheSize bounds the block cache, which holds the filter, index and data blocks a read probes.

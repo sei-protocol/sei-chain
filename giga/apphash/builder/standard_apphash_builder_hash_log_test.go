@@ -14,6 +14,7 @@ import (
 // hashLoggingConfig returns a config whose vault is dir/vault and whose hash log is hashLogDir(dir).
 func hashLoggingConfig(dir string) AppHashBuilderConfig {
 	config := DefaultAppHashBuilderConfig()
+	config.ChainID = testChainID
 	config.HashVaultConfig.Path = filepath.Join(dir, "vault")
 	config.HashLogEnabled = true
 	config.HashLogConfig.Path = hashLogDir(dir)
@@ -30,9 +31,9 @@ func hashLogDir(dir string) string {
 // ends.
 func openHashLoggingBuilder(t *testing.T, dir string) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := NewStandardAppHashBuilder(hashLoggingConfig(dir), testChainID, 1)
+	b, err := openBuilderWithConfig(t.Context(), hashLoggingConfig(dir))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = closeBuilder(b) })
 	return b
 }
 
@@ -42,15 +43,15 @@ func testComponentHashes(blockHeight uint64) map[string][]byte {
 }
 
 // reportLoggedBlock reports every input for blockHeight, with testComponentHashes() alongside the state hash. The
-// BUD is reported with budSalt.
-func reportLoggedBlock(t *testing.T, b AppHashBuilder, blockHeight uint64, budSalt byte) {
+// BUD hash is reported with budHashSalt.
+func reportLoggedBlock(t *testing.T, b AppHashBuilder, blockHeight uint64, budHashSalt byte) {
 	t.Helper()
 	ctx := context.Background()
 	stateHash := inputValue(stateHashInput, blockHeight, 0)
 	require.NoError(t, b.ReportStateHash(ctx, blockHeight, stateHash, testComponentHashes(blockHeight)))
 	reportInput(t, b, blockHashInput, blockHeight, 0)
 	reportInput(t, b, receiptHashInput, blockHeight, 0)
-	reportInput(t, b, budInput, blockHeight, budSalt)
+	reportInput(t, b, budHashInput, blockHeight, budHashSalt)
 }
 
 // loggedRow returns the hash log row the builder writes for record when componentHashes was reported with it.
@@ -60,7 +61,7 @@ func loggedRow(record *apphash.AppHashData, componentHashes map[string][]byte) m
 		previousAppHashColumn: hashBytes(record.PreviousAppHash()),
 		blockHashColumn:       hashBytes(record.BlockHash()),
 		stateHashColumn:       hashBytes(record.StateHash()),
-		budColumn:             hashBytes(record.BUDHash()),
+		budHashColumn:         hashBytes(record.BUDHash()),
 		receiptHashColumn:     hashBytes(record.ReceiptHash()),
 	}
 	for name, hash := range componentHashes {
@@ -88,7 +89,7 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 		reportLoggedBlock(t, b, height, 0)
 	}
 	receive(t, published, 3)
-	require.NoError(t, b.Close())
+	require.NoError(t, closeBuilder(b))
 
 	for _, record := range expectedChain(1, 1, 3) {
 		requireLoggedRow(t, dir, record)
@@ -98,9 +99,9 @@ func TestHashLogRecordsEachAppHashBuilt(t *testing.T) {
 func TestHashLogThatFailsToOpenDoesNotStopBuilder(t *testing.T) {
 	config := hashLoggingConfig(t.TempDir())
 	config.HashLogConfig.Version = ""
-	b, err := NewStandardAppHashBuilder(config, testChainID, 1)
+	b, err := openBuilderWithConfig(t.Context(), config)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = closeBuilder(b) })
 
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	_, published := registerListener(t, b)
@@ -124,7 +125,7 @@ func TestChangedAppHashIsFlushedToHashLogBeforeCrash(t *testing.T) {
 		4,
 		inputValue(blockHashInput, 4, 0),
 		inputValue(stateHashInput, 4, 0),
-		inputValue(budInput, 4, 1),
+		inputValue(budHashInput, 4, 1),
 		inputValue(receiptHashInput, 4, 0),
 		expectedChain(1, 3, 3)[0].AppHash(),
 	)
