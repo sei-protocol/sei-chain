@@ -1019,15 +1019,8 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	req.Path = subPath
 	req.Height = version // keep downstream store.Query height consistent
 
-	// The permit is taken here, ahead of the backend branch, so that every /subspace scan is
-	// bounded regardless of which store serves it. A scan on the commitment path can walk a
-	// state-sized physical range while yielding few pairs (flatkv projects the code-hash and
-	// balance lanes out of the account rows), so the pair/byte caps alone do not bound its work.
 	if subPath == "/subspace" {
-		if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
-			storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
-				attribute.String("reason", "semaphore"),
-			))
+		if err := rs.admitSubspaceQuery(ctx); err != nil {
 			return sdkerrors.QueryResult(err)
 		}
 		defer rs.releaseSubspaceQueryPermit()
@@ -1102,6 +1095,19 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	}
 
 	return res
+}
+
+// admitSubspaceQuery takes a /subspace permit, or records the rejection and returns why it failed.
+// The caller must release a taken permit. The permits bound concurrent /subspace scans on every
+// backend, SS and commitment, at the latest and at historical heights.
+func (rs *Store) admitSubspaceQuery(ctx context.Context) error {
+	if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
+		storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+			attribute.String("reason", "semaphore"),
+		))
+		return err
+	}
+	return nil
 }
 
 func (rs *Store) tryAcquireSubspaceQueryPermit() error {
