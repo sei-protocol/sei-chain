@@ -16,11 +16,13 @@ import (
 
 var hackatomRelease = []byte(`{"release":{}}`)
 
-// executeFixture holds two funded hackatom escrows paying beneficiary: escrow, released by
-// owner, and reflectEscrow, released by a reflect contract that owner owns.
+// executeFixture holds two funded hackatom escrows of hackatomID paying beneficiary, both
+// administered by owner: escrow, released by owner, and reflectEscrow, released by a reflect
+// contract that owner owns.
 type executeFixture struct {
 	owner         sdk.AccAddress
 	beneficiary   sdk.AccAddress
+	hackatomID    uint64
 	escrow        sdk.AccAddress
 	reflect       sdk.AccAddress
 	reflectEscrow sdk.AccAddress
@@ -45,7 +47,7 @@ func newExecuteFixture(t *testing.T, ctx sdk.Context, keepers TestKeepers) execu
 	newEscrow := func(verifier sdk.AccAddress) sdk.AccAddress {
 		initMsg, err := json.Marshal(HackatomExampleInitMsg{Verifier: verifier, Beneficiary: beneficiary})
 		require.NoError(t, err)
-		escrow, _, err := keepers.ContractKeeper.Instantiate(ctx, hackatomID, owner, nil, initMsg, "escrow", sdk.NewCoins(sdk.NewInt64Coin("denom", 1000)))
+		escrow, _, err := keepers.ContractKeeper.Instantiate(ctx, hackatomID, owner, owner, initMsg, "escrow", sdk.NewCoins(sdk.NewInt64Coin("denom", 1000)))
 		require.NoError(t, err)
 		return escrow
 	}
@@ -53,6 +55,7 @@ func newExecuteFixture(t *testing.T, ctx sdk.Context, keepers TestKeepers) execu
 	return executeFixture{
 		owner:         owner,
 		beneficiary:   beneficiary,
+		hackatomID:    hackatomID,
 		escrow:        newEscrow(owner),
 		reflect:       reflect,
 		reflectEscrow: newEscrow(reflect),
@@ -147,21 +150,25 @@ func TestMsgExecuteContractDisabledLeavesKeeperCallsOpen(t *testing.T) {
 	checkAccount(t, ctx, keepers.AccountKeeper, keepers.BankKeeper, f.beneficiary, sdk.NewCoins(sdk.NewInt64Coin("denom", 1000)))
 }
 
-// TestMsgExecuteContractWithoutTheParam delivers a MsgExecuteContract against state written
-// before the msgExecuteContractDisabled param existed.
-func TestMsgExecuteContractWithoutTheParam(t *testing.T) {
+// TestMsgExecuteContractWithoutTheParams delivers a MsgExecuteContract against state written
+// before the msgExecuteContractDisabled and contractExecutionDisabled params existed.
+func TestMsgExecuteContractWithoutTheParams(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, ReflectFeatures)
 	f := newExecuteFixture(t, ctx, keepers)
 	deleteWasmParam(t, ctx, keepers, types.ParamStoreKeyMsgExecuteContractDisabled)
+	deleteWasmParam(t, ctx, keepers, types.ParamStoreKeyContractExecutionDisabled)
 
 	require.NoError(t, f.sendDirectly(t, ctx, keepers))
 }
 
-// TestMsgExecuteContractDisabledChargesNoGas reads the msgExecuteContractDisabled param on a
-// context that meters param reads.
-func TestMsgExecuteContractDisabledChargesNoGas(t *testing.T) {
+// TestExecutionFlagsChargeNoGas reads the msgExecuteContractDisabled and
+// contractExecutionDisabled params on a context that meters param reads.
+func TestExecutionFlagsChargeNoGas(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, "")
-	setMsgExecuteContractDisabled(ctx, keepers, true)
+	params := types.DefaultParams()
+	params.MsgExecuteContractDisabled = true
+	params.ContractExecutionDisabled = true
+	keepers.WasmKeeper.SetParams(ctx, params)
 	meter := ctx.GasMeter()
 
 	before := meter.GasConsumed()
@@ -170,5 +177,6 @@ func TestMsgExecuteContractDisabledChargesNoGas(t *testing.T) {
 
 	before = meter.GasConsumed()
 	require.True(t, keepers.WasmKeeper.msgExecuteContractDisabled(ctx))
+	require.True(t, keepers.WasmKeeper.contractExecutionDisabled(ctx))
 	require.Equal(t, before, meter.GasConsumed())
 }

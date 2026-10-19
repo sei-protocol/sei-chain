@@ -43,11 +43,11 @@ import (
 // the params store. Vesting owned no store: its state is the accounts it wrote
 // to the auth account store, which the auth 3 to 4 migration rewrites as the
 // base accounts they embed. The wasm 1 to 2 migration stores the
-// msgExecuteContractDisabled parameter as false. These tests cover the rewrite
-// of every vesting account type, spending a balance a schedule had locked, the
-// messages the removed modules served, the allowlist and parameter pruning, the
-// stored wasm parameter, genesis export over the migrated store, and the
-// handler itself. The handler also starts the staking delegation-by-validator
+// msgExecuteContractDisabled and contractExecutionDisabled parameters as false.
+// These tests cover the rewrite of every vesting account type, spending a
+// balance a schedule had locked, the messages the removed modules served, the
+// allowlist and parameter pruning, the stored wasm parameters, genesis export
+// over the migrated store, and the handler itself. The handler also starts the staking delegation-by-validator
 // index backfill, which the staking EndBlocker completes.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
@@ -80,9 +80,12 @@ const (
 	v68PostUpgradeSendAmount = "6868usei"
 )
 
-// v68MsgExecuteContractDisabledKey is the params-store key of the wasm
-// msgExecuteContractDisabled parameter.
-var v68MsgExecuteContractDisabledKey = []byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled))
+// v68WasmFlagKeys are the params-store keys of the wasm
+// msgExecuteContractDisabled and contractExecutionDisabled parameters.
+var v68WasmFlagKeys = [][]byte{
+	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled)),
+	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyContractExecutionDisabled)),
+}
 
 var v68PostUpgradeBankReceiver = sdk.AccAddress{
 	0x68, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -684,19 +687,22 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 		"v6.8 changed the params store beyond deleting the tokenfactory subspace")
 }
 
-// TestV68StoresMsgExecuteContractDisabled pins that v6.8 stores the wasm
-// msgExecuteContractDisabled parameter as false in a params store that lacks
-// it, as v6.7 left it.
-func TestV68StoresMsgExecuteContractDisabled(t *testing.T) {
+// TestV68StoresTheWasmFlags pins that v6.8 stores the wasm
+// msgExecuteContractDisabled and contractExecutionDisabled parameters as false
+// in a params store that lacks them, as v6.7 left it.
+func TestV68StoresTheWasmFlags(t *testing.T) {
 	a := newV68Chain(t)
 	seedV67VersionMap(t, a)
 	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
-	store.Delete(v68MsgExecuteContractDisabledKey)
+	for _, key := range v68WasmFlagKeys {
+		store.Delete(key)
+	}
 
 	applyV68(t, a)
 
-	require.Equal(t, []byte("false"), store.Get(v68MsgExecuteContractDisabledKey),
-		"v6.8 did not store the wasm msgExecuteContractDisabled parameter as false")
+	for _, key := range v68WasmFlagKeys {
+		require.Equal(t, []byte("false"), store.Get(key), "v6.8 did not store %s as false", key)
+	}
 }
 
 // TestV68RewritesRetiredIBCProposals pins that a stored proposal whose content
@@ -837,8 +843,8 @@ func TestV68CrossVersion(t *testing.T) {
 
 // seedV67State records the v6.7 version map, which carries oracle, tokenfactory
 // and vesting with auth at consensus version 3 and wasm at 1, requires v6.7 to
-// serve the vesting command and to store no wasm msgExecuteContractDisabled
-// parameter, and delivers a bank send before the upgrade.
+// serve the vesting command and to store neither wasm flag parameter, and
+// delivers a bank send before the upgrade.
 func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 
@@ -851,8 +857,9 @@ func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68WasmVersionBefore, versions[wasmtypes.ModuleName])
 	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.7 upgrade store is missing the vesting version-map entry")
-	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v68MsgExecuteContractDisabledKey),
-		"v6.7 already stores the wasm msgExecuteContractDisabled parameter")
+	for _, key := range v68WasmFlagKeys {
+		require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, key), "v6.7 already stores %s", key)
+	}
 	chain.Record(t, "module_versions", versions)
 
 	vestingCommand := chain.Seid("", "tx", v68VestingModule)
@@ -901,8 +908,9 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 		v68AuthVersion, v68GovVersion, v68WasmVersion)
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.8 upgrade store still carries the vesting version-map entry")
-	require.Equal(t, []byte("false"), chain.QueryStore(t, paramstypes.StoreKey, v68MsgExecuteContractDisabledKey),
-		"v6.8 did not store the wasm msgExecuteContractDisabled parameter as false")
+	for _, key := range v68WasmFlagKeys {
+		require.Equal(t, []byte("false"), chain.QueryStore(t, paramstypes.StoreKey, key), "v6.8 did not store %s as false", key)
+	}
 
 	oracleCommand := chain.Seid("", "q", retiredoracle.ModuleName)
 	require.Error(t, oracleCommand.Err)

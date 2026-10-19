@@ -139,10 +139,9 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 // is recorded, the retired module versions and stores are gone, the vesting
 // accounts are rewritten, the retired IBC proposal reads back as a text
 // proposal, the upgraded IBC client record, the denom allowlists and the
-// tokenfactory parameters are pruned, the wasm msgExecuteContractDisabled
-// parameter is stored, the IBC voucher balance and supply are intact and
-// spendable, every delegation is indexed by validator, and nothing else in the
-// retained stores changed.
+// tokenfactory parameters are pruned, the wasm flag parameters are stored, the
+// IBC voucher balance and supply are intact and spendable, every delegation is
+// indexed by validator, and nothing else in the retained stores changed.
 func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV68OfflineAppliedName(t, testApp, artifact)
@@ -153,7 +152,7 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 	requireV68OfflineUpgradedIBCStatePruned(t, testApp, artifact.Retained)
 	requireV68OfflineDenomAllowListsPruned(t, testApp, artifact.Stores[banktypes.StoreKey])
 	requireV68OfflineTokenfactoryParamsPruned(t, testApp, artifact.Stores[paramstypes.StoreKey])
-	requireV68OfflineMsgExecuteContractDisabledStored(t, testApp, artifact.Stores[paramstypes.StoreKey])
+	requireV68OfflineWasmFlagsStored(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineVoucher(t, testApp, artifact.Retained)
 	requireV68OfflineDelegationIndex(t, testApp)
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(t, artifact))
@@ -404,20 +403,24 @@ func requireV68OfflineNoTokenfactoryParams(t *testing.T, testApp *App) {
 	require.False(t, iterator.Valid(), "v6.8 left a tokenfactory parameter in the params store")
 }
 
-// v68OfflineMsgExecuteContractDisabledKey is the params-store key of the wasm
-// msgExecuteContractDisabled parameter.
-var v68OfflineMsgExecuteContractDisabledKey = []byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled))
+// v68OfflineWasmFlagKeys are the params-store keys of the wasm
+// msgExecuteContractDisabled and contractExecutionDisabled parameters.
+var v68OfflineWasmFlagKeys = [][]byte{
+	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled)),
+	[]byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyContractExecutionDisabled)),
+}
 
-// requireV68OfflineMsgExecuteContractDisabledStored requires the source phase's
-// params snapshot to lack the wasm msgExecuteContractDisabled parameter and the
-// committed params store to hold it as false.
-func requireV68OfflineMsgExecuteContractDisabledStored(t *testing.T, testApp *App, sourceParams map[string]string) {
+// requireV68OfflineWasmFlagsStored requires the source phase's params snapshot
+// to lack every wasm flag parameter and the committed params store to hold each
+// as false.
+func requireV68OfflineWasmFlagsStored(t *testing.T, testApp *App, sourceParams map[string]string) {
 	t.Helper()
-	_, recorded := sourceParams[encodeOfflineUpgradeKey(v68OfflineMsgExecuteContractDisabledKey)]
-	require.False(t, recorded, "the source phase already stored the wasm msgExecuteContractDisabled parameter")
 	store := testApp.CommitMultiStore().GetCommitKVStore(testApp.GetKey(paramstypes.StoreKey))
-	require.Equal(t, []byte("false"), store.Get(v68OfflineMsgExecuteContractDisabledKey),
-		"v6.8 did not store the wasm msgExecuteContractDisabled parameter as false")
+	for _, key := range v68OfflineWasmFlagKeys {
+		_, recorded := sourceParams[encodeOfflineUpgradeKey(key)]
+		require.False(t, recorded, "the source phase already stored %s", key)
+		require.Equal(t, []byte("false"), store.Get(key), "v6.8 did not store %s as false", key)
+	}
 }
 
 func requireV68OfflineVoucher(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {

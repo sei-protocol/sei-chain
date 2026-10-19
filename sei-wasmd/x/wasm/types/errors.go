@@ -96,6 +96,9 @@ var (
 
 	// ErrMsgExecuteContractDisabled error when governance has disabled MsgExecuteContract
 	ErrMsgExecuteContractDisabled = sdkErrors.Register(DefaultCodespace, 31, "MsgExecuteContract is disabled")
+
+	// ErrContractExecutionDisabled error when governance has disabled running contracts
+	ErrContractExecutionDisabled = sdkErrors.Register(DefaultCodespace, 32, "contract execution is disabled")
 )
 
 type ErrNoSuchContract struct {

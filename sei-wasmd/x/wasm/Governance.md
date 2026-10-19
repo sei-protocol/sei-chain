@@ -46,6 +46,7 @@ Settings via sdk `params` module:
 - `code_upload_access` - who can upload a wasm binary: `Nobody`, `Everybody`, `OnlyAddress`
 - `instantiate_default_permission` - platform default, who can instantiate a wasm binary when the code owner has not set it 
 - `msg_execute_contract_disabled` - when `true`, every `MsgExecuteContract` fails, whether sent directly, wrapped in an authz `MsgExec`, or dispatched by a contract. Contract calls that do not go through `MsgExecuteContract`, such as the EVM wasmd precompile and `ExecuteContractProposal`, are not affected.
+- `contract_execution_disabled` - when `true`, no contract runs: every instantiation, execution, migration and sudo call fails, whatever its origin, including `MsgExecuteContract`, contract-dispatched messages, the EVM wasmd and solo precompiles, and wasm gov proposals. Queries still work.
 
 See [params.go](https://github.com/CosmWasm/wasmd/blob/master/x/wasm/types/params.go)
 
@@ -58,7 +59,8 @@ See [params.go](https://github.com/CosmWasm/wasmd/blob/master/x/wasm/types/param
           "permission": "Everybody"
         },
         "instantiate_default_permission": "Everybody",
-        "msg_execute_contract_disabled": false
+        "msg_execute_contract_disabled": false,
+        "contract_execution_disabled": false
       }
     },  
 ```
@@ -178,6 +180,36 @@ wasmd tx gov submit-proposal param-change <proposal-json-file> --from validator 
     {
       "subspace": "wasm",
       "key": "msgExecuteContractDisabled",
+      "value": false
+    }
+  ],
+  "deposit": ""
+}
+```
+* Stop every contract from running
+```json
+{
+  "title": "Foo",
+  "description": "Bar",
+  "changes": [
+    {
+      "subspace": "wasm",
+      "key": "contractExecutionDisabled",
+      "value": true
+    }
+  ],
+  "deposit": ""
+}
+```
+* Let contracts run again
+```json
+{
+  "title": "Foo",
+  "description": "Bar",
+  "changes": [
+    {
+      "subspace": "wasm",
+      "key": "contractExecutionDisabled",
       "value": false
     }
   ],

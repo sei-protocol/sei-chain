@@ -16,8 +16,9 @@ func NewMigrator(keeper Keeper) Migrator {
 	return Migrator{keeper: keeper}
 }
 
-// Migrate1to2 stores the msgExecuteContractDisabled param as false.
+// Migrate1to2 stores the msgExecuteContractDisabled and contractExecutionDisabled params as false.
 func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 	m.keeper.paramSpace.Set(ctx, types.ParamStoreKeyMsgExecuteContractDisabled, false)
+	m.keeper.paramSpace.Set(ctx, types.ParamStoreKeyContractExecutionDisabled, false)
 	return nil
 }

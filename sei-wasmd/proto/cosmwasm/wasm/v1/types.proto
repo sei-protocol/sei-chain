@@ -46,6 +46,9 @@ message Params {
   AccessType instantiate_default_permission = 2 [(gogoproto.moretags) = "yaml:\"instantiate_default_permission\""];
   // MsgExecuteContractDisabled rejects every MsgExecuteContract when true.
   bool msg_execute_contract_disabled = 3 [(gogoproto.moretags) = "yaml:\"msg_execute_contract_disabled\""];
+  // ContractExecutionDisabled rejects every contract instantiation, execution,
+  // migration and sudo call when true, whatever its origin.
+  bool contract_execution_disabled = 4 [(gogoproto.moretags) = "yaml:\"contract_execution_disabled\""];
 }
 
 // CodeInfo is data for the uploaded contract WASM code

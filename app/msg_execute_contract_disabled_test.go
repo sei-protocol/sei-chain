@@ -17,20 +17,27 @@ import (
 
 // TestMsgExecuteContractDisabledInDeliverTx delivers a CW20 transfer as a MsgExecuteContract
 // sent directly and as one wrapped in an authz MsgExec, with the wasm
-// msgExecuteContractDisabled param off and on.
+// msgExecuteContractDisabled and contractExecutionDisabled params off and each on.
 func TestMsgExecuteContractDisabledInDeliverTx(t *testing.T) {
 	specs := map[string]struct {
-		disabled     bool
-		expCode      uint32
-		expCodespace string
-		expReceived  string
+		msgExecuteContractDisabled bool
+		contractExecutionDisabled  bool
+		expCode                    uint32
+		expCodespace               string
+		expReceived                string
 	}{
-		"param off": {expReceived: "200"},
-		"param on": {
-			disabled:     true,
-			expCode:      wasmtypes.ErrMsgExecuteContractDisabled.ABCICode(),
-			expCodespace: wasmtypes.ModuleName,
-			expReceived:  "0",
+		"params off": {expReceived: "200"},
+		"msgExecuteContractDisabled on": {
+			msgExecuteContractDisabled: true,
+			expCode:                    wasmtypes.ErrMsgExecuteContractDisabled.ABCICode(),
+			expCodespace:               wasmtypes.ModuleName,
+			expReceived:                "0",
+		},
+		"contractExecutionDisabled on": {
+			contractExecutionDisabled: true,
+			expCode:                   wasmtypes.ErrContractExecutionDisabled.ABCICode(),
+			expCodespace:              wasmtypes.ModuleName,
+			expReceived:               "0",
 		},
 	}
 	for name, spec := range specs {
@@ -45,7 +52,8 @@ func TestMsgExecuteContractDisabledInDeliverTx(t *testing.T) {
 			executeContract := authz.NewGenericAuthorization(sdk.MsgTypeURL(&wasmtypes.MsgExecuteContract{}))
 			require.NoError(t, a.AuthzKeeper.SaveGrant(a.Ctx(), grantee, granter, executeContract, time.Now().Add(time.Hour)))
 			params := a.WasmKeeper.GetParams(a.Ctx())
-			params.MsgExecuteContractDisabled = spec.disabled
+			params.MsgExecuteContractDisabled = spec.msgExecuteContractDisabled
+			params.ContractExecutionDisabled = spec.contractExecutionDisabled
 			a.WasmKeeper.SetParams(a.Ctx(), params)
 
 			transfer := &wasmtypes.MsgExecuteContract{

@@ -175,11 +175,21 @@ func (k Keeper) getInstantiateAccessConfig(ctx sdk.Context) types.AccessType {
 
 // msgExecuteContractDisabled reports whether governance has disabled MsgExecuteContract.
 func (k Keeper) msgExecuteContractDisabled(ctx sdk.Context) bool {
-	var disabled bool
+	return k.getFlagParam(ctx, types.ParamStoreKeyMsgExecuteContractDisabled)
+}
+
+// contractExecutionDisabled reports whether governance has disabled running contracts.
+func (k Keeper) contractExecutionDisabled(ctx sdk.Context) bool {
+	return k.getFlagParam(ctx, types.ParamStoreKeyContractExecutionDisabled)
+}
+
+// getFlagParam returns the bool param stored under key, or false when it is not stored.
+func (k Keeper) getFlagParam(ctx sdk.Context, key []byte) bool {
+	var set bool
 	// Charges no gas and reads a missing key as false, so executions, including replays
-	// of blocks from before this param existed, keep their original gas and outcome.
-	k.paramSpace.GetIfExists(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), types.ParamStoreKeyMsgExecuteContractDisabled, &disabled)
-	return disabled
+	// of blocks from before the param existed, keep their original gas and outcome.
+	k.paramSpace.GetIfExists(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), key, &set)
+	return set
 }
 
 // GetParams returns the total set of wasm parameters.
@@ -276,6 +286,9 @@ func (k Keeper) ImportCode(ctx sdk.Context, codeID uint64, codeInfo types.CodeIn
 }
 
 func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (sdk.AccAddress, []byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractInstantiateDuration(ctx.Context(), start) }()
 
@@ -369,6 +382,9 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 
 // Execute executes the contract instance
 func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractExecuteDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
@@ -413,6 +429,9 @@ func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 }
 
 func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte, authZ AuthorizationPolicy) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractMigrateDuration(ctx.Context(), start) }()
 	migrateSetupCosts := k.gasRegister.InstantiateContractCosts(k.IsPinnedCode(ctx, newCodeID), len(msg))
@@ -482,6 +501,9 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 // another native Go module directly, or on-chain governance (if sudo proposals are enabled). Thus, the keeper doesn't
 // place any access controls on it, that is the responsibility or the app developer (who passes the wasm.Keeper in app.go)
 func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractSudoDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
