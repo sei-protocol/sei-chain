@@ -22,6 +22,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -126,7 +128,7 @@ func TestSendRawTransaction(t *testing.T) {
 	// bad server
 	resObj = sendRequestBad(t, "sendRawTransaction", payload)
 	errMap = resObj["error"].(map[string]interface{})
-	require.Equal(t, ": invalid sequence", errMap["message"].(string))
+	require.Equal(t, "log", errMap["message"].(string))
 }
 
 func TestSendRawTransactionUsesProxy(t *testing.T) {
@@ -247,6 +249,46 @@ func TestSendRawTransactionSlowOnCometUsesBroadcastTxCommit(t *testing.T) {
 	require.Equal(t, tx.Hash(), hash)
 	require.Equal(t, 0, tmClient.syncCount)
 	require.Equal(t, 1, tmClient.commitCount)
+}
+
+type sendRejectClient struct {
+	*MockClient
+	codespace string
+	code      uint32
+	log       string
+}
+
+func (c *sendRejectClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
+	return &coretypes.ResultBroadcastTx{Code: c.code, Codespace: c.codespace, Log: c.log}, nil
+}
+
+func (c *sendRejectClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	return &coretypes.ResultBroadcastTxCommit{CheckTx: abci.ResponseCheckTx{Code: c.code, Codespace: c.codespace, Log: c.log}}, nil
+}
+
+// A rejected CheckTx reaches the client with its log, or its registered error when there is none.
+func TestSendRawTransactionReportsCheckTxRejection(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	outOfGas := sdkerrors.ErrOutOfGas
+	for _, tc := range []struct {
+		name string
+		slow bool
+		log  string
+		want string
+	}{
+		{name: "sync_with_log", log: "transaction gas limit too high: out of gas", want: "transaction gas limit too high: out of gas"},
+		{name: "commit_with_log", slow: true, log: "transaction gas limit too high: out of gas", want: "transaction gas limit too high: out of gas"},
+		{name: "sync_without_log", want: ": out of gas"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmClient := &sendRejectClient{MockClient: &MockClient{}, codespace: outOfGas.Codespace(), code: outOfGas.ABCICode(), log: tc.log}
+			sendAPI := newTestSendAPI(tmClient, evmrpc.NewSendConfig(tc.slow, false, false))
+
+			_, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+
+			require.EqualError(t, err, tc.want)
+		})
+	}
 }
 
 func mustSignTestTx(t *testing.T) ([]byte, *ethtypes.Transaction) {
