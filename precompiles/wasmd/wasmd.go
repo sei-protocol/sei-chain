@@ -181,7 +181,7 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 		if err != nil {
 			rerr = err
 			return
@@ -271,7 +271,7 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 		if err != nil {
 			rerr = err
 			return

@@ -9,7 +9,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
@@ -38,14 +37,6 @@ func EmitEVMLog(evm *vm.EVM, address common.Address, topics []common.Hash, data 
 		// by the consensus engine when the block is being finalized.
 	})
 	return nil
-}
-
-// EmitTransferLog emits the EIP-7708 Transfer log for value a precompile moves outside the EVM's transfer hook.
-func EmitTransferLog(evm *vm.EVM, from, to common.Address, value *big.Int) {
-	rules := evm.GetRules()
-	if (rules.IsAmsterdam || rules.IsSeiAmsterdam) && value.Sign() != 0 && from != to {
-		evm.StateDB.AddLog(ethtypes.EthTransferLog(from, to, uint256.MustFromBig(value)))
-	}
 }
 
 // Event signatures for staking precompile

@@ -277,7 +277,7 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 		return nil, 0, err
 	}
 
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks, evm)
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -303,7 +303,6 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 			}
 		}()
 	}
-	pcommon.EmitTransferLog(evm, caller, p.evmKeeper.GetEVMAddressOrDefault(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), receiverSeiAddr), value)
 
 	bz, err := method.Outputs.Pack(true)
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err

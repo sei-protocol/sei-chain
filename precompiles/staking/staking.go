@@ -411,7 +411,7 @@ func (p PrecompileExecutor) delegateFor(ctx sdk.Context, method *abi.Method, del
 	if value == nil || value.Sign() == 0 {
 		return nil, 0, errors.New("set `value` field to non-zero to send delegate fund")
 	}
-	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper, p.evmKeeper, hooks, evm)
+	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -841,7 +841,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		p.bankKeeper,
 		p.evmKeeper,
 		hooks,
-		evm)
+		evm.GetDepth())
 	if err != nil {
 		return nil, 0, err
 	}
