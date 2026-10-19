@@ -137,7 +137,7 @@ func (r *BlockResult) resetForPool() {
 }
 
 func (r *BlockResult) resetForPoolLocked() {
-	r.ChangeSet.resetForReuse()
+	r.ChangeSet.Reset()
 	clear(r.Txs)
 	r.Txs = r.Txs[:0]
 	clear(r.Receipts)
@@ -145,17 +145,4 @@ func (r *BlockResult) resetForPoolLocked() {
 	r.GasUsed = 0
 	r.OCCStats = OCCStats{}
 	r.lease = nil
-}
-
-func (cs *StateChangeSet) resetForReuse() {
-	clear(cs.Balances)
-	cs.Balances = cs.Balances[:0]
-	clear(cs.Nonces)
-	cs.Nonces = cs.Nonces[:0]
-	clear(cs.Code)
-	cs.Code = cs.Code[:0]
-	clear(cs.StorageClears)
-	cs.StorageClears = cs.StorageClears[:0]
-	clear(cs.Storage)
-	cs.Storage = cs.Storage[:0]
 }

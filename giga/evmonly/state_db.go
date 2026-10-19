@@ -189,7 +189,7 @@ func (s *nativeStateDB) ChangeSet() StateChangeSet {
 }
 
 func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
-	changes.resetForReuse()
+	changes.Reset()
 	addresses := make([]common.Address, 0, len(s.accounts))
 	for addr := range s.accounts {
 		addresses = append(addresses, addr)

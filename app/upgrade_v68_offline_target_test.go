@@ -23,6 +23,7 @@ import (
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -137,7 +138,8 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 // accounts are rewritten, the retired IBC proposal reads back as a text
 // proposal, the upgraded IBC client record, the denom allowlists and the
 // tokenfactory parameters are pruned, the IBC voucher balance and supply are
-// intact and spendable, and nothing else in the retained stores changed.
+// intact and spendable, every delegation is indexed by validator, and nothing
+// else in the retained stores changed.
 func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV68OfflineAppliedName(t, testApp, artifact)
@@ -149,6 +151,7 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 	requireV68OfflineDenomAllowListsPruned(t, testApp, artifact.Stores[banktypes.StoreKey])
 	requireV68OfflineTokenfactoryParamsPruned(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineVoucher(t, testApp, artifact.Retained)
+	requireV68OfflineDelegationIndex(t, testApp)
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(t, artifact))
 }
 
@@ -279,6 +282,31 @@ func requireV68OfflineStoresDeleted(t *testing.T, testApp *App) {
 	for _, key := range testApp.CommitMultiStore().StoreKeys() {
 		require.NotContains(t, v68OfflineDeletedStores, key.Name())
 	}
+}
+
+// requireV68OfflineDelegationIndex requires the delegation-by-validator index
+// to be ready and to hold exactly one entry per stored delegation.
+func requireV68OfflineDelegationIndex(t *testing.T, testApp *App) {
+	t.Helper()
+	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
+	require.True(t, testApp.StakingKeeper.DelegationByValIndexReady(ctx))
+	store := ctx.KVStore(testApp.GetKey(stakingtypes.StoreKey))
+
+	delegations := map[string]struct{}{}
+	iterator := sdk.KVStorePrefixIterator(store, stakingtypes.DelegationKey)
+	for ; iterator.Valid(); iterator.Next() {
+		delegations[string(iterator.Key())] = struct{}{}
+	}
+	require.NoError(t, iterator.Close())
+	require.NotEmpty(t, delegations, "the source phase stored no delegations")
+
+	indexed := map[string]struct{}{}
+	iterator = sdk.KVStorePrefixIterator(store, stakingtypes.DelegationByValIndexKey)
+	for ; iterator.Valid(); iterator.Next() {
+		indexed[string(stakingtypes.GetDelegationKeyFromValIndexKey(iterator.Key()))] = struct{}{}
+	}
+	require.NoError(t, iterator.Close())
+	require.Equal(t, delegations, indexed, "the index does not hold exactly one entry per delegation")
 }
 
 func requireV68OfflineProposalRewritten(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {

@@ -378,8 +378,10 @@ WebSocket (port 8546 by default):
   and `eth_getTransactionByBlockNumberAndIndex` /
   `eth_getTransactionByBlockHashAndIndex`, which return the transaction at a
   position in a block exactly as the full-transaction block lists it.
-- Current state: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`,
-  `eth_getStorageAt`, `eth_call`, and `eth_estimateGas`.
+- State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and
+  `eth_getStorageAt`, at the latest block or a past one still within a full
+  node's retention window; `eth_call` and `eth_estimateGas`, against the
+  latest state only.
 - Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
   `eth_getBlockTransactionCountByNumber` /
   `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
@@ -415,10 +417,11 @@ subscription other than `newHeads`:
 
 ### Known limitations
 
-- Only current state is served. `eth_getBalance`, `eth_getTransactionCount`,
-  `eth_getCode`, `eth_getStorageAt`, `eth_call`, and `eth_estimateGas` return
-  an error for an explicit height, a block hash, or `earliest`: storage for
-  past state is still being built.
+- Past state needs a full node. `eth_getBalance`, `eth_getTransactionCount`,
+  `eth_getCode`, and `eth_getStorageAt` answer an explicit height or
+  `earliest` only on a node that keeps the EVM state store (a full node, not a
+  validator), and only within its retention window. A block hash returns an
+  error. `eth_call` and `eth_estimateGas` serve the latest state only.
 - Any address that has never been written reports `2^200` wei, including
   inside `eth_call` and `eth_estimateGas`. This is the test network's funding
   rule, in place of genesis allocations.
@@ -449,15 +452,24 @@ receipts.
 ### Fetch balances with `cast`
 
 `eth_getBalance` accepts `latest`, `safe`, `finalized`, and `pending`; all four
-read the current committed state because Sei has instant finality. Explicit
-block numbers and hashes return an error because historical EVM-only state is
-not wired yet.
+read the current committed state because Sei has instant finality. An explicit
+height (`--block`) reads the balance after that block, and `earliest` reads
+block 0. A past height is served from the EVM state store, so it needs a node
+that keeps one (a full node, not a validator), and fails once that height is
+pruned. A block hash, or a height above the current head, returns an error.
 
 Every previously unseen address starts with the test-only `2^200` wei balance:
 
 ```sh
 cast balance \
   --rpc-url http://127.0.0.1:8545 \
+  0x000000000000000000000000000000000000dEaD
+```
+
+```sh
+cast balance \
+  --rpc-url http://127.0.0.1:8545 \
+  --block 100 \
   0x000000000000000000000000000000000000dEaD
 ```
 
@@ -525,6 +537,7 @@ EVM-only RPC:
 
 ```sh
 cast nonce --rpc-url http://127.0.0.1:8545 0xYOUR_ADDRESS
+cast nonce --rpc-url http://127.0.0.1:8545 --block 100 0xYOUR_ADDRESS
 cast block-number --rpc-url http://127.0.0.1:8545
 cast chain-id --rpc-url http://127.0.0.1:8545
 ```
@@ -538,9 +551,9 @@ broadcast-to-commit window `pending` exists to cover. Two transactions sent
 back-to-back from the same key before the first commits are therefore
 assigned the same nonce, and the second is rejected; callers issuing rapid
 sequential sends must track the next nonce themselves rather than relying on
-`pending`. An explicit height, an explicit hash, or `earliest` returns an
-error: historical state is not available from this RPC. `eth_blockNumber` and
-`eth_chainId` take no block selector and always return the current height and
+`pending`. An explicit height or `earliest` reads the nonce after that block,
+the same way as `eth_getBalance`. `eth_blockNumber` and `eth_chainId` take no
+block selector and always return the current height and
 the network's configured EVM chain ID.
 
 ### Make a read-only call with `cast call`
@@ -557,9 +570,9 @@ cast call \
   0xYOUR_ADDRESS
 ```
 
-`eth_call` accepts the same `latest`/`safe`/`finalized`/`pending` block tags as
-`eth_getBalance` and `eth_getTransactionCount`; an explicit height, an explicit
-hash, or `earliest` returns the same historical-state error. A caller-omitted
+`eth_call` accepts only the `latest`/`safe`/`finalized`/`pending` block tags;
+an explicit height, an explicit hash, or `earliest` returns an error, because
+calls do not run against historical state. A caller-omitted
 gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
@@ -586,22 +599,24 @@ ABI-decoded revert error `eth_call` would.
 
 ```sh
 cast code --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS
+cast code --rpc-url http://127.0.0.1:8545 --block 100 0xYOUR_CONTRACT_ADDRESS
 ```
 
-`eth_getCode` accepts the same `latest`/`safe`/`finalized`/`pending` block tags
-as `eth_getBalance`; an explicit height, an explicit hash, or `earliest`
-returns the same historical-state error. An address with no code, including an
-EOA or an address that was never touched, returns `0x`, as go-ethereum does.
+`eth_getCode` accepts the same block selectors as `eth_getBalance`, and an
+explicit height reads the code after that block. An address with no code at
+that block, including an EOA or an address that was never touched, returns
+`0x`, as go-ethereum does.
 
 ### Read contract storage with `cast storage`
 
 ```sh
 cast storage --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS 0
+cast storage --rpc-url http://127.0.0.1:8545 --block 100 0xYOUR_CONTRACT_ADDRESS 0
 ```
 
-`eth_getStorageAt` accepts the same block tags as `eth_getBalance` and returns
-the same historical-state error for anything else. The slot is a hex number of
-at most 32 bytes, as in go-ethereum. An unset slot, including any slot of an
+`eth_getStorageAt` accepts the same block selectors as `eth_getBalance`, and an
+explicit height reads the slot after that block. The slot is a hex number of at
+most 32 bytes, as in go-ethereum. An unset slot, including any slot of an
 address with no contract, returns 32 zero bytes.
 
 Block context for a call is a mix of real and best-effort values: `Number` and
@@ -613,10 +628,9 @@ function that depends on either reads a placeholder rather than a real value.
 
 ### Fetch a block with `cast block`
 
-`cast block` works by height or by hash. Unlike `eth_getBalance`,
-`eth_getTransactionCount`, and `eth_call`, an explicit height is not
-historical-state-restricted: any past height still within the node's
-retention window works the same as `latest`:
+`cast block` works by height or by hash. Unlike `eth_getBalance` at a past
+height, it does not need the EVM state store: any past height still within the node's block retention window works the
+same as `latest`, on validators too:
 
 ```sh
 cast block --rpc-url http://127.0.0.1:8545 latest

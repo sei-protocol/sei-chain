@@ -491,11 +491,75 @@ func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	snapshot := a.openSettledView()
 	defer snapshot.Close()
-	if !snapshot.AccountExists(evmOnlyStoreAddress(address)) {
+	return evmOnlyBalance(snapshot, address)
+}
+
+// evmOnlyBalance reads address's balance from view, the funded balance for an account view holds no
+// state for.
+func evmOnlyBalance(view gigatypes.StateView, address common.Address) uint256.Int {
+	if !view.AccountExists(evmOnlyStoreAddress(address)) {
 		return *uint256.MustFromBig(evmOnlyBaseBalance)
 	}
-	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
+	balance := view.GetBalance(evmOnlyStoreAddress(address))
 	return *new(uint256.Int).SetBytes(balance[:])
+}
+
+// evmStateAt opens the committed EVM state after height: the settled view when it stands at height,
+// and the state store's history otherwise. It fails when neither holds that height.
+func (a *evmOnlyApplication) evmStateAt(height int64) (gigatypes.StateView, error) {
+	// The newest block is read from the settled view, since the state store applies blocks behind it.
+	view := a.openSettledView()
+	if view.GetBlockHeight() == height {
+		return view, nil
+	}
+	view.Close()
+	view, ok := a.storage.StateDB().OpenViewAt(height)
+	if !ok {
+		return nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
+	}
+	return view, nil
+}
+
+// EvmNonceAt returns address's nonce in the committed EVM state after height.
+func (a *evmOnlyApplication) EvmNonceAt(address common.Address, height int64) (uint64, error) {
+	view, err := a.evmStateAt(height)
+	if err != nil {
+		return 0, err
+	}
+	defer view.Close()
+	return view.GetNonce(evmOnlyStoreAddress(address)), nil
+}
+
+// EvmBalanceAt returns address's balance in the committed EVM state after height.
+func (a *evmOnlyApplication) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
+	view, err := a.evmStateAt(height)
+	if err != nil {
+		return uint256.Int{}, err
+	}
+	defer view.Close()
+	return evmOnlyBalance(view, address), nil
+}
+
+// EvmCodeAt returns the contract code at address in the committed EVM state after height, or nil when
+// the account held none.
+func (a *evmOnlyApplication) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
+	view, err := a.evmStateAt(height)
+	if err != nil {
+		return nil, err
+	}
+	defer view.Close()
+	return slices.Clone(view.GetCode(evmOnlyStoreAddress(address))), nil
+}
+
+// EvmStorageAt returns the value at key in address's storage in the committed EVM state after height,
+// or the zero hash when the slot was unset.
+func (a *evmOnlyApplication) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+	view, err := a.evmStateAt(height)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	defer view.Close()
+	return view.GetStorage(evmOnlyStoreAddress(address), key), nil
 }
 
 // EvmMinGasPrice returns the minimum effective gas price this application admits a transaction

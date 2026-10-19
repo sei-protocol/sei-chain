@@ -279,7 +279,7 @@ var occFragmentPool = sync.Pool{New: func() any { return new(occChangeSetFragmen
 // releaseOCCFragments clears every fragment and returns the array to occFragmentPool.
 func releaseOCCFragments(fragments *occChangeSetFragments) {
 	for i := range fragments {
-		fragments[i].resetForReuse()
+		fragments[i].Reset()
 	}
 	occFragmentPool.Put(fragments)
 }
@@ -291,7 +291,7 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 		s.ChangeSetInto(changes)
 		return ctx.Err()
 	}
-	changes.resetForReuse()
+	changes.Reset()
 	fragments := occFragmentPool.Get().(*occChangeSetFragments)
 	defer releaseOCCFragments(fragments)
 	err := pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {

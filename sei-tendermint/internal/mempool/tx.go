@@ -211,9 +211,10 @@ func (s *txStore) Clear() {
 }
 
 // Checks if tx should be immediately rejected.
-func (s *txStore) ShouldReject(txHash types.TxHash) bool {
+// Rejection returns why a tx with this hash must be rejected, or nil if it may be admitted.
+func (s *txStore) Rejection(txHash types.TxHash) error {
 	for inner := range s.inner.RLock() {
-		return inner.shouldReject(txHash)
+		return inner.rejection(txHash)
 	}
 	panic("unreachable")
 }
@@ -320,48 +321,48 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
-func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
-	// Already in mempool => true
+func (inner *txStoreInner) rejection(txHash types.TxHash) error {
+	// Already in mempool => reject
 	if _, ok := inner.byHash[txHash]; ok {
-		return true
+		return types.ErrTxInMempool
 	}
-	// Not cached => false
+	// Not cached => admit
 	e, ok := inner.cache.Get(txHash)
 	if !ok {
-		return false
+		return nil
 	}
 	// empty entry means that tx is known to be invalid.
 	evm, ok := e.Get()
 	if !ok {
-		return true
+		return types.ErrTxInCache
 	}
-	// evm account not tracked => false
+	// evm account not tracked => admit
 	account, ok := inner.accounts[evm.address]
 	if !ok {
-		return false
+		return nil
 	}
-	// too old nonce => true
+	// too old nonce => reject
 	if evm.nonce < account.firstNonce {
-		return true
+		return types.ErrTxNonceTooLow
 	}
-	// no conflicting nonce => false
+	// no conflicting nonce => admit
 	old, ok := inner.byNonce[evmAddrNonce{evm.address, evm.nonce}]
 	if !ok {
-		return false
+		return nil
 	}
-	// better tx for this nonce in mempool => false
+	// better tx for this nonce in mempool => reject
 	oldEvm := old.evm.OrPanic("non-evm tx")
 	oldReady := oldEvm.nonce < account.nextNonce
 	// If the old tx is ready but the new tx is not, then reject the new tx.
 	if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
-		return true
+		return types.ErrTxInsufficientFunds
 	}
 	// If the old tx has >= priority, then reject new tx.
 	if old.priority >= evm.priority {
-		return true
+		return types.ErrTxReplacementUnderpriced
 	}
-	// otherwise => false
-	return false
+	// otherwise => admit
+	return nil
 }
 
 // account returns the tracked state of the evm account, fetching it from the app on first use.

@@ -25,13 +25,19 @@ type txAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// GetTransactionCount returns the address nonce from the current committed EVM state.
+// GetTransactionCount returns the address nonce in the committed EVM state after block.
 func (api *txAPI) GetTransactionCount(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
-	if err := requireCurrentState(block); err != nil {
+	height, latest, err := stateHeight(api.backend, block)
+	if err != nil {
 		return nil, err
 	}
-	nonce := hexutil.Uint64(api.backend.EvmTransactionCount(address))
-	return &nonce, nil
+	var nonce uint64
+	if latest {
+		nonce = api.backend.EvmTransactionCount(address)
+	} else if nonce, err = api.backend.EvmTransactionCountAt(address, height); err != nil {
+		return nil, err
+	}
+	return (*hexutil.Uint64)(&nonce), nil
 }
 
 // GetTransactionReceipt returns the finalized Ethereum receipt for hash.
