@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
@@ -342,6 +344,46 @@ func TestEVMOnlyApplicationAppliesTheEIP7825GasCap(t *testing.T) {
 			require.Equal(t, tc.ok, response.IsOK(), response.Log)
 			if !tc.ok {
 				require.Contains(t, response.Log, ethcore.ErrGasLimitTooHigh.Error())
+			}
+		})
+	}
+}
+
+func TestEVMOnlyApplicationAppliesTheInitCodeLimit(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	future := uint64(math.MaxUint64)
+	for _, tc := range []struct {
+		name             string
+		seiAmsterdamTime *uint64
+		size             int
+		ok               bool
+	}{
+		{name: "at_amsterdam_limit", seiAmsterdamTime: new(uint64), size: params.MaxInitCodeSizeAmsterdam, ok: true},
+		{name: "over_amsterdam_limit", seiAmsterdamTime: new(uint64), size: params.MaxInitCodeSizeAmsterdam + 1},
+		{name: "at_shanghai_limit_before_fork", seiAmsterdamTime: &future, size: params.MaxInitCodeSize, ok: true},
+		{name: "over_shanghai_limit_before_fork", seiAmsterdamTime: &future, size: params.MaxInitCodeSize + 1},
+		{name: "over_shanghai_limit_unscheduled", size: params.MaxInitCodeSize + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newInitializedEVMOnlyTestApp(t)
+			app.(*evmOnlyApplication).chainConfig.SeiAmsterdamTime = tc.seiAmsterdamTime
+			tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+				Gas:      1_000_000,
+				GasPrice: big.NewInt(evmOnlyMinGasPrice),
+				Data:     make([]byte, tc.size),
+			})
+			signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+			require.NoError(t, err)
+			raw, err := signed.MarshalBinary()
+			require.NoError(t, err)
+
+			response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+
+			require.Equal(t, tc.ok, response.IsOK(), response.Log)
+			if !tc.ok {
+				require.Contains(t, response.Log, vm.ErrMaxInitCodeSizeExceeded.Error())
 			}
 		})
 	}
