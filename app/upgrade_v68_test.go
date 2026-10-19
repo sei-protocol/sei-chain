@@ -28,6 +28,7 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/upgradetest"
@@ -41,12 +42,13 @@ import (
 // transfer allowlists tokenfactory kept in the bank store, and its parameters in
 // the params store. Vesting owned no store: its state is the accounts it wrote
 // to the auth account store, which the auth 3 to 4 migration rewrites as the
-// base accounts they embed. These tests cover the rewrite of every vesting
-// account type, spending a balance a schedule had locked, the messages the
-// removed modules served, the allowlist and parameter pruning, genesis export
-// over the migrated store, and the handler itself. The handler also starts the
-// staking delegation-by-validator index backfill, which the staking EndBlocker
-// completes.
+// base accounts they embed. The wasm 1 to 2 migration stores the
+// msgExecuteContractDisabled parameter as false. These tests cover the rewrite
+// of every vesting account type, spending a balance a schedule had locked, the
+// messages the removed modules served, the allowlist and parameter pruning, the
+// stored wasm parameter, genesis export over the migrated store, and the
+// handler itself. The handler also starts the staking delegation-by-validator
+// index backfill, which the staking EndBlocker completes.
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
@@ -66,6 +68,10 @@ const (
 	// on either side of the upgrade.
 	v68AuthVersionBefore uint64 = 3
 	v68AuthVersion       uint64 = 4
+	// v68WasmVersionBefore and v68WasmVersion are the wasm consensus versions
+	// on either side of the upgrade.
+	v68WasmVersionBefore uint64 = 1
+	v68WasmVersion       uint64 = 2
 	// v68GovVersion is the gov consensus version after the upgrade, which also
 	// runs the gov 3 to 4 migration.
 	v68GovVersion uint64 = 4
@@ -73,6 +79,10 @@ const (
 	v68KeyringPassword       = "12345678\n"
 	v68PostUpgradeSendAmount = "6868usei"
 )
+
+// v68MsgExecuteContractDisabledKey is the params-store key of the wasm
+// msgExecuteContractDisabled parameter.
+var v68MsgExecuteContractDisabledKey = []byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled))
 
 var v68PostUpgradeBankReceiver = sdk.AccAddress{
 	0x68, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -118,8 +128,8 @@ type v68VestingFixture struct {
 }
 
 // seedV67VersionMap records in the version map what every chain upgrading from
-// v6.7 carries: auth and tokenfactory at their v6.7 consensus versions, oracle,
-// and vesting.
+// v6.7 carries: auth, tokenfactory and wasm at their v6.7 consensus versions,
+// oracle, and vesting.
 func seedV67VersionMap(t *testing.T, a *processblock.App) {
 	t.Helper()
 	versionMap := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
@@ -127,6 +137,7 @@ func seedV67VersionMap(t *testing.T, a *processblock.App) {
 	versionMap[retiredoracle.ModuleName] = 1
 	versionMap[retiredtokenfactory.ModuleName] = v68TokenfactoryVersionBefore
 	versionMap[v68VestingModule] = 1
+	versionMap[wasmtypes.ModuleName] = v68WasmVersionBefore
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
 }
 
@@ -263,13 +274,16 @@ func TestV68RewritesVestingAccountsAsBaseAccounts(t *testing.T) {
 	require.NotContains(t, versionsAfter, retiredtokenfactory.ModuleName)
 	require.NotContains(t, versionsAfter, v68VestingModule)
 	require.Equal(t, v68AuthVersion, versionsAfter[authtypes.ModuleName])
+	require.Equal(t, v68WasmVersion, versionsAfter[wasmtypes.ModuleName])
 	delete(versionsBefore, retiredoracle.ModuleName)
 	delete(versionsBefore, retiredtokenfactory.ModuleName)
 	delete(versionsBefore, v68VestingModule)
 	delete(versionsBefore, authtypes.ModuleName)
 	delete(versionsAfter, authtypes.ModuleName)
+	delete(versionsBefore, wasmtypes.ModuleName)
+	delete(versionsAfter, wasmtypes.ModuleName)
 	require.Equal(t, versionsBefore, versionsAfter,
-		"v6.8 changed a module version other than removing oracle, tokenfactory and vesting and moving auth")
+		"v6.8 changed a module version other than removing oracle, tokenfactory and vesting and moving auth and wasm")
 }
 
 // TestV68ConvertedAccountSpendsTheBalanceItsScheduleLocked delivers a bank send
@@ -670,6 +684,21 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 		"v6.8 changed the params store beyond deleting the tokenfactory subspace")
 }
 
+// TestV68StoresMsgExecuteContractDisabled pins that v6.8 stores the wasm
+// msgExecuteContractDisabled parameter as false in a params store that lacks
+// it, as v6.7 left it.
+func TestV68StoresMsgExecuteContractDisabled(t *testing.T) {
+	a := newV68Chain(t)
+	seedV67VersionMap(t, a)
+	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
+	store.Delete(v68MsgExecuteContractDisabledKey)
+
+	applyV68(t, a)
+
+	require.Equal(t, []byte("false"), store.Get(v68MsgExecuteContractDisabledKey),
+		"v6.8 did not store the wasm msgExecuteContractDisabled parameter as false")
+}
+
 // TestV68RewritesRetiredIBCProposals pins that a stored proposal whose content
 // type lives under an IBC protobuf package reads back as a text proposal with
 // the original title and description, with its status, deposits and votes
@@ -807,8 +836,9 @@ func TestV68CrossVersion(t *testing.T) {
 }
 
 // seedV67State records the v6.7 version map, which carries oracle, tokenfactory
-// and vesting with auth at consensus version 3, requires v6.7 to serve the
-// vesting command, and delivers a bank send before the upgrade.
+// and vesting with auth at consensus version 3 and wasm at 1, requires v6.7 to
+// serve the vesting command and to store no wasm msgExecuteContractDisabled
+// parameter, and delivers a bank send before the upgrade.
 func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 
@@ -818,8 +848,11 @@ func seedV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 		"v6.7 module version map does not carry tokenfactory")
 	require.Equal(t, uint64(1), versions[v68VestingModule], "v6.7 module version map does not carry vesting")
 	require.Equal(t, v68AuthVersionBefore, versions[authtypes.ModuleName])
+	require.Equal(t, v68WasmVersionBefore, versions[wasmtypes.ModuleName])
 	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.7 upgrade store is missing the vesting version-map entry")
+	require.Empty(t, chain.QueryStore(t, paramstypes.StoreKey, v68MsgExecuteContractDisabledKey),
+		"v6.7 already stores the wasm msgExecuteContractDisabled parameter")
 	chain.Record(t, "module_versions", versions)
 
 	vestingCommand := chain.Seid("", "tx", v68VestingModule)
@@ -860,13 +893,16 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	delete(want, v68VestingModule)
 	want[authtypes.ModuleName] = v68AuthVersion
 	want[govtypes.ModuleName] = v68GovVersion
+	want[wasmtypes.ModuleName] = v68WasmVersion
 	after := v68ModuleVersions(t, chain)
 	chain.Record(t, "module_versions_after", after)
 	require.Equal(t, want, after,
-		"v6.8 changed the version map beyond removing oracle, tokenfactory and vesting, moving auth to %d and moving gov to %d",
-		v68AuthVersion, v68GovVersion)
+		"v6.8 changed the version map beyond removing oracle, tokenfactory and vesting, moving auth to %d, gov to %d and wasm to %d",
+		v68AuthVersion, v68GovVersion, v68WasmVersion)
 	require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, v68ModuleVersionKey(v68VestingModule)),
 		"v6.8 upgrade store still carries the vesting version-map entry")
+	require.Equal(t, []byte("false"), chain.QueryStore(t, paramstypes.StoreKey, v68MsgExecuteContractDisabledKey),
+		"v6.8 did not store the wasm msgExecuteContractDisabled parameter as false")
 
 	oracleCommand := chain.Seid("", "q", retiredoracle.ModuleName)
 	require.Error(t, oracleCommand.Err)

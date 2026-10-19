@@ -28,6 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -37,6 +38,7 @@ const v68OfflineUpgradeName = "v6.8"
 
 const (
 	v68OfflineAuthVersionAfter   uint64 = 4
+	v68OfflineWasmVersionAfter   uint64 = 2
 	v68OfflinePostUpgradeFee     int64  = 200000
 	v68OfflineLegacyVestingTypes        = "/cosmos.vesting.v1beta1."
 )
@@ -137,9 +139,10 @@ func applyV68OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 // is recorded, the retired module versions and stores are gone, the vesting
 // accounts are rewritten, the retired IBC proposal reads back as a text
 // proposal, the upgraded IBC client record, the denom allowlists and the
-// tokenfactory parameters are pruned, the IBC voucher balance and supply are
-// intact and spendable, every delegation is indexed by validator, and nothing
-// else in the retained stores changed.
+// tokenfactory parameters are pruned, the wasm msgExecuteContractDisabled
+// parameter is stored, the IBC voucher balance and supply are intact and
+// spendable, every delegation is indexed by validator, and nothing else in the
+// retained stores changed.
 func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
 	t.Helper()
 	requireV68OfflineAppliedName(t, testApp, artifact)
@@ -150,6 +153,7 @@ func requireV68OfflineMigrated(t *testing.T, testApp *App, artifact offlineUpgra
 	requireV68OfflineUpgradedIBCStatePruned(t, testApp, artifact.Retained)
 	requireV68OfflineDenomAllowListsPruned(t, testApp, artifact.Stores[banktypes.StoreKey])
 	requireV68OfflineTokenfactoryParamsPruned(t, testApp, artifact.Stores[paramstypes.StoreKey])
+	requireV68OfflineMsgExecuteContractDisabledStored(t, testApp, artifact.Stores[paramstypes.StoreKey])
 	requireV68OfflineVoucher(t, testApp, artifact.Retained)
 	requireV68OfflineDelegationIndex(t, testApp)
 	requireOfflineUpgradeRetainedStoresExcept(t, testApp, artifact.Stores, v68OfflineTouchedKey(t, artifact))
@@ -272,6 +276,7 @@ func requireV68OfflineVersionMap(t *testing.T, testApp *App, before []string) {
 	}
 	versions := testApp.UpgradeKeeper.GetModuleVersionMap(offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()))
 	require.Equal(t, v68OfflineAuthVersionAfter, versions[authtypes.ModuleName])
+	require.Equal(t, v68OfflineWasmVersionAfter, versions[wasmtypes.ModuleName])
 }
 
 func requireV68OfflineStoresDeleted(t *testing.T, testApp *App) {
@@ -397,6 +402,22 @@ func requireV68OfflineNoTokenfactoryParams(t *testing.T, testApp *App) {
 		require.NoError(t, iterator.Close())
 	}()
 	require.False(t, iterator.Valid(), "v6.8 left a tokenfactory parameter in the params store")
+}
+
+// v68OfflineMsgExecuteContractDisabledKey is the params-store key of the wasm
+// msgExecuteContractDisabled parameter.
+var v68OfflineMsgExecuteContractDisabledKey = []byte(wasmtypes.ModuleName + "/" + string(wasmtypes.ParamStoreKeyMsgExecuteContractDisabled))
+
+// requireV68OfflineMsgExecuteContractDisabledStored requires the source phase's
+// params snapshot to lack the wasm msgExecuteContractDisabled parameter and the
+// committed params store to hold it as false.
+func requireV68OfflineMsgExecuteContractDisabledStored(t *testing.T, testApp *App, sourceParams map[string]string) {
+	t.Helper()
+	_, recorded := sourceParams[encodeOfflineUpgradeKey(v68OfflineMsgExecuteContractDisabledKey)]
+	require.False(t, recorded, "the source phase already stored the wasm msgExecuteContractDisabled parameter")
+	store := testApp.CommitMultiStore().GetCommitKVStore(testApp.GetKey(paramstypes.StoreKey))
+	require.Equal(t, []byte("false"), store.Get(v68OfflineMsgExecuteContractDisabledKey),
+		"v6.8 did not store the wasm msgExecuteContractDisabled parameter as false")
 }
 
 func requireV68OfflineVoucher(t *testing.T, testApp *App, retained offlineUpgradeRetainedState) {
