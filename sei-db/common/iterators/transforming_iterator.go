@@ -46,7 +46,8 @@ type transformingIterator struct {
 }
 
 // NewTransformingIterator returns an iterator that emits transformed key/value pairs
-// from parent, skipping pairs for which transform returns skip=true.
+// from parent, skipping pairs for which transform returns skip=true. It takes ownership of
+// parent: on error, parent is already closed.
 func NewTransformingIterator(parent dbm.Iterator, transform IteratorTransform) (dbm.Iterator, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("nil parent iterator")

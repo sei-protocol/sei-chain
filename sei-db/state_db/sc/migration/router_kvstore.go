@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	ics23 "github.com/confio/ics23/go"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	db "github.com/tendermint/tm-db"
@@ -38,14 +39,18 @@ type RouterCommitKVStore struct {
 	// longer flows through the Router (the backends are stitched together by
 	// the owner, e.g. composite.Store); the owner supplies a builder already
 	// bound to storeName.
-	iterator func(start, end []byte, ascending bool) (db.Iterator, error)
+	iterator IteratorBuilder
 }
+
+// IteratorBuilder opens an iterator over one store's [start, end), charging every row the backends read
+// to budget. A nil budget imposes no bound.
+type IteratorBuilder func(budget *iterators.ScanBudget, start, end []byte, ascending bool) (db.Iterator, error)
 
 func NewRouterCommitKVStore(
 	routerProvider func() Router,
 	storeName string,
 	versionProvider func() int64,
-	iterator func(start, end []byte, ascending bool) (db.Iterator, error),
+	iterator IteratorBuilder,
 ) *RouterCommitKVStore {
 	return &RouterCommitKVStore{
 		routerProvider:  routerProvider,
@@ -101,11 +106,29 @@ func (r *RouterCommitKVStore) Iterator(start []byte, end []byte, ascending bool)
 	if r.iterator == nil {
 		panic(fmt.Errorf("RouterCommitKVStore.Iterator(store=%q): no iterator builder configured", r.storeName))
 	}
-	it, err := r.iterator(start, end, ascending)
+	it, err := r.iterator(nil, start, end, ascending)
 	if err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.Iterator(store=%q): %w", r.storeName, err))
 	}
 	return it
+}
+
+// BudgetedIterator is Iterator, with every row the backends read charged to budget. It returns a
+// construction error, including an exhausted budget, rather than panicking.
+func (r *RouterCommitKVStore) BudgetedIterator(
+	budget *iterators.ScanBudget,
+	start []byte,
+	end []byte,
+	ascending bool,
+) (db.Iterator, error) {
+	if r.iterator == nil {
+		return nil, fmt.Errorf("RouterCommitKVStore.BudgetedIterator(store=%q): no iterator builder configured", r.storeName)
+	}
+	it, err := r.iterator(budget, start, end, ascending)
+	if err != nil {
+		return nil, fmt.Errorf("RouterCommitKVStore.BudgetedIterator(store=%q): %w", r.storeName, err)
+	}
+	return it, nil
 }
 
 func (r *RouterCommitKVStore) GetProof(key []byte) *ics23.CommitmentProof {

@@ -70,6 +70,19 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 }
 
 func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
+	return s.BudgetedIterator(nil, store, start, end, ascending)
+}
+
+// BudgetedIterator is Iterator, with every row a store iterator returns charged to budget before lane
+// filtering, including rows a lane does not yield. An exhausted budget fails construction or goes invalid mid-scan, with
+// iterators.ErrScanBudgetExceeded. A nil budget behaves exactly as Iterator.
+func (s *CommitStore) BudgetedIterator(
+	budget *iterators.ScanBudget,
+	store string,
+	start []byte,
+	end []byte,
+	ascending bool,
+) (dbm.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
@@ -83,10 +96,10 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 	var iter dbm.Iterator
 	var err error
 	if store == keys.EVMStoreKey {
-		iter, err = s.buildEvmIterator(start, end, ascending)
+		iter, err = s.buildEvmIterator(budget, start, end, ascending)
 	} else {
 		lowerBound, upperBound := moduleIteratorBounds(store, start, end)
-		iter, err = s.buildMiscDBLane(store, lowerBound, upperBound, ascending)
+		iter, err = s.buildMiscDBLane(budget, store, lowerBound, upperBound, ascending)
 	}
 	if err != nil {
 		return nil, err
@@ -99,6 +112,7 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 // buildEvmIterator merges the six EVM lanes — code, storage, misc under the evm/ module, account
 // nonce, account codehash and account balance — into one iterator over logical memiavl keys.
 func (s *CommitStore) buildEvmIterator(
+	budget *iterators.ScanBudget,
 	start []byte,
 	end []byte,
 	ascending bool,
@@ -119,7 +133,7 @@ func (s *CommitStore) buildEvmIterator(
 		if empty {
 			continue
 		}
-		lane, err := laneSpec.build(lower, upper, ascending)
+		lane, err := laneSpec.build(budget, lower, upper, ascending)
 		if err != nil {
 			closeIterators(lanes)
 			return nil, err
@@ -130,7 +144,7 @@ func (s *CommitStore) buildEvmIterator(
 	// Misc is the identity-mapped catch-all (no single type prefix), so it uses
 	// the whole-range translation and is always built.
 	miscLower, miscUpper := moduleIteratorBounds(keys.EVMStoreKey, start, end)
-	miscLane, err := s.buildMiscDBLane(keys.EVMStoreKey, miscLower, miscUpper, ascending)
+	miscLane, err := s.buildMiscDBLane(budget, keys.EVMStoreKey, miscLower, miscUpper, ascending)
 	if err != nil {
 		closeIterators(lanes)
 		return nil, err
@@ -156,7 +170,7 @@ type evmLaneSpec struct {
 	// account DB under 0x0a.
 	physical keys.EVMKeyKind
 	// build constructs the iterator that scans the lane's physical keyspace.
-	build func(lower []byte, upper []byte, ascending bool) (dbm.Iterator, error)
+	build func(budget *iterators.ScanBudget, lower []byte, upper []byte, ascending bool) (dbm.Iterator, error)
 }
 
 // bounds resolves the lane's logical and physical type bytes and translates the
@@ -261,8 +275,12 @@ func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBou
 // rows, with staged rows winning and deletions suppressed — adapted to a dbm.Iterator and then passed
 // through a transform that re-labels rows to their logical key and decodes the value. The per-lane
 // transform supplies the only behavior that differs between lanes.
+//
+// Every row the store iterator reads is charged to budget before the transform sees it, so rows the
+// transform skips cannot escape the bound.
 func buildLane(
 	source view.ViewManager,
+	budget *iterators.ScanBudget,
 	lowerBound, upperBound []byte,
 	ascending bool,
 	transform iterators.IteratorTransform,
@@ -275,10 +293,10 @@ func buildLane(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create store iterator: %w", err)
 	}
+	storeIterator = iterators.NewBudgetedIterator(storeIterator, budget)
 
 	transformedIterator, err := iterators.NewTransformingIterator(storeIterator, transform)
 	if err != nil {
-		_ = storeIterator.Close()
 		return nil, fmt.Errorf("failed to create transform iterator: %w", err)
 	}
 	return transformedIterator, nil
@@ -288,6 +306,7 @@ func buildLane(
 // key and the raw value. Keys belonging to another module are an error rather than a skip: the bounds
 // are supposed to have confined the walk to this module already.
 func (s *CommitStore) buildMiscDBLane(
+	budget *iterators.ScanBudget,
 	store string,
 	lowerBound, upperBound []byte,
 	ascending bool,
@@ -312,11 +331,12 @@ func (s *CommitStore) buildMiscDBLane(
 		}
 		return logicalKey, ld.GetValue(), false, nil
 	}
-	return buildLane(s.miscStore, lowerBound, upperBound, ascending, transform)
+	return buildLane(s.miscStore, budget, lowerBound, upperBound, ascending, transform)
 }
 
 // buildCodeLane iterates the code store, emitting the EVM code key and the bytecode.
 func (s *CommitStore) buildCodeLane(
+	budget *iterators.ScanBudget,
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
@@ -334,11 +354,12 @@ func (s *CommitStore) buildCodeLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCode, strippedKey), cd.GetBytecode(), false, nil
 	}
-	return buildLane(s.codeStore, lowerBound, upperBound, ascending, transform)
+	return buildLane(s.codeStore, budget, lowerBound, upperBound, ascending, transform)
 }
 
 // buildStorageLane iterates the storage store, emitting the EVM storage key and the 32-byte value.
 func (s *CommitStore) buildStorageLane(
+	budget *iterators.ScanBudget,
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
@@ -356,12 +377,13 @@ func (s *CommitStore) buildStorageLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyStorage, strippedKey), sd.GetValue()[:], false, nil
 	}
-	return buildLane(s.storageStore, lowerBound, upperBound, ascending, transform)
+	return buildLane(s.storageStore, budget, lowerBound, upperBound, ascending, transform)
 }
 
 // buildAccountNonceLane iterates the account store, emitting the EVM nonce key and the nonce as eight
 // big-endian bytes.
 func (s *CommitStore) buildAccountNonceLane(
+	budget *iterators.ScanBudget,
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
@@ -381,13 +403,14 @@ func (s *CommitStore) buildAccountNonceLane(
 		binary.BigEndian.PutUint64(nonceBytes, ad.GetNonce())
 		return keys.BuildEVMKey(keys.EVMKeyNonce, addrBytes), nonceBytes, false, nil
 	}
-	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
+	return buildLane(s.accountStore, budget, lowerBound, upperBound, ascending, transform)
 }
 
 // buildAccountCodehashLane iterates the account store, emitting the EVM codehash key and the hash. It
 // walks the same values as buildAccountNonceLane and projects a different field. An account whose code
 // hash is zero has no code, so it is skipped rather than emitted as a zero hash.
 func (s *CommitStore) buildAccountCodehashLane(
+	budget *iterators.ScanBudget,
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
@@ -410,13 +433,14 @@ func (s *CommitStore) buildAccountCodehashLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCodeHash, addrBytes), codeHash[:], false, nil
 	}
-	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
+	return buildLane(s.accountStore, budget, lowerBound, upperBound, ascending, transform)
 }
 
 // buildAccountBalanceLane iterates the account store, emitting the EVM balance key and the 32-byte
 // balance. It walks the same values as buildAccountNonceLane and projects a different field. An account
 // whose balance is zero holds nothing, so it is skipped rather than emitted as a zero balance.
 func (s *CommitStore) buildAccountBalanceLane(
+	budget *iterators.ScanBudget,
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
@@ -438,7 +462,7 @@ func (s *CommitStore) buildAccountBalanceLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyBalance, addrBytes), balance[:], false, nil
 	}
-	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
+	return buildLane(s.accountStore, budget, lowerBound, upperBound, ascending, transform)
 }
 
 func closeIterators(iters []dbm.Iterator) {

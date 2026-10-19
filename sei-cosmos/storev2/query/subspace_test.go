@@ -9,6 +9,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/stretchr/testify/require"
 )
 
@@ -149,6 +150,49 @@ type abortingStore struct {
 
 func (s *abortingStore) Iterator(start, end []byte) storetypes.Iterator {
 	return &abortingIterator{Iterator: s.Store.Iterator(start, end), remaining: s.pairsBeforeAbort}
+}
+
+// hiddenRowStore implements BudgetedIterable the way a flatkv projected lane does: it reads every row
+// in range and yields only those its filter keeps.
+type hiddenRowStore struct {
+	*mem.Store
+	keep func(key []byte) bool
+}
+
+func (s *hiddenRowStore) BudgetedIterator(budget *iterators.ScanBudget, start, end []byte) (storetypes.Iterator, error) {
+	parent := iterators.NewBudgetedIterator(s.Store.Iterator(start, end), budget)
+	return iterators.NewTransformingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+		return key, value, !s.keep(key), nil
+	})
+}
+
+func TestScanSubspace_RowsReadAndNotYieldedAreCapped(t *testing.T) {
+	store := &hiddenRowStore{Store: seedStore(t, 10, 8), keep: func([]byte) bool { return false }}
+
+	_, err := ScanSubspace(t.Context(), store, []byte("p"), Limits{MaxScannedRows: 9})
+	require.True(t, storetypes.ErrSubspaceCapExceeded.Is(err), "got %v", err)
+
+	bz, err := ScanSubspace(t.Context(), store, []byte("p"), Limits{MaxScannedRows: 10})
+	require.NoError(t, err)
+	var pairs kv.Pairs
+	require.NoError(t, pairs.Unmarshal(bz))
+	require.Empty(t, pairs.Pairs)
+}
+
+func TestScanSubspace_ScanBudgetEndsAScanMidIteration(t *testing.T) {
+	everyThird := func(key []byte) bool { return key[1]%3 == 0 }
+	store := &hiddenRowStore{Store: seedStore(t, 10, 8), keep: everyThird}
+
+	_, err := ScanSubspace(t.Context(), store, []byte("p"), Limits{MaxScannedRows: 5})
+	require.True(t, storetypes.ErrSubspaceCapExceeded.Is(err), "got %v", err)
+	require.True(t, IsCapExceededResponse(sdkerrors.QueryResult(err)))
+}
+
+func TestLimits_DefaultScanBudgetIsNeverBelowThePairCap(t *testing.T) {
+	require.Equal(t, DefaultMaxSubspaceScannedRows, Limits{}.effective().MaxScannedRows)
+	require.Equal(t, 2*DefaultMaxSubspaceScannedRows,
+		Limits{MaxPairs: 2 * DefaultMaxSubspaceScannedRows}.effective().MaxScannedRows)
+	require.Equal(t, 7, Limits{MaxPairs: 2 * DefaultMaxSubspaceScannedRows, MaxScannedRows: 7}.effective().MaxScannedRows)
 }
 
 func TestScanSubspace_AbortedIterationIsNotSuccess(t *testing.T) {

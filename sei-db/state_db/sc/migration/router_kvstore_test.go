@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	ics23 "github.com/confio/ics23/go"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -170,11 +171,34 @@ func TestRouterCommitKVStore_IteratorPanicsOnBuilderError(t *testing.T) {
 		staticRouter(NewTestInMemoryRouter()),
 		testRouterStoreName,
 		func() int64 { return 0 },
-		func([]byte, []byte, bool) (dbm.Iterator, error) {
+		func(*iterators.ScanBudget, []byte, []byte, bool) (dbm.Iterator, error) {
 			return nil, errors.New("boom")
 		},
 	)
 	require.Panics(t, func() { _ = store.Iterator(nil, nil, true) })
+}
+
+func TestRouterCommitKVStore_BudgetedIteratorReturnsBuilderError(t *testing.T) {
+	// BudgetedIterator hands the budget to the builder and returns its error instead of panicking, so a
+	// query that exhausts its budget fails rather than crashing the node.
+	budget := iterators.NewScanBudget(t.Context(), 1)
+	store := NewRouterCommitKVStore(
+		staticRouter(NewTestInMemoryRouter()),
+		testRouterStoreName,
+		func() int64 { return 0 },
+		func(got *iterators.ScanBudget, _, _ []byte, _ bool) (dbm.Iterator, error) {
+			require.Same(t, budget, got)
+			return nil, iterators.ErrScanBudgetExceeded
+		},
+	)
+	_, err := store.BudgetedIterator(budget, nil, nil, true)
+	require.ErrorIs(t, err, iterators.ErrScanBudgetExceeded)
+}
+
+func TestRouterCommitKVStore_BudgetedIteratorErrorsWhenNoBuilderConfigured(t *testing.T) {
+	store, _ := newRouterCommitKVStoreForTest(t, 0)
+	_, err := store.BudgetedIterator(nil, nil, nil, true)
+	require.Error(t, err)
 }
 
 func TestRouterCommitKVStore_IteratorPanicsWhenNoBuilderConfigured(t *testing.T) {

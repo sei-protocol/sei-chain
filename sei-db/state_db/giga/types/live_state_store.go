@@ -6,6 +6,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -132,6 +133,17 @@ type LiveStateStore interface {
 		// If nil, the iterator will iterate until the end of the store.
 		end []byte,
 		// Whether to iterate in ascending order.
+		ascending bool,
+	) (dbm.Iterator, error)
+
+	// BudgetedIterator is Iterator, with every row read from storage charged to budget, including rows
+	// read and not yielded. An exhausted budget fails construction or ends iteration with
+	// iterators.ErrScanBudgetExceeded. A nil budget behaves exactly as Iterator.
+	BudgetedIterator(
+		budget *iterators.ScanBudget,
+		store string,
+		start []byte,
+		end []byte,
 		ascending bool,
 	) (dbm.Iterator, error)
 

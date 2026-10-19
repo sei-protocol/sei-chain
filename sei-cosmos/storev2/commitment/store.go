@@ -11,16 +11,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	seidbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	dbm "github.com/tendermint/tm-db"
 )
 
 var (
-	_ types.CommitKVStore = (*Store)(nil)
-	_ types.Queryable     = (*Store)(nil)
+	_ types.CommitKVStore    = (*Store)(nil)
+	_ types.Queryable        = (*Store)(nil)
+	_ query.BudgetedIterable = (*Store)(nil)
 )
+
+// budgetedTree is implemented by trees whose backends can charge the rows they read to a ScanBudget.
+type budgetedTree interface {
+	BudgetedIterator(budget *iterators.ScanBudget, start, end []byte, ascending bool) (dbm.Iterator, error)
+}
 
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
@@ -112,6 +120,16 @@ func (st *Store) Iterator(start, end []byte) types.Iterator {
 
 func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
 	return st.tree.Iterator(start, end, false)
+}
+
+// BudgetedIterator implements query.BudgetedIterable. A tree that cannot charge a budget yields one row
+// for every row it reads, and is iterated without one.
+func (st *Store) BudgetedIterator(budget *iterators.ScanBudget, start, end []byte) (types.Iterator, error) {
+	tree, ok := st.tree.(budgetedTree)
+	if !ok {
+		return st.Iterator(start, end), nil
+	}
+	return tree.BudgetedIterator(budget, start, end, true)
 }
 
 // SetInitialVersion sets the initial version of the IAVL tree. It is used when

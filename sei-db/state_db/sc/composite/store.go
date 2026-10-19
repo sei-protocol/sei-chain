@@ -1461,8 +1461,8 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 		cs.loadRouter,
 		name,
 		cs.Version,
-		func(start, end []byte, ascending bool) (db.Iterator, error) {
-			return cs.iterate(name, start, end, ascending)
+		func(budget *iterators.ScanBudget, start, end []byte, ascending bool) (db.Iterator, error) {
+			return cs.iterate(budget, name, start, end, ascending)
 		},
 	)
 }
@@ -1861,7 +1861,7 @@ func (cs *CompositeCommitStore) Has(store string, key []byte) (bool, error) {
 }
 
 func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	return cs.iterate(store, start, end, ascending)
+	return cs.iterate(nil, store, start, end, ascending)
 }
 
 // iterate builds a single iterator over store by stitching together one
@@ -1890,7 +1890,16 @@ func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte,
 // constructions, this order makes the worst case a duplicate key, resolved to
 // memiavl's value from the earlier version. The reverse order could miss the
 // key.
-func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+//
+// budget is charged only by flatkv. memiavl yields one row for every row it
+// reads, so a bound on rows returned already bounds its work.
+func (cs *CompositeCommitStore) iterate(
+	budget *iterators.ScanBudget,
+	store string,
+	start []byte,
+	end []byte,
+	ascending bool,
+) (db.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
@@ -1909,7 +1918,7 @@ func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, 
 	}
 	children := make([]db.Iterator, 0, 2)
 	if flatKV := cs.loadFlatKV(); flatKV != nil {
-		flatIter, err := flatKV.Iterator(store, start, end, ascending)
+		flatIter, err := flatKV.BudgetedIterator(budget, store, start, end, ascending)
 		if err != nil {
 			closeIterators([]db.Iterator{memIter})
 			return nil, fmt.Errorf("failed to build flatkv iterator: %w", err)

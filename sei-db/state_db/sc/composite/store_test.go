@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -52,6 +53,9 @@ func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, e
 func (f *failingEVMStore) Has(string, []byte) bool                  { return false }
 func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil, nil }
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
+	return nil, nil
+}
+func (f *failingEVMStore) BudgetedIterator(*iterators.ScanBudget, string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
 func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
