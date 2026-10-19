@@ -45,6 +45,7 @@ type Backend interface {
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
+	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)
 	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
 	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
@@ -52,6 +53,7 @@ type Backend interface {
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
+	EvmCodeAt(address common.Address, height int64) ([]byte, error)
 	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
 	// any revert data if it still fails at gasCap.
 	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
@@ -62,7 +64,9 @@ type Backend interface {
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
+	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
 	EvmTransactionCount(common.Address) uint64
+	EvmTransactionCountAt(address common.Address, height int64) (uint64, error)
 }
 
 // Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.

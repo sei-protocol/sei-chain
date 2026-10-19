@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,6 +40,9 @@ import (
 )
 
 const (
+	// setupTimeout bounds TestMain's setup, which runs outside the go test timeout.
+	setupTimeout = 30 * time.Minute
+
 	// Cluster lifecycle (TestMain).
 	clusterBootTimeout  = 5 * time.Minute
 	clusterBootPoll     = 5 * time.Second
@@ -63,8 +67,8 @@ const (
 	// progressTxAccountBase is past the 4_000 deterministic senders EVMOnlyLoad
 	// uses, so a later progress tx is a nonce-0 transfer from a funded account.
 	progressTxAccountBase = 1_000_000
-	// prebuiltImagesEnv selects run-rpc-node-skipbuild-ci for the sidecar, which
-	// runs the already present sei-chain/rpcnode image instead of rebuilding it.
+	// prebuiltImagesEnv selects the -ci make targets, which reuse the prebuilt
+	// sei-chain/localnode and sei-chain/rpcnode images and build/seid.
 	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
 
 	// Fault-tolerance subtests. Execution height is read from each
@@ -159,13 +163,8 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "chdir to %s: %v\n", root, err)
 		os.Exit(1)
 	}
-	if err := setupCluster(); err != nil {
-		fmt.Fprintf(os.Stderr, "cluster setup failed: %v\n", err)
-		teardownCluster()
-		os.Exit(1)
-	}
-	if err := setupFullnodeNode(); err != nil {
-		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
+	if err := setup(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		teardownCluster()
 		os.Exit(1)
 	}
@@ -193,35 +192,70 @@ func findRepoRoot() (string, error) {
 	}
 }
 
+// setup brings up the validator cluster and the fullnode sidecar, failing
+// if they are not both ready within setupTimeout.
+func setup() error {
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer cancel()
+	if err := setupCluster(ctx); err != nil {
+		return fmt.Errorf("cluster setup failed: %w", err)
+	}
+	if err := setupFullnodeNode(ctx); err != nil {
+		return fmt.Errorf("fullnode sidecar setup failed: %w", err)
+	}
+	return nil
+}
+
 // runMake runs `make <target>` from the current directory, streaming output.
-func runMake(env []string, target string) error {
-	cmd := exec.Command("make", target)
+// The process and its children are killed when ctx ends.
+func runMake(ctx context.Context, env []string, target string) error {
+	cmd := exec.CommandContext(ctx, "make", target)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	err := cmd.Run()
+	if err != nil && ctx.Err() != nil {
+		return fmt.Errorf("%w: %w", ctx.Err(), err)
+	}
+	return err
+}
+
+// pause waits for d, returning ctx's error if ctx ends first.
+func pause(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
 }
 
 // setupCluster starts the autobahn docker cluster and waits until all nodes
 // have signalled readiness via build/generated/launch.complete.
-func setupCluster() error {
+func setupCluster(ctx context.Context) error {
 	fmt.Println("=== Starting Autobahn Integration Tests ===")
 	// Best-effort cleanup of any prior cluster, then wipe generated state.
-	_ = runMake(nil, "docker-cluster-stop")
+	_ = runMake(ctx, nil, "docker-cluster-stop")
 	if err := os.RemoveAll("build/generated"); err != nil {
 		return fmt.Errorf("rm -rf build/generated: %w", err)
 	}
-	if err := runMake([]string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, "docker-cluster-start"); err != nil {
-		return fmt.Errorf("docker-cluster-start: %w", err)
+	target := "docker-cluster-start"
+	if prebuiltImages() {
+		target += "-ci"
+	}
+	if err := runMake(ctx, []string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, target); err != nil {
+		return fmt.Errorf("%s: %w", target, err)
 	}
 	// Count created containers (they exist immediately post-compose-up) to
 	// determine how many launch.complete entries to wait for.
-	expected, err := countSeiContainers()
+	expected, err := countSeiContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
 	}
 	if expected == 0 {
-		return fmt.Errorf("no sei-node-* containers found after docker-cluster-start")
+		return fmt.Errorf("no sei-node-* containers found after %s", target)
 	}
 	fmt.Printf("Waiting for %d nodes to be ready...\n", expected)
 	deadline := time.Now().Add(clusterBootTimeout)
@@ -229,18 +263,19 @@ func setupCluster() error {
 		if n := countLaunchComplete("build/generated/launch.complete"); n >= expected {
 			fmt.Printf("All %d nodes are ready\n", expected)
 			fmt.Printf("Waiting %s for autobahn connections to establish...\n", autobahnSettleDelay)
-			time.Sleep(autobahnSettleDelay)
-			return nil
+			return pause(ctx, autobahnSettleDelay)
 		}
-		time.Sleep(clusterBootPoll)
+		if err := pause(ctx, clusterBootPoll); err != nil {
+			return fmt.Errorf("waiting for nodes to be ready: %w", err)
+		}
 	}
 	return fmt.Errorf("cluster failed to start within %s", clusterBootTimeout)
 }
 
 // countSeiContainers returns the number of sei-node-* containers that exist
 // (running or not yet started).
-func countSeiContainers() (int, error) {
-	out, err := exec.Command("docker", "ps", "-a",
+func countSeiContainers(ctx context.Context) (int, error) {
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-a",
 		"--filter", "name=sei-node-",
 		"--format", "{{.Names}}").Output()
 	if err != nil {
@@ -263,14 +298,14 @@ func prebuiltImages() bool {
 // `go install` cycle. The autobahn role itself comes from mode = "full"
 // in docker/rpcnode/config/config.toml — setup.go picks the fullnode
 // constructor when there's no local validator key.
-func setupFullnodeNode() error {
+func setupFullnodeNode(ctx context.Context) error {
 	fmt.Println("=== Starting fullnode sidecar ===")
-	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
+	_ = runMake(ctx, nil, "kill-rpc-node") // best-effort cleanup
 
 	// Discover the cluster size from docker so the rpc-node's autobahn config
 	// covers exactly the validators that came up — non-four-node test runs
 	// would otherwise produce a mismatched committee.
-	clusterSize, err := countSeiContainers()
+	clusterSize, err := countSeiContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
 	}
@@ -297,7 +332,7 @@ func setupFullnodeNode() error {
 	// Phase 1: wait for the container to exist and run. Anything `make` does
 	// before `docker run` (image build, pull) lands here, not in the boot budget.
 	startDeadline := time.Now().Add(fullnodeStartTimeout)
-	for !fullnodeRunning() {
+	for !fullnodeRunning(ctx) {
 		select {
 		case err := <-exited:
 			return fmt.Errorf("make %s exited before %s was running: %v", target, fullnodeContainer, err)
@@ -306,7 +341,9 @@ func setupFullnodeNode() error {
 		if !time.Now().Before(startDeadline) {
 			return fmt.Errorf("fullnode sidecar container didn't start within %s", fullnodeStartTimeout)
 		}
-		time.Sleep(fullnodeBootPoll)
+		if err := pause(ctx, fullnodeBootPoll); err != nil {
+			return fmt.Errorf("waiting for %s to start: %w", fullnodeContainer, err)
+		}
 	}
 
 	// Phase 2: the node's own boot.
@@ -317,17 +354,19 @@ func setupFullnodeNode() error {
 			return fmt.Errorf("make %s exited while %s was booting: %v", target, fullnodeContainer, err)
 		default:
 		}
-		if fullnodeRunning() && fullnodeEVMReady() {
+		if fullnodeRunning(ctx) && fullnodeEVMReady() {
 			fmt.Println("fullnode sidecar is ready")
 			return nil
 		}
-		time.Sleep(fullnodeBootPoll)
+		if err := pause(ctx, fullnodeBootPoll); err != nil {
+			return fmt.Errorf("waiting for %s to boot: %w", fullnodeContainer, err)
+		}
 	}
 	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting", fullnodeBootTimeout)
 }
 
-func fullnodeRunning() bool {
-	out, err := exec.Command("docker", "ps",
+func fullnodeRunning(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, "docker", "ps",
 		"--filter", "name="+fullnodeContainer,
 		"--filter", "status=running",
 		"--format", "{{.Names}}").Output()
@@ -366,7 +405,7 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 		return nil, err
 	}
 	out, err := exec.Command("docker", "exec", container,
-		"curl", "-sf", "-X", "POST",
+		"curl", "-sf", "--max-time", "10", "-X", "POST",
 		"-H", "content-type: application/json",
 		"--data", string(body),
 		evmRPCURLOnContainerLocalhost).Output()
@@ -387,9 +426,9 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 // new sidecars later goes here too.
 func teardownCluster() {
 	fmt.Println("=== Stopping fullnode sidecar ===")
-	_ = runMake(nil, "kill-rpc-node")
+	_ = runMake(context.Background(), nil, "kill-rpc-node")
 	fmt.Println("=== Stopping cluster ===")
-	_ = runMake(nil, "docker-cluster-stop")
+	_ = runMake(context.Background(), nil, "docker-cluster-stop")
 }
 
 // countLaunchComplete returns the number of non-empty lines in the launch

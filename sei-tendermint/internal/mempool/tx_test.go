@@ -576,8 +576,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			_, pendingPresent := txStore.ByHash(pending.Hash())
 			require.Equal(t, tc.wantReadyPresent, readyPresent)
 			require.Equal(t, tc.wantPendingPresent, pendingPresent)
-			require.Equal(t, tc.wantReadyRejected, txStore.ShouldReject(ready.Hash()))
-			require.Equal(t, tc.wantPendingRejected, txStore.ShouldReject(pending.Hash()))
+			require.Equal(t, tc.wantReadyRejected, txStore.Rejection(ready.Hash()) != nil)
+			require.Equal(t, tc.wantPendingRejected, txStore.Rejection(pending.Hash()) != nil)
 		})
 	}
 }
@@ -612,8 +612,8 @@ func TestTxStore_NoncePrunedTxsRejectedAsOldNonce(t *testing.T) {
 	_, pendingPresent := txStore.ByHash(prunedPending.Hash())
 	require.False(t, readyPresent)
 	require.False(t, pendingPresent)
-	require.True(t, txStore.ShouldReject(prunedReady.Hash()))
-	require.True(t, txStore.ShouldReject(prunedPending.Hash()))
+	require.ErrorIs(t, txStore.Rejection(prunedReady.Hash()), types.ErrTxInCache)
+	require.ErrorIs(t, txStore.Rejection(prunedPending.Hash()), types.ErrTxInCache)
 }
 
 func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
