@@ -38,6 +38,11 @@ type testBackend struct {
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
+
+	balanceAt          func(common.Address, int64) (uint256.Int, error)
+	codeAt             func(common.Address, int64) ([]byte, error)
+	storageAt          func(common.Address, common.Hash, int64) (common.Hash, error)
+	transactionCountAt func(common.Address, int64) (uint64, error)
 }
 
 func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
@@ -58,6 +63,22 @@ func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlo
 
 func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 	return b.balance(address)
+}
+
+func (b *testBackend) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
+	return b.balanceAt(address, height)
+}
+
+func (b *testBackend) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
+	return b.codeAt(address, height)
+}
+
+func (b *testBackend) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+	return b.storageAt(address, key, height)
+}
+
+func (b *testBackend) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+	return b.transactionCountAt(address, height)
 }
 
 func (b *testBackend) EvmBaseFee() (*big.Int, error) {
