@@ -60,9 +60,8 @@ type Store struct {
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
-	// subspaceQuerySem bounds concurrent /subspace scans on the SS fast path only.
-	// The commitment path is reached with SS disabled or a proof requested, where
-	// the pair/byte caps are the only bound.
+	// subspaceQuerySem bounds concurrent /subspace scans on every query path, SS and
+	// commitment alike.
 	subspaceQuerySem chan struct{}
 	subspaceLimits   query.Limits
 
@@ -1020,6 +1019,20 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	req.Path = subPath
 	req.Height = version // keep downstream store.Query height consistent
 
+	// The permit is taken here, ahead of the backend branch, so that every /subspace scan is
+	// bounded regardless of which store serves it. A scan on the commitment path can walk a
+	// state-sized physical range while yielding few pairs (flatkv projects the code-hash and
+	// balance lanes out of the account rows), so the pair/byte caps alone do not bound its work.
+	if subPath == "/subspace" {
+		if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
+			storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+				attribute.String("reason", "semaphore"),
+			))
+			return sdkerrors.QueryResult(err)
+		}
+		defer rs.releaseSubspaceQueryPermit()
+	}
+
 	needProof := req.Prove && rootmulti.RequireProof(subPath)
 	latest := version == rs.scStore.Version()
 
@@ -1027,15 +1040,6 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	if !needProof && rs.ssStore != nil {
 		if err := rs.validateSSReadVersion(version); err != nil {
 			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()))
-		}
-		if req.Path == "/subspace" {
-			if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
-				storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
-					attribute.String("reason", "semaphore"),
-				))
-				return sdkerrors.QueryResult(err)
-			}
-			defer rs.releaseSubspaceQueryPermit()
 		}
 		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version, rs.subspaceLimits))
 		return rs.finishSubspaceQuery(ctx, req, store.Query(ctx, req))
