@@ -229,14 +229,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		for _, key := range storageKeys {
 			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
-			if acct.StorageCleared {
-				// A clear empties the slot in the store, so after one the write is measured against zero.
-				// The cleared account never read the slot, so its prior is read now.
-				if newValue == (common.Hash{}) {
-					continue
-				}
-				priorValue = s.baseState(addr, key)
-			} else if priorValue == newValue {
+			if priorValue == newValue {
 				continue
 			}
 			changes.Storage = append(changes.Storage, StorageChange{
@@ -246,9 +239,6 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Delete:     newValue == (common.Hash{}),
 				PriorValue: priorValue,
 			})
-		}
-		if acct.StorageCleared {
-			changes.StorageClears = append(changes.StorageClears, addr)
 		}
 	}
 }

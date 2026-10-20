@@ -634,6 +634,21 @@ func TestExecutorRequiresBlobBaseFeeAfterCancun(t *testing.T) {
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 }
 
+func TestExecutorRejectsPreCancunBlocks(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	preCancun := *params.AllDevChainProtocolChanges
+	preCancun.CancunTime = nil
+	preCancun.PragueTime = nil
+	executor := NewExecutor(Config{ChainConfig: &preCancun})
+
+	_, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockContext(chainID)})
+	require.ErrorIs(t, err, errPreCancunBlock)
+
+	result, err := executor.ExecutePreparedBlock(t.Context(), PreparedBlock{Context: blockContext(chainID)})
+	require.ErrorIs(t, err, errPreCancunBlock)
+	require.Nil(t, result)
+}
+
 func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	txCount := 12
@@ -1069,11 +1084,12 @@ func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{selfDestructTx, otherTx}}
-	cfg := Config{MinGasPrice: big.NewInt(0), ChainConfig: legacySelfDestructChainConfig(chainID)}
+	cfg := Config{MinGasPrice: big.NewInt(0)}
 
 	seqResult, err := NewExecutor(cfg, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), ChainConfig: cfg.ChainConfig, OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
+	occExecutor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState))
+	occResult, err := occExecutor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
@@ -1548,44 +1564,6 @@ func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
 	require.Equal(t, uint64(2), state.GetNonce(sender))
 }
 
-func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
-	chainID := big.NewInt(testChainID)
-	key, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	sender := crypto.PubkeyToAddress(key.PublicKey)
-	beneficiary := testAddress(0xb2)
-	runtime := selfDestructCode(beneficiary)
-	contractAddr := crypto.CreateAddress(sender, 0)
-
-	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
-
-	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
-	destroyContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
-	transferToDestroyed := signLegacyTx(t, key, chainID, 2, &contractAddr, big.NewInt(9), nil)
-	executor := NewExecutor(Config{
-		ChainConfig: legacySelfDestructChainConfig(chainID),
-	}, withTestState(state))
-
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
-		Txs:     [][]byte{createContract, destroyContract, transferToDestroyed},
-	})
-
-	require.NoError(t, err)
-	require.Len(t, result.Receipts, 3)
-	for _, txResult := range result.Txs {
-		require.Equal(t, ethtypes.ReceiptStatusSuccessful, txResult.Status)
-	}
-
-	state.ApplyChangeSet(result.ChangeSet)
-	require.Empty(t, state.GetCode(contractAddr))
-	require.Equal(t, big.NewInt(9), state.GetBalance(contractAddr))
-	require.Equal(t, uint64(0), state.GetNonce(contractAddr))
-	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
-	require.Equal(t, uint64(3), state.GetNonce(sender))
-}
-
 func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
@@ -1619,63 +1597,6 @@ func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
 	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
 }
 
-func TestExecutorFinalisesAfterEachTx(t *testing.T) {
-	chainID := big.NewInt(testChainID)
-	key, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	sender := crypto.PubkeyToAddress(key.PublicKey)
-	contract := common.HexToAddress("0x00000000000000000000000000000000000000c1")
-	beneficiary := common.HexToAddress("0x00000000000000000000000000000000000000b1")
-
-	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(500_000_000_000_000))
-	state.SetCode(contract, selfDestructCode(beneficiary))
-
-	firstCall := signLegacyTx(t, key, chainID, 0, &contract, big.NewInt(0), nil)
-	secondCall := signLegacyTx(t, key, chainID, 1, &contract, big.NewInt(5), nil)
-	executor := NewExecutor(Config{
-		ChainConfig: legacySelfDestructChainConfig(chainID),
-	}, withTestState(state))
-
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
-		Txs:     [][]byte{firstCall, secondCall},
-	})
-
-	require.NoError(t, err)
-	require.Len(t, result.Receipts, 2)
-
-	state.ApplyChangeSet(result.ChangeSet)
-	require.Empty(t, state.GetCode(contract))
-	require.Equal(t, big.NewInt(5), state.GetBalance(contract))
-	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
-}
-
-func TestStateDBSelfDestructEmitsStorageClear(t *testing.T) {
-	contract := testAddress(0xc4)
-	loadedKey := testHash(0x01)
-	unreadKey := testHash(0x02)
-	loadedValue := testHash(0x11)
-	unreadValue := testHash(0x22)
-
-	state := NewMemoryState()
-	state.SetCode(contract, []byte{0x60, 0x00, 0x00})
-	state.SetState(contract, loadedKey, loadedValue)
-	state.SetState(contract, unreadKey, unreadValue)
-	stateDB := newNativeStateDB(state)
-
-	require.Equal(t, loadedValue, stateDB.GetState(contract, loadedKey))
-	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
-
-	changes := stateDB.ChangeSet()
-	require.Contains(t, changes.StorageClears, contract)
-	state.ApplyChangeSet(changes)
-	require.Empty(t, state.GetCode(contract))
-	require.Equal(t, common.Hash{}, state.GetState(contract, loadedKey))
-	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
-}
-
 func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 	contract := testAddress(0xc3)
 	stateDB := newNativeStateDB(NewMemoryState())
@@ -1686,27 +1607,6 @@ func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 	_, writes := stateDB.takeAccessSets()
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessAccount, address: contract})
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
-}
-
-func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
-	contract := testAddress(0xc6)
-	unreadKey := testHash(0x02)
-	unreadValue := testHash(0x22)
-
-	state := NewMemoryState()
-	state.SetCode(contract, []byte{0x60, 0x00, 0x00})
-	state.SetState(contract, unreadKey, unreadValue)
-	stateDB := newNativeStateDB(state)
-
-	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
-	stateDB.CreateAccount(contract)
-	stateDB.Finalise(true)
-
-	changes := stateDB.ChangeSet()
-	require.Contains(t, changes.StorageClears, contract)
-	state.ApplyChangeSet(changes)
-	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
 }
 
 // Executing a block reports, for every balance, nonce, code and storage change, the value its key held
@@ -1830,49 +1730,6 @@ func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
 		},
 	}
 	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
-}
-
-// nothing read it.
-func TestStateDBStorageClearKeepsPriorValue(t *testing.T) {
-	contract := testAddress(0xc5)
-	key := testHash(0x01)
-
-	state := NewMemoryState()
-	state.SetState(contract, key, testHash(0x05))
-	stateDB := newNativeStateDB(state)
-
-	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
-	stateDB.SetState(contract, key, testHash(0x07))
-
-	changes := stateDB.ChangeSet()
-	require.Equal(t, []common.Address{contract}, changes.StorageClears)
-	require.Equal(t, []StorageChange{{Address: contract, Key: key, Value: testHash(0x07), PriorValue: testHash(0x05)}}, changes.Storage)
-}
-
-func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
-	contract := testAddress(0xc5)
-	key := testHash(0x01)
-	value := testHash(0x22)
-
-	state := NewMemoryState()
-	state.SetState(contract, key, value)
-	stateDB := newNativeStateDB(state)
-
-	require.Equal(t, value, stateDB.GetState(contract, key))
-	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
-	stateDB.SetState(contract, key, value)
-
-	changes := stateDB.ChangeSet()
-	require.Contains(t, changes.StorageClears, contract)
-	require.Len(t, changes.Storage, 1)
-	require.Equal(t, key, changes.Storage[0].Key)
-	require.Equal(t, value, changes.Storage[0].Value)
-	require.False(t, changes.Storage[0].Delete)
-
-	state.ApplyChangeSet(changes)
-	require.Equal(t, value, state.GetState(contract, key))
 }
 
 func TestStateDBGetCommittedStateAdvancesAtFinalise(t *testing.T) {
@@ -2798,24 +2655,6 @@ func blockContext(chainID *big.Int) BlockContext {
 		BaseFee:     big.NewInt(0),
 		BlobBaseFee: big.NewInt(0),
 		Coinbase:    common.HexToAddress("0x00000000000000000000000000000000000000cb"),
-	}
-}
-
-func legacySelfDestructChainConfig(chainID *big.Int) *params.ChainConfig {
-	return &params.ChainConfig{
-		ChainID:             chainID,
-		HomesteadBlock:      big.NewInt(0),
-		DAOForkBlock:        nil,
-		DAOForkSupport:      false,
-		EIP150Block:         big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
-		ByzantiumBlock:      big.NewInt(0),
-		ConstantinopleBlock: big.NewInt(0),
-		PetersburgBlock:     big.NewInt(0),
-		IstanbulBlock:       big.NewInt(0),
-		BerlinBlock:         big.NewInt(0),
-		LondonBlock:         big.NewInt(0),
 	}
 }
 

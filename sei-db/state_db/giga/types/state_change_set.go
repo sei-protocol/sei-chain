@@ -4,14 +4,11 @@ import "math/big"
 
 // StateChangeSet is the deterministic EVM-native state output for a block.
 // Values are post-block values, not deltas, each beside the value it replaced.
-// Store-specific encoders must retain StorageClears as prefix-clear operations
-// and apply them before Storage.
 type StateChangeSet struct {
-	Balances      []BalanceChange
-	Nonces        []NonceChange
-	Code          []CodeChange
-	StorageClears []Address
-	Storage       []StorageChange
+	Balances []BalanceChange
+	Nonces   []NonceChange
+	Code     []CodeChange
+	Storage  []StorageChange
 }
 
 type BalanceChange struct {
@@ -43,8 +40,7 @@ type StorageChange struct {
 
 // IsEmpty reports whether the set would change nothing.
 func (c *StateChangeSet) IsEmpty() bool {
-	return len(c.Balances) == 0 && len(c.Nonces) == 0 && len(c.Code) == 0 &&
-		len(c.StorageClears) == 0 && len(c.Storage) == 0
+	return len(c.Balances) == 0 && len(c.Nonces) == 0 && len(c.Code) == 0 && len(c.Storage) == 0
 }
 
 // Clone returns a deep copy of the set, or nil when the set is nil or empty.
@@ -53,11 +49,10 @@ func (c *StateChangeSet) Clone() *StateChangeSet {
 		return nil
 	}
 	cp := &StateChangeSet{
-		Balances:      make([]BalanceChange, len(c.Balances)),
-		Nonces:        append([]NonceChange(nil), c.Nonces...),
-		Code:          make([]CodeChange, len(c.Code)),
-		StorageClears: append([]Address(nil), c.StorageClears...),
-		Storage:       append([]StorageChange(nil), c.Storage...),
+		Balances: make([]BalanceChange, len(c.Balances)),
+		Nonces:   append([]NonceChange(nil), c.Nonces...),
+		Code:     make([]CodeChange, len(c.Code)),
+		Storage:  append([]StorageChange(nil), c.Storage...),
 	}
 	for i, change := range c.Balances {
 		change.Balance = cloneBig(change.Balance)
@@ -80,8 +75,6 @@ func (c *StateChangeSet) Reset() {
 	c.Nonces = c.Nonces[:0]
 	clear(c.Code)
 	c.Code = c.Code[:0]
-	clear(c.StorageClears)
-	c.StorageClears = c.StorageClears[:0]
 	clear(c.Storage)
 	c.Storage = c.Storage[:0]
 }

@@ -12,9 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
 const (
@@ -287,10 +284,10 @@ func occScenarioRun(t *testing.T, scenario *occScenario, reqs []BlockRequest, wo
 // requireSameStateChanges asserts that two changesets hold the same values in the same order and
 // encode to the same FlatKV pairs. Balances and their priors compare by value, since a zero may be
 // held with or without backing words.
-func requireSameStateChanges(t *testing.T, store *flatkv.CommitStore, want StateChangeSet, got StateChangeSet, name string) {
+func requireSameStateChanges(t *testing.T, want StateChangeSet, got StateChangeSet, name string) {
 	t.Helper()
 	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(got), name)
-	require.Equal(t, flatKVPairListing(t, store, want), flatKVPairListing(t, store, got), name)
+	require.Equal(t, flatKVPairDigest(t, want), flatKVPairDigest(t, got), name)
 }
 
 func withCanonicalBalances(changes StateChangeSet) StateChangeSet {
@@ -313,11 +310,6 @@ func withCanonicalBalances(changes StateChangeSet) StateChangeSet {
 // never shows in the output.
 func TestOCCRandomizedConflictingBlocksMatchSequential(t *testing.T) {
 	const blocks = 3
-	cfg := flatkvconfig.DefaultConfig()
-	cfg.DataDir = t.TempDir()
-	store, err := openFlatKVTestStore(t.Context(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
 	for _, profile := range occScenarioProfiles {
 		var reruns uint64
@@ -334,7 +326,7 @@ func TestOCCRandomizedConflictingBlocksMatchSequential(t *testing.T) {
 					require.Equal(t, want.GasUsed, got.GasUsed, name)
 					require.Equal(t, want.Txs, got.Txs, name)
 					require.Equal(t, want.Receipts, got.Receipts, name)
-					requireSameStateChanges(t, store, want.ChangeSet, got.ChangeSet, name)
+					requireSameStateChanges(t, want.ChangeSet, got.ChangeSet, name)
 					reruns += got.OCCStats.RerunCount
 				}
 			}
