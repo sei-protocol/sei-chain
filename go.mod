@@ -1,6 +1,6 @@
 module github.com/sei-protocol/sei-chain
 
-go 1.27.1
+go 1.27.3
 
 require (
 	cosmossdk.io/errors v1.0.2
