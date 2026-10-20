@@ -24,7 +24,6 @@ import (
 	bankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
@@ -75,10 +74,6 @@ type Keeper struct {
 	ReplayBlock *ethtypes.Block
 
 	receiptStore receipt.ReceiptStore
-
-	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
-	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
-	latestUpgrade           string
 
 	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
 	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.
@@ -145,62 +140,6 @@ func NewKeeper(
 		receiptStore:                 receiptStateStore,
 	}
 	return k
-}
-
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
-	k.customPrecompiles = cp
-	k.latestUpgrade = latestUpgrade
-	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
-	for addr, versioned := range cp {
-		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
-	}
-}
-
-func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract {
-	if !ctx.IsTracing() {
-		return k.latestCustomPrecompiles
-	}
-	versions := k.GetCustomPrecompilesVersions(ctx)
-	cp := make(map[common.Address]vm.PrecompiledContract, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		cp[addr] = versioned[versions[addr]]
-	}
-	return cp
-}
-
-func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
-	height := ctx.BlockHeight()
-	cp := make(map[common.Address]string, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		mostRecentUpgradeHeight := int64(0)
-		earliestUpgradeHeight := int64(0)
-		earliestUpgrade := ""
-		noForkHistory := true
-		for upgrade := range versioned {
-			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
-			if upgradeHeight != 0 {
-				noForkHistory = false
-				if earliestUpgradeHeight == 0 || upgradeHeight < earliestUpgradeHeight {
-					earliestUpgradeHeight = upgradeHeight
-					earliestUpgrade = upgrade
-				}
-			}
-			if height < upgradeHeight {
-				// requested height hasn't seen this upgrade version yet.
-				continue
-			}
-			if upgradeHeight > mostRecentUpgradeHeight {
-				mostRecentUpgradeHeight = upgradeHeight
-				cp[addr] = upgrade
-			}
-		}
-		if noForkHistory {
-			cp[addr] = k.latestUpgrade
-		} else if mostRecentUpgradeHeight == 0 {
-			cp[addr] = earliestUpgrade
-		}
-	}
-	return cp
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {

@@ -783,7 +783,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
+	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -870,8 +870,8 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.PrecompiledContract {
-	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+	return b.keeper.CustomPrecompiles()
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {

@@ -131,6 +131,14 @@ func (s *memoryGigaSnapshot) Get(string, []byte) ([]byte, bool) {
 	return nil, false
 }
 
+func (s *memoryGigaSnapshot) GetRaw([]byte) ([]byte, bool) {
+	panic("memory giga snapshot holds no physical rows")
+}
+
+func (s *memoryGigaSnapshot) BatchGetRaw([][]byte) map[string][]byte {
+	panic("memory giga snapshot holds no physical rows")
+}
+
 func (s *memoryGigaSnapshot) Close() {
 	s.closeCount++
 }

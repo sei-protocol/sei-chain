@@ -301,7 +301,7 @@ func (e *behaviorEnv) traceCall(from, to common.Address, data []byte, value *big
 	}
 	sstore := e.k.GetSstoreSetGasEIP2200(ctx)
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(e.k.ChainID(ctx), &sstore)
-	evm := vm.NewEVM(*blockCtx, db, cfg, vm.Config{Tracer: hooks}, e.k.CustomPrecompiles(ctx))
+	evm := vm.NewEVM(*blockCtx, db, cfg, vm.Config{Tracer: hooks}, e.k.CustomPrecompiles())
 	evm.SetTxContext(vm.TxContext{Origin: from, GasPrice: big.NewInt(0)})
 	v := uint256.NewInt(0)
 	if value != nil {
@@ -363,7 +363,7 @@ func TestBuiltinPrecompileWinsOnCollisionBehavior(t *testing.T) {
 	// Sei precompiles do not overlap geth builtins
 	rules := cfg.Rules(big.NewInt(e.ctx.BlockHeight()), true, uint64(e.ctx.BlockTime().Unix()))
 	for _, a := range vm.ActivePrecompiles(rules) {
-		_, clash := e.k.CustomPrecompiles(e.ctx)[a]
+		_, clash := e.k.CustomPrecompiles()[a]
 		require.False(t, clash, a.Hex())
 	}
 }
