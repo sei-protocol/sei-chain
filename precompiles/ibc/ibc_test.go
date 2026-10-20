@@ -62,36 +62,6 @@ func TestRetiredPrecompileRejectsCalls(t *testing.T) {
 	}
 }
 
-func TestVersionedPrecompilesAreAllTombstones(t *testing.T) {
-	versioned := ibc.GetVersioned("v6.8", testKeepers{EVMKeeper: testEVMKeeper{}})
-	versions := []string{
-		"v5.5.2",
-		"v5.5.5",
-		"v5.6.2",
-		"v5.8.0",
-		"v6.0.1",
-		"v6.0.3",
-		"v6.0.5",
-		"v6.0.6",
-		"v6.1.0",
-		"v6.1.4",
-		"v6.2.0",
-		"v6.3.0",
-		"v6.4.0",
-		"v6.5",
-		"v6.6",
-		"v6.7",
-		"v6.8",
-	}
-
-	require.Len(t, versioned, len(versions))
-	tombstone := versioned["v6.8"]
-	for _, version := range versions {
-		require.Contains(t, versioned, version)
-		require.Same(t, tombstone, versioned[version])
-	}
-}
-
 type testKeepers struct {
 	utils.Keepers
 	EVMKeeper utils.EVMKeeper

@@ -55,7 +55,7 @@ func TestRetiredPrecompileRejectsCalls(t *testing.T) {
 			require.NoError(t, packErr)
 
 			statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-			evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
+			evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles())
 			ret, _, runErr := precompile.RunAndCalculateGas(
 				evm,
 				caller,
@@ -97,7 +97,7 @@ func TestRetiredPrecompileRejectsValue(t *testing.T) {
 	require.NoError(t, err)
 
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
+	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles())
 	_, _, err = precompile.RunAndCalculateGas(
 		evm,
 		caller,
