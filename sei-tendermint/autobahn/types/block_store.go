@@ -167,8 +167,9 @@ type BlockStore interface {
 	// reclaimed — pruned entries may remain readable for a while.
 	PruneBefore(n GlobalBlockNumber) error
 
-	// First returns the number of the oldest accessible row.
-	// Moved by PruneBefore.
+	// First returns the number of the oldest accessible row. It is the start of
+	// the first QC written to an empty store, raised later by PruneBefore. Reads
+	// below it return ErrPruned.
 	First() GlobalBlockNumber
 
 	// Flush blocks until every Write that has returned before Flush is
