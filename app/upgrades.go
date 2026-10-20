@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/app/retiredauthz"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
@@ -27,6 +28,10 @@ var retiredIBCStores = []string{"capability", "ibc", "transfer"}
 // v68DeletedStores are the KV stores deleted from the multistore at the v6.8
 // upgrade height. Their module version map entries go with them.
 var v68DeletedStores = append([]string{feegrantModuleName, retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
+
+// v69DeletedStores are the KV stores deleted from the multistore at the v6.9
+// upgrade height. Their module version map entries go with them.
+var v69DeletedStores = []string{retiredauthz.ModuleName}
 
 // tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
 // parameter subspace.
@@ -174,6 +179,17 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.pruneTokenfactoryParams(ctx)
 				app.StakingKeeper.StartDelegationByValIndexBackfill(ctx)
 				app.enableMigrateCosmos(ctx)
+				return newVM, nil
+			}
+
+			if upgradeName == "v6.9" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return nil, err
+				}
+				for _, name := range v69DeletedStores {
+					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
+				}
 				return newVM, nil
 			}
 

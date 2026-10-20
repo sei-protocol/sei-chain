@@ -80,61 +80,6 @@ interface IGov {
     ) external returns (bool success);
 
     /**
-     * @dev Grant an account permission to cast simple votes on behalf of the caller
-     * @param grantee The account receiving the vote authorization
-     * @param expiration Unix timestamp after which the authorization is invalid
-     * @return success Whether the authorization was successfully granted
-     * @notice This authorization is limited to MsgVote and does not cover proposal submission or weighted votes
-     */
-    function grantVoteAuthorization(
-        address grantee,
-        int64 expiration
-    ) external returns (bool success);
-
-    /**
-     * @dev Grant an account permission to submit proposals on behalf of the caller
-     * @param grantee The account receiving the proposal authorization
-     * @param expiration Unix timestamp after which the authorization is invalid
-     * @return success Whether the authorization was successfully granted
-     * @notice This native MsgSubmitProposal authorization can also be used through Cosmos MsgExec with an arbitrary initial deposit debited from the caller. Grant it only to a fully trusted account; proposal deposits can be permanently lost
-     */
-    function grantProposalAuthorization(
-        address grantee,
-        int64 expiration
-    ) external returns (bool success);
-
-    /**
-     * @dev Cast a simple vote using a MsgVote authorization granted by voter
-     * @param voter The account whose vote is being cast
-     * @param proposalID The ID of the proposal to vote on
-     * @param option Vote option: 1=Yes, 2=Abstain, 3=No, 4=NoWithVeto
-     * @return success Whether the authorized vote was successfully cast
-     */
-    function voteWithAuthorization(
-        address voter,
-        uint64 proposalID,
-        int32 option
-    ) external returns (bool success);
-
-    /**
-     * @dev Revoke an account's permission to cast simple votes on behalf of the caller
-     * @param grantee The account whose vote authorization is being revoked
-     * @return success Whether the authorization was successfully revoked
-     */
-    function revokeVoteAuthorization(
-        address grantee
-    ) external returns (bool success);
-
-    /**
-     * @dev Revoke an account's permission to submit proposals on behalf of the caller
-     * @param grantee The account whose proposal authorization is being revoked
-     * @return success Whether the authorization was successfully revoked
-     */
-    function revokeProposalAuthorization(
-        address grantee
-    ) external returns (bool success);
-
-    /**
      * @dev Cast a weighted vote on a governance proposal (vote splitting)
      * @param proposalID The ID of the proposal to vote on
      * @param options Array of weighted vote options, weights must sum to 1.0
@@ -173,18 +118,6 @@ interface IGov {
      * @return proposalID The ID of the created proposal
      */
     function submitProposal(
-        string calldata proposalJSON
-    ) payable external returns (uint64 proposalID);
-
-    /**
-     * @dev Submit a proposal using a MsgSubmitProposal authorization granted by proposer
-     * @param proposer The account on whose behalf the proposal is submitted
-     * @param proposalJSON JSON string containing the proposal details
-     * @return proposalID The ID of the created proposal
-     * @notice The caller supplies the initial deposit through msg.value
-     */
-    function submitProposalWithAuthorization(
-        address proposer,
         string calldata proposalJSON
     ) payable external returns (uint64 proposalID);
 

@@ -1,6 +1,6 @@
 /**
  * The suite's Cosmos-side parity oracle for the modules cosmjs does not wrap:
- * auth, authz, bank params, distribution, evidence, mint, slashing, staking
+ * auth, bank params, distribution, evidence, mint, slashing, staking
  * historical info and upgrade.
  *
  * Each read calls the module's protobuf Query service through Tendermint's
@@ -13,7 +13,6 @@ import { Encoder } from '@sei-js/cosmos/encoding';
 import { tendermintClient } from './cosmosUtils';
 
 const auth = Encoder.cosmos.auth.v1beta1;
-const authz = Encoder.cosmos.authz.v1beta1;
 const bank = Encoder.cosmos.bank.v1beta1;
 const distribution = Encoder.cosmos.distribution.v1beta1;
 const evidence = Encoder.cosmos.evidence.v1beta1;
@@ -190,17 +189,6 @@ export async function authNextAccountNumber(): Promise<number> {
         auth.QueryNextAccountNumberResponse,
     );
     return count;
-}
-
-/** The grants `granter` holds for `grantee`, at the module's default page size. */
-export async function authzGrants(granter: string, grantee: string) {
-    const { grants } = await queryModule(
-        '/cosmos.authz.v1beta1.Query/Grants',
-        authz.QueryGrantsRequest,
-        { granter, grantee, msg_type_url: '' },
-        authz.QueryGrantsResponse,
-    );
-    return grants;
 }
 
 /** x/bank's parameters. */

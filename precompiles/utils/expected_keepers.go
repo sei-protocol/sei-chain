@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
@@ -28,8 +27,6 @@ type Keepers interface {
 	EVMK() EVMKeeper
 	AccountK() AccountKeeper
 	AuthQ() AuthQuerier
-	AuthzMS() AuthzMsgServer
-	AuthzQ() AuthzQuerier
 	WasmdK() WasmdKeeper
 	WasmdVK() WasmdViewKeeper
 	StakingK() StakingKeeper
@@ -57,8 +54,6 @@ func (ek *EmptyKeepers) BankQ() BankQuerier                { return nil }
 func (ek *EmptyKeepers) EVMK() EVMKeeper                   { return nil }
 func (ek *EmptyKeepers) AccountK() AccountKeeper           { return nil }
 func (ek *EmptyKeepers) AuthQ() AuthQuerier                { return nil }
-func (ek *EmptyKeepers) AuthzMS() AuthzMsgServer           { return nil }
-func (ek *EmptyKeepers) AuthzQ() AuthzQuerier              { return nil }
 func (ek *EmptyKeepers) WasmdK() WasmdKeeper               { return nil }
 func (ek *EmptyKeepers) WasmdVK() WasmdViewKeeper          { return nil }
 func (ek *EmptyKeepers) StakingK() StakingKeeper           { return nil }
@@ -93,12 +88,6 @@ type BankKeeper interface {
 
 type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
-}
-
-type AuthzMsgServer interface {
-	Grant(goCtx context.Context, msg *authz.MsgGrant) (*authz.MsgGrantResponse, error)
-	Exec(goCtx context.Context, msg *authz.MsgExec) (*authz.MsgExecResponse, error)
-	Revoke(goCtx context.Context, msg *authz.MsgRevoke) (*authz.MsgRevokeResponse, error)
 }
 
 type SlashingMsgServer interface {
@@ -206,12 +195,6 @@ type AuthQuerier interface {
 	Account(c context.Context, req *authtypes.QueryAccountRequest) (*authtypes.QueryAccountResponse, error)
 	Params(c context.Context, req *authtypes.QueryParamsRequest) (*authtypes.QueryParamsResponse, error)
 	NextAccountNumber(c context.Context, req *authtypes.QueryNextAccountNumberRequest) (*authtypes.QueryNextAccountNumberResponse, error)
-}
-
-type AuthzQuerier interface {
-	Grants(c context.Context, req *authz.QueryGrantsRequest) (*authz.QueryGrantsResponse, error)
-	GranterGrants(c context.Context, req *authz.QueryGranterGrantsRequest) (*authz.QueryGranterGrantsResponse, error)
-	GranteeGrants(c context.Context, req *authz.QueryGranteeGrantsRequest) (*authz.QueryGranteeGrantsResponse, error)
 }
 
 type GovQuerier interface {
