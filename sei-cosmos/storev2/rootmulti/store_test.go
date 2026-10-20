@@ -80,12 +80,107 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
+func TestQuery_StateProofDisabledByDefault(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = false
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	keyBytes := []byte("k")
+	valV1 := []byte("v1")
+	kv := store.GetStoreByName("bank").(types.KVStore)
+	kv.Set(keyBytes, valV1)
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	valV2 := []byte("v2")
+	kv = store.GetStoreByName("bank").(types.KVStore)
+	kv.Set(keyBytes, valV2)
+	c2 := store.Commit(true)
+	require.Equal(t, int64(2), c2.Version)
+
+	for _, tc := range []struct {
+		name   string
+		height int64
+		value  []byte
+	}{
+		{name: "latest", height: c2.Version, value: valV2},
+		{name: "historical", height: c1.Version, value: valV1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(context.Background(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   keyBytes,
+				Height: tc.height,
+				Prove:  false,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.Equal(t, tc.value, resp.Value)
+
+			resp = store.Query(context.Background(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   keyBytes,
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.Equal(t, uint32(sdkerrors.ErrInvalidRequest.ABCICode()), resp.Code)
+			require.Contains(t, resp.Log, "state proofs are disabled on this node")
+			require.Contains(t, resp.Log, "state-commit.sc-enable-state-proof")
+		})
+	}
+}
+
+func TestQuery_StateProofEnabledReturnsProofOps(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.EnableStateProof = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = false
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	keyBytes := []byte("k")
+	val := []byte("v")
+	kv := store.GetStoreByName("bank").(types.KVStore)
+	kv.Set(keyBytes, val)
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	resp := store.Query(context.Background(), abci.RequestQuery{
+		Path:   "/bank/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  true,
+	})
+	require.EqualValues(t, 0, resp.Code, resp.Log)
+	require.Equal(t, val, resp.Value)
+	require.NotNil(t, resp.ProofOps)
+	require.NotEmpty(t, resp.ProofOps.Ops)
+}
+
 func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	// Enable both SC and SS, but make SC WAL writes synchronous so the
 	// historical proof query below cannot race memIAVL durability.
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = true
 	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	ssCfg := config.DefaultStateStoreConfig()
@@ -482,6 +577,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = true
 	scCfg.HistoricalProofRateLimit = 0
 	scCfg.HistoricalProofMaxInFlight = 1
 	ssCfg := config.DefaultStateStoreConfig()

@@ -22,6 +22,9 @@ sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
 # Historical proof query burst size
 sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
+# Enable deprecated ABCI /store state proofs. Disabled by default.
+sc-enable-state-proof = {{ .StateCommit.EnableStateProof }}
+
 # Max concurrent /subspace queries on any store path (<=0 resolves to default 2)
 sc-subspace-query-max-inflight = {{ .StateCommit.SubspaceQueryMaxInFlight }}
 

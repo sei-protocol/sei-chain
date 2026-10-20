@@ -22,6 +22,7 @@ var (
 		iavlTotalNumKeys      metric.Int64Gauge
 		stateSyncKeysExported metric.Int64Counter
 		subspaceQueryRejected metric.Int64Counter
+		stateProofRejected    metric.Int64Counter
 	}{
 		scCommitLatency: must(meter.Float64Histogram(
 			"sc_commit_latency",
@@ -62,6 +63,11 @@ var (
 		subspaceQueryRejected: must(meter.Int64Counter(
 			"subspace_query_rejected",
 			metric.WithDescription("Number of rejected /subspace ABCI queries by reason"),
+			metric.WithUnit("{count}"),
+		)),
+		stateProofRejected: must(meter.Int64Counter(
+			"state_proof_rejected",
+			metric.WithDescription("Number of rejected ABCI /store state proof queries"),
 			metric.WithUnit("{count}"),
 		)),
 	}

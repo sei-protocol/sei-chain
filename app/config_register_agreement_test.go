@@ -42,6 +42,7 @@ func readerValues(t *testing.T) map[string]string {
 		FlagSCHistoricalProofMaxInFlight: fmt.Sprint(sc.HistoricalProofMaxInFlight),
 		FlagSCHistoricalProofRateLimit:   fmt.Sprint(sc.HistoricalProofRateLimit),
 		FlagSCHistoricalProofBurst:       fmt.Sprint(sc.HistoricalProofBurst),
+		FlagSCEnableStateProof:           fmt.Sprint(sc.EnableStateProof),
 		FlagSCSubspaceQueryMaxInFlight:   fmt.Sprint(sc.SubspaceQueryMaxInFlight),
 		FlagSCSubspaceMaxPairs:           fmt.Sprint(sc.SubspaceMaxPairs),
 		FlagSCSubspaceMaxBytes:           fmt.Sprint(sc.SubspaceMaxBytes),

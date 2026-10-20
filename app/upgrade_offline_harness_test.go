@@ -121,6 +121,9 @@ func (o offlineUpgradeChainIDOpts) Get(s string) interface{} {
 	if s == "chain-id" {
 		return o.chainID
 	}
+	if s == FlagSCEnableStateProof {
+		return true
+	}
 	return o.TestAppOpts.Get(s)
 }
 

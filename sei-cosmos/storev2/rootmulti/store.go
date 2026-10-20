@@ -64,6 +64,7 @@ type Store struct {
 	// commitment alike.
 	subspaceQuerySem chan struct{}
 	subspaceLimits   query.Limits
+	enableStateProof bool
 
 	snapshotSCStoreWarnOnce sync.Once
 
@@ -166,6 +167,7 @@ func NewStore(
 			MaxPairs: scConfig.SubspaceMaxPairs,
 			MaxBytes: scConfig.SubspaceMaxBytes,
 		},
+		enableStateProof:   scConfig.EnableStateProof,
 		hashLoggerConfig:   scConfig.HashLogger,
 		hashLogger:         hashLogger,
 		hashLoggerDisabled: !hashLoggingOn,
@@ -1027,6 +1029,11 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	}
 
 	needProof := req.Prove && rootmulti.RequireProof(subPath)
+	if needProof {
+		if err := rs.admitProofQuery(ctx); err != nil {
+			return sdkerrors.QueryResult(err)
+		}
+	}
 	latest := version == rs.scStore.Version()
 
 	// Fast path: no proof + SS enabled
@@ -1095,6 +1102,15 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	}
 
 	return res
+}
+
+// admitProofQuery rejects deprecated state proofs unless this node explicitly enables them.
+func (rs *Store) admitProofQuery(ctx context.Context) error {
+	if rs.enableStateProof {
+		return nil
+	}
+	storev2Metrics.stateProofRejected.Add(ctx, 1)
+	return errors.Wrap(sdkerrors.ErrInvalidRequest, "state proofs are disabled on this node; set state-commit.sc-enable-state-proof = true to enable")
 }
 
 // admitSubspaceQuery takes a /subspace permit, or records the rejection and returns why it failed.

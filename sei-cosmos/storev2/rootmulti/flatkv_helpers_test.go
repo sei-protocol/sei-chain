@@ -88,6 +88,7 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 	cfg.FlatKVConfig.SnapshotKeepRecent = 1000
 	cfg.HistoricalProofRateLimit = 0
 	cfg.HistoricalProofMaxInFlight = 100
+	cfg.EnableStateProof = true
 	return cfg
 }
 
