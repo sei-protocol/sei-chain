@@ -1112,8 +1112,7 @@ func (rs *Store) admitSubspaceQuery(ctx context.Context) error {
 }
 
 // rejectSubspaceWithoutSS refuses a /subspace query on a node with SS disabled and records the
-// rejection. The commitment store does not serve /subspace: a scan over it can read far more rows
-// than it returns, which no pair or byte cap bounds.
+// rejection. /subspace is served only from the state store.
 func (rs *Store) rejectSubspaceWithoutSS(ctx context.Context) abci.ResponseQuery {
 	storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
 		attribute.String("reason", "ss_disabled"),
