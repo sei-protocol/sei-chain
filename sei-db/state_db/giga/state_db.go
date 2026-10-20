@@ -244,16 +244,20 @@ func (s *StateDB) openUndoLog() error {
 	return nil
 }
 
-// resumeUndoLogOverHeldState resumes the undo log when SC holds a block, and otherwise leaves it for the
-// first commit to resume.
+// resumeUndoLogOverHeldState resumes the undo log when SC holds a block. Over an empty SC it refuses an
+// undo log that holds blocks, and otherwise leaves the log for the first commit to resume.
 //
 // An empty SC may still be seeded to a later height, and seeding waits for SC to flush, which a view
 // the undo log held over the empty store would block forever.
 func (s *StateDB) resumeUndoLogOverHeldState() error {
-	if s.sc.Version() == 0 {
-		return nil
+	if s.sc.Version() != 0 {
+		return s.resumeUndoLog()
 	}
-	return s.resumeUndoLog()
+	if s.undo != nil && s.undo.GetLatestVersion() > 0 {
+		return fmt.Errorf("resume the EVM undo-log state store: it holds blocks up to %d, but the state "+
+			"commit store is empty", s.undo.GetLatestVersion())
+	}
+	return nil
 }
 
 // resumeUndoLog binds the undo log to SC's current block, which answers every read the log holds no

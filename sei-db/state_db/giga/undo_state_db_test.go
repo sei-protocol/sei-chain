@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/big"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -300,6 +301,19 @@ func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
 		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
 		view.Close()
 	}
+}
+
+// An undo log that holds blocks over an empty SC, as left by wiping SC alone, is refused at open.
+func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	model := &undoModel{states: []map[string][]byte{{}}}
+	model.commitBlock(t, db, map[string][]byte{string(nonceKey(common.Address{8})): nonceValue(1)})
+	require.NoError(t, db.Close())
+	require.NoError(t, os.RemoveAll(home.flatkv.DataDir))
+
+	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000})
+	require.ErrorContains(t, err, "the state commit store is empty")
 }
 
 // Closing with a historical view still open succeeds without waiting for it, and the view's reads
