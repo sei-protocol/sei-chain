@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common"
@@ -509,7 +510,7 @@ func TestReadersNeverSeeExcisedHistory(t *testing.T) {
 	t.Logf("%d reads, %d views refused as pruned", reads.Load(), refused.Load())
 }
 
-func TestViewsAreClosedOnceReplacedAndUnpinned(t *testing.T) {
+func TestCurrentStateViewsAreClosedOnceReplaced(t *testing.T) {
 	c := newChain(t, t.TempDir(), 4, 0)
 	key := nonceKey(alice)
 	for h := uint64(1); h <= 10; h++ {
@@ -520,7 +521,7 @@ func TestViewsAreClosedOnceReplacedAndUnpinned(t *testing.T) {
 	pinned, ok := c.db.OpenView(5)
 	require.True(t, ok)
 	c.apply(map[string][]byte{key: nonce(11)}, false)
-	require.Equal(t, c.created.Load()-2, c.closes.Load(), "the pinned view outlives its replacement")
+	require.Equal(t, c.created.Load()-1, c.closes.Load(), "an open view holds no current-state view")
 	got, err := pinned.Get([]byte(key))
 	require.NoError(t, err)
 	require.Equal(t, nonce(5), got)
@@ -731,38 +732,31 @@ func TestRollbackBelowTheEarliestHeightServesTheTarget(t *testing.T) {
 	require.False(t, ok, "history below the target stays pruned")
 }
 
-func TestConcurrentEarliestChangesKeepDiskAndMemoryConsistent(t *testing.T) {
-	for _, direction := range []string{"raise", "lower"} {
-		t.Run(direction, func(t *testing.T) {
-			db := openTestDB(t, t.TempDir(), 10)
-			defer func() { require.NoError(t, db.Close()) }()
-			for round := uint64(1); round <= 50; round++ {
-				base := round * 100
-				update := db.raiseEarliest
-				want := base + 7
-				if direction == "lower" {
-					require.NoError(t, db.raiseEarliest(base+8))
-					update = db.lowerEarliest
-					want = base
+// Concurrent prunes leave the earliest height the same on disk as in memory: the highest one asked for.
+func TestConcurrentPrunesKeepEarliestOnDiskAndInMemory(t *testing.T) {
+	c := newChain(t, t.TempDir(), 10, 0)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	for h := uint64(1); h <= 100; h++ {
+		c.apply(map[string][]byte{nonceKey(alice): nonce(h)}, false)
+	}
+	for round := uint64(1); round <= 10; round++ {
+		base := round * 8
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for worker := range uint64(8) {
+			wg.Go(func() {
+				<-start
+				if err := c.db.PruneHistory(base + worker); err != nil {
+					t.Error(err)
 				}
-				start := make(chan struct{})
-				var wg sync.WaitGroup
-				for worker := range uint64(8) {
-					wg.Go(func() {
-						<-start
-						if err := update(base + worker); err != nil {
-							t.Error(err)
-						}
-					})
-				}
-				close(start)
-				wg.Wait()
-				onDisk, err := readMarker(db.storage, earliestVersionKey)
-				require.NoError(t, err)
-				require.Equal(t, want, onDisk, "round %d", round)
-				require.Equal(t, onDisk, db.earliestHeight.Load(), "round %d", round)
-			}
-		})
+			})
+		}
+		close(start)
+		wg.Wait()
+		onDisk, err := readMarker(c.db.storage, earliestVersionKey)
+		require.NoError(t, err)
+		require.Equal(t, base+7, onDisk, "round %d", round)
+		require.Equal(t, onDisk, c.db.earliestHeight.Load(), "round %d", round)
 	}
 }
 
@@ -851,83 +845,77 @@ func TestCloseWithoutResume(t *testing.T) {
 	require.Zero(t, reopened.GetLatestVersion())
 }
 
-func TestCloseRequiresAllViewsClosed(t *testing.T) {
+// A view open across Close no longer reads, and closing it afterwards is harmless.
+func TestCloseFailsTheReadsOfOpenViews(t *testing.T) {
 	c := newChain(t, t.TempDir(), 4, 0)
-	defer func() { require.NoError(t, c.db.Close()) }()
 	key := nonceKey(alice)
 	c.apply(map[string][]byte{key: nonce(1)}, false)
 	c.apply(map[string][]byte{key: nonce(2)}, false)
-	first, ok := c.db.OpenView(1)
+	v, ok := c.db.OpenView(1)
 	require.True(t, ok)
-	defer first.Close()
-	second, ok := c.db.OpenView(1)
-	require.True(t, ok)
-	defer second.Close()
-	c.apply(map[string][]byte{key: nonce(3)}, false)
 
-	require.ErrorContains(t, c.db.Close(), "open views")
-	first.Close()
-	first.Close()
-	require.ErrorContains(t, c.db.Close(), "open views", "another view at the same height is still open")
-
-	// A refused Close leaves both the existing reader and the write queue usable.
-	c.apply(map[string][]byte{key: nonce(4)}, true)
-	c.db.WaitForPendingWrites()
-	got, err := second.Get([]byte(key))
-	require.NoError(t, err)
-	require.Equal(t, nonce(1), got)
-	require.Equal(t, nonce(4), read(t, c.db, 4, key))
-	require.Equal(t, c.created.Load()-2, c.closes.Load(), "the reader still owns its retired head")
-
-	second.Close()
-	require.NoError(t, c.db.Close(), "Close can be retried after every view is released")
-	require.Equal(t, c.created.Load(), c.closes.Load())
+	require.NoError(t, c.db.Close(), "Close does not wait for open views")
+	require.Equal(t, c.created.Load(), c.closes.Load(), "an open view holds no current-state view")
+	_, err := v.Get([]byte(key))
+	require.ErrorContains(t, err, "closed")
+	v.Close()
+	v.Close()
 	require.NoError(t, c.db.Close())
-	v, ok := c.db.OpenView(4)
+	_, ok = c.db.OpenView(2)
 	require.False(t, ok)
-	require.Nil(t, v)
 }
 
-type blockingCloseView struct {
+// blockingGetView parks its first read until released.
+type blockingGetView struct {
 	LiveStateView
 	started chan struct{}
 	release chan struct{}
+	once    sync.Once
 }
 
-func (v *blockingCloseView) Close() {
-	close(v.started)
-	<-v.release
-	v.LiveStateView.Close()
+func (v *blockingGetView) Get(module string, key []byte) ([]byte, bool) {
+	v.once.Do(func() {
+		close(v.started)
+		<-v.release
+	})
+	return v.LiveStateView.Get(module, key)
 }
 
-func TestCloseRequiresViewReleaseToFinish(t *testing.T) {
+// A read in flight keeps its current-state view open after a newer one replaces it, and Close waits
+// for the read.
+func TestAReadInFlightHoldsItsHead(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 4)
-	defer func() { require.NoError(t, db.Close()) }()
 	var closes atomic.Int64
-	live := &blockingCloseView{
+	live := &blockingGetView{
 		LiveStateView: &mapView{closes: &closes},
 		started:       make(chan struct{}),
 		release:       make(chan struct{}),
 	}
-	unblock := sync.OnceFunc(func() { close(live.release) })
 	require.NoError(t, db.Resume(0, live))
 	v, ok := db.OpenView(0)
 	require.True(t, ok)
 	defer v.Close()
-	defer unblock()
-	db.ApplyBlock(1, nil, &mapView{closes: &closes})
-	db.WaitForPendingWrites()
 
-	done := make(chan struct{})
+	read := make(chan error, 1)
 	go func() {
-		v.Close()
-		close(done)
+		_, err := v.Get([]byte(nonceKey(alice)))
+		read <- err
 	}()
 	<-live.started
-	require.ErrorContains(t, db.Close(), "open views", "the retired live-state view is still being released")
-	unblock()
-	<-done
-	require.NoError(t, db.Close())
+	db.ApplyBlock(1, nil, &mapView{closes: &closes})
+	db.WaitForPendingWrites()
+	require.Zero(t, closes.Load(), "the replaced view stays open while a read uses it")
+
+	closed := make(chan error, 1)
+	go func() { closed <- db.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned %v with a read in flight", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(live.release)
+	require.NoError(t, <-read)
+	require.NoError(t, <-closed)
 	require.Equal(t, int64(2), closes.Load())
 }
 
@@ -941,28 +929,28 @@ func TestOpenViewRacesWithClose(t *testing.T) {
 			c.apply(map[string][]byte{key: nonce(2)}, false)
 			start := make(chan struct{})
 			var v *View
-			var closeErr error
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				<-start
 				v, _ = c.db.OpenView(1)
 			})
-			wg.Go(func() {
+			closed := make(chan error, 1)
+			go func() {
 				<-start
-				closeErr = c.db.Close()
-			})
+				closed <- c.db.Close()
+			}()
 			close(start)
 			wg.Wait()
-			if v == nil {
-				require.NoError(t, closeErr)
-			} else {
-				defer v.Close()
-				require.ErrorContains(t, closeErr, "open views")
-				got, err := v.Get([]byte(key))
-				require.NoError(t, err)
-				require.Equal(t, nonce(1), got, "an admitted view remains readable")
+			if v != nil {
+				// An admitted view reads until Close takes the store away.
+				if got, err := v.Get([]byte(key)); err != nil {
+					require.ErrorContains(t, err, "closed")
+				} else {
+					require.Equal(t, nonce(1), got)
+				}
 				v.Close()
 			}
+			require.NoError(t, <-closed)
 			require.NoError(t, c.db.Close())
 			require.Equal(t, c.created.Load(), c.closes.Load())
 		})
