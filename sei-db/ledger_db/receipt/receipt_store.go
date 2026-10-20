@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -53,7 +54,7 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
-	controller.PrunableStore
+	controllertypes.PrunableStore
 
 	// LatestVersion is the highest block whose receipts are queryable. A write may land after
 	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
@@ -152,11 +153,9 @@ type ReceiptRecord struct {
 	// KeepExisting makes this record an insert-only write for its transaction hash: it
 	// yields to a stored receipt and to an unconditional record for the same hash.
 	KeepExisting bool
-	// TxOffset and TxLength locate the raw transaction within its block's stored
-	// value in the block store (the sub-range holding this tx). They are written
-	// into the receipt value's metadata prefix so a receipt lookup can find the
-	// transaction bytes. Only meaningful when block compression is off; zero when
-	// unknown.
+	// TxOffset and TxLength locate the transaction within its block's marshalled
+	// proto(Block) body, excluding the block store's value framing. TxLength is 0
+	// when the location is unknown.
 	TxOffset uint32
 	TxLength uint32
 	// Reward is this tx's priority fee (EffectiveGasPrice - base fee), or nil to exclude it from
@@ -221,8 +220,6 @@ func BackendTypeName(store ReceiptStore) string {
 	switch store.(type) {
 	case *receiptStore:
 		return receiptBackendPebble
-	case *littReceiptStore:
-		return receiptBackendLittIdx
 	default:
 		return "unknown"
 	}
@@ -237,53 +234,46 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	if err := requireSupportedBackend(backend); err != nil {
 		return nil, err
 	}
-	if backend == receiptBackendPebble && config.ExternalPruning {
+	if config.ExternalPruning {
 		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
 		// pruner with nothing in its place.
-		return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q",
-			receiptBackendPebble, receiptBackendLittIdx)
+		return nil, fmt.Errorf("receipt store backend %q does not support external pruning",
+			receiptBackendPebble)
 	}
 
-	// Runs after every config rejection above, and before either backend touches the directory: a config
+	// Runs after every config rejection above, and before the backend touches the directory: a config
 	// that is about to be rejected must not leave a recorded type behind that then refuses the corrected
 	// one.
 	if err := recordBackendType(config.DBDirectory, backend); err != nil {
 		return nil, err
 	}
 
-	switch backend {
-	case receiptBackendLittIdx:
-		return newLittReceiptStore(config, storeKey)
-	case receiptBackendPebble:
-		ssConfig := dbconfig.DefaultStateStoreConfig()
-		ssConfig.DBDirectory = config.DBDirectory
-		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
-		ssConfig.KeepRecent = config.KeepRecent
-		ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
-		if config.PruneIntervalSeconds > 0 {
-			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
-		}
-		ssConfig.KeepLastVersion = false
-		ssConfig.Backend = "pebbledb"
-
-		db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
-		if err != nil {
-			return nil, err
-		}
-		if err := recoverReceiptStore(dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
-		rs := &receiptStore{
-			db:          db,
-			storeKey:    storeKey,
-			stopPruning: make(chan struct{}),
-		}
-		startReceiptPruning(db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
-		return rs, nil
-	default:
-		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
+	ssConfig := dbconfig.DefaultStateStoreConfig()
+	ssConfig.DBDirectory = config.DBDirectory
+	ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
+	ssConfig.KeepRecent = config.KeepRecent
+	ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
+	if config.PruneIntervalSeconds > 0 {
+		ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
 	}
+	ssConfig.KeepLastVersion = false
+	ssConfig.Backend = "pebbledb"
+
+	db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := recoverReceiptStore(dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	rs := &receiptStore{
+		db:          db,
+		storeKey:    storeKey,
+		stopPruning: make(chan struct{}),
+	}
+	startReceiptPruning(db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
+	return rs, nil
 }
 
 func (s *receiptStore) LatestVersion() int64 {
@@ -537,6 +527,23 @@ func startReceiptPruning(db seidbtypes.StateStore, keepRecent int64, pruneInterv
 			}
 		}
 	}()
+}
+
+// legacyReceiptFromKVStore looks up a receipt in the legacy KV store for
+// receipts that predate this store. Returns ErrNotFound when unavailable.
+func legacyReceiptFromKVStore(ctx sdk.Context, storeKey sdk.StoreKey, txHash common.Hash) (*types.Receipt, error) {
+	if storeKey == nil {
+		return nil, ErrNotFound
+	}
+	bz := ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash))
+	if bz == nil {
+		return nil, ErrNotFound
+	}
+	var r types.Receipt
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // LogsForTx converts a stored receipt's logs to go-ethereum logs, offsetting

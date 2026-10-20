@@ -185,6 +185,45 @@ func TestEvmCodeDelegatesToASupportingApplication(t *testing.T) {
 	require.Equal(t, addr, gotAddr)
 }
 
+type testEvmStorageReaderApp struct {
+	testApp
+	storage func(common.Address, common.Hash) common.Hash
+}
+
+func (app testEvmStorageReaderApp) EvmStorage(addr common.Address, key common.Hash) common.Hash {
+	return app.storage(addr, key)
+}
+
+func TestEvmStorage(t *testing.T) {
+	addr := common.Address{7}
+	key := common.Hash{3}
+	want := common.Hash{0x2a}
+
+	t.Run("delegates to a supporting application", func(t *testing.T) {
+		var gotAddr common.Address
+		var gotKey common.Hash
+		proxyApp := New(testEvmStorageReaderApp{
+			storage: func(addr common.Address, key common.Hash) common.Hash {
+				gotAddr, gotKey = addr, key
+				return want
+			},
+		})
+
+		got, err := proxyApp.EvmStorage(addr, key)
+
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+		require.Equal(t, addr, gotAddr)
+		require.Equal(t, key, gotKey)
+	})
+
+	t.Run("errors when the application does not support it", func(t *testing.T) {
+		_, err := New(testApp{}).EvmStorage(addr, key)
+
+		require.Error(t, err)
+	})
+}
+
 func TestEvmChainConfigErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
 	proxyApp := New(testApp{})
 
@@ -296,4 +335,48 @@ func TestEvmChainIDDelegatesToApplication(t *testing.T) {
 
 	// Verify: BaseApplication's zero chain ID is returned.
 	require.Equal(t, uint64(0), got)
+}
+
+// testEvmHistoryApp serves every height's state as values derived from that height.
+type testEvmHistoryApp struct {
+	testApp
+}
+
+func (testEvmHistoryApp) EvmBalanceAt(_ common.Address, height int64) (uint256.Int, error) {
+	return *uint256.NewInt(uint64(height)), nil //nolint:gosec // test heights are positive
+}
+
+func (testEvmHistoryApp) EvmCodeAt(_ common.Address, height int64) ([]byte, error) {
+	return []byte{byte(height)}, nil //nolint:gosec // test heights are small
+}
+
+func (testEvmHistoryApp) EvmNonceAt(_ common.Address, height int64) (uint64, error) {
+	return uint64(height), nil //nolint:gosec // test heights are positive
+}
+
+func (testEvmHistoryApp) EvmStorageAt(_ common.Address, _ common.Hash, height int64) (common.Hash, error) {
+	return common.Hash{byte(height)}, nil //nolint:gosec // test heights are small
+}
+
+func TestEvmHistoryReads(t *testing.T) {
+	addr, key := common.Address{7}, common.Hash{3}
+	for _, tc := range []struct {
+		name string
+		read func(*Proxy) (any, error)
+		want any
+	}{
+		{"balance", func(p *Proxy) (any, error) { return p.EvmBalanceAt(addr, 5) }, *uint256.NewInt(5)},
+		{"code", func(p *Proxy) (any, error) { return p.EvmCodeAt(addr, 5) }, []byte{5}},
+		{"nonce", func(p *Proxy) (any, error) { return p.EvmNonceAt(addr, 5) }, uint64(5)},
+		{"storage", func(p *Proxy) (any, error) { return p.EvmStorageAt(addr, key, 5) }, common.Hash{5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.read(New(testEvmHistoryApp{}))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+
+			_, err = tc.read(New(testApp{}))
+			require.ErrorIs(t, err, errNoEVMHistory)
+		})
+	}
 }

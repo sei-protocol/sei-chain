@@ -24,6 +24,12 @@ var (
 
 var _ StateReader = gigaSnapshotStateReader{}
 
+// historyStore is a giga store that takes a block's change set alongside its changesets, to keep the
+// values the block replaced.
+type historyStore interface {
+	CommitStateChangesWithPrior(blockNum int64, changeset []*proto.NamedChangeSet, changes *gigatypes.StateChangeSet) error
+}
+
 // NamedChangeSetEncoder converts an executor-native state result into the on-disk changesets
 // understood by a giga store. It must treat the input as immutable, and its output must not alias
 // the input, since the commit outlives the pooled block result. It may read the store only to
@@ -240,15 +246,16 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
+	// The commit outlives the block result, which returns to a pool and is reset.
+	pending := changes.Clone()
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
 		if err := e.awaitPipelineCommit(); err != nil {
 			return err
 		}
-		return e.stateStore.CommitStateChanges(blockNumber, changesets)
+		return e.commitState(blockNumber, changesets, pending)
 	}
-	pending := changes.clone()
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
@@ -261,13 +268,22 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 	e.pipelineMu.Unlock()
 
 	go func() {
-		err := e.stateStore.CommitStateChanges(blockNumber, changesets)
+		err := e.commitState(blockNumber, changesets, pending)
 		e.pipelineMu.Lock()
 		e.pipelineErr = err
 		e.pipelineMu.Unlock()
 		close(done)
 	}()
 	return nil
+}
+
+// commitState writes the block to the store, handing over changes as well when the store keeps the
+// values the block replaced.
+func (e *Executor) commitState(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
+	if store, ok := e.stateStore.(historyStore); ok {
+		return store.CommitStateChangesWithPrior(blockNumber, changesets, changes)
+	}
+	return e.stateStore.CommitStateChanges(blockNumber, changesets)
 }
 
 type gigaSnapshotStateReader struct {

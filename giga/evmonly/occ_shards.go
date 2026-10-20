@@ -279,20 +279,19 @@ var occFragmentPool = sync.Pool{New: func() any { return new(occChangeSetFragmen
 // releaseOCCFragments clears every fragment and returns the array to occFragmentPool.
 func releaseOCCFragments(fragments *occChangeSetFragments) {
 	for i := range fragments {
-		fragments[i].resetForReuse()
+		fragments[i].Reset()
 	}
 	occFragmentPool.Put(fragments)
 }
 
 // changeSetIntoParallel writes the block's net state changes, in canonical order, computing each
-// shard's part on the pool. The shards' base-state reads are what the merge mostly spends its time
-// on, and they are independent of each other.
+// shard's part on the pool. The shards are independent of each other.
 func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWorkerPool, changes *StateChangeSet) error {
 	if pool == nil || s.keyCount() < occMinParallelMergeKeys {
 		s.ChangeSetInto(changes)
 		return ctx.Err()
 	}
-	changes.resetForReuse()
+	changes.Reset()
 	fragments := occFragmentPool.Get().(*occChangeSetFragments)
 	defer releaseOCCFragments(fragments)
 	err := pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {

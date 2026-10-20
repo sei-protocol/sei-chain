@@ -22,7 +22,7 @@ import (
 var logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
 // ErrTxInCache is returned to the client if we saw tx earlier.
-var ErrTxInCache = errors.New("tx already exists in cache")
+var ErrTxInCache = types.ErrTxInCache
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
 var ErrTxTooLarge = errors.New("tx too large")
@@ -307,8 +307,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 
 	// Avoid processing same transaction in parallel.
 	if !txmp.txLocks.Lock(hTx.Hash()) {
-		// ErrTxInCache is returned for backward compatibility.
-		return nil, ErrTxInCache
+		// ErrTxInMempool wraps ErrTxInCache for backward compatibility.
+		return nil, types.ErrTxInMempool
 	}
 	defer txmp.txLocks.Unlock(hTx.Hash())
 
@@ -341,8 +341,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 
 	// Check if the tx is known to be bad.
-	if txmp.txStore.ShouldReject(hTx.Hash()) {
-		return nil, ErrTxInCache
+	if err := txmp.txStore.Rejection(hTx.Hash()); err != nil {
+		return nil, err
 	}
 
 	if c, ok := txmp.duplicateTxsCache.Get(); ok {

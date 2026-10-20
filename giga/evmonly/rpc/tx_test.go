@@ -45,29 +45,35 @@ func TestGetTransactionCountCurrentState(t *testing.T) {
 	}
 }
 
-func TestGetTransactionCountRejectsHistoricalState(t *testing.T) {
+func TestGetTransactionCountReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend := &testBackend{transactionCount: func(common.Address) uint64 {
-		t.Fatal("historical lookup reached the backend")
-		return 0
+	api := &txAPI{backend: &testBackend{
+		blockNumber: func() uint64 { return 9 },
+		transactionCount: func(common.Address) uint64 {
+			t.Fatal("a numbered block read the latest state")
+			return 0
+		},
+		transactionCountAt: func(got common.Address, height int64) (uint64, error) {
+			require.Equal(t, address, got)
+			return uint64(height), nil //nolint:gosec // test heights are small
+		},
 	}}
-	api := &txAPI{backend: backend}
 
-	for _, tag := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(8),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false),
-		{},
-	} {
+	for height, want := range map[ethrpc.BlockNumber]hexutil.Uint64{ethrpc.EarliestBlockNumber: 0, 8: 8, 9: 9} {
+		got, err := api.GetTransactionCount(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
+		require.NoError(t, err)
+		require.Equal(t, want, *got, "block %d", height)
+	}
+	for _, tag := range []ethrpc.BlockNumberOrHash{ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false), {}} {
 		_, err := api.GetTransactionCount(t.Context(), address, tag)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+		require.ErrorIs(t, err, errBlockHashUnsupported)
 	}
 }
 
 func TestGetTransactionCountEndToEnd(t *testing.T) {
 	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{transactionCount: func(common.Address) uint64 { return 3 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -124,7 +130,7 @@ func TestGetTransactionReceipt(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -397,7 +403,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
 		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, store, noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -423,7 +429,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 }
 
 func TestHandlerRequiresReceiptStore(t *testing.T) {
-	_, err := newHandler(&testBackend{}, nil)
+	_, err := newHandler(&testBackend{}, nil, noRPCLimits)
 	require.EqualError(t, err, "EVM-only RPC requires a receipt store")
 }
 

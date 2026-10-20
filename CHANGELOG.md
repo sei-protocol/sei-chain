@@ -30,6 +30,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## Unreleased
 sei-chain
+* [#4564](https://github.com/sei-protocol/sei-chain/pull/4564) Add two wasm params governance can set to stop CosmWasm contracts in stages. While `msgExecuteContractDisabled` is true, every `MsgExecuteContract` fails, whether sent directly, wrapped in an authz `MsgExec` or dispatched by a contract; the EVM wasmd precompile, solo claims and wasm gov proposals still execute. While `contractExecutionDisabled` is true, no contract runs: every instantiation, execution, migration and sudo call fails, whatever its origin, including the EVM wasmd and solo precompiles and wasm gov proposals; queries still work. The wasm module moves to consensus version 2 and stores both params as false at the upgrade. App-hash breaking at the upgrade height.
+* [#4563](https://github.com/sei-protocol/sei-chain/pull/4563) Delete the retired feegrant store at the v6.8 upgrade: v6.7 kept it mounted for historical state access, and from the upgrade height v6.8 nodes no longer serve feegrant state at any height, so that history needs a v6.7 or older node. App-hash breaking at the upgrade height.
+* [#4549](https://github.com/sei-protocol/sei-chain/pull/4549) Keep the tokenfactory `burn_tokens` Wasm message working after v6.8: a contract can still burn a `factory/` denom it created from its own balance, so the Silo and Eris liquid staking hubs and the Wormhole token translator keep their redemption paths. Minting and every other tokenfactory message stay removed.
+* [#4536](https://github.com/sei-protocol/sei-chain/pull/4536) Remove the tokenfactory module behind the v6.8 upgrade: module, store, params, protobuf schema, CLI, wasm bindings, the bank `factory/` denom transfer allowlist and tooling are gone; only the tokenfactory Msg types remain decodable so historical blocks still trace. Existing `factory/` balances stay in bank but can no longer be minted or burned, and denoms that had a transfer allowlist become freely transferable. The upgrade deletes at most 1,000 allowlists from the bank store and leaves any beyond that in place, unenforced. App-hash breaking at the upgrade height.
 * [#4319](https://github.com/sei-protocol/sei-chain/pull/4319) Remove the oracle module behind the v6.8 upgrade: module, store, protobuf schema, wasm query route and tooling are gone; only the oracle Msg types remain decodable so historical blocks still trace. App-hash breaking at the upgrade height.
 * [#4332](https://github.com/sei-protocol/sei-chain/pull/4332) Bump sei-protocol/go-ethereum to v1.15.7-sei-21
 * [#4329](https://github.com/sei-protocol/sei-chain/pull/4329) Add Giga fetch/serve and BlockDB prune metrics
@@ -211,6 +215,19 @@ sei-chain
 
 ## v6.7
 sei-chain
+* [#4520](https://github.com/sei-protocol/sei-chain/pull/4520) Backport `release/v6.7`: Export known peer address count as a Prometheus gauge
+* [#4515](https://github.com/sei-protocol/sei-chain/pull/4515) Backport `release/v6.7`: Count only connected peers in /net_info n_peers
+* [#4508](https://github.com/sei-protocol/sei-chain/pull/4508) Backport `release/v6.7`: Fix pruning issue in SS causing huge disk spike
+* [#4507](https://github.com/sei-protocol/sei-chain/pull/4507) Backport `release/v6.7`: Initialize app from last header when a frozen node restarts
+* [#4506](https://github.com/sei-protocol/sei-chain/pull/4506) Backport `release/v6.7`: Update v6.7 change log in prep to cut v6.7.1 patch
+* [#4503](https://github.com/sei-protocol/sei-chain/pull/4503) Backport `release/v6.7`: Refuse pinned write modes that disagree with persisted migration
+* [#4502](https://github.com/sei-protocol/sei-chain/pull/4502) Backport `release/v6.7`: Guard FlatKV rollback floor
+* [#4499](https://github.com/sei-protocol/sei-chain/pull/4499) Backport `release/v6.7`: Resolve composite iteration duplicates to memiavl, matching Read
+* [#4489](https://github.com/sei-protocol/sei-chain/pull/4489) Backport `release/v6.7`: Remove genesis export
+* [#4486](https://github.com/sei-protocol/sei-chain/pull/4486) Backport `release/v6.7`: Re-derive the composite write mode on rollback
+* [#4485](https://github.com/sei-protocol/sei-chain/pull/4485) Backport `release/v6.7`: Make the composite store flatKV and write mode atomic
+* [#4482](https://github.com/sei-protocol/sei-chain/pull/4482) Bump version to v6.7.1 in prep for patch release
+* [#4474](https://github.com/sei-protocol/sei-chain/pull/4474) Backport `release/v6.7`: Validate module names in the memiavl snapshot importer
 * [#4473](https://github.com/sei-protocol/sei-chain/pull/4473) Backport `release/v6.7`: Make the composite store router an atomic pointer
 * [#4465](https://github.com/sei-protocol/sei-chain/pull/4465) Backport `release/v6.7`: fix(seidb): keep the memIAVL nonce when state sync restores a mid-mig…
 * [#4445](https://github.com/sei-protocol/sei-chain/pull/4445) Backport `release/v6.7`: Update v6.7 changelog in prep to cut v6.7.0

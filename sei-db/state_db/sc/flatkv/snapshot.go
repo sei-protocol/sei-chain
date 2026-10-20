@@ -332,8 +332,9 @@ func copyFile(src, dst string) error {
 	return out.Sync()
 }
 
-// atomicRemoveDir renames the directory to a trash name then removes it,
-// preventing half-deleted snapshots on crash.
+// atomicRemoveDir removes path by renaming it to a trash name and then deleting the trash, so path is
+// either whole or absent, after a crash and to a concurrent reader. HardLinkSnapshot depends on this to
+// refuse a snapshot that is being pruned.
 func atomicRemoveDir(path string) error {
 	trashPath := path + removingSuffix
 	_ = os.RemoveAll(trashPath)
@@ -663,6 +664,19 @@ func (s *CommitStore) reachableBaseVersion(dir string, targetVersion int64) (int
 func (s *CommitStore) CheckVersionReachable(targetVersion int64) error {
 	_, err := s.reachableBaseVersion(s.flatkvDir(), targetVersion)
 	return err
+}
+
+// OldestSnapshotAbove returns the oldest retained snapshot version above version; ok is false when there is
+// none. It does not modify the store.
+func (s *CommitStore) OldestSnapshotAbove(version int64) (snapshot int64, ok bool, err error) {
+	err = traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+		if v <= version {
+			return false, nil
+		}
+		snapshot, ok = v, true
+		return true, nil
+	})
+	return snapshot, ok, err
 }
 
 // Rollback rewinds the store to targetVersion, discarding the committed state, the WAL blocks and the

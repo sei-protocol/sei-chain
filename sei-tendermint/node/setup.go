@@ -422,6 +422,7 @@ func buildGigaStorageConfig(
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
 	storageConfig.CheckpointConfig.TimeInterval = storage.CheckpointTimeInterval
 	storageConfig.CheckpointConfig.BlockInterval = storage.CheckpointBlockInterval
+	storageConfig.WithStateStoreBackend(storage.StateStoreBackend)
 	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
 		storageConfig.WithFullNodeMode()
 	}

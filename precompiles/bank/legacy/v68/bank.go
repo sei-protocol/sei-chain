@@ -432,7 +432,7 @@ func (p PrecompileExecutor) spendableBalances(ctx sdk.Context, method *abi.Metho
 		return nil, 0, err
 	}
 
-	seiAddr, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	seiAddr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, 0, err
 	}

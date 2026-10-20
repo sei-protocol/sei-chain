@@ -31,6 +31,14 @@ func goldenData() *AppHashData {
 	)
 }
 
+// mustSerialize returns the serialization of ahd.
+func mustSerialize(t testing.TB, ahd *AppHashData) []byte {
+	t.Helper()
+	data, err := ahd.Serialize()
+	require.NoError(t, err)
+	return data
+}
+
 // goldenSerialization is the version 1 wire format of goldenData(), field by field.
 var goldenSerialization = "01" +
 	"1112131415161718" +
@@ -52,20 +60,20 @@ func TestConstructorAndGetters(t *testing.T) {
 	require.Equal(t, uint64(0x0102030405060708), ahd.BlockHeight())
 	require.Equal(t, filledHash(0xa1), ahd.BlockHash())
 	require.Equal(t, filledHash(0xb2), ahd.StateHash())
-	require.Equal(t, filledHash(0xc3), ahd.BUD())
+	require.Equal(t, BUDHash(filledHash(0xc3)), ahd.BUDHash())
 	require.Equal(t, filledHash(0xd4), ahd.ReceiptHash())
 	require.Equal(t, filledHash(0xe5), ahd.PreviousAppHash())
 }
 
 func TestSerializeLayout(t *testing.T) {
-	serialized := goldenData().Serialize()
+	serialized := mustSerialize(t, goldenData())
 
 	require.Len(t, serialized, 177)
 	require.Equal(t, goldenSerialization, hex.EncodeToString(serialized))
 }
 
 func TestSerializeIsDeterministic(t *testing.T) {
-	require.Equal(t, goldenData().Serialize(), goldenData().Serialize())
+	require.Equal(t, mustSerialize(t, goldenData()), mustSerialize(t, goldenData()))
 }
 
 func TestHashGoldenVector(t *testing.T) {
@@ -74,10 +82,21 @@ func TestHashGoldenVector(t *testing.T) {
 	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
 }
 
+func TestDeserializeGoldenVector(t *testing.T) {
+	serialized, err := hex.DecodeString(goldenSerialization)
+	require.NoError(t, err)
+
+	decoded, err := Deserialize(serialized)
+	require.NoError(t, err)
+	require.Equal(t, goldenData(), decoded)
+	hash := decoded.AppHash()
+	require.Equal(t, goldenHash, hex.EncodeToString(hash[:]))
+}
+
 func TestRoundTrip(t *testing.T) {
 	original := goldenData()
 
-	decoded, err := Deserialize(original.Serialize())
+	decoded, err := Deserialize(mustSerialize(t, original))
 	require.NoError(t, err)
 
 	require.Equal(t, original.Version(), decoded.Version())
@@ -85,10 +104,10 @@ func TestRoundTrip(t *testing.T) {
 	require.Equal(t, original.BlockHeight(), decoded.BlockHeight())
 	require.Equal(t, original.BlockHash(), decoded.BlockHash())
 	require.Equal(t, original.StateHash(), decoded.StateHash())
-	require.Equal(t, original.BUD(), decoded.BUD())
+	require.Equal(t, original.BUDHash(), decoded.BUDHash())
 	require.Equal(t, original.ReceiptHash(), decoded.ReceiptHash())
 	require.Equal(t, original.PreviousAppHash(), decoded.PreviousAppHash())
-	require.Equal(t, original.Serialize(), decoded.Serialize())
+	require.Equal(t, mustSerialize(t, original), mustSerialize(t, decoded))
 	require.Equal(t, original.AppHash(), decoded.AppHash())
 }
 
@@ -105,8 +124,8 @@ func TestEveryFieldAffectsHash(t *testing.T) {
 			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
 		"stateHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), other,
 			filledHash(0xc3), filledHash(0xd4), filledHash(0xe5)),
-		"bud": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2), other,
-			filledHash(0xd4), filledHash(0xe5)),
+		"budHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1), filledHash(0xb2),
+			other, filledHash(0xd4), filledHash(0xe5)),
 		"receiptHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
 			filledHash(0xb2), filledHash(0xc3), other, filledHash(0xe5)),
 		"previousAppHash": NewAppHashData(0x1112131415161718, 0x0102030405060708, filledHash(0xa1),
@@ -121,7 +140,7 @@ func TestEveryFieldAffectsHash(t *testing.T) {
 }
 
 func TestDeserializeRejectsWrongLength(t *testing.T) {
-	serialized := goldenData().Serialize()
+	serialized := mustSerialize(t, goldenData())
 
 	cases := map[string][]byte{
 		"nil":            nil,
@@ -141,10 +160,27 @@ func TestDeserializeRejectsWrongLength(t *testing.T) {
 
 func TestDeserializeRejectsUnknownVersion(t *testing.T) {
 	for _, version := range []byte{0x00, 0x02, 0xff} {
-		data := goldenData().Serialize()
+		data := mustSerialize(t, goldenData())
 		data[0] = version
 
 		_, err := Deserialize(data)
 		require.Error(t, err, "version %d", version)
 	}
+}
+
+func TestZeroAppHashData(t *testing.T) {
+	ahd := NewZeroAppHashData(0x1112131415161718, 5)
+
+	require.Equal(t, uint8(1), ahd.Version())
+	require.Equal(t, uint64(0x1112131415161718), ahd.ChainID())
+	require.Equal(t, uint64(4), ahd.BlockHeight())
+	require.Equal(t, [32]byte{}, ahd.BlockHash())
+	require.Equal(t, [32]byte{}, ahd.StateHash())
+	require.Equal(t, BUDHash{}, ahd.BUDHash())
+	require.Equal(t, [32]byte{}, ahd.ReceiptHash())
+	require.Equal(t, [32]byte{}, ahd.PreviousAppHash())
+	require.Equal(t, [32]byte{}, ahd.AppHash())
+
+	_, err := ahd.Serialize()
+	require.Error(t, err)
 }
