@@ -80,55 +80,57 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
-func TestQuery_StateProofDisabledByDefault(t *testing.T) {
-	home := t.TempDir()
+// newStateProofTestStore opens a store with SS disabled, in which bank key "k" is "v1" at height 1 and
+// "v2" at height 2.
+func newStateProofTestStore(t *testing.T, enableStateProof bool) *Store {
+	t.Helper()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = enableStateProof
 	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, scCfg, ssCfg, []string{})
-	defer func() { _ = store.Close() }()
+	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
+	t.Cleanup(func() { _ = store.Close() })
 
-	key := types.NewKVStoreKey("bank")
-	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	store.MountStoreWithDB(types.NewKVStoreKey("bank"), types.StoreTypeIAVL, nil)
 	require.NoError(t, store.LoadLatestVersion())
 
-	keyBytes := []byte("k")
-	valV1 := []byte("v1")
-	kv := store.GetStoreByName("bank").(types.KVStore)
-	kv.Set(keyBytes, valV1)
-	c1 := store.Commit(true)
-	require.Equal(t, int64(1), c1.Version)
+	for i, val := range [][]byte{[]byte("v1"), []byte("v2")} {
+		kv := store.GetStoreByName("bank").(types.KVStore)
+		kv.Set([]byte("k"), val)
+		require.Equal(t, int64(i+1), store.Commit(true).Version)
+	}
+	return store
+}
 
-	valV2 := []byte("v2")
-	kv = store.GetStoreByName("bank").(types.KVStore)
-	kv.Set(keyBytes, valV2)
-	c2 := store.Commit(true)
-	require.Equal(t, int64(2), c2.Version)
+var stateProofTestHeights = []struct {
+	name   string
+	height int64
+	value  []byte
+}{
+	{name: "latest", height: 2, value: []byte("v2")},
+	{name: "historical", height: 1, value: []byte("v1")},
+}
 
-	for _, tc := range []struct {
-		name   string
-		height int64
-		value  []byte
-	}{
-		{name: "latest", height: c2.Version, value: valV2},
-		{name: "historical", height: c1.Version, value: valV1},
-	} {
+func TestQuery_StateProofDisabledByDefault(t *testing.T) {
+	store := newStateProofTestStore(t, false)
+
+	for _, tc := range stateProofTestHeights {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := store.Query(context.Background(), abci.RequestQuery{
+			resp := store.Query(t.Context(), abci.RequestQuery{
 				Path:   "/bank/key",
-				Data:   keyBytes,
+				Data:   []byte("k"),
 				Height: tc.height,
 				Prove:  false,
 			})
 			require.EqualValues(t, 0, resp.Code, resp.Log)
 			require.Equal(t, tc.value, resp.Value)
 
-			resp = store.Query(context.Background(), abci.RequestQuery{
+			resp = store.Query(t.Context(), abci.RequestQuery{
 				Path:   "/bank/key",
-				Data:   keyBytes,
+				Data:   []byte("k"),
 				Height: tc.height,
 				Prove:  true,
 			})
@@ -139,39 +141,43 @@ func TestQuery_StateProofDisabledByDefault(t *testing.T) {
 	}
 }
 
+// TestQuery_StateProofDisabledAdmitsProveOnSubspace pins that the guard rejects only paths that
+// produce a proof: a /subspace query asking for one is served unproven, as before.
+func TestQuery_StateProofDisabledAdmitsProveOnSubspace(t *testing.T) {
+	store := newStateProofTestStore(t, false)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/subspace",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.NotEmpty(t, resp.Value)
+			require.Nil(t, resp.ProofOps)
+		})
+	}
+}
+
 func TestQuery_StateProofEnabledReturnsProofOps(t *testing.T) {
-	home := t.TempDir()
-	scCfg := config.DefaultStateCommitConfig()
-	scCfg.Enable = true
-	scCfg.EnableStateProof = true
-	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Enable = false
+	store := newStateProofTestStore(t, true)
 
-	store := NewStore(home, scCfg, ssCfg, []string{})
-	defer func() { _ = store.Close() }()
-
-	key := types.NewKVStoreKey("bank")
-	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
-	require.NoError(t, store.LoadLatestVersion())
-
-	keyBytes := []byte("k")
-	val := []byte("v")
-	kv := store.GetStoreByName("bank").(types.KVStore)
-	kv.Set(keyBytes, val)
-	c1 := store.Commit(true)
-	require.Equal(t, int64(1), c1.Version)
-
-	resp := store.Query(context.Background(), abci.RequestQuery{
-		Path:   "/bank/key",
-		Data:   keyBytes,
-		Height: c1.Version,
-		Prove:  true,
-	})
-	require.EqualValues(t, 0, resp.Code, resp.Log)
-	require.Equal(t, val, resp.Value)
-	require.NotNil(t, resp.ProofOps)
-	require.NotEmpty(t, resp.ProofOps.Ops)
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.Equal(t, tc.value, resp.Value)
+			require.NotNil(t, resp.ProofOps)
+			require.NotEmpty(t, resp.ProofOps.Ops)
+		})
+	}
 }
 
 func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
