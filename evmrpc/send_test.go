@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -247,6 +250,43 @@ func TestSendRawTransactionSlowOnCometUsesBroadcastTxCommit(t *testing.T) {
 	require.Equal(t, tx.Hash(), hash)
 	require.Equal(t, 0, tmClient.syncCount)
 	require.Equal(t, 1, tmClient.commitCount)
+}
+
+// rejectingClient fails every broadcast with err.
+type rejectingClient struct {
+	*MockClient
+	err error
+}
+
+func (c *rejectingClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
+	return nil, c.err
+}
+
+func (c *rejectingClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	return nil, c.err
+}
+
+func TestSendRawTransactionMapsMempoolRejections(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	for _, tc := range []struct {
+		mempoolErr error
+		want       error
+	}{
+		{tmtypes.ErrTxInMempool, txpool.ErrAlreadyKnown},
+		{tmtypes.ErrTxNonceTooLow, core.ErrNonceTooLow},
+		{tmtypes.ErrTxReplacementUnderpriced, txpool.ErrReplaceUnderpriced},
+		{tmtypes.ErrTxInsufficientFunds, core.ErrInsufficientFunds},
+		{tmtypes.ErrTxInCache, tmtypes.ErrTxInCache},
+	} {
+		for _, slow := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%v/slow=%v", tc.mempoolErr, slow), func(t *testing.T) {
+				client := &rejectingClient{MockClient: &MockClient{}, err: tc.mempoolErr}
+				sendAPI := newTestSendAPI(client, evmrpc.NewSendConfig(slow, false, false))
+				_, err := sendAPI.SendRawTransaction(t.Context(), hexutil.Bytes(ethTxBytes))
+				require.ErrorIs(t, err, tc.want)
+			})
+		}
+	}
 }
 
 func mustSignTestTx(t *testing.T) ([]byte, *ethtypes.Transaction) {

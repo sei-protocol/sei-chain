@@ -294,25 +294,6 @@ func (k Keeper) LastValidatorsIterator(ctx sdk.Context) (iterator sdk.Iterator) 
 	return iterator
 }
 
-// Iterate over last validator powers.
-func (k Keeper) IterateLastValidatorPowers(ctx sdk.Context, handler func(operator sdk.ValAddress, power int64) (stop bool)) {
-	store := ctx.KVStore(k.storeKey)
-
-	iter := sdk.KVStorePrefixIterator(store, types.LastValidatorPowerKey)
-	defer func() { _ = iter.Close() }()
-
-	for ; iter.Valid(); iter.Next() {
-		addr := sdk.ValAddress(types.AddressFromLastValidatorPowerKey(iter.Key()))
-		intV := &gogotypes.Int64Value{}
-
-		k.cdc.MustUnmarshal(iter.Value(), intV)
-
-		if handler(addr, intV.GetValue()) {
-			break
-		}
-	}
-}
-
 // get the group of the bonded validators
 func (k Keeper) GetLastValidators(ctx sdk.Context) (validators []types.Validator) {
 	store := ctx.KVStore(k.storeKey)

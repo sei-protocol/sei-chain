@@ -259,8 +259,9 @@ func buildValidatorGigaConfig(
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
-			return time.Duration(fc.ViewTimeout)
+			return genDoc.Autobahn.ViewTimeout
 		},
+		ProposalTimeout: genDoc.Autobahn.ViewTimeout,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
@@ -421,6 +422,7 @@ func buildGigaStorageConfig(
 	storageConfig.PruningConfig.PruneInterval = storage.PruneInterval
 	storageConfig.CheckpointConfig.TimeInterval = storage.CheckpointTimeInterval
 	storageConfig.CheckpointConfig.BlockInterval = storage.CheckpointBlockInterval
+	storageConfig.WithStateStoreBackend(storage.StateStoreBackend)
 	if resolveGigaStorageMode(nodeMode, storage.Mode) == gigaconfig.StorageModeFull {
 		storageConfig.WithFullNodeMode()
 	}

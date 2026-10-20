@@ -44,7 +44,7 @@ func (m *LaneRange) Next() BlockNumber { return m.next }
 // Len returns the number of blocks in the range.
 func (m *LaneRange) Len() uint64 { return uint64(m.next - m.first) }
 
-// LastHash is the certified lane tip the next block must extend.
+// LastHash is the certified tip of this range.
 // For a non-empty range it is the hash of block Next()-1.
 // For an empty range it is the previous commit's LastHash for this lane,
 // or zero when the lane has never been extended.
@@ -176,6 +176,26 @@ func (vs *ViewSpec) NextTimestamp() time.Time {
 		return cQC.Proposal().NextTimestamp()
 	}
 	return vs.Epoch.FirstTimestamp()
+}
+
+// TimestampRange returns the earliest and latest proposal timestamps accepted
+// for this view, inclusive. The width is viewTimeout * (view number + 1).
+func (vs *ViewSpec) TimestampRange(viewTimeout time.Duration) (earliest, latest time.Time) {
+	earliest = vs.NextTimestamp()
+	latest = earliest.Add(viewTimeout * time.Duration(vs.View().Number+1)) //nolint:gosec // view number stays far below 2^63
+	return earliest, latest
+}
+
+// ClampTimestamp returns timestamp limited to TimestampRange(viewTimeout).
+func (vs *ViewSpec) ClampTimestamp(timestamp time.Time, viewTimeout time.Duration) time.Time {
+	earliest, latest := vs.TimestampRange(viewTimeout)
+	if timestamp.Before(earliest) {
+		return earliest
+	}
+	if timestamp.After(latest) {
+		return latest
+	}
+	return timestamp
 }
 
 // Proposal is the road tipcut proposal.
@@ -312,8 +332,8 @@ func NewReproposal(
 	}, true
 }
 
-// NewProposal creates a new FullProposal.
-// timestamp might get replaced to ensure that timestamps are monotone.
+// NewProposal creates a new FullProposal signed by key.
+// A reproposal re-signs the locked proposal and ignores timestamp and laneQCs.
 func NewProposal(
 	key SecretKey,
 	viewSpec ViewSpec,
@@ -364,10 +384,6 @@ func buildProposal(
 			laneRanges = append(laneRanges, &LaneRange{lane: lane, first: first, next: first, lastHash: prev.LastHash()})
 		}
 	}
-	// Normalize the creation timestamp.
-	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
-		timestamp = wantMin
-	}
 	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, viewSpec.NextGlobalBlock())
 	if proposal.GlobalRange().Len() == 0 {
 		return nil, errors.New("empty tipcut: need at least one LaneQC")
@@ -416,8 +432,9 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 	return m.timeoutQC
 }
 
-// Verify verifies the FullProposal against the current view.
-func (m *FullProposal) Verify(vs ViewSpec) error {
+// Verify checks the FullProposal against vs.
+// Timestamps outside TimestampRange(viewTimeout) are rejected.
+func (m *FullProposal) Verify(vs ViewSpec, viewTimeout time.Duration) error {
 	c := vs.Epoch.Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the view match?
@@ -427,9 +444,9 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		if got, want := m.proposal.Msg().GlobalRange().First, vs.NextGlobalBlock(); got != want {
 			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
 		}
-		// Is the timestamp monotone?
-		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(); got.Before(wantMin) {
-			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v", got, wantMin)
+		earliest, latest := vs.TimestampRange(viewTimeout)
+		if got := m.proposal.Msg().Timestamp(); got.Before(earliest) || got.After(latest) {
+			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v and <= %v", got, earliest, latest)
 		}
 		// Is proposer valid?
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {

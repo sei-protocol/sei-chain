@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -11,13 +12,14 @@ import (
 // GigaStorageConfig composes the store configs a Giga node opens. It is not read from
 // app.toml; callers build it with DefaultGigaStorageConfig.
 type GigaStorageConfig struct {
-	HomePath         string
-	FlatKVConfig     *flatkvConfig.Config           // required
-	SSConfig         StateStoreConfig               // optional via Enable
-	ReceiptDBConfig  ReceiptStoreConfig             // optional via Enable
-	BlockDBConfig    *littblock.BlockDBConfig       // required
-	PruningConfig    *StorageGarbageCollectorConfig // required
-	CheckpointConfig CheckpointConfig
+	HomePath             string
+	FlatKVConfig         *flatkvConfig.Config           // required
+	SSConfig             StateStoreConfig               // optional via Enable
+	ReceiptDBConfig      ReceiptStoreConfig             // optional via Enable
+	BlockDBConfig        *littblock.BlockDBConfig       // required
+	PruningConfig        *StorageGarbageCollectorConfig // required
+	CheckpointConfig     CheckpointConfig
+	AppHashBuilderConfig *builder.AppHashBuilderConfig // required
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -29,6 +31,7 @@ const gigaReceiptBackend = "littidx"
 //	data/state_store/evm/{backend}
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
+//	data/ledger/app_hash
 //
 // SS is opened at EVMDBDirectory. Every store sets ExternalPruning so PruningConfig owns retention.
 func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
@@ -51,14 +54,18 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
 	receiptConfig.ExternalPruning = true
 
+	appHashBuilderConfig := builder.DefaultAppHashBuilderConfig()
+	appHashBuilderConfig.HashVaultConfig.Path = utils.GetAppHashVaultPath(homePath)
+
 	return &GigaStorageConfig{
-		HomePath:         homePath,
-		FlatKVConfig:     flatKV,
-		SSConfig:         ssConfig,
-		ReceiptDBConfig:  receiptConfig,
-		BlockDBConfig:    blockDBConfig,
-		PruningConfig:    DefaultStorageGarbageCollectorConfig(),
-		CheckpointConfig: DefaultCheckpointConfig(),
+		HomePath:             homePath,
+		FlatKVConfig:         flatKV,
+		SSConfig:             ssConfig,
+		ReceiptDBConfig:      receiptConfig,
+		BlockDBConfig:        blockDBConfig,
+		PruningConfig:        DefaultStorageGarbageCollectorConfig(),
+		CheckpointConfig:     DefaultCheckpointConfig(),
+		AppHashBuilderConfig: &appHashBuilderConfig,
 	}, nil
 }
 
@@ -84,6 +91,14 @@ func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	storageConfig.WithValidatorMode()
 	storageConfig.ReceiptDBConfig.Enable = true
 	return storageConfig, nil
+}
+
+// WithStateStoreBackend has the state store keep its history as backend, in that backend's
+// directory under the home path.
+func (c *GigaStorageConfig) WithStateStoreBackend(backend string) *GigaStorageConfig {
+	c.SSConfig.Backend = backend
+	c.SSConfig.EVMDBDirectory = utils.GetEVMStateStorePath(c.HomePath, backend)
+	return c
 }
 
 func (c *GigaStorageConfig) WithAccountDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
@@ -141,6 +156,13 @@ func (c *GigaStorageConfig) Validate() error {
 	}
 	if c.ReceiptDBConfig.Enable && !c.ReceiptDBConfig.ExternalPruning {
 		return fmt.Errorf("receipt store ExternalPruning must be true")
+	}
+
+	if c.AppHashBuilderConfig == nil {
+		return fmt.Errorf("app hash builder config is required")
+	}
+	if err := c.AppHashBuilderConfig.Validate(); err != nil {
+		return fmt.Errorf("app hash builder config is invalid: %w", err)
 	}
 
 	if !c.CheckpointConfig.Enabled() {

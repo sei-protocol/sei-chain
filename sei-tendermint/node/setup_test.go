@@ -66,7 +66,6 @@ func defaultFileConfig(t testing.TB, validators []config.AutobahnValidator) *con
 		MaxTxsPerSecond:    utils.None[uint64](),
 		AllowEmptyBlocks:   false,
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
-		ViewTimeout:        utils.Duration(1500 * time.Millisecond),
 		PersistentStateDir: t.TempDir(),
 		DialInterval:       utils.Duration(10 * time.Second),
 	}
@@ -85,6 +84,7 @@ func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
 		ConsensusParams: &types.ConsensusParams{
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
+		Autobahn: types.DefaultAutobahnParams(),
 	}
 	return app, genDoc
 }
@@ -167,7 +167,6 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
 		AllowEmptyBlocks:   true,
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
-		ViewTimeout:        utils.Duration(3 * time.Second),
 		PersistentStateDir: "/tmp/autobahn-state",
 		DialInterval:       utils.Duration(5 * time.Second),
 	}
@@ -176,6 +175,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("node1-seed"))
 	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
+	genDoc.Autobahn.ViewTimeout = 3 * time.Second
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
@@ -185,6 +185,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	assert.Equal(t, 5*time.Second, result.DialInterval)
 
 	assert.Equal(t, 3*time.Second, result.ViewTimeout(atypes.View{}))
+	assert.Equal(t, 3*time.Second, result.ProposalTimeout)
 	assert.Equal(t, "/tmp/autobahn-state", result.PersistentStateDir)
 
 	// Verify the validator key is derived from the validator-key seed, not the node key.

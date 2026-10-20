@@ -44,6 +44,9 @@ func CustomMessageHandler(
 			Custom: CustomEncoder,
 		})
 	return wasmkeeper.NewMessageHandlerChain(
+		// CustomEncoder refuses burn_tokens with an error that ends the chain, so the
+		// legacy burn must run before the SDK message handler.
+		LegacyBurnTokensHandler(bankKeeper),
 		wasmkeeper.NewSDKMessageHandler(&CustomRouter{MessageRouter: router, evmKeeper: evmKeeper}, encoders),
 		wasmkeeper.NewBurnCoinMessageHandler(bankKeeper),
 	)

@@ -131,10 +131,6 @@ func TestManagerOrderSetters(t *testing.T) {
 	mm.SetOrderInitGenesis("module2", "module1")
 	require.Equal(t, []string{"module2", "module1"}, mm.OrderInitGenesis)
 
-	require.Equal(t, []string{"module1", "module2"}, mm.OrderExportGenesis)
-	mm.SetOrderExportGenesis("module2", "module1")
-	require.Equal(t, []string{"module2", "module1"}, mm.OrderExportGenesis)
-
 	// we expect none of the modules to be included by default
 	require.Empty(t, mm.OrderMidBlockers)
 	mm.SetOrderMidBlockers("module2", "module1")
@@ -275,30 +271,6 @@ func TestManager_InitGenesisStreamSkipsUnknownModules(t *testing.T) {
 			GenesisStreamFile:   genesisFile,
 		}),
 	)
-}
-
-func TestManager_ExportGenesis(t *testing.T) {
-	mockCtrl := gomock.NewController(t)
-	t.Cleanup(mockCtrl.Finish)
-
-	mockAppModule1 := mocks.NewMockAppModule(mockCtrl)
-	mockAppModule2 := mocks.NewMockAppModule(mockCtrl)
-	mockAppModule1.EXPECT().Name().Times(2).Return("module1")
-	mockAppModule2.EXPECT().Name().Times(2).Return("module2")
-	mm := module.NewManager(mockAppModule1, mockAppModule2)
-	require.NotNil(t, mm)
-	require.Equal(t, 2, len(mm.Modules))
-
-	ctx := sdk.Context{}
-	interfaceRegistry := types.NewInterfaceRegistry()
-	cdc := codec.NewProtoCodec(interfaceRegistry)
-	mockAppModule1.EXPECT().ExportGenesis(gomock.Eq(ctx), gomock.Eq(cdc)).Times(1).Return(json.RawMessage(`{"key1": "value1"}`))
-	mockAppModule2.EXPECT().ExportGenesis(gomock.Eq(ctx), gomock.Eq(cdc)).Times(1).Return(json.RawMessage(`{"key2": "value2"}`))
-
-	want := map[string]json.RawMessage{
-		"module1": json.RawMessage(`{"key1": "value1"}`),
-		"module2": json.RawMessage(`{"key2": "value2"}`)}
-	require.Equal(t, want, mm.ExportGenesis(ctx, cdc))
 }
 
 func TestManager_MidBlock(t *testing.T) {

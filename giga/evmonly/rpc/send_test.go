@@ -29,7 +29,7 @@ func TestSendRawTransaction(t *testing.T) {
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -43,9 +43,9 @@ func TestSendRawTransaction(t *testing.T) {
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, raw, broadcastRaw)
 
-	var storageResult hexutil.Bytes
-	err = client.CallContext(t.Context(), &storageResult, "eth_getStorageAt")
-	require.ErrorContains(t, err, "method eth_getStorageAt does not exist")
+	var proofResult any
+	err = client.CallContext(t.Context(), &proofResult, "eth_getProof")
+	require.ErrorContains(t, err, "method eth_getProof does not exist")
 	err = client.CallContext(t.Context(), nil, "status")
 	require.ErrorContains(t, err, "method status does not exist")
 }

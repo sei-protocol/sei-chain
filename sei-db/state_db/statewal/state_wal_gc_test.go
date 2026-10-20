@@ -3,7 +3,7 @@ package statewal
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 	"github.com/stretchr/testify/require"
 
@@ -11,11 +11,11 @@ import (
 )
 
 // openWALForGC opens a WAL and returns it as the collector sees it, closing it on cleanup.
-func openWALForGC(t *testing.T, cfg *Config) (StateWAL, controller.PrunableStore) {
+func openWALForGC(t *testing.T, cfg *Config) (StateWAL, controllertypes.PrunableStore) {
 	t.Helper()
 	w := openWAL(t, cfg)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
-	store, ok := w.(controller.PrunableStore)
+	store, ok := w.(controllertypes.PrunableStore)
 	require.True(t, ok, "a state WAL must satisfy gc.PrunableStore")
 	return w, store
 }
@@ -199,7 +199,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	require.NoError(t, w.(controller.PrunableStore).PruneHistory(4))
+	require.NoError(t, w.(controllertypes.PrunableStore).PruneHistory(4))
 	require.NoError(t, w.Close())
 
 	w2, store := openWALForGC(t, cfg)
@@ -215,8 +215,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 }
 
 // The collector can still be mid-cycle when the node shuts down, so a prune arriving after the close
-// must be reported rather than panic, and must not brick the WAL on the way out — PruneHistory declines
-// to write fatalErr precisely because the writer reads it unsynchronized.
+// must be reported rather than panic, and must not brick the WAL on the way out.
 func TestGCPruneHistoryAfterClose(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1
@@ -225,7 +224,7 @@ func TestGCPruneHistoryAfterClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	store, ok := w.(controller.PrunableStore)
+	store, ok := w.(controllertypes.PrunableStore)
 	require.True(t, ok)
 	require.NoError(t, w.Close())
 

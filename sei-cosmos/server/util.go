@@ -328,7 +328,6 @@ func AddCommands(
 	rootCmd *cobra.Command,
 	defaultNodeHome string,
 	appCreator types.AppCreator,
-	appExport types.AppExporter,
 	addStartFlags types.ModuleInitFlags,
 	tracerProviderOptions []trace.TracerProviderOption,
 ) {
@@ -366,7 +365,6 @@ func AddCommands(
 	rootCmd.AddCommand(
 		startCmd,
 		tendermintCmd,
-		ExportCmd(appExport, defaultNodeHome),
 		version.NewVersionCommand(),
 		NewRollbackCmd(appCreator, defaultNodeHome),
 	)

@@ -31,7 +31,7 @@ type pendingOverlay struct {
 // newPendingOverlay indexes changes for lookup. It returns base unchanged when there is nothing to
 // overlay, so a caller pays nothing for the first block or after a commit has caught up.
 func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
-	if changes == nil || changes.isEmpty() {
+	if changes == nil || changes.IsEmpty() {
 		return base
 	}
 	o := &pendingOverlay{
@@ -136,37 +136,4 @@ func (o *pendingOverlay) ReadAccount(addr common.Address) (baseAccount, bool) {
 		account.Code = cloneBytes(code)
 	}
 	return account, true
-}
-
-// isEmpty reports whether the set would change nothing.
-func (c *StateChangeSet) isEmpty() bool {
-	return len(c.Balances) == 0 && len(c.Nonces) == 0 && len(c.Code) == 0 &&
-		len(c.StorageClears) == 0 && len(c.Storage) == 0
-}
-
-// clone copies the set deeply enough to outlive the block result it came from. That result returns
-// to a pool and is reset for the next block, so an overlay holding its slices would read state from
-// a block that has not run yet.
-func (c *StateChangeSet) clone() *StateChangeSet {
-	if c == nil || c.isEmpty() {
-		return nil
-	}
-	cp := &StateChangeSet{
-		Balances:      make([]BalanceChange, len(c.Balances)),
-		Nonces:        append([]NonceChange(nil), c.Nonces...),
-		Code:          make([]CodeChange, len(c.Code)),
-		StorageClears: append([]common.Address(nil), c.StorageClears...),
-		Storage:       append([]StorageChange(nil), c.Storage...),
-	}
-	for i, change := range c.Balances {
-		cp.Balances[i] = BalanceChange{Address: change.Address, Balance: cloneBig(change.Balance)}
-	}
-	for i, change := range c.Code {
-		cp.Code[i] = CodeChange{
-			Address: change.Address,
-			Code:    append([]byte(nil), change.Code...),
-			Delete:  change.Delete,
-		}
-	}
-	return cp
 }

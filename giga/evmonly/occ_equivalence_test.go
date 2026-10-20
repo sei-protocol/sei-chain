@@ -285,8 +285,8 @@ func occScenarioRun(t *testing.T, scenario *occScenario, reqs []BlockRequest, wo
 }
 
 // requireSameStateChanges asserts that two changesets hold the same values in the same order and
-// encode to the same FlatKV pairs. Balances compare by value, since a zero balance may be held with
-// or without backing words.
+// encode to the same FlatKV pairs. Balances and their priors compare by value, since a zero may be
+// held with or without backing words.
 func requireSameStateChanges(t *testing.T, store *flatkv.CommitStore, want StateChangeSet, got StateChangeSet, name string) {
 	t.Helper()
 	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(got), name)
@@ -299,6 +299,9 @@ func withCanonicalBalances(changes StateChangeSet) StateChangeSet {
 		balances[i] = change
 		if change.Balance != nil {
 			balances[i].Balance = new(big.Int).Set(change.Balance)
+		}
+		if change.PriorBalance != nil {
+			balances[i].PriorBalance = new(big.Int).Set(change.PriorBalance)
 		}
 	}
 	changes.Balances = balances

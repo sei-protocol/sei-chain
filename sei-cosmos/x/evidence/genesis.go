@@ -3,9 +3,6 @@ package evidence
 import (
 	"fmt"
 
-	"github.com/gogo/protobuf/proto"
-
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/exported"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
@@ -29,25 +26,5 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, gs *types.GenesisState) {
 		}
 
 		k.SetEvidence(ctx, evi)
-	}
-}
-
-// ExportGenesis returns the evidence module's exported genesis.
-func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
-	e := k.GetAllEvidence(ctx)
-	evidence := make([]*codectypes.Any, len(e))
-	for i, evi := range e {
-		msg, ok := evi.(proto.Message)
-		if !ok {
-			panic(fmt.Errorf("cannot proto marshal %T", evi))
-		}
-		any, err := codectypes.NewAnyWithValue(msg)
-		if err != nil {
-			panic(err)
-		}
-		evidence[i] = any
-	}
-	return &types.GenesisState{
-		Evidence: evidence,
 	}
 }

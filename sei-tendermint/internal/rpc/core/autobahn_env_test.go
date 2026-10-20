@@ -63,6 +63,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		GigaRouterCommonConfig: commonCfg,
 		ValidatorKey:           valKey,
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+		ProposalTimeout:        time.Hour,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,

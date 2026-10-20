@@ -250,8 +250,14 @@ func filterTransactions(
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
-				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
-				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
+				receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+				if err != nil {
+					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
+						return nil, goCtx.Err()
+					}
+					continue
+				}
+				if receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
 				txCount := txCounts[sender.Hex()]
@@ -274,8 +280,11 @@ func filterTransactions(
 					continue
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
-				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
-				if !found {
+				_, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
+				if err != nil {
+					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
+						return nil, goCtx.Err()
+					}
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
@@ -348,6 +357,11 @@ func getTxHashesFromBlock(
 	if err != nil {
 		return nil, err
 	}
+	return typedTxHashesOf(block, txs), nil
+}
+
+// typedTxHashesOf returns the hash of each message in txs, in order.
+func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHash {
 	txHashes := []typedTxHash{}
 	for _, tx := range txs {
 		switch tx.msg.(type) {
@@ -358,7 +372,7 @@ func getTxHashesFromBlock(
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes, nil
+	return txHashes
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {

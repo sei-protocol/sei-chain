@@ -64,11 +64,10 @@
     ]
   },
   {
-    "_comment": "Suites: SeiDB State Store, Mint & Staking & Bank, Distribution. SeiDB State Store runs first because it asserts absolute wasm code counts (genesis + its own fixtures). TestMintModule asserts an absolute usei total supply, so nothing upstream of it in this row may mint or burn usei (SeiDB SS is safe today: fees are not burned and tokenfactory creation does not burn usei).",
+    "_comment": "Suites: SeiDB State Store, Mint & Staking & Bank, Distribution. SeiDB State Store runs first because it asserts absolute wasm code counts (genesis + its own fixtures). TestMintModule asserts an absolute usei total supply, so nothing upstream of it in this row may mint or burn usei (SeiDB SS is safe today: fees are not burned).",
     "name": "Cosmos Modules (SeiDB SS, Mint & Staking & Bank, Distribution)",
     "scripts": [
       "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-      "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule\"",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestDistributionModule"

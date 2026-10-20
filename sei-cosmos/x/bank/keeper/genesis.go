@@ -56,25 +56,3 @@ func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 		k.SetDenomMetaData(ctx, meta)
 	}
 }
-
-// ExportGenesis returns the bank module's genesis state.
-func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
-	totalSupply, err := CollectAllTotalSupply(ctx, k)
-	if err != nil {
-		panic(fmt.Errorf("unable to fetch total supply: %w", err))
-	}
-	weiBalances := []types.WeiBalance{}
-	k.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
-		// Deep copy i: the iterator reuses the same sdk.Int across iterations.
-		weiBalances = append(weiBalances, types.WeiBalance{Address: aa.String(), Amount: sdk.NewIntFromBigInt(i.BigInt())})
-		return false
-	})
-
-	return types.NewGenesisState(
-		k.GetParams(ctx),
-		k.GetAccountsBalances(ctx),
-		totalSupply,
-		k.GetAllDenomMetaData(ctx),
-		weiBalances,
-	)
-}

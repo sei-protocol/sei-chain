@@ -147,20 +147,3 @@ func TestOverlayReportsDeletedCodeAsAbsent(t *testing.T) {
 	})
 	require.Nil(t, overlay.GetCode(addr))
 }
-
-// A changeset is cloned because the block result it came from returns to a pool and is reset.
-func TestCloneSurvivesTheBlockResultBeingReused(t *testing.T) {
-	addr := common.HexToAddress("0x1")
-	original := &StateChangeSet{
-		Balances: []BalanceChange{{Address: addr, Balance: big.NewInt(5)}},
-		Code:     []CodeChange{{Address: addr, Code: []byte{0x01}}},
-	}
-	clone := original.clone()
-
-	original.Balances[0].Balance.SetInt64(999)
-	original.Code[0].Code[0] = 0xff
-	original.Balances = original.Balances[:0]
-
-	require.Equal(t, big.NewInt(5), clone.Balances[0].Balance)
-	require.Equal(t, []byte{0x01}, clone.Code[0].Code)
-}

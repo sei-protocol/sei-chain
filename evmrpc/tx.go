@@ -82,7 +82,8 @@ func getTransactionReceipt(
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionReceipt", t.connectionType, startTime, returnErr, recover())
 	}()
-	sdkctx := t.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, t.ctxProvider)
+	sdkctx := ctxProvider(LatestCtxHeight)
 
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
@@ -134,7 +135,11 @@ func getTransactionReceipt(
 			}
 		}
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, false, t.globalBlockCache, t.cacheCreationMutex)
+	result, err = encodeReceipt(ctxProvider, t.txConfigProvider, receipt, t.keeper, block, false, t.globalBlockCache, t.cacheCreationMutex)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return result, err
 }
 
 func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (result string, returnErr error) {
@@ -142,7 +147,7 @@ func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (resu
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getVMError", t.connectionType, startTime, returnErr, recover())
 	}()
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight).WithContext(ctx), hash)
 	if err != nil {
 		return "", err
 	}
@@ -180,7 +185,7 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if block == nil {
 		return nil, nil
 	}
-	return t.getTransactionWithBlock(block, txIndex)
+	return t.getTransactionWithBlock(ctx, block, txIndex)
 }
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
@@ -205,7 +210,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, idx)
+	return t.getTransactionWithBlock(ctx, block, idx)
 }
 
 // TODO(gprusak): for autobahn txs sharding, we might need to proxy this rpc as well,
@@ -215,7 +220,8 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionByHash", t.connectionType, startTime, returnErr, recover())
 	}()
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, t.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	if tx, ok := t.tmClient.EvmTxByHash(hash); ok {
 		etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
@@ -245,7 +251,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	}
 
 	// then try get from committed
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	receipt, err := t.keeper.GetReceipt(sdkCtx, hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, nil
@@ -264,18 +270,21 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	if block == nil {
 		return nil, nil
 	}
-	filteredMsgs, err := t.getFilteredMsgs(block)
+	filteredMsgs, err := t.getFilteredMsgs(ctx, block)
 	if err != nil {
 		return nil, err
 	}
-	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper, t.cacheCreationMutex, t.globalBlockCache)
+	txIndex, found, ethtx, _ := GetEvmTxIndex(sdkCtx, block, filteredMsgs, receipt.TransactionIndex, t.keeper, t.cacheCreationMutex, t.globalBlockCache)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if !found {
 		return nil, nil
 	}
 	if ethtx == nil {
 		return nil, errors.New("transaction is not an EVM transaction and thus cannot be represented in _getTransaction* endpoints")
 	}
-	return t.encodeRPCTransaction(ethtx, block, uint32(txIndex)) //nolint:gosec
+	return t.encodeRPCTransaction(ctx, ethtx, block, uint32(txIndex)) //nolint:gosec
 }
 
 func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Hash) (result string, returnErr error) {
@@ -283,7 +292,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash com
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionErrorByHash", t.connectionType, startTime, returnErr, recover())
 	}()
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight).WithContext(ctx), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return "", nil
@@ -325,16 +334,21 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := t.ctxProvider(height)
-	if err := CheckVersion(sdkCtx, t.keeper); err != nil {
-		return nil, err
-	}
-	nonce := t.keeper.GetNonce(sdkCtx, address)
-	return (*hexutil.Uint64)(&nonce), nil
+	return readStoreAtHeight(ctx, height, t.ctxProvider, func(sdkCtx sdk.Context) (*hexutil.Uint64, error) {
+		if err := CheckVersion(sdkCtx, t.keeper); err != nil {
+			return nil, err
+		}
+		nonce := t.keeper.GetNonce(sdkCtx, address)
+		return (*hexutil.Uint64)(&nonce), nil
+	})
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
-	msgs, err := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
+func (t *TransactionAPI) getTransactionWithBlock(ctx context.Context, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
+	ctxProvider := withRequestContext(ctx, t.ctxProvider)
+	msgs, err := filterTransactions(t.keeper, ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -349,22 +363,29 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 	}
 	ethtx, _ := evmTx.AsTransaction()
 
-	return t.encodeRPCTransaction(ethtx, block, txIndex)
+	return t.encodeRPCTransaction(ctx, ethtx, block, txIndex)
 }
 
-func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
-	receipt, found := getOrSetCachedReceipt(t.cacheCreationMutex, t.globalBlockCache, t.ctxProvider(LatestCtxHeight), t.keeper, block, ethtx.Hash())
+func (t *TransactionAPI) encodeRPCTransaction(ctx context.Context, ethtx *ethtypes.Transaction, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
+	ctxProvider := withRequestContext(ctx, t.ctxProvider)
+	receipt, found := getOrSetCachedReceipt(t.cacheCreationMutex, t.globalBlockCache, ctxProvider(LatestCtxHeight), t.keeper, block, ethtx.Hash())
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if !found {
 		return nil, fmt.Errorf("%w: for transaction %s", receiptpkg.ErrNotFound, ethtx.Hash().Hex())
 	}
 	height := int64(receipt.BlockNumber) // nolint:gosec
 	var baseFeePerGas *big.Int
 	if block.Block.Height > 1 {
-		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(t.ctxProvider(height - 1)).TruncateInt().BigInt()
+		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(ctxProvider(height - 1)).TruncateInt().BigInt()
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}
-	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
+	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(ctxProvider(height)))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
@@ -400,8 +421,12 @@ func (t *TransactionAPI) Sign(ctx context.Context, addr common.Address, data hex
 	return nil, errors.New("address does not have hosted key")
 }
 
-func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) ([]indexedMsg, error) {
-	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
+func (t *TransactionAPI) getFilteredMsgs(ctx context.Context, block *coretypes.ResultBlock) ([]indexedMsg, error) {
+	msgs, err := filterTransactions(t.keeper, withRequestContext(ctx, t.ctxProvider), t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return msgs, err
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {
@@ -428,29 +453,48 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 // It also returns the log index offset, which always includes all logs of relevant transactions, regardless of
 // whether logs themselves are synthetic or not.
 func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexedMsg, txIndex uint32, k *keeper.Keeper, cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
+	position, found := evmTxPositions(ctx, block, msgs, k, cacheCreationMutex, globalBlockCache)[int(txIndex)]
+	if !found {
+		return -1, false, nil, -1
+	}
+	return position.index, true, position.tx, position.logIndexOffset
+}
+
+// evmTxPosition is where a block transaction sits once irrelevant transactions are excluded,
+// as GetEvmTxIndex reports it.
+type evmTxPosition struct {
+	index          int
+	tx             *ethtypes.Transaction
+	logIndexOffset int
+}
+
+// evmTxPositions returns the position of every transaction in msgs that has a receipt, keyed by
+// its index among all transactions in the block.
+func evmTxPositions(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexedMsg, k *keeper.Keeper, cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache) map[int]evmTxPosition {
+	positions := make(map[int]evmTxPosition, len(msgs))
 	var evmTxIndex, logIndex int
 	for _, msg := range msgs {
+		var etx *ethtypes.Transaction
 		var txHash common.Hash
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
 			etx, _ = m.AsTransaction()
 			txHash = etx.Hash()
 		case *wasmtypes.MsgExecuteContract:
-			etx = nil
 			txHash = common.Hash(sha256.Sum256(block.Block.Txs[msg.index]))
 		}
 		receipt, ok := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, ctx, k, block, txHash)
 		if !ok {
 			continue
 		}
-		if msg.index == int(txIndex) {
-			return evmTxIndex, true, etx, logIndex
+		// A transaction with several messages takes the position of its first one.
+		if _, seen := positions[msg.index]; !seen {
+			positions[msg.index] = evmTxPosition{index: evmTxIndex, tx: etx, logIndexOffset: logIndex}
 		}
-
 		evmTxIndex++
 		logIndex += len(receipt.Logs)
 	}
-	return -1, false, nil, -1
+	return positions
 }
 
 func encodeReceipt(
@@ -463,18 +507,25 @@ func encodeReceipt(
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) (map[string]any, error) {
-	blockHash := block.BlockID.Hash
-	bh := common.HexToHash(blockHash.String())
-	ctx := ctxProvider(block.Block.Height)
 	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, cacheCreationMutex, globalBlockCache)
 	if err != nil {
 		return nil, err
 	}
-	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k, cacheCreationMutex, globalBlockCache)
+	positions := evmTxPositions(ctxProvider(block.Block.Height), block, msgs, k, cacheCreationMutex, globalBlockCache)
+	return encodeReceiptAt(receipt, block, positions)
+}
+
+// encodeReceiptAt renders receipt as an eth_getTransactionReceipt response, placing it in the
+// block by positions.
+func encodeReceiptAt(receipt *types.Receipt, block *coretypes.ResultBlock, positions map[int]evmTxPosition) (map[string]any, error) {
+	blockHash := block.BlockID.Hash
+	bh := common.HexToHash(blockHash.String())
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
+	position, foundTx := positions[int(receipt.TransactionIndex)]
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}
+	evmTxIndex, etx, logIndexOffset := position.index, position.tx, position.logIndexOffset
 	normalizedReceipt := cloneReceiptForMutation(receipt)
 	normalizedReceipt.TransactionIndex = uint32(evmTxIndex)              //nolint:gosec
 	logs := keeper.GetLogsForTx(normalizedReceipt, uint(logIndexOffset)) //nolint:gosec
