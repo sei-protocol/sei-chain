@@ -1,16 +1,18 @@
 package baseapp
 
 import (
+	"net/http"
+
 	"context"
-	"net"
 	"testing"
+
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/peer"
 )
 
 func TestTrustedCIDRMatcher(t *testing.T) {
@@ -46,7 +48,7 @@ func TestEnrichABCIQueryContextTrusted(t *testing.T) {
 		trustedOriginMatcher: newTrustedCIDRMatcher([]string{"127.0.0.0/8"}),
 	}
 
-	pctx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9090}})
+	pctx := rpctypes.WithCallInfo(t.Context(), &rpctypes.CallInfo{HTTPRequest: &http.Request{RemoteAddr: "127.0.0.1:26657"}})
 	ctx := app.enrichABCIQueryContext(pctx, sdk.Context{})
 	require.Same(t, pctx, ctx.Context())
 	require.False(t, ctx.PaginationLimits().Enforce)
