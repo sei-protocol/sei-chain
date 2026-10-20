@@ -55,7 +55,7 @@ type RawStateView interface {
 	// GetRaw returns the bytes the store holds under a physical key, and whether the key was found. The
 	// bytes are the stored row as is, metadata included, and are not decoded.
 	GetRaw(
-		// The physical key: the module name, "/", then the key.
+		// The physical key: the module name, "/", then the key (including any key type prefixes).
 		key []byte,
 	) ([]byte, bool)
 
