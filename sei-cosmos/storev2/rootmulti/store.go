@@ -1114,7 +1114,7 @@ func (rs *Store) admitProofQuery(ctx context.Context, storeName string, latest b
 		attribute.String("store", storeName),
 		attribute.Bool("latest", latest),
 	))
-	return errors.Wrap(sdkerrors.ErrInvalidRequest, "state proofs are disabled on this node; set state-commit.sc-enable-state-proof = true to enable")
+	return errors.Wrap(sdkerrors.ErrNotSupported, "state proofs are disabled on this node; set state-commit.sc-enable-state-proof = true to enable")
 }
 
 // admitSubspaceQuery takes a /subspace permit, or records the rejection and returns why it failed.

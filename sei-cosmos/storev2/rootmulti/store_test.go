@@ -134,7 +134,7 @@ func TestQuery_StateProofDisabledByDefault(t *testing.T) {
 				Height: tc.height,
 				Prove:  true,
 			})
-			require.Equal(t, uint32(sdkerrors.ErrInvalidRequest.ABCICode()), resp.Code)
+			require.Equal(t, uint32(sdkerrors.ErrNotSupported.ABCICode()), resp.Code)
 			require.Contains(t, resp.Log, "state proofs are disabled on this node")
 			require.Contains(t, resp.Log, "state-commit.sc-enable-state-proof")
 		})

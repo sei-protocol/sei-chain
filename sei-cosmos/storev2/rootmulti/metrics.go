@@ -67,7 +67,7 @@ var (
 		)),
 		stateProofRejected: must(meter.Int64Counter(
 			"state_proof_rejected",
-			metric.WithDescription("Number of rejected ABCI /store state proof queries by store and latest height"),
+			metric.WithDescription("Number of ABCI /store state proof queries rejected because proofs are disabled, by store and by whether the height is the latest"),
 			metric.WithUnit("{count}"),
 		)),
 	}
