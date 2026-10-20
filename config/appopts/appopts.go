@@ -110,7 +110,7 @@ func refuseNotLowerCase(resolved registry.Resolved) error {
 // Derived from the key rather than found among its neighbours. A sorted scan looking for the keys under
 // one of them has to assume they follow it directly, and they do not: a hyphen sorts before a dot, so a
 // hyphenated sibling sits between a key and its children. This key space separates words with hyphens,
-// and grpc-web.address already sits between grpc and grpc.enable.
+// so that shape is an ordinary one.
 func dottedPrefixes(key string) []string {
 	var out []string
 	for i := range key {

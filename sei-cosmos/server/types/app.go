@@ -4,7 +4,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/gogo/protobuf/grpc"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -40,10 +39,6 @@ type (
 		abci.Application
 
 		RegisterAPIRoutes(*api.Server, config.APIConfig)
-
-		// RegisterGRPCServer registers gRPC services directly with the gRPC
-		// server.
-		RegisterGRPCServer(grpc.Server)
 
 		// RegisterTxService registers RPCs of the local tendermint node.
 		RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig)

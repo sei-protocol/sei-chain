@@ -18,12 +18,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
-	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta"
-	crgserver "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/server"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -69,13 +65,6 @@ const (
 	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"
 	FlagStateSyncSnapshotDir        = "state-sync.snapshot-directory"
 
-	// gRPC-related flags
-	flagGRPCOnly       = "grpc-only"
-	flagGRPCEnable     = "grpc.enable"
-	flagGRPCAddress    = "grpc.address"
-	flagGRPCWebEnable  = "grpc-web.enable"
-	flagGRPCWebAddress = "grpc-web.address"
-
 	// archival related flags
 	FlagArchivalVersion                = "archival-version"
 	FlagArchivalDBType                 = "archival-db-type"
@@ -109,10 +98,6 @@ but transaction and evidence submission, mempool gossip, and state sync are disa
 Block sync and consensus stop before executing the configured height.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
-The node may be started in a 'query only' mode where only the gRPC and JSON HTTP
-API services are enabled via the 'grpc-only' flag. In this mode, Tendermint is
-bypassed and can be used when legacy queries are needed after an on-chain upgrade
-is performed. Note, when enabled, gRPC will also be automatically enabled.
 `,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			serverCtx := GetServerContextFromCmd(cmd)
@@ -229,13 +214,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
 	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
 
-	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
-	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")
-	cmd.Flags().String(flagGRPCAddress, config.DefaultGRPCAddress, "the gRPC server address to listen on")
-
-	cmd.Flags().Bool(flagGRPCWebEnable, true, "Define if the gRPC-Web server should be enabled. (Note: gRPC must also be enabled.)")
-	cmd.Flags().String(flagGRPCWebAddress, config.DefaultGRPCWebAddress, "The gRPC-Web server address to listen on")
-
 	cmd.Flags().Uint64(FlagStateSyncSnapshotInterval, 0, "State sync snapshot interval")
 	cmd.Flags().Uint32(FlagStateSyncSnapshotKeepRecent, 2, "State sync snapshot to keep")
 
@@ -313,11 +291,6 @@ func startInProcess(
 	if err := config.ValidateFreeze(); err != nil {
 		return err
 	}
-	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
-	if gRPCOnly && config.FreezeHeight > 0 {
-		return errors.New("freeze-height cannot be used with grpc-only mode")
-	}
-
 	if err := config.ValidateBasic(ctx.Config); err != nil {
 		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
@@ -343,64 +316,59 @@ func startInProcess(
 		}
 	}
 
-	if gRPCOnly {
-		logger.Info("starting node in gRPC only mode; Tendermint is disabled")
-		config.GRPC.Enable = true
-	} else {
-		logger.Info("starting node with ABCI Tendermint in-process")
-		var gen *tmtypes.GenesisDoc
-		if config.Genesis.StreamImport {
-			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
-			for line := range lines {
-				genDoc, err := tmtypes.GenesisDocFromJSON([]byte(line))
-				if err != nil {
-					return err
-				}
-				if gen != nil {
-					return fmt.Errorf("error: multiple genesis docs found in stream")
-				}
-				gen = genDoc
-			}
-		}
-		gigaCfg := gigaconfig.DefaultConfig
-		if ctx.Config.AutobahnConfigFile != "" {
-			if gigaCfg, err = gigaconfig.ReadConfig(ctx.Viper); err != nil {
-				return fmt.Errorf("read [giga] config: %w", err)
-			}
-		}
-		tmNode, err := node.New(
-			goCtx,
-			ctx.Config,
-			restartEvent,
-			app,
-			gen,
-			tracerProviderOptions,
-			tmtypes.DefaultConsensusPolicy(),
-			node.WithFreezeHeight(config.FreezeHeight),
-			node.WithGigaConfig(gigaCfg),
-		)
-		if err != nil {
-			return fmt.Errorf("error creating node: %w", err)
-		}
-		if err := tmNode.Start(goCtx); err != nil {
-			return fmt.Errorf("error starting node: %w", err)
-		}
-		defer func() {
-			if tmNode.IsRunning() {
-				tmNode.Stop()
-			}
-		}()
-		// Add the tx service to the gRPC router. We only need to register this
-		// service if API or gRPC is enabled, and avoid doing so in the general
-		// case, because it spawns a new local tendermint RPC client.
-		if config.API.Enable || config.GRPC.Enable {
-			localClient, err := local.New(tmNode)
+	logger.Info("starting node with ABCI Tendermint in-process")
+	var gen *tmtypes.GenesisDoc
+	if config.Genesis.StreamImport {
+		lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
+		for line := range lines {
+			genDoc, err := tmtypes.GenesisDocFromJSON([]byte(line))
 			if err != nil {
 				return err
 			}
-			clientCtx = clientCtx.WithClient(localClient)
-			app.RegisterLocalServices(localClient, clientCtx.TxConfig)
+			if gen != nil {
+				return fmt.Errorf("error: multiple genesis docs found in stream")
+			}
+			gen = genDoc
 		}
+	}
+	gigaCfg := gigaconfig.DefaultConfig
+	if ctx.Config.AutobahnConfigFile != "" {
+		if gigaCfg, err = gigaconfig.ReadConfig(ctx.Viper); err != nil {
+			return fmt.Errorf("read [giga] config: %w", err)
+		}
+	}
+	tmNode, err := node.New(
+		goCtx,
+		ctx.Config,
+		restartEvent,
+		app,
+		gen,
+		tracerProviderOptions,
+		tmtypes.DefaultConsensusPolicy(),
+		node.WithFreezeHeight(config.FreezeHeight),
+		node.WithGigaConfig(gigaCfg),
+	)
+	if err != nil {
+		return fmt.Errorf("error creating node: %w", err)
+	}
+	if err := tmNode.Start(goCtx); err != nil {
+		return fmt.Errorf("error starting node: %w", err)
+	}
+	defer func() {
+		if tmNode.IsRunning() {
+			tmNode.Stop()
+		}
+	}()
+	// Add the tx service to the gRPC query router that backs the REST API. We
+	// only need to register this service if the API is enabled, and avoid doing
+	// so in the general case, because it spawns a new local tendermint RPC client.
+	if config.API.Enable {
+		localClient, err := local.New(tmNode)
+		if err != nil {
+			return err
+		}
+		clientCtx = clientCtx.WithClient(localClient)
+		app.RegisterLocalServices(localClient, clientCtx.TxConfig)
 	}
 
 	if config.API.Enable {
@@ -420,72 +388,6 @@ func startInProcess(
 		select {
 		case err := <-errCh:
 			return fmt.Errorf("error starting api server: %w", err)
-
-		case <-time.After(types.ServerStartTime): // assume server started successfully
-		}
-	}
-
-	if config.GRPC.Enable {
-		grpcSrv, rateLimitRegistry, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
-		if err != nil {
-			return err
-		}
-		defer grpcSrv.Stop()
-
-		if config.GRPCWeb.Enable {
-			grpcWebSrv, err := servergrpc.StartGRPCWeb(grpcSrv, rateLimitRegistry, config)
-			if err != nil {
-				logger.Error("failed to start grpc-web http server", "err", err)
-				return err
-			}
-			defer func() { _ = grpcWebSrv.Close() }()
-		}
-	}
-
-	// At this point it is safe to block the process if we're in gRPC only mode as
-	// we do not need to start Rosetta or handle any Tendermint related processes.
-	if gRPCOnly {
-		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(goCtx, restartCh)
-	}
-
-	var rosettaSrv crgserver.Server
-	if config.Rosetta.Enable {
-		offlineMode := config.Rosetta.Offline
-
-		// If GRPC is not enabled rosetta cannot work in online mode, so it works in
-		// offline mode.
-		if !config.GRPC.Enable {
-			offlineMode = true
-		}
-
-		conf := &rosetta.Config{
-			Blockchain:        config.Rosetta.Blockchain,
-			Network:           config.Rosetta.Network,
-			TendermintRPC:     ctx.Config.RPC.ListenAddress,
-			GRPCEndpoint:      config.GRPC.Address,
-			Addr:              config.Rosetta.Address,
-			Retries:           config.Rosetta.Retries,
-			Offline:           offlineMode,
-			Codec:             clientCtx.Codec.(*codec.ProtoCodec),
-			InterfaceRegistry: clientCtx.InterfaceRegistry,
-		}
-
-		rosettaSrv, err = rosetta.ServerFromConfig(conf)
-		if err != nil {
-			return err
-		}
-
-		errCh := make(chan error)
-		go func() {
-			if err := rosettaSrv.Start(); err != nil {
-				errCh <- err
-			}
-		}()
-
-		select {
-		case err := <-errCh:
-			return err
 
 		case <-time.After(types.ServerStartTime): // assume server started successfully
 		}

@@ -339,8 +339,8 @@ func sameRead(a, b any) bool { return reflect.DeepEqual(a, b) }
 //
 // A collision was found by walking a sorted key list and stopping at the first key that was not a child.
 // A hyphen sorts before a dot, so a hyphenated sibling sits between a key and its children and ends the
-// walk early. This key space separates words with hyphens, and grpc-web.address already sits between grpc
-// and grpc.enable, so the shape is not hypothetical.
+// walk early. This key space separates words with hyphens, so the shape is not
+// hypothetical.
 func TestAHyphenatedSiblingDoesNotHideACollision(t *testing.T) {
 	// Every separator that sorts before a dot ends a sorted walk early; the ones after it do not, which is
 	// why a scan looked correct. The rule is stated by the class rather than by one member.

@@ -1,6 +1,6 @@
 // Package cosmosbase registers the configuration sections whose keys belong to the Cosmos server.
 //
-// These five register here rather than beside the structs they describe, and the reason is an import edge.
+// These four register here rather than beside the structs they describe, and the reason is an import edge.
 // The mode rules their defaults answer through live in app/params, which imports the upstream server
 // configuration, so that package cannot ask for them without a cycle. A vendored tree is not itself the
 // obstacle: other sections do register inside one.
@@ -22,7 +22,6 @@ import (
 const (
 	BaseSectionName      = "base"
 	APISectionName       = "api"
-	GRPCSectionName      = "grpc"
 	TelemetrySectionName = "telemetry"
 	StateSyncSectionName = "state-sync"
 )
@@ -32,12 +31,11 @@ const globalLabelsKey = TelemetrySectionName + ".global-labels"
 
 // Registration puts the upstream server's configuration sections in the registry.
 //
-// Four of the five register the upstream struct directly, because their mapstructure tags already name the
+// Three of the four register the upstream struct directly, because their mapstructure tags already name the
 // keys their reader resolves.
 func init() {
 	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseDefaults)
 	registry.RegisterSection(APISectionName, &srvconfig.APIConfig{}, apiDefaults)
-	registry.RegisterSection(GRPCSectionName, &srvconfig.GRPCConfig{}, grpcDefaults)
 	registry.RegisterSection(TelemetrySectionName, &telemetrySchema{}, telemetryDefaults)
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncDefaults)
 }
@@ -60,8 +58,8 @@ func init() {
 // was present and several are bound to a command flag carrying its own default below the file. The set is
 // measured rather than counted, in the agreement test beside this one.
 //
-// Three settings differ by mode today and each of them matters in a different direction. A node that
-// serves queries needs the interfaces that serve them; a validator is meant to expose as little as it can;
+// Two settings differ by mode today and each of them matters in a different direction. A node that serves
+// queries needs the interface that serves them while a validator is meant to expose as little as it can,
 // and how many blocks a node retains is a decision about its disk.
 func forMode(mode registry.Mode) *srvconfig.Config {
 	out := srvconfig.DefaultConfig()
@@ -72,8 +70,8 @@ func forMode(mode registry.Mode) *srvconfig.Config {
 // baseDefaults is what the node-wide settings resolve to for a node of this kind.
 //
 // One of these keys answers per mode: how many blocks a node retains, which is a hundred thousand for a
-// full node and everything for the rest. The other two mode-varying keys in this package are the interface
-// toggles, which belong to the sections that own them.
+// full node and everything for the rest. The other mode-varying key in this package is the REST interface
+// toggle, which belongs to the section that owns it.
 //
 // Every one of these keys is read with a casting getter and no check that the key was present, so an
 // absent key casts to a zero and clobbers the default beside it. Which keys those are, and what a node
@@ -90,19 +88,6 @@ func baseDefaults(mode registry.Mode) any { return forMode(mode).BaseConfig }
 // first two are for, and the second two are meant to expose as little as they can.
 func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 
-// grpcDefaults is what the gRPC settings resolve to for a node of this kind.
-//
-// On for a full node and an archive node, off for a validator and a seed, which is the same rule the REST
-// interface follows and for the same reason. The upstream default is on for every kind, so declaring that
-// would state an open interface on the nodes meant to expose the least.
-//
-// Most gRPC settings preserve their in-code defaults when the key is absent because the reader only reads
-// them after an IsSet check. The connection-age durations are the exception: they are read unconditionally
-// and clamped only when negative. Their default is zero, and Viper also returns zero for an absent duration,
-// so an omitted key resolves to the same value as the declared default. Duration defaults are rendered as
-// text in the config file, matching the shape the reader parses back.
-func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
-
 // stateSyncDefaults is what the snapshot settings resolve to for a node of this kind.
 //
 // All three keys are read with a casting getter and no presence check, and the retention is the one that
@@ -112,7 +97,7 @@ func stateSyncDefaults(mode registry.Mode) any { return forMode(mode).StateSync 
 
 // telemetrySchema declares the keys the metric settings reader resolves.
 //
-// A schema rather than the upstream type, and the only one of these five that needs one. The difference is
+// A schema rather than the upstream type, and the only one of these four that needs one. The difference is
 // a single field's type. The upstream struct declares the label set as a list of string pairs, and the
 // reader takes a list of untyped rows: it asserts that exact shape rather than casting what it finds, and
 // the struct's own type does not satisfy it, including that type's empty value. Registering the upstream
