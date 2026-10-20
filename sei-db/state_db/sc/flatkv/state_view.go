@@ -84,16 +84,30 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 	}
 }
 
-// GetRaw returns the bytes stored under a physical key in this block, and whether it was found.
+// GetRaw returns the bytes stored under a physical key in this block, and whether it was found. It
+// panics on a key under the store's metadata prefix.
 func (v *flatKVStateView) GetRaw(key []byte) ([]byte, bool) {
-	return v.readRow(v.storeViewFor(key), key)
+	dbView, err := v.storeViewFor(key)
+	if err != nil {
+		panic(err)
+	}
+	value, found, err := dbView.Get(key, true)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: %s read of key %x at height %d: %v",
+			dbView.Name(), key, v.blockView.BlockHeight(), err))
+	}
+	return value, found
 }
 
 // BatchGetRaw returns the bytes stored in this block under each found physical key, keyed by string(key).
+// It panics on a key under the store's metadata prefix.
 func (v *flatKVStateView) BatchGetRaw(keys [][]byte) map[string][]byte {
 	keysByStore := make(map[view.View][][]byte)
 	for _, key := range keys {
-		dbView := v.storeViewFor(key)
+		dbView, err := v.storeViewFor(key)
+		if err != nil {
+			panic(err)
+		}
 		keysByStore[dbView] = append(keysByStore[dbView], key)
 	}
 	values := make(map[string][]byte, len(keys))
@@ -295,23 +309,27 @@ func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, key
 	return value, found
 }
 
-// storeViewFor returns the view of the store that holds physKey.
-func (v *flatKVStateView) storeViewFor(physKey []byte) view.View {
+// storeViewFor returns the view of the store that holds physKey. It returns an error for a metadata
+// key, since the store's own metadata is not part of any block's state, and for a key no store holds.
+func (v *flatKVStateView) storeViewFor(physKey []byte) (view.View, error) {
+	if ktype.IsMetaKey(physKey) {
+		return nil, fmt.Errorf("flatkv: raw key %x is store metadata, not block state", physKey)
+	}
 	dbDir, err := routePhysicalKey(physKey)
 	if err != nil {
-		panic(fmt.Sprintf("flatkv: route raw key %x at height %d: %v", physKey, v.blockView.BlockHeight(), err))
+		return nil, fmt.Errorf("flatkv: route raw key %x at height %d: %w", physKey, v.blockView.BlockHeight(), err)
 	}
 	switch dbDir {
 	case accountDBDir:
-		return v.blockView.AccountView()
+		return v.blockView.AccountView(), nil
 	case codeDBDir:
-		return v.blockView.CodeView()
+		return v.blockView.CodeView(), nil
 	case storageDBDir:
-		return v.blockView.StorageView()
+		return v.blockView.StorageView(), nil
 	case miscDBDir:
-		return v.blockView.MiscView()
+		return v.blockView.MiscView(), nil
 	default:
-		panic(fmt.Sprintf("flatkv: raw key %x routes to unknown store %q", physKey, dbDir))
+		return nil, fmt.Errorf("flatkv: raw key %x routes to unknown store %q", physKey, dbDir)
 	}
 }
 

@@ -167,3 +167,34 @@ func TestGetRawRejectsUnroutableKey(t *testing.T) {
 	require.Panics(t, func() { stateView.GetRaw([]byte("no-separator")) })
 	require.Panics(t, func() { stateView.BatchGetRaw([][]byte{[]byte("no-separator")}) })
 }
+
+// A key under the metadata prefix names the store's own bookkeeping, not block state.
+func TestGetRawRejectsMetaKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+	rows := commitRowInEveryStore(t, s)
+
+	stateView := s.OpenView()
+	defer stateView.Close()
+
+	metaKey := []byte(ktype.MetaKeyPrefix + "version")
+	require.Panics(t, func() { stateView.GetRaw(metaKey) })
+	require.Panics(t, func() { stateView.BatchGetRaw([][]byte{rows[0].key, metaKey}) })
+}
+
+// storeViewFor reports a key it cannot serve as an error rather than panicking.
+func TestStoreViewForRejectsMetaKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+	commitRowInEveryStore(t, s)
+
+	stateView := s.OpenView()
+	defer stateView.Close()
+	flatView := stateView.(*flatKVStateView)
+
+	for _, key := range [][]byte{[]byte(ktype.MetaKeyPrefix + "version"), []byte("no-separator")} {
+		var err error
+		require.NotPanics(t, func() { _, err = flatView.storeViewFor(key) })
+		require.Error(t, err, "key %q", key)
+	}
+}
