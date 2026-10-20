@@ -106,7 +106,7 @@ type StateCommitConfig struct {
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 
-	// Max concurrent /subspace queries across the SS and commitment paths.
+	// Max concurrent /subspace queries. Only nodes with SS enabled serve /subspace.
 	SubspaceQueryMaxInFlight int `mapstructure:"subspace-query-max-inflight"`
 
 	// Max key/value pairs a /subspace scan may return.
