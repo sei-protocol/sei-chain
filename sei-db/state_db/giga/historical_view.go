@@ -44,6 +44,16 @@ func (v *historicalView) Get(module string, key []byte) ([]byte, bool) {
 	return value, value != nil
 }
 
+// GetRaw panics: a historical view holds no physical rows.
+func (v *historicalView) GetRaw([]byte) ([]byte, bool) {
+	panic("giga: a historical view holds no physical rows")
+}
+
+// BatchGetRaw panics: a historical view holds no physical rows.
+func (v *historicalView) BatchGetRaw([][]byte) map[string][]byte {
+	panic("giga: a historical view holds no physical rows")
+}
+
 func (v *historicalView) Close() {
 	v.closeOnce.Do(v.release)
 }
