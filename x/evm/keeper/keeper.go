@@ -35,7 +35,6 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 
-	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
@@ -89,9 +88,7 @@ type Keeper struct {
 
 	receiptStore receipt.ReceiptStore
 
-	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
-	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
-	latestUpgrade           string
+	customPrecompiles map[common.Address]vm.PrecompiledContract
 
 	// traceDB, when non-nil, serves cached debug_trace results and
 	// forwards EndBlock heights to the registered baker. nil-safe.
@@ -161,60 +158,13 @@ func (k *Keeper) SetTraceSnapshotCapture(f func() sctypes.Committer) {
 	k.traceSnapshotCapture = f
 }
 
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]vm.PrecompiledContract) {
 	k.customPrecompiles = cp
-	k.latestUpgrade = latestUpgrade
-	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
-	for addr, versioned := range cp {
-		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
-	}
 }
 
-func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract {
-	if !ctx.IsTracing() {
-		return k.latestCustomPrecompiles
-	}
-	versions := k.GetCustomPrecompilesVersions(ctx)
-	cp := make(map[common.Address]vm.PrecompiledContract, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		cp[addr] = versioned[versions[addr]]
-	}
-	return cp
-}
-
-func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
-	height := ctx.BlockHeight()
-	cp := make(map[common.Address]string, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		mostRecentUpgradeHeight := int64(0)
-		earliestUpgradeHeight := int64(0)
-		earliestUpgrade := ""
-		noForkHistory := true
-		for upgrade := range versioned {
-			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
-			if upgradeHeight != 0 {
-				noForkHistory = false
-				if earliestUpgradeHeight == 0 || upgradeHeight < earliestUpgradeHeight {
-					earliestUpgradeHeight = upgradeHeight
-					earliestUpgrade = upgrade
-				}
-			}
-			if height < upgradeHeight {
-				// requested height hasn't seen this upgrade version yet.
-				continue
-			}
-			if upgradeHeight > mostRecentUpgradeHeight {
-				mostRecentUpgradeHeight = upgradeHeight
-				cp[addr] = upgrade
-			}
-		}
-		if noForkHistory {
-			cp[addr] = k.latestUpgrade
-		} else if mostRecentUpgradeHeight == 0 {
-			cp[addr] = earliestUpgrade
-		}
-	}
-	return cp
+// CustomPrecompiles returns the Sei custom precompiles keyed by address.
+func (k *Keeper) CustomPrecompiles() map[common.Address]vm.PrecompiledContract {
+	return k.customPrecompiles
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
