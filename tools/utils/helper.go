@@ -14,7 +14,6 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	seidbkeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -24,7 +23,7 @@ import (
 var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-	govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey, seidbkeys.FeegrantStoreKey,
+	govtypes.StoreKey, paramstypes.StoreKey, upgradetypes.StoreKey,
 	evidencetypes.StoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey,
 )
@@ -37,7 +36,6 @@ var Modules = []string{
 	"epoch",
 	"evidence",
 	"evm",
-	seidbkeys.FeegrantStoreKey,
 	"gov",
 	"mint",
 	"params",

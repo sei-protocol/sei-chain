@@ -44,10 +44,10 @@ const (
 )
 
 // v68OfflineRemovedModules are the module version map entries v6.8 deletes.
-var v68OfflineRemovedModules = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer", "vesting"}
+var v68OfflineRemovedModules = []string{"capability", "feegrant", "ibc", "oracle", "tokenfactory", "transfer", "vesting"}
 
 // v68OfflineDeletedStores are the stores v6.8 deletes from the multistore.
-var v68OfflineDeletedStores = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer"}
+var v68OfflineDeletedStores = []string{"capability", "feegrant", "ibc", "oracle", "tokenfactory", "transfer"}
 var v68OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
 
 func TestV68OfflineUpgradeTarget(t *testing.T) {
@@ -260,9 +260,9 @@ func requireV68OfflineLegacyAccountsStored(t *testing.T, testApp *App, artifact 
 func requireV68OfflineVersionMap(t *testing.T, testApp *App, before []string) {
 	t.Helper()
 	after := offlineUpgradeModuleVersions(t, testApp)
-	// v6.7 already dropped the IBC module versions, so only oracle, tokenfactory
-	// and vesting are expected to leave the map here; the IBC entries must not be
-	// present.
+	// v6.7 already dropped the feegrant and IBC module versions, so only oracle,
+	// tokenfactory and vesting are expected to leave the map here; the feegrant
+	// and IBC entries must not be present.
 	removed := offlineUpgradeDifference(before, after)
 	require.Subset(t, v68OfflineRemovedModules, removed, "v6.8 removed an unexpected set of module versions")
 	require.Contains(t, removed, "oracle")

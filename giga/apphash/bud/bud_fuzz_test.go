@@ -65,7 +65,7 @@ func newBUDFuzzSeeds(f *testing.F) budFuzzSeeds {
 		seeds.proofs = append(seeds.proofs, buildProof(tree, string(budlet.Key())).Serialize())
 	}
 	seeds.trees = [][]byte{newTree().Serialize(), tree.Serialize()}
-	seeds.stateProofs = [][]byte{stateProof.Serialize()}
+	seeds.stateProofs = [][]byte{mustSerializeBUDStateProof(f, stateProof)}
 	return seeds
 }
 
@@ -131,7 +131,7 @@ func FuzzDeserializeBUDStateProof(f *testing.F) {
 		if err != nil {
 			return
 		}
-		require.Equal(t, data, stateProof.Serialize())
+		require.Equal(t, data, mustSerializeBUDStateProof(t, stateProof))
 		_ = stateProof.AppHash()
 		for _, height := range []uint64{stateProof.StartHeight(), stateProof.EndHeight()} {
 			_, covered := stateProof.ValueAt(height)

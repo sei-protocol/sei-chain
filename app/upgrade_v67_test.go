@@ -21,7 +21,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
@@ -32,15 +31,17 @@ import (
 )
 
 // v6.7 retires the feegrant, capability, ibc and transfer modules, and
-// deprecates the oracle handlers. These tests cover opaque writes into the
-// retired stores, transactions aimed at retired surfaces, ordinary
-// transactions after the handler, bank balances left behind by IBC transfer,
-// and the upgrade handler itself.
+// deprecates the oracle handlers. These tests cover transactions aimed at
+// retired surfaces, ordinary transactions after the handler, bank balances left
+// behind by IBC transfer, the fee allowance a live v6.6 chain leaves in the
+// retained feegrant store, and the upgrade handler itself.
 
 const (
 	v67UpgradeName     = "v6.7"
 	v67KeyringPassword = "12345678\n"
 	txFee              = 200000
+	// v67FeegrantStoreKey names the retired feegrant store and its genesis section.
+	v67FeegrantStoreKey = "feegrant"
 	// v67FeegrantAllowancePrefix is the fee-allowance key prefix.
 	v67FeegrantAllowancePrefix byte = 0x00
 	// DenomTrace.IBCDenom lives on the pre-upgrade branch.
@@ -333,21 +334,17 @@ func TestV67UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
 // state the first application produced.
 func TestV67ApplyUpgradeTwice(t *testing.T) {
 	a := newV67Chain(t)
-	seeded := seedRetiredStores(t, a)
+	seedRetiredModuleVersions(t, a)
 
 	applyV67(t, a)
 	onceVersions := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
 	onceDone := a.UpgradeKeeper.GetDoneHeight(a.Ctx(), v67UpgradeName)
 	onceAppVersion := a.AppVersion()
-	onceStores := snapshotDeliverRetiredStores(t, a)
 	_, havePlan := a.UpgradeKeeper.GetUpgradePlan(a.Ctx())
 	require.False(t, havePlan)
 	require.Equal(t, a.Ctx().BlockHeight(), onceDone)
 	for _, module := range retiredModuleNames {
 		require.NotContains(t, onceVersions, module)
-	}
-	for _, store := range retiredStoreKeys {
-		require.Equal(t, seeded[store], onceStores[store]["seeded"])
 	}
 
 	require.NotPanics(t, func() { applyV67(t, a) })
@@ -356,8 +353,6 @@ func TestV67ApplyUpgradeTwice(t *testing.T) {
 		"second ApplyUpgrade changed the module version map")
 	require.Equal(t, onceDone, a.UpgradeKeeper.GetDoneHeight(a.Ctx(), v67UpgradeName),
 		"second ApplyUpgrade changed the done height")
-	require.Equal(t, onceStores, snapshotDeliverRetiredStores(t, a),
-		"second ApplyUpgrade changed retired store state")
 	_, havePlan = a.UpgradeKeeper.GetUpgradePlan(a.Ctx())
 	require.False(t, havePlan)
 	require.Equal(t, onceAppVersion+1, a.AppVersion(),
@@ -435,7 +430,7 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 	chain.Record(t, "module_versions", moduleVersions)
 
 	feegrantKey := v67FeegrantAllowanceKey(t, granter, grantee)
-	feegrantValue := chain.QueryStore(t, keys.FeegrantStoreKey, feegrantKey)
+	feegrantValue := chain.QueryStore(t, v67FeegrantStoreKey, feegrantKey)
 	require.NotEmpty(t, feegrantValue, "v6.6 feegrant store does not serve the granted allowance")
 	chain.Record(t, "feegrant_store_key", feegrantKey)
 	chain.Record(t, "feegrant_store_value", feegrantValue)
@@ -492,10 +487,10 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	var feegrantValue []byte
 	chain.Replay(t, "feegrant_store_key", &feegrantKey)
 	chain.Replay(t, "feegrant_store_value", &feegrantValue)
-	require.Equal(t, feegrantValue, chain.QueryStore(t, keys.FeegrantStoreKey, feegrantKey),
+	require.Equal(t, feegrantValue, chain.QueryStore(t, v67FeegrantStoreKey, feegrantKey),
 		"v6.7 node no longer serves the feegrant store value written by v6.6")
 	chain.WaitForBlocks(t, 5)
-	require.Equal(t, feegrantValue, chain.QueryStore(t, keys.FeegrantStoreKey, feegrantKey),
+	require.Equal(t, feegrantValue, chain.QueryStore(t, v67FeegrantStoreKey, feegrantKey),
 		"a later block changed the retained feegrant store")
 	requireV67UpgradeStoreVersions(t, chain)
 
@@ -595,7 +590,7 @@ func v67ExportedFeegrantAllowanceCount(t *testing.T, genesis upgradetest.Exporte
 	var feegrant struct {
 		Allowances []json.RawMessage `json:"allowances"`
 	}
-	require.NoError(t, json.Unmarshal(genesis.AppState[keys.FeegrantStoreKey], &feegrant))
+	require.NoError(t, json.Unmarshal(genesis.AppState[v67FeegrantStoreKey], &feegrant))
 	return len(feegrant.Allowances)
 }
 
@@ -1021,34 +1016,27 @@ func TestV67AcceptsOrdinaryTxsAcrossUpgrade(t *testing.T) {
 	runOrdinaryTxs(t, a, "after-upgrade", after)
 }
 
-// TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade pins that v6.7 leaves
-// the retired stores mounted with their committed key/value sets unchanged,
-// and removes their version-map entries from the upgrade store's committed bytes.
-func TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade(t *testing.T) {
+// TestV67RemovesCommittedRetiredModuleVersions pins that v6.7 removes the
+// retired modules' version-map entries from the upgrade store's committed bytes,
+// and that later blocks do not bring them back.
+func TestV67RemovesCommittedRetiredModuleVersions(t *testing.T) {
 	a := newV67Chain(t)
 
-	seeded := seedRetiredStores(t, a)
+	seedRetiredModuleVersions(t, a)
 	a.RunBlock([]signing.Tx{})
-	requireRetiredStoresMounted(t, a)
-	before := snapshotRetiredStores(t, a)
 	for _, module := range retiredModuleNames {
 		require.True(t, committedModuleVersionExists(t, a, module),
 			"seeded %s module version is missing from the committed upgrade store", module)
 	}
-	for _, store := range retiredStoreKeys {
-		require.Equal(t, seeded[store], before[store]["seeded"],
-			"seeded %s state is missing from the committed store", store)
-		requireRetiredStoreInCommitment(t, a, store, []byte("seeded"), seeded[store])
-	}
 
 	applyV67ToCommitStore(t, a)
 	a.RunBlock([]signing.Tx{})
-	requireRetiredStoresUnchanged(t, a, before, seeded)
+	requireRetiredModuleVersionsRemoved(t, a)
 
 	for range 5 {
 		a.RunBlock([]signing.Tx{})
 	}
-	requireRetiredStoresUnchanged(t, a, before, seeded)
+	requireRetiredModuleVersionsRemoved(t, a)
 }
 
 // TestV67LeavesBankBalancesAndSupplyUntouched asserts that applying v6.7 does
@@ -1091,35 +1079,20 @@ func v67BankSupplySnapshot(a *processblock.App) map[string]string {
 	return supplies
 }
 
-func seedRetiredStores(t *testing.T, a *processblock.App) map[string][]byte {
+func seedRetiredModuleVersions(t *testing.T, a *processblock.App) {
 	t.Helper()
-	seeded := map[string][]byte{}
 	versionMap := a.UpgradeKeeper.GetModuleVersionMap(a.Ctx())
-	for _, store := range retiredStoreKeys {
-		key := a.GetKey(store)
-		require.NotNil(t, key, "%s store is no longer mounted", store)
-		value := []byte("pre-upgrade/" + store)
-		a.Ctx().KVStore(key).Set([]byte("seeded"), value)
-		seeded[store] = value
-	}
 	for _, module := range retiredModuleNames {
 		versionMap[module] = 1
 	}
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
-	return seeded
 }
 
-func requireRetiredStoresUnchanged(t *testing.T, a *processblock.App, before map[string]map[string][]byte, seeded map[string][]byte) {
+func requireRetiredModuleVersionsRemoved(t *testing.T, a *processblock.App) {
 	t.Helper()
-	requireRetiredStoresMounted(t, a)
-	require.Equal(t, before, snapshotRetiredStores(t, a),
-		"a retired store's committed key/value set changed after v6.7")
 	for _, module := range retiredModuleNames {
 		require.False(t, committedModuleVersionExists(t, a, module),
 			"committed upgrade store still has a version-map entry for %s", module)
-	}
-	for _, store := range retiredStoreKeys {
-		requireRetiredStoreInCommitment(t, a, store, []byte("seeded"), seeded[store])
 	}
 }
 
@@ -1417,87 +1390,6 @@ func requireV67UnupgradedBinaryHalts(t *testing.T, chain *upgradetest.CrossVersi
 	restore()
 }
 
-func snapshotDeliverRetiredStores(t *testing.T, a *processblock.App) map[string]map[string][]byte {
-	t.Helper()
-	stores := make(map[string]map[string][]byte, len(retiredStoreKeys))
-	for _, name := range retiredStoreKeys {
-		stores[name] = snapshotDeliverStore(t, a, name)
-	}
-	return stores
-}
-
-func snapshotDeliverStore(t *testing.T, a *processblock.App, storeName string) map[string][]byte {
-	t.Helper()
-	storeKey := a.GetKey(storeName)
-	require.NotNil(t, storeKey, "%s store is not mounted", storeName)
-	iterator := a.Ctx().KVStore(storeKey).Iterator(nil, nil)
-	defer func() {
-		require.NoError(t, iterator.Close())
-	}()
-	entries := map[string][]byte{}
-	for ; iterator.Valid(); iterator.Next() {
-		entries[string(iterator.Key())] = append([]byte(nil), iterator.Value()...)
-	}
-	return entries
-}
-
-func requireRetiredStoresMounted(t *testing.T, a *processblock.App) {
-	t.Helper()
-	cms := a.CommitMultiStore()
-	mounted := map[string]struct{}{}
-	for _, key := range cms.StoreKeys() {
-		mounted[key.Name()] = struct{}{}
-	}
-	for _, name := range retiredStoreKeys {
-		_, ok := mounted[name]
-		require.True(t, ok, "%s is not present in the commit multistore", name)
-		key := a.GetKey(name)
-		require.NotNil(t, key, "%s store is no longer mounted", name)
-		require.NotNil(t, cms.GetCommitKVStore(key), "%s is not in the commit multistore", name)
-	}
-}
-
-func snapshotRetiredStores(t *testing.T, a *processblock.App) map[string]map[string][]byte {
-	t.Helper()
-	stores := make(map[string]map[string][]byte, len(retiredStoreKeys))
-	for _, name := range retiredStoreKeys {
-		stores[name] = snapshotCommittedStore(t, a, name)
-	}
-	return stores
-}
-
-func snapshotCommittedStore(t *testing.T, a *processblock.App, storeName string) map[string][]byte {
-	t.Helper()
-	storeKey := a.GetKey(storeName)
-	require.NotNil(t, storeKey, "%s store is not mounted", storeName)
-	store := a.CommitMultiStore().GetCommitKVStore(storeKey)
-	require.NotNil(t, store, "%s is not in the commit multistore", storeName)
-	iterator := store.Iterator(nil, nil)
-	defer func() {
-		require.NoError(t, iterator.Close())
-	}()
-	entries := map[string][]byte{}
-	for ; iterator.Valid(); iterator.Next() {
-		entries[string(iterator.Key())] = append([]byte(nil), iterator.Value()...)
-	}
-	return entries
-}
-
-func requireRetiredStoreInCommitment(t *testing.T, a *processblock.App, storeName string, key, want []byte) {
-	t.Helper()
-	queryable, ok := a.CommitMultiStore().(sdk.Queryable)
-	require.True(t, ok, "commit multistore does not support queries")
-	resp := queryable.Query(context.Background(), abci.RequestQuery{
-		Path:  "/" + storeName + "/key",
-		Data:  key,
-		Prove: true,
-	})
-	require.Equal(t, uint32(0), resp.Code, "query /%s/key: %s", storeName, resp.Log)
-	require.Equal(t, want, resp.Value, "query /%s/key returned a different value", storeName)
-	require.NotNil(t, resp.ProofOps, "%s is missing from the commitment set", storeName)
-	require.NotEmpty(t, resp.ProofOps.Ops, "%s is missing from the commitment set", storeName)
-}
-
 func committedModuleVersionExists(t *testing.T, a *processblock.App, module string) bool {
 	t.Helper()
 	key := a.GetKey(upgradetypes.StoreKey)
@@ -1510,8 +1402,3 @@ func committedModuleVersionExists(t *testing.T, a *processblock.App, module stri
 // retiredModuleNames are the modules v6.7 removes from the module manager and
 // whose version-map entries its handler deletes.
 var retiredModuleNames = []string{"feegrant", "capability", "ibc", "transfer"}
-
-// retiredStoreKeys are the retired modules' stores that this binary still
-// mounts. The capability, ibc and transfer stores are deleted at v6.8, so only
-// feegrant can be seeded and read back in-process here.
-var retiredStoreKeys = []string{keys.FeegrantStoreKey}

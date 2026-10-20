@@ -37,7 +37,7 @@ import (
 )
 
 // v6.8 removes the oracle, tokenfactory and vesting modules. The store loader
-// deletes the oracle, tokenfactory and retired IBC stores at the upgrade height,
+// deletes the feegrant, oracle, tokenfactory and IBC stores at the upgrade height,
 // and the handler deletes the removed modules' version-map entries, the denom
 // transfer allowlists tokenfactory kept in the bank store, and its parameters in
 // the params store. Vesting owned no store: its state is the accounts it wrote
@@ -52,7 +52,7 @@ import (
 
 // v68RemovedStoreModules are the module version map entries the v6.8 handler
 // deletes along with their stores.
-var v68RemovedStoreModules = []string{"capability", "ibc", "oracle", "tokenfactory", "transfer"}
+var v68RemovedStoreModules = []string{"capability", "feegrant", "ibc", "oracle", "tokenfactory", "transfer"}
 
 const (
 	v68UpgradeName = "v6.8"
@@ -922,7 +922,7 @@ func verifyV68State(t *testing.T, chain *upgradetest.CrossVersion) {
 	tokenfactoryCommand := chain.Seid("", "q", retiredtokenfactory.ModuleName)
 	require.Error(t, tokenfactoryCommand.Err)
 	require.Contains(t, tokenfactoryCommand.Combined(), `unknown command "tokenfactory"`)
-	for _, store := range []string{"ibc", "transfer", "capability", retiredtokenfactory.ModuleName} {
+	for _, store := range []string{"feegrant", "ibc", "transfer", "capability", retiredtokenfactory.ModuleName} {
 		raw := chain.Binary("", "curl", "-s",
 			"http://127.0.0.1:26657/abci_query?path=%2Fstore%2F"+store+"%2Fkey")
 		require.Contains(t, raw.Combined(), "no such store: "+store)
