@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-var _ gigatypes.RawStateView = (*flatKVStateView)(nil)
+var _ gigatypes.StateView = (*flatKVStateView)(nil)
 
 // flatKVStateView serves the Giga read API from one committed block.
 type flatKVStateView struct {

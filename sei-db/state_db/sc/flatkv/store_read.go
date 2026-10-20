@@ -14,7 +14,7 @@ import (
 // OpenView returns a read-only view of the most recently committed block. It is the Giga StateDB entry
 // point for reads served out of SC. The caller must Close the view, which is what releases the
 // reservation holding the block readable.
-func (s *CommitStore) OpenView() gigatypes.RawStateView {
+func (s *CommitStore) OpenView() gigatypes.StateView {
 	blockView, err := s.lastSealed.Get()
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: OpenView: %v", err))

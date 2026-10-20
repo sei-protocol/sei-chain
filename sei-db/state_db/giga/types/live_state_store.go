@@ -76,8 +76,8 @@ type LiveStateStore interface {
 	// move to CommitStateChanges.
 	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
 
-	// OpenView returns a read-only RawStateView of the current block. The caller must Close it when done.
-	OpenView() RawStateView
+	// OpenView returns a read-only StateView of the current block. The caller must Close it when done.
+	OpenView() StateView
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
 	// accepted as the first commit. Must be called after LoadLatest, on a
