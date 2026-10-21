@@ -45,6 +45,9 @@ type hashJob struct {
 	mutations []mutation.Mutation
 }
 
+// Asks the hasher to exit once every hash job sent before it has been delivered.
+type hasherCloseRequest struct{}
+
 // Asks the hasher to close done once every hash job sent before it has been delivered.
 type flushRequest struct {
 	// Closed by the hasher's goroutine when it reaches this request.
@@ -136,7 +139,13 @@ func (h *stateWALHasher) RegisterListener(listener HashListener) (
 	return request.hasLast, request.lastBlockNumber, request.lastHash, true
 }
 
-// AwaitExit blocks until the goroutine has exited, which it does once ctx is cancelled.
+// ScheduleClose queues a request for the hasher to exit once every hash job sent before it has been delivered. It
+// returns false once the WAL stops.
+func (h *stateWALHasher) ScheduleClose() bool {
+	return h.send(hasherCloseRequest{})
+}
+
+// AwaitExit blocks until the goroutine has exited, which it does on a close request or once ctx is cancelled.
 func (h *stateWALHasher) AwaitExit() {
 	h.wg.Wait()
 }
@@ -163,6 +172,8 @@ func (h *stateWALHasher) run() {
 			close(r.done)
 		case *registerRequest:
 			h.register(r)
+		case hasherCloseRequest:
+			return
 		default:
 			h.cancel(fmt.Errorf("unknown hasher request %T", request))
 			return

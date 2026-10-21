@@ -64,7 +64,8 @@ func (f *fakeWAL) Close() error {
 
 func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 	t.Helper()
-	w, err := newStateWAL(f, DefaultConfig("", "test").HasherBufferSize)
+	cfg := DefaultConfig("", "test")
+	w, err := newStateWAL(f, cfg.HasherBufferSize, cfg.SortBufferSize)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	return w
@@ -91,7 +92,10 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 		f := &fakeWAL{}
 		w := newFakeStateWAL(t, f)
 		f.appendErr = errInjected
-		require.ErrorIs(t, w.Write(1, nil), errInjected)
+		// The append happens on the sorter's goroutine, so its failure surfaces on the next call that waits on
+		// it.
+		require.NoError(t, w.Write(1, nil))
+		require.ErrorIs(t, w.Flush(), errInjected)
 		requireBricked(t, w)
 	})
 
@@ -131,13 +135,13 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 }
 
 // TestAppendFailureDoesNotSilentlyAdvance verifies the Bugbot scenario: when the append for a block fails,
-// the write head is not advanced past it. The WAL is bricked, so a write to the next block is rejected
-// rather than skipping the lost block.
+// the WAL is bricked, so a write to the next block is rejected rather than skipping the lost block.
 func TestAppendFailureDoesNotSilentlyAdvance(t *testing.T) {
 	f := &fakeWAL{appendErr: errInjected}
 	w := newFakeStateWAL(t, f)
 
-	require.ErrorIs(t, w.Write(1, nil), errInjected)
+	require.NoError(t, w.Write(1, nil))
+	require.ErrorIs(t, w.Flush(), errInjected)
 
 	require.ErrorIs(t, w.Write(2, nil), errInjected)
 	require.Empty(t, f.appended)

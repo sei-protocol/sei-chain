@@ -15,21 +15,17 @@ import (
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write maintains write-ordering state that is not internally locked.
 //
-// Slices are not copied at the call boundary. Mutations passed to Write — and every byte slice reachable
-// through them — must not be modified after the call: the WAL retains them and serializes them
-// asynchronously, so mutating them races the WAL and can corrupt what is persisted. Likewise the changesets
-// returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
-// mutate such data must copy it first.
+// The changesets returned by the iterator are owned by the WAL and must not be modified.
 type StateWAL interface {
 	controllertypes.PrunableStore
 
 	// Write a block's mutations to the WAL as a single record.
 	//
 	// This method only schedules the write, it does not block until the write is complete. It does block while the
-	// WAL is behind on delivering hashes to listeners by more than Config.HasherBufferSize blocks.
+	// WAL is behind by more than Config.SortBufferSize blocks.
 	//
-	// mutations, and every byte slice reachable through it, must not be modified after this call. Callers that
-	// need to modify those buffers must copy them first.
+	// Write takes ownership of mutations. Once the call begins, neither mutations nor any byte slice reachable
+	// through it may be read or modified.
 	//
 	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
 	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
@@ -107,8 +103,8 @@ type StateWAL interface {
 	// The iterator yields one entry per block in ascending block order.
 	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (StateWALIterator, error)
 
-	// Close the WAL, flushing the blocks written so far to disk and releasing resources. Hashes not yet delivered
-	// to listeners may be dropped; call Flush() first to deliver them.
+	// Close blocks until all work submitted before the call has been fully handled, then releases the WAL's
+	// resources.
 	Close() error
 }
 

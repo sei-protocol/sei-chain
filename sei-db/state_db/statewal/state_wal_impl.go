@@ -35,6 +35,10 @@ type stateWALImpl struct {
 	// Computes each written block's hash and delivers it to the listeners.
 	hasher *stateWALHasher
 
+	// Sorts each written block's mutations and hands them to wal and hasher. Every request to either that must stay
+	// ordered with writes passes through it.
+	sorter *stateWALSorter
+
 	// The highest block number written. Atomic because the garbage collector reads it off-goroutine
 	// (GetLatestBlock); Write is its only mutator.
 	//
@@ -57,7 +61,7 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal, config.HasherBufferSize)
+	return newStateWAL(wal, config.HasherBufferSize, config.SortBufferSize)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -112,6 +116,8 @@ func newStateWAL(
 	wal seiwal.WAL[stateWALRecord],
 	// The capacity of the channel carrying hash jobs to the hasher.
 	hasherBufferSize uint,
+	// The capacity of the channel carrying requests to the sorter.
+	sortBufferSize uint,
 ) (StateWAL, error) {
 	// Recover the write-ordering position, and the hash reported to listeners registered before any block is
 	// written, from the highest block already on disk.
@@ -130,12 +136,14 @@ func newStateWAL(
 	}
 
 	ctx, cancel := context.WithCancelCause(context.Background())
+	// Neither may reference w: their goroutines would keep w reachable, and MustClose() could never fire.
+	hasher := newStateWALHasher(ctx, cancel, hasherBufferSize, ok, last, lastHash)
 	w := &stateWALImpl{
 		wal:    wal,
 		ctx:    ctx,
 		cancel: cancel,
-		// Must not reference w: its goroutine would keep w reachable, and MustClose() could never fire.
-		hasher: newStateWALHasher(ctx, cancel, hasherBufferSize, ok, last, lastHash),
+		hasher: hasher,
+		sorter: newStateWALSorter(ctx, cancel, sortBufferSize, wal, hasher),
 	}
 	if ok {
 		w.lastBlock.Store(last)
@@ -181,17 +189,11 @@ func (w *stateWALImpl) Write(blockNumber uint64, mutations []mutation.Mutation) 
 		return fmt.Errorf("write rejected: %w", err)
 	}
 
-	// Record the new head only once the append succeeds; a failed append bricks the WAL and leaves the
-	// head where it was rather than skipping past a block whose mutations were lost.
-	if err := w.wal.Append(blockNumber, stateWALRecord{mutations: mutations}); err != nil {
-		return w.fail(fmt.Errorf("failed to append block %d: %w", blockNumber, err))
+	if !w.sorter.ScheduleSort(blockNumber, mutations) {
+		return fmt.Errorf("failed to schedule block %d: %w", blockNumber, w.stoppedErr())
 	}
 	w.lastBlock.Store(blockNumber)
 	w.hasBlock = true
-
-	if !w.hasher.ScheduleHash(blockNumber, mutations) {
-		return fmt.Errorf("failed to schedule the hash of block %d: %w", blockNumber, w.stoppedErr())
-	}
 	return nil
 }
 
@@ -218,11 +220,8 @@ func (w *stateWALImpl) Flush() error {
 	if err := w.fatalErr(); err != nil {
 		return fmt.Errorf("state WAL failed: %w", err)
 	}
-	if err := w.wal.Flush(); err != nil {
-		return w.fail(fmt.Errorf("failed to flush state WAL: %w", err))
-	}
-	if !w.hasher.Flush() {
-		return fmt.Errorf("failed to deliver hashes: %w", w.stoppedErr())
+	if err := w.sorter.Flush(); err != nil {
+		return w.fail(err)
 	}
 	return nil
 }
@@ -235,7 +234,7 @@ func (w *stateWALImpl) RegisterHashListener(listener HashListener) (bool, uint64
 	if err := w.fatalErr(); err != nil {
 		return false, 0, [32]byte{}, fmt.Errorf("state WAL failed: %w", err)
 	}
-	ok, blockNumber, hash, accepted := w.hasher.RegisterListener(listener)
+	ok, blockNumber, hash, accepted := w.sorter.RegisterListener(listener)
 	if !accepted {
 		return false, 0, [32]byte{}, w.stoppedErr()
 	}
@@ -250,7 +249,7 @@ func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
 	if err := w.fatalErr(); err != nil {
 		return false, 0, 0, fmt.Errorf("state WAL failed: %w", err)
 	}
-	ok, first, last, err := w.wal.Bounds()
+	ok, first, last, err := w.sorter.Bounds()
 	if err != nil {
 		return false, 0, 0, w.fail(fmt.Errorf("failed to read WAL bounds: %w", err))
 	}
@@ -266,7 +265,7 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	if err := w.fatalErr(); err != nil {
 		return fmt.Errorf("state WAL failed: %w", err)
 	}
-	if err := w.wal.PruneBefore(lowestBlockNumberToKeep); err != nil {
+	if err := w.sorter.Prune(lowestBlockNumberToKeep); err != nil {
 		return w.fail(fmt.Errorf("failed to prune state WAL: %w", err))
 	}
 	return nil
@@ -284,7 +283,7 @@ func (w *stateWALImpl) Iterator(
 	if err := w.fatalErr(); err != nil {
 		return nil, fmt.Errorf("state WAL failed: %w", err)
 	}
-	it, err := w.wal.Iterator(startingBlockNumber, endingBlockNumber)
+	it, err := w.sorter.Iterator(startingBlockNumber, endingBlockNumber)
 	if err != nil {
 		// A rejected range is the caller's error and leaves the WAL usable; only a genuine WAL failure bricks.
 		if errors.Is(err, seiwal.ErrIteratorRange) {
@@ -295,12 +294,13 @@ func (w *stateWALImpl) Iterator(
 	return &stateWALIterator{records: it}, nil
 }
 
-// Close flushes pending writes, closes the underlying WAL, and releases resources. It stops the hasher
-// without waiting for it to deliver the hashes still queued.
+// Close blocks until all work submitted before the call has been fully handled, then closes the underlying WAL.
 func (w *stateWALImpl) Close() error {
 	w.closed.Close(w)
-	w.cancel(nil)
+	w.sorter.ScheduleClose()
+	w.sorter.AwaitExit()
 	w.hasher.AwaitExit()
+	w.cancel(nil)
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}

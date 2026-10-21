@@ -24,8 +24,12 @@ type Config struct {
 	WriteBufferSize uint
 
 	// The capacity of the channel carrying written blocks to the hasher, which computes their hashes and delivers
-	// them to listeners. Write blocks while it is full. Must be greater than 0.
+	// them to listeners. Must be greater than 0.
 	HasherBufferSize uint
+
+	// The capacity of the channel carrying written blocks, and every request ordered with them, to the sorter.
+	// Write blocks while it is full.
+	SortBufferSize uint
 
 	// The size a WAL file may reach before it is sealed and a fresh one is opened. Because each block is
 	// written as a single record, a file may exceed this by the size of one block's serialized record.
@@ -55,6 +59,7 @@ func DefaultConfig(path string, name string) *Config {
 		RequestBufferSize:     16,
 		WriteBufferSize:       2048,
 		HasherBufferSize:      16,
+		SortBufferSize:        16,
 		TargetFileSize:        s.TargetFileSize,
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,

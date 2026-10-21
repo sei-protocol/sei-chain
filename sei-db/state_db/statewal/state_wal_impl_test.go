@@ -3,11 +3,13 @@ package statewal
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
@@ -264,4 +266,50 @@ func TestVerifyIntegrity(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
 	require.Error(t, VerifyIntegrity(cfg))
+}
+
+// TestWriteStoresMutationsInKeyOrder writes the same mutations in two orders to two WALs, and requires both to read
+// back the same block, in key order, with the same hash.
+func TestWriteStoresMutationsInKeyOrder(t *testing.T) {
+	keys := [][]byte{[]byte("c"), []byte("a"), []byte("d"), []byte("b")}
+	inOrder := func(reverse bool) []mutation.Mutation {
+		mutations := make([]mutation.Mutation, 0, len(keys))
+		for _, key := range keys {
+			mutations = append(mutations, makeMutation("bank", key, key))
+		}
+		if reverse {
+			slices.Reverse(mutations)
+		}
+		return mutations
+	}
+
+	readBack := func(mutations []mutation.Mutation) ([]*proto.NamedChangeSet, [32]byte) {
+		w := openWAL(t, testConfig(t.TempDir()))
+		defer func() { require.NoError(t, w.Close()) }()
+		require.NoError(t, w.Write(1, mutations))
+		require.NoError(t, w.Flush())
+
+		it, err := w.Iterator(1, 1)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, it.Close()) }()
+		ok, err := it.Next()
+		require.NoError(t, err)
+		require.True(t, ok)
+		_, changeSets := it.Entry()
+		hash, err := it.GetHash()
+		require.NoError(t, err)
+		return changeSets, hash
+	}
+
+	forwardChangeSets, forwardHash := readBack(inOrder(false))
+	reverseChangeSets, reverseHash := readBack(inOrder(true))
+	require.Equal(t, forwardChangeSets, reverseChangeSets)
+	require.Equal(t, forwardHash, reverseHash)
+
+	require.Len(t, forwardChangeSets, 1)
+	var storedKeys []string
+	for _, pair := range forwardChangeSets[0].Changeset.Pairs {
+		storedKeys = append(storedKeys, string(pair.Key))
+	}
+	require.Equal(t, []string{"a", "b", "c", "d"}, storedKeys)
 }
