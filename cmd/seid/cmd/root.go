@@ -120,8 +120,6 @@ func initRootCmd(
 	// extend debug command
 	debugCmd := debug.Cmd()
 
-	configCmd := config.Cmd()
-
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
 		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
@@ -137,7 +135,7 @@ func initRootCmd(
 		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
-		configCmd,
+		config.Cmd(),
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),

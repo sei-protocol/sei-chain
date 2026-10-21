@@ -27,7 +27,7 @@ import (
 // This file pins the boot seam itself: server.InterceptConfigsPreRunHandler, called
 // Apply below.
 //
-// Apply is the whole legacy configuration path in one call. It resolves --home,
+// Apply is the whole configuration path in one call. It resolves --home,
 // creates or reads config/config.toml, unmarshals it into a tmcfg.Config, creates
 // or merges config/app.toml into the same viper, binds every cobra flag, and
 // leaves two channels behind for the rest of the boot:
@@ -50,8 +50,8 @@ type applyResult struct {
 	err error
 }
 
-// applyLegacy boots one fixture home through Apply with the
-// given explicit flags, and returns the resulting channels.
+// applyLegacy boots one fixture home through Apply with the given explicit flags,
+// and returns the resulting channels.
 //
 // The command is built fresh for every call, from the real server.StartCmd flag
 // set and the real initAppConfig template, so the flag universe and the app.toml
@@ -244,8 +244,8 @@ func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
 // nobody writes a hand test for — env set but file absent, flag set with neither,
 // all three set at once.
 //
-// This ordering is an emergent property of viper's precedence
-// interacting with bindFlags' write-back rather than anything stated in one place.
+// This ordering is an emergent property of viper's precedence interacting with
+// bindFlags' write-back rather than anything stated in one place.
 // Pinning it is what makes it a contract.
 func FuzzApplyPrecedenceTendermint(f *testing.F) {
 	// Every row against every presence combination, generated rather than listed. A plain go test
@@ -670,8 +670,8 @@ func TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot(t *testing.T) {
 	}
 }
 
-// TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap the
-// legacy path leaves.
+// TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap
+// Apply leaves.
 //
 // interceptConfigs calls conf.ValidateBasic() only on the branch that *creates*
 // config.toml. When the file already exists it is read, unmarshalled, and handed
