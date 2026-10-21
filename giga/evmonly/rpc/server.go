@@ -21,6 +21,7 @@ import (
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/seilog"
@@ -43,6 +44,7 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
+	BlockHash(context.Context, *coretypes.RequestBlockInfo) (tmbytes.HexBytes, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBalanceAt(address common.Address, height int64) (uint256.Int, error)

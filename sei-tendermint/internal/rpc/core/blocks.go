@@ -8,6 +8,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -124,6 +125,30 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 
 	block := env.BlockStore.LoadBlock(height)
 	return &coretypes.ResultBlock{BlockID: blockMeta.BlockID, Block: block}, nil
+}
+
+// BlockHash returns the hash of the block at a given height, the hash Block reports as
+// BlockID.Hash, with the same errors. It returns nil when Block would return a nil block.
+// Under Autobahn it reads only the covering CommitQC, not the block.
+func (env *Environment) BlockHash(ctx context.Context, req *coretypes.RequestBlockInfo) (tmbytes.HexBytes, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		height, err := env.autobahnCheckAndGetHeight((*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](height)
+		if !ok {
+			return nil, fmt.Errorf("invalid height %d", height)
+		}
+		return giga.BlockHash(ctx, gbn)
+	}
+	// Outside Autobahn the hash is answered only for a block that loads, as Block answers:
+	// a height whose metadata is stored but whose block cannot be read has no hash.
+	res, err := env.Block(ctx, req)
+	if err != nil || res.Block == nil {
+		return nil, err
+	}
+	return res.BlockID.Hash, nil
 }
 
 // autobahnCheckAndGetHeight resolves a caller-supplied height pointer to a
