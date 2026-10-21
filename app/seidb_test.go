@@ -37,6 +37,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
 	case FlagSCSnapshotWriteRateMBps:
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
+	case FlagSCEnableStateProof:
+		return defaultSCConfig.EnableStateProof
 	case FlagSCFlatKVReadWriteMetrics:
 		return defaultSCConfig.FlatKVConfig.EnableReadWriteMetrics
 	case FlagSSEnable:
@@ -107,6 +109,25 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 7, scConfig.HistoricalProofMaxInFlight)
 	assert.Equal(t, 12.5, scConfig.HistoricalProofRateLimit)
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
+}
+
+func TestParseSCConfigs_EnableStateProof(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable: true,
+	})
+	assert.False(t, scConfig.EnableStateProof)
+
+	scConfig = parseSCConfigs(mapAppOpts{
+		FlagSCEnable:           true,
+		FlagSCEnableStateProof: true,
+	})
+	assert.True(t, scConfig.EnableStateProof)
+
+	scConfig = parseSCConfigs(mapAppOpts{
+		FlagSCEnable:           true,
+		FlagSCEnableStateProof: false,
+	})
+	assert.False(t, scConfig.EnableStateProof)
 }
 
 func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
