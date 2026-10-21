@@ -690,6 +690,43 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
+// LaneTip is how far one lane's blocks have reached on this node.
+type LaneTip struct {
+	// Committed is the first block not finalized by the latest persisted CommitQC.
+	Committed types.BlockNumber
+	// Certified is one past the highest block with a LaneQC, and at least Committed.
+	Certified types.BlockNumber
+	// Held is one past the highest block this node holds, and at least Certified.
+	Held types.BlockNumber
+}
+
+// LaneTips returns how far each lane of the applied committee has reached on this node.
+func (s *State) LaneTips() map[types.LaneID]LaneTip {
+	for inner := range s.inner.Lock() {
+		committed := inner.persistedCommitQC.Load()
+		tips := map[types.LaneID]LaneTip{}
+		for lane := range inner.applied().Committee().Lanes().All() {
+			t := LaneTip{Committed: types.LaneRangeOpt(committed, lane).Next()}
+			t.Certified = t.Committed
+			if vq, ok := inner.votes[lane]; ok {
+				for n := vq.next; n > max(vq.first, t.Committed); n-- {
+					if vq.q[n-1].qc.IsPresent() {
+						t.Certified = n
+						break
+					}
+				}
+			}
+			t.Held = t.Certified
+			if bq, ok := inner.blocks[lane]; ok {
+				t.Held = max(t.Held, bq.next)
+			}
+			tips[lane] = t
+		}
+		return tips
+	}
+	panic("unreachable")
+}
+
 // laneQCStallLogAfter is how long a leader waits for a LaneQC before logging each lane's state.
 const laneQCStallLogAfter = time.Second
 

@@ -32,6 +32,8 @@ type metrics struct {
 	laneQcWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 2, 22)"`
 	// Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.
 	inFlight prometheus.GaugeIntVec `metrics_labels:"wait"`
+	// Lane blocks this node holds, by the consensus step they are waiting on.
+	laneBlocksInFlight prometheus.GaugeIntVec `metrics_labels:"stage"`
 	// LaneQCs formed by lane votes reaching quorum.
 	laneQcs prometheus.CounterIntVec
 	// Lane votes newly stored.
@@ -85,6 +87,22 @@ func ObservePrepareQC(qc *types.PrepareQC) {
 // ObserveProducedTxs counts txs included in a successfully produced local lane block.
 func ObserveProducedTxs(n int) {
 	Global.producedTxsAt().Add(int64(n))
+}
+
+// LaneBlockStages counts the lane blocks a node holds by the consensus step each is waiting on.
+type LaneBlockStages struct {
+	LaneQC    int64
+	Proposal  int64
+	PrepareQC int64
+	CommitQC  int64
+}
+
+// ObserveLaneBlockStages publishes s as lane_blocks_in_flight{stage}.
+func ObserveLaneBlockStages(s LaneBlockStages) {
+	Global.laneBlocksInFlightAt("lane_qc").Set(s.LaneQC)
+	Global.laneBlocksInFlightAt("proposal").Set(s.Proposal)
+	Global.laneBlocksInFlightAt("prepare_qc").Set(s.PrepareQC)
+	Global.laneBlocksInFlightAt("commit_qc").Set(s.CommitQC)
 }
 
 // Metrics are the avail instruments callers write directly.

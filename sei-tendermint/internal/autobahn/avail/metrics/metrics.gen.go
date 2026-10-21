@@ -19,6 +19,7 @@ func init() {
 		Global.laneCapacityWaitLatency,
 		Global.laneQcWaitLatency,
 		Global.inFlight,
+		Global.laneBlocksInFlight,
 		Global.laneQcs,
 		Global.laneVotesIngested,
 		Global.laneBlockLatency,
@@ -79,6 +80,12 @@ func newMetrics() *metrics {
 			Name:      "in_flight",
 			Help:      "Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.",
 		}, []string{"wait"}),
+		laneBlocksInFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_blocks_in_flight",
+			Help:      "Lane blocks this node holds, by the consensus step they are waiting on.",
+		}, []string{"stage"}),
 		laneQcs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -138,6 +145,10 @@ func (m *metrics) laneQcWaitLatencyAt() *tmprometheus.Histogram {
 
 func (m *metrics) inFlightAt(wait string) *tmprometheus.GaugeInt {
 	return m.inFlight.WithLabelValues(wait)
+}
+
+func (m *metrics) laneBlocksInFlightAt(stage string) *tmprometheus.GaugeInt {
+	return m.laneBlocksInFlight.WithLabelValues(stage)
 }
 
 func (m *metrics) laneQcsAt() *tmprometheus.CounterInt {
