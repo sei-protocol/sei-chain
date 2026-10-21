@@ -102,6 +102,12 @@ func GetBlockStorePath(homePath string) string {
 	return filepath.Join(homePath, "data", "ledger", "block")
 }
 
+// GetAppHashVaultPath returns the path for the giga app hash vault, which sits alongside the block store under
+// data/ledger.
+func GetAppHashVaultPath(homePath string) string {
+	return filepath.Join(homePath, "data", "ledger", "app_hash")
+}
+
 func GetChangelogPath(dbPath string) string {
 	return filepath.Join(dbPath, "changelog")
 }

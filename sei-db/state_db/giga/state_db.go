@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel"
 
@@ -114,7 +116,7 @@ func NewStateDB(
 	if err := s.catchUpToWAL(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.resumeUndoLog(); err != nil {
+	if err := s.resumeUndoLogOverHeldState(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -242,11 +244,27 @@ func (s *StateDB) openUndoLog() error {
 	return nil
 }
 
+// resumeUndoLogOverHeldState resumes the undo log when SC holds a block. Over an empty SC it refuses an
+// undo log that holds blocks, and otherwise leaves the log for the first commit to resume.
+//
+// An empty SC may still be seeded to a later height, and seeding waits for SC to flush, which a view
+// the undo log held over the empty store would block forever.
+func (s *StateDB) resumeUndoLogOverHeldState() error {
+	if s.sc.Version() != 0 {
+		return s.resumeUndoLog()
+	}
+	if s.undo != nil && s.undo.GetLatestVersion() > 0 {
+		return fmt.Errorf("resume the EVM undo-log state store: it holds blocks up to %d, but the state "+
+			"commit store is empty", s.undo.GetLatestVersion())
+	}
+	return nil
+}
+
 // resumeUndoLog binds the undo log to SC's current block, which answers every read the log holds no
-// later record for. It runs once SC is on the WAL head: the log cannot replay the WAL, whose blocks
-// carry no prior values, so a log left behind SC stops serving the history below SC's height.
+// later record for, unless it is already bound. A log behind SC stops serving the history below SC's
+// height.
 func (s *StateDB) resumeUndoLog() error {
-	if s.undo == nil {
+	if s.undo == nil || s.undo.Resumed() {
 		return nil
 	}
 	if err := s.undo.Resume(s.sc.Version(), s.sc.OpenView()); err != nil {
@@ -371,8 +389,8 @@ func (s *StateDB) WAL() statewal.StateWAL { return s.wal }
 func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return s.checkpointer }
 
 // PrunableStores returns the opened stores that can join a prune cycle.
-func (s *StateDB) PrunableStores() []controller.PrunableStore {
-	stores := make([]controller.PrunableStore, 0, 3)
+func (s *StateDB) PrunableStores() []controllertypes.PrunableStore {
+	stores := make([]controllertypes.PrunableStore, 0, 3)
 	if s.sc != nil {
 		stores = append(stores, s.sc)
 	}
@@ -388,15 +406,16 @@ func (s *StateDB) PrunableStores() []controller.PrunableStore {
 	return stores
 }
 
-// CommitStateChanges is CommitStateChangesWithPrior without the block's change set. It fails for a
-// block that changes state when the EVM state store is an undo log, which needs the change set.
+// CommitStateChanges is CommitStateChangesWithPrior without the block's change set. It fails when the
+// EVM state store is an undo log.
 func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
 	return s.CommitStateChangesWithPrior(blockNum, changeset, nil)
 }
 
 // CommitStateChangesWithPrior writes a block to the state WAL, the state commit store and the EVM
 // state store, in that order. Callers must not run two commits at once. changes is the block's change
-// set, which an undo-log EVM state store keeps the replaced values from; nil only when changeset is empty.
+// set, which an undo-log EVM state store keeps the replaced values from and requires: an empty set is
+// a block that changed no EVM state, and nil is no change set at all.
 //
 // The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
 // what makes a slow store on the commit path attributable to that store.
@@ -406,9 +425,13 @@ func (s *StateDB) CommitStateChangesWithPrior(blockNum int64, changeset []*proto
 		// future that the WAL has no way to recognize as a mistake.
 		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
 	}
-	if s.undo != nil && changes == nil && len(changeset) != 0 {
+	if s.undo != nil && changes == nil {
 		// The undo log would advance past the block with no record of what it replaced.
 		return fmt.Errorf("commit block %d: the undo-log EVM state store needs the block's change set", blockNum)
+	}
+	// Before SC moves past the block the log resumes on.
+	if err := s.resumeUndoLog(); err != nil {
+		return fmt.Errorf("commit block %d: %w", blockNum, err)
 	}
 	// Ends the phase in flight, so the gap until the next commit is not charged to the last store.
 	defer s.commitPhases.Reset()

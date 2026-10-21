@@ -12,11 +12,13 @@ import (
 var _ types.MsgServer = msgServer{}
 
 type msgServer struct {
-	keeper types.ContractOpsKeeper
+	keeper     types.ContractOpsKeeper
+	wasmKeeper *Keeper
 }
 
-func NewMsgServerImpl(k types.ContractOpsKeeper) types.MsgServer {
-	return &msgServer{keeper: k}
+// NewMsgServerImpl returns the wasm MsgServer, which authorizes contract operations with the default policy.
+func NewMsgServerImpl(k *Keeper) types.MsgServer {
+	return &msgServer{keeper: NewDefaultPermissionKeeper(k), wasmKeeper: k}
 }
 
 func (m msgServer) StoreCode(goCtx context.Context, msg *types.MsgStoreCode) (*types.MsgStoreCodeResponse, error) {
@@ -75,6 +77,9 @@ func (m msgServer) InstantiateContract(goCtx context.Context, msg *types.MsgInst
 
 func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteContract) (*types.MsgExecuteContractResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+	if m.wasmKeeper.msgExecuteContractDisabled(ctx) {
+		return nil, types.ErrMsgExecuteContractDisabled
+	}
 	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "sender")

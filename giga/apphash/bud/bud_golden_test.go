@@ -220,7 +220,8 @@ func verifyBUDGoldenStateProof(
 	stateProof, err := DeserializeBUDStateProof(serialized)
 	require.NoError(t, err, "state proof %d", index)
 	if current {
-		require.Equal(t, recorded.Proof, hex.EncodeToString(stateProof.Serialize()), "state proof %d", index)
+		require.Equal(t, recorded.Proof, hex.EncodeToString(mustSerializeBUDStateProof(t, stateProof)),
+			"state proof %d", index)
 	}
 
 	require.Equal(t, recorded.Key, hex.EncodeToString(stateProof.Key()), "state proof %d key", index)
@@ -285,7 +286,7 @@ func newBUDGoldenStateProof(t *testing.T, stateProof *BUDStateProof) budGoldenSt
 	require.True(t, covered)
 	appHash := stateProof.AppHash()
 	return budGoldenStateProof{
-		Proof:       hex.EncodeToString(stateProof.Serialize()),
+		Proof:       hex.EncodeToString(mustSerializeBUDStateProof(t, stateProof)),
 		Key:         hex.EncodeToString(stateProof.Key()),
 		ChainID:     strconv.FormatUint(stateProof.ChainID(), 10),
 		StartHeight: strconv.FormatUint(stateProof.StartHeight(), 10),

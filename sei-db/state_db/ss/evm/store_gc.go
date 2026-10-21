@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 )
 
 // EVMStateStore participates in the shared prune cycle as a snapshot store: it restores only at a
@@ -16,7 +16,7 @@ import (
 //
 // The state WAL must be managed by the same collector. This store reports a floor that keeps the WAL
 // it replays from, but never prunes that WAL itself.
-var _ controller.PrunableStore = (*EVMStateStore)(nil)
+var _ controllertypes.PrunableStore = (*EVMStateStore)(nil)
 
 // prunableStoreName identifies this store to the collector it is pruned by and to the schedule it
 // checkpoints on, which name it independently of each other.

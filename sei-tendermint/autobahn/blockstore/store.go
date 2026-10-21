@@ -94,6 +94,9 @@ func (s *Store) WriteQC(qc *types.FullCommitQC) error {
 			NextBlock:       gr.First,
 			NextQC:          gr.Next,
 		}
+		// Reads below the first QC must return ErrPruned in this process too, not only
+		// after a reopen: the QC and AppQC servers resume a stream from First() on ErrPruned.
+		s.setPruneWatermark(gr.First)
 	} else {
 		status.NextQC = gr.Next
 	}
@@ -175,11 +178,15 @@ func (s *Store) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 		return err
 	}
 
-	// SetPruneWatermark only ever raises the floor, so a request that lands at or
-	// below where it already sits is a no-op.
-	s.db.SetPruneWatermark(uint64(blockHeight))
-	Global.pruneWatermarkAt().Set(utils.Clamp[int64](s.db.GetPruneWatermark()))
+	s.setPruneWatermark(blockHeight)
 	return nil
+}
+
+// setPruneWatermark raises the floor below which reads return ErrPruned to n, and
+// leaves it unchanged when it already sits at or above n.
+func (s *Store) setPruneWatermark(n types.GlobalBlockNumber) {
+	s.db.SetPruneWatermark(uint64(n))
+	Global.pruneWatermarkAt().Set(utils.Clamp[int64](s.db.GetPruneWatermark()))
 }
 
 func (s *Store) First() types.GlobalBlockNumber {
