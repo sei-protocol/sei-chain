@@ -356,6 +356,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
+		observeCommittedBlocks(inner, epoch, qc)
 		leader := epoch.Committee().Leader(qc.Proposal().View())
 		consMeters.Commits.WithLabelValues(leader.ED25519().Address().String()).Add(1)
 		// The persist goroutine publishes persistedCommitQC after writing to disk
@@ -725,6 +726,22 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 		return tips
 	}
 	panic("unreachable")
+}
+
+// observeCommittedBlocks records, for each block qc finalizes that this node holds, how long after its
+// creation the CommitQC arrived.
+func observeCommittedBlocks(inner *inner, ep *types.Epoch, qc *types.CommitQC) {
+	now := time.Now()
+	for lane := range ep.Committee().Lanes().All() {
+		lr := qc.LaneRange(lane)
+		q, ok := inner.blocks[lane]
+		if !ok {
+			continue
+		}
+		for n := max(lr.First(), q.first); n < min(lr.Next(), q.next); n++ {
+			meters.LaneBlockCommitted.Observe(now.Sub(q.q[n].Msg().Block().Payload().CreatedAt()).Seconds())
+		}
+	}
 }
 
 // laneQCStallLogAfter is how long a leader waits for a LaneQC before logging each lane's state.

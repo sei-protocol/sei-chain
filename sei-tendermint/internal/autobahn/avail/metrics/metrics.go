@@ -116,11 +116,13 @@ type Metrics struct {
 	LaneQCs                 *prometheus.CounterInt
 	LaneVotesIngested       *prometheus.CounterInt
 	// Latency from a lane block's creation to: the block arriving from its producer, a lane vote on
-	// it arriving, its LaneQC forming, and the leader including it in a proposal.
-	LaneBlockReceive  *prometheus.Histogram
-	LaneVoteReceive   *prometheus.Histogram
-	LaneQCFormed      *prometheus.Histogram
-	LaneBlockProposed *prometheus.Histogram
+	// it arriving, its LaneQC forming, the leader including it in a proposal, and a CommitQC
+	// finalizing it.
+	LaneBlockReceive   *prometheus.Histogram
+	LaneVoteReceive    *prometheus.Histogram
+	LaneQCFormed       *prometheus.Histogram
+	LaneBlockProposed  *prometheus.Histogram
+	LaneBlockCommitted *prometheus.Histogram
 }
 
 // Get returns the avail instruments.
@@ -138,5 +140,6 @@ func Get() *Metrics {
 		LaneVoteReceive:         Global.laneBlockLatencyAt("vote_receive"),
 		LaneQCFormed:            Global.laneBlockLatencyAt("lane_qc"),
 		LaneBlockProposed:       Global.laneBlockLatencyAt("proposal"),
+		LaneBlockCommitted:      Global.laneBlockLatencyAt("commit_qc"),
 	}
 }
