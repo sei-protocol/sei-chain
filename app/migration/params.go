@@ -39,7 +39,9 @@ const MaxNumKeysToMigratePerBlock uint64 = 1_000_000
 
 // KeyMigrateCosmosEnabled is the param key that allows an SC store to start
 // the MigrateCosmos migration once its EVM migration is complete. The v6.8
-// upgrade and InitChainer set it to true; an absent value means false.
+// upgrade and InitChainer set it to true; an absent value means false. Setting
+// it to false prevents a new start but does not stop a MigrateCosmos in
+// progress; set NumKeysToMigratePerBlock to 0 to pause that.
 var KeyMigrateCosmosEnabled = []byte("MigrateCosmosEnabled")
 
 // ParamKeyTable returns the key table for the migration subspace.
