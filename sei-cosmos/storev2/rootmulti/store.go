@@ -57,6 +57,7 @@ type Store struct {
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
 
+	enableStateProof bool
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
@@ -169,6 +170,7 @@ func NewStore(
 			MaxPairs: scConfig.SubspaceMaxPairs,
 			MaxBytes: scConfig.SubspaceMaxBytes,
 		},
+		enableStateProof:   scConfig.EnableStateProof,
 		hashLoggerConfig:   scConfig.HashLogger,
 		hashLogger:         hashLogger,
 		hashLoggerDisabled: !hashLoggingOn,
@@ -1079,6 +1081,11 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 
 	needProof := req.Prove && rootmulti.RequireProof(subPath)
 	latest := version == rs.scStore.Version()
+	if needProof {
+		if err := rs.admitProofQuery(ctx, storeName, latest); err != nil {
+			return sdkerrors.QueryResult(err)
+		}
+	}
 
 	// Fast path: no proof + SS enabled
 	if !needProof && rs.ssStore != nil {
@@ -1146,6 +1153,19 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	}
 
 	return res
+}
+
+// admitProofQuery rejects deprecated state proofs unless this node explicitly enables them, and records
+// each rejection by store and by whether the query was at the latest height.
+func (rs *Store) admitProofQuery(ctx context.Context, storeName string, latest bool) error {
+	if rs.enableStateProof {
+		return nil
+	}
+	storev2Metrics.stateProofRejected.Add(ctx, 1, otelmetric.WithAttributes(
+		attribute.String("store", storeName),
+		attribute.Bool("latest", latest),
+	))
+	return errors.Wrap(sdkerrors.ErrNotSupported, "state proofs are disabled on this node; set state-commit.sc-enable-state-proof = true to enable")
 }
 
 // admitSubspaceQuery takes a /subspace permit, or records the rejection and returns why it failed.

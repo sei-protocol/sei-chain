@@ -49,6 +49,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-historical-proof-max-inflight =", "Missing sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit =", "Missing sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst =", "Missing sc-historical-proof-burst")
+	require.Contains(t, output, "sc-enable-state-proof =", "Missing sc-enable-state-proof")
 	require.Contains(t, output, "sc-subspace-query-max-inflight =", "Missing sc-subspace-query-max-inflight")
 	require.Contains(t, output, "sc-subspace-max-pairs =", "Missing sc-subspace-max-pairs")
 	require.Contains(t, output, "sc-subspace-max-bytes =", "Missing sc-subspace-max-bytes")
