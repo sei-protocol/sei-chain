@@ -40,6 +40,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagRPCBatchRequestLimit,
 		FlagRPCBatchResponseMaxSize,
 		FlagRPCMaxWSConnections,
+		FlagRPCEvmProxyWSPort,
 	}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)

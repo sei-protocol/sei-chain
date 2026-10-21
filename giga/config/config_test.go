@@ -92,6 +92,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.rpc.batch_request_limit":              "10",
 		"giga.rpc.batch_response_max_size":          "1000",
 		"giga.rpc.max_ws_connections":               "7",
+		"giga.rpc.evm_proxy_ws_port":                "8546",
 	})
 	require.NoError(t, err)
 	want := gigaconfig.Config{
@@ -123,6 +124,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BatchRequestLimit:             10,
 			BatchResponseMaxSize:          1000,
 			MaxWSConnections:              7,
+			EvmProxyWSPort:                8546,
 		},
 	}
 	require.Equal(t, want, cfg)
@@ -154,6 +156,8 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative batch limit":            {"giga.rpc.batch_request_limit": "-1"},
 		"negative batch response size":    {"giga.rpc.batch_response_max_size": "-1"},
 		"negative ws connections":         {"giga.rpc.max_ws_connections": "-1"},
+		"negative evm proxy ws port":      {"giga.rpc.evm_proxy_ws_port": "-1"},
+		"evm proxy ws port too high":      {"giga.rpc.evm_proxy_ws_port": "65536"},
 		"non-numeric request bytes":       {"giga.rpc.max_concurrent_request_bytes": "lots"},
 		"non-duration admission timeout":  {"giga.rpc.ws_admission_timeout": "soon"},
 		"non-numeric batch limit":         {"giga.rpc.batch_request_limit": "many"},

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -294,12 +296,30 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	return commitResp, nil
 }
 
+// evmProxyURL returns the URL the EVM proxy dials for a member advertising advertised: the
+// advertised URL itself, or its host over WebSocket on wsPort when wsPort is non-zero.
+func evmProxyURL(advertised url.URL, wsPort int) url.URL {
+	if wsPort == 0 {
+		return advertised
+	}
+	u := advertised
+	switch u.Scheme {
+	case "https", "wss":
+		u.Scheme = "wss"
+	default:
+		u.Scheme = "ws"
+	}
+	u.Host = net.JoinHostPort(u.Hostname(), strconv.Itoa(wsPort))
+	return u
+}
+
 // runEvmProxy maintains an EVM RPC client for one committee member.
 func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
+	target := evmProxyURL(addr.EVMRPC, r.cfg.EvmProxyWSPort)
 	for {
-		client, err := ethrpc.DialContext(ctx, addr.EVMRPC.String())
+		client, err := ethrpc.DialContext(ctx, target.String())
 		if err != nil {
-			logger.Info("evm proxy dial failed", "url", addr.EVMRPC, "err", err)
+			logger.Info("evm proxy dial failed", "url", target.String(), "err", err)
 			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 				return err
 			}

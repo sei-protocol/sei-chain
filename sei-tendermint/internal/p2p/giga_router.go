@@ -53,6 +53,10 @@ type GigaRouterCommonConfig struct {
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+
+	// EvmProxyWSPort, when non-zero, makes the EVM proxy dial each committee member's advertised
+	// EVM RPC host over WebSocket on this port instead of the advertised URL.
+	EvmProxyWSPort int
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.

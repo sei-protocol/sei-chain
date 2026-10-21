@@ -98,6 +98,9 @@ type RPCConfig struct {
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 	// MaxWSConnections caps simultaneously open WebSocket connections.
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
+	// EvmProxyWSPort, when non-zero, makes the Autobahn EVM proxy reach each committee member over
+	// WebSocket on this port at the member's advertised EVM RPC host. Zero dials the advertised URL.
+	EvmProxyWSPort int `mapstructure:"evm_proxy_ws_port"`
 }
 
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
@@ -165,6 +168,7 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagRPCEvmProxyWSPort                = "giga.rpc.evm_proxy_ws_port"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -286,6 +290,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagRPCEvmProxyWSPort); v != nil {
+		if cfg.RPC.EvmProxyWSPort, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagRPCEvmProxyWSPort, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -355,6 +364,9 @@ func (c Config) Validate() error {
 	}
 	if c.RPC.MaxWSConnections < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagRPCMaxWSConnections, c.RPC.MaxWSConnections)
+	}
+	if c.RPC.EvmProxyWSPort < 0 || c.RPC.EvmProxyWSPort > 65535 {
+		return fmt.Errorf("%s: must be in 0..65535, got %d", FlagRPCEvmProxyWSPort, c.RPC.EvmProxyWSPort)
 	}
 	return nil
 }
@@ -454,4 +466,8 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+# evm_proxy_ws_port, when non-zero, makes the Autobahn EVM proxy reach each committee member over
+# WebSocket on this port at the member's advertised EVM RPC host. 0 dials the advertised URL.
+evm_proxy_ws_port = {{ .Giga.RPC.EvmProxyWSPort }}
 `

@@ -825,3 +825,18 @@ func TestGigaRouterCommon_OutboundHandshakeBoundedByTimeout(t *testing.T) {
 		t.Fatalf("dialAndRunConn() = %v, want context.DeadlineExceeded or io.EOF", err)
 	}
 }
+
+func TestEvmProxyURLSwitchesToWebSocketOnlyWhenAPortIsSet(t *testing.T) {
+	parse := func(s string) url.URL { return *utils.OrPanic1(url.Parse(s)) }
+	advertised := parse("http://validator-0.example:8545")
+	require.Equal(t, advertised, evmProxyURL(advertised, 0))
+	for in, want := range map[string]string{
+		"http://validator-0.example:8545":  "ws://validator-0.example:8546",
+		"https://validator-0.example:8545": "wss://validator-0.example:8546",
+		"ws://validator-0.example:9000":    "ws://validator-0.example:8546",
+		"http://[2001:db8::1]:8545":        "ws://[2001:db8::1]:8546",
+	} {
+		got := evmProxyURL(parse(in), 8546)
+		require.Equal(t, want, got.String(), in)
+	}
+}
