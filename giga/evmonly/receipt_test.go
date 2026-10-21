@@ -60,7 +60,10 @@ func TestReceiptRecordsConvertExecutorResults(t *testing.T) {
 	require.Equal(t, uint64(22_000), stored.GasUsed)
 	require.Equal(t, uint64(9), stored.EffectiveGasPrice)
 	require.Equal(t, uint64(11), stored.BlockNumber)
-	require.Equal(t, uint32(10), stored.TransactionIndex)
+	// The executor's index is kept as the unadjusted one, while the stored index counts the
+	// block's receipts, of which this is the first.
+	require.Zero(t, stored.TransactionIndex)
+	require.Equal(t, uint32(10), stored.UnadjustedTransactionIndex)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), stored.Status)
 	require.Equal(t, sender.Hex(), stored.From)
 	require.Equal(t, recipient.Hex(), stored.To)
@@ -103,12 +106,12 @@ func TestReceiptRecordsRejectMalformedBlockResult(t *testing.T) {
 	require.ErrorContains(t, err, "status")
 }
 
-// The pooled path must store exactly the records the serial one does, including skipping a
-// curable rejection and keeping an existing receipt for a spent nonce.
+// The pooled path must store exactly the records the serial one does, skipping every rejected
+// transaction and indexing the rest as if the block held only them.
 func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
 	const txs = 2 * occParallelReceiptThreshold
 	result := &BlockResult{}
-	curable := 0
+	rejected := 0
 	for i := range txs {
 		hash := common.BigToHash(big.NewInt(int64(i) + 1))
 		result.Receipts = append(result.Receipts, &ethtypes.Receipt{
@@ -121,9 +124,10 @@ func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
 		switch i % 3 {
 		case 1:
 			tx.Rejected, tx.Err = true, core.ErrNonceTooHigh
-			curable++
+			rejected++
 		case 2:
 			tx.Rejected, tx.Err = true, core.ErrNonceTooLow
+			rejected++
 		}
 		result.Txs = append(result.Txs, tx)
 	}
@@ -136,8 +140,9 @@ func TestParallelReceiptRecordsMatchSerial(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, serial, parallel)
-	require.Len(t, parallel, txs-curable, "a curable rejection must store no receipt")
-	for _, record := range parallel {
-		require.NotEqual(t, core.ErrNonceTooHigh.Error(), record.Receipt.VmError)
+	require.Len(t, parallel, txs-rejected, "a rejected transaction must store no receipt")
+	for i, record := range parallel {
+		require.Equal(t, uint32(i), record.Receipt.TransactionIndex)
+		require.Equal(t, uint32(3*i), record.Receipt.UnadjustedTransactionIndex)
 	}
 }

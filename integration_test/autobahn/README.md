@@ -636,22 +636,21 @@ point in the chain. Revisit once superblocks merge lanes into a single
 block; punted for now since a block today is exactly one lane's
 transactions.
 
-A block lists every transaction consensus finalized, including ones the
-executor rejected without running them, because Autobahn orders transactions
-before executing them. Block-based methods (`eth_getBlockBy*`, the block
-transaction counts, and the by-block-and-index lookups) all report that full
-list. Two kinds of rejected transaction have no receipt at the block that lists
-them:
+Autobahn orders transactions before executing them, so a finalized block can
+hold transactions the executor rejected without running them (a spent or future
+nonce, insufficient funds, or no block gas left). A rejected transaction stores
+no receipt. As on Ethereum, `eth_getTransactionByHash` and
+`eth_getTransactionReceipt` return `null` for it unless it later executes in
+another block, and then report that block. A transaction repeated after it
+already executed keeps its original receipt, so both report the earlier block
+and index where it ran.
 
-- A transaction that can still succeed later (nonce too high or insufficient
-  funds) has no receipt; `eth_getTransactionReceipt` returns `null` unless it
-  later executes in another block, and then reports that block.
-- A transaction repeated after it already executed keeps its original receipt,
-  so `eth_getTransactionReceipt` and `eth_getTransactionByHash` report the
-  earlier block and index where it ran.
-
-Indexers that pair each listed transaction with a receipt at the same block
-and index should expect these two cases.
+Once the node has stored a block's receipts, the block-based methods
+(`eth_getBlockBy*`, the block transaction counts, and the by-block-and-index
+lookups) leave rejected transactions out and index the rest as if they were
+absent, so every listed transaction has a receipt at the same block and index.
+Until then, and for a block whose receipts have been pruned, they list every
+transaction in the block at its position, rejected ones included.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash.

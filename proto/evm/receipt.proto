@@ -32,4 +32,7 @@ message Receipt {
   // True when the tx failed in state-transition checks before Create/Call
   // (e.g. EIP-7623 floor data gas).
   bool pre_execution_failure = 15 [(gogoproto.moretags) = "yaml:\"pre_execution_failure\""];
+  // Index of the tx among every tx in its block, counting those that store no
+  // receipt, which transaction_index skips. Set only by the EVM-only executor.
+  uint32 unadjusted_transaction_index = 16 [(gogoproto.moretags) = "yaml:\"unadjusted_transaction_index\""];
 }

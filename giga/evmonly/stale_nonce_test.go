@@ -10,6 +10,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
@@ -64,18 +66,26 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			wantBalance := new(big.Int).Sub(initialBalance, big.NewInt(42_000*testGasPriceWei+2))
 			require.Equal(t, wantBalance, new(big.Int).SetBytes(view.GetBalance(sender).Bytes()))
 			view.Close()
-			staleReceipt, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), decodeTx(t, stale).Hash())
-			require.NoError(t, err)
-			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), staleReceipt.Status)
-			require.Zero(t, staleReceipt.GasUsed)
-			require.NotEmpty(t, staleReceipt.VmError)
+			// The stale transactions store no receipts, and the two that executed are indexed as
+			// if the block held only them.
+			_, err = receipts.GetReceipt(newReceiptContext(t.Context(), 1), decodeTx(t, stale).Hash())
+			require.ErrorIs(t, err, receipt.ErrNotFound)
 			firstHash := decodeTx(t, first).Hash()
 			original, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), firstHash)
 			require.NoError(t, err)
 			require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), original.Status)
 			require.Equal(t, uint64(21_000), original.GasUsed)
 			require.Empty(t, original.VmError)
-			require.Equal(t, uint32(1), original.TransactionIndex)
+			require.Equal(t, uint32(0), original.TransactionIndex)
+			require.Equal(t, uint32(1), original.UnadjustedTransactionIndex)
+			last, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), decodeTx(t, next).Hash())
+			require.NoError(t, err)
+			require.Equal(t, uint32(1), last.TransactionIndex)
+			require.Equal(t, uint32(3), last.UnadjustedTransactionIndex)
+			require.Equal(t, uint64(42_000), last.CumulativeGasUsed)
+			stats, err := receipts.GetBlockStats(newReceiptContext(t.Context(), 1), 1)
+			require.NoError(t, err)
+			require.Equal(t, uint32(2), stats.TxCount)
 
 			// A replay must preserve the receipt of the original execution.
 			block.Number = 2
@@ -91,38 +101,16 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 	}
 }
 
-func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
-	const count = 4
-	result := &BlockResult{}
-	for i := range count {
-		txResult := TxResult{}
-		if i%2 == 1 {
-			txResult.Err = fmt.Errorf("replay: %w", core.ErrNonceTooLow)
-			txResult.Rejected = true
-		}
-		result.Txs = append(result.Txs, txResult)
-		result.Receipts = append(result.Receipts, &ethtypes.Receipt{TransactionIndex: uint(i)})
-	}
-	records, err := receiptRecords(1, result)
-	require.NoError(t, err)
-	require.Len(t, records, count)
-	for i, record := range records {
-		require.Equal(t, uint32(i), record.Receipt.TransactionIndex)
-		require.Equal(t, i%2 == 1, record.KeepExisting)
-		if i%2 == 1 {
-			require.Equal(t, "replay: "+core.ErrNonceTooLow.Error(), record.Receipt.VmError)
-			require.Zero(t, record.Receipt.GasUsed)
-		}
-	}
-}
-
-func TestReceiptRecordsOmitCurableRejections(t *testing.T) {
+// A rejected transaction stores no receipt whatever the rejection, and the receipts that are
+// stored are indexed as if the block held only their transactions.
+func TestReceiptRecordsOmitRejectedTransactions(t *testing.T) {
 	result := &BlockResult{
 		Txs: []TxResult{
 			{},
 			{Rejected: true, Err: core.ErrNonceTooHigh},
 			{Rejected: true, Err: core.ErrInsufficientFunds},
 			{Rejected: true, Err: fmt.Errorf("replay: %w", core.ErrNonceTooLow)},
+			{},
 		},
 	}
 	for i := range result.Txs {
@@ -132,7 +120,7 @@ func TestReceiptRecordsOmitCurableRejections(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	require.Equal(t, uint32(0), records[0].Receipt.TransactionIndex)
-	require.False(t, records[0].KeepExisting)
-	require.Equal(t, uint32(3), records[1].Receipt.TransactionIndex)
-	require.True(t, records[1].KeepExisting)
+	require.Equal(t, uint32(0), records[0].Receipt.UnadjustedTransactionIndex)
+	require.Equal(t, uint32(1), records[1].Receipt.TransactionIndex)
+	require.Equal(t, uint32(4), records[1].Receipt.UnadjustedTransactionIndex)
 }
