@@ -24,17 +24,16 @@ type Proxy struct {
 
 // New creates a proxied application interface around the provided ABCI application.
 func New(app types.Application) *Proxy {
-	return &Proxy{app: app}
+	p := &Proxy{app: app}
+	// Resolved once here so no EVM method needs a per-call type assertion.
+	if evmApp, ok := app.(EVMApplication); ok {
+		p.evm = utils.Some(&EVMProxy{app: evmApp})
+	}
+	return p
 }
 
-// NewEVM creates a proxied application interface around an EVMApplication,
-// whose EVM methods are reached through EVM.
-func NewEVM(app EVMApplication) *Proxy {
-	return &Proxy{app: app, evm: utils.Some(&EVMProxy{app: app})}
-}
-
-// EVM returns the proxy for the wrapped application's EVM methods, if it was
-// created with NewEVM.
+// EVM returns the proxy for the wrapped application's EVM methods, if it is an
+// EVMApplication.
 func (app *Proxy) EVM() utils.Option[*EVMProxy] {
 	return app.evm
 }

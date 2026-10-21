@@ -62,7 +62,7 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
@@ -71,24 +71,20 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
-	mock, ok := prepared.(*MockApp)
+	_, ok := prepared.(*MockApp)
 	require.True(t, ok)
-	evm, ok := evmApp.Get()
-	require.True(t, ok)
-	require.Equal(t, proxy.EVMApplication(mock), evm)
 }
 
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
 	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
-	require.False(t, evmApp.IsPresent())
 
 	_, ok := prepared.(fastCheckTxApplication)
 	require.True(t, ok)
@@ -99,7 +95,7 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
@@ -111,15 +107,13 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	mock, ok := prepared.(*MockApp)
+	_, ok = prepared.(*MockApp)
 	require.True(t, ok)
-	evm, ok := evmApp.Get()
-	require.True(t, ok)
-	require.Equal(t, proxy.EVMApplication(mock), evm)
+	require.True(t, proxy.New(prepared).EVM().IsPresent())
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
-	_, _, _, err := prepareApplication(t.Context(), &config.Config{
+	_, _, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
 

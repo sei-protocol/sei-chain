@@ -228,18 +228,18 @@ func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee
 func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
 func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasPrice }
 
-func TestEVMIsAbsentFromNew(t *testing.T) {
-	// Test: wrap an application with New.
-	proxyApp := New(&testEVMApp{})
+func TestEVMIsAbsentForANonEVMApplication(t *testing.T) {
+	// Test: wrap an application that is not an EVMApplication.
+	proxyApp := New(testApp{})
 
 	// Verify: no EVM proxy is exposed.
 	require.False(t, proxyApp.EVM().IsPresent())
 }
 
 func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
-	// Setup: an EVMApplication wrapped by NewEVM.
+	// Setup: an EVMApplication wrapped by the proxy.
 	app := &testEVMApp{}
-	evm, ok := NewEVM(app).EVM().Get()
+	evm, ok := New(app).EVM().Get()
 	require.True(t, ok)
 	msg := &core.Message{GasLimit: 21_000}
 

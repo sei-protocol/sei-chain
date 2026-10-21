@@ -49,7 +49,7 @@ func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasP
 func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 	// Setup: an EVMEnvironment around a proxied EVMApplication, as node startup builds it.
 	app := &testEVMApp{}
-	proxyApp := proxy.NewEVM(app)
+	proxyApp := proxy.New(app)
 	evm, ok := proxyApp.EVM().Get()
 	require.True(t, ok)
 	env := &EVMEnvironment{Environment: &Environment{App: proxyApp}, EVM: evm}
