@@ -574,6 +574,16 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 	}
 }
 
+// GetRaw panics: a memory store snapshot holds no physical rows.
+func (s *memoryStoreSnapshot) GetRaw([]byte) ([]byte, bool) {
+	panic("memory store snapshot holds no physical rows")
+}
+
+// BatchGetRaw panics: a memory store snapshot holds no physical rows.
+func (s *memoryStoreSnapshot) BatchGetRaw([][]byte) map[string][]byte {
+	panic("memory store snapshot holds no physical rows")
+}
+
 func (s *memoryStoreSnapshot) Close() {
 	s.closed.Store(true)
 }

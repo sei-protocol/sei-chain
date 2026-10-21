@@ -25,7 +25,7 @@ var retiredIBCStores = []string{"capability", "ibc", "transfer"}
 
 // v68DeletedStores are the KV stores deleted from the multistore at the v6.8
 // upgrade height. Their module version map entries go with them.
-var v68DeletedStores = append([]string{retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
+var v68DeletedStores = append([]string{feegrantModuleName, retiredoracle.ModuleName, retiredtokenfactory.ModuleName}, retiredIBCStores...)
 
 // tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
 // parameter subspace.
@@ -164,7 +164,6 @@ func (app *App) RegisterUpgradeHandlers() {
 				for _, name := range v68DeletedStores {
 					app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 				}
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, vestingModuleName)
 				app.pruneUpgradedIBCState(ctx)
 				app.pruneDenomAllowLists(ctx)
