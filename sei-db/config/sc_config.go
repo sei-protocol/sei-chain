@@ -106,6 +106,10 @@ type StateCommitConfig struct {
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 
+	// EnableStateProof allows deprecated ABCI /store proofs.
+	// State proofs are disabled by default.
+	EnableStateProof bool `mapstructure:"enable-state-proof"`
+
 	// Max concurrent /subspace queries. Only nodes with SS enabled serve /subspace.
 	SubspaceQueryMaxInFlight int `mapstructure:"subspace-query-max-inflight"`
 
@@ -131,6 +135,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
+		EnableStateProof:           false,
 		SubspaceQueryMaxInFlight:   DefaultSCSubspaceQueryMaxInFlight,
 		SubspaceMaxPairs:           DefaultSCSubspaceMaxPairs,
 		SubspaceMaxBytes:           DefaultSCSubspaceMaxBytes,
