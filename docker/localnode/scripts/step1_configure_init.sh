@@ -69,7 +69,7 @@ fi
 
 # Creating some testing accounts
 echo "Creating $NUM_ACCOUNTS accounts"
-python3 loadtest/scripts/populate_genesis_accounts.py "$NUM_ACCOUNTS" loc >/dev/null 2>&1
+python3 scripts/populate_genesis_accounts.py "$NUM_ACCOUNTS" loc >/dev/null 2>&1
 echo "Finished $NUM_ACCOUNTS accounts creation"
 
 # Set node seivaloper info

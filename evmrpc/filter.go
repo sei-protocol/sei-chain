@@ -657,22 +657,14 @@ func (a *FilterAPI) GetFilterLogs(
 	// Update access time
 	a.updateFilterAccess(filterID)
 
-	logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
+	// Read-only history query: the eth_getFilterChanges cursor is left untouched.
+	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
 	if err != nil {
 		return nil, err
 	}
 	if logs == nil {
 		logs = []*ethtypes.Log{}
 	}
-
-	// Update filter with write lock
-	a.filtersMu.Lock()
-	if updatedFilter, exists := a.filters[filterID]; exists {
-		updatedFilter.lastToHeight = lastToHeight
-		a.filters[filterID] = updatedFilter
-	}
-	a.filtersMu.Unlock()
-
 	return logs, nil
 }
 

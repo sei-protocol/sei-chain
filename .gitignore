@@ -31,11 +31,6 @@ c.out
 # fuzz test data
 **/testdata/fuzz/**
 
-# loadtest contracts build artifact
-loadtest/contracts/**/artifacts/
-loadtest/contracts/**/target/
-loadtest/contracts/**.json
-
 loadtest_results.txt
 
 # integration test resources
