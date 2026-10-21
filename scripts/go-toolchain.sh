@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints the GOTOOLCHAIN name declared by the root go.mod, e.g. "go1.27.1".
+# Prints the GOTOOLCHAIN name declared by the root go.mod, e.g. "go1.27.3".
 # A patch-less `go 1.28` directive is a valid go.mod version but not a valid
 # toolchain name, so it is normalized to "go1.28.0".
 set -euo pipefail
