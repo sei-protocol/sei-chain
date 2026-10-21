@@ -13,7 +13,6 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -25,8 +24,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// This file pins the legacy boot seam itself: LegacyConfigManager.Apply, which
-// forwards verbatim to server.InterceptConfigsPreRunHandler.
+// This file pins the boot seam itself: server.InterceptConfigsPreRunHandler, called
+// Apply below.
 //
 // Apply is the whole legacy configuration path in one call. It resolves --home,
 // creates or reads config/config.toml, unmarshals it into a tmcfg.Config, creates
@@ -37,10 +36,8 @@ import (
 //	serverCtx.Viper  — the flat key/value map every appOpts.Get() call site reads
 //
 // Those two channels are the entire interface between configuration and a running
-// node, which is what makes them the right thing to pin. A replacement manager is
-// correct exactly insofar as it leaves the same two channels in the same state,
-// and every target here states one property of that state precisely enough for a
-// second implementation to be measured against it.
+// node, which is what makes them the right thing to pin. Every target here states
+// one property of that state.
 //
 // Everything runs in a pinned environment (configtest.Isolate) against a fixture
 // home. That is not tidiness: the path reads bare environment variables and $HOME,
@@ -53,7 +50,7 @@ type applyResult struct {
 	err error
 }
 
-// applyLegacy boots one fixture home through LegacyConfigManager.Apply with the
+// applyLegacy boots one fixture home through Apply with the
 // given explicit flags, and returns the resulting channels.
 //
 // The command is built fresh for every call, from the real server.StartCmd flag
@@ -118,7 +115,7 @@ func setFlags(t *testing.T, cmd *cobra.Command, flagValues map[string]string) {
 // threaded through this call.
 func applyThrough(cmd *cobra.Command) error {
 	template, appConfig := initAppConfig()
-	return configmanager.LegacyConfigManager{}.Apply(cmd, template, appConfig)
+	return server.InterceptConfigsPreRunHandler(cmd, template, appConfig)
 }
 
 // setServerEnv sets the environment variable the server viper reads for a config
@@ -247,8 +244,7 @@ func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
 // nobody writes a hand test for — env set but file absent, flag set with neither,
 // all three set at once.
 //
-// This is the ordering the whole four-layer model in the ConfigManager design
-// rests on, and it is currently an emergent property of viper's precedence
+// This ordering is an emergent property of viper's precedence
 // interacting with bindFlags' write-back rather than anything stated in one place.
 // Pinning it is what makes it a contract.
 func FuzzApplyPrecedenceTendermint(f *testing.F) {
@@ -675,8 +671,7 @@ func TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot(t *testing.T) {
 }
 
 // TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap the
-// legacy path leaves, and it is the single most important row in this file for the
-// ConfigManager work, because closing it is one of the new manager's stated goals.
+// legacy path leaves.
 //
 // interceptConfigs calls conf.ValidateBasic() only on the branch that *creates*
 // config.toml. When the file already exists it is read, unmarshalled, and handed
@@ -1149,9 +1144,8 @@ func TestStateCommitAsyncCommitBufferTagAddressesNoReader(t *testing.T) {
 	}
 }
 
-// TestApplyLeavesBothChannelsPopulated states the seam's minimum contract, the one
-// the ConfigManager interface documents: whichever manager runs, both channels
-// come back populated. It is the assertion a new manager fails first.
+// TestApplyLeavesBothChannelsPopulated states the seam's minimum contract: both
+// channels come back populated.
 func TestApplyLeavesBothChannelsPopulated(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
