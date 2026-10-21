@@ -72,7 +72,7 @@ func handshake(
 		return nil, errGigaClaimRequiresAddr
 	}
 	if offering {
-		if err := utils.CheckHTTPURL(o.EVMRPC); err != nil {
+		if err := utils.CheckRPCURL(o.EVMRPC); err != nil {
 			return nil, fmt.Errorf("EvmRpc: %w", err)
 		}
 	}
