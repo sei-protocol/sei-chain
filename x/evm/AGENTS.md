@@ -130,15 +130,11 @@ Pointers are versioned, and a reverse registry looks up the original token from 
 pointer address. Both still work; the version can no longer be advanced, since doing so
 required redeploying the pointer.
 
-`Keeper.UpsertERC*Pointer` and the pointer bytecode under `artifacts/` are retained
-because `precompiles/pointer/legacy/*` needs them to replay historical pointer creation
-under `debug_trace*`. They are not reachable from any live entry point.
-
 ---
 
 ## Precompiled Contracts
 
-The module supports custom precompiled contracts (e.g., Bank, Staking, Gov, Wasmd) that expose Cosmos SDK functionality to EVM callers. Precompiles are versioned by block height, allowing tracer functionality at historical heights.
+The module supports custom precompiled contracts (e.g., Bank, Staking, Gov, Wasmd) that expose Cosmos SDK functionality to EVM callers. Each address has exactly one implementation, the one this binary ships, and it is used at every height. A `seid` process only serves the block range its own version executed; historical ranges are served by frozen nodes running the release that executed them (see `cmd/frozen-rpc-router`), so no archived precompile copies are kept for tracing.
 
 Payable precompiles suppress transfer events to avoid double-counting when value is forwarded through them.
 

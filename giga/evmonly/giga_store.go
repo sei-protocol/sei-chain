@@ -247,7 +247,7 @@ func (e *Executor) awaitPipelineCommit() error {
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
 	// The commit outlives the block result, which returns to a pool and is reset.
-	pending := changes.clone()
+	pending := changes.Clone()
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
@@ -281,31 +281,9 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 // values the block replaced.
 func (e *Executor) commitState(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
 	if store, ok := e.stateStore.(historyStore); ok {
-		return store.CommitStateChangesWithPrior(blockNumber, changesets, gigaChangeSet(changes))
+		return store.CommitStateChangesWithPrior(blockNumber, changesets, changes)
 	}
 	return e.stateStore.CommitStateChanges(blockNumber, changesets)
-}
-
-// TODO: Temporal. At some point both struct will be reused to avoid extra copies and allocs.
-func gigaChangeSet(changes *StateChangeSet) *gigatypes.StateChangeSet {
-	if changes == nil {
-		return nil
-	}
-	return &gigatypes.StateChangeSet{
-		Balances:      convertAll(changes.Balances, func(c BalanceChange) gigatypes.BalanceChange { return gigatypes.BalanceChange(c) }),
-		Nonces:        convertAll(changes.Nonces, func(c NonceChange) gigatypes.NonceChange { return gigatypes.NonceChange(c) }),
-		Code:          convertAll(changes.Code, func(c CodeChange) gigatypes.CodeChange { return gigatypes.CodeChange(c) }),
-		StorageClears: changes.StorageClears,
-		Storage:       convertAll(changes.Storage, func(c StorageChange) gigatypes.StorageChange { return gigatypes.StorageChange(c) }),
-	}
-}
-
-func convertAll[S, D any](values []S, convert func(S) D) []D {
-	out := make([]D, len(values))
-	for i, value := range values {
-		out[i] = convert(value)
-	}
-	return out
 }
 
 type gigaSnapshotStateReader struct {

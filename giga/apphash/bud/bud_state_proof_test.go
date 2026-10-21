@@ -76,6 +76,24 @@ func newTestBUDStateProof(
 	return stateProof
 }
 
+// mustSerializeBUDStateProof returns the serialization of stateProof, failing the test on an error.
+func mustSerializeBUDStateProof(t testing.TB, stateProof *BUDStateProof) []byte {
+	t.Helper()
+
+	data, err := stateProof.Serialize()
+	require.NoError(t, err)
+	return data
+}
+
+// mustSerializeAppHashData returns the serialization of appHashData, failing the test on an error.
+func mustSerializeAppHashData(t testing.TB, appHashData *apphash.AppHashData) []byte {
+	t.Helper()
+
+	data, err := appHashData.Serialize()
+	require.NoError(t, err)
+	return data
+}
+
 func TestBUDStateProofAccessors(t *testing.T) {
 	budlet := newTestBudlet(t, testStateKey, []byte("value"), []byte("previous value"), testNotModifiedSince)
 	appHashData, budProof := newTestWrite(t, rand.New(rand.NewSource(6)), budlet, testWriteHeight)
@@ -188,7 +206,7 @@ func TestBUDStateProofSerializationRoundTrip(t *testing.T) {
 		newTestBUDStateProof(t, rng, []byte{}, []byte("previous value"), testNotModifiedSince),
 		newTestBUDStateProof(t, rng, []byte("value"), []byte{}, 0),
 	} {
-		deserialized, err := DeserializeBUDStateProof(stateProof.Serialize())
+		deserialized, err := DeserializeBUDStateProof(mustSerializeBUDStateProof(t, stateProof))
 		require.NoError(t, err)
 		require.Equal(t, stateProof, deserialized)
 	}
@@ -205,7 +223,7 @@ func TestDeserializeBUDStateProofRejectsMalformedInput(t *testing.T) {
 		data = append(data, appHashData...)
 		return append(data, budProof...)
 	}
-	serializedAppHashData := appHashData.Serialize()
+	serializedAppHashData := mustSerializeAppHashData(t, appHashData)
 	serializedBUDProof := budProof.Serialize()
 	serializedOtherBUDProof := otherBUDProof.Serialize()
 	valid := serialize(budStateProofVersion, serializedAppHashData, serializedBUDProof)

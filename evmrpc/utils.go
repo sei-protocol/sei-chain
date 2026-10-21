@@ -154,7 +154,7 @@ func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, heig
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for height %d", height)
+		return nil, fmt.Errorf("could not find block for height %s", stringifyInt64Ptr(height))
 	}
 	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err

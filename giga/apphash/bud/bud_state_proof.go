@@ -143,16 +143,20 @@ func (p *BUDStateProof) AppHash() [32]byte {
 	return appHashData.AppHash()
 }
 
-// Serialize returns the proof in the serialized BUD state proof format.
-func (p *BUDStateProof) Serialize() []byte {
+// Serialize returns the proof in the serialized BUD state proof format. Errors if its app hash data cannot be
+// serialized.
+func (p *BUDStateProof) Serialize() ([]byte, error) {
 	appHashData, budProof := p.parts()
-	ahd := appHashData.Serialize()
+	ahd, err := appHashData.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("serializing BUD state proof: %w", err)
+	}
 	ahdLength := uint32(len(ahd)) //nolint:gosec // G115 - app hash data is a few hundred bytes
 
 	serialized := []byte{budStateProofVersion}
 	serialized = binary.BigEndian.AppendUint32(serialized, ahdLength)
 	serialized = append(serialized, ahd...)
-	return append(serialized, budProof.Serialize()...)
+	return append(serialized, budProof.Serialize()...), nil
 }
 
 // parts returns the proof's app hash data and BUD proof, or zero values for a zero-value proof.

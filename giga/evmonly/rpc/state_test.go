@@ -39,24 +39,37 @@ func TestGetBalance(t *testing.T) {
 	}
 }
 
-func TestGetBalanceRejectsHistoricalState(t *testing.T) {
-	backend := &testBackend{
+// A numbered block, the head's own included, is read at that block rather than from the latest state.
+func TestGetBalanceReadsNumberedBlocksFromHistory(t *testing.T) {
+	address := common.Address{1}
+	api := &stateAPI{backend: &testBackend{
+		blockNumber: func() uint64 { return 9 },
 		balance: func(common.Address) uint256.Int {
-			t.Fatal("historical request read the current balance")
+			t.Fatal("a numbered block read the latest state")
 			return uint256.Int{}
 		},
-	}
-	api := &stateAPI{backend: backend}
-	address := common.Address{1}
+		balanceAt: func(got common.Address, height int64) (uint256.Int, error) {
+			require.Equal(t, address, got)
+			return *uint256.NewInt(uint64(height) * 100), nil //nolint:gosec // test heights are small
+		},
+	}}
 
-	for _, block := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(7),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true),
-		{},
-	} {
-		got, err := api.GetBalance(t.Context(), address, block)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+	for height, want := range map[ethrpc.BlockNumber]int64{ethrpc.EarliestBlockNumber: 0, 7: 700, 9: 900} {
+		got, err := api.GetBalance(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(height))
+		require.NoError(t, err)
+		require.Equal(t, want, got.ToInt().Int64(), "block %d", height)
+	}
+	_, err := api.GetBalance(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(10))
+	require.ErrorIs(t, err, errBlockAboveHead)
+	_, err = api.GetBalance(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(-6))
+	require.ErrorIs(t, err, errBlockTagUnsupported)
+}
+
+func TestGetBalanceRejectsABlockHash(t *testing.T) {
+	api := &stateAPI{backend: &testBackend{}}
+	for _, block := range []ethrpc.BlockNumberOrHash{ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true), {}} {
+		got, err := api.GetBalance(t.Context(), common.Address{1}, block)
+		require.ErrorIs(t, err, errBlockHashUnsupported)
 		require.Nil(t, got)
 	}
 }
@@ -68,7 +81,7 @@ func TestHandlerServesGetBalance(t *testing.T) {
 			return *uint256.NewInt(42)
 		},
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -105,24 +118,24 @@ func TestGetCode(t *testing.T) {
 	}
 }
 
-func TestGetCodeRejectsHistoricalState(t *testing.T) {
-	backend := &testBackend{
-		code: func(common.Address) ([]byte, error) {
-			t.Fatal("historical request read the current code")
-			return nil, nil
-		},
-	}
-	api := &stateAPI{backend: backend}
+func TestGetCodeReadsNumberedBlocksFromHistory(t *testing.T) {
 	address := common.Address{1}
+	api := &stateAPI{backend: &testBackend{
+		blockNumber: func() uint64 { return 9 },
+		codeAt: func(got common.Address, height int64) ([]byte, error) {
+			require.Equal(t, address, got)
+			require.Equal(t, int64(7), height)
+			return []byte{0xfe}, nil
+		},
+	}}
 
-	for _, block := range []ethrpc.BlockNumberOrHash{
-		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
-		ethrpc.BlockNumberOrHashWithNumber(7),
-		ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true),
-		{},
-	} {
+	got, err := api.GetCode(t.Context(), address, ethrpc.BlockNumberOrHashWithNumber(7))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Bytes{0xfe}, got)
+
+	for _, block := range []ethrpc.BlockNumberOrHash{ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true), {}} {
 		got, err := api.GetCode(t.Context(), address, block)
-		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+		require.ErrorIs(t, err, errBlockHashUnsupported)
 		require.Nil(t, got)
 	}
 }
@@ -148,8 +161,10 @@ func TestHandlerServesGetCode(t *testing.T) {
 			}
 			return nil, nil
 		},
+		blockNumber: func() uint64 { return 5 },
+		codeAt:      func(common.Address, int64) ([]byte, error) { return nil, nil },
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -167,8 +182,9 @@ func TestHandlerServesGetCode(t *testing.T) {
 	require.NoError(t, client.CallContext(t.Context(), &raw, "eth_getCode", common.Address{9}, "latest"))
 	require.JSONEq(t, `"0x"`, string(raw))
 
-	err = client.CallContext(t.Context(), &got, "eth_getCode", contract, "0x1")
-	require.ErrorContains(t, err, errHistoricalStateUnsupported.Error())
+	// Before the contract was deployed.
+	require.NoError(t, client.CallContext(t.Context(), &raw, "eth_getCode", contract, "0x1"))
+	require.JSONEq(t, `"0x"`, string(raw))
 }
 
 func TestGetStorageAt(t *testing.T) {
@@ -196,11 +212,9 @@ func TestGetStorageAt(t *testing.T) {
 		{name: "unprefixed key", key: "ff", block: latest, wantKey: common.BigToHash(big.NewInt(0xff))},
 		{name: "uppercase prefix", key: "0X1", block: latest, wantKey: common.BigToHash(big.NewInt(1))},
 		{name: "empty key is slot zero", key: "0x", block: latest},
-		// Historical state, malformed keys, and backend failures are errors.
-		{name: "earliest", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber), wantErr: errHistoricalStateUnsupported},
-		{name: "explicit height", key: "0x1", block: ethrpc.BlockNumberOrHashWithNumber(7), wantErr: errHistoricalStateUnsupported},
-		{name: "block hash", key: "0x1", block: ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true), wantErr: errHistoricalStateUnsupported},
-		{name: "neither number nor hash", key: "0x1", wantErr: errHistoricalStateUnsupported},
+		// Block hashes, malformed keys, and backend failures are errors.
+		{name: "block hash", key: "0x1", block: ethrpc.BlockNumberOrHashWithHash(common.Hash{2}, true), wantErr: errBlockHashUnsupported},
+		{name: "neither number nor hash", key: "0x1", wantErr: errBlockHashUnsupported},
 		{name: "non-hex key", key: "0xzz", block: latest, wantErr: errStorageKeyInvalid},
 		{name: "doubled prefix", key: "0x0X1", block: latest, wantErr: errStorageKeyInvalid},
 		{name: "key longer than 32 bytes", key: "0x01" + common.Hash{}.Hex()[2:], block: latest, wantErr: errStorageKeyTooLong},
@@ -232,18 +246,51 @@ func TestGetStorageAt(t *testing.T) {
 	}
 }
 
+// A numbered block, the head's own included, is read at that block rather than from the latest state.
+func TestGetStorageAtReadsNumberedBlocksFromHistory(t *testing.T) {
+	address := common.Address{1}
+	slot := common.BigToHash(big.NewInt(1))
+	api := &stateAPI{backend: &testBackend{
+		blockNumber: func() uint64 { return 9 },
+		storage: func(common.Address, common.Hash) (common.Hash, error) {
+			t.Fatal("a numbered block read the latest state")
+			return common.Hash{}, nil
+		},
+		storageAt: func(gotAddress common.Address, gotKey common.Hash, height int64) (common.Hash, error) {
+			require.Equal(t, address, gotAddress)
+			require.Equal(t, slot, gotKey)
+			return common.Hash{byte(height)}, nil //nolint:gosec // test heights are small
+		},
+	}}
+
+	for number, want := range map[ethrpc.BlockNumber]common.Hash{ethrpc.EarliestBlockNumber: {0}, 7: {7}, 9: {9}} {
+		got, err := api.GetStorageAt(t.Context(), address, "0x1", ethrpc.BlockNumberOrHashWithNumber(number))
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Bytes(want[:]), got, "block %d", number)
+	}
+	_, err := api.GetStorageAt(t.Context(), address, "0x1", ethrpc.BlockNumberOrHashWithNumber(10))
+	require.ErrorIs(t, err, errBlockAboveHead)
+}
+
 func TestHandlerServesGetStorageAt(t *testing.T) {
 	contract := common.HexToAddress("0x6000000000000000000000000000000000000006")
 	slot := common.BigToHash(big.NewInt(1))
 	backend := &testBackend{
+		blockNumber: func() uint64 { return 5 },
 		storage: func(address common.Address, key common.Hash) (common.Hash, error) {
 			if address == contract && key == slot {
 				return common.BigToHash(big.NewInt(0x2a)), nil
 			}
 			return common.Hash{}, nil
 		},
+		storageAt: func(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+			if address == contract && key == slot && height == 3 {
+				return common.BigToHash(big.NewInt(0x11)), nil
+			}
+			return common.Hash{}, nil
+		},
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -260,6 +307,9 @@ func TestHandlerServesGetStorageAt(t *testing.T) {
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x2", "latest"))
 	require.Equal(t, common.Hash{}.Hex(), got.String())
 
-	err = client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x1", "0x1")
-	require.ErrorContains(t, err, errHistoricalStateUnsupported.Error())
+	// A numbered block below the head reads that block's history.
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x1", "0x3"))
+	require.Equal(t, common.BigToHash(big.NewInt(0x11)).Hex(), got.String())
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getStorageAt", contract, "0x1", "0x2"))
+	require.Equal(t, common.Hash{}.Hex(), got.String())
 }

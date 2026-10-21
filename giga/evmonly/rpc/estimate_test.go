@@ -218,7 +218,7 @@ func TestHandlerServesEstimateGas(t *testing.T) {
 			return 21_000, nil, nil
 		},
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
