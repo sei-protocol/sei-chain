@@ -233,6 +233,11 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		filter = unboundedFilter
 	}
 
+	start, err := a.logFetcher.pollStart(ctx, *filter)
+	if err != nil {
+		return nil, err
+	}
+
 	// Bound the number of concurrent logs subscriptions
 	if !a.acquireLogSub() {
 		return nil, errors.New("no new subscription can be created")
@@ -255,7 +260,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			defer a.releaseLogSub()
 			defer wpMetrics.RecordSubscriptionEnd()
 			defer cancel()
-			logs, _, err := a.logFetcher.GetLogsByFilters(subCtx, *filter, 0)
+			logs, _, err := a.logFetcher.GetLogsByFilters(subCtx, *filter)
 			if err != nil {
 				if subCtx.Err() != nil {
 					return
@@ -279,11 +284,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		defer a.releaseLogSub()
 		defer wpMetrics.RecordSubscriptionEnd()
 		defer cancel()
-		begin := int64(0)
+		cursor := start
 		for {
 			var logs []*ethtypes.Log
-			var lastToHeight int64
-			logs, lastToHeight, err = a.logFetcher.getLogsByFiltersWithBackoff(subCtx, *filter, begin)
+			logs, cursor, err = a.logFetcher.pollLogs(subCtx, *filter, cursor)
 			if err != nil {
 				if subCtx.Err() != nil {
 					return
@@ -297,11 +301,9 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 					return
 				}
 			}
-			if filter.ToBlock != nil && lastToHeight >= filter.ToBlock.Int64() {
+			if logsExhausted(*filter, cursor) {
 				return
 			}
-			begin = lastToHeight
-			filter.FromBlock = big.NewInt(lastToHeight + 1)
 			// Wait before the next poll, but stop promptly when the
 			// subscription ends (subCtx is cancelled on rpcSub.Err()).
 			select {

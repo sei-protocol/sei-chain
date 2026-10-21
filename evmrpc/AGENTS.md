@@ -41,6 +41,7 @@ EVM RPCs prefixed by `eth_` and `debug_` on Sei generally follows [Ethereum's sp
   - `eth_newPendingTransactionFilter`
   - `eth_syncing`
   - `eth_getProof` — deprecated rather than permanently incompatible; the message directs callers who need proofs to the Sei team.
+- **Log filters poll from a cursor.** `eth_newFilter` fixes where its polls start, once: a numeric `fromBlock` as given, otherwise the head at creation. Each `eth_getFilterChanges` scans from that cursor to the head, or to a numeric `toBlock` below it; a tag `toBlock` such as `latest` follows the head and never ends the filter. A poll covers at most `max_blocks_for_log` blocks, and fewer when its logs exceed the log caps; later polls return the rest. Unlike geth, a numeric `fromBlock` in the past makes the first poll return that history. `eth_getFilterLogs` resolves tags when called and never moves the cursor. `eth_subscribe("logs")` polls through the same cursor logic.
 
 ## `sei_` prefixed endpoints
 The legacy `sei_` namespace contains address and Cosmos transaction helpers.

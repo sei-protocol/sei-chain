@@ -48,6 +48,18 @@ func TestFilterNew(t *testing.T) {
 			blockHash: common.HexToHash("0xabc"),
 			wantErr:   true,
 		},
+		{
+			name:      "error: fromBlock after toBlock",
+			fromBlock: "0x3",
+			toBlock:   "0x2",
+			wantErr:   true,
+		},
+		{
+			name:      "error: latest fromBlock after toBlock",
+			fromBlock: "latest",
+			toBlock:   "0x1",
+			wantErr:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -689,6 +701,137 @@ func TestFilterGetFilterLogsDoesNotMoveChangesCursor(t *testing.T) {
 		require.Empty(t, controlChanges)
 		require.Equal(t, controlChanges, affectedChanges)
 	})
+}
+
+// newLogFilter installs a log filter for crit and returns its id.
+func newLogFilter(t *testing.T, crit map[string]interface{}) string {
+	t.Helper()
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, crit)
+	require.Nil(t, resObj["error"], "newFilter %v should succeed", crit)
+	return resObj["result"].(string)
+}
+
+// filterChanges polls filterID once and returns the logs it delivered.
+func filterChanges(t *testing.T, filterID string) []interface{} {
+	t.Helper()
+	resObj := sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterID)
+	require.Nil(t, resObj["error"], "getFilterChanges should succeed")
+	changes, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "getFilterChanges result should be an array, got %v", resObj["result"])
+	return changes
+}
+
+// logsInRange returns the logs eth_getLogs reports for blocks from through to.
+func logsInRange(t *testing.T, from, to int64) []interface{} {
+	t.Helper()
+	resObj := sendRequestGood(t, "getLogs", map[string]interface{}{
+		"fromBlock": "0x" + strconv.FormatInt(from, 16),
+		"toBlock":   "0x" + strconv.FormatInt(to, 16),
+	})
+	require.Nil(t, resObj["error"], "getLogs [%d, %d] should succeed", from, to)
+	logs, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "getLogs result should be an array")
+	return logs
+}
+
+// TestFilterGetFilterChangesCoversEveryBlockSincePreviousPoll asserts that each
+// eth_getFilterChanges poll of a filter with an omitted or tag fromBlock, or a
+// tag toBlock, returns the logs of every block since the previous poll, exactly
+// as eth_getLogs reports them for those blocks.
+// This test is intentionally not parallel because it moves the latest height
+// of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterChangesCoversEveryBlockSincePreviousPoll(t *testing.T) {
+	t.Cleanup(func() { filterClient.latestOverride = 0 })
+	filterClient.latestOverride = 1
+
+	criteria := []map[string]interface{}{
+		{},
+		{"fromBlock": "latest"},
+		{"fromBlock": "safe"},
+		{"fromBlock": "finalized"},
+		{"fromBlock": "pending"},
+		{"toBlock": "latest"},
+		{"toBlock": "safe"},
+		{"toBlock": "finalized"},
+		{"toBlock": "pending"},
+		{"fromBlock": "latest", "toBlock": "latest"},
+		{"fromBlock": "0x1", "toBlock": "latest"},
+	}
+	filterIDs := make([]string, len(criteria))
+	for i, crit := range criteria {
+		filterIDs[i] = newLogFilter(t, crit)
+	}
+
+	// Of the blocks up to the mock chain's head of 8, only block 2 holds logs.
+	// Each step moves the head several blocks past the previous poll.
+	steps := []struct {
+		head     int64
+		from     int64
+		wantLogs bool
+	}{
+		{head: 1, from: 1},
+		{head: 3, from: 2, wantLogs: true},
+		{head: MockHeight8, from: 4},
+	}
+	for _, step := range steps {
+		filterClient.latestOverride = step.head
+		want := logsInRange(t, step.from, step.head)
+		require.Equal(t, step.wantLogs, len(want) > 0, "logs in blocks %d to %d", step.from, step.head)
+		for i, filterID := range filterIDs {
+			require.Equal(t, want, filterChanges(t, filterID), "filter %v polled at head %d", criteria[i], step.head)
+		}
+	}
+}
+
+// TestFilterGetFilterChangesWaitsForFutureBounds asserts that a numeric
+// fromBlock or toBlock above the head makes eth_getFilterChanges return []
+// rather than fail, that each block is returned once the head reaches it, and
+// that the filter is exhausted only after its toBlock has been returned.
+// This test is intentionally not parallel because it moves the latest height
+// of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterChangesWaitsForFutureBounds(t *testing.T) {
+	t.Cleanup(func() { filterClient.latestOverride = 0 })
+	filterClient.latestOverride = 1
+	futureTo := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1", "toBlock": "0x2"})
+	futureFrom := newLogFilter(t, map[string]interface{}{"fromBlock": "0x2"})
+
+	require.Empty(t, filterChanges(t, futureTo))
+	require.Empty(t, filterChanges(t, futureFrom))
+
+	// Block 2, the only block up to the mock chain's head of 8 that holds logs,
+	// is futureTo's toBlock and futureFrom's fromBlock.
+	filterClient.latestOverride = 3
+	want := logsInRange(t, 2, 2)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, filterChanges(t, futureTo))
+	require.Equal(t, logsInRange(t, 2, 3), filterChanges(t, futureFrom))
+
+	filterClient.latestOverride = MockHeight8
+	require.Empty(t, filterChanges(t, futureTo), "a filter is exhausted once its toBlock has been returned")
+	require.Equal(t, logsInRange(t, 4, MockHeight8), filterChanges(t, futureFrom))
+}
+
+// TestFilterGetFilterChangesAfterFromBlockIsPruned asserts that a filter keeps
+// polling after the node prunes past its fromBlock, while its cursor is still
+// above the earliest available block.
+// This test is intentionally not parallel because it moves the latest and
+// earliest heights of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterChangesAfterFromBlockIsPruned(t *testing.T) {
+	t.Cleanup(func() {
+		filterClient.latestOverride = 0
+		filterClient.earliestOverride = 0
+	})
+	filterClient.latestOverride = 1
+	filterID := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1"})
+	require.Empty(t, filterChanges(t, filterID))
+
+	// Pruning passes fromBlock but not the cursor, which the poll above moved
+	// to block 2, the block holding the mock chain's logs.
+	filterClient.earliestOverride = 2
+	filterClient.latestOverride = 3
+	want := logsInRange(t, 2, 3)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, filterChanges(t, filterID))
 }
 
 // TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter asserts that
