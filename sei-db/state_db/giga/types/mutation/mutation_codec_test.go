@@ -12,7 +12,7 @@ func sampleMutations() []Mutation {
 		{Key: []byte("insert"), NewValue: []byte("new")},
 		{Key: []byte("update"), PreviousValue: []byte("old"), NewValue: []byte("new")},
 		{Key: []byte("delete"), PreviousValue: []byte("old")},
-		{Key: []byte("unknown"), PreviousValueUnknown: true, NewValue: []byte("new")},
+		{Key: []byte("delete-absent")},
 		{Key: []byte{}, PreviousValue: []byte{}, NewValue: []byte{}},
 	}
 }
@@ -37,10 +37,6 @@ func TestMutationRoundTrip(t *testing.T) {
 		{
 			name:     "delete of absent key",
 			mutation: Mutation{Key: []byte("key")},
-		},
-		{
-			name:     "previous value unknown",
-			mutation: Mutation{Key: []byte("key"), PreviousValueUnknown: true, NewValue: []byte("new")},
 		},
 		{
 			name:     "empty key",
@@ -77,7 +73,6 @@ func TestMutationSerializedLayout(t *testing.T) {
 		0,          // version
 		0, 0, 0, 1, // key length
 		'k',
-		0,          // previous value unknown
 		1,          // previous value present
 		0, 0, 0, 2, // previous value length
 		'p', 'v',
@@ -128,9 +123,8 @@ func TestDeserializeMutationRejectsInvalidData(t *testing.T) {
 	// Byte offsets into valid; see TestMutationSerializedLayout.
 	const (
 		versionOffset              = 0
-		previousValueUnknownOffset = 6
-		previousValuePresentOffset = 7
-		newValuePresentOffset      = 14
+		previousValuePresentOffset = 6
+		newValuePresentOffset      = 13
 	)
 
 	tests := []struct {
@@ -140,10 +134,6 @@ func TestDeserializeMutationRejectsInvalidData(t *testing.T) {
 		{
 			name:   "unsupported version",
 			mutate: func(data []byte) { data[versionOffset] = 1 },
-		},
-		{
-			name:   "invalid previous value unknown byte",
-			mutate: func(data []byte) { data[previousValueUnknownOffset] = 2 },
 		},
 		{
 			name:   "invalid previous value present byte",

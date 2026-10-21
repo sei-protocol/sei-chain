@@ -27,7 +27,6 @@ func goldenMutations() []Mutation {
 		{Key: []byte("update"), PreviousValue: []byte("old"), NewValue: []byte("new")},
 		{Key: []byte("delete"), PreviousValue: []byte("old")},
 		{Key: []byte("delete-absent")},
-		{Key: []byte("unknown"), PreviousValueUnknown: true, NewValue: []byte("new")},
 		{Key: []byte{}, PreviousValue: []byte{}, NewValue: []byte{}},
 		{Key: []byte{0x00, 0xff, 0x80}, PreviousValue: []byte{0xde, 0xad}, NewValue: []byte{0xbe, 0xef, 0x00}},
 	}

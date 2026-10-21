@@ -15,9 +15,9 @@ const MutationVersion0 MutationVersion = 0
 /*
 Serialization schema for Mutation version 0:
 
-| Version | Key Length | Key      | Previous Value Unknown | Previous Value Present | Previous Value Length |
-|---------|------------|----------|------------------------|------------------------|-----------------------|
-| 1 byte  | 4 bytes    | variable | 1 byte                 | 1 byte                 | 4 bytes               |
+| Version | Key Length | Key      | Previous Value Present | Previous Value Length |
+|---------|------------|----------|------------------------|-----------------------|
+| 1 byte  | 4 bytes    | variable | 1 byte                 | 4 bytes               |
 
 | Previous Value | New Value Present | New Value Length | New Value |
 |----------------|-------------------|------------------|-----------|
@@ -56,10 +56,6 @@ func DeserializeMutation(data []byte) (*Mutation, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read key: %w", err)
 	}
-	previousValueUnknown, err := reader.readBool()
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read previous value unknown flag: %w", err)
-	}
 	previousValue, err := reader.readOptionalBytes()
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read previous value: %w", err)
@@ -70,10 +66,9 @@ func DeserializeMutation(data []byte) (*Mutation, int, error) {
 	}
 
 	mutation := &Mutation{
-		Key:                  key,
-		PreviousValueUnknown: previousValueUnknown,
-		PreviousValue:        previousValue,
-		NewValue:             newValue,
+		Key:           key,
+		PreviousValue: previousValue,
+		NewValue:      newValue,
 	}
 	return mutation, len(data) - len(reader.data), nil
 }
@@ -111,7 +106,7 @@ func DeserializeMutations(data []byte) ([]Mutation, error) {
 func (m *Mutation) serializedSize() int {
 	return mutationVersionLength +
 		mutationLengthLength + len(m.Key) +
-		2*mutationBoolLength + mutationLengthLength + len(m.PreviousValue) +
+		mutationBoolLength + mutationLengthLength + len(m.PreviousValue) +
 		mutationBoolLength + mutationLengthLength + len(m.NewValue)
 }
 
@@ -119,7 +114,6 @@ func (m *Mutation) serializedSize() int {
 func appendMutation(data []byte, m *Mutation) []byte {
 	data = append(data, byte(MutationVersion0))
 	data = appendMutationBytes(data, m.Key)
-	data = appendMutationBool(data, m.PreviousValueUnknown)
 	data = appendMutationBool(data, m.PreviousValue != nil)
 	data = appendMutationBytes(data, m.PreviousValue)
 	data = appendMutationBool(data, m.NewValue != nil)
