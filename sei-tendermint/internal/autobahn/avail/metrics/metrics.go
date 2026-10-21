@@ -36,6 +36,10 @@ type metrics struct {
 	laneQcs prometheus.CounterIntVec
 	// Lane votes newly stored.
 	laneVotesIngested prometheus.CounterIntVec
+	// Latency from a lane block's creation to the given stage, observed by a node holding the block.
+	laneBlockLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
+	// Latency from a proposal's construction to the given QC being observed for it.
+	proposalLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.0005, 1.5, 30)"`
 }
 
 type observed[T any] struct {
@@ -65,10 +69,17 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
+		Global.proposalLatencyAt("commit_qc").Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
 		Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
 		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
+}
+
+// ObservePrepareQC records how long after its proposal's construction a PrepareQC was observed.
+// Call it once per view.
+func ObservePrepareQC(qc *types.PrepareQC) {
+	Global.proposalLatencyAt("prepare_qc").Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
 }
 
 // ObserveProducedTxs counts txs included in a successfully produced local lane block.
@@ -86,6 +97,12 @@ type Metrics struct {
 	LaneQCInFlight          *prometheus.GaugeInt
 	LaneQCs                 *prometheus.CounterInt
 	LaneVotesIngested       *prometheus.CounterInt
+	// Latency from a lane block's creation to: the block arriving from its producer, a lane vote on
+	// it arriving, its LaneQC forming, and the leader including it in a proposal.
+	LaneBlockReceive  *prometheus.Histogram
+	LaneVoteReceive   *prometheus.Histogram
+	LaneQCFormed      *prometheus.Histogram
+	LaneBlockProposed *prometheus.Histogram
 }
 
 // Get returns the avail instruments.
@@ -99,5 +116,9 @@ func Get() *Metrics {
 		LaneQCInFlight:          Global.inFlightAt("lane_qc"),
 		LaneQCs:                 Global.laneQcsAt(),
 		LaneVotesIngested:       Global.laneVotesIngestedAt(),
+		LaneBlockReceive:        Global.laneBlockLatencyAt("block_receive"),
+		LaneVoteReceive:         Global.laneBlockLatencyAt("vote_receive"),
+		LaneQCFormed:            Global.laneBlockLatencyAt("lane_qc"),
+		LaneBlockProposed:       Global.laneBlockLatencyAt("proposal"),
 	}
 }

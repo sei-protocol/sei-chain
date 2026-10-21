@@ -488,6 +488,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			}
 		}
 		q.pushBack(p)
+		meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 		ctrl.Updated()
 	}
 	return nil
@@ -530,7 +531,14 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
+		hadQC := q.q[n].qc.IsPresent()
 		if q.q[n].pushVote(applied, vote) {
+			if createdAt, ok := inner.blockCreatedAt(lane, n, h.Hash()).Get(); ok {
+				meters.LaneVoteReceive.Observe(time.Since(createdAt).Seconds())
+				if !hadQC && q.q[n].qc.IsPresent() {
+					meters.LaneQCFormed.Observe(time.Since(createdAt).Seconds())
+				}
+			}
 			ctrl.Updated()
 		}
 	}
@@ -648,6 +656,7 @@ func (s *State) WaitForLaneQCs(
 	}()
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
+		var stallLogged bool
 		for {
 			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
@@ -660,6 +669,7 @@ func (s *State) WaitForLaneQCs(
 				}
 			}
 			if len(laneQCs) > 0 {
+				observeProposedBlocks(inner, prev, laneQCs)
 				return laneQCs, nil
 			}
 			if !blocked {
@@ -668,12 +678,53 @@ func (s *State) WaitForLaneQCs(
 				start = time.Now()
 				blocked = true
 			}
+			if !stallLogged && time.Since(start) > laneQCStallLogAfter {
+				stallLogged = true
+				logLaneQCStall(inner, ep, prev, time.Since(start))
+			}
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
 			}
 		}
 	}
 	panic("unreachable")
+}
+
+// laneQCStallLogAfter is how long a leader waits for a LaneQC before logging each lane's state.
+const laneQCStallLogAfter = time.Second
+
+// observeProposedBlocks records, for each block a proposal will include, how long after its
+// creation the leader took it.
+func observeProposedBlocks(inner *inner, prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) {
+	now := time.Now()
+	for lane, qc := range laneQCs {
+		for n := types.LaneRangeOpt(prev, lane).Next(); n <= qc.Header().BlockNumber(); n++ {
+			q, ok := inner.blocks[lane]
+			if !ok || n < q.first || n >= q.next {
+				continue
+			}
+			meters.LaneBlockProposed.Observe(now.Sub(q.q[n].Msg().Block().Payload().CreatedAt()).Seconds())
+		}
+	}
+}
+
+// logLaneQCStall logs, for each lane, the block a proposal must start from and how far its
+// votes, LaneQC and the block itself have reached on this node.
+func logLaneQCStall(inner *inner, ep *types.Epoch, prev utils.Option[*types.CommitQC], waited time.Duration) {
+	for lane := range ep.Committee().Lanes().All() {
+		first := types.LaneRangeOpt(prev, lane).Next()
+		attrs := []any{"lane", lane, slog.Uint64("needBlock", uint64(first)), "waited", waited}
+		if vq, ok := inner.votes[lane]; ok {
+			attrs = append(attrs, slog.Uint64("votesFirst", uint64(vq.first)), slog.Uint64("votesNext", uint64(vq.next)))
+			if bv, ok := vq.q[first]; ok {
+				attrs = append(attrs, "needBlockVotes", len(bv.byKey), "needBlockQC", bv.qc.IsPresent())
+			}
+		}
+		if bq, ok := inner.blocks[lane]; ok {
+			attrs = append(attrs, slog.Uint64("blocksFirst", uint64(bq.first)), slog.Uint64("blocksNext", uint64(bq.next)))
+		}
+		logger.Warn("leader waiting for a LaneQC to propose", attrs...)
+	}
 }
 
 // ProduceLocalBlock appends a new block to the producers lane.
