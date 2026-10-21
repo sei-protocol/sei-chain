@@ -619,6 +619,78 @@ func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 	require.Len(t, seen, len(expectedByHash), "should observe logs for all expected EVM txs in block 2")
 }
 
+// TestFilterGetFilterLogsDoesNotMoveChangesCursor asserts that eth_getFilterLogs
+// leaves the eth_getFilterChanges cursor where it was.
+// This test is intentionally not parallel because it moves the latest height
+// of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterLogsDoesNotMoveChangesCursor(t *testing.T) {
+	t.Cleanup(func() { filterClient.latestOverride = 0 })
+
+	newPolledFilters := func(t *testing.T) (string, string) {
+		t.Helper()
+		filterClient.latestOverride = 1
+		filterCriteria := map[string]interface{}{
+			"fromBlock": "0x1",
+		}
+		resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
+		filterID := resObj["result"].(string)
+		resObj = sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
+		controlFilterID := resObj["result"].(string)
+
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterID)
+		changes, ok := resObj["result"].([]interface{})
+		require.True(t, ok, "getFilterChanges result should be an array")
+		require.Empty(t, changes)
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, controlFilterID)
+		changes, ok = resObj["result"].([]interface{})
+		require.True(t, ok, "control getFilterChanges result should be an array")
+		require.Empty(t, changes)
+		return filterID, controlFilterID
+	}
+
+	t.Run("does not skip pending changes", func(t *testing.T) {
+		filterID, controlFilterID := newPolledFilters(t)
+		filterClient.latestOverride = MockHeight8
+
+		resObj := sendRequestGood(t, evmrpc.GetFilterLogsMethod, filterID)
+		require.NotEmpty(t, resObj["result"])
+
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterID)
+		affectedChanges, ok := resObj["result"].([]interface{})
+		require.True(t, ok, "getFilterChanges result should be an array")
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, controlFilterID)
+		controlChanges, ok := resObj["result"].([]interface{})
+		require.True(t, ok, "control getFilterChanges result should be an array")
+		require.NotEmpty(t, controlChanges)
+		require.Equal(t, controlChanges, affectedChanges)
+	})
+
+	t.Run("does not redeliver the last history block", func(t *testing.T) {
+		filterID, controlFilterID := newPolledFilters(t)
+		filterClient.latestOverride = MockHeight2
+
+		resObj := sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterID)
+		affectedChanges, ok := resObj["result"].([]interface{})
+		require.True(t, ok, "getFilterChanges result should be an array")
+		require.NotEmpty(t, affectedChanges)
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, controlFilterID)
+		controlChanges, ok := resObj["result"].([]interface{})
+		require.True(t, ok, "control getFilterChanges result should be an array")
+		require.Equal(t, controlChanges, affectedChanges)
+
+		resObj = sendRequestGood(t, evmrpc.GetFilterLogsMethod, filterID)
+		require.NotEmpty(t, resObj["result"])
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterID)
+		affectedChanges, ok = resObj["result"].([]interface{})
+		require.True(t, ok, "getFilterChanges result should be an array")
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, controlFilterID)
+		controlChanges, ok = resObj["result"].([]interface{})
+		require.True(t, ok, "control getFilterChanges result should be an array")
+		require.Empty(t, controlChanges)
+		require.Equal(t, controlChanges, affectedChanges)
+	})
+}
+
 // TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter asserts that
 // eth_getFilterChanges returns [] (not null) once a bounded filter's range is
 // fully consumed (Ethereum JSON-RPC spec requires an array, never null).
