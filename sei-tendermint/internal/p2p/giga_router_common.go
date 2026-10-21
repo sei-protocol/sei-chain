@@ -2,8 +2,6 @@ package p2p
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
@@ -13,8 +11,9 @@ import (
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -97,8 +96,8 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.PersistentStateDir == "" {
 		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
 	}
-	if cfg.AppHashStore == nil {
-		return nil, errors.New("GigaRouterCommonConfig.AppHashStore is required")
+	if cfg.AppHashBuilder == nil {
+		return nil, errors.New("GigaRouterCommonConfig.AppHashBuilder is required")
 	}
 	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight)          // nolint:gosec // verified to be positive.
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
@@ -434,61 +433,24 @@ func commitAppHashToVault(
 	panic(msg)
 }
 
-type appHashStream struct {
-	hashes <-chan *lthash.BlockHash
-	tip    *lthash.BlockHash
-}
-
-// registerAppHashListener subscribes after InitChain and FlushHashes so the
-// live stream starts at the next height the execute loop will commit, not at
-// a genesis seed or a replay backlog.
-func registerAppHashListener(ctx context.Context, store AppHashStore) (appHashStream, error) {
-	// One slot: the store publishes a block's hash from inside the execute
-	// call that commits it, before that block reaches the hash loop.
-	hashes := make(chan *lthash.BlockHash, 1)
-	tip, err := store.RegisterHashListener(
-		func(_ context.Context, blockNum int64, hash *lthash.BlockHash) error {
-			if hash.BlockNumber != blockNum {
-				return fmt.Errorf("state store hashed block %d with callback height %d", hash.BlockNumber, blockNum)
-			}
-			if err := utils.Send(ctx, hashes, hash); err != nil && !errors.Is(err, context.Canceled) {
-				return err
-			}
-			return nil
-		},
-	)
-	if err != nil {
-		return appHashStream{}, err
+// registerAppHashListener subscribes to app hashes published after the call.
+// The builder returns the newest hash already published, which the caller has
+// to read through Iterator; this channel carries only the ones after it.
+func registerAppHashListener(
+	ctx context.Context,
+	appHashes builder.AppHashBuilder,
+) (<-chan *apphash.AppHashData, error) {
+	// One slot: the builder publishes a block's app hash from the commit that
+	// completed its inputs, before that block reaches the hash loop.
+	hashes := make(chan *apphash.AppHashData, 1)
+	if _, err := appHashes.RegisterListener(ctx, func(appHash *apphash.AppHashData) {
+		// A canceled context means the router is stopping. The listener cannot
+		// report that to the builder, and the hash loop observes the same cancel.
+		_ = utils.Send(ctx, hashes, appHash)
+	}); err != nil {
+		return nil, err
 	}
-	return appHashStream{hashes: hashes, tip: &tip}, nil
-}
-
-// appHashFromState binds a state checksum to the Autobahn block at the height
-// the hash itself reports.
-func appHashFromState(
-	block *atypes.GlobalBlock,
-	stateHash *lthash.BlockHash,
-) (atypes.AppHash, error) {
-	if stateHash.Error != nil {
-		return nil, fmt.Errorf("state store hash for block %d: %w", stateHash.BlockNumber, stateHash.Error)
-	}
-	n, ok := utils.SafeCast[atypes.GlobalBlockNumber](stateHash.BlockNumber)
-	if !ok {
-		return nil, fmt.Errorf("state store block number %d is not a global height", stateHash.BlockNumber)
-	}
-	if block.GlobalNumber != n {
-		return nil, fmt.Errorf(
-			"state store hashed block %d but data layer returned block %d",
-			n, block.GlobalNumber,
-		)
-	}
-	checksum := stateHash.Global.Checksum()
-	blockHash := block.Header.Hash()
-	h := sha256.New()
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, uint64(n)))
-	_, _ = h.Write(blockHash[:])
-	_, _ = h.Write(checksum[:])
-	return h.Sum(nil), nil
+	return hashes, nil
 }
 
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
@@ -508,19 +470,16 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Drain hashing of every already-committed height before we subscribe, so
-	// the registration tip is the app tip and the live stream does not replay it.
-	if err := r.cfg.AppHashStore.FlushHashes(); err != nil {
-		return fmt.Errorf("AppHashStore.FlushHashes(): %w", err)
-	}
-	appHashes, err := registerAppHashListener(ctx, r.cfg.AppHashStore)
-	if err != nil {
-		return fmt.Errorf("registerAppHashListener(): %w", err)
-	}
 	if lastBlock != nil {
-		if err := r.backfillAppHashes(ctx, hashVault, lastBlock, appHashes.tip); err != nil {
+		if err := r.backfillAppHashes(ctx, lastBlock.GlobalNumber); err != nil {
 			return err
 		}
+	}
+	// Subscribe after the backfill. The listener is not told about hashes the
+	// builder has already published, and those are the ones the iterator reads.
+	appHashes, err := registerAppHashListener(ctx, r.cfg.AppHashBuilder)
+	if err != nil {
+		return fmt.Errorf("registerAppHashListener(): %w", err)
 	}
 	// Unbuffered: execute may commit one block while the hash loop records its
 	// predecessor, and blocks on the handoff rather than running further ahead.
@@ -529,7 +488,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// Keep the hash loop on runExecute's context so an execute-loop failure
 		// does not cancel a committed block while it is being recorded.
 		s.SpawnNamed("appHashes", func() error {
-			return r.runAppHashes(ctx, hashVault, committed, appHashes.hashes, next)
+			return r.runAppHashes(ctx, hashVault, committed, appHashes, next)
 		})
 		s.SpawnNamed("executeBlocks", func() error {
 			defer close(committed)
@@ -589,81 +548,58 @@ func (r *gigaRouterCommon) openApp(ctx context.Context) (atypes.GlobalBlockNumbe
 	return last + 1, b, nil
 }
 
-// backfillAppHashes gives the data layer the AppHash of every block the app has
+// backfillAppHashes gives the data layer the app hash of every block the app has
 // already committed but has not yet proposed, oldest first, so execution resumes
-// at the block after the app tip. PushAppHash rejects an AppHash that skips a
-// CommitQC range, so a height left behind here is not recoverable later.
-func (r *gigaRouterCommon) backfillAppHashes(
-	ctx context.Context,
-	hashVault hashvault.HashVault,
-	lastBlock *atypes.GlobalBlock,
-	stateTip *lthash.BlockHash,
-) error {
+// at the block after the app tip. The builder's iterator is that record.
+// PushAppHash rejects an app hash that skips a CommitQC range, so a height left
+// behind here is not recoverable later.
+func (r *gigaRouterCommon) backfillAppHashes(ctx context.Context, last atypes.GlobalBlockNumber) error {
+	start := r.data.NextAppProposal()
+	if start > last {
+		return nil
+	}
 	weights, err := committeeWeights(r.app.GetValidators())
 	if err != nil {
 		return err
 	}
-	for n := r.data.NextAppProposal(); n <= lastBlock.GlobalNumber; n++ {
-		appHash, err := r.recoverAppHash(ctx, hashVault, n, lastBlock, stateTip)
-		if err != nil {
-			return err
+	stored, err := r.cfg.AppHashBuilder.Iterator(ctx, uint64(start))
+	if err != nil {
+		return fmt.Errorf("AppHashBuilder.Iterator(%d): %w", start, err)
+	}
+	defer func() {
+		if err := stored.Close(); err != nil {
+			logger.Error("failed to close app hash iterator", "err", err)
 		}
-		if err := r.data.PushAppHash(ctx, n, appHash, weights); err != nil {
+	}()
+	for n := start; n <= last; n++ {
+		ok, err := stored.Next()
+		if err != nil {
+			return fmt.Errorf("read the app hash of block %d: %w", n, err)
+		}
+		if !ok {
+			return fmt.Errorf("app hash builder holds no app hash for committed block %d", n)
+		}
+		entry := stored.Entry()
+		if entry.BlockHeight() != uint64(n) {
+			return fmt.Errorf("app hash builder returned block %d, want %d", entry.BlockHeight(), n)
+		}
+		sum := entry.AppHash()
+		if err := r.data.PushAppHash(ctx, n, sum[:], weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 	}
 	return nil
 }
 
-// recoverAppHash returns the AppHash this node committed to at already-executed
-// block n. The hashvault is that record, and holds every height whose hash was
-// recorded before the node stopped.
-//
-// Only the app tip can be missing, because the hash is derived from committed
-// state and so reaches the vault after the commit it describes. That one height
-// is also the only one the state store can still answer for, since it publishes
-// the hash of its own tip.
-func (r *gigaRouterCommon) recoverAppHash(
-	ctx context.Context,
-	hashVault hashvault.HashVault,
-	n atypes.GlobalBlockNumber,
-	lastBlock *atypes.GlobalBlock,
-	stateTip *lthash.BlockHash,
-) (atypes.AppHash, error) {
-	appHash, ok, err := hashVault.CommittedHash(ctx, uint64(n))
-	if err != nil {
-		return nil, fmt.Errorf("hashVault.CommittedHash(%v): %w", n, err)
-	}
-	if ok {
-		return appHash, nil
-	}
-	if n != lastBlock.GlobalNumber {
-		return nil, fmt.Errorf(
-			"hashvault holds no AppHash for committed block %v, and only the app tip %v can be re-derived from state",
-			n, lastBlock.GlobalNumber,
-		)
-	}
-	appHash, err = appHashFromState(lastBlock, stateTip)
-	if err != nil {
-		return nil, err
-	}
-	// Record it now, so the guard covers this height as it would have had the
-	// node not stopped between committing the block and recording its hash.
-	if err := commitAppHashToVault(ctx, hashVault, n, appHash); err != nil {
-		return nil, err
-	}
-	return appHash, nil
-}
-
-// runAppHashes waits for each committed block's store hash, then records,
+// runAppHashes waits for each committed block's app hash, then records,
 // proposes, and prunes that block. It drains every block handed off before the
-// execute loop closes committed. Hashes below first are leftover seed or replay
+// execute loop closes committed. Hashes below first were already backfilled
 // and are discarded so pairing stays aligned with execute.
 func (r *gigaRouterCommon) runAppHashes(
 	ctx context.Context,
 	hashVault hashvault.HashVault,
 	committed <-chan pendingExecution,
-	hashes <-chan *lthash.BlockHash,
+	hashes <-chan *apphash.AppHashData,
 	first atypes.GlobalBlockNumber,
 ) error {
 	for {
@@ -674,52 +610,39 @@ func (r *gigaRouterCommon) runAppHashes(
 		if !ok {
 			return nil
 		}
-		stateHash, err := recvHashAtLeast(ctx, hashes, first)
+		record, err := recvAppHashAtLeast(ctx, hashes, first)
 		if err != nil {
 			return err
 		}
-		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](stateHash.BlockNumber)
-		if !ok {
-			return fmt.Errorf("state store block number %d is not a global height", stateHash.BlockNumber)
-		}
-		block, err := r.data.GlobalBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
-		}
-		appHash, err := appHashFromState(block, stateHash)
-		if err != nil {
-			return err
-		}
-		if err := r.finishExecuteBlock(ctx, hashVault, n, p, appHash); err != nil {
+		n := atypes.GlobalBlockNumber(record.BlockHeight())
+		sum := record.AppHash()
+		if err := r.finishExecuteBlock(ctx, hashVault, n, p, sum[:]); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
 		}
 		first = n + 1
 	}
 }
 
-// recvHashAtLeast returns the store hash of first, skipping any leftover seed
-// or replay of heights already committed.
-func recvHashAtLeast(
+// recvAppHashAtLeast returns the app hash of first, skipping any hash already
+// handed to the data layer by the restart backfill.
+func recvAppHashAtLeast(
 	ctx context.Context,
-	hashes <-chan *lthash.BlockHash,
+	hashes <-chan *apphash.AppHashData,
 	first atypes.GlobalBlockNumber,
-) (*lthash.BlockHash, error) {
+) (*apphash.AppHashData, error) {
 	for {
-		stateHash, err := utils.Recv(ctx, hashes)
+		record, err := utils.Recv(ctx, hashes)
 		if err != nil {
 			return nil, err
 		}
-		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](stateHash.BlockNumber)
-		if !ok {
-			return nil, fmt.Errorf("state store block number %d is not a global height", stateHash.BlockNumber)
-		}
+		n := atypes.GlobalBlockNumber(record.BlockHeight())
 		if n < first {
 			continue
 		}
 		if n != first {
-			return nil, fmt.Errorf("state store hashed block %d, want %d", n, first)
+			return nil, fmt.Errorf("app hash builder published block %d, want %d", n, first)
 		}
-		return stateHash, nil
+		return record, nil
 	}
 }
 
@@ -737,6 +660,10 @@ func (r *gigaRouterCommon) executeBlocks(
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+		}
+		blockHash := [32]byte(b.Header.Hash())
+		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.GlobalNumber), blockHash); err != nil {
+			return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		opt, err := r.startExecuteBlock(ctx, b)

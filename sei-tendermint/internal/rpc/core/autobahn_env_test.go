@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"net/url"
 	"testing"
 	"time"
@@ -8,9 +9,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -28,13 +28,30 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-type stubAppHashStore struct{}
+type stubAppHashBuilder struct{}
 
-func (stubAppHashStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
-	return lthash.BlockHash{}, nil
+func (stubAppHashBuilder) ReportBlockHash(context.Context, uint64, [32]byte) error { return nil }
+func (stubAppHashBuilder) ReportStateHash(context.Context, uint64, [32]byte, map[string][]byte) error {
+	return nil
 }
+func (stubAppHashBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error { return nil }
+func (stubAppHashBuilder) ReportReceiptHash(context.Context, uint64, [32]byte) error {
+	return nil
+}
+func (stubAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
+func (stubAppHashBuilder) RegisterListener(context.Context, func(*apphash.AppHashData)) (*apphash.AppHashData, error) {
+	return nil, nil
+}
+func (stubAppHashBuilder) Iterator(context.Context, uint64) (apphash.AppHashIterator, error) {
+	return stubAppHashIterator{}, nil
+}
+func (stubAppHashBuilder) Close() error { return nil }
 
-func (stubAppHashStore) FlushHashes() error { return nil }
+type stubAppHashIterator struct{}
+
+func (stubAppHashIterator) Next() (bool, error)         { return false, nil }
+func (stubAppHashIterator) Entry() *apphash.AppHashData { return nil }
+func (stubAppHashIterator) Close() error                { return nil }
 
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
@@ -65,7 +82,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
 		App:                app,
-		AppHashStore:       stubAppHashStore{},
+		AppHashBuilder:     stubAppHashBuilder{},
 		GenDoc:             genDoc,
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)

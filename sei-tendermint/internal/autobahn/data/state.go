@@ -753,7 +753,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
-		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockStore.
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}

@@ -76,7 +76,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
 		App:                proxyApp,
-		AppHashStore:       app,
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}

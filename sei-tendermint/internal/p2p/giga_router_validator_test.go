@@ -88,7 +88,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				ValidatorAddrs:     addrs,
 				PersistentStateDir: dir,
 				App:                proxyApp,
-				AppHashStore:       app,
+				AppHashBuilder:     newPublishingAppHashBuilder(),
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
@@ -277,7 +277,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: dir,
 		App:                proxy.New(app),
-		AppHashStore:       app,
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}

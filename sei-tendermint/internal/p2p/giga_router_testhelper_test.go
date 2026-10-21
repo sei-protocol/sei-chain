@@ -10,8 +10,6 @@ import (
 	"slices"
 	"testing"
 
-	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -46,12 +44,7 @@ func testAppStateJSON(rng utils.Rng) json.RawMessage {
 
 type testApp struct {
 	abci.BaseApplication
-	state        utils.Watch[*testAppState]
-	hashListener utils.Mutex[*testHashListenerState]
-}
-
-type testHashListenerState struct {
-	listener utils.Option[gigatypes.HashListener]
+	state utils.Watch[*testAppState]
 }
 
 func newTestApp() *testApp {
@@ -59,18 +52,8 @@ func newTestApp() *testApp {
 		state: utils.NewWatch(&testAppState{
 			Txs: map[shaHash]bool{},
 		}),
-		hashListener: utils.NewMutex(&testHashListenerState{}),
 	}
 }
-
-func (a *testApp) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
-	for registered := range a.hashListener.Lock() {
-		registered.listener = utils.Some(listener)
-	}
-	return *lthash.NewBlockHash(nil), nil
-}
-
-func (a *testApp) FlushHashes() error { return nil }
 
 func (a *testApp) GetValidators() []abci.ValidatorUpdate {
 	for state := range a.state.Lock() {
@@ -138,15 +121,6 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 		state.Validators = utils.Slice(val)
 		state.Committed = true
 		ctrl.Updated()
-		for listener := range a.hashListener.Lock() {
-			if f, ok := listener.listener.Get(); ok {
-				hash := lthash.NewBlockHash(nil)
-				hash.BlockNumber = req.InitialHeight - 1
-				if err := f(context.Background(), hash.BlockNumber, hash); err != nil {
-					return nil, err
-				}
-			}
-		}
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
 			Validators: slices.Clone(state.Validators),
@@ -172,15 +146,6 @@ func (a *testApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBl
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
 		state.Committed = false
 		ctrl.Updated()
-		for listener := range a.hashListener.Lock() {
-			if f, ok := listener.listener.Get(); ok {
-				hash := lthash.NewBlockHash(nil)
-				hash.BlockNumber = req.Header.Height
-				if err := f(ctx, req.Header.Height, hash); err != nil {
-					return nil, err
-				}
-			}
-		}
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
 			TxResults: slices.Repeat([]*abci.ExecTxResult{{Code: abci.CodeTypeOK}}, len(req.Txs)),

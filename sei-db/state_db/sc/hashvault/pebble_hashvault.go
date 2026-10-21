@@ -197,7 +197,7 @@ func (p *PebbleHashVault) CommittedHash(ctx context.Context, blockHeight uint64)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.closed {
+	if p.closed.IsClosed() {
 		return nil, false, ErrClosed
 	}
 	if blockHeight < p.pruneBoundary {

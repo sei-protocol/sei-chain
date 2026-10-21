@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -291,7 +292,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
-	appHashStore p2p.AppHashStore,
+	appHashBuilder builder.AppHashBuilder,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -326,7 +327,7 @@ func buildGigaRouter(
 			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
-		valCfg.AppHashStore = appHashStore
+		valCfg.AppHashBuilder = appHashBuilder
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -351,7 +352,7 @@ func buildGigaRouter(
 		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
-	fnCfg.AppHashStore = appHashStore
+	fnCfg.AppHashBuilder = appHashBuilder
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -626,12 +627,12 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires a storage manager")
 		}
-		if manager.StateDB() == nil {
-			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires a state DB")
+		if manager.AppHashBuilder() == nil {
+			return nil, closer, noneDB, fmt.Errorf("autobahn storage manager requires an app hash builder")
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), manager.StateDB(),
+			manager.BlockStore(), manager.AppHashBuilder(),
 		)
 		if err != nil {
 			return nil, closer, noneDB, err
