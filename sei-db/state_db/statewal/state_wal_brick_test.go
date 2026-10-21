@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
 
@@ -27,9 +26,9 @@ type fakeWAL struct {
 	appended []uint64
 }
 
-var _ seiwal.WAL[[]*proto.NamedChangeSet] = (*fakeWAL)(nil)
+var _ seiwal.WAL[stateWALRecord] = (*fakeWAL)(nil)
 
-func (f *fakeWAL) Append(index uint64, data []*proto.NamedChangeSet) error {
+func (f *fakeWAL) Append(index uint64, data stateWALRecord) error {
 	if f.appendErr != nil {
 		return f.appendErr
 	}
@@ -52,7 +51,7 @@ func (f *fakeWAL) PruneBefore(lowestIndexToKeep uint64) error {
 	return f.pruneErr
 }
 
-func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[stateWALRecord], error) {
 	if f.iteratorErr != nil {
 		return nil, f.iteratorErr
 	}

@@ -1037,8 +1037,8 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 	acctVal := vtype.NewAccountData().SetNonce(42).SetCodeHash(&vtype.CodeHash{0: 0xCC}).Serialize()
 	storVal := vtype.NewStorageData().SetValue(&storageVal).Serialize()
 
-	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr1)
-	physStor := ktype.EVMPhysicalKey(commonevm.EVMKeyStorage, append(addr2, slot...))
+	physAcct := ktype.BuildPhysicalEVMKey(commonevm.EVMKeyNonce, addr1)
+	physStor := ktype.BuildPhysicalEVMKey(commonevm.EVMKeyStorage, append(addr2, slot...))
 
 	nonceKey := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, addr1)
 	codeHashKey := commonevm.BuildEVMKey(commonevm.EVMKeyCodeHash, addr1)
@@ -1095,7 +1095,7 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 	slot[31] = 0x01
 	storageVal := [32]byte{0: 0xDD}
 
-	physStor := ktype.EVMPhysicalKey(commonevm.EVMKeyStorage, append(addr, slot...))
+	physStor := ktype.BuildPhysicalEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
 	storVal := vtype.NewStorageData().SetValue(&storageVal).Serialize()
 	storageKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
 
@@ -1131,7 +1131,7 @@ func TestImport_EVMSplitDisabled_ConvertsFlatkvToCosmos(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[19] = 0x05
 
-	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr)
+	physAcct := ktype.BuildPhysicalEVMKey(commonevm.EVMKeyNonce, addr)
 	acctVal := vtype.NewAccountData().SetNonce(7).SetCodeHash(&vtype.CodeHash{}).Serialize()
 
 	nonceKey := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, addr)
@@ -1176,7 +1176,7 @@ func TestImport_FlatKVZeroNonceKeepsMemIAVLNonce(t *testing.T) {
 	memIAVLNonce := make([]byte, 8)
 	binary.BigEndian.PutUint64(memIAVLNonce, 5)
 
-	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr)
+	physAcct := ktype.BuildPhysicalEVMKey(commonevm.EVMKeyNonce, addr)
 	acctVal := vtype.NewAccountData().SetCodeHash(&vtype.CodeHash{0: 0xCC}).Serialize()
 
 	for _, mode := range []bool{true, false} {
@@ -1209,7 +1209,7 @@ func TestImport_FlatKVZeroNonceIsAbsent(t *testing.T) {
 	addr[19] = 0x08
 	nonceKey := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, addr)
 
-	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr)
+	physAcct := ktype.BuildPhysicalEVMKey(commonevm.EVMKeyNonce, addr)
 	acctVal := vtype.NewAccountData().SetCodeHash(&vtype.CodeHash{0: 0xCC}).Serialize()
 
 	for _, mode := range []bool{true, false} {
@@ -1236,11 +1236,11 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 	addr[0] = 0xAA
 
 	evmLegacyInnerKey := append([]byte{0x01}, addr...)
-	evmLegacyPhysKey := ktype.ModulePhysicalKey("evm", evmLegacyInnerKey)
+	evmLegacyPhysKey := ktype.BuildPhysicalKey("evm", evmLegacyInnerKey)
 	evmLegacyVal := vtype.NewMiscData().SetValue([]byte("sei1abc")).Serialize()
 
 	bankInnerKey := []byte("balances/addr1")
-	bankPhysKey := ktype.ModulePhysicalKey("bank", bankInnerKey)
+	bankPhysKey := ktype.BuildPhysicalKey("bank", bankInnerKey)
 	bankLegacyVal := vtype.NewMiscData().SetValue([]byte("1000usei")).Serialize()
 
 	for _, mode := range []bool{true, false} {
@@ -1292,7 +1292,7 @@ func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
 	// length differs from the fixed StorageData length, so a misclassified
 	// conversion would fail (or worse, silently corrupt).
 	mimicInnerKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
-	mimicPhysKey := ktype.ModulePhysicalKey("staking", mimicInnerKey)
+	mimicPhysKey := ktype.BuildPhysicalKey("staking", mimicInnerKey)
 
 	// Two pre-fix failure shapes, selected by payload length:
 	// - 50 bytes: serialized MiscData (9-byte header) is 59 bytes, so a

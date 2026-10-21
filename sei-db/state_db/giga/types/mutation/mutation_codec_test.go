@@ -94,19 +94,6 @@ func TestDeserializeMutationIgnoresTrailingData(t *testing.T) {
 	require.Equal(t, len(serialized), consumed)
 }
 
-func TestDeserializedMutationDoesNotAliasInput(t *testing.T) {
-	mutation := Mutation{Key: []byte("key"), PreviousValue: []byte("old"), NewValue: []byte("new")}
-	data := mutation.Serialize()
-
-	decoded, _, err := DeserializeMutation(data)
-	require.NoError(t, err)
-
-	for i := range data {
-		data[i] = 0xff
-	}
-	require.Equal(t, mutation, *decoded)
-}
-
 func TestDeserializeMutationRejectsTruncatedData(t *testing.T) {
 	mutation := Mutation{Key: []byte("key"), PreviousValue: []byte("old"), NewValue: []byte("new")}
 	data := mutation.Serialize()

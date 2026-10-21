@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 // stateWALHasher computes the hash of each block written to a state WAL and delivers it to the listeners, in write
@@ -41,8 +41,8 @@ type hashJob struct {
 	// The block number.
 	blockNumber uint64
 
-	// The changesets written for the block.
-	cs []*proto.NamedChangeSet
+	// The block's mutations.
+	mutations []mutation.Mutation
 }
 
 // Asks the hasher to close done once every hash job sent before it has been delivered.
@@ -103,10 +103,10 @@ func newStateWALHasher(
 func (h *stateWALHasher) ScheduleHash(
 	// The block number.
 	blockNumber uint64,
-	// The changesets written for the block.
-	cs []*proto.NamedChangeSet,
+	// The block's mutations.
+	mutations []mutation.Mutation,
 ) bool {
-	return h.send(hashJob{blockNumber: blockNumber, cs: cs})
+	return h.send(hashJob{blockNumber: blockNumber, mutations: mutations})
 }
 
 // Flush blocks until every block scheduled before the call has had its hash delivered to the listeners. It returns
@@ -177,11 +177,8 @@ func (h *stateWALHasher) deliverHash(job hashJob) error {
 		return fmt.Errorf("hash job for block %d does not follow the last hashed block %d",
 			job.blockNumber, h.lastBlockNumber)
 	}
-	// STOPGAP: the block's second marshal, after the one for its WAL record. See computePlaceholderHash().
-	hash, err := computePlaceholderHash(job.cs)
-	if err != nil {
-		return fmt.Errorf("failed to compute the hash of block %d: %w", job.blockNumber, err)
-	}
+	// STOPGAP: the block's second serialization, after the one for its WAL record. See computePlaceholderHash().
+	hash := computePlaceholderHash(job.mutations)
 	for _, listener := range h.listeners {
 		if err := listener(h.ctx, job.blockNumber, hash); err != nil {
 			return fmt.Errorf("a hash listener refused block %d: %w", job.blockNumber, err)

@@ -7,14 +7,15 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// A WAL for state.
+// A WAL for state. Each block is written as mutations and read back as changesets.
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write maintains write-ordering state that is not internally locked.
 //
-// Slices are not copied at the call boundary. Changesets passed to Write — and every byte slice reachable
+// Slices are not copied at the call boundary. Mutations passed to Write — and every byte slice reachable
 // through them — must not be modified after the call: the WAL retains them and serializes them
 // asynchronously, so mutating them races the WAL and can corrupt what is persisted. Likewise the changesets
 // returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
@@ -22,16 +23,13 @@ import (
 type StateWAL interface {
 	controllertypes.PrunableStore
 
-	// Write a block's changes to the WAL as a single record.
+	// Write a block's mutations to the WAL as a single record.
 	//
 	// This method only schedules the write, it does not block until the write is complete. It does block while the
 	// WAL is behind on delivering hashes to listeners by more than Config.HasherBufferSize blocks.
 	//
-	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
-	// this call. Callers that need to modify those buffers must copy them first.
-	//
-	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
-	// nil or empty.
+	// mutations, and every byte slice reachable through it, must not be modified after this call. Callers that
+	// need to modify those buffers must copy them first.
 	//
 	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
 	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
@@ -39,10 +37,10 @@ type StateWAL interface {
 	//
 	// Violations are reported synchronously and leave the WAL usable.
 	Write(
-		// The block number associated with the changeset.
+		// The block number associated with the mutations.
 		blockNumber uint64,
-		// The changeset to write.
-		cs []*proto.NamedChangeSet,
+		// The block's mutations, one per key the block writes.
+		mutations []mutation.Mutation,
 	) error
 
 	// Flush the WAL to disk, making every block written so far crash durable, and wait until every listener has

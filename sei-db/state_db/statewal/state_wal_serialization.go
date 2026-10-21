@@ -5,48 +5,82 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// The version byte prefixed to every serialized changeset payload. Bumped if the changeset encoding changes,
-// so deserialization can detect and reject an unknown format rather than misparsing it.
+// The version byte that begins a record holding a block's changesets. Records in this format are read but no longer
+// written.
 const changesetFormatVersion = byte(1)
 
-// appendChangeset appends the framing [uvarint marshaled length][marshaled NamedChangeSet] for ncs to buf and
-// returns the extended buffer. It frames a single changeset; serializeChangesets calls it once per changeset
-// to build a block's WAL record payload.
-func appendChangeset(buf []byte, ncs *proto.NamedChangeSet) ([]byte, error) {
-	if ncs == nil {
-		return nil, fmt.Errorf("changeset is nil")
+// The version byte that begins a record holding a block's mutations.
+const mutationFormatVersion = byte(2)
+
+// The payload of one block's record in the state WAL.
+type stateWALRecord struct {
+	// The block's mutations. Unused when isChangeSetFormat is set.
+	mutations []mutation.Mutation
+
+	// The block's changesets. Set only when isChangeSetFormat is set.
+	changeSets []*proto.NamedChangeSet
+
+	// Whether the record was stored in the changeset format.
+	isChangeSetFormat bool
+}
+
+// hash returns the block's placeholder hash: the zero hash for a record stored in the changeset format, which earlier
+// releases wrote.
+func (r *stateWALRecord) hash() [32]byte {
+	if r.isChangeSetFormat {
+		return [32]byte{}
 	}
-	marshaled, err := ncs.Marshal()
+	return computePlaceholderHash(r.mutations)
+}
+
+// toChangeSets returns the block's changesets, converting the record's mutations when it holds mutations.
+func (r *stateWALRecord) toChangeSets() ([]*proto.NamedChangeSet, error) {
+	if r.isChangeSetFormat {
+		return r.changeSets, nil
+	}
+	changeSets, err := mutation.MutationsToChangeSets(r.mutations)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal changeset: %w", err)
+		return nil, fmt.Errorf("failed to convert mutations to changesets: %w", err)
 	}
-	var scratch [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(scratch[:], uint64(len(marshaled)))
-	buf = append(buf, scratch[:n]...)
-	buf = append(buf, marshaled...)
-	return buf, nil
+	return changeSets, nil
 }
 
-// serializeChangesets encodes a changeset list as a version byte followed by the concatenation
-// [version]([uvarint length][marshaled])* — the payload of a single block's WAL record. The block number is
-// not encoded: it is the WAL record's index.
-func serializeChangesets(cs []*proto.NamedChangeSet) ([]byte, error) {
-	buf := []byte{changesetFormatVersion}
-	var err error
-	for _, ncs := range cs {
-		buf, err = appendChangeset(buf, ncs)
+// serializeRecord encodes a record as the mutation format version byte followed by the record's mutations. The block
+// number is not encoded: it is the WAL record's index.
+func serializeRecord(record stateWALRecord) ([]byte, error) {
+	return append([]byte{mutationFormatVersion}, mutation.SerializeMutations(record.mutations)...), nil
+}
+
+// deserializeRecord decodes a record in either format, chosen by its leading version byte.
+func deserializeRecord(data []byte) (stateWALRecord, error) {
+	if len(data) == 0 {
+		return stateWALRecord{}, fmt.Errorf("empty record payload: missing version byte")
+	}
+	switch data[0] {
+	case changesetFormatVersion:
+		changeSets, err := deserializeChangesets(data)
 		if err != nil {
-			return nil, err
+			return stateWALRecord{}, fmt.Errorf("failed to deserialize changesets: %w", err)
 		}
+		return stateWALRecord{changeSets: changeSets, isChangeSetFormat: true}, nil
+	case mutationFormatVersion:
+		mutations, err := mutation.DeserializeMutations(data[1:])
+		if err != nil {
+			return stateWALRecord{}, fmt.Errorf("failed to deserialize mutations: %w", err)
+		}
+		return stateWALRecord{mutations: mutations}, nil
+	default:
+		return stateWALRecord{}, fmt.Errorf("unsupported record format version %d", data[0])
 	}
-	return buf, nil
 }
 
-// deserializeChangesets decodes the payload produced by serializeChangesets, after checking its leading
-// version byte. Because the enclosing WAL record is length-delimited and CRC-verified by the underlying WAL,
-// any truncation encountered here indicates corruption and is reported as an error rather than tolerated.
+// deserializeChangesets decodes a changeset format payload, [version]([uvarint length][marshaled NamedChangeSet])*,
+// after checking its leading version byte. Because the enclosing WAL record is length-delimited and CRC-verified by
+// the underlying WAL, any truncation encountered here indicates corruption and is reported as an error rather than
+// tolerated.
 func deserializeChangesets(data []byte) ([]*proto.NamedChangeSet, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("empty changeset payload: missing version byte")

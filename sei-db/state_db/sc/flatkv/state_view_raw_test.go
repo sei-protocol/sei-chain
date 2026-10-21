@@ -47,9 +47,12 @@ func commitRowInEveryStore(t *testing.T, s *CommitStore) []rawRow {
 	return []rawRow{
 		{key: accountPhysKey(addr), value: account.Serialize()},
 		{key: storagePhysKey(addr, slot), value: storage},
-		{key: ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:]), value: vtype.SerializeCode(1, bytecode)},
-		{key: ktype.ModulePhysicalKey(keys.EVMStoreKey, evmMisc), value: vtype.SerializeMisc(1, []byte{0x09})},
-		{key: ktype.ModulePhysicalKey("bank", bankKey), value: vtype.SerializeMisc(1, []byte{0x0a})},
+		{key: ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:]), value: vtype.SerializeCode(1, bytecode)},
+		{
+			key:   ktype.BuildPhysicalKey(keys.EVMStoreKey, evmMisc),
+			value: vtype.SerializeMisc(1, []byte{0x09}),
+		},
+		{key: ktype.BuildPhysicalKey("bank", bankKey), value: vtype.SerializeMisc(1, []byte{0x0a})},
 	}
 }
 
@@ -82,9 +85,9 @@ func TestGetRawMissingKey(t *testing.T) {
 	for _, key := range [][]byte{
 		accountPhysKey(missing),
 		storagePhysKey(missing, slotN(1)),
-		ktype.EVMPhysicalKey(keys.EVMKeyCode, missing[:]),
-		ktype.ModulePhysicalKey(keys.EVMStoreKey, evmMiscKey(0x20)),
-		ktype.ModulePhysicalKey("bank", []byte{0x20}),
+		ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, missing[:]),
+		ktype.BuildPhysicalKey(keys.EVMStoreKey, evmMiscKey(0x20)),
+		ktype.BuildPhysicalKey("bank", []byte{0x20}),
 	} {
 		value, found := stateView.GetRaw(key)
 		require.False(t, found, "key %q", key)

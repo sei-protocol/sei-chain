@@ -1,7 +1,6 @@
 package mutation
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 )
@@ -40,7 +39,7 @@ func (m *Mutation) Serialize() []byte {
 }
 
 // DeserializeMutation decodes one mutation from the front of data, returning it and the number of bytes consumed.
-// Bytes after the mutation are ignored. The returned mutation does not alias data.
+// Bytes after the mutation are ignored. Neither data nor the returned mutation may be modified.
 func DeserializeMutation(data []byte) (*Mutation, int, error) {
 	reader := mutationReader{data: data}
 
@@ -87,7 +86,7 @@ func SerializeMutations(mutations []Mutation) []byte {
 }
 
 // DeserializeMutations decodes a byte slice produced by SerializeMutations(). It returns an error if data does not
-// consist entirely of whole mutations. The returned mutations do not alias data.
+// consist entirely of whole mutations. Neither data nor the returned mutations may be modified.
 func DeserializeMutations(data []byte) ([]Mutation, error) {
 	mutations := make([]Mutation, 0)
 	for offset := 0; offset < len(data); {
@@ -168,7 +167,7 @@ func (r *mutationReader) readBool() (bool, error) {
 	}
 }
 
-// readBytes consumes a 4-byte big-endian length and that many bytes, returning a copy of the bytes.
+// readBytes consumes a 4-byte big-endian length and that many bytes, returning them without copying.
 func (r *mutationReader) readBytes() ([]byte, error) {
 	if len(r.data) < mutationLengthLength {
 		return nil, fmt.Errorf("need %d length bytes, have %d", mutationLengthLength, len(r.data))
@@ -178,7 +177,7 @@ func (r *mutationReader) readBytes() ([]byte, error) {
 	if length > uint64(len(r.data)) {
 		return nil, fmt.Errorf("need %d bytes, have %d", length, len(r.data))
 	}
-	value := bytes.Clone(r.data[:length])
+	value := r.data[:length:length]
 	r.data = r.data[length:]
 	return value, nil
 }

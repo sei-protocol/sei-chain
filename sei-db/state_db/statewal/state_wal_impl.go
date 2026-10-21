@@ -7,20 +7,20 @@ import (
 	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var _ StateWAL = (*stateWALImpl)(nil)
 
-// A WAL for storing state changesets by block number.
+// A WAL for storing each block's state mutations by block number.
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
 // state_wal_gc.go is the exception: it runs on the collector's goroutine, and touches only lastBlock and
 // the WAL underneath.
 type stateWALImpl struct {
-	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
-	wal seiwal.WAL[[]*proto.NamedChangeSet]
+	// The underlying generic WAL, keyed by block number, whose payload is a block's record.
+	wal seiwal.WAL[stateWALRecord]
 
 	// Closed by Close() so subsequent calls fail fast.
 	closed utils.CloseMarker[stateWALImpl]
@@ -53,8 +53,7 @@ func New(config *Config) (StateWAL, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid state WAL config: %w", err)
 	}
-	wal, err := seiwal.NewGenericWAL[[]*proto.NamedChangeSet](
-		config.toSeiwalConfig(), serializeChangesets, deserializeChangesets)
+	wal, err := seiwal.NewGenericWAL[stateWALRecord](config.toSeiwalConfig(), serializeRecord, deserializeRecord)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
@@ -110,7 +109,7 @@ func VerifyIntegrity(config *Config) error {
 }
 
 func newStateWAL(
-	wal seiwal.WAL[[]*proto.NamedChangeSet],
+	wal seiwal.WAL[stateWALRecord],
 	// The capacity of the channel carrying hash jobs to the hasher.
 	hasherBufferSize uint,
 ) (StateWAL, error) {
@@ -149,7 +148,7 @@ func newStateWAL(
 // computeStoredHash returns the hash of a block already stored in wal.
 func computeStoredHash(
 	// The WAL holding the block.
-	wal seiwal.WAL[[]*proto.NamedChangeSet],
+	wal seiwal.WAL[stateWALRecord],
 	// The block to compute the hash of.
 	blockNumber uint64,
 ) ([32]byte, error) {
@@ -166,40 +165,31 @@ func computeStoredHash(
 	if !ok {
 		return [32]byte{}, fmt.Errorf("block %d is not stored", blockNumber)
 	}
-	_, cs := it.Entry()
-	hash, err := computePlaceholderHash(cs)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to compute the hash of block %d: %w", blockNumber, err)
-	}
-	return hash, nil
+	_, record := it.Entry()
+	return record.hash(), nil
 }
 
-// Write appends a block's changesets to the WAL as a single record.
-func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
+// Write appends a block's mutations to the WAL as a single record.
+func (w *stateWALImpl) Write(blockNumber uint64, mutations []mutation.Mutation) error {
 	if w.closed.IsClosed() {
 		return fmt.Errorf("state WAL is closed")
 	}
 	if err := w.fatalErr(); err != nil {
 		return fmt.Errorf("state WAL failed: %w", err)
 	}
-	for i, ncs := range cs {
-		if ncs == nil {
-			return fmt.Errorf("write rejected: changeset at index %d is nil", i)
-		}
-	}
 	if err := w.checkBlockOrder(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
 
 	// Record the new head only once the append succeeds; a failed append bricks the WAL and leaves the
-	// head where it was rather than skipping past a block whose changesets were lost.
-	if err := w.wal.Append(blockNumber, cs); err != nil {
+	// head where it was rather than skipping past a block whose mutations were lost.
+	if err := w.wal.Append(blockNumber, stateWALRecord{mutations: mutations}); err != nil {
 		return w.fail(fmt.Errorf("failed to append block %d: %w", blockNumber, err))
 	}
 	w.lastBlock.Store(blockNumber)
 	w.hasBlock = true
 
-	if !w.hasher.ScheduleHash(blockNumber, cs) {
+	if !w.hasher.ScheduleHash(blockNumber, mutations) {
 		return fmt.Errorf("failed to schedule the hash of block %d: %w", blockNumber, w.stoppedErr())
 	}
 	return nil
@@ -283,7 +273,7 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 }
 
 // Iterator returns an iterator over the inclusive block range [startingBlockNumber, endingBlockNumber]. It
-// yields (blockNumber, changesets) directly from the underlying generic WAL.
+// yields (blockNumber, changesets) for each block, whichever format its record is stored in.
 func (w *stateWALImpl) Iterator(
 	startingBlockNumber uint64,
 	endingBlockNumber uint64,
@@ -302,7 +292,7 @@ func (w *stateWALImpl) Iterator(
 		}
 		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
 	}
-	return &stateWALIterator{Iterator: it}, nil
+	return &stateWALIterator{records: it}, nil
 }
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources. It stops the hasher

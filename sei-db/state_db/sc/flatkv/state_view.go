@@ -282,7 +282,7 @@ func (v *flatKVStateView) codeData(keyBytes []byte) *vtype.CodeData {
 
 // miscValue returns the value stored under keyBytes in the named module, and whether it was found.
 func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, bool) {
-	raw, found := v.readRow(v.blockView.MiscView(), ktype.ModulePhysicalKey(module, keyBytes))
+	raw, found := v.readRow(v.blockView.MiscView(), ktype.BuildPhysicalKey(module, keyBytes))
 	misc, err := parseRow(raw, found, vtype.DeserializeMiscData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse misc %s/%x at height %d: %v",
@@ -298,7 +298,7 @@ func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, boo
 // readEVMRow returns the bytes stored under an EVM physical key for kind and key parts.
 func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, bool) {
 	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
-	physKey := ktype.AppendEVMPhysicalKey(buf[:0], kind, keyParts[0])
+	physKey := ktype.WritePhysicalEVMKeyToBuffer(buf[:], kind, keyParts[0])
 	for _, keyPart := range keyParts[1:] {
 		physKey = append(physKey, keyPart...)
 	}

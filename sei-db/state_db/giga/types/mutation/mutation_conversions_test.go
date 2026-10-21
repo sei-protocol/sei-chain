@@ -68,10 +68,11 @@ var (
 	testCodeKey     = keys.BuildEVMKey(keys.EVMKeyCode, testAddress)
 	testStorageKey  = keys.BuildEVMKey(keys.EVMKeyStorage, append(bytes.Clone(testAddress), testSlot...))
 
-	testAccountPhysicalKey = ktype.EVMPhysicalKey(ktype.EVMKeyAccount, testAddress)
-	testCodePhysicalKey    = ktype.EVMPhysicalKey(keys.EVMKeyCode, testAddress)
-	testStoragePhysicalKey = ktype.EVMPhysicalKey(keys.EVMKeyStorage, append(bytes.Clone(testAddress), testSlot...))
-	testMiscPhysicalKey    = ktype.ModulePhysicalKey(keys.EVMStoreKey, testMiscKey)
+	testAccountPhysicalKey = ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, testAddress)
+	testCodePhysicalKey    = ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, testAddress)
+	testStoragePhysicalKey = ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage,
+		append(bytes.Clone(testAddress), testSlot...))
+	testMiscPhysicalKey = ktype.BuildPhysicalKey(keys.EVMStoreKey, testMiscKey)
 )
 
 func nonceBytes(nonce uint64) []byte {
@@ -115,6 +116,23 @@ func storageRow(t *testing.T, height int64, value []byte) []byte {
 	return row
 }
 
+// requireChangeSetsMatch requires that actual holds one changeset per module of expected, with the same pairs in
+// any order.
+func requireChangeSetsMatch(t *testing.T, expected []*proto.NamedChangeSet, actual []*proto.NamedChangeSet) {
+	t.Helper()
+	actualPairs := make(map[string][]*proto.KVPair)
+	for _, changeSet := range actual {
+		_, duplicate := actualPairs[changeSet.Name]
+		require.False(t, duplicate, "module %q appears more than once", changeSet.Name)
+		actualPairs[changeSet.Name] = changeSet.Changeset.Pairs
+	}
+	require.Len(t, actualPairs, len(expected))
+	for _, changeSet := range expected {
+		pairs := actualPairs[changeSet.Name]
+		require.ElementsMatch(t, changeSet.Changeset.Pairs, pairs, "module %q", changeSet.Name)
+	}
+}
+
 func TestMutationsFromChangeSetsBuildsEachKind(t *testing.T) {
 	storageValue := bytes.Repeat([]byte{0x55}, 32)
 	code := []byte{0x60, 0x80}
@@ -139,11 +157,11 @@ func TestMutationsFromChangeSetsBuildsEachKind(t *testing.T) {
 		{Key: testMiscPhysicalKey, NewValue: vtype.SerializeMisc(5, []byte("evm misc"))},
 		{Key: testAccountPhysicalKey, NewValue: accountRow(t, 5, 7, testCodeHash, testBalance)},
 		{
-			Key:      ktype.ModulePhysicalKey("bank", []byte("supply")),
+			Key:      ktype.BuildPhysicalKey("bank", []byte("supply")),
 			NewValue: vtype.SerializeMisc(5, []byte("100")),
 		},
 	}
-	require.Equal(t, expected, mutations)
+	require.ElementsMatch(t, expected, mutations)
 }
 
 func TestMutationsFromChangeSetsMergesAccountOntoPriorRow(t *testing.T) {
@@ -185,21 +203,26 @@ func TestMutationsFromChangeSetsDeletes(t *testing.T) {
 	}
 	mutations, err := MutationsFromChangeSets(changeSets, 5, prior)
 	require.NoError(t, err)
-	require.Len(t, mutations, 7)
 
-	for _, mutation := range mutations[:5] {
-		require.Nil(t, mutation.NewValue, "key %x", mutation.Key)
+	expected := []Mutation{
+		{Key: testStoragePhysicalKey},
+		{Key: ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage,
+			append(bytes.Clone(testAddress), make([]byte, 32)...))},
+		{Key: testCodePhysicalKey},
+		{Key: ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, otherAddress)},
+		{Key: testMiscPhysicalKey},
+		// An empty misc value is a write, not a deletion.
+		{
+			Key:      ktype.BuildPhysicalKey(keys.EVMStoreKey, emptyMiscKey),
+			NewValue: vtype.SerializeMisc(5, nil),
+		},
+		// An account left with every field zero is deleted.
+		{Key: testAccountPhysicalKey, PreviousValue: accountRow(t, 3, 7, testCodeHash, testBalance)},
 	}
-	// An empty misc value is a write, not a deletion.
-	require.Equal(t, ktype.ModulePhysicalKey(keys.EVMStoreKey, emptyMiscKey), mutations[5].Key)
-	require.Equal(t, vtype.SerializeMisc(5, nil), mutations[5].NewValue)
-	// An account left with every field zero is deleted.
-	require.Equal(t, testAccountPhysicalKey, mutations[6].Key)
-	require.NotNil(t, mutations[6].PreviousValue)
-	require.Nil(t, mutations[6].NewValue)
+	require.ElementsMatch(t, expected, mutations)
 }
 
-func TestMutationsFromChangeSetsKeepsLastWriteInFirstWriteOrder(t *testing.T) {
+func TestMutationsFromChangeSetsKeepsLastWrite(t *testing.T) {
 	keyA := []byte{0x01, 0x0a}
 	keyB := []byte{0x01, 0x0b}
 	changeSets := []*proto.NamedChangeSet{
@@ -209,27 +232,22 @@ func TestMutationsFromChangeSetsKeepsLastWriteInFirstWriteOrder(t *testing.T) {
 	mutations, err := MutationsFromChangeSets(changeSets, 5, stateAt(4, nil))
 	require.NoError(t, err)
 
-	evmMiscKey := func(key []byte) []byte { return ktype.ModulePhysicalKey(keys.EVMStoreKey, key) }
+	evmMiscKey := func(key []byte) []byte { return ktype.BuildPhysicalKey(keys.EVMStoreKey, key) }
 	expected := []Mutation{
 		{Key: evmMiscKey(keyA), NewValue: vtype.SerializeMisc(5, []byte("last"))},
 		{Key: evmMiscKey(keyB), NewValue: vtype.SerializeMisc(5, []byte("other"))},
 	}
-	require.Equal(t, expected, mutations)
+	require.ElementsMatch(t, expected, mutations)
 }
 
-func TestMutationsFromChangeSetsDoesNotAliasInputs(t *testing.T) {
+func TestMutationsFromChangeSetsDoesNotAliasChangeSetValues(t *testing.T) {
 	value := []byte("value")
-	priorRow := vtype.SerializeMisc(4, []byte("prior"))
-	prior := stateAt(4, map[string][]byte{string(testMiscPhysicalKey): priorRow})
-
 	changeSets := []*proto.NamedChangeSet{evmChangeSet(set(testMiscKey, value))}
-	mutations, err := MutationsFromChangeSets(changeSets, 5, prior)
+	mutations, err := MutationsFromChangeSets(changeSets, 5, stateAt(4, nil))
 	require.NoError(t, err)
 
 	value[0] = 'X'
-	priorRow[len(priorRow)-1] = 'X'
 	require.Equal(t, vtype.SerializeMisc(5, []byte("value")), mutations[0].NewValue)
-	require.Equal(t, vtype.SerializeMisc(4, []byte("prior")), mutations[0].PreviousValue)
 }
 
 func TestMutationsFromChangeSetsRejectsInvalidInput(t *testing.T) {
@@ -286,12 +304,12 @@ func TestAccountMutationToChangeSet(t *testing.T) {
 		del(testCodeHashKey),
 		set(testBalanceKey, testBalance),
 	)
-	require.Equal(t, expected, changeSet)
+	requireChangeSetsMatch(t, []*proto.NamedChangeSet{expected}, []*proto.NamedChangeSet{changeSet})
 
 	changeSet, err = (&Mutation{Key: testAccountPhysicalKey, PreviousValue: row}).ToChangeSet()
 	require.NoError(t, err)
 	expected = evmChangeSet(del(testNonceKey), del(testCodeHashKey), del(testBalanceKey))
-	require.Equal(t, expected, changeSet)
+	requireChangeSetsMatch(t, []*proto.NamedChangeSet{expected}, []*proto.NamedChangeSet{changeSet})
 }
 
 func TestMutationToChangeSetRejectsInvalidInput(t *testing.T) {
@@ -303,7 +321,7 @@ func TestMutationToChangeSetRejectsInvalidInput(t *testing.T) {
 		{name: "empty EVM key", mutation: Mutation{Key: []byte("evm/")}},
 		{
 			name:     "account field key",
-			mutation: Mutation{Key: ktype.ModulePhysicalKey(keys.EVMStoreKey, testBalanceKey)},
+			mutation: Mutation{Key: ktype.BuildPhysicalKey(keys.EVMStoreKey, testBalanceKey)},
 		},
 		{
 			name:     "corrupt row",
@@ -323,9 +341,15 @@ func TestMutationsToChangeSetsGroupsByModule(t *testing.T) {
 	keyA := []byte{0x01, 0x0a}
 	keyC := []byte{0x01, 0x0c}
 	mutations := []Mutation{
-		{Key: ktype.ModulePhysicalKey(keys.EVMStoreKey, keyA), NewValue: vtype.SerializeMisc(5, []byte("a"))},
-		{Key: ktype.ModulePhysicalKey("bank", []byte("b"))},
-		{Key: ktype.ModulePhysicalKey(keys.EVMStoreKey, keyC), NewValue: vtype.SerializeMisc(5, []byte("c"))},
+		{
+			Key:      ktype.BuildPhysicalKey(keys.EVMStoreKey, keyA),
+			NewValue: vtype.SerializeMisc(5, []byte("a")),
+		},
+		{Key: ktype.BuildPhysicalKey("bank", []byte("b"))},
+		{
+			Key:      ktype.BuildPhysicalKey(keys.EVMStoreKey, keyC),
+			NewValue: vtype.SerializeMisc(5, []byte("c")),
+		},
 	}
 	changeSets, err := MutationsToChangeSets(mutations)
 	require.NoError(t, err)
@@ -334,7 +358,7 @@ func TestMutationsToChangeSetsGroupsByModule(t *testing.T) {
 		evmChangeSet(set(keyA, []byte("a")), set(keyC, []byte("c"))),
 		moduleChangeSet("bank", del([]byte("b"))),
 	}
-	require.Equal(t, expected, changeSets)
+	requireChangeSetsMatch(t, expected, changeSets)
 }
 
 func TestMutationsRoundTripThroughChangeSets(t *testing.T) {
@@ -356,8 +380,7 @@ func TestMutationsRoundTripThroughChangeSets(t *testing.T) {
 	require.NoError(t, err)
 	converted, err := MutationsToChangeSets(mutations)
 	require.NoError(t, err)
-	// The input is already grouped by module, so converting back preserves the mutation order.
 	roundTripped, err := MutationsFromChangeSets(converted, 5, prior)
 	require.NoError(t, err)
-	require.Equal(t, mutations, roundTripped)
+	require.ElementsMatch(t, mutations, roundTripped)
 }

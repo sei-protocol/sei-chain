@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"go.opentelemetry.io/otel/metric"
@@ -80,12 +81,22 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	}
 
 	// Step 1: Write the WAL (source of truth) before the DBs, so crash recovery via catchup stays valid.
-	// Write records this block's changesets and Flush makes the record durable. An empty block (no
+	// Write records this block's mutations and Flush makes the record durable. An empty block (no
 	// ApplyChangeSets) writes an empty but contiguous record. Skipped entirely when the WAL is nil — the
 	// outer context then owns the WAL pipeline.
 	if s.wal != nil {
+		s.phaseTimer.SetPhase("commit_convert_mutations")
+		// The last sealed block is the one before this one, since this block is not sealed until Step 2.
+		height := uint64(version) //nolint:gosec // version > committed >= 0
+		prior := s.OpenView()
+		mutations, err := mutation.MutationsFromChangeSets(s.pendingChangeSets, height, prior)
+		prior.Close()
+		if err != nil {
+			return version, fmt.Errorf("convert block %d to mutations: %w", version, err)
+		}
+
 		s.phaseTimer.SetPhase("commit_write_wal")
-		if err := s.wal.Write(uint64(version), s.pendingChangeSets); err != nil { //nolint:gosec // version > committed >= 0
+		if err := s.wal.Write(height, mutations); err != nil {
 			return version, fmt.Errorf("WAL write: %w", err)
 		}
 		if err := s.wal.Flush(); err != nil {

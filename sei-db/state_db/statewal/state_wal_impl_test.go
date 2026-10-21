@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 func testConfig(dir string) *Config {
@@ -21,11 +22,11 @@ func openWAL(t *testing.T, cfg *Config) StateWAL {
 	return w
 }
 
-// writeBlock writes a single changeset for the block.
+// writeBlock writes a single mutation for the block.
 func writeBlock(t *testing.T, w StateWAL, block uint64) {
 	t.Helper()
-	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
-	require.NoError(t, w.Write(block, cs))
+	mutations := []mutation.Mutation{makeMutation("bank", []byte{byte(block)}, []byte{byte(block)})}
+	require.NoError(t, w.Write(block, mutations))
 }
 
 // collectBlocks iterates the inclusive range [start, end] and returns the block number of each entry,
@@ -83,32 +84,6 @@ func TestWriteFlushReopenGetRange(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectBlocks(t, w2, 1, 5))
 }
 
-// TestWriteRejectsNilChangeset verifies that a nil changeset entry is rejected synchronously at the Write call
-// site rather than surfacing later from the serialization goroutine, and that the rejection neither bricks the
-// WAL nor advances the block-ordering state.
-func TestWriteRejectsNilChangeset(t *testing.T) {
-	w := openWAL(t, testConfig(t.TempDir()))
-	defer func() { require.NoError(t, w.Close()) }()
-
-	valid := makeChangeSet("evm", []byte("k"), []byte("v"))
-
-	// A nil entry is rejected synchronously at the call site, before Flush is ever reached.
-	err := w.Write(5, []*proto.NamedChangeSet{valid, nil})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nil")
-
-	// The rejected write is a no-op: it neither bricked the WAL nor advanced the block-ordering state. Were the
-	// state advanced to block 5, this write to the unrelated block 3 would be rejected as non-contiguous.
-	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{valid}))
-	require.NoError(t, w.Flush())
-
-	ok, start, end, err := w.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(3), start)
-	require.Equal(t, uint64(3), end)
-}
-
 func TestContractViolations(t *testing.T) {
 	t.Run("block numbers may not decrease", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
@@ -146,8 +121,8 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	// A block with an empty changeset is still a real, stored block.
-	require.NoError(t, w.Write(1, []*proto.NamedChangeSet{}))
+	// A block with no mutations is still a real, stored block.
+	require.NoError(t, w.Write(1, []mutation.Mutation{}))
 	require.NoError(t, w.Flush())
 
 	ok, start, end, err := w.GetStoredRange()

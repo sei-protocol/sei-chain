@@ -1041,7 +1041,7 @@ func consumeCompositeFlatKV(
 }
 
 func mergeCompositeFlatKVAccount(accounts map[string]*semanticAccountDigestState, physKey, val []byte) error {
-	kind, addr, err := ktype.StripEVMPhysicalKey(physKey)
+	kind, addr, err := ktype.StripPhysicalEVMKey(physKey)
 	if err != nil {
 		return err
 	}
@@ -1681,7 +1681,7 @@ func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumu
 			return fmt.Errorf("parse storage value %X: %w", k, err)
 		}
 		leafVersion := int64(binary.LittleEndian.Uint32(leafbuf[:4]))
-		physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
+		physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, keyBytes)
 		storageData := vtype.NewStorageData().SetBlockHeight(leafVersion).SetValue(value)
 		if err := acc.consumeWithMeta(physKey, storageData.Serialize(), fmt.Sprintf("leaf_version=%d", leafVersion)); err != nil {
 			return err
@@ -2017,7 +2017,7 @@ func finalizeSemanticAccount(addr string, account *semanticAccountDigestState, c
 			census.LiveAccountsWithoutCodeHashRow++
 		}
 	}
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))
+	physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, []byte(addr))
 	consume(operations.FlatKVBucketAccount, physKey, account.logicalPayload(), nil)
 }
 
@@ -2044,7 +2044,7 @@ func consumeSemanticMemiavlLeafFiltered(
 		if accounts == nil {
 			return nil
 		}
-		if allowAccountKey != nil && !allowAccountKey(ktype.EVMPhysicalKey(keys.EVMKeyNonce, keyBytes)) {
+		if allowAccountKey != nil && !allowAccountKey(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, keyBytes)) {
 			return nil
 		}
 		account := getSemanticAccount(accounts, keyBytes)
@@ -2059,7 +2059,7 @@ func consumeSemanticMemiavlLeafFiltered(
 		if accounts == nil {
 			return nil
 		}
-		if allowAccountKey != nil && !allowAccountKey(ktype.EVMPhysicalKey(keys.EVMKeyNonce, keyBytes)) {
+		if allowAccountKey != nil && !allowAccountKey(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, keyBytes)) {
 			return nil
 		}
 		account := getSemanticAccount(accounts, keyBytes)
@@ -2073,7 +2073,7 @@ func consumeSemanticMemiavlLeafFiltered(
 		if accounts == nil {
 			return nil
 		}
-		if allowAccountKey != nil && !allowAccountKey(ktype.EVMPhysicalKey(keys.EVMKeyNonce, keyBytes)) {
+		if allowAccountKey != nil && !allowAccountKey(ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, keyBytes)) {
 			return nil
 		}
 		account := getSemanticAccount(accounts, keyBytes)
@@ -2085,7 +2085,7 @@ func consumeSemanticMemiavlLeafFiltered(
 			}
 			return nil
 		}
-		physKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes)
+		physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, keyBytes)
 		consume(operations.FlatKVBucketCode, physKey, rawVal, rawVal)
 	case keys.EVMKeyStorage:
 		if len(rawVal) != 32 {
@@ -2097,10 +2097,10 @@ func consumeSemanticMemiavlLeafFiltered(
 			}
 			return nil
 		}
-		physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
+		physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, keyBytes)
 		consume(operations.FlatKVBucketStorage, physKey, rawVal, rawVal)
 	case keys.EVMKeyMisc:
-		physKey := ktype.ModulePhysicalKey(keys.EVMStoreKey, rawKey)
+		physKey := ktype.BuildPhysicalKey(keys.EVMStoreKey, rawKey)
 		consume(operations.FlatKVBucketMisc, physKey, rawVal, rawVal)
 	default:
 		return fmt.Errorf("semantic memiavl %s: unsupported EVM key kind %d for key %X", caller, kind, rawKey)

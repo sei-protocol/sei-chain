@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/undo"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -402,7 +403,12 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 //
 // The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
 // what makes a slow store on the commit path attributable to that store.
-func (s *StateDB) CommitStateChangesWithPrior(blockNum int64, changeset []*proto.NamedChangeSet, changes *gigatypes.StateChangeSet) error {
+func (s *StateDB) CommitStateChangesWithPrior(
+	blockNum int64,
+	changeset []*proto.NamedChangeSet,
+	changes *gigatypes.StateChangeSet,
+) error {
+
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
 		// future that the WAL has no way to recognize as a mistake.
@@ -415,9 +421,18 @@ func (s *StateDB) CommitStateChangesWithPrior(blockNum int64, changeset []*proto
 	// Ends the phase in flight, so the gap until the next commit is not charged to the last store.
 	defer s.commitPhases.Reset()
 
+	s.commitPhases.SetPhase("convert_mutations")
+	// SC has not taken this block yet, so its view is of the block before.
+	prior := s.sc.OpenView()
+	mutations, err := mutation.MutationsFromChangeSets(changeset, uint64(blockNum), prior)
+	prior.Close()
+	if err != nil {
+		return fmt.Errorf("convert block %d to mutations: %w", blockNum, err)
+	}
+
 	// No need to flush WAL, since this WAL isn't used for crash recoverability safety (that's the BlockDB's job).
 	s.commitPhases.SetPhase("write_state_wal")
-	if err := s.wal.Write(uint64(blockNum), changeset); err != nil {
+	if err := s.wal.Write(uint64(blockNum), mutations); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
 	}
 

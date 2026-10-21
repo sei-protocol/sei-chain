@@ -28,7 +28,7 @@ type Config struct {
 	HasherBufferSize uint
 
 	// The size a WAL file may reach before it is sealed and a fresh one is opened. Because each block is
-	// written as a single record, a file may exceed this by the size of one block's serialized changesets.
+	// written as a single record, a file may exceed this by the size of one block's serialized record.
 	// Must be greater than 0.
 	TargetFileSize uint
 

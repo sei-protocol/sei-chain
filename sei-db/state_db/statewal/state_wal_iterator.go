@@ -11,17 +11,55 @@ var _ StateWALIterator = (*stateWALIterator)(nil)
 
 // An iterator over the blocks of a state WAL, which computes a block's hash only when asked for it.
 type stateWALIterator struct {
-	seiwal.Iterator[[]*proto.NamedChangeSet]
+	// The iterator over the stored records.
+	records seiwal.Iterator[stateWALRecord]
+
+	// The block at the iterator's current position.
+	blockNumber uint64
+
+	// The record of the block at the iterator's current position.
+	record stateWALRecord
+
+	// The changesets of the block at the iterator's current position.
+	changeSets []*proto.NamedChangeSet
+}
+
+// Next advances to the next block and reads its changesets.
+func (it *stateWALIterator) Next() (bool, error) {
+	ok, err := it.records.Next()
+	if err != nil {
+		return false, fmt.Errorf("failed to read the next record: %w", err)
+	}
+	if !ok {
+		return false, nil
+	}
+	blockNumber, record := it.records.Entry()
+	changeSets, err := record.toChangeSets()
+	if err != nil {
+		return false, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
+	}
+	it.blockNumber = blockNumber
+	it.record = record
+	it.changeSets = changeSets
+	return true, nil
+}
+
+// Entry returns the block at the iterator's current position and its changesets.
+func (it *stateWALIterator) Entry() (uint64, []*proto.NamedChangeSet) {
+	return it.blockNumber, it.changeSets
+}
+
+// Close releases the iterator over the stored records.
+func (it *stateWALIterator) Close() error {
+	if err := it.records.Close(); err != nil {
+		return fmt.Errorf("failed to close the record iterator: %w", err)
+	}
+	return nil
 }
 
 // GetHash returns the hash of the block at the iterator's current position.
 func (it *stateWALIterator) GetHash() ([32]byte, error) {
-	// STOPGAP: recomputes the hash by marshaling the block again. The real BUD starts from the BUD tree, or hashes
-	// will be stored in the WAL and read back. See computePlaceholderHash().
-	blockNumber, cs := it.Entry()
-	hash, err := computePlaceholderHash(cs)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to compute the hash of block %d: %w", blockNumber, err)
-	}
-	return hash, nil
+	// STOPGAP: recomputes the hash from the block's record. The real BUD starts from the BUD tree, or hashes will
+	// be stored in the WAL and read back. See computePlaceholderHash().
+	return it.record.hash(), nil
 }
