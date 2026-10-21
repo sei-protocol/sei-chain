@@ -69,7 +69,7 @@ func TestDecodeGigaClaimRequiresAllFields(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
 	sig := key.SignWithTag(gigaValidatorHandshakeTag, []byte("x"))
-	evmRPC := "http://validator.example:8545"
+	evmRPC := "ws://validator.example:8546"
 	full := func() *pb.Handshake {
 		return &pb.Handshake{
 			ValidatorAuthKey: key.Public().Bytes(),
