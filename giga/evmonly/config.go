@@ -35,6 +35,10 @@ type Config struct {
 	// block. Off by default, which keeps geth's rule that such a block is invalid.
 	// Unlike DisableNonceCheck, the transaction does not run.
 	RejectUnappliableTxs bool
+	// MockExecution builds block results without running the EVM: each transaction pays its gas
+	// limit, bumps its sender's nonce, moves its value and applies sei-load's ERC20 transfer to
+	// storage. A block that creates a contract or delegates code still executes for real.
+	MockExecution bool
 }
 
 func DefaultConfig() Config {

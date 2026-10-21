@@ -70,6 +70,9 @@ type ExecutionConfig struct {
 	EvmRpcPort int `mapstructure:"evm_rpc_port"`
 	// EvmWsPort is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 	EvmWsPort int `mapstructure:"evm_ws_port"`
+	// MockExecution builds block results without running the EVM, for load tests of consensus and
+	// storage. Every validator of a chain must set the same value.
+	MockExecution bool `mapstructure:"mock_execution"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -153,6 +156,7 @@ const (
 	FlagExecutionBlockResultPoolSize     = "giga.execution.block_result_pool_size"
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
+	FlagExecutionMockExecution           = "giga.execution.mock_execution"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -235,6 +239,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionEvmWsPort); v != nil {
 		if cfg.Execution.EvmWsPort, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionEvmWsPort, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMockExecution); v != nil {
+		if cfg.Execution.MockExecution, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMockExecution, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -410,6 +419,10 @@ evm_rpc_port = {{ .Giga.Execution.EvmRpcPort }}
 
 # evm_ws_port is the TCP port the EVM-only JSON-RPC serves WebSocket on, on all interfaces.
 evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
+
+# mock_execution builds block results without running the EVM, for load tests of consensus and
+# storage. Every validator of a chain must set the same value.
+mock_execution = {{ .Giga.Execution.MockExecution }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.

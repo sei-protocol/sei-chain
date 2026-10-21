@@ -210,6 +210,9 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, 
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
+	if e.cfg.MockExecution && !needsRealExecution(req) {
+		return e.executeBlockMock(ctx, req, source)
+	}
 	if e.useOCC(len(req.Txs)) {
 		return e.executeBlockOCC(ctx, req, source)
 	}

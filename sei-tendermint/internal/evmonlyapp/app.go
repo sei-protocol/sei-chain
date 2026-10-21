@@ -210,6 +210,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
 		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
+		MockExecution:        a.execution.MockExecution,
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),

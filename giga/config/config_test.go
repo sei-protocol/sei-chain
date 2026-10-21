@@ -83,6 +83,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.block_result_pool_size":     "4",
 		"giga.execution.evm_rpc_port":               "8600",
 		"giga.execution.evm_ws_port":                "8601",
+		"giga.execution.mock_execution":             "true",
 		"giga.rpc.max_subscriptions_new_head":       "20",
 		"giga.rpc.max_subscriptions_per_connection": "5",
 		"giga.rpc.max_request_body_bytes":           "2048",
@@ -111,6 +112,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			BlockResultPoolSize: 4,
 			EvmRpcPort:          8600,
 			EvmWsPort:           8601,
+			MockExecution:       true,
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,

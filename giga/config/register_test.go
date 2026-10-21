@@ -31,6 +31,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagExecutionBlockResultPoolSize,
 		FlagExecutionEvmRpcPort,
 		FlagExecutionEvmWsPort,
+		FlagExecutionMockExecution,
 		FlagRPCMaxSubscriptionsNewHead,
 		FlagRPCMaxSubscriptionsPerConnection,
 		FlagRPCMaxRequestBodyBytes,
