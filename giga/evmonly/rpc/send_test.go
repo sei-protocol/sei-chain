@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -176,6 +177,37 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 	remoteServer := httptest.NewServer(remoteHandler)
 	t.Cleanup(remoteServer.Close)
 	remoteClient, err := ethrpc.DialHTTP(remoteServer.URL)
+	require.NoError(t, err)
+	t.Cleanup(remoteClient.Close)
+
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			t.Fatal("proxied transaction reached local broadcaster")
+			return nil, nil
+		},
+		proxy: utils.Some(remoteClient),
+	}
+	got, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), got)
+	require.Equal(t, hexutil.Bytes(raw), proxiedRaw)
+}
+
+func TestProxiesTransactionToShardOwnerOverWebSocket(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	var proxiedRaw hexutil.Bytes
+	remoteHandler := ethrpc.NewServer()
+	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
+		send: func(input hexutil.Bytes) common.Hash {
+			proxiedRaw = append(hexutil.Bytes(nil), input...)
+			return tx.Hash()
+		},
+	}))
+	t.Cleanup(remoteHandler.Stop)
+	remoteServer := httptest.NewServer(remoteHandler.WebsocketHandler([]string{"*"}))
+	t.Cleanup(remoteServer.Close)
+	// The same dial the giga router uses for a committee member's evmrpc URL.
+	remoteClient, err := ethrpc.DialContext(t.Context(), "ws"+strings.TrimPrefix(remoteServer.URL, "http"))
 	require.NoError(t, err)
 	t.Cleanup(remoteClient.Close)
 

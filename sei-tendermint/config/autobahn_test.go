@@ -28,9 +28,15 @@ func TestURLJSONReencode(t *testing.T) {
 	require.Equal(t, want.String(), got.String())
 }
 
-func TestURLUnmarshalRejectsNonHTTP(t *testing.T) {
+func TestURLUnmarshalAcceptsWebSocket(t *testing.T) {
 	var got URL
-	require.Error(t, json.Unmarshal([]byte(`"ws://example.com:8545"`), &got))
+	require.NoError(t, json.Unmarshal([]byte(`"ws://example.com:8546"`), &got))
+	require.Equal(t, "ws://example.com:8546", got.String())
+}
+
+func TestURLUnmarshalRejectsNonRPCScheme(t *testing.T) {
+	var got URL
+	require.Error(t, json.Unmarshal([]byte(`"file://localhost/rpc"`), &got))
 }
 
 func validAutobahnFileConfig() AutobahnFileConfig {

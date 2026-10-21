@@ -192,7 +192,7 @@ func decodeGigaClaim(p *pb.Handshake) (utils.Option[gigaHandshakeClaim], error) 
 	if err != nil {
 		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
 	}
-	if err := utils.CheckHTTPURL(*u); err != nil {
+	if err := utils.CheckEVMRPCURL(*u); err != nil {
 		return utils.None[gigaHandshakeClaim](), fmt.Errorf("EvmRpc: %w", err)
 	}
 	return utils.Some(gigaHandshakeClaim{
