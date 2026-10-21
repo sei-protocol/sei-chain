@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -215,6 +218,10 @@ func wrapApplication(
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
+		customPrecompiles, err := evmOnlyCustomPrecompiles(committee, validators)
+		if err != nil {
+			return nil, fmt.Errorf("load EVM-only governance: %w", err)
+		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 		prepared, err := evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
@@ -222,6 +229,7 @@ func wrapApplication(
 			manager,
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
 			execution,
+			customPrecompiles,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("restore EVM-only application: %w", err)
@@ -245,4 +253,23 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 		validators[i] = abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: 1}
 	}
 	return validators, nil
+}
+
+// evmOnlyCustomPrecompiles returns the gov precompile registry when the
+// committee sets evm_governance, with each validator's evm_voter voting at that
+// validator's power.
+func evmOnlyCustomPrecompiles(fc *config.AutobahnFileConfig, validators []abci.ValidatorUpdate) (utils.Option[precompiles.Registry], error) {
+	governance, ok := fc.EVMGovernance.Get()
+	if !ok {
+		return utils.None[precompiles.Registry](), nil
+	}
+	electorate := make(gov.GenesisElectorate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		voter, ok := validator.EVMVoter.Get()
+		if !ok {
+			return utils.None[precompiles.Registry](), fmt.Errorf("validator %d is missing evm_voter", i)
+		}
+		electorate[voter] = big.NewInt(validators[i].Power)
+	}
+	return utils.Some(evmonlyapp.NewGovRegistry(governance.Params, governance.StartingProposalID, electorate)), nil
 }
