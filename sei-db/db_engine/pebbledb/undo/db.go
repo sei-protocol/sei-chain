@@ -109,16 +109,15 @@ type Database struct {
 	earliestHeight atomic.Uint64
 	openViews      map[uint64]int
 
-	// earliestMu serializes the check, durable write, and publication of earliestHeight.
-	earliestMu sync.Mutex
-
-	// lifecycleMu excludes Resume and Close from queue submissions, pruning and opening views,
-	// and guards closed.
+	// lifecycleMu excludes Resume and Close from queue submissions, pruning, opening views and
+	// reads, and guards closed.
 	lifecycleMu sync.RWMutex
 	closed      bool
 
-	// pruneMu serializes prune passes and guards prunedBucket, the lowest bucket not yet excised.
-	pruneMu      sync.Mutex
+	// historyMu serializes every change to the served history: a resume, a prune pass and a
+	// rollback, each of which moves earliestHeight. It guards prunedBucket, the lowest bucket not
+	// yet excised.
+	historyMu    sync.Mutex
 	prunedBucket uint64
 
 	pending     chan pendingBlock
@@ -306,11 +305,18 @@ func (db *Database) Resume(version int64, current LiveStateView) error {
 	return nil
 }
 
+// Resumed reports whether a Resume has succeeded and the store is not closed.
+func (db *Database) Resumed() bool {
+	return db.head.Load() != nil
+}
+
 func (db *Database) resume(version int64) (uint64, error) {
 	height, err := heightOf(version)
 	if err != nil {
 		return 0, err
 	}
+	db.historyMu.Lock()
+	defer db.historyMu.Unlock()
 	latest := db.latestHeight.Load()
 	if latest > height {
 		return 0, fmt.Errorf("undo: log at %d is ahead of current state at %d", latest, height)
@@ -542,7 +548,7 @@ func (w *recordWriter) finish() error {
 }
 
 // head is a current-state view and the height it describes. The store holds one reference and
-// every view pinning it holds another; the last one released closes the view.
+// every read in flight holds another; the last one released closes the view.
 type head struct {
 	height uint64
 	view   LiveStateView
@@ -583,12 +589,10 @@ func (db *Database) acquireHead() *head {
 	}
 }
 
-// View reads the store at one height. It pins the current-state view it falls back to and the
-// buckets it reads, holding back both the state commit store and pruning, so it must be closed
-// promptly.
+// View reads the store at one height. It pins the buckets it reads, holding back pruning, so it must
+// be closed promptly. Its reads fail once the database is closed.
 type View struct {
 	db        *Database
-	head      *head
 	height    uint64
 	closeOnce sync.Once
 
@@ -597,7 +601,7 @@ type View struct {
 }
 
 // OpenView returns a view of the state after block version, and false when the store is closed or
-// does not serve version. The caller must close the view before closing the database.
+// does not serve version.
 func (db *Database) OpenView(version int64) (*View, bool) {
 	db.lifecycleMu.RLock()
 	defer db.lifecycleMu.RUnlock()
@@ -608,15 +612,10 @@ func (db *Database) OpenView(version int64) (*View, bool) {
 	if err != nil {
 		return nil, false
 	}
-	h := db.acquireHead()
-	if h == nil {
+	if h := db.head.Load(); h == nil || height > h.height || !db.pinHeight(height) {
 		return nil, false
 	}
-	if height > h.height || !db.pinHeight(height) {
-		h.release()
-		return nil, false
-	}
-	v := &View{db: db, head: h, height: height}
+	v := &View{db: db, height: height}
 	v.closed = utils.MustClose(v, "undo view")
 	return v, true
 }
@@ -641,22 +640,25 @@ func (db *Database) unpinHeight(height uint64) {
 	}
 }
 
-// Close releases the view's pins. Idempotent.
+// Close releases the view's pin. Idempotent.
 func (v *View) Close() {
 	v.closeOnce.Do(func() {
 		v.closed.Close(v)
-		v.head.release()
-		// Keep the view registered until its live-state reference has been released.
 		v.db.unpinHeight(v.height)
 	})
 }
 
 // Get returns a supported EVM key's value at the view's height, nil when it did not exist.
-// Unsupported or malformed keys return an error.
+// Unsupported or malformed keys, and reads after the database is closed, return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
 	keyLen, _ := keyLayout(key)
 	if keyLen == 0 || len(key) != keyLen {
 		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	}
+	v.db.lifecycleMu.RLock()
+	defer v.db.lifecycleMu.RUnlock()
+	if v.db.closed {
+		return nil, errors.New("undo: read on a closed store")
 	}
 	start := time.Now()
 	probes := 0
@@ -664,7 +666,10 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		otelMetrics.getLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
 		otelMetrics.getProbes.Record(context.Background(), int64(probes))
 	}()
-	h := v.head
+	// The newest head answers a read at any height below it the same way, since every record up to
+	// it is written before it is published.
+	h := v.db.acquireHead()
+	defer h.release()
 	if v.height == h.height {
 		return foundValue(h.view.Get(module, key)), nil
 	}
@@ -714,10 +719,9 @@ func (db *Database) GetEarliestVersion() int64 {
 	return int64(db.earliestHeight.Load()) //nolint:gosec // heights enter the store as int64
 }
 
-// raiseEarliest makes height the lowest served height when it is above the current one.
+// raiseEarliest makes height the lowest served height when it is above the current one. The caller
+// must hold historyMu.
 func (db *Database) raiseEarliest(height uint64) error {
-	db.earliestMu.Lock()
-	defer db.earliestMu.Unlock()
 	if height <= db.earliestHeight.Load() {
 		return nil
 	}
@@ -725,10 +729,9 @@ func (db *Database) raiseEarliest(height uint64) error {
 }
 
 // lowerEarliest makes height the lowest served height when it is below the current one. A rollback
-// below the earliest height leaves no record above height, and a read at height needs none.
+// below the earliest height leaves no record above height, and a read at height needs none. The
+// caller must hold historyMu.
 func (db *Database) lowerEarliest(height uint64) error {
-	db.earliestMu.Lock()
-	defer db.earliestMu.Unlock()
 	if height >= db.earliestHeight.Load() {
 		return nil
 	}
@@ -736,7 +739,7 @@ func (db *Database) lowerEarliest(height uint64) error {
 }
 
 // setEarliestLocked durably records height as the lowest served height, then publishes it.
-// The caller must hold earliestMu.
+// The caller must hold historyMu.
 func (db *Database) setEarliestLocked(height uint64) error {
 	if err := writeMarker(db.storage, earliestVersionKey, height, pebble.Sync); err != nil {
 		return fmt.Errorf("undo: record earliest height %d: %w", height, err)
@@ -777,8 +780,8 @@ func (db *Database) PruneHistory(blockNumber uint64) error {
 	if blockNumber == 0 || head == 0 {
 		return nil
 	}
-	db.pruneMu.Lock()
-	defer db.pruneMu.Unlock()
+	db.historyMu.Lock()
+	defer db.historyMu.Unlock()
 	if err := db.raiseEarliest(min(blockNumber, head)); err != nil {
 		return err
 	}
@@ -849,6 +852,8 @@ func DiscardStateAbove(dataDir string, cfg config.StateStoreConfig, target int64
 // lowers the earliest served height to it. Buckets above target's are excised and target's own
 // bucket is scanned.
 func (db *Database) discardAbove(target uint64) error {
+	db.historyMu.Lock()
+	defer db.historyMu.Unlock()
 	latest := db.latestHeight.Load()
 	if latest < target {
 		return nil
@@ -924,19 +929,13 @@ func (db *Database) deleteRecordsAbove(bucket uint64, height uint64) error {
 	return b.Commit(pebble.Sync)
 }
 
-// Close drains the write queue, releases the current-state view and closes Pebble. If views are
-// still open, it leaves the database open and returns an error; close the views and retry. Idempotent.
+// Close drains the write queue, releases the current-state view and closes Pebble. Views still open
+// fail their reads from then on. Idempotent.
 func (db *Database) Close() error {
 	db.lifecycleMu.Lock()
 	defer db.lifecycleMu.Unlock()
 	if db.closed {
 		return nil
-	}
-	db.mu.Lock()
-	hasOpenViews := len(db.openViews) != 0
-	db.mu.Unlock()
-	if hasOpenViews {
-		return errors.New("undo: cannot close with open views")
 	}
 	db.closed = true
 	close(db.pending)

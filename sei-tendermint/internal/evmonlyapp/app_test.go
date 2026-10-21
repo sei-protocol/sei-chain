@@ -139,12 +139,23 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 // keeps EVM history as an undo log.
 func newUndoLogEVMOnlyTestApp(t *testing.T) *evmOnlyApplication {
 	t.Helper()
+	return newUndoLogEVMOnlyTestAppAt(t, 1)
+}
+
+// newUndoLogEVMOnlyTestAppAt returns an application whose state store keeps EVM
+// history as an undo log, initialized for a chain starting at initialHeight.
+func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyApplication {
+	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
+	// The chain's first block is the first one with an app hash.
+	storageConfig.AppHashBuilderConfig.GigaActivationHeight = uint64(initialHeight) //nolint:gosec // G115: test heights are positive.
 	storageConfig.WithFullNodeMode().WithStateStoreBackend(seidbconfig.PebbleDBUndoBackend)
 	app := newEVMOnlyTestAppWithStorage(t, nil, gigaconfig.DefaultConfig.Execution, storageConfig).(*evmOnlyApplication)
 	require.NotNil(t, app.storage.StateDB().UndoSS())
-	_, err = app.InitChain(evmOnlyTestInitChain())
+	init := evmOnlyTestInitChain()
+	init.InitialHeight = initialHeight
+	_, err = app.InitChain(init)
 	require.NoError(t, err)
 	return app
 }
@@ -908,6 +919,50 @@ func TestEVMOnlyApplicationServesHistoryFromTheUndoLog(t *testing.T) {
 		require.Equal(t, want.recipientBalance, recipientBalance.ToBig(), "recipient balance at %d", height)
 	}
 	require.Equal(t, uint64(blocks), history[blocks].senderNonce)
+}
+
+// A node keeping EVM history as an undo log commits blocks that change no EVM state, and serves the
+// heights they leave behind.
+func TestEVMOnlyApplicationCommitsEmptyBlocksOnTheUndoLog(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+
+	for height := int64(1); height <= 3; height++ {
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height))
+	}
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(4, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
+	require.NoError(t, app.AwaitCommits())
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+
+	for height, want := range []uint64{0, 0, 0, 0, 1} {
+		nonce, err := app.EvmNonceAt(sender, int64(height))
+		require.NoError(t, err, "height %d", height)
+		require.Equal(t, want, nonce, "sender nonce at %d", height)
+	}
+}
+
+// A chain starting above block 1 seeds the state store at InitChain, and the undo log serves history
+// from the seeded height on.
+func TestEVMOnlyApplicationServesHistoryFromASeededHeightOnTheUndoLog(t *testing.T) {
+	app := newUndoLogEVMOnlyTestAppAt(t, 5)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+
+	for height := int64(5); height <= 7; height++ {
+		nonce := uint64(height - 5) //nolint:gosec // positive
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, nonce)))
+	}
+	require.NoError(t, app.AwaitCommits())
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+
+	for height, want := range map[int64]uint64{4: 0, 5: 1, 6: 2, 7: 3} {
+		nonce, err := app.EvmNonceAt(sender, height)
+		require.NoError(t, err, "height %d", height)
+		require.Equal(t, want, nonce, "sender nonce at %d", height)
+	}
 }
 
 // Contract storage written in a block is visible from that block on, and a slot is unset at every
