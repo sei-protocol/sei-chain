@@ -9,17 +9,16 @@ import (
 
 func TestCheckRPCURL(t *testing.T) {
 	for _, s := range []string{
-		"http://validator.example:8545",
-		"https://validator.example:8545",
 		"ws://validator.example:8546",
 		"wss://validator.example:8546",
 	} {
 		require.NoError(t, CheckRPCURL(*OrPanic1(url.Parse(s))))
 	}
 	for _, s := range []string{
+		"http://validator.example:8545",
+		"https://validator.example:8545",
 		"file://localhost/rpc",
-		"http://",
-		"http://u:p@validator.example:8545",
+		"ws://",
 		"ws://u:p@validator.example:8546",
 	} {
 		require.Error(t, CheckRPCURL(*OrPanic1(url.Parse(s))))

@@ -95,8 +95,8 @@ func TestHandshakeAuthenticatesGigaClaim(t *testing.T) {
 		{NodeID: nodeKeys[1].Public().NodeID(), Hostname: "validator-b.example", Port: 26656},
 	}
 	evmRPCs := [2]url.URL{
-		*utils.OrPanic1(url.Parse("http://validator-a.example:8545")),
-		*utils.OrPanic1(url.Parse("http://validator-b.example:8545")),
+		*utils.OrPanic1(url.Parse("ws://validator-a.example:8546")),
+		*utils.OrPanic1(url.Parse("ws://validator-b.example:8546")),
 	}
 	got := handshakePairIn(t, nodeKeys, [2]handshakeSpec{
 		{SelfAddr: utils.Some(selfAddrs[0]), SeiGigaConnection: true},
@@ -165,7 +165,7 @@ func TestHandshakeAcceptsFullnodeWithoutClaim(t *testing.T) {
 		Hostname: "validator.example",
 		Port:     26656,
 	}
-	evmRPC := *utils.OrPanic1(url.Parse("http://validator.example:8545"))
+	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	got := handshakePairIn(t,
 		[2]NodeSecretKey{validatorNode, fullnodeNode},
 		[2]handshakeSpec{
@@ -187,7 +187,7 @@ func TestHandshakeRejectsClaimOnNonGiga(t *testing.T) {
 	nodeKey := makeKey(rng)
 	validatorKey := atypes.GenSecretKey(rng)
 	selfAddr := NodeAddress{NodeID: nodeKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
-	evmRPC := *utils.OrPanic1(url.Parse("http://validator.example:8545"))
+	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	err := handshakeAgainst(t, nodeKey, handshakeSpec{
 		SelfAddr:          utils.Some(selfAddr),
 		SeiGigaConnection: true,
@@ -207,7 +207,7 @@ func TestHandshakeRejectsBadGigaClaimSig(t *testing.T) {
 	nodeKey := makeKey(rng)
 	validatorKey := atypes.GenSecretKey(rng)
 	selfAddr := NodeAddress{NodeID: nodeKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
-	evmRPC := *utils.OrPanic1(url.Parse("http://validator.example:8545"))
+	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	err := handshakeAgainst(t, nodeKey, handshakeSpec{
 		SelfAddr:          utils.Some(selfAddr),
 		SeiGigaConnection: true,
@@ -231,7 +231,7 @@ func TestHandshakeRejectsClaimWithoutSelfAddr(t *testing.T) {
 	nodeKey := makeKey(rng)
 	validatorKey := atypes.GenSecretKey(rng)
 	selfAddr := NodeAddress{NodeID: nodeKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
-	evmRPC := *utils.OrPanic1(url.Parse("http://validator.example:8545"))
+	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	received := handshakeAgainst(t, nodeKey, handshakeSpec{
 		SelfAddr:          utils.Some(selfAddr),
 		SeiGigaConnection: true,

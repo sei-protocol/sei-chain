@@ -46,8 +46,6 @@ func TestDecodeGigaClaimEVMRPC(t *testing.T) {
 		}
 	}
 	for _, s := range []string{
-		"http://validator.example:8545",
-		"https://validator.example:8545",
 		"ws://validator.example:8546",
 		"wss://validator.example:8546",
 	} {
@@ -55,7 +53,13 @@ func TestDecodeGigaClaimEVMRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, s, got.OrPanic("missing claim").evmRPC)
 	}
-	for _, s := range []string{"file://localhost/rpc", "http://", "http://u:p@validator.example:8545", "ws://u:p@validator.example:8546"} {
+	for _, s := range []string{
+		"http://validator.example:8545",
+		"https://validator.example:8545",
+		"file://localhost/rpc",
+		"ws://",
+		"ws://u:p@validator.example:8546",
+	} {
 		_, err := decodeGigaClaim(claim(s))
 		require.Error(t, err)
 	}
