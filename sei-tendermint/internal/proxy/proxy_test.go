@@ -77,79 +77,6 @@ func TestCheckTxSafeAllowsValidEVMResponse(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestEvmCallErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
-	proxyApp := New(testApp{})
-
-	_, err := proxyApp.EvmCall(t.Context(), &core.Message{})
-
-	require.Error(t, err)
-}
-
-type testEvmCallerApp struct {
-	testApp
-	call func(context.Context, *core.Message) (*core.ExecutionResult, error)
-}
-
-func (app testEvmCallerApp) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
-	return app.call(ctx, msg)
-}
-
-func TestEvmCallDelegatesToASupportingApplication(t *testing.T) {
-	want := &core.ExecutionResult{ReturnData: []byte{0x2a}}
-	var gotMsg *core.Message
-	proxyApp := New(testEvmCallerApp{
-		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
-			gotMsg = msg
-			return want, nil
-		},
-	})
-	msg := &core.Message{GasLimit: 21_000}
-
-	got, err := proxyApp.EvmCall(t.Context(), msg)
-
-	require.NoError(t, err)
-	require.Same(t, want, got)
-	require.Same(t, msg, gotMsg)
-}
-
-func TestEvmEstimateGasErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
-	proxyApp := New(testApp{})
-
-	_, _, err := proxyApp.EvmEstimateGas(t.Context(), &core.Message{}, 0)
-
-	require.Error(t, err)
-}
-
-type testEvmGasEstimatorApp struct {
-	testApp
-	estimateGas func(context.Context, *core.Message, uint64) (uint64, []byte, error)
-}
-
-func (app testEvmGasEstimatorApp) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	return app.estimateGas(ctx, msg, gasCap)
-}
-
-func TestEvmEstimateGasDelegatesToASupportingApplication(t *testing.T) {
-	var gotMsg *core.Message
-	var gotGasCap uint64
-	proxyApp := New(testEvmGasEstimatorApp{
-		estimateGas: func(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-			gotMsg = msg
-			gotGasCap = gasCap
-			return 21_000, nil, nil
-		},
-	})
-	msg := &core.Message{GasLimit: 21_000}
-
-	got, revert, err := proxyApp.EvmEstimateGas(t.Context(), msg, 10_000_000)
-
-	require.NoError(t, err)
-	require.Equal(t, uint64(21_000), got)
-	require.Empty(t, revert)
-	require.Same(t, msg, gotMsg)
-	require.Equal(t, uint64(10_000_000), gotGasCap)
-}
-
 func TestEvmCodeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
 	proxyApp := New(testApp{})
 
@@ -224,119 +151,6 @@ func TestEvmStorage(t *testing.T) {
 	})
 }
 
-func TestEvmChainConfigErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
-	proxyApp := New(testApp{})
-
-	_, err := proxyApp.EvmChainConfig()
-
-	require.Error(t, err)
-}
-
-type testEvmChainConfigApp struct {
-	testApp
-	chainConfig *params.ChainConfig
-}
-
-func (app testEvmChainConfigApp) EvmChainConfig() *params.ChainConfig {
-	return app.chainConfig
-}
-
-func TestEvmChainConfigDelegatesToASupportingApplication(t *testing.T) {
-	want := &params.ChainConfig{ChainID: big.NewInt(713715)}
-	proxyApp := New(testEvmChainConfigApp{chainConfig: want})
-
-	got, err := proxyApp.EvmChainConfig()
-
-	require.NoError(t, err)
-	require.Same(t, want, got)
-}
-
-func TestEvmBaseFeeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
-	proxyApp := New(testApp{})
-
-	_, err := proxyApp.EvmBaseFee()
-
-	require.Error(t, err)
-}
-
-func TestEvmGasLimitErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
-	proxyApp := New(testApp{})
-
-	_, err := proxyApp.EvmGasLimit()
-
-	require.Error(t, err)
-}
-
-type testEvmBaseFeeApp struct {
-	testApp
-	baseFee *big.Int
-}
-
-func (app testEvmBaseFeeApp) EvmBaseFee() *big.Int {
-	return app.baseFee
-}
-
-func TestEvmBaseFeeDelegatesToASupportingApplication(t *testing.T) {
-	want := big.NewInt(7)
-	proxyApp := New(testEvmBaseFeeApp{baseFee: want})
-
-	got, err := proxyApp.EvmBaseFee()
-
-	require.NoError(t, err)
-	require.Same(t, want, got)
-}
-
-type testEvmGasLimitApp struct {
-	testApp
-	gasLimit uint64
-}
-
-func (app testEvmGasLimitApp) EvmGasLimit() uint64 {
-	return app.gasLimit
-}
-
-func TestEvmGasLimitDelegatesToASupportingApplication(t *testing.T) {
-	proxyApp := New(testEvmGasLimitApp{gasLimit: 35_000_000})
-
-	got, err := proxyApp.EvmGasLimit()
-
-	require.NoError(t, err)
-	require.Equal(t, uint64(35_000_000), got)
-}
-
-func TestEvmMinGasPriceErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
-	proxyApp := New(testApp{})
-	_, err := proxyApp.EvmMinGasPrice()
-	require.Error(t, err)
-}
-
-type testEvmMinGasPriceApp struct {
-	testApp
-	minGasPrice *big.Int
-}
-
-func (app testEvmMinGasPriceApp) EvmMinGasPrice() *big.Int {
-	return app.minGasPrice
-}
-
-func TestEvmMinGasPriceDelegatesToASupportingApplication(t *testing.T) {
-	want := big.NewInt(1_000_000_000)
-	proxyApp := New(testEvmMinGasPriceApp{minGasPrice: want})
-	got, err := proxyApp.EvmMinGasPrice()
-	require.NoError(t, err)
-	require.Equal(t, want, got)
-}
-
-func TestEvmChainIDDelegatesToApplication(t *testing.T) {
-	proxyApp := New(testApp{})
-
-	// Test: EvmChainID is on Application, so every wrapped app exposes it.
-	got := proxyApp.EvmChainID()
-
-	// Verify: BaseApplication's zero chain ID is returned.
-	require.Equal(t, uint64(0), got)
-}
-
 // testEvmHistoryApp serves every height's state as values derived from that height.
 type testEvmHistoryApp struct {
 	testApp
@@ -379,4 +193,84 @@ func TestEvmHistoryReads(t *testing.T) {
 			require.ErrorIs(t, err, errNoEVMHistory)
 		})
 	}
+}
+
+// testEVMApp answers every EVMApplication method with a fixed value and
+// records the arguments it was called with.
+type testEVMApp struct {
+	testApp
+	gotMsg    *core.Message
+	gotGasCap uint64
+}
+
+var _ EVMApplication = (*testEVMApp)(nil)
+
+var (
+	testExecutionResult = &core.ExecutionResult{ReturnData: []byte{0x2a}}
+	testChainConfig     = &params.ChainConfig{ChainID: big.NewInt(713715)}
+	testBaseFee         = big.NewInt(7)
+	testMinGasPrice     = big.NewInt(1_000_000_000)
+)
+
+func (app *testEVMApp) EvmCall(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+	app.gotMsg = msg
+	return testExecutionResult, nil
+}
+
+func (app *testEVMApp) EvmEstimateGas(_ context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
+	app.gotMsg, app.gotGasCap = msg, gasCap
+	return 21_000, []byte{0x01}, nil
+}
+
+func (app *testEVMApp) EvmChainID() uint64                  { return 713715 }
+func (app *testEVMApp) EvmChainConfig() *params.ChainConfig { return testChainConfig }
+func (app *testEVMApp) EvmBaseFee() *big.Int                { return testBaseFee }
+func (app *testEVMApp) EvmGasLimit() uint64                 { return 35_000_000 }
+func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasPrice }
+
+func TestEVMIsAbsentFromNew(t *testing.T) {
+	// Test: wrap an application with New.
+	proxyApp := New(&testEVMApp{})
+
+	// Verify: no EVM proxy is exposed.
+	require.False(t, proxyApp.EVM().IsPresent())
+}
+
+func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
+	// Setup: an EVMApplication wrapped by NewEVM.
+	app := &testEVMApp{}
+	evm, ok := NewEVM(app).EVM().Get()
+	require.True(t, ok)
+	msg := &core.Message{GasLimit: 21_000}
+
+	t.Run("call", func(t *testing.T) {
+		// Test: EvmCall.
+		got, err := evm.EvmCall(t.Context(), msg)
+
+		// Verify: the app's result is returned for the message passed in.
+		require.NoError(t, err)
+		require.Same(t, testExecutionResult, got)
+		require.Same(t, msg, app.gotMsg)
+	})
+
+	t.Run("estimate gas", func(t *testing.T) {
+		// Test: EvmEstimateGas with a gas cap.
+		got, revert, err := evm.EvmEstimateGas(t.Context(), msg, 10_000_000)
+
+		// Verify: the app's estimate and revert data are returned for the message and cap.
+		require.NoError(t, err)
+		require.Equal(t, uint64(21_000), got)
+		require.Equal(t, []byte{0x01}, revert)
+		require.Same(t, msg, app.gotMsg)
+		require.Equal(t, uint64(10_000_000), app.gotGasCap)
+	})
+
+	t.Run("execution parameters", func(t *testing.T) {
+		// Verify: chain ID, chain config, base fee, gas limit and min gas price come from the app.
+		require.Equal(t, uint64(713715), evm.EvmChainID())
+		require.Same(t, testChainConfig, evm.EvmChainConfig())
+		require.Same(t, testBaseFee, evm.EvmBaseFee())
+		require.Equal(t, uint64(35_000_000), evm.EvmGasLimit())
+		require.Same(t, testMinGasPrice, evm.EvmMinGasPrice())
+	})
 }

@@ -15,6 +15,7 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -61,7 +62,7 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
@@ -70,20 +71,24 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
-	_, ok := prepared.(*MockApp)
+	mock, ok := prepared.(*MockApp)
 	require.True(t, ok)
+	evm, ok := evmApp.Get()
+	require.True(t, ok)
+	require.Equal(t, proxy.EVMApplication(mock), evm)
 }
 
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
 	}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
+	require.False(t, evmApp.IsPresent())
 
 	_, ok := prepared.(fastCheckTxApplication)
 	require.True(t, ok)
@@ -94,7 +99,7 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
@@ -106,12 +111,15 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	_, ok = prepared.(*MockApp)
+	mock, ok := prepared.(*MockApp)
 	require.True(t, ok)
+	evm, ok := evmApp.Get()
+	require.True(t, ok)
+	require.Equal(t, proxy.EVMApplication(mock), evm)
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
-	_, _, err := prepareApplication(t.Context(), &config.Config{
+	_, _, _, err := prepareApplication(t.Context(), &config.Config{
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
 

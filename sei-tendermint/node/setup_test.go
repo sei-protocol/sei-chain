@@ -369,7 +369,7 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, app, gigaconfig.DefaultConfig)
@@ -383,6 +383,9 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Nil(t, manager.SS())
 	require.NotNil(t, manager.ReceiptDB())
 	require.Equal(t, "evmonly", prepared.Info().Data)
+	evm, ok := evmApp.Get()
+	require.True(t, ok)
+	require.Equal(t, prepared, abci.Application(evm))
 	validators := prepared.GetValidators()
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)
@@ -390,7 +393,7 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 }
 
 func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
-	_, err := wrapApplication(
+	_, _, err := wrapApplication(
 		&config.Config{
 			BaseConfig:         config.BaseConfig{FastCheckTx: true},
 			AutobahnConfigFile: "/tmp/autobahn.json",
@@ -405,8 +408,9 @@ func TestWrapApplicationAutobahnWithoutStorageErrors(t *testing.T) {
 
 func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
 	app := abci.BaseApplication{}
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig)
+	prepared, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{}, app, gigaconfig.DefaultConfig)
 	require.NoError(t, err)
+	require.False(t, evmApp.IsPresent())
 	_, ok := storage.Get()
 	require.False(t, ok)
 	require.Equal(t, app, prepared)

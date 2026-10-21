@@ -80,7 +80,7 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
+	app, evmApp, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +94,9 @@ func New(
 		}
 	}()
 	proxyApp := proxy.New(app)
+	if evm, ok := evmApp.Get(); ok {
+		proxyApp = proxy.NewEVM(evm)
+	}
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
@@ -167,53 +170,57 @@ func prepareApplication(
 	conf *config.Config,
 	app abci.Application,
 	giga gigaconfig.Config,
-) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
+) (abci.Application, utils.Option[proxy.EVMApplication], utils.Option[*bootstrap.GigaStorageManager], error) {
+	noEVM := utils.None[proxy.EVMApplication]()
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	storage := noStorage
 	var committee *config.AutobahnFileConfig
 	if conf.AutobahnConfigFile != "" {
 		fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 		if err != nil {
-			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
+			return nil, noEVM, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
 		}
 		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage)
 		if err != nil {
-			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
+			return nil, noEVM, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
 		}
 		storage = utils.Some(manager)
 		committee = fc
 	}
-	app, err := wrapApplication(conf, app, storage, committee, giga.Execution)
+	app, evmApp, err := wrapApplication(conf, app, storage, committee, giga.Execution)
 	if err != nil {
 		if manager, ok := storage.Get(); ok {
 			err = errors.Join(err, manager.Close())
 		}
-		return nil, noStorage, err
+		return nil, noEVM, noStorage, err
 	}
-	return app, storage, nil
+	return app, evmApp, storage, nil
 }
 
 // wrapApplication returns the mock application when mock-app is set, the
 // Autobahn EVM-only application when Autobahn is configured, the FastCheckTx
-// wrapper when that flag is set, or the app that was passed in.
+// wrapper when that flag is set, or the app that was passed in. The second
+// result is the same application when it is an EVMApplication.
 func wrapApplication(
 	conf *config.Config,
 	app abci.Application,
 	storage utils.Option[*bootstrap.GigaStorageManager],
 	committee *config.AutobahnFileConfig,
 	execution gigaconfig.ExecutionConfig,
-) (abci.Application, error) {
+) (abci.Application, utils.Option[proxy.EVMApplication], error) {
+	noEVM := utils.None[proxy.EVMApplication]()
 	if conf.MockApp {
-		return NewMockApp(app), nil
+		mock := NewMockApp(app)
+		return mock, utils.Some[proxy.EVMApplication](mock), nil
 	}
 	if conf.AutobahnConfigFile != "" {
 		manager, ok := storage.Get()
 		if !ok {
-			return nil, errors.New("autobahn requires giga storage")
+			return nil, noEVM, errors.New("autobahn requires giga storage")
 		}
 		validators, err := evmOnlyValidatorUpdates(committee)
 		if err != nil {
-			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
+			return nil, noEVM, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 		prepared, err := evmonlyapp.NewEVMOnlyApplication(
@@ -224,14 +231,14 @@ func wrapApplication(
 			execution,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("restore EVM-only application: %w", err)
+			return nil, noEVM, fmt.Errorf("restore EVM-only application: %w", err)
 		}
-		return prepared, nil
+		return prepared, utils.Some(prepared), nil
 	}
 	if conf.FastCheckTx {
-		return fastCheckTxApplication{Application: app}, nil
+		return fastCheckTxApplication{Application: app}, noEVM, nil
 	}
-	return app, nil
+	return app, noEVM, nil
 }
 
 func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpdate, error) {

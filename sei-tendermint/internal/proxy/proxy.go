@@ -4,28 +4,39 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"runtime/debug"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Proxy wraps an ABCI application and records ABCI method timings.
 type Proxy struct {
 	app types.Application
+	evm utils.Option[*EVMProxy]
 }
 
 // New creates a proxied application interface around the provided ABCI application.
 func New(app types.Application) *Proxy {
 	return &Proxy{app: app}
+}
+
+// NewEVM creates a proxied application interface around an EVMApplication,
+// whose EVM methods are reached through EVM.
+func NewEVM(app EVMApplication) *Proxy {
+	return &Proxy{app: app, evm: utils.Some(&EVMProxy{app: app})}
+}
+
+// EVM returns the proxy for the wrapped application's EVM methods, if it was
+// created with NewEVM.
+func (app *Proxy) EVM() utils.Option[*EVMProxy] {
+	return app.evm
 }
 
 func (app *Proxy) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
@@ -58,11 +69,6 @@ func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	return app.app.EvmBalance(addr, seiAddr)
 }
 
-func (app *Proxy) EvmChainID() uint64 {
-	defer addTimeSample(Global.MethodTimingAt("evm_chain_id", "sync"))()
-	return app.app.EvmChainID()
-}
-
 // commitSettler is implemented by applications whose block state commits land
 // behind FinalizeBlock.
 type commitSettler interface {
@@ -79,41 +85,6 @@ func (app *Proxy) AwaitCommits() error {
 		return nil
 	}
 	return settler.AwaitCommits()
-}
-
-// evmCaller is implemented by applications that can run a read-only EVM call
-// against their current state.
-type evmCaller interface {
-	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
-}
-
-// EvmCall executes msg as a read-only call against the wrapped application's
-// current EVM state. It errors if that application does not support EVM
-// calls.
-func (app *Proxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_call", "sync"))()
-	caller, ok := app.app.(evmCaller)
-	if !ok {
-		return nil, fmt.Errorf("application does not support EVM calls")
-	}
-	return caller.EvmCall(ctx, msg)
-}
-
-// evmGasEstimator is implemented by applications that can estimate gas for a
-// read-only EVM call against their current state.
-type evmGasEstimator interface {
-	EvmEstimateGas(context.Context, *core.Message, uint64) (uint64, []byte, error)
-}
-
-// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and any
-// revert data. It errors if the wrapped application doesn't support it.
-func (app *Proxy) EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_estimate_gas", "sync"))()
-	estimator, ok := app.app.(evmGasEstimator)
-	if !ok {
-		return 0, nil, fmt.Errorf("application does not support EVM gas estimation")
-	}
-	return estimator.EvmEstimateGas(ctx, msg, gasCap)
 }
 
 // evmCodeReader is implemented by applications that can read contract code
@@ -204,74 +175,6 @@ func (app *Proxy) EvmStorageAt(addr common.Address, key common.Hash, height int6
 		return common.Hash{}, errNoEVMHistory
 	}
 	return reader.EvmStorageAt(addr, key, height)
-}
-
-// evmChainConfigProvider is implemented by applications that expose the EVM
-// chain configuration they execute against.
-type evmChainConfigProvider interface {
-	EvmChainConfig() *params.ChainConfig
-}
-
-// EvmChainConfig returns the wrapped application's EVM chain configuration.
-// It errors if that application does not expose one.
-func (app *Proxy) EvmChainConfig() (*params.ChainConfig, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_chain_config", "sync"))()
-	provider, ok := app.app.(evmChainConfigProvider)
-	if !ok {
-		return nil, fmt.Errorf("application does not expose an EVM chain configuration")
-	}
-	return provider.EvmChainConfig(), nil
-}
-
-// evmBaseFeeProvider is implemented by applications that expose the base fee
-// they execute every block at.
-type evmBaseFeeProvider interface {
-	EvmBaseFee() *big.Int
-}
-
-// EvmBaseFee returns the wrapped application's execution base fee. It errors
-// if that application does not expose one.
-func (app *Proxy) EvmBaseFee() (*big.Int, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_base_fee", "sync"))()
-	provider, ok := app.app.(evmBaseFeeProvider)
-	if !ok {
-		return nil, fmt.Errorf("application does not expose an EVM base fee")
-	}
-	return provider.EvmBaseFee(), nil
-}
-
-// evmGasLimitProvider is implemented by applications that expose the gas
-// limit of their most recently committed block.
-type evmGasLimitProvider interface {
-	EvmGasLimit() uint64
-}
-
-// EvmGasLimit returns the wrapped application's most recently committed
-// block gas limit. It errors if that application does not expose one.
-func (app *Proxy) EvmGasLimit() (uint64, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_gas_limit", "sync"))()
-	provider, ok := app.app.(evmGasLimitProvider)
-	if !ok {
-		return 0, fmt.Errorf("application does not expose an EVM gas limit")
-	}
-	return provider.EvmGasLimit(), nil
-}
-
-// evmMinGasPriceProvider is implemented by applications that expose the
-// minimum effective gas price they admit a transaction at.
-type evmMinGasPriceProvider interface {
-	EvmMinGasPrice() *big.Int
-}
-
-// EvmMinGasPrice returns the wrapped application's minimum admitted
-// effective gas price. It errors if that application does not expose one.
-func (app *Proxy) EvmMinGasPrice() (*big.Int, error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_min_gas_price", "sync"))()
-	provider, ok := app.app.(evmMinGasPriceProvider)
-	if !ok {
-		return nil, fmt.Errorf("application does not expose an EVM minimum gas price")
-	}
-	return provider.EvmMinGasPrice(), nil
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {

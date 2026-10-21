@@ -77,7 +77,7 @@ func TestPrepareApplicationFullModeOpensStateStore(t *testing.T) {
 	validator := makeValidator([]byte("full-validator"), []byte("full-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, _, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeFull},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, abci.BaseApplication{}, gigaconfig.DefaultConfig)
@@ -94,7 +94,7 @@ func TestPrepareApplicationReceiptsOffOpensNoReceiptStore(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Storage.Receipts = false
 
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, _, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, abci.BaseApplication{}, giga)
@@ -111,7 +111,7 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	giga := gigaconfig.DefaultConfig
 	giga.Execution.MinGasPrice = 2_000_000_000
 
-	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+	_, evmApp, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, abci.BaseApplication{}, giga)
@@ -120,7 +120,7 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	provider, ok := prepared.(interface{ EvmMinGasPrice() *big.Int })
+	evm, ok := evmApp.Get()
 	require.True(t, ok)
-	require.Equal(t, 0, provider.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
+	require.Equal(t, 0, evm.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
 }
