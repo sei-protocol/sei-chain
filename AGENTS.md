@@ -17,6 +17,11 @@ progressively the deeper you go. Existing package guides include:
 - `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
 - `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
 
+## Changelogs
+
+Do not modify any `CHANGELOG.md` file in this repository. Changelogs are maintained
+separately as part of the release process.
+
 ## Configuration reads
 
 How a seid node resolves configuration is pinned by the characterization suite in
