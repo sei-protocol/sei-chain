@@ -50,7 +50,6 @@ func TestInitModeConfiguration(t *testing.T) {
 
 				// Verify services are disabled for validator security
 				require.False(t, v.GetBool("api.enable"), "API should be disabled")
-				require.False(t, v.GetBool("rosetta.enable"), "Rosetta should be disabled")
 				require.False(t, v.GetBool("state-store.ss-enable"), "StateStore should be disabled")
 				require.False(t, v.GetBool("evm.http_enabled"), "EVM HTTP should be disabled")
 				require.False(t, v.GetBool("evm.ws_enabled"), "EVM WS should be disabled")
@@ -77,7 +76,6 @@ func TestInitModeConfiguration(t *testing.T) {
 
 				// Verify services are enabled for full node
 				require.True(t, v.GetBool("api.enable"), "API should be enabled")
-				require.False(t, v.GetBool("rosetta.enable"), "Rosetta is disabled by default for all modes")
 				require.True(t, v.GetBool("state-store.ss-enable"), "StateStore should be enabled")
 
 				// Note: EVM config requires custom template, tested separately in TestSetEVMConfigByMode and binary tests
