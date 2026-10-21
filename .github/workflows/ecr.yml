@@ -14,6 +14,14 @@ on:
       tag:
         description: 'Tag'
         required: false
+      variant:
+        description: 'Images to build: all, or mock for the mock-balances image only'
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - mock
 
 jobs:
   publisher:
@@ -64,6 +72,7 @@ jobs:
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_balances
       - name: Build and push seid with mock block validation
+        if: inputs.variant != 'mock'
         uses: docker/build-push-action@v6
         with:
           context: '.'
@@ -76,6 +85,7 @@ jobs:
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_block_validation
       - name: Build and push seid with mock chain validation
+        if: inputs.variant != 'mock'
         uses: docker/build-push-action@v6
         with:
           context: '.'
@@ -88,6 +98,7 @@ jobs:
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_chain_validation
       - name: Build and push seid
+        if: inputs.variant != 'mock'
         uses: docker/build-push-action@v6
         with:
           context: '.'
