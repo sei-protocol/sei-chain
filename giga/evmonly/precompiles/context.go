@@ -14,12 +14,22 @@ var ErrCustomPrecompilesOpen = errors.New("evm-only custom precompiles are not i
 type Registry interface {
 	Get(common.Address) (Contract, bool)
 	Addresses() []common.Address
+	// EndBlockers returns the addresses whose contracts run EndBlock, in the
+	// order they run.
+	EndBlockers() []common.Address
 }
 
 // Contract is the sdk.Context-free custom precompile interface.
 type Contract interface {
 	RequiredGas(input []byte) uint64
 	Run(*Context, []byte) ([]byte, error)
+}
+
+// EndBlocker is a Contract that also runs once at the end of every block, after
+// the block's transactions. Its writes land in the block's changeset, and a
+// returned error fails the block.
+type EndBlocker interface {
+	EndBlock(BlockContext, State) error
 }
 
 // Context is the only execution context custom precompiles should receive in
@@ -30,10 +40,12 @@ type Context struct {
 	ApparentValue *big.Int
 	ReadOnly      bool
 	DelegateCall  bool
-	GasRemaining  uint64
-	Block         BlockContext
-	State         State
-	Logs          LogSink
+	// GasRemaining is the call's gas after RequiredGas, as Run begins. Storage
+	// reads draw on it.
+	GasRemaining uint64
+	Block        BlockContext
+	State        State
+	Logs         LogSink
 }
 
 // BlockContext is the block data custom precompiles may read.
@@ -58,8 +70,6 @@ type State interface {
 	GetCode(common.Address) []byte
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)
-	GetCustom([]byte) ([]byte, bool)
-	SetCustom([]byte, []byte)
 }
 
 // LogSink lets custom precompiles emit Ethereum logs without Cosmos events.

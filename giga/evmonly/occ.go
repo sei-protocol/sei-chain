@@ -255,7 +255,7 @@ func (e *Executor) executeTxSpeculative(
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	stateDB.enableAccessTracking()
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
+	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(

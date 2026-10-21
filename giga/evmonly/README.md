@@ -15,9 +15,9 @@ The target execution model is based on the `sei-v3` executor:
 
 The current implementation executes raw RLP transactions with go-ethereum
 against an EVM-native state backend, then returns a changeset plus Ethereum
-receipts. Custom precompiles are still placeholders. The open work is to port
-them behind an EVM-native context that is visible to the executor's conflict
-tracking without reintroducing Cosmos keeper dependencies.
+receipts. Custom precompiles are being ported, one at a time, behind an
+EVM-native context that is visible to the executor's conflict tracking without
+reintroducing Cosmos keeper dependencies.
 
 ## Current implementation
 
@@ -37,7 +37,7 @@ The `evmonly` package currently provides:
   runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
-- fail-closed custom precompile placeholders
+- native custom precompiles run from a `precompiles.Registry`
 - a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
   generated transfer blocks through the in-memory giga store
 
@@ -200,9 +200,19 @@ state as contract storage owned by that precompile address. With no range reads
 and no side state, precompile reads and writes can then flow through ordinary
 `(address, slot)` storage tracking.
 
-Until that design is implemented, the `evmonly` executor accepts a custom
-precompile registry only as a fail-closed placeholder. Calls to registered
-custom precompile addresses return `ErrCustomPrecompilesOpen`.
+A registered `precompiles.Contract` runs against the calling EVM's StateDB, so
+its reads and writes are tracked, for OCC included, and reverted like any other
+call's. After its flat `RequiredGas`, each storage read it makes is charged as
+an EIP-2929 SLOAD. An address registered without a contract stays a fail-closed
+placeholder that returns `ErrCustomPrecompilesOpen`.
+
+A contract that implements `precompiles.EndBlocker` runs once at the end of
+every block, empty blocks included, after the block's transactions. The
+registry's `EndBlockers` lists them in run order, and a registered EndBlocker
+left off that list is a construction-time panic. End blockers run on a fresh
+StateDB over the transactions' changeset; their writes are merged into it,
+keeping each entry's prior value from before the block. An error fails the
+block.
 
 ## Block-STM execution
 

@@ -27,6 +27,8 @@ type Executor struct {
 	occPool          *occWorkerPool
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
+	endBlockers      []endBlocker
+	customContracts  map[common.Address]vm.PrecompiledContract
 	storeMu          sync.Mutex
 	stateStore       gigatypes.StateDB
 	receiptStore     receipt.ReceiptStore
@@ -92,9 +94,11 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:         cfg.WithDefaults(),
-		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: newBlockPhases(),
+		cfg:             cfg.WithDefaults(),
+		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases:     newBlockPhases(),
+		endBlockers:     customEndBlockers(cfg.CustomPrecompiles),
+		customContracts: customPrecompileMap(cfg.CustomPrecompiles),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -207,6 +211,18 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
+	result, err := e.executeBlockTxs(ctx, req, source)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.runEndBlockers(req.Context, source, result); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
+}
+
+func (e *Executor) executeBlockTxs(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
@@ -238,13 +254,7 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 }
 
 func (e *Executor) useOCC(txCount int) bool {
-	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
-		return false
-	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.closed.Load() && e.cfg.OCCWorkers > 1 && txCount > 1
 }
 
 func (e *Executor) acquireStateDB(source StateReader) *nativeStateDB {
@@ -273,7 +283,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := buildBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, e.customContracts)
 	stateDB.SetEVM(evm)
 
 	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
@@ -516,7 +526,12 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Pr
 	}
 	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
 	for _, addr := range addresses {
-		contracts[addr] = unresolvedCustomPrecompile{}
+		contract, ok := registry.Get(addr)
+		if !ok || contract == nil {
+			contracts[addr] = unresolvedCustomPrecompile{}
+			continue
+		}
+		contracts[addr] = registeredCustomPrecompile{address: addr, contract: contract}
 	}
 	return contracts
 }
