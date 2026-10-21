@@ -37,6 +37,10 @@ const (
 	// Tendermint full-node start flags
 	flagAddress            = "address"
 	flagTransport          = "transport"
+	flagGRPCEnable         = "grpc.enable"
+	flagGRPCAddress        = "grpc.address"
+	flagGRPCWebEnable      = "grpc-web.enable"
+	flagGRPCWebAddress     = "grpc-web.address"
 	flagTraceStore         = "trace-store"
 	flagCPUProfile         = "cpu-profile"
 	FlagMinGasPrices       = "minimum-gas-prices"
@@ -227,6 +231,12 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
 	mustMarkDeprecated(cmd, flagAddress, "out-of-process ABCI has been removed; this flag is ignored")
 	mustMarkDeprecated(cmd, flagTransport, "out-of-process ABCI has been removed; this flag is ignored")
+
+	const grpcRemoved = "the gRPC and gRPC-Web servers have been removed; this flag is ignored"
+	mustMarkDeprecatedBool(cmd, flagGRPCEnable, grpcRemoved)
+	mustMarkDeprecated(cmd, flagGRPCAddress, grpcRemoved)
+	mustMarkDeprecatedBool(cmd, flagGRPCWebEnable, grpcRemoved)
+	mustMarkDeprecated(cmd, flagGRPCWebAddress, grpcRemoved)
 }
 
 func injectTelemetryChainID(cfg telemetry.Config, chainID string) telemetry.Config {
@@ -244,6 +254,13 @@ func injectTelemetryChainID(cfg telemetry.Config, chainID string) telemetry.Conf
 
 func mustMarkDeprecated(cmd *cobra.Command, name, message string) {
 	cmd.Flags().String(name, "", "")
+	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
+		panic(err)
+	}
+}
+
+func mustMarkDeprecatedBool(cmd *cobra.Command, name, message string) {
+	cmd.Flags().Bool(name, false, "")
 	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
 		panic(err)
 	}
@@ -295,6 +312,9 @@ func startInProcess(
 		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
+	}
+	if config.Rosetta.Enable {
+		logger.Error("WARNING: rosetta.enable is set in app.toml, but seid no longer starts the Rosetta API server; the setting is ignored")
 	}
 	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
 	defer func() {

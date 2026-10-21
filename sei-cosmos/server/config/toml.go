@@ -201,7 +201,7 @@ enabled-unsafe-cors = {{ .API.EnableUnsafeCORS }}
 
 [rosetta]
 
-# Enable defines if the Rosetta API server should be enabled.
+# Enable is no longer read: seid start does not run the Rosetta API server.
 enable = {{ .Rosetta.Enable }}
 
 # Address defines the Rosetta API server to listen on.
