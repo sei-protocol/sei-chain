@@ -672,7 +672,7 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 	store := newTestBlockStore(t, t.TempDir())
 	state := newTestState(t, &Config{Registry: registry}, store)
 	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, epoch.FirstRoad(0), ep.FirstBlock())
+	qc, blocks := commitQCAtRoad(ep, keys, ep.RoadRange().First, ep.FirstBlock())
 	n := qc.QC().GlobalRange().Next - 1
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {

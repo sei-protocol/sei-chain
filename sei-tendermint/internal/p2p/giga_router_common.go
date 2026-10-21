@@ -94,6 +94,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.PersistentStateDir == "" {
 		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
 	}
+	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight)          // nolint:gosec // verified to be positive.
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -103,7 +104,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
+	registry, err := epoch.NewRegistry(genesisCommittee, firstRoad, firstBlock, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}

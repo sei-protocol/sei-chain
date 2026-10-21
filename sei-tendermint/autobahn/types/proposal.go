@@ -129,16 +129,19 @@ func (v View) Next() View {
 
 // ConsensusSpec is the durable CommitQC tip paired with the epoch of the
 // RoadIndex that follows it. CommitQC is None before the first tip; until then
-// Epoch is genesis epoch 0 (and FirstBlock is the next global block). Consensus
-// advances with a spec verbatim.
+// Epoch is genesis epoch 0. Consensus advances with a spec verbatim.
 type ConsensusSpec struct {
 	CommitQC utils.Option[*CommitQC]
 	Epoch    *Epoch
 }
 
-// Index is the RoadIndex of the next view: CommitQC.Index()+1, or 0 if there is no tip.
+// Index is the RoadIndex of the next view: CommitQC.Index()+1, or the start of
+// the genesis epoch if there is no tip.
 func (s ConsensusSpec) Index() RoadIndex {
-	return NextIndexOpt(s.CommitQC)
+	if qc, ok := s.CommitQC.Get(); ok {
+		return qc.Index() + 1
+	}
+	return s.Epoch.RoadRange().First
 }
 
 // ViewSpec is ConsensusSpec plus the TimeoutQC for the current view number.
@@ -152,7 +155,8 @@ type ViewSpec struct {
 }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
-// CommitQC is None only at global block 0 (genesis), in which case it returns Epoch[0].FirstBlock.
+// CommitQC is None only before the first global block, in which case it returns
+// the genesis epoch's first block.
 // For all other views, including the first view of a non-genesis epoch, CommitQC is present and it returns CommitQC.GlobalRange().Next.
 func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 	if cQC, ok := vs.CommitQC.Get(); ok {

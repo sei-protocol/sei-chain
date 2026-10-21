@@ -492,6 +492,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 	regDir := utils.Some(t.TempDir())
 	registry := utils.OrPanic1(epoch.NewRegistry(
 		base.MustEpoch(0).Committee(),
+		base.FirstRoad(),
 		base.FirstBlock(),
 		base.GenesisTimestamp(),
 		regDir,
@@ -525,6 +526,7 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 
 	registry2 := utils.OrPanic1(epoch.NewRegistry(
 		base.MustEpoch(0).Committee(),
+		base.FirstRoad(),
 		base.FirstBlock(),
 		base.GenesisTimestamp(),
 		regDir,

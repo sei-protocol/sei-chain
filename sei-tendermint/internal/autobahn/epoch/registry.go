@@ -133,16 +133,20 @@ type Registry struct {
 	persister persist.Persister[*pb.PersistedEpochRegistry]
 }
 
-// NewRegistry returns a Registry with epochs 0 and 1 using committee, firstBlock,
-// and genesisTimestamp. stateDir Some opens the epoch snapshot and restores its
-// live and pending committees; None keeps the registry in memory only.
+// NewRegistry returns a Registry with epochs 0 and 1 using committee, firstRoad,
+// firstBlock, and genesisTimestamp. stateDir Some opens the epoch snapshot and
+// restores its live and pending committees; None keeps the registry in memory only.
 func NewRegistry(
 	committee *types.Committee,
+	firstRoad types.RoadIndex,
 	firstBlock types.GlobalBlockNumber,
 	genesisTimestamp time.Time,
 	stateDir utils.Option[string],
 ) (*Registry, error) {
-	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, genesisTimestamp, committee, firstBlock)
+	if firstRoad >= FirstRoad(1) {
+		return nil, fmt.Errorf("first road %d is outside epoch 0", firstRoad)
+	}
+	ep0 := types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: FirstRoad(1)}, genesisTimestamp, committee, firstBlock)
 	ep1 := types.NewEpoch(1, types.RoadRange{First: FirstRoad(1), Next: FirstRoad(2)}, genesisTimestamp, committee, firstBlock)
 	state := &registryState{
 		m:       map[types.EpochIndex]*types.Epoch{0: ep0, 1: ep1},
@@ -162,6 +166,14 @@ func NewRegistry(
 		state:     utils.NewWatch(state),
 		persister: persister,
 	}, nil
+}
+
+// FirstRoad returns the genesis epoch's first road index.
+func (r *Registry) FirstRoad() types.RoadIndex {
+	for s := range r.state.Lock() {
+		return s.m[0].RoadRange().First
+	}
+	panic("unreachable")
 }
 
 // FirstBlock returns the genesis epoch's first global block number.
@@ -200,6 +212,9 @@ func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, error) {
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	epochIdx := IndexForRoad(roadIndex)
 	for s := range r.state.Lock() {
+		if roadIndex < s.m[0].RoadRange().First {
+			return nil, fmt.Errorf("road %d: %w", roadIndex, types.ErrPruned)
+		}
 		if s.dropped(epochIdx) {
 			return nil, fmt.Errorf("epoch %d (road %d): %w", epochIdx, roadIndex, types.ErrPruned)
 		}

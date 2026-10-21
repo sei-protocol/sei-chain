@@ -970,7 +970,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			stay.Public(): 1, leaver.Public(): 1, a.Public(): 1, b.Public(): 1,
 		})
 		require.NoError(t, err)
-		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[string]())
+		registry, err := epoch.NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]())
 		require.NoError(t, err)
 		ds := newTestDataState(&data.Config{Registry: registry})
 		state, err := NewState(stay, ds, utils.None[string]())
