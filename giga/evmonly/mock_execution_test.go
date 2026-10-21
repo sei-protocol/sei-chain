@@ -155,3 +155,58 @@ func TestMockExecutionRejectsAStaleNonceWithoutChangingState(t *testing.T) {
 	require.Empty(t, result.ChangeSet.Balances)
 	require.Empty(t, result.ChangeSet.Nonces)
 }
+
+func TestParallelMockMatchesTheContractAndTheSerialMock(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	deployer, err := crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
+	require.NoError(t, err)
+	runtime := seiLoadERC20Runtime(t, chainID, deployer)
+	token := testAddress(0xe2)
+	senders := make([]*ecdsa.PrivateKey, 10)
+	for i := range senders {
+		senders[i], err = crypto.GenerateKey()
+		require.NoError(t, err)
+	}
+	var txs [][]byte
+	for n := range uint64(20) {
+		for i, key := range senders {
+			to := crypto.PubkeyToAddress(senders[(i+int(n)+1)%len(senders)].PublicKey)
+			txs = append(txs, signLegacyTx(t, key, chainID, n, &token, big.NewInt(0), mockERC20TransferData(t, to, int64(n%3)+1)))
+		}
+	}
+	run := func(cfg Config) *BlockResult {
+		state := NewMemoryState()
+		for _, key := range senders {
+			state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(100*testFundedBalanceWei))
+		}
+		state.SetCode(token, runtime)
+		executor := NewExecutor(cfg, withTestState(state))
+		t.Cleanup(executor.Close)
+		ctx := blockContext(chainID)
+		ctx.GasLimit = 300_000_000
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: ctx, Txs: txs})
+		require.NoError(t, err)
+		require.Len(t, result.Txs, len(txs))
+		return result
+	}
+	real := run(Config{})
+	serial := run(Config{MockExecution: true})
+	parallel := run(Config{MockExecution: true, OCCWorkers: 8})
+
+	require.NotEmpty(t, real.ChangeSet.Storage)
+	require.Equal(t, real.ChangeSet.Storage, parallel.ChangeSet.Storage)
+	require.Equal(t, real.ChangeSet.Nonces, parallel.ChangeSet.Nonces)
+	require.Equal(t, serial.ChangeSet, parallel.ChangeSet)
+	for i := range real.Receipts {
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, parallel.Receipts[i].Status, "tx %d", i)
+		require.Equal(t, serial.Receipts[i].Bloom, parallel.Receipts[i].Bloom, "tx %d", i)
+		require.Equal(t, real.Receipts[i].Bloom, parallel.Receipts[i].Bloom, "tx %d", i)
+		require.Len(t, parallel.Receipts[i].Logs, len(real.Receipts[i].Logs), "tx %d", i)
+		for j, want := range real.Receipts[i].Logs {
+			got := parallel.Receipts[i].Logs[j]
+			require.Equal(t, want.Topics, got.Topics)
+			require.Equal(t, want.Data, got.Data)
+			require.Equal(t, want.Index, got.Index)
+		}
+	}
+}
