@@ -20,7 +20,7 @@ COMMIT := $(shell git log -1 --format='%H')
 BUILDDIR ?= $(CURDIR)/build
 INVARIANT_CHECK_INTERVAL ?= $(INVARIANT_CHECK_INTERVAL:-0)
 # Pinned here so the lint targets and .github/workflows/golangci.yml cannot drift apart.
-GOLANGCI_LINT := GOTOOLCHAIN=$(shell ./scripts/go-toolchain.sh) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+GOLANGCI_LINT := GOTOOLCHAIN=$(shell ./scripts/go-toolchain.sh) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 # Parent of the Go module cache. Derived from `go env GOMODCACHE` so that the
 # container/compose mounts (`$(GO_PKG_PATH)/mod`) follow a relocated GOMODCACHE
@@ -165,9 +165,6 @@ install-rocksdb: go.sum
 	go install $(BUILD_FLAGS) -tags "$(build_tags) rocksdbBackend" ./cmd/seid
 	@echo "seid installed with RocksDB backend support!"
 
-loadtest: go.sum
-		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
-
 go.sum: go.mod
 		@echo "--> Ensure dependencies have not been modified"
 		@go mod verify
@@ -217,10 +214,6 @@ build-verbose:
 clean:
 	rm -rf ./build
 .PHONY: clean
-
-build-loadtest:
-	go build -o build/loadtest ./loadtest/
-.PHONY: build-loadtest
 
 build-evmonly-loadtest:
 	mkdir -p ./build
