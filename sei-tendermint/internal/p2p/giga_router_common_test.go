@@ -101,6 +101,26 @@ func TestCommitHashToVault(t *testing.T) {
 	})
 }
 
+// TestHashVaultWithoutFsyncStillGuardsEquivocation asserts that dropping fsync keeps the vault's
+// guard: a recorded hash is accepted again and a different hash for the same height halts.
+func TestHashVaultWithoutFsyncStillGuardsEquivocation(t *testing.T) {
+	const height atypes.GlobalBlockNumber = 7
+	h1 := make([]byte, hashvault.BlockHashSize)
+	h2 := make([]byte, hashvault.BlockHashSize)
+	h2[0] = 1
+
+	vault, err := buildHashVault(t.Context(), &GigaRouterCommonConfig{
+		PersistentStateDir:           t.TempDir(),
+		HashVaultFsyncDisabledUnsafe: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = vault.Close(context.Background()) })
+
+	require.NoError(t, commitAppHashToVault(t.Context(), vault, height, h1))
+	require.NoError(t, commitAppHashToVault(t.Context(), vault, height, h1))
+	require.Panics(t, func() { _ = commitAppHashToVault(t.Context(), vault, height, h2) })
+}
+
 func TestFinalizeBlockGasUsed(t *testing.T) {
 	resp := &abci.ResponseFinalizeBlock{
 		TxResults: []*abci.ExecTxResult{

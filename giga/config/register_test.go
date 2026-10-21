@@ -25,6 +25,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagStoragePruneInterval,
 		FlagStorageCheckpointTimeInterval,
 		FlagStorageCheckpointBlockInterval,
+		FlagStorageHashVaultFsyncDisabled,
 		FlagExecutionMinGasPrice,
 		FlagExecutionOCCWorkers,
 		FlagExecutionParseWorkers,

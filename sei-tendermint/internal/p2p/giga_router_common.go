@@ -353,7 +353,8 @@ func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
 // returns a durable Pebble-backed vault rooted at <PersistentStateDir>/hashvault, alongside the
 // other Autobahn on-disk state. It returns a no-op vault (no protection) when the operator
-// explicitly sets HashVaultDisabledUnsafe, logged loudly.
+// explicitly sets HashVaultDisabledUnsafe, and a vault that writes without fsync when the operator
+// sets HashVaultFsyncDisabledUnsafe, both logged loudly.
 func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault.HashVault, error) {
 	if cfg.HashVaultDisabledUnsafe {
 		logger.Error("################################################################")
@@ -366,6 +367,12 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 	}
 	hvCfg := hashvault.DefaultHashVaultConfig()
 	hvCfg.DataDir = filepath.Join(cfg.PersistentStateDir, "hashvault")
+	if cfg.HashVaultFsyncDisabledUnsafe {
+		logger.Error("HASHVAULT FSYNC DISABLED (giga.storage.hash_vault_fsync_disabled_unsafe=true): " +
+			"a crash can lose the latest recorded app hash; load tests only")
+		hvCfg.Fsync = false
+		return hashvault.NewUnsafePebbleHashVault(ctx, hvCfg)
+	}
 	return hashvault.NewPebbleHashVault(ctx, hvCfg)
 }
 
