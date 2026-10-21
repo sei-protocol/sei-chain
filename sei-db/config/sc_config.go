@@ -110,7 +110,7 @@ type StateCommitConfig struct {
 	// State proofs are disabled by default.
 	EnableStateProof bool `mapstructure:"enable-state-proof"`
 
-	// Max concurrent /subspace queries across the SS and commitment paths.
+	// Max concurrent /subspace queries. Only nodes with SS enabled serve /subspace.
 	SubspaceQueryMaxInFlight int `mapstructure:"subspace-query-max-inflight"`
 
 	// Max key/value pairs a /subspace scan may return.

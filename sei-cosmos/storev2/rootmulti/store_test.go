@@ -80,16 +80,16 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
-// newStateProofTestStore opens a store with SS disabled, in which bank key "k" is "v1" at height 1 and
-// "v2" at height 2.
-func newStateProofTestStore(t *testing.T, enableStateProof bool) *Store {
+// newStateProofTestStore opens a store in which bank key "k" is "v1" at height 1 and "v2" at height 2.
+// With ssEnabled, it returns once SS has both heights.
+func newStateProofTestStore(t *testing.T, enableStateProof, ssEnabled bool) *Store {
 	t.Helper()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
 	scCfg.EnableStateProof = enableStateProof
 	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Enable = false
+	ssCfg.Enable = ssEnabled
 
 	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
 	t.Cleanup(func() { _ = store.Close() })
@@ -101,6 +101,9 @@ func newStateProofTestStore(t *testing.T, enableStateProof bool) *Store {
 		kv := store.GetStoreByName("bank").(types.KVStore)
 		kv.Set([]byte("k"), val)
 		require.Equal(t, int64(i+1), store.Commit(true).Version)
+	}
+	if ssEnabled {
+		waitUntilSSVersion(t, store, 2)
 	}
 	return store
 }
@@ -115,7 +118,7 @@ var stateProofTestHeights = []struct {
 }
 
 func TestQuery_StateProofDisabledByDefault(t *testing.T) {
-	store := newStateProofTestStore(t, false)
+	store := newStateProofTestStore(t, false, false)
 
 	for _, tc := range stateProofTestHeights {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,9 +145,10 @@ func TestQuery_StateProofDisabledByDefault(t *testing.T) {
 }
 
 // TestQuery_StateProofDisabledAdmitsProveOnSubspace pins that the guard rejects only paths that
-// produce a proof: a /subspace query asking for one is served unproven, as before.
+// produce a proof: on a node that serves /subspace, a /subspace query asking for one is served
+// unproven, as before.
 func TestQuery_StateProofDisabledAdmitsProveOnSubspace(t *testing.T) {
-	store := newStateProofTestStore(t, false)
+	store := newStateProofTestStore(t, false, true)
 
 	for _, tc := range stateProofTestHeights {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,7 +166,7 @@ func TestQuery_StateProofDisabledAdmitsProveOnSubspace(t *testing.T) {
 }
 
 func TestQuery_StateProofEnabledReturnsProofOps(t *testing.T) {
-	store := newStateProofTestStore(t, true)
+	store := newStateProofTestStore(t, true, false)
 
 	for _, tc := range stateProofTestHeights {
 		t.Run(tc.name, func(t *testing.T) {
@@ -670,65 +674,6 @@ func TestQuery_SubspaceSemaphoreRejectsWhenSaturated(t *testing.T) {
 	})
 	require.NotEqualValues(t, 0, resp.Code)
 	require.Contains(t, resp.Log, "subspace query busy")
-}
-
-// TestQuery_SubspaceSemaphoreCoversCommitmentPath pins that a /subspace query served by the
-// commitment store, with SS disabled, takes the same permit as the SS fast path, at both the latest
-// and a historical height, and hands it back when it completes.
-func TestQuery_SubspaceSemaphoreCoversCommitmentPath(t *testing.T) {
-	home := t.TempDir()
-	scCfg := config.DefaultStateCommitConfig()
-	scCfg.Enable = true
-	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	scCfg.HistoricalProofRateLimit = 0
-	scCfg.SubspaceQueryMaxInFlight = 1
-
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Enable = false
-
-	store := NewStore(home, scCfg, ssCfg, []string{})
-	defer func() { _ = store.Close() }()
-
-	key := types.NewKVStoreKey("bank")
-	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
-	require.NoError(t, store.LoadLatestVersion())
-
-	kv := store.GetStoreByName("bank").(types.KVStore)
-	kv.Set([]byte("ab1"), []byte("v1"))
-	c1 := store.Commit(true)
-	require.Equal(t, int64(1), c1.Version)
-
-	kv = store.GetStoreByName("bank").(types.KVStore)
-	kv.Set([]byte("ab2"), []byte("v2"))
-	c2 := store.Commit(true)
-	require.Equal(t, int64(2), c2.Version)
-
-	for _, tc := range []struct {
-		name   string
-		height int64
-	}{
-		{name: "latest", height: c2.Version},
-		{name: "historical", height: c1.Version},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := abci.RequestQuery{
-				Path:   "/bank/subspace",
-				Data:   []byte("ab"),
-				Height: tc.height,
-			}
-
-			store.subspaceQuerySem <- struct{}{}
-			busy := store.Query(t.Context(), req)
-			<-store.subspaceQuerySem
-			require.NotEqualValues(t, 0, busy.Code)
-			require.Contains(t, busy.Log, "subspace query busy")
-
-			served := store.Query(t.Context(), req)
-			require.EqualValues(t, 0, served.Code)
-			require.NotEmpty(t, served.Value)
-			require.Empty(t, store.subspaceQuerySem, "permit was not released after the scan")
-		})
-	}
 }
 
 func TestQuery_SubspaceNarrowPrefixAndKeyUnaffected(t *testing.T) {

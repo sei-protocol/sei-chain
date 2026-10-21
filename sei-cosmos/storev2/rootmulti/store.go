@@ -61,8 +61,7 @@ type Store struct {
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
-	// subspaceQuerySem bounds concurrent /subspace scans on every query path, SS and
-	// commitment alike.
+	// subspaceQuerySem bounds concurrent /subspace scans. Only the SS path serves /subspace.
 	subspaceQuerySem chan struct{}
 	subspaceLimits   query.Limits
 
@@ -1022,6 +1021,9 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	req.Height = version // keep downstream store.Query height consistent
 
 	if subPath == "/subspace" {
+		if rs.ssStore == nil {
+			return rs.rejectSubspaceWithoutSS(ctx)
+		}
 		if err := rs.admitSubspaceQuery(ctx); err != nil {
 			return sdkerrors.QueryResult(err)
 		}
@@ -1118,8 +1120,7 @@ func (rs *Store) admitProofQuery(ctx context.Context, storeName string, latest b
 }
 
 // admitSubspaceQuery takes a /subspace permit, or records the rejection and returns why it failed.
-// The caller must release a taken permit. The permits bound concurrent /subspace scans on every
-// backend, SS and commitment, at the latest and at historical heights.
+// The caller must release a taken permit. The permits bound concurrent /subspace scans.
 func (rs *Store) admitSubspaceQuery(ctx context.Context) error {
 	if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
 		storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
@@ -1128,6 +1129,15 @@ func (rs *Store) admitSubspaceQuery(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// rejectSubspaceWithoutSS refuses a /subspace query on a node with SS disabled and records the
+// rejection. /subspace is served only from the state store.
+func (rs *Store) rejectSubspaceWithoutSS(ctx context.Context) abci.ResponseQuery {
+	storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+		attribute.String("reason", "ss_disabled"),
+	))
+	return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrNotSupported, "subspace queries require the state store"))
 }
 
 func (rs *Store) tryAcquireSubspaceQueryPermit() error {
