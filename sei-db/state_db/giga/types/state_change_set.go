@@ -47,9 +47,9 @@ func (c *StateChangeSet) IsEmpty() bool {
 		len(c.StorageClears) == 0 && len(c.Storage) == 0
 }
 
-// Clone returns a deep copy of the set, or nil when the set is nil or empty.
+// Clone returns a deep copy of the set, nil for a nil set.
 func (c *StateChangeSet) Clone() *StateChangeSet {
-	if c == nil || c.IsEmpty() {
+	if c == nil {
 		return nil
 	}
 	cp := &StateChangeSet{

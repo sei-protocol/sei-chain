@@ -36,10 +36,13 @@ func TestCloneSurvivesTheOriginalBeingReused(t *testing.T) {
 	require.Equal(t, fullChangeSet(), clone)
 }
 
-func TestCloneOfNilOrEmptyIsNil(t *testing.T) {
+// A clone of no set is no set, and a clone of an empty set is an empty set.
+func TestCloneKeepsNilAndEmptyApart(t *testing.T) {
 	var nilSet *StateChangeSet
 	require.Nil(t, nilSet.Clone())
-	require.Nil(t, (&StateChangeSet{}).Clone())
+	clone := (&StateChangeSet{}).Clone()
+	require.NotNil(t, clone)
+	require.True(t, clone.IsEmpty())
 }
 
 func TestCloneTurnsNilBalancesIntoZero(t *testing.T) {
