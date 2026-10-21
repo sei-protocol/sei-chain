@@ -232,6 +232,14 @@ func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.
 	require.NoError(t, settler.AwaitCommits())
 	height, err := storage.SC().GetLatestVersion()
 	require.NoError(t, err)
+	// These tests execute the app directly, so the router's pre-execution
+	// ReportBlockHash does not run. The builder still needs one block hash per
+	// committed height before it can store the app hash a reopen reads.
+	stored, err := storage.AppHashVault().GetLatestBlock()
+	require.NoError(t, err)
+	for n := stored + 1; n <= uint64(height); n++ { //nolint:gosec // G115: state heights are non-negative.
+		require.NoError(t, storage.AppHashBuilder().ReportBlockHash(context.Background(), n, [32]byte{}))
+	}
 	require.Eventually(t, func() bool {
 		head, err := storage.AppHashVault().GetLatestBlock()
 		require.NoError(t, err)
