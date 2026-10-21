@@ -1,17 +1,15 @@
 package statewal
 
 import (
-	"encoding/binary"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal/statewaltest"
 )
 
 func makeChangeSet(name string, key []byte, value []byte) *proto.NamedChangeSet {
@@ -31,31 +29,6 @@ func makeMutation(moduleName string, key []byte, value []byte) mutation.Mutation
 	}
 }
 
-// serializeChangesets encodes a changeset list in the changeset format, [version]([uvarint length][marshaled])*,
-// which earlier releases wrote and this one only reads.
-func serializeChangesets(cs []*proto.NamedChangeSet) ([]byte, error) {
-	buf := []byte{changesetFormatVersion}
-	var scratch [binary.MaxVarintLen64]byte
-	for _, ncs := range cs {
-		if ncs == nil {
-			return nil, fmt.Errorf("changeset is nil")
-		}
-		marshaled, err := ncs.Marshal()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal changeset: %w", err)
-		}
-		n := binary.PutUvarint(scratch[:], uint64(len(marshaled)))
-		buf = append(buf, scratch[:n]...)
-		buf = append(buf, marshaled...)
-	}
-	return buf, nil
-}
-
-// serializeChangeSetRecord encodes a record holding changesets in the changeset format.
-func serializeChangeSetRecord(record stateWALRecord) ([]byte, error) {
-	return serializeChangesets(record.changeSets)
-}
-
 func TestRecordRoundTrip(t *testing.T) {
 	mutations := []mutation.Mutation{
 		makeMutation("bank", []byte("a"), []byte("1")),
@@ -72,7 +45,7 @@ func TestRecordRoundTrip(t *testing.T) {
 
 func TestDeserializeRecordReadsChangeSetFormat(t *testing.T) {
 	changeSets := []*proto.NamedChangeSet{makeChangeSet("bank", []byte("a"), []byte("1"))}
-	data, err := serializeChangesets(changeSets)
+	data, err := statewaltest.SerializeLegacyStateWALBlock(changeSets)
 	require.NoError(t, err)
 
 	record, err := deserializeRecord(data)
@@ -107,14 +80,8 @@ func TestWALReadsBothRecordFormats(t *testing.T) {
 			makeChangeSet("staking", []byte("c"), []byte("3")),
 		},
 	}
-	legacyWAL, err := seiwal.NewGenericWAL[stateWALRecord](
-		cfg.toSeiwalConfig(), serializeChangeSetRecord, deserializeRecord)
-	require.NoError(t, err)
-	for block := uint64(1); block <= 2; block++ {
-		record := stateWALRecord{changeSets: legacy[block], isChangeSetFormat: true}
-		require.NoError(t, legacyWAL.Append(block, record))
-	}
-	require.NoError(t, legacyWAL.Close())
+	legacyBlocks := [][]*proto.NamedChangeSet{legacy[1], legacy[2]}
+	require.NoError(t, statewaltest.WriteLegacyStateWALBlocks(cfg.Path, 1, legacyBlocks))
 
 	written := map[uint64][]mutation.Mutation{
 		3: {makeMutation("bank", []byte("a"), []byte("4"))},
@@ -122,7 +89,7 @@ func TestWALReadsBothRecordFormats(t *testing.T) {
 	}
 	w := openWAL(t, cfg)
 	recorder := &hashRecorder{}
-	_, _, _, err = w.RegisterHashListener(recorder.listen)
+	_, _, _, err := w.RegisterHashListener(recorder.listen)
 	require.NoError(t, err)
 	for block := uint64(3); block <= 4; block++ {
 		require.NoError(t, w.Write(block, written[block]))
@@ -190,7 +157,7 @@ func TestChangesetsRoundTrip(t *testing.T) {
 			makeChangeSet("evm", []byte("b"), []byte("2")),
 		}
 
-		data, err := serializeChangesets(cs)
+		data, err := statewaltest.SerializeLegacyStateWALBlock(cs)
 		require.NoError(t, err)
 		require.Equal(t, changesetFormatVersion, data[0], "payload must begin with the format version")
 
@@ -200,7 +167,7 @@ func TestChangesetsRoundTrip(t *testing.T) {
 	})
 
 	t.Run("empty changeset list", func(t *testing.T) {
-		data, err := serializeChangesets([]*proto.NamedChangeSet{})
+		data, err := statewaltest.SerializeLegacyStateWALBlock([]*proto.NamedChangeSet{})
 		require.NoError(t, err)
 		require.Equal(t, []byte{changesetFormatVersion}, data) // just the version byte
 
@@ -224,7 +191,7 @@ func TestDeserializeChangesetsTruncated(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		makeChangeSet("bank", []byte("hello"), []byte("world")),
 	}
-	data, err := serializeChangesets(cs)
+	data, err := statewaltest.SerializeLegacyStateWALBlock(cs)
 	require.NoError(t, err)
 
 	// Every strict prefix that reaches past the version byte is truncated. Because the enclosing record is
