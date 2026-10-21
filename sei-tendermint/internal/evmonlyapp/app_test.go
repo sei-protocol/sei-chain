@@ -218,6 +218,49 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 	return openEVMOnlyTestStorage(t, storageConfig)
 }
 
+// reportMissingBlockHashes reports a block hash for each committed height the app hash vault does
+// not yet hold, then waits until the vault stores the state version's app hash. It returns nil when
+// the state version is 0.
+func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
+	if manager.SC() == nil || manager.AppHashBuilder() == nil || manager.AppHashVault() == nil {
+		return fmt.Errorf("report missing block hashes: storage is not open")
+	}
+	version, err := manager.SC().GetLatestVersion()
+	if err != nil {
+		return fmt.Errorf("read state height: %w", err)
+	}
+	if version <= 0 {
+		return nil
+	}
+	//nolint:gosec // state heights are non-negative
+	height := uint64(version)
+	stored, err := manager.AppHashVault().GetLatestBlock()
+	if err != nil {
+		return fmt.Errorf("read app hash vault head: %w", err)
+	}
+	for n := stored + 1; n <= height; n++ {
+		var blockHash [32]byte
+		binary.BigEndian.PutUint64(blockHash[:8], n)
+		if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), n, blockHash); err != nil {
+			return fmt.Errorf("report the block hash of block %d: %w", n, err)
+		}
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		head, err := manager.AppHashVault().GetLatestBlock()
+		if err != nil {
+			return fmt.Errorf("read app hash vault head: %w", err)
+		}
+		if head >= height {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the app hash of block %d was not stored within 10s", height)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // closeEVMOnlyTestApp closes storage the way the node does: after the
 // application has landed every block commit it started.
 //
@@ -230,21 +273,7 @@ func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
 	require.NoError(t, settler.AwaitCommits())
-	height, err := storage.SC().GetLatestVersion()
-	require.NoError(t, err)
-	// These tests execute the app directly, so the router's pre-execution
-	// ReportBlockHash does not run. The builder still needs one block hash per
-	// committed height before it can store the app hash a reopen reads.
-	stored, err := storage.AppHashVault().GetLatestBlock()
-	require.NoError(t, err)
-	for n := stored + 1; n <= uint64(height); n++ { //nolint:gosec // G115: state heights are non-negative.
-		require.NoError(t, storage.AppHashBuilder().ReportBlockHash(context.Background(), n, [32]byte{}))
-	}
-	require.Eventually(t, func() bool {
-		head, err := storage.AppHashVault().GetLatestBlock()
-		require.NoError(t, err)
-		return head >= uint64(height) //nolint:gosec // G115: state heights are non-negative.
-	}, 10*time.Second, time.Millisecond, "app hash of block %d not stored", height)
+	require.NoError(t, reportMissingBlockHashes(storage))
 	require.NoError(t, storage.Close())
 }
 

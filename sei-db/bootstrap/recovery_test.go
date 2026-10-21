@@ -60,7 +60,6 @@ func evmBlock(addr, nonce byte) []*proto.NamedChangeSet {
 	}}
 }
 
-// commitBlocks commits blocks 1 through through, and waits until their app hashes are stored.
 // testBlockHash is the block hash execution would report for height. It is a function of the height
 // alone, so a block re-executed after a restart reports the same hash the vault already stored.
 func testBlockHash(height uint64) [32]byte {
@@ -76,6 +75,7 @@ func reportTestBlockHash(t *testing.T, manager *GigaStorageManager, height uint6
 	require.NoError(t, manager.AppHashBuilder().ReportBlockHash(t.Context(), height, testBlockHash(height)))
 }
 
+// commitBlocks commits blocks 1 through through, and waits until their app hashes are stored.
 func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {

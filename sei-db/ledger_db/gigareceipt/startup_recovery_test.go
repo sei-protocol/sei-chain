@@ -1,6 +1,9 @@
 package gigareceipt_test
 
 import (
+	"context"
+	"encoding/binary"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,7 +50,51 @@ func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, throu
 	}
 }
 
-// executeBlocks commits state and receipts for blocks [from, through], as executing them would.
+// reportMissingBlockHashes reports a block hash for each committed height the app hash vault does
+// not yet hold, then waits until the vault stores the state version's app hash. It returns nil when
+// the state version is 0.
+func reportMissingBlockHashes(manager *bootstrap.GigaStorageManager) error {
+	if manager.SC() == nil || manager.AppHashBuilder() == nil || manager.AppHashVault() == nil {
+		return fmt.Errorf("report missing block hashes: storage is not open")
+	}
+	version, err := manager.SC().GetLatestVersion()
+	if err != nil {
+		return fmt.Errorf("read state height: %w", err)
+	}
+	if version <= 0 {
+		return nil
+	}
+	//nolint:gosec // state heights are non-negative
+	height := uint64(version)
+	stored, err := manager.AppHashVault().GetLatestBlock()
+	if err != nil {
+		return fmt.Errorf("read app hash vault head: %w", err)
+	}
+	for n := stored + 1; n <= height; n++ {
+		var blockHash [32]byte
+		binary.BigEndian.PutUint64(blockHash[:8], n)
+		if err := manager.AppHashBuilder().ReportBlockHash(context.Background(), n, blockHash); err != nil {
+			return fmt.Errorf("report the block hash of block %d: %w", n, err)
+		}
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		head, err := manager.AppHashVault().GetLatestBlock()
+		if err != nil {
+			return fmt.Errorf("read app hash vault head: %w", err)
+		}
+		if head >= height {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the app hash of block %d was not stored within 10s", height)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// executeBlocks commits state and receipts for blocks [from, through], as executing them would, and
+// stores the app hash of every committed height the vault does not yet hold.
 func executeBlocks(t *testing.T, manager *bootstrap.GigaStorageManager, ctx sdk.Context, from, through uint64) {
 	t.Helper()
 	for block := from; block <= through; block++ {
@@ -59,6 +106,7 @@ func executeBlocks(t *testing.T, manager *bootstrap.GigaStorageManager, ctx sdk.
 	require.Eventually(t, func() bool {
 		return manager.ReceiptDB().LatestVersion() == int64(through) //nolint:gosec // small test heights
 	}, 5*time.Second, time.Millisecond)
+	require.NoError(t, reportMissingBlockHashes(manager))
 }
 
 // requireEveryReceiptOnce checks that every block in [1, through] has block stats and is returned exactly
