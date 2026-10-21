@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/big"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -254,6 +255,85 @@ func TestUndoStateDBServesPriorBalanceAndCode(t *testing.T) {
 	}
 }
 
+// A block that writes only outside the EVM module hands over an empty change set, and the undo log
+// takes it as a block that changed nothing.
+func TestUndoStateDBCommitsABlockThatWritesNoEVMState(t *testing.T) {
+	db := newUndoTestHome(t).open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	addr := common.Address{3}
+	require.NoError(t, db.CommitStateChangesWithPrior(1, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(1)}}}}},
+		&gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{{Address: addr, Nonce: 1}}}))
+
+	require.NoError(t, db.CommitStateChangesWithPrior(2, []*proto.NamedChangeSet{{Name: "cursor",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("head"), Value: []byte{2}}}}}}, &gigatypes.StateChangeSet{}))
+	db.UndoSS().WaitForPendingWrites()
+
+	require.Equal(t, int64(2), db.UndoSS().GetLatestVersion())
+	for height, want := range []uint64{0, 1, 1} {
+		view, ok := db.OpenViewAt(int64(height))
+		require.True(t, ok, "height %d", height)
+		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
+		view.Close()
+	}
+}
+
+// Seeding an empty SC to a later height, as InitChain does for a chain that starts above block 1, leaves
+// the undo log to resume on the seeded height at the first block.
+func TestUndoStateDBResumesOnASeededHeight(t *testing.T) {
+	db := newUndoTestHome(t).open(t)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.NoError(t, db.SC().SetInitialVersion(5))
+
+	addr := common.Address{4}
+	for block := int64(5); block <= 6; block++ {
+		nonce := uint64(block - 4) //nolint:gosec // positive
+		require.NoError(t, db.CommitStateChangesWithPrior(block, []*proto.NamedChangeSet{{Name: keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nonceKey(addr), Value: nonceValue(nonce)}}}}},
+			&gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{{Address: addr, Nonce: nonce, PriorNonce: nonce - 1}}}))
+	}
+	db.UndoSS().WaitForPendingWrites()
+
+	require.Equal(t, int64(4), db.UndoSS().GetEarliestVersion())
+	for height, want := range map[int64]uint64{4: 0, 5: 1, 6: 2} {
+		view, ok := db.OpenViewAt(height)
+		require.True(t, ok, "height %d", height)
+		require.Equal(t, want, view.GetNonce(addr), "height %d", height)
+		view.Close()
+	}
+}
+
+// An undo log that holds blocks over an empty SC, as left by wiping SC alone, is refused at open.
+func TestUndoStateDBRefusesAnUndoLogOverAnEmptySC(t *testing.T) {
+	home := newUndoTestHome(t)
+	db := home.open(t)
+	model := &undoModel{states: []map[string][]byte{{}}}
+	model.commitBlock(t, db, map[string][]byte{string(nonceKey(common.Address{8})): nonceValue(1)})
+	require.NoError(t, db.Close())
+	require.NoError(t, os.RemoveAll(home.flatkv.DataDir))
+
+	_, err := NewStateDB(t.Context(), home.flatkv, home.ss, config.CheckpointConfig{BlockInterval: 1_000})
+	require.ErrorContains(t, err, "the state commit store is empty")
+}
+
+// Closing with a historical view still open succeeds without waiting for it, and the view's reads
+// fail from then on.
+func TestUndoStateDBClosesWithAHistoricalViewOpen(t *testing.T) {
+	db := newUndoTestHome(t).open(t)
+	addr := common.Address{6}
+	model := &undoModel{states: []map[string][]byte{{}}}
+	model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(1)})
+	model.commitBlock(t, db, map[string][]byte{string(nonceKey(addr)): nonceValue(2)})
+	db.UndoSS().WaitForPendingWrites()
+	view, ok := db.OpenViewAt(1)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), view.GetNonce(addr))
+
+	require.NoError(t, db.Close())
+	require.Panics(t, func() { view.GetNonce(addr) }, "a view has no recoverable errors")
+	view.Close()
+}
+
 func TestUndoStateDBRefusesABlockWithoutItsChangeSet(t *testing.T) {
 	db := newUndoTestHome(t).open(t)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -261,5 +341,7 @@ func TestUndoStateDBRefusesABlockWithoutItsChangeSet(t *testing.T) {
 		Pairs: []*proto.KVPair{{Key: nonceKey(common.Address{1}), Value: nonceValue(1)}}}}}
 
 	require.Error(t, db.CommitStateChanges(1, changeset))
-	require.NoError(t, db.CommitStateChanges(1, nil), "a block that changes nothing has nothing to record")
+	require.Error(t, db.CommitStateChanges(1, nil), "an undo log needs a change set even for an empty block")
+	require.NoError(t, db.CommitStateChangesWithPrior(1, nil, &gigatypes.StateChangeSet{}),
+		"a block that changes nothing has nothing to record")
 }

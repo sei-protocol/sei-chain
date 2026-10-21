@@ -36,13 +36,13 @@ type AppHashBuilder interface {
 		componentHashes map[string][]byte,
 	) error
 
-	// Reports the Block Update Digest of the block.
+	// Reports the BUD hash (Block Update Digest hash) of the block.
 	//
 	// blockHeight must be one above the previous call's, except on the first call. Illegal input to this method
 	// may not cause it to return an error immediately, since hash data may be ingested asynchronously. Illegal
 	// input will, however, eventually cause the app hash builder to shut down and start returning errors from all
 	// methods.
-	ReportBUD(ctx context.Context, blockHeight uint64, bud apphash.BUDHash) error
+	ReportBUDHash(ctx context.Context, blockHeight uint64, budHash [32]byte) error
 
 	// Reports the hash of the transaction receipts produced by executing the block.
 	//
@@ -76,21 +76,15 @@ type AppHashBuilder interface {
 		listener func(appHash *apphash.AppHashData),
 	) (*apphash.AppHashData, error)
 
-	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one.
+	// Returns an iterator over the published app hashes from startingBlockHeight through the newest one. No app
+	// hash exists below the giga activation height, so iteration from a lower height starts there.
 	//
 	// A published app hash never changes. Errors if called before SetupComplete(), or if startingBlockHeight has
 	// been pruned. The iterator errors once the builder stops.
 	Iterator(ctx context.Context, startingBlockHeight uint64) (apphash.AppHashIterator, error)
 
-	// Permits deleting the app hashes below blockHeight.
-	//
-	// They may be deleted at any later time, and the newest published app hash is always kept.
-	Prune(ctx context.Context, blockHeight uint64) error
-
-	// Stops the builder, and returns once its resources are released. A builder stopped by an error has released
-	// them already.
-	//
-	// This method does not flush data, and may cause in-flight work to be dropped. Every iterator must be closed
-	// first.
+	// Stores and publishes the app hash of every block whose inputs were all reported before the call, then stops
+	// the builder and returns once its resources are released. A report made concurrently with the call may or may
+	// not be stored. A builder stopped by an error stores nothing more. Every iterator must be closed first.
 	Close() error
 }

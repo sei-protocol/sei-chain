@@ -15,12 +15,7 @@ import (
 var retainedStores = map[string]struct {
 	upgrade string
 	reason  string
-}{
-	feegrantModuleName: {
-		upgrade: "v6.7",
-		reason:  "module removed in v6.7; allowances kept for historical state access",
-	},
-}
+}{}
 
 // removedModulesWithoutStores maps every module dropped from the manager that
 // owned no store to the upgrade whose handler deletes its version-map entry. A

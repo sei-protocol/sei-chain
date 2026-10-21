@@ -348,7 +348,7 @@ func TestGetLogsSurfacesStoreAndBlockErrors(t *testing.T) {
 }
 
 func TestGetLogsEndToEnd(t *testing.T) {
-	handler, err := newHandler(filterFixtureBackend(t, 9), filterFixtureStore(t))
+	handler, err := newHandler(filterFixtureBackend(t, 9), filterFixtureStore(t), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

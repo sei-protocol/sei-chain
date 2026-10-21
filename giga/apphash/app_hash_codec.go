@@ -23,8 +23,16 @@ const (
 )
 
 // Serialize the app hash into the canonical byte format.
-// Produces deterministic output.
-func (ahd *AppHashData) Serialize() []byte {
+// Produces deterministic output. Errors on a record built by NewZeroAppHashData().
+func (ahd *AppHashData) Serialize() ([]byte, error) {
+	if ahd.zeroHash {
+		return nil, fmt.Errorf("the zero app hash data of block %d cannot be serialized", ahd.blockHeight)
+	}
+	return ahd.canonicalBytes(), nil
+}
+
+// Returns the canonical byte format of the app hash.
+func (ahd *AppHashData) canonicalBytes() []byte {
 	data := make([]byte, 0, serializedSize)
 	data = append(data, ahd.version)
 	data = binary.BigEndian.AppendUint64(data, ahd.chainID)

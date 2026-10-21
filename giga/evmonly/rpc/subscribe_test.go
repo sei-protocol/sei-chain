@@ -37,7 +37,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(websocketHandler(handler))
@@ -87,7 +87,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(websocketHandler(handler))
@@ -122,7 +122,7 @@ func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
 
 func TestNewHeadsRejectedOverPlainHTTP(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 35_000_000, nil)
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

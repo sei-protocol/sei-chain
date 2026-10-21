@@ -107,6 +107,7 @@ func runContract(t *testing.T, build builder) {
 	t.Run("PruneEmptyStoreThenWriteBelow", func(t *testing.T) { testPruneEmptyStoreThenWriteBelow(t, build) })
 	t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, build) })
 	t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) { testPruneQCOnlyThenWriteBlock(t, build) })
+	t.Run("FirstQCSetsFloor", func(t *testing.T) { testFirstQCSetsFloor(t, build) })
 	t.Run("Status", func(t *testing.T) { testStatus(t, build) })
 	t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, build) })
 	t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) { testWriteOrderRejectedAfterRestart(t, build) })
@@ -767,6 +768,33 @@ func testPruneEmptyStoreThenWriteBelow(t *testing.T, build builder) {
 	writeAll(t, db, batches)
 	assertBlocksReadable(t, db, batches)
 	assertQCsReadable(t, db, committee, batches)
+}
+
+// testFirstQCSetsFloor asserts that a store whose first QC starts above zero reports
+// everything below that QC as pruned, both before and after a restart.
+func testFirstQCSetsFloor(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 2)
+	start := batches[1]
+	db, o := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	require.NoError(t, db.WriteQC(start.qc))
+	check := func(db types.BlockStore) {
+		t.Helper()
+		require.Equal(t, start.first, db.First())
+		_, err := db.ReadQCByBlockNumber(start.first - 1)
+		require.ErrorIs(t, err, types.ErrPruned)
+		_, err = db.ReadBlockByNumber(start.first - 1)
+		require.ErrorIs(t, err, types.ErrPruned)
+		got, err := db.ReadQCByBlockNumber(start.first)
+		require.NoError(t, err)
+		require.True(t, got.IsPresent())
+	}
+	check(db)
+	db = restart(t, o, db)
+	check(db)
 }
 
 // testPruneNeverEmpties asserts the store is never emptied by pruning and that

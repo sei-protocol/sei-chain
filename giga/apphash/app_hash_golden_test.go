@@ -53,7 +53,7 @@ type goldenRecord struct {
 	// The hash of the state lattice hash.
 	StateHash string `json:"stateHash"`
 
-	// The BUD hash.
+	// The BUD hash (Block Update Digest hash).
 	BUDHash string `json:"budHash"`
 
 	// The hash of the transaction receipts.
@@ -129,13 +129,13 @@ func verifyGoldenRecord(t *testing.T, index int, version uint8, record goldenRec
 	require.Equal(t, BUDHash(budHash), decoded.BUDHash(), "record %d", index)
 	require.Equal(t, receiptHash, decoded.ReceiptHash(), "record %d", index)
 	require.Equal(t, previousAppHash, decoded.PreviousAppHash(), "record %d", index)
-	require.Equal(t, serialization, decoded.Serialize(), "record %d", index)
+	require.Equal(t, serialization, mustSerialize(t, decoded), "record %d", index)
 	require.Equal(t, appHash, decoded.AppHash(), "record %d", index)
 
 	if version == appHashVersion {
 		constructed := NewAppHashData(
 			chainID, blockHeight, blockHash, stateHash, budHash, receiptHash, previousAppHash)
-		require.Equal(t, serialization, constructed.Serialize(), "record %d", index)
+		require.Equal(t, serialization, mustSerialize(t, constructed), "record %d", index)
 		require.Equal(t, appHash, constructed.AppHash(), "record %d", index)
 	}
 }
@@ -178,7 +178,7 @@ func recordGoldenFile(t *testing.T) {
 	chain := buildGoldenChain()
 	file := goldenFile{Version: appHashVersion, Records: make([]goldenRecord, 0, len(chain))}
 	for _, ahd := range chain {
-		file.Records = append(file.Records, newGoldenRecord(ahd))
+		file.Records = append(file.Records, newGoldenRecord(t, ahd))
 	}
 	content, err := json.MarshalIndent(file, "", "  ")
 	require.NoError(t, err)
@@ -219,7 +219,8 @@ func buildGoldenChain() []*AppHashData {
 }
 
 // newGoldenRecord returns the golden record of ahd.
-func newGoldenRecord(ahd *AppHashData) goldenRecord {
+func newGoldenRecord(t *testing.T, ahd *AppHashData) goldenRecord {
+	t.Helper()
 	blockHash := ahd.BlockHash()
 	stateHash := ahd.StateHash()
 	budHash := ahd.BUDHash()
@@ -234,7 +235,7 @@ func newGoldenRecord(ahd *AppHashData) goldenRecord {
 		BUDHash:         hex.EncodeToString(budHash[:]),
 		ReceiptHash:     hex.EncodeToString(receiptHash[:]),
 		PreviousAppHash: hex.EncodeToString(previousAppHash[:]),
-		Serialization:   hex.EncodeToString(ahd.Serialize()),
+		Serialization:   hex.EncodeToString(mustSerialize(t, ahd)),
 		AppHash:         hex.EncodeToString(appHash[:]),
 	}
 }
