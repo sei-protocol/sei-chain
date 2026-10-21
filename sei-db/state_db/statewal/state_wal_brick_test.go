@@ -26,9 +26,9 @@ type fakeWAL struct {
 	appended []uint64
 }
 
-var _ seiwal.WAL[stateWALRecord] = (*fakeWAL)(nil)
+var _ seiwal.WAL[[]byte] = (*fakeWAL)(nil)
 
-func (f *fakeWAL) Append(index uint64, data stateWALRecord) error {
+func (f *fakeWAL) Append(index uint64, data []byte) error {
 	if f.appendErr != nil {
 		return f.appendErr
 	}
@@ -51,7 +51,7 @@ func (f *fakeWAL) PruneBefore(lowestIndexToKeep uint64) error {
 	return f.pruneErr
 }
 
-func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[stateWALRecord], error) {
+func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[[]byte], error) {
 	if f.iteratorErr != nil {
 		return nil, f.iteratorErr
 	}
@@ -64,8 +64,7 @@ func (f *fakeWAL) Close() error {
 
 func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 	t.Helper()
-	cfg := DefaultConfig("", "test")
-	w, err := newStateWAL(f, cfg.HasherBufferSize, cfg.SortBufferSize)
+	w, err := newStateWAL(f, DefaultConfig("", "test").RequestBufferSize)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	return w

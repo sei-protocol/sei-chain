@@ -241,10 +241,10 @@ func requireMatchesReference(t *testing.T, store *CommitStore, run referenceRun,
 	}
 }
 
-// TestRecoveryFromWALInEitherRecordFormat rebuilds a store from a WAL whose blocks are in the legacy changeset format,
+// TestRecoveryFromWALInEitherBlockFormat rebuilds a store from a WAL whose blocks are in the legacy changeset format,
 // in the mutation format, or in both, and requires the recovered state to match a store that committed the same
 // blocks directly.
-func TestRecoveryFromWALInEitherRecordFormat(t *testing.T) {
+func TestRecoveryFromWALInEitherBlockFormat(t *testing.T) {
 	blocks := recoveryBlocks()
 	lastBlock := len(blocks)
 	run := runReference(t, blocks)
@@ -279,9 +279,9 @@ func TestRecoveryFromWALInEitherRecordFormat(t *testing.T) {
 	}
 }
 
-// TestReadOnlyLoadFromWALInEitherRecordFormat opens read-only stores at heights before, on and after the block where a
+// TestReadOnlyLoadFromWALInEitherBlockFormat opens read-only stores at heights before, on and after the block where a
 // WAL switches from the legacy format to mutations, and requires each to match the reference at its height.
-func TestReadOnlyLoadFromWALInEitherRecordFormat(t *testing.T) {
+func TestReadOnlyLoadFromWALInEitherBlockFormat(t *testing.T) {
 	blocks := recoveryBlocks()
 	run := runReference(t, blocks)
 	const firstMutationBlock = 4
@@ -306,9 +306,9 @@ func TestReadOnlyLoadFromWALInEitherRecordFormat(t *testing.T) {
 	}
 }
 
-// TestRollbackAcrossWALRecordFormats rolls a store recovered from a WAL in both formats back to a height in the legacy
+// TestRollbackAcrossWALBlockFormats rolls a store recovered from a WAL in both formats back to a height in the legacy
 // format and to one past the switch, and requires each to match the reference at its height.
-func TestRollbackAcrossWALRecordFormats(t *testing.T) {
+func TestRollbackAcrossWALBlockFormats(t *testing.T) {
 	blocks := recoveryBlocks()
 	run := runReference(t, blocks)
 	const firstMutationBlock = 6

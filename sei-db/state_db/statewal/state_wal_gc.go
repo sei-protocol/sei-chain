@@ -10,7 +10,7 @@ import (
 // retention floor up to its head, so any height in between can serve a rollback.
 //
 // This is the only surface of stateWALImpl usable from another goroutine (see the type doc). Every
-// method here reads a constant or a single atomic, or sends a request to the sorter.
+// method here reads a constant or a single atomic, or sends a request to the WAL's goroutine.
 //
 // SC and SS must be managed by the same collector, since they replay from this WAL and it is their
 // reported floors that keep the blocks they need.
@@ -30,7 +30,7 @@ func (w *stateWALImpl) ExternalPruning() bool {
 // own owner; this one is safe to call from the collector's goroutine, and leaves the WAL usable on failure
 // rather than bricking it.
 func (w *stateWALImpl) PruneHistory(blockNumber uint64) error {
-	if err := w.sorter.Prune(blockNumber); err != nil {
+	if err := w.prune(blockNumber); err != nil {
 		return fmt.Errorf("failed to prune state WAL below block %d: %w", blockNumber, err)
 	}
 	return nil

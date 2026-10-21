@@ -177,12 +177,10 @@ func TestFlushWaitsForHashListeners(t *testing.T) {
 	require.Len(t, recorder.blocks(), 20)
 }
 
-// Once the hasher channel is full and the sorter is blocked handing it a block, Write blocks until the listener
-// catches up.
-func TestWriteBlocksWhileHasherBufferIsFull(t *testing.T) {
+// Once the request channel is full behind a blocked listener, Write blocks until the listener catches up.
+func TestWriteBlocksWhileRequestBufferIsFull(t *testing.T) {
 	cfg := testConfig(t.TempDir())
-	cfg.HasherBufferSize = 1
-	cfg.SortBufferSize = 0
+	cfg.RequestBufferSize = 0
 	w := openWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
 
@@ -199,19 +197,17 @@ func TestWriteBlocksWhileHasherBufferIsFull(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	writeBlock(t, w, 1) // taken by the hasher, which blocks in the listener
+	writeBlock(t, w, 1) // taken by the writer, which blocks in the listener
 	<-entered
-	writeBlock(t, w, 2) // fills the buffer
-	writeBlock(t, w, 3) // taken by the sorter, which blocks handing it to the hasher
 
 	written := make(chan error, 1)
 	go func() {
-		written <- w.Write(4, nil)
+		written <- w.Write(2, nil)
 	}()
 	select {
 	case err := <-written:
 		close(release)
-		t.Fatalf("Write returned while the hasher buffer was full: %v", err)
+		t.Fatalf("Write returned while the request buffer was full: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 

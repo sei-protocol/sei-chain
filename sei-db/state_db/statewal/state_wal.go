@@ -22,7 +22,7 @@ type StateWAL interface {
 	// Write a block's mutations to the WAL as a single record.
 	//
 	// This method only schedules the write, it does not block until the write is complete. It does block while the
-	// WAL is behind by more than Config.SortBufferSize blocks.
+	// WAL is behind by more than Config.RequestBufferSize blocks.
 	//
 	// Write takes ownership of mutations. Once the call begins, neither mutations nor any byte slice reachable
 	// through it may be read or modified.

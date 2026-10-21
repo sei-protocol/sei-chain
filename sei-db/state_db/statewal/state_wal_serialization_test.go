@@ -29,48 +29,47 @@ func makeMutation(moduleName string, key []byte, value []byte) mutation.Mutation
 	}
 }
 
-func TestRecordRoundTrip(t *testing.T) {
+func TestSerializeBlockRoundTrip(t *testing.T) {
 	mutations := []mutation.Mutation{
 		makeMutation("bank", []byte("a"), []byte("1")),
 		makeMutation("staking", []byte("b"), []byte("2")),
 	}
-	data, err := serializeRecord(stateWALRecord{mutations: mutations})
-	require.NoError(t, err)
-	require.Equal(t, mutationFormatVersion, data[0], "payload must begin with the format version")
+	serialized := serializeBlock(mutations)
+	require.Equal(t, mutationFormatVersion, serialized[0], "serialization must begin with the format version")
 
-	record, err := deserializeRecord(data)
+	changeSets, err := deserializeBlock(serialized)
 	require.NoError(t, err)
-	require.Equal(t, stateWALRecord{mutations: mutations}, record)
+	expected, err := mutation.MutationsToChangeSets(mutations)
+	require.NoError(t, err)
+	require.Equal(t, expected, changeSets)
 }
 
-func TestDeserializeRecordReadsChangeSetFormat(t *testing.T) {
+func TestDeserializeBlockReadsLegacyFormat(t *testing.T) {
 	changeSets := []*proto.NamedChangeSet{makeChangeSet("bank", []byte("a"), []byte("1"))}
-	data, err := statewaltest.SerializeLegacyStateWALBlock(changeSets)
+	serialized, err := statewaltest.SerializeLegacyStateWALBlock(changeSets)
 	require.NoError(t, err)
 
-	record, err := deserializeRecord(data)
+	read, err := deserializeBlock(serialized)
 	require.NoError(t, err)
-	require.Equal(t, stateWALRecord{changeSets: changeSets, isChangeSetFormat: true}, record)
+	require.Equal(t, changeSets, read)
 }
 
-func TestDeserializeRecordRejectsInvalidPayload(t *testing.T) {
-	_, err := deserializeRecord(nil)
+func TestDeserializeBlockRejectsInvalidInput(t *testing.T) {
+	_, err := deserializeBlock(nil)
 	require.Error(t, err)
 
-	_, err = deserializeRecord([]byte{mutationFormatVersion + 1})
+	_, err = deserializeBlock([]byte{mutationFormatVersion + 1})
 	require.Error(t, err)
 
-	// A version 2 payload whose mutations are truncated.
-	mutations := []mutation.Mutation{makeMutation("bank", []byte("a"), nil)}
-	data, err := serializeRecord(stateWALRecord{mutations: mutations})
-	require.NoError(t, err)
-	_, err = deserializeRecord(data[:len(data)-1])
+	// A version 2 block whose mutations are truncated.
+	serialized := serializeBlock([]mutation.Mutation{makeMutation("bank", []byte("a"), nil)})
+	_, err = deserializeBlock(serialized[:len(serialized)-1])
 	require.Error(t, err)
 }
 
 // A WAL holding blocks written in the changeset format by an earlier release, followed by blocks written as
 // mutations, reads every block back as changesets, with the same hashes before and after a reopen.
-func TestWALReadsBothRecordFormats(t *testing.T) {
+func TestWALReadsBothBlockFormats(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 
 	legacy := map[uint64][]*proto.NamedChangeSet{
@@ -112,7 +111,7 @@ func TestWALReadsBothRecordFormats(t *testing.T) {
 		// Blocks stored in the changeset format hash to the zero hash.
 		var want [32]byte
 		if mutations, ok := written[hash.blockNumber]; ok {
-			want = computePlaceholderHash(mutations)
+			want = computePlaceholderHash(serializeBlock(mutations))
 		}
 		require.Equal(t, want, hash.hash, "block %d", hash.blockNumber)
 	}
@@ -161,7 +160,7 @@ func TestChangesetsRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, changesetFormatVersion, data[0], "payload must begin with the format version")
 
-		got, err := deserializeChangesets(data)
+		got, err := deserializeLegacyBlock(data)
 		require.NoError(t, err)
 		require.Equal(t, cs, got)
 	})
@@ -171,7 +170,7 @@ func TestChangesetsRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte{changesetFormatVersion}, data) // just the version byte
 
-		got, err := deserializeChangesets(data)
+		got, err := deserializeLegacyBlock(data)
 		require.NoError(t, err)
 		require.Empty(t, got)
 	})
@@ -179,11 +178,11 @@ func TestChangesetsRoundTrip(t *testing.T) {
 
 func TestDeserializeUnknownVersion(t *testing.T) {
 	// A payload whose leading version byte is not recognized must be rejected before any decoding.
-	_, err := deserializeChangesets([]byte{changesetFormatVersion + 1})
+	_, err := deserializeLegacyBlock([]byte{changesetFormatVersion + 1})
 	require.Error(t, err)
 
 	// An empty payload is missing the version byte entirely.
-	_, err = deserializeChangesets(nil)
+	_, err = deserializeLegacyBlock(nil)
 	require.Error(t, err)
 }
 
@@ -198,7 +197,7 @@ func TestDeserializeChangesetsTruncated(t *testing.T) {
 	// length-delimited by the underlying WAL, a truncated payload here is corruption and must surface an
 	// error, never a silent partial decode. (Length 1 is the bare version byte, a valid empty payload.)
 	for length := 2; length < len(data); length++ {
-		_, err := deserializeChangesets(data[:length])
+		_, err := deserializeLegacyBlock(data[:length])
 		require.Error(t, err)
 	}
 }
@@ -208,6 +207,6 @@ func TestDeserializeCorruptChangeset(t *testing.T) {
 	// Layout: [version][len=2][0x08 0xFF] where 0x08 is a varint field tag (field 1, wire type 0) followed by
 	// a truncated varint, which the protobuf decoder rejects.
 	payload := []byte{changesetFormatVersion, 0x02, 0x08, 0xFF}
-	_, err := deserializeChangesets(payload)
+	_, err := deserializeLegacyBlock(payload)
 	require.Error(t, err)
 }
