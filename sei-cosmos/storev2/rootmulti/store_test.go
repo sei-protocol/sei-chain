@@ -570,65 +570,6 @@ func TestQuery_SubspaceSemaphoreRejectsWhenSaturated(t *testing.T) {
 	require.Contains(t, resp.Log, "subspace query busy")
 }
 
-// TestQuery_SubspaceSemaphoreCoversCommitmentPath pins that a /subspace query served by the
-// commitment store, with SS disabled, takes the same permit as the SS fast path, at both the latest
-// and a historical height, and hands it back when it completes.
-func TestQuery_SubspaceSemaphoreCoversCommitmentPath(t *testing.T) {
-	home := t.TempDir()
-	scCfg := config.DefaultStateCommitConfig()
-	scCfg.Enable = true
-	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	scCfg.HistoricalProofRateLimit = 0
-	scCfg.SubspaceQueryMaxInFlight = 1
-
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Enable = false
-
-	store := NewStore(home, scCfg, ssCfg, []string{})
-	defer func() { _ = store.Close() }()
-
-	key := types.NewKVStoreKey("bank")
-	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
-	require.NoError(t, store.LoadLatestVersion())
-
-	kv := store.GetStoreByName("bank").(types.KVStore)
-	kv.Set([]byte("ab1"), []byte("v1"))
-	c1 := store.Commit(true)
-	require.Equal(t, int64(1), c1.Version)
-
-	kv = store.GetStoreByName("bank").(types.KVStore)
-	kv.Set([]byte("ab2"), []byte("v2"))
-	c2 := store.Commit(true)
-	require.Equal(t, int64(2), c2.Version)
-
-	for _, tc := range []struct {
-		name   string
-		height int64
-	}{
-		{name: "latest", height: c2.Version},
-		{name: "historical", height: c1.Version},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := abci.RequestQuery{
-				Path:   "/bank/subspace",
-				Data:   []byte("ab"),
-				Height: tc.height,
-			}
-
-			store.subspaceQuerySem <- struct{}{}
-			busy := store.Query(t.Context(), req)
-			<-store.subspaceQuerySem
-			require.NotEqualValues(t, 0, busy.Code)
-			require.Contains(t, busy.Log, "subspace query busy")
-
-			served := store.Query(t.Context(), req)
-			require.EqualValues(t, 0, served.Code)
-			require.NotEmpty(t, served.Value)
-			require.Empty(t, store.subspaceQuerySem, "permit was not released after the scan")
-		})
-	}
-}
-
 func TestQuery_SubspaceNarrowPrefixAndKeyUnaffected(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()

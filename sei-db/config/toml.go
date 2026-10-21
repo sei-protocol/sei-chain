@@ -22,7 +22,7 @@ sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
 # Historical proof query burst size
 sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
-# Max concurrent /subspace queries on any store path (<=0 resolves to default 2)
+# Max concurrent /subspace queries; served only with SS enabled (<=0 resolves to default 2)
 sc-subspace-query-max-inflight = {{ .StateCommit.SubspaceQueryMaxInFlight }}
 
 # Max pairs a /subspace scan may return (<=0 resolves to default 1000; no unlimited setting)
