@@ -1036,9 +1036,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 }
 
 // pollStart returns the cursor a new log filter starts polling from: crit's fromBlock when it
-// is a number, and otherwise the current head. An omitted fromBlock defaults to a numeric toBlock
-// below the head, as in eth_getLogs, and a blockHash crit starts at 0. It rejects a fromBlock
-// above a numeric toBlock.
+// is a number, and otherwise the block after the current head. A blockHash crit starts at 0. It
+// rejects a numeric toBlock below that start.
 func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria) (int64, error) {
 	if crit.BlockHash != nil {
 		return 0, nil
@@ -1047,19 +1046,12 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 	if err != nil {
 		return 0, err
 	}
-	start := head
-	if crit.FromBlock != nil {
-		start = getHeightFromBigIntBlockNumber(head, crit.FromBlock)
+	start := head + 1
+	if crit.FromBlock != nil && crit.FromBlock.Sign() >= 0 {
+		start = crit.FromBlock.Int64()
 	}
-	if crit.ToBlock == nil || crit.ToBlock.Sign() < 0 {
-		return start, nil
-	}
-	end := crit.ToBlock.Int64()
-	if crit.FromBlock == nil && start > end {
-		start = end
-	}
-	if start > end {
-		return 0, fmt.Errorf("requested fromBlock %d is greater than toBlock %d", start, end)
+	if crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && crit.ToBlock.Int64() < start {
+		return 0, fmt.Errorf("requested toBlock %d is before the filter's start block %d", crit.ToBlock.Int64(), start)
 	}
 	return start, nil
 }

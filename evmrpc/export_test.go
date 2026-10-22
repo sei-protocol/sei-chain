@@ -118,6 +118,15 @@ func (f *LogFetcher) PollLogsForTest(
 	return f.pollLogs(ctx, crit, cursor)
 }
 
+// NewLogsSubscriptionAPIForTest returns a SubscriptionAPI that serves eth_subscribe("logs") from
+// logFetcher, admitting up to logLimit concurrent logs subscriptions.
+func NewLogsSubscriptionAPIForTest(logFetcher *LogFetcher, logLimit uint64) *SubscriptionAPI {
+	return &SubscriptionAPI{
+		logFetcher:        logFetcher,
+		subscriptonConfig: &SubscriptionConfig{logLimit: logLimit},
+	}
+}
+
 // TryFilterLogsRangeForTest exposes the litt range-query path for integration tests.
 func (f *LogFetcher) TryFilterLogsRangeForTest(
 	ctx context.Context,

@@ -219,18 +219,14 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
-	// when fromBlock is 0 and toBlock is latest, adjust the filter
-	// to unbounded filter
+	// fromBlock 0 with a tag toBlock is how ethclient sends an open-ended query, so it subscribes
+	// to new logs as an omitted fromBlock does.
 	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
 		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
-		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
-		unboundedFilter := &filters.FilterCriteria{
-			FromBlock: latest, // set to latest block height
-			ToBlock:   nil,    // set to nil to continue listening
+		filter = &filters.FilterCriteria{
 			Addresses: filter.Addresses,
 			Topics:    filter.Topics,
 		}
-		filter = unboundedFilter
 	}
 
 	start, err := a.logFetcher.pollStart(ctx, *filter)
@@ -266,7 +262,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 					return
 				}
 				wpMetrics.RecordSubscriptionError()
-				_ = notifier.Notify(rpcSub.ID, err)
+				_ = notifier.Notify(rpcSub.ID, newLogsErrorNotification(err))
 				return
 			}
 			for _, log := range logs {
@@ -293,7 +289,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 					return
 				}
 				wpMetrics.RecordSubscriptionError()
-				_ = notifier.Notify(rpcSub.ID, err)
+				_ = notifier.Notify(rpcSub.ID, newLogsErrorNotification(err))
 				// A subscription moves on past a block it cannot serve, as a filter poll does.
 				var oversized *oversizedBlockError
 				if !errors.As(err, &oversized) {
@@ -319,6 +315,24 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	}()
 
 	return rpcSub, nil
+}
+
+// logsErrorNotification is the notification a logs subscription sends for a poll that failed.
+// BlockNumber is the block whose logs were skipped when the subscription continues past it.
+type logsErrorNotification struct {
+	Error       string          `json:"error"`
+	BlockNumber *hexutil.Uint64 `json:"blockNumber,omitempty"`
+}
+
+// newLogsErrorNotification returns the notification for a poll that failed with err.
+func newLogsErrorNotification(err error) logsErrorNotification {
+	notification := logsErrorNotification{Error: err.Error()}
+	var oversized *oversizedBlockError
+	if errors.As(err, &oversized) {
+		height := hexutil.Uint64(toUint64(oversized.height))
+		notification.BlockNumber = &height
+	}
+	return notification
 }
 
 // bindSubscriptionContext returns a context for long-lived eth_subscribe work.
