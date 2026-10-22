@@ -23,8 +23,10 @@ func (s *State) runLaneBlockStages(ctx context.Context) error {
 	}
 }
 
-// laneBlockStages counts lane blocks by the consensus step they are waiting on. Blocks in the
-// current view's proposal wait on its PrepareQC until this node holds one, then on the CommitQC.
+// laneBlockStages counts the uncommitted lane blocks this node holds by the consensus step each is
+// waiting on, so every held block lands in exactly one step. Blocks in the current view's proposal
+// wait on its PrepareQC until this node holds one, then on the CommitQC. A block counts as
+// committed once either avail's persisted CommitQC or consensus's latest CommitQC covers it.
 func laneBlockStages(tips map[types.LaneID]avail.LaneTip, i inner) availmetrics.LaneBlockStages {
 	proposal := utils.None[*types.Proposal]()
 	prepared := false
@@ -35,18 +37,20 @@ func laneBlockStages(tips map[types.LaneID]avail.LaneTip, i inner) availmetrics.
 	}
 	var st availmetrics.LaneBlockStages
 	for lane, t := range tips {
-		proposed := t.Committed
+		committed := min(max(t.Committed, types.LaneRangeOpt(i.spec.CommitQC, lane).Next()), t.Held)
+		proposed := committed
 		if p, ok := proposal.Get(); ok {
-			proposed = max(proposed, p.LaneRange(lane).Next())
+			proposed = min(max(committed, p.LaneRange(lane).Next()), t.Held)
 		}
-		inProposal := int64(proposed - t.Committed) //nolint:gosec // G115: bounded by the lane window.
+		certified := max(t.Certified, proposed)
+		inProposal := int64(proposed - committed) //nolint:gosec // G115: bounded by the lane window.
 		if prepared {
 			st.CommitQC += inProposal
 		} else {
 			st.PrepareQC += inProposal
 		}
-		st.Proposal += int64(t.Certified - min(t.Certified, proposed)) //nolint:gosec // G115: bounded by the lane window.
-		st.LaneQC += int64(t.Held - t.Certified)                       //nolint:gosec // G115: bounded by the lane window.
+		st.Proposal += int64(certified - proposed) //nolint:gosec // G115: bounded by the lane window.
+		st.LaneQC += int64(t.Held - certified)     //nolint:gosec // G115: bounded by the lane window.
 	}
 	return st
 }

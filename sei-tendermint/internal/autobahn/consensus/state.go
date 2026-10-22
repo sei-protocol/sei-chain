@@ -319,6 +319,7 @@ func (s *State) runPropose(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForProposal(): %w", err)
 		}
+		s.avail.ObserveProposal(fullProposal.Proposal().Msg())
 		s.myProposal.Store(utils.Some(fullProposal))
 		return nil
 	})

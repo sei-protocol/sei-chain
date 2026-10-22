@@ -102,14 +102,14 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "lane_block_latency",
-			Help:      "Latency from a lane block's creation to the given stage, observed by a node holding the block.",
+			Help:      "Latency from a lane block's creation by its producer to the given stage on this node, once per block. It includes clock skew between the producer and this node.",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
 		}, []string{"stage"}),
 		proposalLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_latency",
-			Help:      "Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC.",
+			Help:      "Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC. It includes clock skew between the leader and this node.",
 			Buckets:   prometheus.ExponentialBuckets(0.0005, 1.5, 30),
 		}, []string{"stage"}),
 	}

@@ -38,9 +38,9 @@ type metrics struct {
 	laneQcs prometheus.CounterIntVec
 	// Lane votes newly stored.
 	laneVotesIngested prometheus.CounterIntVec
-	// Latency from a lane block's creation to the given stage, observed by a node holding the block.
+	// Latency from a lane block's creation by its producer to the given stage on this node, once per block. It includes clock skew between the producer and this node.
 	laneBlockLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
-	// Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC.
+	// Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC. It includes clock skew between the leader and this node.
 	proposalLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.0005, 1.5, 30)"`
 }
 
@@ -121,8 +121,8 @@ type Metrics struct {
 	LaneQCInFlight          *prometheus.GaugeInt
 	LaneQCs                 *prometheus.CounterInt
 	LaneVotesIngested       *prometheus.CounterInt
-	// Latency from a lane block's creation to: the block arriving from its producer, a lane vote on
-	// it arriving, its LaneQC forming, and the leader including it in a proposal.
+	// Latency from a lane block's creation to: the block arriving from its producer, the first lane
+	// vote on it arriving, its LaneQC forming, and this node building a proposal that includes it.
 	LaneBlockReceive  *prometheus.Histogram
 	LaneVoteReceive   *prometheus.Histogram
 	LaneQCFormed      *prometheus.Histogram

@@ -531,11 +531,14 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
-		hadQC := q.q[n].qc.IsPresent()
+		firstVote := len(q.q[n].byKey) == 0
+		hadQC := q.q[n].qcCounted
 		if q.q[n].pushVote(applied, vote) {
 			if createdAt, ok := inner.blockCreatedAt(lane, n, h.Hash()).Get(); ok {
-				meters.LaneVoteReceive.Observe(time.Since(createdAt).Seconds())
-				if !hadQC && q.q[n].qc.IsPresent() {
+				if firstVote {
+					meters.LaneVoteReceive.Observe(time.Since(createdAt).Seconds())
+				}
+				if !hadQC && q.q[n].qcCounted {
 					meters.LaneQCFormed.Observe(time.Since(createdAt).Seconds())
 				}
 			}
@@ -668,7 +671,6 @@ func (s *State) WaitForLaneQCs(
 				}
 			}
 			if len(laneQCs) > 0 {
-				observeProposedBlocks(inner, prev, laneQCs)
 				return laneQCs, nil
 			}
 			if !blocked {
@@ -722,17 +724,19 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 	panic("unreachable")
 }
 
-// observeProposedBlocks records, for each block a proposal will include, how long after its
-// creation the leader took it.
-func observeProposedBlocks(inner *inner, prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) {
-	now := time.Now()
-	for lane, qc := range laneQCs {
-		for n := types.LaneRangeOpt(prev, lane).Next(); n <= qc.Header().BlockNumber(); n++ {
+// ObserveProposal records, for each lane block p newly includes that this node holds, how long after
+// the block's creation p was built. Call it once for each proposal this node constructs.
+func (s *State) ObserveProposal(p *types.Proposal) {
+	for inner := range s.inner.Lock() {
+		for lane := range inner.applied().Committee().Lanes().All() {
+			r := p.LaneRange(lane)
 			q, ok := inner.blocks[lane]
-			if !ok || n < q.first || n >= q.next {
+			if !ok {
 				continue
 			}
-			meters.LaneBlockProposed.Observe(now.Sub(q.q[n].Msg().Block().Payload().CreatedAt()).Seconds())
+			for n := max(r.First(), q.first); n < min(r.Next(), q.next); n++ {
+				meters.LaneBlockProposed.Observe(p.Timestamp().Sub(q.q[n].Msg().Block().Payload().CreatedAt()).Seconds())
+			}
 		}
 	}
 }
