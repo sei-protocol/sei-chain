@@ -379,8 +379,12 @@ func startInProcess(
 			tmNode.Stop()
 		}
 	}()
-	// Local services include the EVM JSON-RPC and admin servers, each gated by
-	// its own config, so they start whether or not the REST API is enabled.
+	// TODO: the config here is vague. RegisterLocalServices backs the REST API's
+	// tx and tendermint services but also starts the EVM JSON-RPC and admin
+	// servers, which have their own enable settings. Clean up the config so it
+	// is clear what api.enable controls. For now the behaviour is kept the same
+	// as before the gRPC server removal, when grpc.enable defaulted to true and
+	// local services started regardless of api.enable.
 	localClient, err := local.New(tmNode)
 	if err != nil {
 		return err
