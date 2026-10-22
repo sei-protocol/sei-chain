@@ -12,7 +12,6 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -277,7 +276,7 @@ func handshakeAgainst(
 			// Only the local handshake's verdict is asserted. This read keeps
 			// the pipe open until it reaches one, and sees EOF when the local
 			// side rejects and closes first.
-			_, _ = conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize()))
+			_, _ = conn.ReadSizedMsg(ctx, sc, handshakeMsgMaxSize)
 			return nil
 		})
 		_, err := handshake(ctx, a, localKey, localSpec, localOffer)

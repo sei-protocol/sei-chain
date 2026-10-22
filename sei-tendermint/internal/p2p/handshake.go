@@ -20,12 +20,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// handshakeMsgMaxSize is the maximum encoded size accepted for a Handshake message.
+const handshakeMsgMaxSize = 1024 * 1024
+
 var (
 	gigaValidatorHandshakeTag = utils.OrPanic1(ed25519.NewTag("SEI_GIGA_VALIDATOR_HANDSHAKE_V1"))
 	errMissingGigaClaim       = errors.New("missing validator_auth_key, validator_auth_sig, and evm_rpc")
 	errGigaClaimRequiresAddr  = errors.New("validator giga handshake requires SelfAddr")
 	errGigaClaimOnNonGiga     = errors.New("validator giga claim on non-giga connection")
 )
+
+func init() {
+	if m := (&pb.Handshake{}).MaxSize(); m > handshakeMsgMaxSize {
+		panic(fmt.Sprintf("*pb.Handshake.MaxSize() = %d exceeds handshakeMsgMaxSize %d", m, handshakeMsgMaxSize))
+	}
+}
 
 // handshakeOffer is the Autobahn committee identity this node claims on a giga handshake.
 type handshakeOffer struct {
@@ -104,7 +113,7 @@ func handshake(
 			}
 			return nil
 		})
-		msgBytes, err := conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize())) //nolint:gosec // MaxSize() returns a small positive constant
+		msgBytes, err := conn.ReadSizedMsg(ctx, sc, handshakeMsgMaxSize)
 		if err != nil {
 			return nil, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
 		}
