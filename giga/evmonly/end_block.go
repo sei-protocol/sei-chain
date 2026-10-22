@@ -9,8 +9,12 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/seilog"
+
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
+
+var endBlockLogger = seilog.NewLogger("giga", "evmonly", "endblock")
 
 var errEndBlockClearedStorage = errors.New("end-block state changes may not clear storage")
 
@@ -70,6 +74,7 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 		if err := stateDB.Error(); err != nil {
 			return fmt.Errorf("end block %d for custom precompile %s: %w", block.Number, blocker.address, err)
 		}
+		endBlockLogger.Debug("custom precompile end block", "height", block.Number, "address", blocker.address, "storage_gas", state.spent)
 	}
 	stateDB.Finalise(true)
 	var changes StateChangeSet
