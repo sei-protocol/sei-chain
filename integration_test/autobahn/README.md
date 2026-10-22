@@ -497,8 +497,9 @@ run `debug_traceCall` against the latest block.
 - `debug_traceTransaction` takes a mined transaction's hash; an unknown hash
   returns error `-32602`.
 - `debug_traceCall` traces a call against the state after the named block, by
-  number, hash, or tag; `txIndex` traces it before that transaction of the
-  block instead. `pending` is refused, as are state and block overrides, which
+  number, hash, or tag; a tag names the latest committed block, as for
+  `eth_call`. `txIndex` traces it before that transaction of the block
+  instead. `pending` is refused, as are state and block overrides, which
   `eth_call` does not take either.
 - `debug_traceBlockByNumber` and `debug_traceBlockByHash` return one
   `{txHash, result}` entry per transaction the block stored a receipt for, in

@@ -37,10 +37,20 @@ type traceBackend struct {
 	backend Backend
 	blocks  *blockAPI
 	txs     *txAPI
+	// headersOnly serves blocks without their transactions, and names the latest committed block by
+	// a current-state tag, for tracing calls, which read only a block's header and state.
+	headersOnly bool
 }
 
 func newTraceBackend(backend Backend, blocks *blockAPI, txs *txAPI) *traceBackend {
 	return &traceBackend{backend: backend, blocks: blocks, txs: txs}
+}
+
+// forCalls returns a copy of b that serves blocks for tracing calls.
+func (b *traceBackend) forCalls() *traceBackend {
+	calls := *b
+	calls.headersOnly = true
+	return &calls
 }
 
 func (b *traceBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*ethtypes.Header, error) {
@@ -70,14 +80,17 @@ func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*etht
 }
 
 // BlockByNumber returns the block at number, or nil when there is none. Current-state tags name the
-// latest block whose receipts are indexed.
+// latest block whose receipts are indexed, or for calls the latest committed block.
 func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	if number == 0 {
 		return genesisBlock(), nil, nil
 	}
 	if isLatestTag(number) {
-		_, latest := indexedRange(b.backend, b.blocks.store)
-		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: an indexed height fits in int64.
+		latest := b.backend.EvmBlockNumber()
+		if !b.headersOnly {
+			_, latest = indexedRange(b.backend, b.blocks.store)
+		}
+		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: a committed height fits in int64.
 	}
 	block, err := b.blocks.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -96,8 +109,27 @@ func genesisBlock() *ethtypes.Block {
 }
 
 // ethBlock returns block as go-ethereum's tracer reads it: carrying the block's own hash, and holding
-// the transactions that executed, in execution order.
+// the transactions that executed, in execution order, unless b serves headers only.
 func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Block, error) {
+	var txs []*ethtypes.Transaction
+	if !b.headersOnly {
+		var err error
+		if txs, err = b.executedTxs(ctx, block); err != nil {
+			return nil, err
+		}
+	}
+	header, err := b.header(ctx, block)
+	if err != nil {
+		return nil, err
+	}
+	eth := ethtypes.NewBlockWithHeader(header).WithBody(ethtypes.Body{Transactions: txs})
+	eth.OverwriteHash(common.BytesToHash(block.BlockID.Hash))
+	return eth, nil
+}
+
+// executedTxs returns the transactions of block that executed, in execution order, read from its
+// indexed receipts.
+func (b *traceBackend) executedTxs(ctx context.Context, block *coretypes.ResultBlock) ([]*ethtypes.Transaction, error) {
 	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
 	if _, latest := indexedRange(b.backend, b.blocks.store); height > latest {
 		return nil, fmt.Errorf("%w: block %d", errTraceBlockNotIndexed, height)
@@ -121,13 +153,7 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 		}
 		txs = append(txs, tx)
 	}
-	header, err := b.header(ctx, block)
-	if err != nil {
-		return nil, err
-	}
-	eth := ethtypes.NewBlockWithHeader(header).WithBody(ethtypes.Body{Transactions: txs})
-	eth.OverwriteHash(common.BytesToHash(block.BlockID.Hash))
-	return eth, nil
+	return txs, nil
 }
 
 // header returns block's header with the fields its execution context reads.

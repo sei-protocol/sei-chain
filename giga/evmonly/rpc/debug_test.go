@@ -379,6 +379,28 @@ func TestDebugTraceCall(t *testing.T) {
 		})
 	}
 
+	t.Run("latest reads the newest block before its receipts are indexed", func(t *testing.T) {
+		// Like a validator, the node holds only the newest block's state, and block 3's receipts are
+		// still being written.
+		chain.blocks[3] = traceResultBlock(3, nil)
+		chain.backend.blockNumber = func() uint64 { return 3 }
+		stateAt := chain.backend.stateAt
+		chain.backend.stateAt = func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+			if height != 3 {
+				return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
+			}
+			return stateAt(ctx, 2)
+		}
+		defer func() {
+			delete(chain.blocks, 3)
+			chain.backend.blockNumber = func() uint64 { return 2 }
+			chain.backend.stateAt = stateAt
+		}()
+		var got map[common.Address]prestateAccount
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", map[string]any{"tracer": "prestateTracer"}))
+		require.Equal(t, uint64(2), got[chain.sender].Nonce)
+	})
+
 	t.Run("overrides are refused", func(t *testing.T) {
 		config := map[string]any{"stateOverrides": map[string]any{chain.sender.Hex(): map[string]any{"nonce": "0x9"}}}
 		var got json.RawMessage

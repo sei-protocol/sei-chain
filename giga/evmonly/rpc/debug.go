@@ -49,7 +49,9 @@ var (
 // at once, how long each may take, and what each may retain.
 type debugAPI struct {
 	tracers *tracers.API
-	store   receiptpkg.ReceiptStore
+	// calls traces calls, which read a block's header and state but not its transactions.
+	calls *tracers.API
+	store receiptpkg.ReceiptStore
 	// slots holds one entry per running trace; nil when the number is unbounded.
 	slots             chan struct{}
 	timeout           time.Duration
@@ -57,12 +59,10 @@ type debugAPI struct {
 }
 
 func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconfig.RPCConfig) *debugAPI {
+	traces := newTraceBackend(backend, &blockAPI{backend: backend, store: store}, &txAPI{backend: backend, store: store})
 	api := &debugAPI{
-		tracers: tracers.NewAPI(newTraceBackend(
-			backend,
-			&blockAPI{backend: backend, store: store},
-			&txAPI{backend: backend, store: store},
-		)),
+		tracers:           tracers.NewAPI(traces),
+		calls:             tracers.NewAPI(traces.forCalls()),
 		store:             store,
 		timeout:           limits.TraceTimeout,
 		maxStructLogBytes: limits.MaxTraceStructLogBytes,
@@ -96,7 +96,7 @@ func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, &invalidParamsError{error: errTraceOverrides}
 	}
 	return api.trace(ctx, &config.TraceConfig, func(ctx context.Context, _ *tracers.TraceConfig) (any, error) {
-		return api.tracers.TraceCall(ctx, args, blockNrOrHash, config)
+		return api.calls.TraceCall(ctx, args, blockNrOrHash, config)
 	})
 }
 
