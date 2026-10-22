@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// GetConfig is the second parser of app.toml, feeding api, rosetta,
+// GetConfig is the second parser of app.toml, feeding api,
 // telemetry and state-sync. app/seidb.go parses [state-commit] and [state-store] out
 // of the same viper for the store; GetConfig parses them again through a different
 // mechanism (viper.IsSet plus typed getters) into a Config the store never sees.
@@ -519,10 +519,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		absent, declared any
 		diverges         bool
 	}{
-		{"rosetta.address", cfg.Rosetta.Address, def.Rosetta.Address, true},
-		{"rosetta.blockchain", cfg.Rosetta.Blockchain, def.Rosetta.Blockchain, true},
-		{"rosetta.network", cfg.Rosetta.Network, def.Rosetta.Network, true},
-		{"rosetta.retries", cfg.Rosetta.Retries, def.Rosetta.Retries, true},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
 		{"telemetry.prometheus-retention-time",
 			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, false},
@@ -557,8 +553,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		// The remaining plain casts, each here for the reason api.enable is: a declared default equal
 		// to its getter's zero, anchored so that a default moving off it fails here. This table is
 		// the only thing tying these sections' absent-key resolution to their declared defaults.
-		{"rosetta.enable", cfg.Rosetta.Enable, def.Rosetta.Enable, false},
-		{"rosetta.offline", cfg.Rosetta.Offline, def.Rosetta.Offline, false},
 		{"telemetry.service-name", cfg.Telemetry.ServiceName, def.Telemetry.ServiceName, false},
 		{"telemetry.enable-hostname", cfg.Telemetry.EnableHostname, def.Telemetry.EnableHostname, false},
 		{

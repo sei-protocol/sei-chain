@@ -78,12 +78,6 @@ func seedViperWithDefaultConfig(t *testing.T) *viper.Viper {
 	return v
 }
 
-func TestDefaultRosettaConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	require.False(t, cfg.Rosetta.Enable)
-	require.Equal(t, ":8080", cfg.Rosetta.Address)
-}
-
 func TestDefaultStateSyncConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.Equal(t, uint64(0), cfg.StateSync.SnapshotInterval)
