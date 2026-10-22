@@ -2680,3 +2680,69 @@ func TestNewCompositeCommitStoreKeepsFlatKVKeepRecent(t *testing.T) {
 func TestPrecedesMigrationFalseWithoutLaterSnapshot(t *testing.T) {
 	require.False(t, precedesMigration(&failingEVMStore{}, 5))
 }
+
+func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {
+	cases := []struct {
+		mode    types.WriteMode
+		upgrade *proto.TreeNameUpgrade
+		refused bool
+	}{
+		{types.MemiavlOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, false},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.MintStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: "tokenfactory", Delete: true}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, RenameFrom: keys.BankStoreKey}, true},
+		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+		{types.MigrateEVM, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.MigrateEVM, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.TestOnlyDualWrite, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
+		{types.TestOnlyDualWrite, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
+		{types.MigrateBank, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, true},
+		{types.FlatKVOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/%s", tc.mode, tc.upgrade), func(t *testing.T) {
+			cs := setupComposite(t, tc.mode)
+			removed := tc.upgrade.Name
+			if tc.upgrade.RenameFrom != "" {
+				removed = tc.upgrade.RenameFrom
+			}
+			hasTree := func(name string) bool { return cs.memIAVL != nil && cs.memIAVL.MayHoldStore(name) }
+			present := hasTree(removed)
+
+			err := cs.ApplyUpgrades([]*proto.TreeNameUpgrade{tc.upgrade})
+			if tc.refused {
+				require.ErrorContains(t, err, "the mode routes it to flatkv")
+				require.Equal(t, present, hasTree(removed), "a refused upgrade changed memiavl")
+				return
+			}
+			require.True(t, present)
+			require.NoError(t, err)
+			require.False(t, hasTree(removed))
+		})
+	}
+}
+
+func TestCompositeMayHoldStore(t *testing.T) {
+	cases := []struct {
+		mode types.WriteMode
+		name string
+		want bool
+	}{
+		{types.MemiavlOnly, keys.StakingStoreKey, true},
+		{types.MemiavlOnly, "oracle", false},
+		{types.EVMMigrated, "oracle", false},
+		{types.EVMMigrated, keys.EVMStoreKey, true},
+		{types.AllMigratedButBank, "tokenfactory", true},
+		{types.FlatKVOnly, "oracle", true},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/%s", tc.mode, tc.name), func(t *testing.T) {
+			cs := setupComposite(t, tc.mode)
+			require.Equal(t, tc.want, cs.MayHoldStore(tc.name))
+		})
+	}
+}

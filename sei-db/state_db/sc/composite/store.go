@@ -939,14 +939,66 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 	return nil
 }
 
-// ApplyUpgrades applies store upgrades (only applicable to memIAVL Cosmos backend). Data in
-// flatKV is not affected by this method.
+// ApplyUpgrades applies store upgrades to the memIAVL backend. It returns an error, and applies
+// nothing, if an upgrade deletes or renames a store whose data the write mode routes to flatKV.
 func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
+	if err := cs.requireUpgradesLeaveFlatKV(upgrades); err != nil {
+		return err
+	}
 	if cs.memIAVL == nil {
 		return nil
 	}
 
 	return cs.memIAVL.ApplyUpgrades(upgrades)
+}
+
+// requireUpgradesLeaveFlatKV returns an error if any upgrade deletes a store, or renames a store from
+// or to a name, that the current write mode routes to flatKV. flatKV has no store-level delete or rename, so applying
+// such an upgrade to memIAVL alone would leave the store's flatKV data behind.
+func (cs *CompositeCommitStore) requireUpgradesLeaveFlatKV(upgrades []*proto.TreeNameUpgrade) error {
+	mode := cs.loadWriteMode()
+	for _, upgrade := range upgrades {
+		var names []string
+		switch {
+		case upgrade.Delete:
+			names = []string{upgrade.Name}
+		case upgrade.RenameFrom != "":
+			// A rename into a flatKV-routed name strands the moved tree in memIAVL just as a rename out
+			// of one strands the flatKV data.
+			names = []string{upgrade.RenameFrom, upgrade.Name}
+		}
+		for _, name := range names {
+			if routesToFlatKV(mode, name) {
+				return fmt.Errorf("cannot delete or rename store %q in write mode %q: the mode routes it to flatkv", name, mode)
+			}
+		}
+	}
+	return nil
+}
+
+// routesToFlatKV reports whether mode may have placed some or all of the named store's data in flatKV.
+func routesToFlatKV(mode types.WriteMode, name string) bool {
+	switch mode {
+	case types.MigrateEVM, types.EVMMigrated, types.TestOnlyDualWrite:
+		return name == keys.EVMStoreKey
+	case types.MigrateAllButBank, types.AllMigratedButBank:
+		// Not keyed on keys.MemIAVLStoreKeys: a store retired in this release has already left that list,
+		// but the binary that migrated it still had it there.
+		return name != keys.BankStoreKey
+	case types.MigrateBank, types.FlatKVOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// MayHoldStore reports whether memIAVL holds a tree named name, or the write mode may have placed
+// the store's data in flatKV. The flatKV half is conservative: it does not look for the data.
+func (cs *CompositeCommitStore) MayHoldStore(name string) bool {
+	if cs.memIAVL != nil && cs.memIAVL.MayHoldStore(name) {
+		return true
+	}
+	return routesToFlatKV(cs.loadWriteMode(), name)
 }
 
 // Commit commits the current state to all active backends at version, the height the caller is
