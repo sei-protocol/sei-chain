@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -70,9 +69,9 @@ type gigaRouterCommon struct {
 	inboundFullnodeCount atomic.Int64
 	inboundFullnodeCap   int64
 
-	// senderRecovery recovers lane transactions while execute waits for the next CommitQC.
-	senderOnce sync.Once
-	senders    *senderRecovery
+	// laneSenders holds the senders recovered for each lane block a validator has received.
+	// It is nil on a fullnode, and until the validator starts following its lanes.
+	laneSenders atomic.Pointer[laneSenderStore]
 }
 
 func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer]) {
@@ -229,55 +228,6 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 			// Votes flow into distribution/slashing on both paths.
 			LastCommit: &types.Commit{},
 		},
-	}
-}
-
-// senderRecovery holds lane transactions whose senders are recovered before they execute.
-type senderRecovery struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	queued [][][]byte
-}
-
-func newSenderRecovery() *senderRecovery {
-	s := &senderRecovery{}
-	s.cond = sync.NewCond(&s.mu)
-	return s
-}
-
-func (r *gigaRouterCommon) senderRecovery() *senderRecovery {
-	r.senderOnce.Do(func() {
-		r.senders = newSenderRecovery()
-		go r.recoverQueuedSenders(context.Background())
-	})
-	return r.senders
-}
-
-// noteLaneTxs queues txs for sender recovery in the background.
-func (r *gigaRouterCommon) noteLaneTxs(txs [][]byte) {
-	if len(txs) == 0 {
-		return
-	}
-	s := r.senderRecovery()
-	s.mu.Lock()
-	s.queued = append(s.queued, txs)
-	s.cond.Signal()
-	s.mu.Unlock()
-}
-
-func (r *gigaRouterCommon) recoverQueuedSenders(ctx context.Context) {
-	s := r.senders
-	for {
-		s.mu.Lock()
-		for len(s.queued) == 0 {
-			s.cond.Wait()
-		}
-		batch := s.queued[0]
-		s.queued[0] = nil
-		s.queued = s.queued[1:]
-		s.mu.Unlock()
-
-		r.app.RecoverSenders(ctx, batch)
 	}
 }
 
@@ -627,7 +577,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		r.app.BeginEVMPrepare(ctx, req, nil)
+		senders, err := r.superblockSenders(ctx, blocks)
+		if err != nil {
+			return err
+		}
+		r.app.BeginEVMPrepare(ctx, req, nil, senders)
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeSuperBlock(ctx, blocks, hashVault, req)
 		if err != nil {

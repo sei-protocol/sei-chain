@@ -78,12 +78,6 @@ func (c *senderCache) put(hash common.Hash, sender common.Address) {
 	c.fresh[hash] = sender
 }
 
-func (c *senderCache) contains(hash common.Hash) bool {
-	_, fresh := c.fresh[hash]
-	_, stale := c.stale[hash]
-	return fresh || stale
-}
-
 // take returns the sender remembered for hash, if any, and forgets it.
 func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
 	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
@@ -413,51 +407,42 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 	}
 }
 
-// RecoverSenders recovers the sender of every tx and remembers it for execution.
-// Transactions whose sender is already remembered are left in the cache.
-func (a *evmOnlyApplication) RecoverSenders(ctx context.Context, txs [][]byte) {
-	if len(txs) == 0 {
-		return
-	}
-	hashes := hashRawTxs(txs)
+// RecoverSenders returns, aligned with txs, the sender of every transaction. A sender CheckTx
+// already recovered is taken from its cache; the rest are recovered from their signatures. A
+// transaction that does not decode or verify is None, and is rejected when it executes.
+func (a *evmOnlyApplication) RecoverSenders(ctx context.Context, txs [][]byte) []utils.Option[common.Address] {
+	out := a.takeSenders(txs)
 	missing := make([]int, 0, len(txs))
-	for senders := range a.checkedSenders.Lock() {
-		for i, hash := range hashes {
-			if !senders.contains(hash) {
-				missing = append(missing, i)
-			}
+	for i, sender := range out {
+		if !sender.IsPresent() {
+			missing = append(missing, i)
 		}
 	}
-	if len(missing) == 0 {
-		return
-	}
-	workers := workersOrGOMAXPROCS(a.execution.ParseWorkers)
-	if workers > len(missing) {
-		workers = len(missing)
-	}
+	workers := min(workersOrGOMAXPROCS(a.execution.ParseWorkers), len(missing))
+	signer := ethtypes.LatestSignerForChainID(a.chainID)
 	var next atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for range workers {
 		go func() {
 			defer wg.Done()
-			for {
-				if ctx.Err() != nil {
-					return
-				}
+			for ctx.Err() == nil {
 				i := int(next.Add(1) - 1)
 				if i >= len(missing) {
 					return
 				}
-				tx, sender, err := a.parseTx(txs[missing[i]])
-				if err != nil {
+				tx := new(ethtypes.Transaction)
+				if err := tx.UnmarshalBinary(txs[missing[i]]); err != nil {
 					continue
 				}
-				a.rememberSender(tx.Hash(), sender)
+				if sender, err := ethtypes.Sender(signer, tx); err == nil {
+					out[missing[i]] = utils.Some(sender)
+				}
 			}
 		}()
 	}
 	wg.Wait()
+	return out
 }
 
 // takeSenders returns, aligned with txs, the sender CheckTx recovered for each
@@ -900,8 +885,9 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 
 // BeginBlockPrepare starts sender recovery for req. parent is the header hash of the block at
 // height-1 when req is two ahead of the committed block, and is ignored when req is the next block.
-// The gas limit is the committed block's, which evm-only fixes at InitChain.
-func (a *evmOnlyApplication) BeginBlockPrepare(ctx context.Context, req *abci.RequestFinalizeBlock, parent []byte) {
+// senders, when aligned with req.Txs, are senders already recovered. The gas limit is the
+// committed block's, which evm-only fixes at InitChain.
+func (a *evmOnlyApplication) BeginBlockPrepare(ctx context.Context, req *abci.RequestFinalizeBlock, parent []byte, senders []utils.Option[common.Address]) {
 	if req == nil || req.Header == nil || req.Header.Height <= 0 {
 		return
 	}
@@ -936,6 +922,9 @@ func (a *evmOnlyApplication) BeginBlockPrepare(ctx context.Context, req *abci.Re
 		},
 		Txs: req.Txs,
 	}
+	if len(senders) == len(req.Txs) {
+		blockReq.Senders = senders
+	}
 	for state := range a.ahead.Lock() {
 		if height <= state.consumed {
 			return
@@ -956,7 +945,9 @@ func (a *evmOnlyApplication) BeginBlockPrepare(ctx context.Context, req *abci.Re
 // the execute loop.
 func (a *evmOnlyApplication) prepareAhead(ctx context.Context, exec *evmonly.Executor, req evmonly.BlockRequest, slot *aheadPrepare) {
 	defer close(slot.done)
-	req.Senders = a.takeSenders(req.Txs)
+	if req.Senders == nil {
+		req.Senders = a.takeSenders(req.Txs)
+	}
 	slot.result, slot.err = exec.PrepareBlock(ctx, req)
 }
 

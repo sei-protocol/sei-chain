@@ -350,8 +350,8 @@ func TestEVMOnlyApplicationExecutesABlockPreparedAhead(t *testing.T) {
 	block1 := evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0))
 	block2 := evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1))
 
-	evmApp.BeginBlockPrepare(t.Context(), block1, nil)
-	evmApp.BeginBlockPrepare(t.Context(), block2, block1.Hash)
+	evmApp.BeginBlockPrepare(t.Context(), block1, nil, nil)
+	evmApp.BeginBlockPrepare(t.Context(), block2, block1.Hash, nil)
 
 	_, err = app.FinalizeBlock(t.Context(), block1)
 	require.NoError(t, err)
@@ -365,13 +365,13 @@ func TestEVMOnlyApplicationExecutesABlockPreparedAhead(t *testing.T) {
 	require.Equal(t, uint64(2), app.EvmNonce(sender))
 
 	// A prepare that lands after its block has executed must not occupy a slot.
-	evmApp.BeginBlockPrepare(t.Context(), block1, nil)
-	evmApp.BeginBlockPrepare(t.Context(), block2, block1.Hash)
+	evmApp.BeginBlockPrepare(t.Context(), block1, nil, nil)
+	evmApp.BeginBlockPrepare(t.Context(), block2, block1.Hash, nil)
 	for state := range evmApp.ahead.Lock() {
 		require.Empty(t, state.byHeight)
 	}
 	block3 := evmOnlyTestBlock(3, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 2))
-	evmApp.BeginBlockPrepare(t.Context(), block3, block2.Hash)
+	evmApp.BeginBlockPrepare(t.Context(), block3, block2.Hash, nil)
 	for state := range evmApp.ahead.Lock() {
 		require.Contains(t, state.byHeight, int64(3))
 	}

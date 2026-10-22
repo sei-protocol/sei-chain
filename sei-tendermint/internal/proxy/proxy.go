@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -45,31 +46,33 @@ func (app *Proxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeB
 
 // blockPreparer starts sender recovery before FinalizeBlock executes the block.
 type blockPreparer interface {
-	BeginBlockPrepare(context.Context, *types.RequestFinalizeBlock, []byte)
+	BeginBlockPrepare(context.Context, *types.RequestFinalizeBlock, []byte, []utils.Option[common.Address])
 }
 
 // BeginEVMPrepare starts sender recovery for req when the wrapped application supports it.
-// parent is the header hash of the previous block when req is two ahead of the commit.
-func (app *Proxy) BeginEVMPrepare(ctx context.Context, req *types.RequestFinalizeBlock, parent []byte) {
+// parent is the header hash of the previous block when req is two ahead of the commit. senders,
+// when aligned with req.Txs, are senders already recovered.
+func (app *Proxy) BeginEVMPrepare(ctx context.Context, req *types.RequestFinalizeBlock, parent []byte, senders []utils.Option[common.Address]) {
 	preparer, ok := app.app.(blockPreparer)
 	if !ok {
 		return
 	}
-	preparer.BeginBlockPrepare(ctx, req, parent)
+	preparer.BeginBlockPrepare(ctx, req, parent, senders)
 }
 
 // senderRecoverer recovers transaction senders before the block that contains them executes.
 type senderRecoverer interface {
-	RecoverSenders(context.Context, [][]byte)
+	RecoverSenders(context.Context, [][]byte) []utils.Option[common.Address]
 }
 
-// RecoverSenders recovers senders when the wrapped application supports it.
-func (app *Proxy) RecoverSenders(ctx context.Context, txs [][]byte) {
+// RecoverSenders returns the senders of txs, aligned with txs, when the wrapped application
+// supports it, and nil otherwise.
+func (app *Proxy) RecoverSenders(ctx context.Context, txs [][]byte) []utils.Option[common.Address] {
 	recoverer, ok := app.app.(senderRecoverer)
 	if !ok {
-		return
+		return nil
 	}
-	recoverer.RecoverSenders(ctx, txs)
+	return recoverer.RecoverSenders(ctx, txs)
 }
 
 func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {

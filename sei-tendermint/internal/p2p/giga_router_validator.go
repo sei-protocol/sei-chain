@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"slices"
-
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -94,38 +92,56 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	}, nil
 }
 
-// recoverLaneSenders recovers each lane block's senders as the block arrives.
+// recoverLaneSenders recovers the senders of each lane block of the current committee as the
+// block arrives. A lane that joins later is not followed; its blocks recover in prepare.
 func (r *gigaValidatorRouter) recoverLaneSenders(ctx context.Context) error {
 	avail := r.consensus.Avail()
-	if _, err := avail.Epoch().Wait(ctx, func(ep *atypes.Epoch) bool {
+	ep, err := avail.Epoch().Wait(ctx, func(ep *atypes.Epoch) bool {
 		return ep.Committee().Lanes().Len() > 0
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
+	store := newLaneSenderStore()
+	r.laneSenders.Store(store)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for lane := range avail.Epoch().Load().Committee().Lanes().All() {
-			s.Spawn(func() error { return r.followLane(ctx, lane) })
+		for range laneSenderWorkers {
+			s.Spawn(func() error {
+				store.run(ctx, r.app.RecoverSenders)
+				return ctx.Err()
+			})
 		}
-		<-ctx.Done()
-		return ctx.Err()
+		for lane := range ep.Committee().Lanes().All() {
+			s.Spawn(func() error { return r.followLane(ctx, store, lane) })
+		}
+		return nil
 	})
 }
 
-// followLane queues a lane's transactions for sender recovery as each block is stored.
-func (r *gigaValidatorRouter) followLane(ctx context.Context, lane atypes.LaneID) error {
+// followLane queues each block of lane for sender recovery as it is stored, until the lane leaves
+// the committee.
+func (r *gigaValidatorRouter) followLane(ctx context.Context, store *laneSenderStore, lane atypes.LaneID) error {
 	avail := r.consensus.Avail()
 	var n atypes.BlockNumber
 	for {
 		proposal, err := avail.Block(ctx, lane, n)
-		if err != nil {
-			if errors.Is(err, atypes.ErrPruned) {
-				n++
-				continue
+		if errors.Is(err, atypes.ErrPruned) {
+			if !avail.Epoch().Load().Committee().HasLane(lane) {
+				return nil
 			}
+			n++
+			if next := avail.NextBlock(lane); next > n {
+				// Blocks below the lane's newest are pruned or about to be; start at the newest.
+				n = next - 1
+			}
+			continue
+		}
+		if err != nil {
 			return err
 		}
 		n++
-		r.noteLaneTxs(slices.Clone(proposal.Msg().Block().Payload().Txs()))
+		block := proposal.Msg().Block()
+		store.add(block.Header().Hash(), block.Payload().Txs())
 	}
 }
 
