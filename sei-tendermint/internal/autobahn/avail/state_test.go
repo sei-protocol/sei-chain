@@ -147,7 +147,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		// Data already holds an AppQC for epoch 0; NewState's prune stamped the
 		// Anchor. Advance the seal cursor without admitting LastRoad tips — runEvict
 		// is not running, and the rest of this test expects empty roads.
-		seekRoads(state, epoch.FirstRoad(1))
+		seekRoads(state, registry.EpochFirstRoad(1))
 		persistEpochSeal(state, ep0, keys)
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() >= 1
@@ -159,7 +159,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			inner.anchorEpoch = utils.Some(ep1)
 			ctrl.Updated()
 		}
-		seekRoads(state, epoch.FirstRoad(2))
+		seekRoads(state, registry.EpochFirstRoad(2))
 		persistEpochSeal(state, ep1, keys)
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() >= epLeave.EpochIndex()
@@ -175,7 +175,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 
 		// Construct a leave-epoch Anchor locally: data still holds only qc0, so a
 		// FirstRoad(2) CommitQC cannot be pushed without filling the road gap.
-		prev := tipLink(ep1, keys[0], epoch.LastRoad(1))
+		prev := tipLink(ep1, keys[0], registry.LastRoad(1))
 		qcLeave := types.BuildCommitQC(epLeave, []types.SecretKey{b}, utils.Some(prev), nil)
 		anchor := data.Anchor{
 			CommitQC: qcLeave,
@@ -388,7 +388,7 @@ func TestNextViewEpoch(t *testing.T) {
 		ep0 := registry.MustEpoch(0)
 		ep1 := registry.MustEpoch(1)
 
-		last := epoch.LastRoad(0)
+		last := registry.LastRoad(0)
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
 			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
 		})
@@ -415,10 +415,10 @@ func TestNextViewEpoch(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
 		ep1 := registry.MustEpoch(1)
-		_, err := registry.EpochAt(epoch.FirstRoad(2))
+		_, err := registry.EpochAt(registry.EpochFirstRoad(2))
 		require.Error(t, err)
 
-		last := epoch.LastRoad(1)
+		last := registry.LastRoad(1)
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
 			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
 		})
@@ -866,8 +866,8 @@ func TestNewStateWithPersistence(t *testing.T) {
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
-		// Queues start at 0.
-		require.Equal(t, types.RoadIndex(0), state.First())
+		// Road queues start at the registry's first road.
+		require.Equal(t, registry.FirstRoad(), state.First())
 	})
 
 	t.Run("loads persisted blocks", func(t *testing.T) {
@@ -914,7 +914,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for i := range qcs {
 			qcs[i] = types.BuildCommitQC(registry.MustEpoch(0), keys, prev, nil)
 			prev = utils.Some(qcs[i])
-			require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{qcs[i]}))
+			require.NoError(t, cp.PruneAndPersist(registry.FirstRoad(), []*types.CommitQC{qcs[i]}))
 		}
 
 		// Release the seeding persister's WAL locks before NewState opens the same directory.
@@ -924,7 +924,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, err)
 
 		// All 3 commitQCs should be loaded (no AppQC to skip past).
-		require.Equal(t, types.RoadIndex(0), state.First())
+		require.Equal(t, registry.FirstRoad(), state.First())
 		// LastCommitQC should be set to the last loaded one.
 		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.LastCommitQC().Load()))
 	})
@@ -932,7 +932,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 	t.Run("non-contiguous commitQC files return error", func(t *testing.T) {
 		dir := t.TempDir()
 
-		// Build 6 sequential CommitQCs (indices 0-5).
+		// Build 6 sequential CommitQCs from the registry's first road.
 		allQCs := make([]*types.CommitQC, 6)
 		prev := utils.None[*types.CommitQC]()
 		for i := range allQCs {
@@ -940,15 +940,15 @@ func TestNewStateWithPersistence(t *testing.T) {
 			prev = utils.Some(allQCs[i])
 		}
 
-		// Persist QCs 0, 1, 2 contiguously, then try to skip to 5.
+		// Persist the first three QCs contiguously, then try to skip to the sixth.
 		// Persist enforces strict sequential order, so the gap
 		// is caught at write time rather than at load time.
 		cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
 		require.NoError(t, err)
 		for i := range 3 {
-			require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{allQCs[i]}))
+			require.NoError(t, cp.PruneAndPersist(registry.FirstRoad(), []*types.CommitQC{allQCs[i]}))
 		}
-		err = cp.PruneAndPersist(0, []*types.CommitQC{allQCs[5]})
+		err = cp.PruneAndPersist(registry.FirstRoad(), []*types.CommitQC{allQCs[5]})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "out of sequence")
 		require.NoError(t, cp.Close())
@@ -1052,20 +1052,20 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 
 func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	f := newSealFixture(t)
-	_, err := f.registry.EpochAt(epoch.FirstRoad(f.m + 1))
+	_, err := f.registry.EpochAt(f.registry.EpochFirstRoad(f.m + 1))
 	require.Error(t, err)
 
-	seekRoads(f.state, epoch.FirstRoad(f.m))
+	seekRoads(f.state, f.registry.EpochFirstRoad(f.m))
 	epPrev := f.registry.MustEpoch(f.m - 1)
-	prev := tipLink(epPrev, f.keys[0], epoch.LastRoad(f.m-1))
+	prev := tipLink(epPrev, f.keys[0], f.registry.LastRoad(f.m-1))
 	qc := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-	require.Equal(t, epoch.FirstRoad(f.m), qc.Proposal().Index())
+	require.Equal(t, f.registry.EpochFirstRoad(f.m), qc.Proposal().Index())
 
 	leader := f.ep.Committee().Leader(qc.Proposal().View()).ED25519().Address().String()
 	commits := gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader})
 	require.NoError(t, f.state.PushCommitQC(t.Context(), qc))
 	require.Equal(t, commits+1, gathered(t, "tendermint_internal_autobahn_consensus_commits", map[string]string{"leader": leader}))
-	require.Equal(t, epoch.FirstRoad(f.m)+1, nextRoad(f.state))
+	require.Equal(t, f.registry.EpochFirstRoad(f.m)+1, nextRoad(f.state))
 }
 
 func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
@@ -1109,7 +1109,7 @@ func newSealFixture(t *testing.T) *sealFixture {
 
 	const m types.EpochIndex = 1
 	ep := registry.MustEpoch(m)
-	_, err = registry.EpochAt(epoch.FirstRoad(m + 1))
+	_, err = registry.EpochAt(registry.EpochFirstRoad(m + 1))
 	require.Error(t, err, "epoch 2 must be absent for exec-leash tests")
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -1118,7 +1118,7 @@ func newSealFixture(t *testing.T) *sealFixture {
 		})
 		return TestDriveAdvance(ctx, state, keys, m)
 	}))
-	seekRoads(state, epoch.LastRoad(m))
+	seekRoads(state, registry.LastRoad(m))
 	return &sealFixture{registry: registry, keys: keys, state: state, ep: ep, m: m}
 }
 
@@ -1157,9 +1157,9 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 					addEpoch(t, f.registry, f.m-1, f.keys)
 				}
 
-				prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
+				prev := tipLink(f.ep, f.keys[0], f.registry.LastRoad(f.m)-1)
 				qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-				require.Equal(t, epoch.LastRoad(f.m), qcLast.Proposal().Index())
+				require.Equal(t, f.registry.LastRoad(f.m), qcLast.Proposal().Index())
 				require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
 				f.state.markCommitQCsPersisted(qcLast)
 				if tc.missing != appQC {
@@ -1171,10 +1171,10 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				if tc.parkNextQC {
 					ep2 := f.registry.MustEpoch(f.m + 1)
 					qcNext := types.BuildCommitQC(ep2, f.keys, utils.Some(qcLast), nil)
-					require.Equal(t, epoch.FirstRoad(f.m+1), qcNext.Proposal().Index())
+					require.Equal(t, f.registry.EpochFirstRoad(f.m+1), qcNext.Proposal().Index())
 					go func() { pushErr = f.state.PushCommitQC(ctx, qcNext) }()
 					synctest.Wait()
-					require.Equal(t, epoch.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
+					require.Equal(t, f.registry.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
 				}
 
 				var runErr error
@@ -1199,7 +1199,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				if tc.parkNextQC {
 					synctest.Wait()
 					require.NoError(t, pushErr)
-					require.Equal(t, epoch.FirstRoad(f.m+1)+1, nextRoad(f.state))
+					require.Equal(t, f.registry.EpochFirstRoad(f.m+1)+1, nextRoad(f.state))
 				}
 
 				cancel()
@@ -1217,7 +1217,7 @@ func anchorWalk(t *testing.T, registry *epoch.Registry, keys []types.SecretKey) 
 	var anchors []data.Anchor
 	for m := types.EpochIndex(0); m <= 2; m++ {
 		ep := registry.MustEpoch(m)
-		last := epoch.LastRoad(m)
+		last := registry.LastRoad(m)
 		qc := types.BuildCommitQC(ep, keys, utils.Some(tipLink(ep, keys[0], last-1)), nil)
 		require.Equal(t, last, qc.Index())
 		anchors = append(anchors, data.Anchor{
@@ -1289,7 +1289,7 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			anchors := anchorWalk(t, registry, keys)
 			ep0 := registry.MustEpoch(0)
 			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
-			require.Equal(t, types.RoadIndex(0), qc0.Index())
+			require.Equal(t, registry.FirstRoad(), qc0.Index())
 			for inner, ctrl := range state.inner.Lock() {
 				inner.persistedCommitQC.Store(utils.Some(qc0))
 				ctrl.Updated()
@@ -1358,7 +1358,7 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 		rng := utils.TestRng()
 		f := newSealFixture(t)
 
-		last := epoch.LastRoad(f.m)
+		last := f.registry.LastRoad(f.m)
 		seekRoads(f.state, last-2)
 		prev := tipLink(f.ep, f.keys[0], last-3)
 		qcA := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)

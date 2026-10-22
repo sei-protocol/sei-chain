@@ -29,17 +29,19 @@ func makeRegistry(t *testing.T) (*Registry, *types.Committee) {
 }
 
 func TestClosingEpoch(t *testing.T) {
-	got, ok := ClosingEpoch(LastRoad(0)).Get()
+	rng := utils.TestRng()
+	r, _ := GenRegistry(rng, 3)
+	got, ok := r.ClosingEpoch(r.LastRoad(0)).Get()
 	require.True(t, ok)
 	require.Equal(t, types.EpochIndex(0), got)
 
-	got, ok = ClosingEpoch(LastRoad(1)).Get()
+	got, ok = r.ClosingEpoch(r.LastRoad(1)).Get()
 	require.True(t, ok)
 	require.Equal(t, types.EpochIndex(1), got)
 
-	_, ok = ClosingEpoch(FirstRoad(1)).Get()
+	_, ok = r.ClosingEpoch(r.EpochFirstRoad(1)).Get()
 	require.False(t, ok)
-	_, ok = ClosingEpoch(LastRoad(0) - 1).Get()
+	_, ok = r.ClosingEpoch(r.LastRoad(0) - 1).Get()
 	require.False(t, ok)
 }
 
@@ -60,25 +62,25 @@ func TestNewRegistry_Genesis(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(0), ep0.EpochIndex())
 
-	epAt, err := r.EpochAt(LastRoad(0))
+	epAt, err := r.EpochAt(r.LastRoad(0))
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(0), epAt.EpochIndex())
 	rng0 := epAt.RoadRange()
-	if rng0.First != 0 || rng0.Next != FirstRoad(1) {
-		t.Fatalf("epoch 0 RoadRange = {%d, %d}, want {0, %d}", rng0.First, rng0.Next, FirstRoad(1))
+	if rng0.First != 0 || rng0.Next != r.EpochFirstRoad(1) {
+		t.Fatalf("epoch 0 RoadRange = {%d, %d}, want {0, %d}", rng0.First, rng0.Next, r.EpochFirstRoad(1))
 	}
 
-	ep1, err := r.EpochAt(FirstRoad(1))
+	ep1, err := r.EpochAt(r.EpochFirstRoad(1))
 	require.NoError(t, err)
 	rng1 := ep1.RoadRange()
-	if rng1.First != FirstRoad(1) || rng1.Next != FirstRoad(2) {
-		t.Fatalf("epoch 1 RoadRange = {%d, %d}, want {%d, %d}", rng1.First, rng1.Next, FirstRoad(1), FirstRoad(2))
+	if rng1.First != r.EpochFirstRoad(1) || rng1.Next != r.EpochFirstRoad(2) {
+		t.Fatalf("epoch 1 RoadRange = {%d, %d}, want {%d, %d}", rng1.First, rng1.Next, r.EpochFirstRoad(1), r.EpochFirstRoad(2))
 	}
 	if ep1.Committee() != ep0.Committee() {
 		t.Fatal("epoch 1 must use the genesis committee")
 	}
-	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
-		t.Fatal("EpochAt(FirstRoad(2)) expected error for unregistered epoch, got nil")
+	if _, err := r.EpochAt(r.EpochFirstRoad(2)); err == nil {
+		t.Fatal("EpochAt(r.EpochFirstRoad(2)) expected error for unregistered epoch, got nil")
 	}
 	ep, err := r.WaitForEpoch(t.Context(), 0)
 	require.NoError(t, err)
@@ -91,7 +93,7 @@ func TestNewRegistry_Genesis(t *testing.T) {
 func TestNewRegistry_IndependentGenesisOrigins(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _, weights := genCommittee(rng, 3)
-	firstRoad := FirstRoad(2) + 7
+	firstRoad := 2*EpochLength + 7
 	firstBlock := types.GlobalBlockNumber(11)
 	r := utils.OrPanic1(NewRegistry(committee, firstRoad, firstBlock, time.Time{}, utils.None[string]()))
 
@@ -132,8 +134,8 @@ func TestStageEpoch_FromEndStake(t *testing.T) {
 
 	ep := addFromEnd(t, r, 0, map[types.PublicKey]uint64{b.Public(): 7})
 	require.Equal(t, types.EpochIndex(2), ep.EpochIndex())
-	require.Equal(t, FirstRoad(2), ep.RoadRange().First)
-	require.Equal(t, FirstRoad(3), ep.RoadRange().Next)
+	require.Equal(t, r.EpochFirstRoad(2), ep.RoadRange().First)
+	require.Equal(t, r.EpochFirstRoad(3), ep.RoadRange().Next)
 	require.Equal(t, genesis, r.MustEpoch(1).Committee())
 	require.False(t, ep.Committee().HasReplica(a.Public()))
 	require.Equal(t, uint64(7), ep.Committee().Weight(b.Public()))
@@ -208,7 +210,7 @@ func TestStageEpoch_PendingIsInvisible(t *testing.T) {
 
 		_, err := r.EpochByIndex(2)
 		require.Error(t, err)
-		_, err = r.EpochAt(FirstRoad(2))
+		_, err = r.EpochAt(r.EpochFirstRoad(2))
 		require.Error(t, err)
 
 		var got *types.Epoch
@@ -268,7 +270,7 @@ func TestPruneBefore_DropsDerivedKeepsGenesis(t *testing.T) {
 	require.Equal(t, types.RoadIndex(0), r.FirstRoad())
 	require.Equal(t, types.GlobalBlockNumber(0), r.FirstBlock())
 
-	_, err = r.EpochAt(FirstRoad(2))
+	_, err = r.EpochAt(r.EpochFirstRoad(2))
 	require.ErrorIs(t, err, types.ErrPruned)
 	_, err = r.WaitForEpoch(t.Context(), 2)
 	require.ErrorIs(t, err, types.ErrPruned)

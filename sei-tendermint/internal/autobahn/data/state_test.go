@@ -167,14 +167,14 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	ep1 := registry.MustEpoch(1)
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
-	qcMid, blocksMid := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), ep1.FirstBlock())
+	qcMid, blocksMid := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1), ep1.FirstBlock())
 	require.NoError(t, state.PushQC(ctx, qcMid, blocksMid))
 	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch next road is still in epoch 1")
 	grMid := qcMid.QC().GlobalRange()
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grMid.First, grMid.Next))
 	require.Equal(t, ep1, state.NextCommitEpoch().Load())
 
-	qcLast, blocksLast := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), grMid.Next)
+	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1), grMid.Next)
 	require.NoError(t, state.PushQC(ctx, qcLast, blocksLast))
 	require.Equal(t, ep2, state.NextCommitEpoch().Load(), "next road is in epoch 2, already filled from end(0)")
 }
@@ -189,7 +189,7 @@ func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+		qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0), ep0.FirstBlock())
 		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
 			return err
 		}
@@ -201,7 +201,7 @@ func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
 			return fmt.Errorf("after LastRoad(0) QC: NextCommitEpoch = %v, want epoch 1", got.EpochIndex())
 		}
 
-		qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), qc0.QC().GlobalRange().Next)
+		qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.LastRoad(1), qc0.QC().GlobalRange().Next)
 		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
 			return err
 		}
@@ -548,7 +548,7 @@ func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
 		if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
 			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
 		}
 		if got, ok := registry.Pending().Get(); ok {
@@ -567,7 +567,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 	ep := registry.MustEpoch(0)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+		qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0), ep.FirstBlock())
 		if err := state.PushQC(ctx, qc, blocks); err != nil {
 			return err
 		}
@@ -575,7 +575,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
 			return errors.New("epoch 2 must stay staged until an AppQC finalizes end(0)")
 		}
 		if want := utils.Some(types.EpochIndex(2)); registry.Pending() != want {
@@ -585,7 +585,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
 			return err
 		}
-		filled, err := registry.EpochAt(epoch.FirstRoad(2))
+		filled, err := registry.EpochAt(registry.EpochFirstRoad(2))
 		if err != nil {
 			return fmt.Errorf("epoch 2 after AppQC: %w", err)
 		}
@@ -609,7 +609,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 	keeper := keys[0].Public()
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0), ep.FirstBlock())
 	n := qc.QC().GlobalRange().Next - 1
 
 	// Stop Run before the divergent AppQC: persisting one kills the node.
@@ -623,7 +623,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 
 	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
-	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	_, err := registry.EpochAt(registry.EpochFirstRoad(2))
 	require.Error(t, err, "epoch 2 must stay staged after divergence")
 	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
 }
@@ -636,9 +636,9 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
-	qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+	qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0), ep0.FirstBlock())
 	gr0 := qc0.QC().GlobalRange()
-	qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), gr0.Next)
+	qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1), gr0.Next)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -660,7 +660,7 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	require.NoError(t, err)
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, vote1.Proposal())))
 
-	_, err = registry.EpochAt(epoch.FirstRoad(2))
+	_, err = registry.EpochAt(registry.EpochFirstRoad(2))
 	require.Error(t, err, "epoch 2 must stay staged when LastRoad(0) diverged")
 	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
 }
