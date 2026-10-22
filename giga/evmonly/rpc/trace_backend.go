@@ -72,6 +72,9 @@ func (b *traceBackend) BlockByHash(ctx context.Context, hash common.Hash) (*etht
 // BlockByNumber returns the block at number, or nil when there is none. Current-state tags name the
 // latest block whose receipts are indexed.
 func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	if number == 0 {
+		return genesisBlock(), nil, nil
+	}
 	if isLatestTag(number) {
 		_, latest := indexedRange(b.backend, b.blocks.store)
 		number = ethrpc.BlockNumber(latest) //nolint:gosec // G115: an indexed height fits in int64.
@@ -82,6 +85,14 @@ func (b *traceBackend) BlockByNumber(ctx context.Context, number ethrpc.BlockNum
 	}
 	eth, err := b.ethBlock(ctx, block)
 	return eth, nil, err
+}
+
+// genesisBlock returns block 0, which no store holds: it carries only its number and the zero hash
+// block 1 names as its parent, which is all a trace reads from a parent block.
+func genesisBlock() *ethtypes.Block {
+	block := ethtypes.NewBlockWithHeader(&ethtypes.Header{Number: new(big.Int), Difficulty: new(big.Int), BaseFee: new(big.Int)})
+	block.OverwriteHash(common.Hash{})
+	return block
 }
 
 // ethBlock returns block as go-ethereum's tracer reads it: carrying the block's own hash, and holding

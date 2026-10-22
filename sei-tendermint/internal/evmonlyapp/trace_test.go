@@ -134,3 +134,19 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// Block 1 traces against the state the chain started from.
+func TestEVMOnlyApplicationReplaysTheFirstBlock(t *testing.T) {
+	app := newUndoLogEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)))
+	app.storage.StateDB().UndoSS().WaitForPendingWrites()
+
+	state, release, err := app.EvmStateBeforeTx(t.Context(), traceTestHeader(1, nil), nil)
+
+	require.NoError(t, err)
+	defer release()
+	require.Zero(t, state.GetNonce(sender))
+}

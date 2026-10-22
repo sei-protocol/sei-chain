@@ -137,7 +137,8 @@ func newTraceChain(t *testing.T) *traceChain {
 		stateAt: func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
 			header := chain.header(2)
 			switch height {
-			case 1:
+			case 0, 1:
+				// Block 1 is empty, so it left the state block 0 did.
 				return replay(ctx, header, nil)
 			case 2:
 				return replay(ctx, header, chain.blocks[2].Block.Txs.ToSliceOfBytes())
@@ -320,6 +321,12 @@ func TestDebugTraceBlock(t *testing.T) {
 		})
 	}
 
+	t.Run("block 1, whose parent block 0 is not stored", func(t *testing.T) {
+		var got []json.RawMessage
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.BlockNumber(1), tracer("callTracer")))
+		require.Empty(t, got)
+	})
+
 	t.Run("block whose receipts are not indexed", func(t *testing.T) {
 		chain.backend.blockNumber = func() uint64 { return 3 }
 		chain.blocks[3] = traceResultBlock(3, nil)
@@ -354,6 +361,7 @@ func TestDebugTraceCall(t *testing.T) {
 		{name: "a numbered block reads the state after it", block: "0x2", wantNonce: 2},
 		{name: "a block hash reads the state after it", block: traceBlockHash(2), wantNonce: 2},
 		{name: "the block before reads its state", block: "0x1", wantNonce: 0},
+		{name: "block 0 reads the state the chain started from", block: "0x0", wantNonce: 0},
 		{name: "txIndex reads the state before that transaction", block: "0x2", txIndex: utilsPtr(hexutil.Uint(2)), wantNonce: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
