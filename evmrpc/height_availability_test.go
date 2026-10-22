@@ -575,19 +575,19 @@ func TestLogFetcherRespectsReceiptFloor(t *testing.T) {
 
 	t.Run("range below the receipt floor errors", func(t *testing.T) {
 		crit := filters.FilterCriteria{FromBlock: big.NewInt(100), ToBlock: big.NewInt(120)}
-		_, _, err := newFetcher(100).fetchBlocksByCrit(ctx, crit, 0, nil)
+		_, _, err := newFetcher(100).fetchBlocksByCrit(ctx, crit, nil)
 		require.ErrorContains(t, err, "requested fromBlock 100 is before earliest available block 150")
 	})
 
 	t.Run("block hash below the receipt floor errors", func(t *testing.T) {
 		hash := common.HexToHash(highBlockHashHex)
-		_, _, err := newFetcher(100).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, 0, nil)
+		_, _, err := newFetcher(100).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, nil)
 		require.ErrorIs(t, err, ErrReceiptsPruned)
 	})
 
 	t.Run("block hash at the receipt floor is served", func(t *testing.T) {
 		hash := common.HexToHash(highBlockHashHex)
-		blocks, _, err := newFetcher(receiptFloorTestReceiptEarliest).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, 0, nil)
+		blocks, _, err := newFetcher(receiptFloorTestReceiptEarliest).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, nil)
 		require.NoError(t, err)
 		block := <-blocks
 		require.Equal(t, receiptFloorTestReceiptEarliest, block.Block.Height)
@@ -595,7 +595,7 @@ func TestLogFetcherRespectsReceiptFloor(t *testing.T) {
 
 	t.Run("unknown block hash returns no blocks", func(t *testing.T) {
 		hash := common.HexToHash(notFoundHashHex)
-		blocks, _, err := newFetcher(100).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, 0, nil)
+		blocks, _, err := newFetcher(100).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, nil)
 		require.NoError(t, err)
 		_, open := <-blocks
 		require.False(t, open)
