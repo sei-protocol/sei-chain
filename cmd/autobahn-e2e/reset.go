@@ -15,6 +15,7 @@ type resetOptions struct {
 	name    string
 	timeout time.Duration
 	nodeEnv []string
+	ref     string
 }
 
 func (a *application) newResetCommand() *cobra.Command {
@@ -30,6 +31,7 @@ func (a *application) newResetCommand() *cobra.Command {
 	flags.StringVar(&options.name, "name", defaultClusterName, "cluster name")
 	flags.DurationVar(&options.timeout, "timeout", 20*time.Minute, "readiness timeout")
 	flags.StringArrayVar(&options.nodeEnv, "node-env", nil, "KEY=VALUE replacing or adding to the cluster's node environment; repeatable")
+	flags.StringVar(&options.ref, "ref", "", "git ref each validator checks out and rebuilds seid from; omitted keeps the built seid")
 	return cmd
 }
 
@@ -53,6 +55,9 @@ func (a *application) reset(ctx context.Context, options resetOptions) error {
 	for key, value := range overrides {
 		state.AWS.NodeEnv[key] = value
 	}
+	if options.ref != "" {
+		state.AWS.Ref = options.ref
+	}
 	if err := a.store().save(state); err != nil {
 		return err
 	}
@@ -66,18 +71,28 @@ func (a *application) reset(ctx context.Context, options resetOptions) error {
 	_, _ = fmt.Fprintln(a.stdout, "Stopping every validator and deleting its chain data.")
 	generated := filepath.Join(state.AWS.RemoteDir, "build/generated")
 	if err := a.forEachHost(readyCtx, validators, func(ctx context.Context, host awsHost) error {
-		command := strings.Join([]string{
+		steps := []string{
 			remoteMake(state, "docker-aws-validator-stop", nil),
 			"sudo rm -rf \"$HOME/.sei-autobahn-e2e-home\" " + shellQuote(generated),
-		}, " && ")
-		if err := a.remoteStream(ctx, state, host, command); err != nil {
+		}
+		if options.ref != "" {
+			steps = append(steps,
+				"cd "+shellQuote(state.AWS.RemoteDir),
+				"git fetch --filter=blob:none origin",
+				"git checkout --detach "+shellQuote(options.ref),
+			)
+		}
+		if err := a.remoteStream(ctx, state, host, strings.Join(steps, " && ")); err != nil {
 			return fmt.Errorf("stop validator %d: %w", host.Index, err)
 		}
-		return a.remoteStream(ctx, state, host, remoteMake(state, "docker-aws-validator-init", map[string]string{
+		init := map[string]string{
 			"ID":           strconv.Itoa(host.Index),
 			"ADVERTISE_IP": host.PrivateIP,
-			"SKIP_BUILD":   "true",
-		}))
+		}
+		if options.ref == "" {
+			init["SKIP_BUILD"] = "true"
+		}
+		return a.remoteStream(ctx, state, host, remoteMake(state, "docker-aws-validator-init", init))
 	}); err != nil {
 		return err
 	}
