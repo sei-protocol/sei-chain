@@ -63,6 +63,7 @@ func newRootCommand(runner commandRunner, stdout, stderr io.Writer) *cobra.Comma
 		app.newListCommand(),
 		app.newForwardCommand(),
 		app.newTeardownCommand(),
+		app.newResetCommand(),
 	)
 	return cmd
 }
