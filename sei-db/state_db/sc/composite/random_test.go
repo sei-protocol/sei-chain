@@ -176,10 +176,6 @@ func TestRandomSteadyState_EVMMigrated(t *testing.T) {
 	runSteadyStateScenario(t, types.EVMMigrated)
 }
 
-func TestRandomSteadyState_AllMigratedButBank(t *testing.T) {
-	runSteadyStateScenario(t, types.AllMigratedButBank)
-}
-
 func TestRandomSteadyState_TestOnlyDualWrite(t *testing.T) {
 	runSteadyStateScenario(t, types.TestOnlyDualWrite)
 }
@@ -439,22 +435,12 @@ func TestRandomMigration_MigrateEVM(t *testing.T) {
 	})
 }
 
-func TestRandomMigration_MigrateAllButBank(t *testing.T) {
+func TestRandomMigration_MigrateCosmos(t *testing.T) {
 	runMigrationScenario(t, migrationScenario{
 		predecessorMode: types.EVMMigrated,
-		migrationMode:   types.MigrateAllButBank,
-		successorMode:   types.AllMigratedButBank,
-		targetVersion:   uint64(migration.Version2_MigrateAllButBank),
-		migratingStores: []string{keys.StakingStoreKey},
-	})
-}
-
-func TestRandomMigration_MigrateBank(t *testing.T) {
-	runMigrationScenario(t, migrationScenario{
-		predecessorMode: types.AllMigratedButBank,
-		migrationMode:   types.MigrateBank,
+		migrationMode:   types.MigrateCosmos,
 		successorMode:   types.FlatKVOnly,
-		targetVersion:   uint64(migration.Version3_FlatKVOnly),
-		migratingStores: []string{keys.BankStoreKey},
+		targetVersion:   uint64(migration.Version2_FlatKVOnly),
+		migratingStores: []string{keys.BankStoreKey, keys.StakingStoreKey},
 	})
 }

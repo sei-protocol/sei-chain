@@ -2,13 +2,15 @@
 
 This document is the operational companion to [README.md](README.md). README explains *what* the migration is and *how* the data path is wired; this document explains *what can go wrong*, *how to detect it*, *how to repair it*, and *what tooling needs to exist* to make MigrateEVM (V0 -> V1) safe to operate in production and reproducible in CI.
 
-It is deliberately scoped to **MigrateEVM only** (the V0 -> V1 transition that moves the `evm/` module from memiavl to flatkv). The same framework will apply to MigrateAllButBank (V1 -> V2) and MigrateBank (V2 -> V3) but those are out of scope for the first iteration.
+It is deliberately scoped to **MigrateEVM only** (the V0 -> V1 transition that moves the `evm/` module from memiavl to flatkv). The same framework will apply to MigrateCosmos (V1 -> V2) but that is out of scope for the first iteration, except for the rollout sequence below.
+
+**MigrateCosmos rollout.** Once the `MigrateCosmosEnabled` param is true (v6.8 and later), MigrateCosmos starts in the block after MigrateEVM completes, with no further governance step. A single raise of `NumKeysToMigratePerBlock` therefore runs both migrations back to back. To pause between them, set `NumKeysToMigratePerBlock` to 0 before MigrateEVM completes. Setting `MigrateCosmosEnabled` back to false does not stop a MigrateCosmos already in progress. Once MigrateCosmos has persisted version 2, the next block with `NumKeysToMigratePerBlock` above 0 moves an auto node from the migration router to `flatkv_only` without a restart; a node restarted after completion derives `flatkv_only` directly.
 
 ---
 
 ## 1. Scope
 
-MigrateEVM is the first of three migrations defined in [migration_versions.go](migration_versions.go):
+MigrateEVM is the first of two migrations defined in [migration_versions.go](migration_versions.go):
 
 - `Version0_MemiavlOnly = 0` -- pre-migration. All modules in memiavl.
 - `Version1_MigrateEVM  = 1` -- post-migration. `evm/` lives in flatkv; everything else still in memiavl.
