@@ -405,6 +405,11 @@ func openAutobahnStorageManager(
 	if err != nil {
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
+	if storage.BlockStoreFsyncDisabledUnsafe {
+		logger.Error("BLOCK STORE FSYNC DISABLED (giga.storage.block_store_fsync_disabled_unsafe=true): " +
+			"a crash can lose recently stored blocks; load tests only")
+		blockConfig.Litt.Fsync = false
+	}
 	storageConfig.BlockDBConfig = &blockConfig
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
