@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/orderedcode"
 	"github.com/holiman/uint256"
@@ -127,7 +126,6 @@ func (m *mockApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFi
 }
 
 func (m *mockApplication) RegisterAPIRoutes(*api.Server, serverconfig.APIConfig)     {}
-func (m *mockApplication) RegisterGRPCServer(grpc.Server)                            {}
 func (m *mockApplication) RegisterLocalServices(client.LocalClient, client.TxConfig) {}
 func (m *mockApplication) InplaceTestnetInitialize(cryptotypes.PubKey)               {}
 

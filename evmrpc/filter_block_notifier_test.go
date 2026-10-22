@@ -29,7 +29,8 @@ func newTestFilterAPI(t *testing.T, notifier *BlockHeaderNotifier) *FilterAPI {
 
 func newTestFilterAPIWithConfig(t *testing.T, notifier *BlockHeaderNotifier, filterConfig *FilterConfig) *FilterAPI {
 	t.Helper()
-	// Setup: FilterAPI with unused log/store deps; only the notifier path is exercised.
+	// Setup: FilterAPI with unused log/store deps; eth_newFilter reads only the head, from a stub
+	// watermark manager, and otherwise only the notifier path is exercised.
 	api := NewFilterAPI(
 		nil,
 		nil,
@@ -42,7 +43,7 @@ func newTestFilterAPIWithConfig(t *testing.T, notifier *BlockHeaderNotifier, fil
 		NewBlockCache(1),
 		&sync.Mutex{},
 		NewLogSlicePool(),
-		nil,
+		newHeightTestWatermarks(newHeightTestClient(0, 1, 1), 1),
 		notifier,
 	)
 	t.Cleanup(api.shutdown)
