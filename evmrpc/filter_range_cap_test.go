@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -626,7 +627,8 @@ func TestPollLogsNarrowsFromTheCursor(t *testing.T) {
 
 // TestPollLogsPropagatesSingleBlockOverflow proves the backoff does not mask
 // a genuine overflow: when even a single block exceeds the cap there is
-// nothing left to narrow, and the real error must reach the caller.
+// nothing left to narrow, and the real error must reach the caller along with
+// a cursor past that block.
 func TestPollLogsPropagatesSingleBlockOverflow(t *testing.T) {
 	t.Parallel()
 
@@ -643,21 +645,24 @@ func TestPollLogsPropagatesSingleBlockOverflow(t *testing.T) {
 		Addresses: []common.Address{match},
 	}
 
-	logs, _, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, rangeCapTestHeight)
+	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, rangeCapTestHeight)
 	require.Error(t, err)
 	require.Nil(t, logs)
 	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+	require.ErrorContains(t, err, fmt.Sprintf("block %d", rangeCapTestHeight), "the error must name the skipped block")
+	require.Equal(t, rangeCapTestHeight+1, cursor)
 }
 
-// A poll whose range ends at a block that alone exceeds the caps returns the
-// blocks before it, and every later poll fails at that block rather than
-// skipping it.
-func TestPollLogsStopsAtAnOverflowingTip(t *testing.T) {
+// A block that alone exceeds the caps fails the poll that reaches it, after the
+// polls before it return the blocks that fit, and the next poll continues from
+// the block after it instead of failing on it again.
+func TestPollLogsSkipsAnOverflowingBlock(t *testing.T) {
 	t.Parallel()
 
 	match := common.HexToAddress(LogCapAddr)
 	topic := common.HexToHash(LogCapBlockHash)
-	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	overflowing := rangeCapTestHeight - 1
+	candidates := buildRangeCapCandidates(5, uint64(overflowing), match, topic, nil)
 	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
 		MaxLog:   1,
 		MaxBlock: evmrpc.DefaultMaxBlockRange,
@@ -668,17 +673,20 @@ func TestPollLogsStopsAtAnOverflowingTip(t *testing.T) {
 		Addresses: []common.Address{match},
 	}
 
-	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, rangeCapTestHeight-1)
-	require.NoError(t, err, "the block before the tip fits the caps and must be returned")
+	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, overflowing-1)
+	require.NoError(t, err, "the block before the overflowing one fits the caps and must be returned")
 	require.Empty(t, logs)
-	require.Equal(t, rangeCapTestHeight, cursor)
+	require.Equal(t, overflowing, cursor)
 
-	for range 2 {
-		logs, next, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
-		require.ErrorIs(t, err, receipt.ErrTooManyLogs)
-		require.Nil(t, logs)
-		require.Equal(t, cursor, next, "a failed poll must leave the cursor at the overflowing block")
-	}
+	logs, cursor, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+	require.ErrorIs(t, err, receipt.ErrTooManyLogs)
+	require.Nil(t, logs)
+	require.Equal(t, overflowing+1, cursor, "a poll failing on the overflowing block must move the cursor past it")
+
+	logs, cursor, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+	require.NoError(t, err, "the poll after the overflowing block must not fail on it again")
+	require.Empty(t, logs)
+	require.Equal(t, rangeCapTestHeight+1, cursor)
 }
 
 // setupAdjacentOverflowFixture returns a fixture whose last two blocks each

@@ -63,6 +63,19 @@ func TestTraceTransaction(t *testing.T) {
 	}
 }
 
+func TestTraceTransactionNotFound(t *testing.T) {
+	resObj := sendRequestGoodWithNamespace(
+		t,
+		"debug",
+		"traceTransaction",
+		"0x1111111111111111111111111111111111111111111111111111111111111111",
+	)
+
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected transaction-not-found error, got: %v", resObj)
+	require.Equal(t, "transaction not found", errObj["message"])
+}
+
 func TestTraceCall(t *testing.T) {
 	_, contractAddr := testkeeper.MockAddressPair()
 	txArgs := map[string]interface{}{

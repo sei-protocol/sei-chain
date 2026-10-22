@@ -611,15 +611,11 @@ func (a *FilterAPI) GetFilterChanges(
 		return hashes, nil
 	case LogsSubscription:
 		logs, cursor, err := a.logFetcher.pollLogs(ctx, filter.fc, filter.logCursor)
-		if err != nil {
-			return nil, err
-		}
-		if logs == nil {
-			logs = result
-		}
 
-		// Update filter with write lock. A concurrent poll of the same filter may have advanced the
-		// cursor further, and moving it back would deliver those blocks again.
+		// Update filter with write lock, also when the poll failed, as a poll that fails on a
+		// block it cannot serve moves the cursor past it. A concurrent poll of the same filter
+		// may have advanced the cursor further, and moving it back would deliver those blocks
+		// again.
 		a.filtersMu.Lock()
 		if updatedFilter, exists := a.filters[filterID]; exists && cursor > updatedFilter.logCursor {
 			updatedFilter.logCursor = cursor
@@ -627,6 +623,12 @@ func (a *FilterAPI) GetFilterChanges(
 		}
 		a.filtersMu.Unlock()
 
+		if err != nil {
+			return nil, err
+		}
+		if logs == nil {
+			logs = result
+		}
 		return logs, nil
 	default:
 		return nil, errors.New("unknown filter type")
@@ -1063,16 +1065,21 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 }
 
 // pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
-// from. A poll scans from cursor, or from the earliest available block when cursor is below it, up
-// to the head, or to crit's toBlock when it is a number below the head, and scans fewer blocks when
-// that range exceeds the block or log caps. A blockHash crit's block is returned by the poll at
-// cursor 0.
+// from, also when it returns an error. A poll scans from cursor, or from the earliest available
+// block when cursor is below it, up to the head, or to crit's toBlock when it is a number below
+// the head, and scans fewer blocks when that range exceeds the block or log caps. A block whose
+// logs alone exceed the log caps fails the poll that reaches it, and the returned cursor is past
+// it. A blockHash crit's block is returned by the poll at cursor 0.
 func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, cursor int64) ([]*ethtypes.Log, int64, error) {
 	if logsExhausted(crit, cursor) {
 		return []*ethtypes.Log{}, cursor, nil
 	}
 	if crit.BlockHash != nil {
 		logs, _, err := f.GetLogsByFilters(ctx, crit)
+		if exceedsLogCaps(err) {
+			// Every later poll would fail on the block again, so the filter ends with the error.
+			return nil, cursor + 1, err
+		}
 		if err != nil {
 			return nil, cursor, err
 		}
@@ -1092,6 +1099,11 @@ func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, 
 		return []*ethtypes.Log{}, cursor, nil
 	}
 	logs, end, err := f.getLogsByFiltersWithBackoff(ctx, crit, from, to)
+	var oversized *oversizedBlockError
+	if errors.As(err, &oversized) {
+		// Every later poll would fail on the block again, so the filter moves on without it.
+		return nil, oversized.height + 1, err
+	}
 	if err != nil {
 		return nil, cursor, err
 	}
@@ -1125,9 +1137,26 @@ func logsExhausted(crit filters.FilterCriteria, cursor int64) bool {
 	return crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && cursor > crit.ToBlock.Int64()
 }
 
+// exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
+func exceedsLogCaps(err error) bool {
+	return errors.Is(err, receipt.ErrTooManyLogs) || errors.Is(err, receipt.ErrTooManyLogBytes)
+}
+
+// oversizedBlockError reports a block whose logs matching a filter alone exceed the log caps.
+type oversizedBlockError struct {
+	height int64
+	err    error
+}
+
+func (e *oversizedBlockError) Error() string {
+	return fmt.Sprintf("logs of block %d skipped: %v", e.height, e.err)
+}
+
+func (e *oversizedBlockError) Unwrap() error { return e.err }
+
 // getLogsByFiltersWithBackoff returns the logs crit matches in the blocks from through to, and
 // the last height they cover. When those logs exceed the log caps it halves the range until they
-// fit, and fails only when block from alone exceeds them.
+// fit, and fails with an oversizedBlockError when block from alone exceeds them.
 func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filters.FilterCriteria, from, to int64) ([]*ethtypes.Log, int64, error) {
 	window := crit
 	window.FromBlock = big.NewInt(from)
@@ -1137,8 +1166,11 @@ func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filte
 		if err == nil {
 			return logs, end, nil
 		}
-		if from == to || (!errors.Is(err, receipt.ErrTooManyLogs) && !errors.Is(err, receipt.ErrTooManyLogBytes)) {
+		if !exceedsLogCaps(err) {
 			return nil, 0, err
+		}
+		if from == to {
+			return nil, 0, &oversizedBlockError{height: from, err: err}
 		}
 		to = from + (to-from)/2
 	}
