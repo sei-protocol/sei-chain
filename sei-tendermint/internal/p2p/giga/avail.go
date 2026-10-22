@@ -96,7 +96,7 @@ func (x *validatorService) serverStreamAppVotes(ctx context.Context, server rpc.
 
 func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc.Server[API]) error {
 	return StreamCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.CommitQC, *pb.StreamCommitQCsReq]) error {
-		next := types.RoadIndex(0)
+		next := x.state.Avail().First()
 		for {
 			qc, err := x.state.Avail().CommitQC(ctx, next)
 			if err != nil {
