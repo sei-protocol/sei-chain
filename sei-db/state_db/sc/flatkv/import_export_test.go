@@ -89,7 +89,7 @@ func TestExporterStorageKeys(t *testing.T) {
 	for _, n := range nodes {
 		require.Equal(t, int64(1), n.Version)
 		require.Equal(t, int8(0), n.Height)
-		kind, _, err := ktype.StripEVMPhysicalKey(n.Key)
+		kind, _, err := ktype.StripPhysicalEVMKey(n.Key)
 		require.NoError(t, err)
 		require.Equal(t, keys.EVMKeyStorage, kind)
 	}
@@ -128,7 +128,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	require.Len(t, nodes, 1)
 
 	n := nodes[0]
-	kind, _, err := ktype.StripEVMPhysicalKey(n.Key)
+	kind, _, err := ktype.StripPhysicalEVMKey(n.Key)
 	require.NoError(t, err)
 	require.Equal(t, ktype.EVMKeyAccount, kind)
 
@@ -160,7 +160,7 @@ func TestExporterCodeKeys(t *testing.T) {
 	require.NoError(t, exp.Close())
 
 	require.Len(t, nodes, 1)
-	kind, _, err := ktype.StripEVMPhysicalKey(nodes[0].Key)
+	kind, _, err := ktype.StripPhysicalEVMKey(nodes[0].Key)
 	require.NoError(t, err)
 	require.Equal(t, keys.EVMKeyCode, kind)
 
@@ -290,7 +290,7 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	require.Len(t, nodes, 1)
 	require.Len(t, nodes[0].Value, vtype.VersionLength+vtype.BlockHeightLength+
 		vtype.BalanceLength+vtype.NonceLength)
-	kind, _, err := ktype.StripEVMPhysicalKey(nodes[0].Key)
+	kind, _, err := ktype.StripPhysicalEVMKey(nodes[0].Key)
 	require.NoError(t, err)
 	require.Equal(t, ktype.EVMKeyAccount, kind)
 
@@ -791,7 +791,7 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 			continue // skip the module header
 		}
 		node := item.(*types.SnapshotNode)
-		kind, _, parseErr := ktype.StripEVMPhysicalKey(node.Key)
+		kind, _, parseErr := ktype.StripPhysicalEVMKey(node.Key)
 		require.NoError(t, parseErr)
 		if kind == keys.EVMKeyStorage {
 			storageNodes = append(storageNodes, node)

@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
@@ -1650,7 +1651,11 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// Write v2 to the WAL manually (like Commit step 1) without committing to the DBs.
-	require.NoError(t, s.wal.Write(2, s.pendingChangeSets))
+	prior := s.OpenView()
+	mutations, err := mutation.MutationsFromChangeSets(s.pendingChangeSets, 2, prior)
+	prior.Close()
+	require.NoError(t, err)
+	require.NoError(t, s.wal.Write(2, mutations))
 	require.NoError(t, s.wal.Flush())
 
 	// Do NOT seal the block on the stores. Reset in-memory state to v1 to simulate a crash.

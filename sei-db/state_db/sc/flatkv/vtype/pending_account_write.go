@@ -1,6 +1,10 @@
 package vtype
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+)
 
 // PendingAccountWrite tracks field-level changes to an account that have not yet been committed.
 // Each field has a value and a flag indicating whether it has been set. Only set fields are
@@ -127,6 +131,50 @@ func (p *PendingAccountWrite) SetCodeHashBytes(codeHash []byte) error {
 	}
 	copy(p.codeHash[:], codeHash)
 	p.codeHashSet = true
+	return nil
+}
+
+// SetField marks one account field as changed, taking it in its changeset form. A deleted field is set to zero.
+// Unlike most of the other setters, the receiver must be non-nil. Returns an error if kind is not an account field or
+// the value is malformed, in which case the write is left unchanged.
+func (p *PendingAccountWrite) SetField(
+	// The field: keys.EVMKeyNonce, keys.EVMKeyCodeHash or keys.EVMKeyBalance.
+	kind keys.EVMKeyKind,
+	// The field's serialized value. Ignored when deleted.
+	value []byte,
+	// Whether the changeset deletes the field.
+	deleted bool,
+) error {
+	switch kind {
+	case keys.EVMKeyNonce:
+		var nonce uint64
+		if !deleted {
+			parsed, err := ParseNonce(value)
+			if err != nil {
+				return fmt.Errorf("invalid nonce value: %w", err)
+			}
+			nonce = parsed
+		}
+		p.SetNonce(nonce)
+	case keys.EVMKeyCodeHash:
+		if deleted {
+			p.SetCodeHash(nil)
+		} else if err := p.SetCodeHashBytes(value); err != nil {
+			return fmt.Errorf("invalid codehash value: %w", err)
+		}
+	case keys.EVMKeyBalance:
+		var balance *Balance
+		if !deleted {
+			parsed, err := ParseBalance(value)
+			if err != nil {
+				return fmt.Errorf("invalid balance value: %w", err)
+			}
+			balance = parsed
+		}
+		p.SetBalance(balance)
+	default:
+		return fmt.Errorf("key kind %d is not an account field", kind)
+	}
 	return nil
 }
 

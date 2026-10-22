@@ -75,16 +75,16 @@ func TestStateViewReadsBuildExactPhysicalKeys(t *testing.T) {
 		0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41,
 	}
 	storageKey := append(append([]byte(nil), addr[:]...), slot[:]...)
-	expectedStorage := string(ktype.EVMPhysicalKey(keys.EVMKeyStorage, storageKey))
+	expectedStorage := string(ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, storageKey))
 
 	v.GetStorage(addr, slot)
 	require.Equal(t, []string{expectedStorage}, storage.keys)
 
 	v.GetBalance(addr)
-	require.Equal(t, string(ktype.EVMPhysicalKey(ktype.EVMKeyAccount, addr[:])), acct.keys[0])
+	require.Equal(t, string(ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:])), acct.keys[0])
 
 	v.GetCode(addr)
-	require.Equal(t, string(ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:])), code.keys[0])
+	require.Equal(t, string(ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:])), code.keys[0])
 
 	v.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, storageKey))
 	require.Equal(t, expectedStorage, storage.keys[1])
@@ -94,7 +94,7 @@ func TestStateViewReadsBuildExactPhysicalKeys(t *testing.T) {
 		0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61,
 	}
 	storageKey2 := append(append([]byte(nil), addr[:]...), slot2[:]...)
-	expectedStorage2 := string(ktype.EVMPhysicalKey(keys.EVMKeyStorage, storageKey2))
+	expectedStorage2 := string(ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, storageKey2))
 	v.GetStorage(addr, slot2)
 	require.Equal(t, []string{expectedStorage, expectedStorage, expectedStorage2}, storage.keys)
 }

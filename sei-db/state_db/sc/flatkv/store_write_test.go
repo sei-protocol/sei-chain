@@ -404,7 +404,7 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Should be staged in the misc store
-	requireStaged(t, s.miscStore, ktype.ModulePhysicalKey(keys.EVMStoreKey, codeSizeKey))
+	requireStaged(t, s.miscStore, ktype.BuildPhysicalKey(keys.EVMStoreKey, codeSizeKey))
 
 	commitAndCheck(t, s)
 
@@ -1172,32 +1172,6 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 }
 
 // =============================================================================
-// Empty Commit WAL Payload Distinction (W-P0-6)
-// =============================================================================
-
-func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
-	sNil := setupTestStore(t)
-	defer sNil.Close()
-	require.NoError(t, sNil.ApplyChangeSets(sNil.Version()+1, nil))
-	commitAndCheck(t, sNil)
-
-	sEmpty := setupTestStore(t)
-	defer sEmpty.Close()
-	emptyCS := &proto.NamedChangeSet{
-		Name:      "evm",
-		Changeset: proto.ChangeSet{Pairs: nil},
-	}
-	require.NoError(t, sEmpty.ApplyChangeSets(sEmpty.Version()+1, []*proto.NamedChangeSet{emptyCS}))
-	commitAndCheck(t, sEmpty)
-
-	nilChangesets := singleWALBlockChangesets(t, sNil)
-	emptyChangesets := singleWALBlockChangesets(t, sEmpty)
-
-	require.Len(t, nilChangesets, 0, "nil ApplyChangeSets produces 0 WAL changesets")
-	require.Len(t, emptyChangesets, 1, "[empty NamedChangeSet] produces 1 WAL changeset")
-}
-
-// =============================================================================
 // Sub-DB Entry Count (W-P0-10)
 // =============================================================================
 
@@ -1699,7 +1673,7 @@ func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 	require.Len(t, s.pendingChangeSets, 1)
 
 	// Physical key in the misc store should be module-prefixed: "bank/some-bank-key"
-	physKey := string(ktype.ModulePhysicalKey("bank", []byte("some-bank-key")))
+	physKey := string(ktype.BuildPhysicalKey("bank", []byte("some-bank-key")))
 	requireStaged(t, s.miscStore, []byte(physKey),
 		"misc store should contain module-prefixed key %q", physKey)
 
@@ -1735,7 +1709,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{evmCS, bankCS}))
 
 	// EVM storage write should exist.
-	requireStaged(t, s.storageStore, ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
+	requireStaged(t, s.storageStore, ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 
 	// The EVM value should be readable via pending writes.
 	val, found := s.Get(keys.EVMStoreKey, storageKey)
@@ -1743,7 +1717,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	require.Equal(t, padLeft32(0x42), val)
 
 	// Bank key should be in the misc store with module prefix.
-	bankPhysKey := string(ktype.ModulePhysicalKey("bank", []byte("bank-key")))
+	bankPhysKey := string(ktype.BuildPhysicalKey("bank", []byte("bank-key")))
 	requireStaged(t, s.miscStore, []byte(bankPhysKey),
 		"bank key should be in the misc store with module prefix")
 }
@@ -1816,7 +1790,7 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 	}
 	// Routed to EVMKeyMisc (not Nonce), so no address validation error.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	requireStaged(t, s.miscStore, ktype.ModulePhysicalKey(keys.EVMStoreKey, truncatedNonceKey),
+	requireStaged(t, s.miscStore, ktype.BuildPhysicalKey(keys.EVMStoreKey, truncatedNonceKey),
 		"malformed nonce key should be treated as misc")
 }
 
@@ -1855,7 +1829,7 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 	// A failed Apply must stage nothing and leave the working lattice state untouched, so a later
 	// Commit cannot seal orphaned rows against a stale AppHash. The valid storage pair that preceded
 	// the invalid one is the one that would leak.
-	requireNotStaged(t, s.storageStore, ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
+	requireNotStaged(t, s.storageStore, ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 	requireNotStaged(t, s.accountStore, accountPhysKey(addr))
 	require.Empty(t, s.pendingChangeSets)
 	require.Equal(t, int64(0), s.pendingBlockHeight)
@@ -2130,7 +2104,7 @@ func TestRejectedCommitLeavesStoreIntact(t *testing.T) {
 	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
 	requireStaged(t, s.storageStore,
-		ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01))),
+		ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01))),
 		"rejected commit must leave the staged row intact")
 
 	v, err := s.Commit(1)
