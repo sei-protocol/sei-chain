@@ -86,6 +86,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	availmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -260,6 +261,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 			return nil
 		}
 		i.PrepareQC = utils.Some(qc)
+		availmetrics.ObservePrepareQC(qc)
 		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.Proposal()))
 		i.CommitVote = utils.Some(v)
 		isend.Store(i)

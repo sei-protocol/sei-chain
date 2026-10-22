@@ -488,6 +488,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			}
 		}
 		q.pushBack(p)
+		meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 		ctrl.Updated()
 	}
 	return nil
@@ -530,7 +531,14 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
+		hadQC := q.q[n].qc.IsPresent()
 		if q.q[n].pushVote(applied, vote) {
+			if createdAt, ok := inner.blockCreatedAt(lane, n, h.Hash()).Get(); ok {
+				meters.LaneVoteReceive.Observe(time.Since(createdAt).Seconds())
+				if !hadQC && q.q[n].qc.IsPresent() {
+					meters.LaneQCFormed.Observe(time.Since(createdAt).Seconds())
+				}
+			}
 			ctrl.Updated()
 		}
 	}
@@ -660,6 +668,7 @@ func (s *State) WaitForLaneQCs(
 				}
 			}
 			if len(laneQCs) > 0 {
+				observeProposedBlocks(inner, prev, laneQCs)
 				return laneQCs, nil
 			}
 			if !blocked {
@@ -674,6 +683,58 @@ func (s *State) WaitForLaneQCs(
 		}
 	}
 	panic("unreachable")
+}
+
+// LaneTip is how far one lane's blocks have reached on this node.
+type LaneTip struct {
+	// Committed is the first block not finalized by the latest persisted CommitQC.
+	Committed types.BlockNumber
+	// Certified is one past the highest block with a LaneQC, and at least Committed.
+	Certified types.BlockNumber
+	// Held is one past the highest block this node holds, and at least Certified.
+	Held types.BlockNumber
+}
+
+// LaneTips returns how far each lane of the applied committee has reached on this node.
+func (s *State) LaneTips() map[types.LaneID]LaneTip {
+	for inner := range s.inner.Lock() {
+		committed := inner.persistedCommitQC.Load()
+		tips := map[types.LaneID]LaneTip{}
+		for lane := range inner.applied().Committee().Lanes().All() {
+			t := LaneTip{Committed: types.LaneRangeOpt(committed, lane).Next()}
+			t.Certified = t.Committed
+			if vq, ok := inner.votes[lane]; ok {
+				for n := vq.next; n > max(vq.first, t.Committed); n-- {
+					if vq.q[n-1].qc.IsPresent() {
+						t.Certified = n
+						break
+					}
+				}
+			}
+			t.Held = t.Certified
+			if bq, ok := inner.blocks[lane]; ok {
+				t.Held = max(t.Held, bq.next)
+			}
+			tips[lane] = t
+		}
+		return tips
+	}
+	panic("unreachable")
+}
+
+// observeProposedBlocks records, for each block a proposal will include, how long after its
+// creation the leader took it.
+func observeProposedBlocks(inner *inner, prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) {
+	now := time.Now()
+	for lane, qc := range laneQCs {
+		for n := types.LaneRangeOpt(prev, lane).Next(); n <= qc.Header().BlockNumber(); n++ {
+			q, ok := inner.blocks[lane]
+			if !ok || n < q.first || n >= q.next {
+				continue
+			}
+			meters.LaneBlockProposed.Observe(now.Sub(q.q[n].Msg().Block().Payload().CreatedAt()).Seconds())
+		}
+	}
 }
 
 // ProduceLocalBlock appends a new block to the producers lane.
