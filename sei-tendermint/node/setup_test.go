@@ -46,7 +46,7 @@ func makeValidator(valSeed, nodeSeed []byte, address string) config.AutobahnVali
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
 		Address:      hp,
-		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("http://" + address))},
+		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("ws://" + address))},
 	}
 }
 

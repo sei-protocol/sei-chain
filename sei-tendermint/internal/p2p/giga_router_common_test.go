@@ -353,7 +353,7 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 	localKey := makeKey(rng)
 	peerKey := makeKey(rng)
 	selfAddr := NodeAddress{NodeID: peerKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
-	evmRPC := *utils.OrPanic1(url.Parse("http://validator.example:8545"))
+	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	dummy := atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
 	genesis := map[atypes.PublicKey]GigaNodeAddr{dummy.Public(): {Key: makeKey(rng).Public()}}
