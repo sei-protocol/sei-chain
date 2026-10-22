@@ -7,7 +7,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"golang.org/x/sync/errgroup"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -109,57 +108,28 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		return nil, err
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	// Encoding that reads the store has to see a store holding every earlier block and none of
-	// this one, so the previous commit lands first. Encoding that reads only this block's own
-	// changes runs while that commit is still going, and waits below instead.
-	settleBeforeEncoding := e.encodingReadsTheStore(&result.ChangeSet)
-	if settleBeforeEncoding {
-		e.blockPhases.SetPhase(phaseAwaitCommit)
-		if err := e.awaitPipelineCommit(); err != nil {
-			return nil, err
-		}
-	}
-	e.blockPhases.SetPhase(phaseEncodeChangesets)
-	// The encoded pairs and the copy the background commit keeps are independent reads of this
-	// block's changes, so they run together.
-	var changesets []*proto.NamedChangeSet
-	var commitCopy *StateChangeSet
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		encoded, err := e.changeSetEncoder(result.ChangeSet)
-		if err != nil {
-			return fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
-		}
-		if groupCtx.Err() != nil {
-			return groupCtx.Err()
-		}
-		changesets = encoded
-		return nil
-	})
-	group.Go(func() error {
-		commitCopy = result.ChangeSet.Clone()
-		return nil
-	})
-	if err := group.Wait(); err != nil {
+	// The previous commit has to land before its changes leave the overlay. It has had this
+	// block's whole execution to do that.
+	e.blockPhases.SetPhase(phaseAwaitCommit)
+	if err := e.awaitPipelineCommit(); err != nil {
 		return nil, err
 	}
+	e.blockPhases.SetPhase(phaseAppHash)
+	var extra []*proto.NamedChangeSet
 	if e.blockChangeSetEncoder != nil {
-		extra, err := e.blockChangeSetEncoder(req.Context, result)
+		encoded, err := e.blockChangeSetEncoder(req.Context, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
 		}
 		// An EVM-keyed changeset here would be written into account, storage and code
 		// state as part of the block, diverging the app hash from the committed state.
-		for _, cs := range extra {
+		for _, cs := range encoded {
 			if cs != nil && cs.Name == keys.EVMStoreKey {
 				return nil, fmt.Errorf("block encoder returned a changeset named %q for block %d: %w",
 					cs.Name, req.Context.Number, errBlockEncoderUsedEVMStoreKey)
 			}
 		}
-		changesets = append(changesets, extra...)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+		extra = encoded
 	}
 	if receiptStore := e.receiptStore; receiptStore != nil {
 		e.blockPhases.SetPhase(phaseEncodeReceipts)
@@ -172,31 +142,11 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 		}
 	}
-	// One commit is in flight at a time, so the previous one lands before this block starts its
-	// own. It has had this block's whole execution to run, so it rarely still holds.
-	if !settleBeforeEncoding {
-		e.blockPhases.SetPhase(phaseAwaitCommit)
-		if err := e.awaitPipelineCommit(); err != nil {
-			return nil, err
-		}
-	}
-	e.blockPhases.SetPhase(phaseCommitState)
-	if err := e.startPipelineCommit(blockNumber, changesets, commitCopy); err != nil {
+	if err := e.startBackgroundCommit(ctx, blockNumber, result, extra); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil
-}
-
-// encodingReadsTheStore reports whether encoding this block's changesets reads the store as well as
-// the block's own changes, which decides whether encoding may overlap the previous block's commit.
-//
-// Expanding a storage clear iterates the live store to find the slots to delete, so a block that
-// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
-// free to read whatever it likes, so one is assumed to read the store unless it was registered as
-// store-independent: assuming otherwise would surrender the receipt-stage slack on every block.
-func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
-	return len(changes.StorageClears) > 0 || (e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore)
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
@@ -244,6 +194,7 @@ func (e *Executor) awaitPipelineCommit() error {
 		<-done
 		e.pipelineMu.Lock()
 		// Only the waiters on this commit retire it; a later one owns its own state.
+		var release func()
 		if e.pipelineDone == done {
 			if e.pipelineErr != nil && e.pipelineFailure == nil {
 				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
@@ -251,49 +202,83 @@ func (e *Executor) awaitPipelineCommit() error {
 			e.pipelineDone = nil
 			e.pipelineChanges = nil
 			e.pipelineErr = nil
+			release = e.pipelineRelease
+			e.pipelineRelease = nil
 		}
 		e.pipelineMu.Unlock()
+		if release != nil {
+			release()
+		}
 	}
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
 	return e.pipelineFailure
 }
 
-// startPipelineCommit writes the block in the background and records what it changed, so the next
-// block reads those changes through an overlay rather than waiting for the write. On a closed
+// startBackgroundCommit publishes result's changes for the next block and commits them behind that
+// block. Encoding the FlatKV pairs and the receipts runs in that background work. On a closed
 // executor it commits synchronously instead.
 //
-// Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
-// one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, pending *StateChangeSet) error {
-	// pending already outlives the block result, which returns to a pool and is reset.
+// The previous commit has already been awaited. result stays readable until that next block finishes
+// and this commit is retired.
+func (e *Executor) startBackgroundCommit(ctx context.Context, blockNumber int64, result *BlockResult, extra []*proto.NamedChangeSet) error {
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
-		if err := e.awaitPipelineCommit(); err != nil {
+		changesets, err := e.encodeCommit(ctx, blockNumber, result, extra)
+		if err != nil {
 			return err
 		}
-		return e.commitState(blockNumber, changesets, pending)
+		return e.commitState(blockNumber, changesets, &result.ChangeSet)
 	}
 	done := make(chan struct{})
+	release := result.retain()
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
 		e.pipelineMu.Unlock()
+		release()
 		return failure
 	}
-	e.pipelineChanges = pending
+	e.pipelineChanges = &result.ChangeSet
+	e.pipelineRelease = release
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
 
 	go func() {
-		err := e.commitState(blockNumber, changesets, pending)
+		// The caller returns before this finishes. Detach from its cancel so a shutdown of that
+		// call does not drop a block whose app hash was already produced.
+		err := e.finishBackgroundCommit(context.WithoutCancel(ctx), blockNumber, result, extra)
 		e.pipelineMu.Lock()
 		e.pipelineErr = err
 		e.pipelineMu.Unlock()
+		e.commitPhases.Reset()
 		close(done)
 	}()
 	return nil
+}
+
+// finishBackgroundCommit encodes the block and writes it. It runs while the next block executes.
+func (e *Executor) finishBackgroundCommit(ctx context.Context, blockNumber int64, result *BlockResult, extra []*proto.NamedChangeSet) error {
+	changesets, err := e.encodeCommit(ctx, blockNumber, result, extra)
+	if err != nil {
+		return err
+	}
+	e.commitPhases.SetPhase(phaseCommitState)
+	return e.commitState(blockNumber, changesets, &result.ChangeSet)
+}
+
+// encodeCommit builds the changesets and receipts the commit writes.
+func (e *Executor) encodeCommit(ctx context.Context, blockNumber int64, result *BlockResult, extra []*proto.NamedChangeSet) ([]*proto.NamedChangeSet, error) {
+	e.commitPhases.SetPhase(phaseEncodeChangesets)
+	changesets, err := e.changeSetEncoder(result.ChangeSet)
+	if err != nil {
+		return nil, fmt.Errorf("encode state changes for block %d: %w", blockNumber, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return append(changesets, extra...), nil
 }
 
 // commitState writes the block to the store, handing over changes as well when the store keeps the

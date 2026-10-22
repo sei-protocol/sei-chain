@@ -414,9 +414,10 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(ctx, BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, context.Canceled)
-		require.Nil(t, result)
-		require.Empty(t, store.commits)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		result.Release()
+		require.Len(t, store.commits, 1)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
 	})

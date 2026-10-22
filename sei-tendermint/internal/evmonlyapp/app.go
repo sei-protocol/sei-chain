@@ -230,7 +230,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
-		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
+		BlockResultPoolSize:  max(a.execution.BlockResultPoolSize, 2),
 		MockExecution:        a.execution.MockExecution,
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),

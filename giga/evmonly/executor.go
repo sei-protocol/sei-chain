@@ -49,8 +49,13 @@ type Executor struct {
 	pipelineDone    chan struct{}
 	pipelineErr     error
 	pipelineChanges *StateChangeSet
+	// pipelineRelease returns the block result the in-flight commit still reads.
+	pipelineRelease func()
 	// The first commit that failed, kept so no caller can miss it.
 	pipelineFailure error
+
+	// commitPhases times the commit that runs behind the next block. One commit is in flight.
+	commitPhases *seidbmetrics.PhaseTimer
 }
 
 type Option func(*Executor)
@@ -92,9 +97,10 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:         cfg.WithDefaults(),
-		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: newBlockPhases(),
+		cfg:          cfg.WithDefaults(),
+		resultPool:   newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases:  newBlockPhases(),
+		commitPhases: newCommitPhases(),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)

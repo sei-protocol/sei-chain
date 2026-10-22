@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"sync/atomic"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -20,14 +21,23 @@ var (
 	occMeter = otel.Meter("giga_evmonly")
 
 	executionMetrics = struct {
-		txsExecuted metric.Int64Counter
+		txsExecuted  metric.Int64Counter
+		accountReads metric.Int64Counter
 	}{
 		txsExecuted: must(occMeter.Int64Counter(
 			"giga_evmonly_txs_executed_total",
 			metric.WithDescription("EVM-only transactions executed per block, by outcome (success, reverted, failed)"),
 			metric.WithUnit("{transaction}"),
 		)),
+		accountReads: must(occMeter.Int64Counter(
+			"giga_evmonly_account_reads_total",
+			metric.WithDescription("Account reads during execution. source=state was already in the transaction state; source=store asked the view underneath it."),
+			metric.WithUnit("{read}"),
+		)),
 	}
+
+	accountReadStateAttr = metric.WithAttributes(attribute.String("source", "state"))
+	accountReadStoreAttr = metric.WithAttributes(attribute.String("source", "store"))
 
 	occMetrics = struct {
 		blocks     metric.Int64Counter
@@ -71,6 +81,37 @@ const (
 	txExecutionStatusRejected = "rejected"
 	txExecutionStatusFailed   = "failed"
 )
+
+const (
+	accountReadState = "state"
+	accountReadStore = "store"
+)
+
+// accountReadCounters counts account reads between flushes.
+type accountReadCounters struct {
+	state atomic.Uint64
+	store atomic.Uint64
+}
+
+var accountReads accountReadCounters
+
+func (c *accountReadCounters) record(source string) {
+	switch source {
+	case accountReadState:
+		c.state.Add(1)
+	default:
+		c.store.Add(1)
+	}
+}
+
+func (c *accountReadCounters) flush(ctx context.Context) {
+	if n := c.state.Swap(0); n > 0 {
+		executionMetrics.accountReads.Add(ctx, int64(n), accountReadStateAttr) //nolint:gosec // counts fit
+	}
+	if n := c.store.Swap(0); n > 0 {
+		executionMetrics.accountReads.Add(ctx, int64(n), accountReadStoreAttr) //nolint:gosec // counts fit
+	}
+}
 
 var txExecutionStatuses = []string{
 	txExecutionStatusSuccess,
@@ -125,6 +166,7 @@ func txExecutionStatus(tx TxResult) string {
 // a status is only reachable by a query if a block reports it as zero. This runs
 // inside block execution, so a telemetry fault must not panic into the caller.
 func recordTxExecutionStats(ctx context.Context, txs []TxResult) {
+	accountReads.flush(ctx)
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())

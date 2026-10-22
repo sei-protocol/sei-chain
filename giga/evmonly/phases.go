@@ -31,9 +31,16 @@ const (
 	phaseEncodeReceipts = "encode_receipts"
 	// phaseWriteReceipts covers writing the block's receipts to the receipt store.
 	phaseWriteReceipts = "write_receipts"
-	// phaseCommitState covers starting the block's state commit.
+	// phaseCommitState covers the block's state commit.
 	phaseCommitState = "commit_state"
+	// phaseAppHash covers hashing the block into the app hash.
+	phaseAppHash = "app_hash"
 )
+
+// newCommitPhases returns the timer for the commit that runs behind the next block.
+func newCommitPhases() *seidbmetrics.PhaseTimer {
+	return seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_commit")
+}
 
 // newBlockPhases returns the executor's block phase timer. It is not safe for concurrent use.
 func newBlockPhases() *seidbmetrics.PhaseTimer {
