@@ -379,17 +379,14 @@ func startInProcess(
 			tmNode.Stop()
 		}
 	}()
-	// Add the tx service to the gRPC query router that backs the REST API. We
-	// only need to register this service if the API is enabled, and avoid doing
-	// so in the general case, because it spawns a new local tendermint RPC client.
-	if config.API.Enable {
-		localClient, err := local.New(tmNode)
-		if err != nil {
-			return err
-		}
-		clientCtx = clientCtx.WithClient(localClient)
-		app.RegisterLocalServices(localClient, clientCtx.TxConfig)
+	// Local services include the EVM JSON-RPC and admin servers, each gated by
+	// its own config, so they start whether or not the REST API is enabled.
+	localClient, err := local.New(tmNode)
+	if err != nil {
+		return err
 	}
+	clientCtx = clientCtx.WithClient(localClient)
+	app.RegisterLocalServices(localClient, clientCtx.TxConfig)
 
 	if config.API.Enable {
 		var apiSrv *api.Server
