@@ -190,12 +190,12 @@ func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
 	app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 }
 
-// requireStoresDeleted returns an error if the state commitment store still holds a tree for any of
+// requireStoresDeleted returns an error if the state commitment store may still hold data for any of
 // names when plan runs. The store loader deletes them only if upgrade-info.json named plan when the
 // node started.
 func (app *App) requireStoresDeleted(plan upgradetypes.Plan, names []string) error {
 	for _, name := range names {
-		if app.rootStore.HasTree(name) {
+		if app.rootStore.MayHoldStore(name) {
 			return fmt.Errorf("store %q was not deleted before the %s upgrade handler ran because "+
 				"data/upgrade-info.json did not name the upgrade when the node started: write "+
 				`{"name":%q,"height":%d} to data/upgrade-info.json in the node home and restart`,

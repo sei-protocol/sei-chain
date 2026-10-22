@@ -755,12 +755,12 @@ func TestUnmountedStoreKeepsItsTreeUntilDeleted(t *testing.T) {
 
 	store = open("bank")
 	require.NoError(t, store.LoadLatestVersion())
-	require.True(t, store.HasTree("oracle"), "loading without the store upgrade dropped the unmounted tree")
+	require.True(t, store.MayHoldStore("oracle"), "loading without the store upgrade dropped the unmounted tree")
 	require.NoError(t, store.Close())
 
 	store = open("bank")
 	require.NoError(t, store.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Deleted: []string{"oracle"}}))
 	defer func() { _ = store.Close() }()
-	require.False(t, store.HasTree("oracle"))
-	require.True(t, store.HasTree("bank"))
+	require.False(t, store.MayHoldStore("oracle"))
+	require.True(t, store.MayHoldStore("bank"))
 }

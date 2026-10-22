@@ -952,23 +952,25 @@ func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade)
 	return cs.memIAVL.ApplyUpgrades(upgrades)
 }
 
-// requireUpgradesLeaveFlatKV returns an error if any upgrade deletes or renames a store whose data
-// the current write mode routes to flatKV. flatKV has no store-level delete or rename, so applying
+// requireUpgradesLeaveFlatKV returns an error if any upgrade deletes a store, or renames a store from
+// or to a name, that the current write mode routes to flatKV. flatKV has no store-level delete or rename, so applying
 // such an upgrade to memIAVL alone would leave the store's flatKV data behind.
 func (cs *CompositeCommitStore) requireUpgradesLeaveFlatKV(upgrades []*proto.TreeNameUpgrade) error {
 	mode := cs.loadWriteMode()
 	for _, upgrade := range upgrades {
-		var name string
+		var names []string
 		switch {
 		case upgrade.Delete:
-			name = upgrade.Name
+			names = []string{upgrade.Name}
 		case upgrade.RenameFrom != "":
-			name = upgrade.RenameFrom
-		default:
-			continue
+			// A rename into a flatKV-routed name strands the moved tree in memIAVL just as a rename out
+			// of one strands the flatKV data.
+			names = []string{upgrade.RenameFrom, upgrade.Name}
 		}
-		if routesToFlatKV(mode, name) {
-			return fmt.Errorf("cannot delete or rename store %q in write mode %q: its data is in flatkv", name, mode)
+		for _, name := range names {
+			if routesToFlatKV(mode, name) {
+				return fmt.Errorf("cannot delete or rename store %q in write mode %q: the mode routes it to flatkv", name, mode)
+			}
 		}
 	}
 	return nil
@@ -990,9 +992,13 @@ func routesToFlatKV(mode types.WriteMode, name string) bool {
 	}
 }
 
-// HasTree reports whether the memIAVL backend holds a tree named name.
-func (cs *CompositeCommitStore) HasTree(name string) bool {
-	return cs.memIAVL != nil && cs.memIAVL.HasTree(name)
+// MayHoldStore reports whether memIAVL holds a tree named name, or the write mode may have placed
+// the store's data in flatKV. The flatKV half is conservative: it does not look for the data.
+func (cs *CompositeCommitStore) MayHoldStore(name string) bool {
+	if cs.memIAVL != nil && cs.memIAVL.MayHoldStore(name) {
+		return true
+	}
+	return routesToFlatKV(cs.loadWriteMode(), name)
 }
 
 // Commit commits the current state to all active backends at version, the height the caller is

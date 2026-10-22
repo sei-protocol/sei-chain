@@ -221,8 +221,8 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 	return tree
 }
 
-// HasTree reports whether the working state holds a tree named name.
-func (cs *CommitStore) HasTree(name string) bool {
+// MayHoldStore reports whether the working state holds a tree named name.
+func (cs *CommitStore) MayHoldStore(name string) bool {
 	return cs.GetChildStoreByName(name) != nil
 }
 

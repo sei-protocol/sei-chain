@@ -263,7 +263,7 @@ func requireV68OfflineRefusesRetainedStores(t *testing.T, root string, artifact 
 	testApp := openOfflineUpgradeApp(t, root, false)
 	defer closeOfflineUpgradeApp(t, testApp)
 	for _, name := range v68OfflineDeletedStores {
-		require.True(t, testApp.rootStore.HasTree(name), "%s was deleted without upgrade-info.json", name)
+		require.True(t, testApp.rootStore.MayHoldStore(name), "%s was deleted without upgrade-info.json", name)
 	}
 
 	var refusal string

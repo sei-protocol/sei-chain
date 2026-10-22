@@ -990,10 +990,10 @@ func warnStateStoreStaysAhead(target, ssVersion int64, reason error) {
 	fmt.Printf("WARNING: rebuild the state store from state sync unless the chain replays the same blocks above version %d\n", target)
 }
 
-// HasTree reports whether the state commitment store holds a tree named name, whether or not a
-// store is mounted for it.
-func (rs *Store) HasTree(name string) bool {
-	return rs.scStore.HasTree(name)
+// MayHoldStore reports whether the state commitment store may hold data for the named store,
+// whether or not a store is mounted for it.
+func (rs *Store) MayHoldStore(name string) bool {
+	return rs.scStore.MayHoldStore(name)
 }
 
 // getStoreByName performs a lookup of a StoreKey given a store name typically
