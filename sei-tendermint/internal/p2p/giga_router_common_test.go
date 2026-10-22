@@ -54,6 +54,17 @@ func (a *fixedHeightApp) Info() *abci.ResponseInfo {
 	return &abci.ResponseInfo{LastBlockHeight: a.height}
 }
 
+// newHashVault returns an empty durable Pebble vault rooted in a temp dir.
+func newHashVault(t *testing.T) hashvault.HashVault {
+	t.Helper()
+	cfg := hashvault.DefaultHashVaultConfig()
+	cfg.DataDir = t.TempDir()
+	v, err := hashvault.NewUnsafePebbleHashVault(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close(context.Background()) })
+	return v
+}
+
 // newSeededVault returns a durable Pebble vault rooted in a temp dir with hash committed at height.
 func newSeededVault(t *testing.T, height atypes.GlobalBlockNumber, hash []byte) hashvault.HashVault {
 	t.Helper()
@@ -261,14 +272,14 @@ func newAppHashTestRouter(
 	}
 }
 
-// TestExecuteDoesNotWaitForAppHashes pins that an app hash the builder has not
-// published yet cannot stop the chain: with nothing published, the execute
-// loop still commits past the first block, and the hash loop then records the
-// whole range in order once the hashes arrive.
+// TestExecuteWaitsForAppHashOfPreviousBlock pins the one-slot handshake: the
+// first block commits with nothing published, and the next does not until the
+// first block's app hash is recorded. The whole range then completes once the
+// remaining hashes arrive.
 //
 // The test feeds the whole CommitQC range in first, then publishes each app
 // hash by hand.
-func TestExecuteDoesNotWaitForAppHashes(t *testing.T) {
+func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
 	app, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
@@ -302,10 +313,15 @@ func TestExecuteDoesNotWaitForAppHashes(t *testing.T) {
 			defer close(committed)
 			return utils.IgnoreCancel(router.executeBlocks(ctx, committed, next))
 		})
-		// No app hash has been published, so under a gate on the previous
-		// block's AppHash the app would be stuck on the first block.
-		if _, err := app.WaitForBlocks(ctx, 2); err != nil {
+		if _, err := app.WaitForBlocks(ctx, 1); err != nil {
 			return err
+		}
+		// The second block must not commit while the first hash is unpublished.
+		hold, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		_, err = app.WaitForBlocks(hold, 2)
+		cancel()
+		if err == nil {
+			return fmt.Errorf("committed block 2 before block 1's app hash was recorded")
 		}
 		for n := gr.First; n < gr.Next; n++ {
 			if err := hashBuilder.publish(ctx, n); err != nil {
@@ -338,15 +354,23 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 			return fmt.Errorf("state.PushQC(): %w", err)
 		}
 
-		err := router.backfillAppHashes(ctx, last)
+		vault := newHashVault(t)
+		err := router.backfillAppHashes(ctx, vault, last)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "holds no app hash")
 
 		for n := state.NextAppProposal(); n <= last; n++ {
 			hashBuilder.entries = append(hashBuilder.entries, testAppHashData(n))
 		}
-		require.NoError(t, router.backfillAppHashes(ctx, last))
+		require.NoError(t, router.backfillAppHashes(ctx, vault, last))
 		require.Equal(t, gr.Next, state.NextAppProposal())
+		for n := state.Registry().FirstBlock(); n <= last; n++ {
+			sum := testAppHashData(n).AppHash()
+			got, ok, err := vault.CommittedHash(ctx, uint64(n))
+			require.NoError(t, err)
+			require.True(t, ok, "block %d", n)
+			require.Equal(t, sum[:], got, "block %d", n)
+		}
 		return nil
 	}))
 }

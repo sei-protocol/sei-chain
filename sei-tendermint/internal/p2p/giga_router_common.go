@@ -238,6 +238,8 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 type pendingExecution struct {
 	weights     map[atypes.PublicKey]uint64
 	pruneBefore atypes.GlobalBlockNumber
+	// Closed after this block's app hash has been recorded. The next commit waits on it.
+	recorded chan struct{}
 }
 
 // startExecuteBlock finalizes and commits b. AppHash handling stays on the
@@ -305,6 +307,7 @@ func (r *gigaRouterCommon) startExecuteBlock(
 	return utils.Some(pendingExecution{
 		weights:     weights,
 		pruneBefore: pruneBefore,
+		recorded:    make(chan struct{}),
 	}), nil
 }
 
@@ -471,7 +474,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		return err
 	}
 	if lastBlock != nil {
-		if err := r.backfillAppHashes(ctx, lastBlock.GlobalNumber); err != nil {
+		if err := r.backfillAppHashes(ctx, hashVault, lastBlock.GlobalNumber); err != nil {
 			return err
 		}
 	}
@@ -481,8 +484,8 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("registerAppHashListener(): %w", err)
 	}
-	// Unbuffered: execute may commit one block while the hash loop records its
-	// predecessor, and blocks on the handoff rather than running further ahead.
+	// Unbuffered, so the hash loop holds one committed block at a time. The next
+	// commit waits until that block's app hash is recorded.
 	committed := make(chan pendingExecution)
 	return scope.Run(ctx, func(scopeCtx context.Context, s scope.Scope) error {
 		// Keep the hash loop on runExecute's context so an execute-loop failure
@@ -551,9 +554,18 @@ func (r *gigaRouterCommon) openApp(ctx context.Context) (atypes.GlobalBlockNumbe
 // backfillAppHashes gives the data layer the app hash of every block the app has
 // already committed but has not yet proposed, oldest first, so execution resumes
 // at the block after the app tip. The builder's iterator is that record.
+//
+// Each hash is recorded in the equivocation vault before it is proposed. The
+// weights are the app's validator set after its latest commit: the execute loop
+// does not commit another block until that commit's app hash is recorded, so
+// this set is the one the unrecovered block was committed under.
 // PushAppHash rejects an app hash that skips a CommitQC range, so a height left
 // behind here is not recoverable later.
-func (r *gigaRouterCommon) backfillAppHashes(ctx context.Context, last atypes.GlobalBlockNumber) error {
+func (r *gigaRouterCommon) backfillAppHashes(
+	ctx context.Context,
+	hashVault hashvault.HashVault,
+	last atypes.GlobalBlockNumber,
+) error {
 	start := r.data.NextAppProposal()
 	if start > last {
 		return nil
@@ -584,6 +596,9 @@ func (r *gigaRouterCommon) backfillAppHashes(ctx context.Context, last atypes.Gl
 			return fmt.Errorf("app hash builder returned block %d, want %d", entry.BlockHeight(), n)
 		}
 		sum := entry.AppHash()
+		if err := commitAppHashToVault(ctx, hashVault, n, sum[:]); err != nil {
+			return err
+		}
 		if err := r.data.PushAppHash(ctx, n, sum[:], weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
@@ -619,6 +634,7 @@ func (r *gigaRouterCommon) runAppHashes(
 		if err := r.finishExecuteBlock(ctx, hashVault, n, p, sum[:]); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
 		}
+		close(p.recorded)
 		first = n + 1
 	}
 }
@@ -648,13 +664,15 @@ func recvAppHashAtLeast(
 
 // executeBlocks keeps FinalizeBlock and Commit together on this loop, one
 // block at a time from next, handing each committed block to the hash loop.
-// It never waits on the hash loop's progress: a hash that is slow to arrive
-// must not stop the chain from executing.
+// Fetching the next block overlaps the previous block's hash being recorded.
+// The commit waits until that record is done, so a crash leaves at most the
+// latest commit without an app hash.
 func (r *gigaRouterCommon) executeBlocks(
 	ctx context.Context,
 	committed chan<- pendingExecution,
 	next atypes.GlobalBlockNumber,
 ) error {
+	var prevRecorded <-chan struct{}
 	for n := next; ; n += 1 {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		b, err := r.data.GlobalBlock(ctx, n)
@@ -665,6 +683,9 @@ func (r *gigaRouterCommon) executeBlocks(
 		if err := r.cfg.AppHashBuilder.ReportBlockHash(ctx, uint64(b.GlobalNumber), blockHash); err != nil {
 			return fmt.Errorf("AppHashBuilder.ReportBlockHash(%v): %w", n, err)
 		}
+		if err := waitForRecorded(ctx, prevRecorded); err != nil {
+			return err
+		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		opt, err := r.startExecuteBlock(ctx, b)
 		if err != nil {
@@ -674,6 +695,21 @@ func (r *gigaRouterCommon) executeBlocks(
 		if err := utils.Send(ctx, committed, p); err != nil {
 			return err
 		}
+		prevRecorded = p.recorded
+	}
+}
+
+// waitForRecorded blocks until the previous block's app hash has been recorded.
+// A nil channel is the first block, which has no predecessor.
+func waitForRecorded(ctx context.Context, recorded <-chan struct{}) error {
+	if recorded == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-recorded:
+		return nil
 	}
 }
 
