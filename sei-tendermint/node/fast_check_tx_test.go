@@ -15,6 +15,7 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -108,6 +109,7 @@ func TestPrepareApplicationAutobahnMockAppKeepsMockApp(t *testing.T) {
 
 	_, ok = prepared.(*MockApp)
 	require.True(t, ok)
+	require.True(t, proxy.New(prepared).EVM().IsPresent())
 }
 
 func TestPrepareApplicationAutobahnRequiresReadableConfig(t *testing.T) {
