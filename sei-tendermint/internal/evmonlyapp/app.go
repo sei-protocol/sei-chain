@@ -888,6 +888,10 @@ func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		// A block prepared ahead carries the consensus height. The state version is assigned
+		// when the block executes, one past the committed cursor.
+		prepared.Context.StateVersion = req.Context.StateVersion
 	}
 	// The executor's own timer breaks execution down further.
 	a.finalizePhases.SetPhase(finalizePhaseExecute)
