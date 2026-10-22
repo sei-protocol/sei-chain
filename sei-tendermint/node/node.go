@@ -310,8 +310,7 @@ func makeNode(
 		genDoc,
 		dbProvider,
 		gigaStorageManager,
-		opts.giga.RPC.EvmProxyWSPort,
-		opts.giga.Storage.HashVaultFsyncDisabledUnsafe,
+		opts.giga,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

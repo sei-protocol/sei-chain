@@ -291,8 +291,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
-	evmProxyWSPort int,
-	hashVaultFsyncDisabled bool,
+	gigaOpts gigaconfig.Config,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -331,8 +330,11 @@ func buildGigaRouter(
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
-		valCfg.EvmProxyWSPort = evmProxyWSPort
-		valCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
+		valCfg.EvmProxyWSPort = gigaOpts.RPC.EvmProxyWSPort
+		valCfg.HashVaultFsyncDisabledUnsafe = gigaOpts.Storage.HashVaultFsyncDisabledUnsafe
+		if n := gigaOpts.Execution.MaxTxsPerLaneBlock; n > 0 {
+			valCfg.Producer.MaxTxsPerBlock = n
+		}
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
@@ -357,8 +359,8 @@ func buildGigaRouter(
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	fnCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
-	fnCfg.EvmProxyWSPort = evmProxyWSPort
-	fnCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
+	fnCfg.EvmProxyWSPort = gigaOpts.RPC.EvmProxyWSPort
+	fnCfg.HashVaultFsyncDisabledUnsafe = gigaOpts.Storage.HashVaultFsyncDisabledUnsafe
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
@@ -565,8 +567,7 @@ func createRouter(
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
-	evmProxyWSPort int,
-	hashVaultFsyncDisabled bool,
+	gigaOpts gigaconfig.Config,
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
@@ -633,7 +634,7 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), evmProxyWSPort, hashVaultFsyncDisabled,
+			manager.BlockStore(), gigaOpts,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err
