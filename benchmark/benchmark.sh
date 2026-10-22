@@ -21,7 +21,7 @@ DB_BACKEND=${DB_BACKEND:-goleveldb}
 # --- New env vars for phase gating / multi-instance support ---
 # Final chain data dir. If != ~/.sei, init in ~/.sei then mv.
 SEI_HOME=${SEI_HOME:-"$HOME/.sei"}
-# Added to all ports (RPC, P2P, pprof, gRPC, etc.)
+# Added to all ports (RPC, P2P, pprof, REST, EVM, etc.)
 PORT_OFFSET=${PORT_OFFSET:-0}
 # Pre-built binary path. If set, skip build + copy to ~/go/bin/seid.
 SEID_BIN=${SEID_BIN:-""}
@@ -250,10 +250,7 @@ if [ "$PORT_OFFSET" -ne 0 ] 2>/dev/null; then
   RPC=$((26657 + PORT_OFFSET))
   P2P=$((26656 + PORT_OFFSET))
   PPROF=$((6060 + PORT_OFFSET))
-  GRPC=$((9090 + PORT_OFFSET))
-  GRPCWEB=$((9091 + PORT_OFFSET))
   API=$((1317 + PORT_OFFSET))
-  ROSETTA=$((8080 + PORT_OFFSET))
   EVM_HTTP=$((8545 + PORT_OFFSET))
   EVM_WS=$((8546 + PORT_OFFSET))
 
@@ -261,20 +258,14 @@ if [ "$PORT_OFFSET" -ne 0 ] 2>/dev/null; then
     sed -i '' "s|pprof-laddr = .*|pprof-laddr = \"localhost:${PPROF}\"|g" "$CONFIG_PATH"
     sed -i '' "s|laddr = \"tcp://127.0.0.1:26657\"|laddr = \"tcp://127.0.0.1:${RPC}\"|g" "$CONFIG_PATH"
     sed -i '' "s|laddr = \"tcp://127.0.0.1:26656\"|laddr = \"tcp://127.0.0.1:${P2P}\"|g" "$CONFIG_PATH"
-    sed -i '' "s|address = \"0.0.0.0:9090\"|address = \"0.0.0.0:${GRPC}\"|g" "$APP_PATH"
-    sed -i '' "s|address = \"0.0.0.0:9091\"|address = \"0.0.0.0:${GRPCWEB}\"|g" "$APP_PATH"
     sed -i '' "s|address = \"tcp://0.0.0.0:1317\"|address = \"tcp://0.0.0.0:${API}\"|g" "$APP_PATH"
-    sed -i '' "s|address = \":8080\"|address = \":${ROSETTA}\"|g" "$APP_PATH"
     sed -i '' "s|http_port = 8545|http_port = ${EVM_HTTP}|g" "$APP_PATH"
     sed -i '' "s|ws_port = 8546|ws_port = ${EVM_WS}|g" "$APP_PATH"
   else
     sed -i "s|pprof-laddr = .*|pprof-laddr = \"localhost:${PPROF}\"|g" "$CONFIG_PATH"
     sed -i "s|laddr = \"tcp://127.0.0.1:26657\"|laddr = \"tcp://127.0.0.1:${RPC}\"|g" "$CONFIG_PATH"
     sed -i "s|laddr = \"tcp://127.0.0.1:26656\"|laddr = \"tcp://127.0.0.1:${P2P}\"|g" "$CONFIG_PATH"
-    sed -i "s|address = \"0.0.0.0:9090\"|address = \"0.0.0.0:${GRPC}\"|g" "$APP_PATH"
-    sed -i "s|address = \"0.0.0.0:9091\"|address = \"0.0.0.0:${GRPCWEB}\"|g" "$APP_PATH"
     sed -i "s|address = \"tcp://0.0.0.0:1317\"|address = \"tcp://0.0.0.0:${API}\"|g" "$APP_PATH"
-    sed -i "s|address = \":8080\"|address = \":${ROSETTA}\"|g" "$APP_PATH"
     sed -i "s|http_port = 8545|http_port = ${EVM_HTTP}|g" "$APP_PATH"
     sed -i "s|ws_port = 8546|ws_port = ${EVM_WS}|g" "$APP_PATH"
   fi

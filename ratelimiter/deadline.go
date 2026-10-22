@@ -112,7 +112,7 @@ func (e *DeadlineEnforcer) RecordExceeded(ctx context.Context, plane, method str
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(plane, method, nil)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
 		),
 	)
 }

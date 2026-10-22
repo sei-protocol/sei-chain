@@ -5,9 +5,7 @@ import (
 	"math"
 	"runtime"
 	"strings"
-	"time"
 
-	"github.com/sei-protocol/sei-chain/ratelimiter"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -22,96 +20,8 @@ const (
 	// DefaultMinGasPrices defines the default minimum gas prices
 	DefaultMinGasPrices = "0.01usei"
 
-	// DefaultGRPCAddress defines the default address to bind the gRPC server to.
-	DefaultGRPCAddress = "0.0.0.0:9090"
-
-	// DefaultGRPCWebAddress defines the default address to bind the gRPC-web server to.
-	DefaultGRPCWebAddress = "0.0.0.0:9091"
-
-	// DefaultGRPCWebMaxOpenConnections defines the default maximum number of
-	// simultaneous open connections for the gRPC-web server.
-	DefaultGRPCWebMaxOpenConnections = 1000
-
-	// DefaultGRPCWebMaxConnectionsPerIP defines the default maximum number of
-	// simultaneous open connections one client address may hold on the gRPC-web
-	// server. 0 means unlimited.
-	DefaultGRPCWebMaxConnectionsPerIP = 0
-
-	// DefaultGRPCMaxOpenConnections defines the default maximum number of
-	// simultaneous open connections for the gRPC server. 0 means unlimited.
-	DefaultGRPCMaxOpenConnections = 1000
-
-	// DefaultGRPCMaxConnectionsPerIP defines the default maximum number of
-	// simultaneous open connections one client address may hold on the gRPC
-	// server. 0 means unlimited.
-	DefaultGRPCMaxConnectionsPerIP = 0
-
-	// DefaultGRPCMaxRecvMsgSize defines the default maximum message size in bytes
-	// that the gRPC server can receive (4 MB), mirroring gRPC's own default.
-	DefaultGRPCMaxRecvMsgSize = 4 * 1024 * 1024
-
-	// DefaultGRPCMaxConnectionIdle is the default duration after which an idle
-	// connection (one with no in-flight RPCs) is closed via GoAway. It is bounded
-	// by default to reclaim abandoned connection slots — which matter now that the
-	// listener is capped by MaxOpenConnections — while staying long enough not to
-	// churn clients that query on a shorter cadence. The real DoS bound is the
-	// connection cap; this only reaps dormant connections. 0 means infinity.
-	DefaultGRPCMaxConnectionIdle = 5 * time.Minute
-
-	// The remaining keepalive defaults below mirror gRPC's own defaults, so they
-	// are opt-in for operators and do not change behavior unless configured.
-
-	// DefaultGRPCMaxConnectionAge is the default maximum duration a connection may
-	// exist before it is closed. 0 means infinity.
-	DefaultGRPCMaxConnectionAge = time.Duration(0)
-
-	// DefaultGRPCMaxConnectionAgeGrace is the default additive period after
-	// MaxConnectionAge during which the connection is forcibly closed. 0 means infinity.
-	DefaultGRPCMaxConnectionAgeGrace = time.Duration(0)
-
-	// DefaultGRPCKeepaliveTime is the default interval after which, if the server
-	// sees no activity, it pings the client to check liveness.
-	DefaultGRPCKeepaliveTime = 2 * time.Hour
-
-	// DefaultGRPCKeepaliveTimeout is the default duration the server waits for a
-	// keepalive ping ack before closing the connection.
-	DefaultGRPCKeepaliveTimeout = 20 * time.Second
-
-	// DefaultGRPCKeepaliveMinTime is the default minimum interval a client must
-	// wait between keepalive pings; pings more frequent than this are penalized.
-	DefaultGRPCKeepaliveMinTime = 5 * time.Minute
-
-	// DefaultGRPCKeepalivePermitWithoutStream defines whether the server allows
-	// keepalive pings even when there are no active streams.
-	DefaultGRPCKeepalivePermitWithoutStream = false
-
-	// DefaultGRPCIPRateLimitRPS is the default per-IP sustained request rate in
-	// requests/second for the gRPC plane.
-	DefaultGRPCIPRateLimitRPS = 10.0
-
-	// DefaultGRPCIPRateLimitBurst is the default maximum per-IP burst size for
-	// the gRPC plane.
-	DefaultGRPCIPRateLimitBurst = 20
-
-	// DefaultGRPCMaxInFlightPerIP is the default number of RPCs one client
-	// address may have in flight at once on the gRPC plane.
-	//
-	// Five times the burst, so a client spending its whole bucket at once is not
-	// throttled by this instead. The bound it buys is on simultaneous decodes:
-	// with the default 4 MB message ceiling, one address can hold at most
-	// 100 x 4 MB of request buffers, where before it was capped only by the
-	// per-connection stream limit multiplied by the global connection budget.
-	// 0 means unlimited.
-	DefaultGRPCMaxInFlightPerIP = 100
-
-	// DefaultGRPCRateLimitingEnabled is the default for the gRPC rate-limit
-	// admission master switch.
-	DefaultGRPCRateLimitingEnabled = true
-
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
-
-	DefaultGRPCRequestTimeout = 30 * time.Second
 )
 
 var (
@@ -227,143 +137,6 @@ type APIConfig struct {
 	// Ref: https://github.com/cosmos/cosmos-sdk/issues/6420
 }
 
-// RosettaConfig defines the Rosetta API listener configuration.
-type RosettaConfig struct {
-	// Address defines the API server to listen on
-	Address string `mapstructure:"address"`
-
-	// Blockchain defines the blockchain name
-	// defaults to DefaultBlockchain
-	Blockchain string `mapstructure:"blockchain"`
-
-	// Network defines the network name
-	Network string `mapstructure:"network"`
-
-	// Retries defines the maximum number of retries
-	// rosetta will do before quitting
-	Retries int `mapstructure:"retries"`
-
-	// Enable defines if the API server should be enabled.
-	Enable bool `mapstructure:"enable"`
-
-	// Offline defines if the server must be run in offline mode
-	Offline bool `mapstructure:"offline"`
-}
-
-// GRPCConfig defines configuration for the gRPC server.
-type GRPCConfig struct {
-	// Enable defines if the gRPC server should be enabled.
-	Enable bool `mapstructure:"enable"`
-
-	// Address defines the API server to listen on
-	Address string `mapstructure:"address"`
-
-	// MaxRecvMsgSize defines the maximum message size in bytes the server can
-	// receive. It bounds per-request memory allocation before the rate limiter
-	// fires. Defaults to 4 MB.
-	MaxRecvMsgSize int `mapstructure:"max-recv-msg-size"`
-
-	// MaxOpenConnections defines the maximum number of simultaneous open
-	// connections. 0 means unlimited.
-	MaxOpenConnections uint `mapstructure:"max-open-connections"`
-
-	// MaxConnectionsPerIP defines the maximum number of simultaneous open
-	// connections one client address may hold. It bounds the accepted sockets and
-	// HTTP/2 frame state below the RPC layer, which max-in-flight-per-ip cannot
-	// see. 0 means unlimited.
-	MaxConnectionsPerIP uint `mapstructure:"max-connections-per-ip"`
-
-	// MaxConnectionIdle is the duration after which an idle connection is closed.
-	// 0 means infinity.
-	MaxConnectionIdle time.Duration `mapstructure:"max-connection-idle"`
-
-	// MaxConnectionAge is the maximum duration a connection may exist before it
-	// is closed (a jitter is added by gRPC). 0 means infinity.
-	MaxConnectionAge time.Duration `mapstructure:"max-connection-age"`
-
-	// MaxConnectionAgeGrace is an additive period after MaxConnectionAge during
-	// which the connection is forcibly closed. 0 means infinity.
-	MaxConnectionAgeGrace time.Duration `mapstructure:"max-connection-age-grace"`
-
-	// KeepaliveTime is the interval after which, if the server sees no activity,
-	// it pings the client to check liveness.
-	KeepaliveTime time.Duration `mapstructure:"keepalive-time"`
-
-	// KeepaliveTimeout is the duration the server waits for a keepalive ping ack
-	// before closing the connection.
-	KeepaliveTimeout time.Duration `mapstructure:"keepalive-timeout"`
-
-	// KeepaliveMinTime is the minimum interval a client must wait between
-	// keepalive pings; clients pinging more frequently are penalized.
-	KeepaliveMinTime time.Duration `mapstructure:"keepalive-min-time"`
-
-	// KeepalivePermitWithoutStream defines whether the server allows keepalive
-	// pings even when there are no active streams.
-	KeepalivePermitWithoutStream bool `mapstructure:"keepalive-permit-without-stream"`
-
-	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
-	// Zero disables the token bucket (Allow always returns true) and does not
-	// bypass admission when rate-limiting-enabled is true.
-	IPRateLimitRPS float64 `mapstructure:"ip-rate-limit-rps"`
-
-	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
-	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass
-	// admission when rate-limiting-enabled is true.
-	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
-
-	// MaxInFlightPerIP is the number of RPCs one client address may have in
-	// flight at once. An RPC is in flight from the moment its headers arrive
-	// until it ends, so this bounds concurrency where the token bucket bounds
-	// only arrival rate. Zero disables the limit. It takes effect only when
-	// rate-limiting-enabled is true.
-	MaxInFlightPerIP int `mapstructure:"max-in-flight-per-ip"`
-
-	// RateLimitingEnabled is the master switch for gRPC rate-limit admission. It
-	// governs gRPC-Web (:9091) as well as native gRPC (:9090), and both planes
-	// draw from the same per-IP buckets.
-	RateLimitingEnabled bool `mapstructure:"rate-limiting-enabled"`
-
-	// TrustedProxyCIDRs lists CIDRs whose x-forwarded-for metadata is trusted
-	// when resolving the client IP for rate limiting. Empty means trust no proxy.
-	// It applies to gRPC-Web (:9091) as well as native gRPC (:9090).
-	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
-
-	// RequestTimeout is the deadline applied to a gRPC request with no shorter
-	// client-supplied grpc-timeout. It applies to gRPC-Web (:9091) as well as
-	// native gRPC (:9090), since both are served by the same grpc.Server. 0
-	// disables the default deadline.
-	RequestTimeout time.Duration `mapstructure:"request-timeout"`
-}
-
-// RateLimiterConfig builds the ratelimiter.Config used by gRPC admission.
-func (c GRPCConfig) RateLimiterConfig() ratelimiter.Config {
-	return ratelimiter.Config{
-		RPS:               c.IPRateLimitRPS,
-		Burst:             c.IPRateLimitBurst,
-		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
-		MaxInFlightPerIP:  c.MaxInFlightPerIP,
-	}
-}
-
-// GRPCWebConfig defines configuration for the gRPC-web server.
-type GRPCWebConfig struct {
-	// Enable defines if the gRPC-web should be enabled.
-	Enable bool `mapstructure:"enable"`
-
-	// Address defines the gRPC-web server to listen on
-	Address string `mapstructure:"address"`
-
-	// EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk)
-	EnableUnsafeCORS bool `mapstructure:"enable-unsafe-cors"`
-
-	// MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
-	MaxOpenConnections uint `mapstructure:"max-open-connections"`
-
-	// MaxConnectionsPerIP defines the maximum number of simultaneous open
-	// connections one client address may hold. 0 means unlimited.
-	MaxConnectionsPerIP uint `mapstructure:"max-connections-per-ip"`
-}
-
 // StateSyncConfig defines the state sync snapshot configuration.
 type StateSyncConfig struct {
 	// SnapshotInterval sets the interval at which state sync snapshots are taken.
@@ -395,9 +168,6 @@ type Config struct {
 	// Telemetry defines the application telemetry configuration
 	Telemetry   telemetry.Config         `mapstructure:"telemetry"`
 	API         APIConfig                `mapstructure:"api"`
-	GRPC        GRPCConfig               `mapstructure:"grpc"`
-	Rosetta     RosettaConfig            `mapstructure:"rosetta"`
-	GRPCWeb     GRPCWebConfig            `mapstructure:"grpc-web"`
 	Query       QueryConfig              `mapstructure:"query"`
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
@@ -463,40 +233,6 @@ func DefaultConfig() *Config {
 			RPCWriteTimeout:    0,
 			RPCMaxBodyBytes:    1000000,
 		},
-		GRPC: GRPCConfig{
-			Enable:                       true,
-			Address:                      DefaultGRPCAddress,
-			MaxRecvMsgSize:               DefaultGRPCMaxRecvMsgSize,
-			MaxOpenConnections:           DefaultGRPCMaxOpenConnections,
-			MaxConnectionsPerIP:          DefaultGRPCMaxConnectionsPerIP,
-			MaxConnectionIdle:            DefaultGRPCMaxConnectionIdle,
-			MaxConnectionAge:             DefaultGRPCMaxConnectionAge,
-			MaxConnectionAgeGrace:        DefaultGRPCMaxConnectionAgeGrace,
-			KeepaliveTime:                DefaultGRPCKeepaliveTime,
-			KeepaliveTimeout:             DefaultGRPCKeepaliveTimeout,
-			KeepaliveMinTime:             DefaultGRPCKeepaliveMinTime,
-			KeepalivePermitWithoutStream: DefaultGRPCKeepalivePermitWithoutStream,
-			IPRateLimitRPS:               DefaultGRPCIPRateLimitRPS,
-			IPRateLimitBurst:             DefaultGRPCIPRateLimitBurst,
-			MaxInFlightPerIP:             DefaultGRPCMaxInFlightPerIP,
-			RateLimitingEnabled:          DefaultGRPCRateLimitingEnabled,
-			TrustedProxyCIDRs:            nil,
-			RequestTimeout:               DefaultGRPCRequestTimeout,
-		},
-		Rosetta: RosettaConfig{
-			Enable:     false,
-			Address:    ":8080",
-			Blockchain: "app",
-			Network:    "network",
-			Retries:    3,
-			Offline:    false,
-		},
-		GRPCWeb: GRPCWebConfig{
-			Enable:              true,
-			Address:             DefaultGRPCWebAddress,
-			MaxOpenConnections:  DefaultGRPCWebMaxOpenConnections,
-			MaxConnectionsPerIP: DefaultGRPCWebMaxConnectionsPerIP,
-		},
 		Query: DefaultQueryConfig(),
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
@@ -510,16 +246,6 @@ func DefaultConfig() *Config {
 			GenesisStreamFile: "",
 		},
 	}
-}
-
-// clampNonNegativeDuration returns fallback when d is negative; zero and
-// positive values (zero is gRPC's "infinity" for several keepalive fields) pass
-// through unchanged.
-func clampNonNegativeDuration(d, fallback time.Duration) time.Duration {
-	if d < 0 {
-		return fallback
-	}
-	return d
 }
 
 // GetConfig returns a fully parsed Config object.
@@ -629,82 +355,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		ssSnapshotEnable = v.GetBool("state-store.ss-snapshot-enable")
 	}
 
-	// Apply the in-code default when the key is absent so that nodes upgrading
-	// with an older app.toml (which lacks this key) are still bounded rather
-	// than running with unlimited connections.
-	grpcWebMaxOpenConnections := uint(DefaultGRPCWebMaxOpenConnections)
-	if v.IsSet("grpc-web.max-open-connections") {
-		grpcWebMaxOpenConnections = v.GetUint("grpc-web.max-open-connections")
-	}
-	grpcWebMaxConnectionsPerIP := uint(DefaultGRPCWebMaxConnectionsPerIP)
-	if v.IsSet("grpc-web.max-connections-per-ip") {
-		grpcWebMaxConnectionsPerIP = v.GetUint("grpc-web.max-connections-per-ip")
-	}
-
-	// Apply in-code defaults when keys are absent so that nodes upgrading with an
-	// older app.toml (which lacks these keys) pick up the declared defaults rather
-	// than running with zero values where a limit is intended.
-	grpcMaxRecvMsgSize := DefaultGRPCMaxRecvMsgSize
-	if v.IsSet("grpc.max-recv-msg-size") {
-		grpcMaxRecvMsgSize = v.GetInt("grpc.max-recv-msg-size")
-	}
-	grpcMaxOpenConnections := uint(DefaultGRPCMaxOpenConnections)
-	if v.IsSet("grpc.max-open-connections") {
-		grpcMaxOpenConnections = v.GetUint("grpc.max-open-connections")
-	}
-	grpcMaxConnectionsPerIP := uint(DefaultGRPCMaxConnectionsPerIP)
-	if v.IsSet("grpc.max-connections-per-ip") {
-		grpcMaxConnectionsPerIP = v.GetUint("grpc.max-connections-per-ip")
-	}
-	// Clamp negative durations back to their in-code defaults. A negative
-	// keepalive/connection-age value is a misconfiguration that gRPC would
-	// otherwise accept verbatim, so fall back to the safe default instead.
-	grpcMaxConnectionIdle := DefaultGRPCMaxConnectionIdle
-	if v.IsSet("grpc.max-connection-idle") {
-		grpcMaxConnectionIdle = clampNonNegativeDuration(v.GetDuration("grpc.max-connection-idle"), DefaultGRPCMaxConnectionIdle)
-	}
-	grpcKeepaliveTime := DefaultGRPCKeepaliveTime
-	if v.IsSet("grpc.keepalive-time") {
-		grpcKeepaliveTime = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-time"), DefaultGRPCKeepaliveTime)
-	}
-	grpcKeepaliveTimeout := DefaultGRPCKeepaliveTimeout
-	if v.IsSet("grpc.keepalive-timeout") {
-		grpcKeepaliveTimeout = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-timeout"), DefaultGRPCKeepaliveTimeout)
-	}
-	grpcKeepaliveMinTime := DefaultGRPCKeepaliveMinTime
-	if v.IsSet("grpc.keepalive-min-time") {
-		grpcKeepaliveMinTime = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-min-time"), DefaultGRPCKeepaliveMinTime)
-	}
-	// MaxConnectionAge and MaxConnectionAgeGrace default to 0 (gRPC's "infinity"),
-	// which is a valid value, so only a negative override needs clamping.
-	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
-	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
-
-	grpcIPRateLimitRPS := DefaultGRPCIPRateLimitRPS
-	if v.IsSet("grpc.ip-rate-limit-rps") {
-		grpcIPRateLimitRPS = v.GetFloat64("grpc.ip-rate-limit-rps")
-	}
-	grpcIPRateLimitBurst := DefaultGRPCIPRateLimitBurst
-	if v.IsSet("grpc.ip-rate-limit-burst") {
-		grpcIPRateLimitBurst = v.GetInt("grpc.ip-rate-limit-burst")
-	}
-	grpcMaxInFlightPerIP := DefaultGRPCMaxInFlightPerIP
-	if v.IsSet("grpc.max-in-flight-per-ip") {
-		grpcMaxInFlightPerIP = v.GetInt("grpc.max-in-flight-per-ip")
-	}
-	grpcRateLimitingEnabled := DefaultGRPCRateLimitingEnabled
-	if v.IsSet("grpc.rate-limiting-enabled") {
-		grpcRateLimitingEnabled = v.GetBool("grpc.rate-limiting-enabled")
-	}
-	grpcTrustedProxyCIDRs := []string(nil)
-	if v.IsSet("grpc.trusted-proxy-cidrs") {
-		grpcTrustedProxyCIDRs = v.GetStringSlice("grpc.trusted-proxy-cidrs")
-	}
-	grpcRequestTimeout := DefaultGRPCRequestTimeout
-	if v.IsSet("grpc.request-timeout") {
-		grpcRequestTimeout = clampNonNegativeDuration(v.GetDuration("grpc.request-timeout"), DefaultGRPCRequestTimeout)
-	}
-
 	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
@@ -739,41 +389,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			RPCWriteTimeout:    v.GetUint("api.rpc-write-timeout"),
 			RPCMaxBodyBytes:    v.GetUint("api.rpc-max-body-bytes"),
 			EnableUnsafeCORS:   v.GetBool("api.enabled-unsafe-cors"),
-		},
-		Rosetta: RosettaConfig{
-			Enable:     v.GetBool("rosetta.enable"),
-			Address:    v.GetString("rosetta.address"),
-			Blockchain: v.GetString("rosetta.blockchain"),
-			Network:    v.GetString("rosetta.network"),
-			Retries:    v.GetInt("rosetta.retries"),
-			Offline:    v.GetBool("rosetta.offline"),
-		},
-		GRPC: GRPCConfig{
-			Enable:                       v.GetBool("grpc.enable"),
-			Address:                      v.GetString("grpc.address"),
-			MaxRecvMsgSize:               grpcMaxRecvMsgSize,
-			MaxOpenConnections:           grpcMaxOpenConnections,
-			MaxConnectionsPerIP:          grpcMaxConnectionsPerIP,
-			MaxConnectionIdle:            grpcMaxConnectionIdle,
-			MaxConnectionAge:             grpcMaxConnectionAge,
-			MaxConnectionAgeGrace:        grpcMaxConnectionAgeGrace,
-			KeepaliveTime:                grpcKeepaliveTime,
-			KeepaliveTimeout:             grpcKeepaliveTimeout,
-			KeepaliveMinTime:             grpcKeepaliveMinTime,
-			KeepalivePermitWithoutStream: v.GetBool("grpc.keepalive-permit-without-stream"),
-			IPRateLimitRPS:               grpcIPRateLimitRPS,
-			IPRateLimitBurst:             grpcIPRateLimitBurst,
-			MaxInFlightPerIP:             grpcMaxInFlightPerIP,
-			RateLimitingEnabled:          grpcRateLimitingEnabled,
-			TrustedProxyCIDRs:            grpcTrustedProxyCIDRs,
-			RequestTimeout:               grpcRequestTimeout,
-		},
-		GRPCWeb: GRPCWebConfig{
-			Enable:              v.GetBool("grpc-web.enable"),
-			Address:             v.GetString("grpc-web.address"),
-			EnableUnsafeCORS:    v.GetBool("grpc-web.enable-unsafe-cors"),
-			MaxOpenConnections:  grpcWebMaxOpenConnections,
-			MaxConnectionsPerIP: grpcWebMaxConnectionsPerIP,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),

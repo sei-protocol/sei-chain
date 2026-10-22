@@ -7,15 +7,12 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/time/rate"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -77,26 +74,7 @@ type Registry struct {
 	trustedProxies []*net.IPNet
 	lru            *simplelru.LRU[string, *limiterEntry]
 	mu             sync.Mutex
-	grpcMethods    atomic.Pointer[map[string]struct{}]
 	inflight       *inflightCounter
-}
-
-// SetKnownGRPCMethods bounds the method label recorded for PlaneGRPC rejections
-// to the given "service/Method" names. Call it before serving; unlisted methods
-// are recorded as "other".
-func (r *Registry) SetKnownGRPCMethods(methods []string) {
-	known := make(map[string]struct{}, len(methods))
-	for _, m := range methods {
-		known[trimLeadingSlash(m)] = struct{}{}
-	}
-	r.grpcMethods.Store(&known)
-}
-
-func (r *Registry) knownGRPCMethods() map[string]struct{} {
-	if known := r.grpcMethods.Load(); known != nil {
-		return *known
-	}
-	return nil
 }
 
 // New creates a Registry from cfg. Returns an error if any CIDR in TrustedProxyCIDRs is invalid.
@@ -135,7 +113,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
 		),
 	)
 	return false
@@ -155,7 +133,7 @@ func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) 
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
 		),
 	)
 	return false
@@ -175,23 +153,6 @@ func (r *Registry) IPFromHTTPRequest(req *http.Request) string {
 		}
 	}
 	return remoteIP
-}
-
-// IPFromGRPCContext extracts the client IP from a gRPC request context.
-// If the transport peer belongs to a trusted proxy CIDR, the rightmost untrusted
-// x-forwarded-for metadata entry is used.
-func (r *Registry) IPFromGRPCContext(ctx context.Context) string {
-	peerIP := grpcPeerIP(ctx)
-	if peerIP != "" && r.isTrustedProxy(peerIP) {
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			if vals := md.Get("x-forwarded-for"); len(vals) > 0 {
-				if ip := r.rightmostUntrustedIP(strings.Join(vals, ", ")); ip != "" {
-					return ip
-				}
-			}
-		}
-	}
-	return peerIP
 }
 
 // rightmostUntrustedIP walks the comma-separated XFF list from right to left and returns
@@ -278,23 +239,10 @@ func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 	return out, nil
 }
 
-// trimLeadingSlash returns the gRPC "service/Method" name of a full method name.
-func trimLeadingSlash(fullMethod string) string {
-	return strings.TrimPrefix(fullMethod, "/")
-}
-
 func stripPort(addr string) string {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr
 	}
 	return host
-}
-
-func grpcPeerIP(ctx context.Context) string {
-	p, ok := peer.FromContext(ctx)
-	if !ok || p.Addr == nil {
-		return ""
-	}
-	return stripPort(p.Addr.String())
 }
