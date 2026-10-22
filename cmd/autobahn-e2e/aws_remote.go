@@ -300,21 +300,15 @@ func seiLoadAWSConfigFor(privateIPs []string, profile seiLoadProfile) (string, e
 		"endpoints":  endpoints,
 		"accounts":   accounts,
 		"scenarios": []map[string]any{
-			{"name": "EVMTransfer", "weight": 1},
+			{"name": "EVMTransfer", "weight": 1, "gasPicker": map[string]any{"Name": "fixed", "Gas": 21000}},
 		},
 		"settings": map[string]any{
-			"workers":               1,
-			"tps":                   cmp.Or(profile.TPS, defaultSeiLoadTPS),
-			"statsInterval":         "5s",
-			"bufferSize":            1000,
-			"dryRun":                false,
-			"debug":                 false,
-			"trackReceipts":         false,
-			"trackBlocks":           false,
-			"trackUserLatency":      false,
-			"prewarm":               false,
-			"rampUp":                false,
-			"postSummaryFlushDelay": "1s",
+			"tps":                  cmp.Or(profile.TPS, defaultSeiLoadTPS),
+			"gasFeeCapFallbackWei": "20000000000",
+			"trackReceipts":        false,
+			"trackBlocks":          false,
+			"trackUserLatency":     false,
+			"prewarm":              false,
 		},
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
