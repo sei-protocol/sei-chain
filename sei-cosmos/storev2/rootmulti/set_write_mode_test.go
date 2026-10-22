@@ -454,6 +454,42 @@ func TestRootMultiMigrateCosmosCompleteAdvancesToFlatKVOnly(t *testing.T) {
 	simulateBlock(t, store, storeKeys, block, addr)
 }
 
+// TestRootMultiMigrateCosmosCompletePinnedIsQuiet proves a store pinned to
+// migrate_cosmos whose migration is complete stays in migrate_cosmos and logs
+// nothing, because its commit info matches peers that advance to flatkv_only.
+func TestRootMultiMigrateCosmosCompletePinnedIsQuiet(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA7)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	block := 5
+	for ; block <= 20 && !migrationComplete(t, store, sctypes.MigrateCosmos); block++ {
+		simulateBlock(t, store, storeKeys, block, addr)
+	}
+	require.True(t, migrationComplete(t, store, sctypes.MigrateCosmos), "MigrateCosmos did not complete")
+
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateCosmosConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var records atomic.Int64
+	prev := logger
+	logger = slog.New(countingHandler{records: &records})
+	defer func() { logger = prev }()
+
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateCosmos, mode, "a pinned migrate_cosmos store must not advance")
+	require.Zero(t, records.Load(), "a completed MigrateCosmos must not log a pinned skip")
+	simulateBlock(t, store, storeKeys, block, addr)
+}
+
 // TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks proves the
 // level-triggered self-heal. If the node restarts after the kick-off flipped
 // the mode in memory but before any migrating block committed (so no boundary

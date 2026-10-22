@@ -874,8 +874,9 @@ func (rs *Store) isMigrationComplete(mode sctypes.WriteMode) (bool, error) {
 }
 
 // mayAdvanceWriteMode reports whether the SC store is configured as auto and
-// so may change its write mode at runtime. It logs the skip, once per batch
-// size, when it may not.
+// so may change its write mode at runtime. When it may not, it logs the skip
+// once per batch size, except for the flatkv_only flip after a completed
+// migrate_cosmos.
 //
 // A node pinned to a fixed mode opts out of the migration and diverges from
 // the network once its peers advance. It is logged loudly and skipped, rather
@@ -885,6 +886,12 @@ func (rs *Store) mayAdvanceWriteMode(mode sctypes.WriteMode, batchSize int) bool
 	configured, hasConfigured := rs.ConfiguredWriteMode()
 	if hasConfigured && configured == sctypes.Auto {
 		return true
+	}
+	if mode == sctypes.MigrateCosmos {
+		// Only a completed migrate_cosmos has an advance due, and its commit
+		// info already matches a flatkv_only peer, so skipping it does not
+		// diverge.
+		return false
 	}
 	if !rs.shouldLogMigrationSkip(batchSize) {
 		return false
