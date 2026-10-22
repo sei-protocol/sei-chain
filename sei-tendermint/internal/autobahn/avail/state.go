@@ -773,17 +773,18 @@ func (s *State) runEvict(ctx context.Context) error {
 
 // runEpochAdvance is the sole writer of the applied epoch after construction.
 func (s *State) runEpochAdvance(ctx context.Context) error {
+	registry := s.data.Registry()
 	for {
 		var next types.EpochIndex
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				next = inner.advanceTarget()
+				next = inner.advanceTarget(registry)
 				return next > inner.applied().EpochIndex()+1 || inner.canAdvanceEpoch()
 			}); err != nil {
 				return err
 			}
 		}
-		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
+		ep, err := registry.WaitForEpoch(ctx, next)
 		if err != nil {
 			if !errors.Is(err, types.ErrPruned) {
 				return err
@@ -792,7 +793,7 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			// names a different one.
 			for inner, ctrl := range s.inner.Lock() {
 				if err := ctrl.WaitUntil(ctx, func() bool {
-					return inner.advanceTarget() != next
+					return inner.advanceTarget(registry) != next
 				}); err != nil {
 					return err
 				}
@@ -803,7 +804,7 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			// The tip may have moved while WaitForEpoch was parked. Installing
 			// next now would pair it with a tip whose next road is in a later
 			// epoch, so recompute instead.
-			if inner.advanceTarget() != next {
+			if inner.advanceTarget(registry) != next {
 				break
 			}
 			inner.advanceEpoch(ep)

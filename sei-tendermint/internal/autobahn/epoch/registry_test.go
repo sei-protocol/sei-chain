@@ -90,27 +90,26 @@ func TestNewRegistry_Genesis(t *testing.T) {
 
 func TestNewRegistry_IndependentGenesisOrigins(t *testing.T) {
 	rng := utils.TestRng()
-	committee, _, _ := genCommittee(rng, 3)
-	firstRoad := types.RoadIndex(7)
+	committee, _, weights := genCommittee(rng, 3)
+	firstRoad := FirstRoad(2) + 7
 	firstBlock := types.GlobalBlockNumber(11)
 	r := utils.OrPanic1(NewRegistry(committee, firstRoad, firstBlock, time.Time{}, utils.None[string]()))
 
 	require.Equal(t, firstRoad, r.FirstRoad())
 	require.Equal(t, firstBlock, r.FirstBlock())
-	require.Equal(t, types.RoadRange{First: firstRoad, Next: FirstRoad(1)}, r.MustEpoch(0).RoadRange())
+	require.Equal(t, types.RoadRange{First: firstRoad, Next: firstRoad + EpochLength}, r.MustEpoch(0).RoadRange())
 	_, err := r.EpochAt(firstRoad - 1)
 	require.ErrorIs(t, err, types.ErrPruned)
 	ep, err := r.EpochAt(firstRoad)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(0), ep.EpochIndex())
-	require.Equal(t, types.RoadRange{First: FirstRoad(1), Next: FirstRoad(2)}, r.MustEpoch(1).RoadRange())
-}
-
-func TestNewRegistry_RejectsFirstRoadOutsideGenesisEpoch(t *testing.T) {
-	rng := utils.TestRng()
-	committee, _, _ := genCommittee(rng, 3)
-	_, err := NewRegistry(committee, FirstRoad(1), 0, time.Time{}, utils.None[string]())
-	require.Error(t, err)
+	require.Equal(t, types.RoadRange{First: firstRoad + EpochLength, Next: firstRoad + 2*EpochLength}, r.MustEpoch(1).RoadRange())
+	require.Equal(t, firstRoad+2*EpochLength, r.EpochFirstRoad(2))
+	require.Equal(t, firstRoad+2*EpochLength-1, r.LastRoad(1))
+	require.Equal(t, types.EpochIndex(1), r.ClosingEpoch(r.LastRoad(1)).OrPanic("missing closing epoch"))
+	require.Equal(t, types.EpochIndex(1), r.IndexForRoad(firstRoad+EpochLength))
+	require.NoError(t, r.StageAndActivate(0, weights))
+	require.Equal(t, types.RoadRange{First: firstRoad + 2*EpochLength, Next: firstRoad + 3*EpochLength}, r.MustEpoch(2).RoadRange())
 }
 
 func addFromEnd(t *testing.T, r *Registry, end types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {

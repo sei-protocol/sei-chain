@@ -201,7 +201,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.Equal(t, first, h)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
-	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), epoch.FirstRoad(2))
+	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), router.data.Registry().EpochFirstRoad(2))
 	got, h, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, n, h)
