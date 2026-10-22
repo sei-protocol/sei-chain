@@ -245,15 +245,22 @@ func TestRootMultiAutoKickoff_RestartResumesMigrateEVM(t *testing.T) {
 		"after completion a restart must derive evm_migrated")
 }
 
+// migrationComplete reports whether the SC store reports the migration for
+// mode as complete.
+func migrationComplete(t *testing.T, store *Store, mode sctypes.WriteMode) bool {
+	t.Helper()
+	reporter, ok := store.scStore.(writeModeCompletionReporter)
+	require.True(t, ok)
+	complete, err := reporter.IsWriteModeComplete(mode)
+	require.NoError(t, err)
+	return complete
+}
+
 // requireEVMMigrationComplete asserts that the SC store reports its EVM
 // migration as complete.
 func requireEVMMigrationComplete(t *testing.T, store *Store) {
 	t.Helper()
-	reporter, ok := store.scStore.(writeModeCompletionReporter)
-	require.True(t, ok)
-	complete, err := reporter.IsWriteModeComplete(sctypes.MigrateEVM)
-	require.NoError(t, err)
-	require.True(t, complete, "the EVM migration must be complete")
+	require.True(t, migrationComplete(t, store, sctypes.MigrateEVM), "the EVM migration must be complete")
 }
 
 func TestRootMultiMigrateCosmosGateClosedAfterEVMComplete(t *testing.T) {
@@ -394,6 +401,57 @@ func TestRootMultiMigrateCosmosGateOpenPinnedMigrateEVMInFlightIsQuiet(t *testin
 	require.Equal(t, sctypes.MigrateEVM, mode)
 	require.Zero(t, records.Load(), "an in-flight EVM migration must not log a pinned skip")
 	simulateBlock(t, store, storeKeys, 3, addr)
+}
+
+// TestRootMultiMigrateCosmosCompleteAdvancesToFlatKVOnly proves that once
+// MigrateCosmos has persisted version 2, the next positive batch size moves a
+// live auto store to flatkv_only without a restart and whatever the gate says,
+// and that a restarted store derives the same mode.
+func TestRootMultiMigrateCosmosCompleteAdvancesToFlatKVOnly(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA6)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateCosmos, mode)
+
+	block := 5
+	for ; block <= 20 && !migrationComplete(t, store, sctypes.MigrateCosmos); block++ {
+		simulateBlock(t, store, storeKeys, block, addr)
+	}
+	require.True(t, migrationComplete(t, store, sctypes.MigrateCosmos), "MigrateCosmos did not complete")
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateCosmos, mode, "completion alone must not change the live mode")
+
+	// The gate controls only the start of MigrateCosmos; the completion
+	// flip ignores it.
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode, "a completed MigrateCosmos must advance to flatkv_only")
+	simulateBlock(t, store, storeKeys, block, addr)
+	block++
+
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode, "a restarted store must derive flatkv_only")
+
+	// The end of the chain: a positive batch size changes nothing.
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode)
+	simulateBlock(t, store, storeKeys, block, addr)
 }
 
 // TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks proves the

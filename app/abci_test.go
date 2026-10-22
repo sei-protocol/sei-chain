@@ -208,14 +208,17 @@ func TestMigrateCosmosEnabledAtGenesis(t *testing.T) {
 }
 
 // TestMigrateCosmosGate drives real blocks at the maximum rate and checks that
-// the store advances past the EVM migration only when MigrateCosmosEnabled is set.
+// the store advances past the EVM migration only when MigrateCosmosEnabled is
+// set. With the gate open the store walks the whole chain: MigrateCosmos
+// completes within a block at this rate, and the next block's BeginBlock then
+// lands it in flatkv_only.
 func TestMigrateCosmosGate(t *testing.T) {
 	for _, tc := range []struct {
 		enabled  bool
 		wantMode sctypes.WriteMode
 	}{
 		{enabled: false, wantMode: sctypes.MigrateEVM},
-		{enabled: true, wantMode: sctypes.MigrateCosmos},
+		{enabled: true, wantMode: sctypes.FlatKVOnly},
 	} {
 		t.Run(fmt.Sprintf("enabled=%v", tc.enabled), func(t *testing.T) {
 			a := Setup(t, false, false, false)
@@ -256,6 +259,13 @@ func TestMigrateCosmosGate(t *testing.T) {
 			mode, ok = a.rootStore.GetWriteMode()
 			require.True(t, ok)
 			require.Equal(t, sctypes.MigrateCosmos, mode)
+
+			// Block 7 completes MigrateCosmos; block 8's BeginBlock observes
+			// the persisted version and leaves the migration router.
+			runBlock(8)
+			mode, ok = a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.FlatKVOnly, mode)
 		})
 	}
 }

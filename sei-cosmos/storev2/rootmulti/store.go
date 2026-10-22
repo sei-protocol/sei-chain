@@ -800,11 +800,12 @@ func (rs *Store) SetInitialVersion(version int64) error {
 }
 
 // SetMigrationBatchSize forwards the governance-controlled number of keys to
-// migrate per block to the SC store. When batchSize > 0 and an auto store is
-// ready for its next migration, it also starts that migration: migrate_evm
-// from memiavl_only, and, when allowMigrateCosmos is set, migrate_cosmos once
-// the EVM migration is complete. A store pinned to a fixed write mode never
-// advances. The app calls this from BeginBlock.
+// migrate per block to the SC store. When batchSize > 0 and an auto store has
+// a write-mode advance due, it also performs it: migrate_evm from
+// memiavl_only; when allowMigrateCosmos is set, migrate_cosmos once the EVM
+// migration is complete; and flatkv_only once MigrateCosmos is complete. A
+// store pinned to a fixed write mode never advances. The app calls this from
+// BeginBlock.
 func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos bool) error {
 	// Forwarding first means a router installed by the transition below
 	// already observes the new rate.
@@ -819,8 +820,8 @@ func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos bool) e
 	if !ok {
 		return nil
 	}
-	ready, err := rs.readyForNextMigration(mode, allowMigrateCosmos)
-	if err != nil || !ready {
+	due, err := rs.writeModeAdvanceDue(mode, allowMigrateCosmos)
+	if err != nil || !due {
 		return err
 	}
 	if !rs.mayAdvanceWriteMode(mode, batchSize) {
@@ -830,13 +831,14 @@ func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos bool) e
 	// so a node that crashes before then derives the earlier mode on restart
 	// and starts the transition again on the next block, together with its
 	// peers.
-	return rs.startNextMigration(mode)
+	return rs.advanceWriteMode(mode)
 }
 
-// readyForNextMigration reports whether an SC store in mode has a migration
-// to start: migrate_evm from memiavl_only, and, when allowMigrateCosmos is
-// set, migrate_cosmos from evm_migrated or from a completed migrate_evm.
-func (rs *Store) readyForNextMigration(mode sctypes.WriteMode, allowMigrateCosmos bool) (bool, error) {
+// writeModeAdvanceDue reports whether an SC store in mode has a write-mode
+// advance due: migrate_evm from memiavl_only; when allowMigrateCosmos is set,
+// migrate_cosmos from evm_migrated or from a completed migrate_evm; and
+// flatkv_only from a completed migrate_cosmos.
+func (rs *Store) writeModeAdvanceDue(mode sctypes.WriteMode, allowMigrateCosmos bool) (bool, error) {
 	switch mode {
 	case sctypes.MemiavlOnly:
 		return true, nil
@@ -846,22 +848,27 @@ func (rs *Store) readyForNextMigration(mode sctypes.WriteMode, allowMigrateCosmo
 		if !allowMigrateCosmos {
 			return false, nil
 		}
-		return rs.isEVMMigrationComplete()
+		return rs.isMigrationComplete(mode)
+	case sctypes.MigrateCosmos:
+		// The completion flip leaves the migration router, whose reads take
+		// a lock and consult the boundary, for the direct flatkv router. It
+		// needs no gate: the migration it ends has already run.
+		return rs.isMigrationComplete(mode)
 	default:
 		return false, nil
 	}
 }
 
-// isEVMMigrationComplete reports whether the SC store's EVM migration has
-// moved every EVM key to flatkv.
-func (rs *Store) isEVMMigrationComplete() (bool, error) {
+// isMigrationComplete reports whether the SC store's migration for mode has
+// persisted its target migration version.
+func (rs *Store) isMigrationComplete(mode sctypes.WriteMode) (bool, error) {
 	reporter, ok := rs.scStore.(writeModeCompletionReporter)
 	if !ok {
 		return false, fmt.Errorf("SC store %T does not report migration completion", rs.scStore)
 	}
-	complete, err := reporter.IsWriteModeComplete(sctypes.MigrateEVM)
+	complete, err := reporter.IsWriteModeComplete(mode)
 	if err != nil {
-		return false, fmt.Errorf("failed to check EVM migration completion: %w", err)
+		return false, fmt.Errorf("failed to check %s migration completion: %w", mode, err)
 	}
 	return complete, nil
 }
@@ -900,12 +907,14 @@ func (rs *Store) mayAdvanceWriteMode(mode sctypes.WriteMode, batchSize int) bool
 	return false
 }
 
-// startNextMigration moves an auto SC store from mode into its next migration.
-// It runs on the block-execution goroutine in BeginBlock, after the previous
-// Commit and before the block's first ApplyChangeSets. SetWriteMode only swaps
-// the composite store's router, so the block's live cache-multi-store keeps
-// its views. It is not safe to call in parallel with block execution.
-func (rs *Store) startNextMigration(mode sctypes.WriteMode) error {
+// advanceWriteMode moves an auto SC store from mode to the next write mode
+// that is due: into its next migration, or into the steady state that follows
+// a completed one. It runs on the block-execution goroutine in BeginBlock,
+// after the previous Commit and before the block's first ApplyChangeSets.
+// SetWriteMode only swaps the composite store's router, so the block's live
+// cache-multi-store keeps its views. It is not safe to call in parallel with
+// block execution.
+func (rs *Store) advanceWriteMode(mode sctypes.WriteMode) error {
 	switch mode {
 	case sctypes.MemiavlOnly:
 		if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
@@ -919,6 +928,10 @@ func (rs *Store) startNextMigration(mode sctypes.WriteMode) error {
 	case sctypes.EVMMigrated:
 		if err := rs.SetWriteMode(sctypes.MigrateCosmos); err != nil {
 			return fmt.Errorf("failed to start full migration (evm_migrated -> migrate_cosmos): %w", err)
+		}
+	case sctypes.MigrateCosmos:
+		if err := rs.SetWriteMode(sctypes.FlatKVOnly); err != nil {
+			return fmt.Errorf("failed to finish full migration mode (migrate_cosmos -> flatkv_only): %w", err)
 		}
 	}
 	return nil

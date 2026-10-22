@@ -78,7 +78,8 @@ type StateCommitConfig struct {
 	// evm_migrated once EVM completes, migrate_cosmos while the remaining modules
 	// are draining, and flatkv_only once complete), and raising the
 	// NumKeysToMigratePerBlock gov param above 0 advances an auto store to the
-	// next migration once that migration is enabled.
+	// next migration once that migration is enabled, and to flatkv_only once
+	// the last one completes.
 	//
 	// Defaulting to true (and treating an absent config key as true) is what
 	// lets the existing fleet participate: nodes provisioned by older binaries
