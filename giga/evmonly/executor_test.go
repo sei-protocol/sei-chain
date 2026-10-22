@@ -1669,7 +1669,6 @@ func TestExecuteBlockChangeSetCarriesPriorValues(t *testing.T) {
 	require.Equal(t, withCanonicalBalances(want), withCanonicalBalances(result.ChangeSet))
 }
 
-// A slot written after its account is cleared reports the value it held before the block, even though
 // Under OCC, where every transaction after the first reruns on what the earlier ones wrote, executing
 // a block still reports each change beside the value its key held before the block.
 func TestExecuteBlockOCCChangeSetCarriesPriorValues(t *testing.T) {
@@ -1750,23 +1749,6 @@ func TestStateDBGetCommittedStateAdvancesAtFinalise(t *testing.T) {
 	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
 	require.Equal(t, second, stateDB.SetState(addr, key, third))
 	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
-}
-
-func TestStateDBGetStateAfterStorageClearDoesNotReloadPersistedSlot(t *testing.T) {
-	contract := testAddress(0xc8)
-	key := testHash(0x01)
-	value := testHash(0x22)
-
-	state := NewMemoryState()
-	state.SetState(contract, key, value)
-	stateDB := newNativeStateDB(state)
-
-	require.Equal(t, value, stateDB.GetState(contract, key))
-	stateDB.SelfDestruct(contract)
-	stateDB.Finalise(true)
-
-	require.Equal(t, common.Hash{}, stateDB.GetCommittedState(contract, key))
-	require.Equal(t, common.Hash{}, stateDB.GetState(contract, key))
 }
 
 func TestPrepareClearsTransientStorage(t *testing.T) {
@@ -1921,7 +1903,6 @@ func TestSnapshotRevertRestoresJournaledSideState(t *testing.T) {
 	stateDB.AddPreimage(preimageHash, []byte{0x01})
 	stateDB.markForFinalise(addr)
 	stateDB.markTxStorageWrite(addr, key)
-	stateDB.markTxStorageClear(addr)
 
 	snapshot := stateDB.Snapshot()
 	stateDB.AddAddressToAccessList(nextAddr)
@@ -1933,7 +1914,6 @@ func TestSnapshotRevertRestoresJournaledSideState(t *testing.T) {
 	stateDB.AddPreimage(nextPreimageHash, []byte{0x03})
 	stateDB.markForFinalise(nextAddr)
 	stateDB.markTxStorageWrite(addr, nextKey)
-	stateDB.markTxStorageClear(nextAddr)
 
 	stateDB.RevertToSnapshot(snapshot)
 
@@ -1951,8 +1931,6 @@ func TestSnapshotRevertRestoresJournaledSideState(t *testing.T) {
 	require.NotContains(t, stateDB.finaliseAddrs, nextAddr)
 	require.Contains(t, stateDB.txStorageWrites[addr], key)
 	require.NotContains(t, stateDB.txStorageWrites[addr], nextKey)
-	require.Contains(t, stateDB.txStorageClears, addr)
-	require.NotContains(t, stateDB.txStorageClears, nextAddr)
 }
 
 func TestStateDBFirstStorageReadPreservesBase(t *testing.T) {
@@ -2102,27 +2080,32 @@ func TestStateDBSnapshotRevertsIncrementalStorageJournal(t *testing.T) {
 	require.Equal(t, common.Hash{}, stateDB.GetState(addr, otherKey))
 }
 
-func TestStateDBSnapshotRevertsStorageMapReplacement(t *testing.T) {
-	addr := testAddress(0xeb)
-	key := testHash(0x01)
-	otherKey := testHash(0x02)
-	original := testHash(0x03)
-	replacement := testHash(0x04)
+// A contract created and destroyed in one transaction leaves the address's stored storage as it
+// was, both for later reads in the block and in the changeset.
+func TestStateDBCreatedAndDestroyedAccountKeepsStoredStorage(t *testing.T) {
+	addr := testAddress(0xed)
+	written := testHash(0x01)
+	untouched := testHash(0x02)
+	writtenStored := testHash(0x03)
+	untouchedStored := testHash(0x04)
 
 	state := NewMemoryState()
-	state.SetState(addr, key, original)
+	state.SetState(addr, written, writtenStored)
+	state.SetState(addr, untouched, untouchedStored)
 	stateDB := newNativeStateDB(state)
-	require.Equal(t, original, stateDB.GetState(addr, key))
-	snapshot := stateDB.Snapshot()
 
-	stateDB.SetStorage(addr, map[common.Hash]common.Hash{otherKey: replacement})
-	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
-	require.Equal(t, replacement, stateDB.GetState(addr, otherKey))
+	stateDB.CreateAccount(addr)
+	stateDB.CreateContract(addr)
+	stateDB.SetState(addr, written, testHash(0x05))
+	_, destroyed := stateDB.SelfDestruct6780(addr)
+	require.True(t, destroyed)
+	stateDB.Finalise(true)
 
-	stateDB.RevertToSnapshot(snapshot)
-	require.Equal(t, original, stateDB.GetState(addr, key))
-	require.Equal(t, common.Hash{}, stateDB.GetState(addr, otherKey))
-	require.False(t, stateDB.account(addr).StorageCleared)
+	require.Equal(t, writtenStored, stateDB.GetState(addr, written))
+	require.Equal(t, untouchedStored, stateDB.GetState(addr, untouched))
+	require.Equal(t, writtenStored, stateDB.GetCommittedState(addr, written))
+	require.Equal(t, untouchedStored, stateDB.GetCommittedState(addr, untouched))
+	require.Empty(t, stateDB.ChangeSet().Storage)
 }
 
 func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
@@ -2131,8 +2114,7 @@ func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
 	otherKey := testHash(0x02)
 	original := testHash(0x03)
 	first := testHash(0x04)
-	replacement := testHash(0x05)
-	second := testHash(0x06)
+	second := testHash(0x05)
 
 	state := NewMemoryState()
 	state.SetState(addr, key, original)
@@ -2140,7 +2122,6 @@ func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
 	require.Equal(t, original, stateDB.GetState(addr, key))
 	snapshot := stateDB.Snapshot()
 	stateDB.SetState(addr, key, first)
-	stateDB.SetStorage(addr, map[common.Hash]common.Hash{otherKey: replacement})
 	stateDB.SetState(addr, otherKey, second)
 
 	copied := stateDB.Copy().(*nativeStateDB)
@@ -2148,8 +2129,7 @@ func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
 
 	require.Equal(t, original, copied.GetState(addr, key))
 	require.Equal(t, common.Hash{}, copied.GetState(addr, otherKey))
-	require.False(t, copied.account(addr).StorageCleared)
-	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
+	require.Equal(t, first, stateDB.GetState(addr, key))
 	require.Equal(t, second, stateDB.GetState(addr, otherKey))
 }
 
