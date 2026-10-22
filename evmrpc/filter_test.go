@@ -834,6 +834,24 @@ func TestFilterGetFilterChangesAfterFromBlockIsPruned(t *testing.T) {
 	require.Equal(t, want, filterChanges(t, filterID))
 }
 
+// TestFilterGetFilterChangesMovesPastAnOversizedBlock asserts that a poll
+// failing on a block whose logs alone exceed the log caps moves the filter past
+// that block, so the next poll does not fail on it again.
+func TestFilterGetFilterChangesMovesPastAnOversizedBlock(t *testing.T) {
+	t.Parallel()
+	filterID := newLogFilter(t, map[string]interface{}{
+		"blockHash": LogCapBlockHash,
+		"address":   []common.Address{common.HexToAddress(LogCapAddr)},
+	})
+
+	resObj := sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterID)
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected an error object, got: %v", resObj)
+	require.Contains(t, errObj["message"].(string), "too many logs")
+
+	require.Empty(t, filterChanges(t, filterID), "the filter must be exhausted after its oversized block")
+}
+
 // TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter asserts that
 // eth_getFilterChanges returns [] (not null) once a bounded filter's range is
 // fully consumed (Ethereum JSON-RPC spec requires an array, never null).

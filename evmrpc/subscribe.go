@@ -294,7 +294,11 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 				}
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
-				return
+				// A subscription moves on past a block it cannot serve, as a filter poll does.
+				var oversized *oversizedBlockError
+				if !errors.As(err, &oversized) {
+					return
+				}
 			}
 			for _, log := range logs {
 				if err = notifier.Notify(rpcSub.ID, log); err != nil {
