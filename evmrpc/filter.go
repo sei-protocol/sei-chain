@@ -1221,7 +1221,7 @@ func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
 }
 
 func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
-	return f.watermarks.EarliestHeight(ctx)
+	return f.watermarks.EarliestReceiptHeight(ctx)
 }
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
@@ -1506,12 +1506,18 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			return res, 0, nil
 		}
 
-		block, err := blockByHashRespectingWatermarks(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
+		block, err := blockByHashOrNullForJSONRPC(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
 		if err != nil {
+			return nil, 0, err
+		}
+		if block == nil {
 			// For non-existent blocks, return empty channel instead of error
 			res := make(chan *coretypes.ResultBlock)
 			close(res)
 			return res, 0, nil
+		}
+		if err := f.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
+			return nil, 0, err
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block
@@ -1525,7 +1531,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if err != nil {
 		return nil, 0, err
 	}
-	earliest, err := f.watermarks.EarliestHeight(ctx)
+	earliest, err := f.earliestHeight(ctx)
 	if err != nil {
 		earliest = 0
 	}

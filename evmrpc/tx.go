@@ -344,6 +344,9 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(ctx context.Context, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
+	if err := t.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
+		return nil, err
+	}
 	ctxProvider := withRequestContext(ctx, t.ctxProvider)
 	msgs, err := filterTransactions(t.keeper, ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
 	if ctxErr := ctx.Err(); ctxErr != nil {
