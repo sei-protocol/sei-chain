@@ -57,14 +57,14 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
+		allowed, rejectMethod, batchLen, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
 		if checkErr != nil {
 			writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
 			return
 		}
 		if !allowed {
 			logger.Debug("rate limit rejected JSON-RPC request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
-			writeJSONRPCTooManyRequests(w, body)
+			writeJSONRPCBatchTooManyRequests(w, body, batchLen)
 			return
 		}
 

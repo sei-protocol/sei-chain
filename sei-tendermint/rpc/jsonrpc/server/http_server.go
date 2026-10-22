@@ -208,15 +208,27 @@ func writeJSONRPCErrorWithStatus(w http.ResponseWriter, reqBody []byte, httpStat
 	writeJSONWithStatus(w, httpStatus, req.MakeErrorf(code, format, args...))
 }
 
-// writeJSONRPCTooManyRequests writes the HTTP 429 reply for a POST / request
-// rejected by the rate limiter. A well-formed, non-empty batch gets an array
-// with one error response per non-notification request; any other body gets a
-// single error object.
+// tooManyRequestsMsg is the JSON-RPC error message of an HTTP 429 reply.
+const tooManyRequestsMsg = "too many requests"
+
+// writeJSONRPCTooManyRequests writes a single JSON-RPC error object as the
+// HTTP 429 reply to a rate-limited POST / request.
 func writeJSONRPCTooManyRequests(w http.ResponseWriter, reqBody []byte) {
-	const msg = "too many requests"
+	writeJSONRPCErrorWithStatus(w, reqBody, http.StatusTooManyRequests, rpctypes.CodeInternalError, tooManyRequestsMsg)
+}
+
+// writeJSONRPCBatchTooManyRequests writes the HTTP 429 reply to a rate-limited
+// POST / request whose body holds batchLen requests, as reported by the gate.
+// A batch within RequestBatchSizeLimit gets an array with one error response
+// per non-notification request; any other body gets a single error object.
+func writeJSONRPCBatchTooManyRequests(w http.ResponseWriter, reqBody []byte, batchLen int) {
+	if batchLen == 0 || batchLen > rpctypes.RequestBatchSizeLimit {
+		writeJSONRPCTooManyRequests(w, reqBody)
+		return
+	}
 	var reqs []rpctypes.RPCRequest
-	if !isBatchRequest(reqBody) || json.Unmarshal(reqBody, &reqs) != nil || len(reqs) == 0 {
-		writeJSONRPCErrorWithStatus(w, reqBody, http.StatusTooManyRequests, rpctypes.CodeInternalError, msg)
+	if err := json.Unmarshal(reqBody, &reqs); err != nil {
+		writeJSONRPCTooManyRequests(w, reqBody)
 		return
 	}
 
@@ -225,7 +237,7 @@ func writeJSONRPCTooManyRequests(w http.ResponseWriter, reqBody []byte) {
 		if req.IsNotification() {
 			continue
 		}
-		resps = append(resps, req.MakeErrorf(rpctypes.CodeInternalError, msg))
+		resps = append(resps, req.MakeErrorf(rpctypes.CodeInternalError, tooManyRequestsMsg))
 	}
 	// A batch of only notifications gets no response body, as when it is served.
 	if len(resps) == 0 {

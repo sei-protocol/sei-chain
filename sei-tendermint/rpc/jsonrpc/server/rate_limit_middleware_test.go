@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -239,7 +240,40 @@ func TestRateLimitMiddleware_POST_BatchShapedNon429RejectionsReturnSingleObject(
 }
 
 func TestRateLimitMiddleware_POST_MalformedBatch429ReturnsSingleObject(t *testing.T) {
-	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "null element", body: `[null]`},
+		{name: "missing method", body: `[{}]`},
+		{name: "mixed valid and missing method", body: `[{"jsonrpc":"2.0","id":1,"method":"status"},{}]`},
+		{name: "non-string method", body: `[{"jsonrpc":"2.0","id":1,"method":123}]`},
+		{name: "duplicate method", body: `[{"jsonrpc":"2.0","id":1,"method":"status","method":"block"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+			gate := NewRateLimitGate(reg, 0)
+			inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+			h := NewRateLimitMiddleware(inner, gate)
+
+			req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"status","params":[]}`))
+			req1.RemoteAddr = "203.0.113.1:1"
+			rec1 := httptest.NewRecorder()
+			h.ServeHTTP(rec1, req1)
+			require.Equal(t, http.StatusOK, rec1.Code)
+
+			req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.body))
+			req2.RemoteAddr = "203.0.113.1:1"
+			rec2 := httptest.NewRecorder()
+			h.ServeHTTP(rec2, req2)
+			require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+			requireJSONRPCError(t, rec2.Body.Bytes(), int(rpctypes.CodeInternalError), "too many requests")
+		})
+	}
+}
+
+func TestRateLimitMiddleware_POST_BatchAtSizeLimit429ReturnsBatch(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 0.001, rpctypes.RequestBatchSizeLimit)
 	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	h := NewRateLimitMiddleware(inner, gate)
@@ -250,12 +284,42 @@ func TestRateLimitMiddleware_POST_MalformedBatch429ReturnsSingleObject(t *testin
 	h.ServeHTTP(rec1, req1)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`[{"jsonrpc":"2.0","id":1,"method":123}]`))
+	requests := make([]string, rpctypes.RequestBatchSizeLimit)
+	for i := range requests {
+		requests[i] = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"status"}`, i)
+	}
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("["+strings.Join(requests, ",")+"]"))
 	req2.RemoteAddr = "203.0.113.1:1"
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
-	requireJSONRPCError(t, rec2.Body.Bytes(), int(rpctypes.CodeInternalError), "too many requests")
+
+	var resps []rpctypes.RPCResponse
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resps))
+	require.Len(t, resps, rpctypes.RequestBatchSizeLimit)
+	for i, resp := range resps {
+		require.Equal(t, fmt.Sprint(i), resp.ID())
+		require.NotNil(t, resp.Error)
+		require.Equal(t, int(rpctypes.CodeInternalError), resp.Error.Code)
+	}
+}
+
+func TestRateLimitMiddleware_POST_BatchOverSizeLimit429ReturnsSingleObject(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 100, rpctypes.RequestBatchSizeLimit)
+	gate := NewRateLimitGate(reg, 0)
+	inner := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { t.Fatal("inner should not be called") })
+	h := NewRateLimitMiddleware(inner, gate)
+
+	requests := make([]string, rpctypes.RequestBatchSizeLimit+1)
+	for i := range requests {
+		requests[i] = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"status"}`, i)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("["+strings.Join(requests, ",")+"]"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	requireJSONRPCError(t, rec.Body.Bytes(), int(rpctypes.CodeInternalError), "too many requests")
 }
 
 func TestRateLimitMiddleware_GET_ExtractsMethodFromPath(t *testing.T) {
