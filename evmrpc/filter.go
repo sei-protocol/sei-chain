@@ -1037,7 +1037,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 
 // pollStart returns the cursor a new log filter starts polling from: crit's fromBlock when it
 // is a number, and otherwise the block after the current head. A blockHash crit starts at 0. It
-// rejects a numeric toBlock below that start.
+// rejects a numeric fromBlock above 0 that is below the earliest available block, and a numeric
+// toBlock below the start.
 func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria) (int64, error) {
 	if crit.BlockHash != nil {
 		return 0, nil
@@ -1049,6 +1050,9 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 	start := head + 1
 	if crit.FromBlock != nil && crit.FromBlock.Sign() >= 0 {
 		start = crit.FromBlock.Int64()
+		if err := f.ensureStartRetained(ctx, start); err != nil {
+			return 0, err
+		}
 	}
 	if crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && crit.ToBlock.Int64() < start {
 		return 0, fmt.Errorf("requested toBlock %d is before the filter's start block %d", crit.ToBlock.Int64(), start)
@@ -1056,11 +1060,29 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 	return start, nil
 }
 
+// ensureStartRetained rejects a filter start above 0 that is below the earliest available block.
+func (f *LogFetcher) ensureStartRetained(ctx context.Context, start int64) error {
+	if start == 0 {
+		return nil
+	}
+	earliest, err := f.earliestHeight(ctx)
+	if err != nil {
+		return err
+	}
+	if start < earliest {
+		return fmt.Errorf("requested fromBlock %d is before earliest available block %d", start, earliest)
+	}
+	return nil
+}
+
 // pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
-// from, also when it returns an error. A poll scans up to the head, or to crit's toBlock when it
-// is a number below the head, and scans fewer blocks when that range exceeds the block or log
-// caps. A block whose logs alone exceed the log caps fails the poll that reaches it, and the
-// returned cursor is past it. A blockHash crit's block is returned by the poll at cursor 0.
+// from, also when it returns an error. A poll scans from cursor up to the head, or to crit's
+// toBlock when it is a number below the head, and scans fewer blocks when that range exceeds the
+// block or log caps. A cursor of 0 scans from the earliest available block. A cursor above 0 that
+// is below that block fails the poll with an error naming the pruned blocks, and the returned
+// cursor is the earliest block. A block whose logs alone exceed the log caps fails the poll that
+// reaches it, and the returned cursor is past it. A blockHash crit's block is returned by the
+// poll at cursor 0.
 func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, cursor int64) ([]*ethtypes.Log, int64, error) {
 	if logsExhausted(crit, cursor) {
 		return []*ethtypes.Log{}, cursor, nil
@@ -1079,6 +1101,15 @@ func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, 
 	head, err := f.latestHeight(ctx)
 	if err != nil {
 		return nil, cursor, err
+	}
+	if earliest, err := f.earliestHeight(ctx); err == nil && cursor < earliest {
+		// Pruned blocks cannot be served on any later poll either, so the filter moves on to the
+		// earliest block. A filter from block 0 asked for whatever the node has, so only a filter
+		// that lost blocks it was due is told.
+		if cursor > 0 {
+			return nil, earliest, prunedLogsError(crit, cursor, earliest)
+		}
+		cursor = earliest
 	}
 	from, to, ok := pollWindow(crit.ToBlock, cursor, head, f.filterConfig.maxBlock)
 	if !ok {
@@ -1121,6 +1152,16 @@ func logsExhausted(crit filters.FilterCriteria, cursor int64) bool {
 		return cursor > 0
 	}
 	return crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && cursor > crit.ToBlock.Int64()
+}
+
+// prunedLogsError reports the blocks from cursor up to earliest, or up to crit's numeric toBlock
+// when it is lower, whose logs were pruned before a filter polled them.
+func prunedLogsError(crit filters.FilterCriteria, cursor, earliest int64) error {
+	last := earliest - 1
+	if crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 {
+		last = min(last, crit.ToBlock.Int64())
+	}
+	return fmt.Errorf("logs of blocks %d to %d were pruned before the filter read them", cursor, last)
 }
 
 // exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
