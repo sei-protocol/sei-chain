@@ -10,6 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
@@ -351,6 +353,22 @@ func (env *Environment) EvmCodeAt(address common.Address, height int64) ([]byte,
 // EvmStorageAt returns the value at key in address's storage in the committed EVM state after height.
 func (env *Environment) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
 	return env.App.EvmStorageAt(address, key, height)
+}
+
+// EvmBlockContext returns the block context header's block executed at.
+func (env *Environment) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
+	return env.App.EvmBlockContext(header)
+}
+
+// EvmStateAt returns the committed EVM state after height and the function that releases it.
+func (env *Environment) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+	return env.App.EvmStateAt(ctx, height)
+}
+
+// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
+// executed against, and the function that releases it.
+func (env *Environment) EvmStateBeforeTx(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
+	return env.App.EvmStateBeforeTx(ctx, header, txs)
 }
 
 // EvmBlockNumber returns the height of the most recently committed block.
