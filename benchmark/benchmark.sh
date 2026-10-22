@@ -133,7 +133,7 @@ mv ~/.sei/config/tmp_genesis_3.json ~/.sei/config/genesis.json && rm ~/.sei/conf
 
 echo "Creating Accounts"
 # create 10 test accounts + fund them
-python3  "$REPO_ROOT/loadtest/scripts/populate_genesis_accounts.py" 20 loc
+python3  "$REPO_ROOT/scripts/populate_genesis_accounts.py" 20 loc
 
 "$SEID" collect-gentxs
 # update some params in genesis file for easier use of the chain localls (make gov props faster)
