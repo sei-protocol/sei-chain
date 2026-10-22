@@ -1067,14 +1067,18 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 // pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
 // from, also when it returns an error. A poll scans up to the head, or to crit's toBlock when it
 // is a number below the head, and scans fewer blocks when that range exceeds the block or log
-// caps. A block whose logs alone exceed the log caps fails the poll with an oversizedBlockError,
-// and the returned cursor is past it. A blockHash crit's block is returned by the poll at cursor 0.
+// caps. A block whose logs alone exceed the log caps fails the poll that reaches it, and the
+// returned cursor is past it. A blockHash crit's block is returned by the poll at cursor 0.
 func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, cursor int64) ([]*ethtypes.Log, int64, error) {
 	if logsExhausted(crit, cursor) {
 		return []*ethtypes.Log{}, cursor, nil
 	}
 	if crit.BlockHash != nil {
 		logs, _, err := f.GetLogsByFilters(ctx, crit)
+		if exceedsLogCaps(err) {
+			// Every later poll would fail on the block again, so the filter ends with the error.
+			return nil, cursor + 1, err
+		}
 		if err != nil {
 			return nil, cursor, err
 		}
@@ -1127,6 +1131,11 @@ func logsExhausted(crit filters.FilterCriteria, cursor int64) bool {
 	return crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && cursor > crit.ToBlock.Int64()
 }
 
+// exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
+func exceedsLogCaps(err error) bool {
+	return errors.Is(err, receipt.ErrTooManyLogs) || errors.Is(err, receipt.ErrTooManyLogBytes)
+}
+
 // oversizedBlockError reports a block whose logs matching a filter alone exceed the log caps.
 type oversizedBlockError struct {
 	height int64
@@ -1151,7 +1160,7 @@ func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filte
 		if err == nil {
 			return logs, end, nil
 		}
-		if !errors.Is(err, receipt.ErrTooManyLogs) && !errors.Is(err, receipt.ErrTooManyLogBytes) {
+		if !exceedsLogCaps(err) {
 			return nil, 0, err
 		}
 		if from == to {
