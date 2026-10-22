@@ -78,6 +78,7 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags.StringVar(&options.loadInstanceType, "load-instance-type", "", "EC2 instance type of the load instances; defaults to --instance-type")
 	flags.StringArrayVar(&options.nodeEnv, "node-env", nil, "KEY=VALUE passed to every validator's init, genesis and start, e.g. MOCK_BALANCES=true; repeatable")
 	flags.StringVar(&options.load.Version, "seiload-version", seiLoadVersion, "sei-load module version installed on the load instances")
+	flags.StringVar(&options.load.Binary, "seiload-binary", "", "local linux/amd64 sei-load binary uploaded to the load instances instead of installing --seiload-version")
 	flags.IntVar(&options.load.TPS, "load-tps", defaultSeiLoadTPS, "sei-load target transactions per second, per load instance")
 	flags.IntVar(&options.load.Accounts, "load-accounts", defaultSeiLoadAccounts, "sei-load sender accounts, per load instance")
 	flags.BoolVar(&options.load.Disjoint, "load-disjoint", false, "pair each sender with a distinct receiver so no two transactions touch the same account")

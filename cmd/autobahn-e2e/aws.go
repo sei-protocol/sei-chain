@@ -72,6 +72,11 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err != nil {
 		return err
 	}
+	if binary := options.load.Binary; binary != "" {
+		if _, err := os.Stat(expandHome(binary)); err != nil {
+			return fmt.Errorf("inspect --seiload-binary: %w", err)
+		}
+	}
 	for _, name := range []string{"aws", "git", "ssh", "scp"} {
 		if err := a.runner.lookPath(name); err != nil {
 			return err
@@ -248,8 +253,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		for _, load := range state.AWS.loadHosts() {
 			_, _ = fmt.Fprintf(a.stdout, "  ssh -i %s %s@%s\n", expandHome(state.AWS.SSHKeyPath), state.AWS.SSHUser, load.PublicIP)
 		}
-		_, _ = fmt.Fprintf(a.stdout, "  cd %s && GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@%s\n", state.AWS.RemoteDir, state.AWS.Load.version())
-		_, _ = fmt.Fprintf(a.stdout, "  ./build/tools/sei-load --config integration_test/autobahn/sei-load.aws.json --metricsListenAddr 0.0.0.0:19698\n")
+		_, _ = fmt.Fprintf(a.stdout, "  cd %s && ./build/tools/sei-load --config integration_test/autobahn/sei-load.aws.json --metricsListenAddr 0.0.0.0:19698\n", state.AWS.RemoteDir)
 	}
 	return nil
 }

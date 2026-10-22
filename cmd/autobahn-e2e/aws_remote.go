@@ -186,16 +186,25 @@ func (a *application) startLoadHost(ctx context.Context, state clusterState, loa
 	if err != nil {
 		return err
 	}
-	write := strings.Join([]string{
+	steps := []string{
 		"set -euo pipefail",
-		"mkdir -p " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated")),
+		"mkdir -p " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated")) + " " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/tools")),
 		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/prometheus.yml")) + " <<'EOF'\n" + prometheusScrapeConfigFor(privateIPs, loadIPs) + "EOF",
 		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "integration_test/autobahn/sei-load.aws.json")) + " <<'EOF'\n" + loadCfg + "EOF",
-		"cd " + shellQuote(state.AWS.RemoteDir),
-		"GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@" + shellQuote(state.AWS.Load.version()),
-	}, "\n")
-	if err := a.remoteStream(ctx, state, load, write); err != nil {
+	}
+	if state.AWS.Load.Binary == "" {
+		steps = append(steps,
+			"cd "+shellQuote(state.AWS.RemoteDir),
+			"GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@"+shellQuote(state.AWS.Load.version()),
+		)
+	}
+	if err := a.remoteStream(ctx, state, load, strings.Join(steps, "\n")); err != nil {
 		return fmt.Errorf("prepare load instance %d: %w", load.Index, err)
+	}
+	if binary := state.AWS.Load.Binary; binary != "" {
+		if err := a.uploadToHost(ctx, state, load, expandHome(binary), filepath.Join(state.AWS.RemoteDir, "build/tools/sei-load")); err != nil {
+			return fmt.Errorf("upload sei-load to load instance %d: %w", load.Index, err)
+		}
 	}
 	if primary, ok := state.AWS.loadHost(); !ok || primary.InstanceID != load.InstanceID {
 		return nil
@@ -330,5 +339,17 @@ func (a *application) remoteStream(ctx context.Context, state clusterState, host
 
 func (a *application) copyBetweenHosts(ctx context.Context, state clusterState, src awsHost, srcPath string, dst awsHost, dstPath string) error {
 	args := append(scpBaseArgs(state), remoteSSHPath(state, src, srcPath), remoteSSHPath(state, dst, dstPath))
+	return a.runner.stream(ctx, commandSpec{name: "scp", args: args})
+}
+
+// uploadToHost copies a local file to dst on host.
+func (a *application) uploadToHost(ctx context.Context, state clusterState, host awsHost, localPath, dstPath string) error {
+	args := []string{
+		"-i", expandHome(state.AWS.SSHKeyPath),
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+		"-o", "StrictHostKeyChecking=accept-new",
+		localPath, remoteSSHPath(state, host, dstPath),
+	}
 	return a.runner.stream(ctx, commandSpec{name: "scp", args: args})
 }

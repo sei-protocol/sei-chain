@@ -69,7 +69,10 @@ type awsState struct {
 // seiLoadProfile is the traffic each load instance's sei-load config generates. Zero fields take
 // the defaults.
 type seiLoadProfile struct {
-	Version   string `json:"version,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Binary is a local linux/amd64 sei-load uploaded to each load instance in place of
+	// installing Version.
+	Binary    string `json:"binary,omitempty"`
 	TPS       int    `json:"tps,omitempty"`
 	Accounts  int    `json:"accounts,omitempty"`
 	Disjoint  bool   `json:"disjoint,omitempty"`
