@@ -190,19 +190,19 @@ func (e *Executor) DecodeBlock(ctx context.Context, req BlockRequest) (DecodedBl
 	if err != nil {
 		return DecodedBlock{}, err
 	}
-	return DecodedBlock{Context: req.Context, Txs: txs, Senders: req.Senders}, nil
+	return DecodedBlock{context: req.Context, txs: txs, senders: req.Senders}, nil
 }
 
 // RecoverSenders resolves every transaction's sender in b, recovering it from the signature unless
 // b carries an already verified sender for it.
 func (e *Executor) RecoverSenders(ctx context.Context, b DecodedBlock) (PreparedBlock, error) {
-	signer := ethtypes.MakeSigner(e.chainConfig(b.Context), new(big.Int).SetUint64(b.Context.Number), b.Context.Time)
-	parsed, err := resolveBlockSenders(ctx, b.Txs, signer, b.Senders, e.cfg.ParseWorkers)
+	signer := ethtypes.MakeSigner(e.chainConfig(b.context), new(big.Int).SetUint64(b.context.Number), b.context.Time)
+	parsed, err := resolveBlockSenders(ctx, b.txs, signer, b.senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
 	return PreparedBlock{
-		Context: b.Context,
+		Context: b.context,
 		Txs:     parsed,
 	}, nil
 }

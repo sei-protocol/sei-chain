@@ -53,11 +53,12 @@ type BlockRequest struct {
 }
 
 // DecodedBlock is a block whose transactions are decoded and validated but whose senders are not
-// yet resolved. Senders is either empty or aligned with Txs.
+// yet resolved. Only DecodeBlock builds one.
 type DecodedBlock struct {
-	Context BlockContext
-	Txs     []*ethtypes.Transaction
-	Senders []utils.Option[common.Address]
+	context BlockContext
+	txs     []*ethtypes.Transaction
+	// senders is either empty or aligned with txs.
+	senders []utils.Option[common.Address]
 }
 
 // PreparedBlock contains decoded transactions with recovered senders, as returned by PrepareBlock

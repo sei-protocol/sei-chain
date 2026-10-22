@@ -166,7 +166,7 @@ func TestExecutorDecodeThenRecoverMatchesPrepareBlock(t *testing.T) {
 
 	decoded, err := executor.DecodeBlock(t.Context(), req)
 	require.NoError(t, err)
-	require.Len(t, decoded.Txs, n)
+	require.Len(t, decoded.txs, n)
 	recovered, err := executor.RecoverSenders(t.Context(), decoded)
 	require.NoError(t, err)
 	prepared, err := executor.PrepareBlock(t.Context(), req)
