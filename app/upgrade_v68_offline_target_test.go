@@ -83,6 +83,10 @@ func testV68OfflineUpgradeTargetFixture(t *testing.T) {
 	require.Equalf(t, cleanHash, crashHash,
 		"crash-replay application hash diverged from the clean single-pass hash: clean=%x crash-replay=%x",
 		cleanHash, crashHash)
+	recoveredHash := applyV68OfflineUpgradeAfterRefusal(t, noUpgradeInfoRoot, artifact)
+	require.Equalf(t, cleanHash, recoveredHash,
+		"the upgrade after restoring upgrade-info.json diverged from the clean hash: clean=%x recovered=%x",
+		cleanHash, recoveredHash)
 
 	artifact.MigratedRoot = offlineUpgradeMigratedDir
 	artifact.UpgradeHash = offlineUpgradeHashString(cleanHash)
@@ -279,7 +283,22 @@ func requireV68OfflineRefusesRetainedStores(t *testing.T, root string, artifact 
 			refusal = err.Error()
 		}
 	}()
-	require.Contains(t, refusal, fmt.Sprintf("store %q was not deleted before the upgrade handler ran", v68DeletedStores[0]))
+	require.Contains(t, refusal, fmt.Sprintf("store %q was not deleted before the v6.8 upgrade handler ran", v68DeletedStores[0]))
+	require.Contains(t, refusal, v68OfflineUpgradeInfo(artifact.UpgradeHeight))
+}
+
+// applyV68OfflineUpgradeAfterRefusal writes upgrade-info.json as the refusal
+// tells the operator to, then applies v6.8 and returns the application hash.
+func applyV68OfflineUpgradeAfterRefusal(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
+	t.Helper()
+	target := filepath.Join(root, "home", "data", "upgrade-info.json")
+	require.NoError(t, os.WriteFile(target, []byte(v68OfflineUpgradeInfo(artifact.UpgradeHeight)), 0o600))
+	return applyV68OfflineUpgradeClean(t, root, artifact)
+}
+
+// v68OfflineUpgradeInfo is the upgrade-info.json content naming v6.8 at height.
+func v68OfflineUpgradeInfo(height int64) string {
+	return fmt.Sprintf(`{"name":%q,"height":%d}`, v68OfflineUpgradeName, height)
 }
 
 // requireV68OfflineLegacyAccountsStored requires every recorded vesting account

@@ -155,7 +155,7 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
-				if err := app.requireStoresDeleted(v68DeletedStores); err != nil {
+				if err := app.requireStoresDeleted(plan, v68DeletedStores); err != nil {
 					return nil, err
 				}
 				// Proposals must be readable before any module migration walks
@@ -190,25 +190,26 @@ func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
 	app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 }
 
-// rewriteRetiredIBCProposals replaces the content of every stored governance
-// proposal whose type lives under an IBC protobuf package with a TextProposal
-// carrying the original title and description. The proposal record, its
-// deposits, votes and tally indexes are left untouched. Proposal keys sort by
-// big-endian ID, so the scan stops at RetiredIBCProposalIDLimit.
 // requireStoresDeleted returns an error if the state commitment store still holds a tree for any of
-// names. The store loader deletes them only when upgrade-info.json names the upgrade, which the
-// previous binary writes when it halts at the upgrade height.
-func (app *App) requireStoresDeleted(names []string) error {
+// names when plan runs. The store loader deletes them only if upgrade-info.json named plan when the
+// node started.
+func (app *App) requireStoresDeleted(plan upgradetypes.Plan, names []string) error {
 	for _, name := range names {
 		if app.rootStore.HasTree(name) {
-			return fmt.Errorf("store %q was not deleted before the upgrade handler ran: "+
-				"the node must reach the upgrade height on the previous binary so that it writes upgrade-info.json",
-				name)
+			return fmt.Errorf("store %q was not deleted before the %s upgrade handler ran because "+
+				"data/upgrade-info.json did not name the upgrade when the node started: write "+
+				`{"name":%q,"height":%d} to data/upgrade-info.json in the node home and restart`,
+				name, plan.Name, plan.Name, plan.Height)
 		}
 	}
 	return nil
 }
 
+// rewriteRetiredIBCProposals replaces the content of every stored governance
+// proposal whose type lives under an IBC protobuf package with a TextProposal
+// carrying the original title and description. The proposal record, its
+// deposits, votes and tally indexes are left untouched. Proposal keys sort by
+// big-endian ID, so the scan stops at RetiredIBCProposalIDLimit.
 func (app *App) rewriteRetiredIBCProposals(ctx sdk.Context) {
 	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
 	iterator := sdk.KVStorePrefixIterator(store, govtypes.ProposalsKeyPrefix)
