@@ -13,13 +13,13 @@ import (
 // # Concurrency
 //
 // All methods are safe for concurrent use. Implementations should expect
-// concurrent writes (WriteBlock + WriteQC + WriteAppQC interleaved from a single
+// concurrent writes (WriteQC + WriteAppQC interleaved from a single
 // background persistence loop) and concurrent reads from RPC handlers
 // and peer-sync streams.
 //
 // # Durability and crash safety
 //
-// Writes are two-phase: WriteBlock, WriteQC, and WriteAppQC return without
+// Writes are two-phase: WriteQC, WriteAppProposal, and WriteAppQC return without
 // guaranteeing the record is on disk. Flush blocks until all
 // previously-returned Writes are durable.
 //
@@ -44,8 +44,7 @@ import (
 //   - AppProposal.GlobalRange().First must equal the previous AppProposal.GlobalRange().Next
 //   - AppQC.Proposal().GlobalRange().First must equal the previous AppQC.Proposal().GlobalRange().Next
 //   - All data must be written in order: for every GlobalBlockNumber X, writes need to happen in order:
-//   - FullCommitQC covering X
-//   - Block X
+//   - FullCommitQC covering X together with all its blocks
 //   - AppProposal covering X
 //   - AppQC covering X
 //   - Call to PruneBefore(X) makes data before X inaccessible, however it still might be accessible after BlockStore is
@@ -58,7 +57,8 @@ import (
 //
 // After a crash, data not flushed may be lost, but the following invariants hold:
 //
-//   - Individual blocks, QCs, AppProposals and AppQCs are either fully persisted or not at all; there are no partial writes.
+//   - A QC and all its blocks are either fully persisted together or absent.
+//   - AppProposals and AppQCs are individually atomic.
 //   - Data is persisted in order, meaning that data loss never leaves gaps. If A is written and then B
 //     is written, then after a crash if B is persisted then A is also persisted.
 //
@@ -67,49 +67,11 @@ import (
 // Pruning never leaves a block readable without its covering FullCommitQC also being readable. And if a block becomes
 // crash recoverable, its QC is guaranteed to also be crash recoverable.
 type BlockStore interface {
-	// WriteBlock persists a finalized block at GlobalBlockNumber n. A
-	// block for height n may only be written after a QC covering n has
-	// also been written, or else this method returns an error.
-	//
-	// n must be exactly one greater than the previously written block
-	// number (the first block may start anywhere its covering QC allows);
-	// otherwise WriteBlock returns ErrBlockOutOfOrder and persists
-	// nothing. Writes are NOT idempotent — re-writing the same (or any
-	// other non-contiguous) n is rejected with an error.
-	//
-	// May return before the block is on disk. Callers that need crash
-	// durability before some external observable action (e.g.
-	// runPersist advancing nextBlockToPersist, which gates the
-	// AppVote runExecute issues) must call Flush. See the BlockStore type
-	// doc for the two-phase write/flush contract.
-	//
-	// Writes are made crash durable in write order (both blocks and QCs),
-	// so loss of non-durable data after a crash never leaves gaps.
-	WriteBlock(n GlobalBlockNumber, block *Block) error
-
-	// WriteQC persists a FullCommitQC. The QC carries the range it covers,
-	// so no range is passed alongside it: the covered range is the half-open
-	// interval [First, First+len(Headers())), where First is
-	// qc.QC().GlobalRange().First. FullCommitQC's own invariant makes that
-	// identical to qc.QC().GlobalRange().Next; implementations derive the
-	// bound from the header count because First and Headers are the fields
-	// the wire format carries explicitly, so the persisted range is stable
-	// across an encode/decode round trip. A QC covering no blocks
-	// (len(Headers()) == 0) is rejected.
-	//
-	// Successive WriteQC calls must form a contiguous sequence: each QC's
-	// First must equal the previous QC's covered bound (the first QC may
-	// start anywhere). A gap or overlap returns ErrQCNonContiguous and
-	// persists nothing. Writes are NOT idempotent — re-writing a QC is
-	// rejected rather than treated as a no-op.
-	//
-	// May return before the QC is on disk. See the BlockStore type doc for
-	// the two-phase write/flush contract and WriteBlock for the
-	// rationale.
-	//
-	// Writes are made crash durable in write order (both blocks and QCs),
-	// so loss of non-durable data after a crash never leaves gaps.
-	WriteQC(qc *FullCommitQC) error
+	// WriteQC atomically persists a FullCommitQC and all its blocks in header
+	// order. Missing, extra or mismatched blocks return ErrQCBlocksMismatch.
+	// Empty QCs and gaps or overlaps with the preceding QC return ErrQCNonContiguous.
+	// A rejected call persists nothing. Flush makes a successful write durable.
+	WriteQC(qc *FullCommitQC, blocks []*Block) error
 
 	// WriteAppProposal persists an AppProposal. The AppProposal carries the
 	// exact CommitQC range it certifies by execution result. A matching CommitQC
@@ -225,7 +187,7 @@ type BlockStore interface {
 	// ReadBlockByHash returns the block whose header hashes to the
 	// given value, paired with its GlobalBlockNumber. The hash is the
 	// same value as block.Header().Hash() for the block that was passed
-	// to WriteBlock.
+	// to WriteQC.
 	//
 	// Returns utils.None if no such block is readable — either because
 	// none was written or because it has been pruned (see
@@ -299,8 +261,8 @@ type SuffixRange struct {
 	// last AppProposal accepted by WriteAppProposal. Zero if no AppProposal has
 	// been written.
 	NextAppProposal GlobalBlockNumber
-	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
-	// (the next block number that may be written). Zero if no block has been written.
+	// NextBlock is one past the highest GlobalBlockNumber persisted with a QC.
+	// Zero if no block has been written.
 	NextBlock GlobalBlockNumber
 	// NextQC is one past the highest GlobalBlockNumber covered by the last QC
 	// accepted by WriteQC (the next QC's range must start here). Zero if no QC

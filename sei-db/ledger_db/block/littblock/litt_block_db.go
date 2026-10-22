@@ -183,7 +183,7 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open record iterator: %w", err)
 	}
-	return &recordIterator{it: it}, nil
+	return &recordIterator{it: it, newestFirst: newestFirst}, nil
 }
 
 // gcFilter marks a key in the shared ledger table as reclaimable, dispatching on
@@ -198,7 +198,7 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 //     block's primary number key is what actually gates segment reclamation.
 func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
 	switch keyKind(key) {
-	case kindBlock, kindQC, kindAppProp, kindAppQC:
+	case kindQCGroup, kindBlock, kindQC, kindAppProp, kindAppQC:
 		return decodeNumberKey(key) < s.GetPruneWatermark(), nil
 	case kindBlockHash:
 		return true, nil
@@ -222,15 +222,25 @@ func (s *blockDB) Close() error {
 }
 
 // recordIterator adapts a littdb.Iterator to blocktypes.RecordIterator, presenting
-// only the primary number-keyed records and skipping the hash aliases.
+// logical QC and block records while skipping lookup aliases.
 type recordIterator struct {
-	it     littdb.Iterator
-	kind   blocktypes.RecordKind
-	number uint64
+	it          littdb.Iterator
+	kind        blocktypes.RecordKind
+	number      uint64
+	newestFirst bool
+	pending     []groupRecord
+	value       []byte
 }
 
 func (r *recordIterator) Next() (bool, error) {
+	r.value = nil
 	for {
+		if len(r.pending) > 0 {
+			record := r.pending[0]
+			r.pending = r.pending[1:]
+			r.kind, r.number, r.value = record.kind, record.number, record.value
+			return true, nil
+		}
 		ok, err := r.it.Next()
 		if err != nil {
 			return false, fmt.Errorf("failed to advance record iterator: %w", err)
@@ -243,6 +253,17 @@ func (r *recordIterator) Next() (bool, error) {
 			return false, fmt.Errorf("failed to read record key: %w", err)
 		}
 		if !isPrimary {
+			continue
+		}
+		if keyKind(key) == kindQCGroup {
+			value, err := r.it.GetValue()
+			if err != nil {
+				return false, err
+			}
+			r.pending, err = decodeQCGroup(decodeNumberKey(key), value, r.newestFirst)
+			if err != nil {
+				return false, err
+			}
 			continue
 		}
 		kind, ok := recordKind(keyKind(key))
@@ -264,6 +285,9 @@ func (r *recordIterator) Number() uint64 {
 }
 
 func (r *recordIterator) Value() ([]byte, error) {
+	if r.value != nil {
+		return r.value, nil
+	}
 	value, err := r.it.GetValue()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read record value: %w", err)

@@ -41,65 +41,41 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	// A covering QC must already be written. Since QCs are contiguous and blocks
-	// strictly ascending, n is covered iff n < status.NextQC. This guard also fixes
-	// the QC-before-block write order: the covering QC's write has already issued
-	// under this mutex, so on a crash a surviving block implies a surviving FullCommitQC.
-	if !ok || n >= status.NextQC {
-		return fmt.Errorf("block number %d not covered by any written QC: %w", n, types.ErrBlockMissingQC)
-	}
-	if n != status.NextBlock {
-		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
-			n, status.NextBlock-1, types.ErrBlockOutOfOrder)
-	}
-
-	hash := blk.Header().Hash()
-	if err := s.db.PutBlock(uint64(n), hash.Bytes(), encodeBlock(n, blk)); err != nil {
-		return fmt.Errorf("failed to put block %d: %w", n, err)
-	}
-	status.NextBlock = n + 1
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *Store) WriteQC(qc *types.FullCommitQC) error {
+func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	gr := qc.QC().GlobalRange()
 	if gr.Len() == 0 {
 		return fmt.Errorf("QC at %d covers no blocks: %w", gr.First, types.ErrQCNonContiguous)
 	}
+	if len(blocks) != len(qc.Headers()) {
+		return fmt.Errorf("QC has %d headers but %d blocks: %w", len(qc.Headers()), len(blocks), types.ErrQCBlocksMismatch)
+	}
+	records := make([]blocktypes.BlockRecord, len(blocks))
+	for i, block := range blocks {
+		if block.Header().Hash() != qc.Headers()[i].Hash() {
+			return fmt.Errorf("block %d does not match QC header: %w", i, types.ErrQCBlocksMismatch)
+		}
+		n := gr.First + types.GlobalBlockNumber(i) //nolint:gosec // non-negative slice index
+		records[i] = blocktypes.BlockRecord{Hash: block.Header().Hash().Bytes(), Value: encodeBlock(n, block)}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status, ok := s.status.Get()
 	if ok && status.NextQC != gr.First {
-		return fmt.Errorf("QC starts at %d, expected %d: %w",
-			gr.First, status.NextQC, types.ErrQCNonContiguous)
+		return fmt.Errorf("QC starts at %d, expected %d: %w", gr.First, status.NextQC, types.ErrQCNonContiguous)
 	}
-
-	if err := s.db.PutRecord(blocktypes.KindQC, uint64(gr.First), uint64(gr.Next), encodeQC(qc)); err != nil {
+	if err := s.db.PutQC(uint64(gr.First), encodeQC(qc), records); err != nil {
 		return fmt.Errorf("failed to put QC [%d,%d): %w", gr.First, gr.Next, err)
 	}
-
 	if !ok {
-		// The first QC may start anywhere its caller allows, and nothing below it will ever
-		// be written. Record where coverage begins so Iterator can clamp to it without
-		// discovering it by scanning; a reopen re-derives the same value.
 		status = types.SuffixRange{
-			First:           gr.First,
-			NextAppQC:       gr.First,
-			NextAppProposal: gr.First,
-			NextBlock:       gr.First,
-			NextQC:          gr.Next,
+			First: gr.First, NextAppQC: gr.First, NextAppProposal: gr.First,
 		}
-		// Reads below the first QC must return ErrPruned in this process too, not only
-		// after a reopen: the QC and AppQC servers resume a stream from First() on ErrPruned.
+		// Reads below the first QC must return ErrPruned before and after reopening.
 		s.setPruneWatermark(gr.First)
-	} else {
-		status.NextQC = gr.Next
 	}
+	status.NextQC = gr.Next
+	status.NextBlock = gr.Next
 	s.status = utils.Some(status)
 	return nil
 }

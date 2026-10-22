@@ -1,6 +1,7 @@
 package memblock
 
 import (
+	"fmt"
 	"sync"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -19,11 +20,12 @@ type recordKey struct {
 // of a block record, empty for every other kind; reclamation needs both to find
 // the entries a dropped record leaves behind.
 type record struct {
-	kind   blocktypes.RecordKind
-	number uint64
-	next   uint64
-	hash   string
-	value  []byte
+	kind      blocktypes.RecordKind
+	number    uint64
+	next      uint64
+	hash      string
+	value     []byte
+	groupNext uint64 // reclamation boundary of the atomic QC group, or zero
 }
 
 // blockDB is an in-memory blocktypes.BlockDB. Records are kept in maps for
@@ -49,6 +51,27 @@ func NewBlockDB() blocktypes.BlockDB {
 		values:       make(map[recordKey][]byte),
 		blocksByHash: make(map[string][]byte),
 	}
+}
+
+func (s *blockDB) PutQC(first uint64, qc []byte, blocks []blocktypes.BlockRecord) error {
+	if len(blocks) == 0 || uint64(len(blocks)) > ^uint64(0)-first {
+		return fmt.Errorf("invalid QC block range starting at %d with %d blocks", first, len(blocks))
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := first + uint64(len(blocks))
+	for n := first; n < next; n++ {
+		s.values[recordKey{kind: blocktypes.KindQC, number: n}] = qc
+	}
+	s.log = append(s.log, record{kind: blocktypes.KindQC, number: first, next: next, value: qc})
+	for i, block := range blocks {
+		n := first + uint64(i)
+		s.values[recordKey{kind: blocktypes.KindBlock, number: n}] = block.Value
+		s.blocksByHash[string(block.Hash)] = block.Value
+		s.log = append(s.log, record{kind: blocktypes.KindBlock, number: n, next: n + 1,
+			hash: string(block.Hash), value: block.Value, groupNext: next})
+	}
+	return nil
 }
 
 func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
@@ -121,7 +144,7 @@ func (s *blockDB) reclaim() {
 	// hold a reslice of the current backing array as their snapshot.
 	kept := make([]record, 0, len(s.log))
 	for _, rec := range s.log {
-		if rec.next > s.watermark {
+		if max(rec.next, rec.groupNext) > s.watermark {
 			kept = append(kept, rec)
 			continue
 		}

@@ -27,6 +27,12 @@ func (k RecordKind) String() string {
 	}
 }
 
+// BlockRecord is an opaque encoded block and its header-hash lookup key.
+type BlockRecord struct {
+	Hash  []byte
+	Value []byte
+}
+
 // BlockDB is the storage substrate a consensus block store is built on. It
 // holds immutable opaque records addressed by (RecordKind, number), plus a
 // by-hash alias for block records, and it owns reclamation.
@@ -42,7 +48,7 @@ func (k RecordKind) String() string {
 //
 // # Durability
 //
-// Writes are two-phase: PutRecord and PutBlock may return before the record is
+// Writes are two-phase: PutQC, PutRecord and PutBlock may return before the record is
 // on disk, and Flush blocks until every previously-returned write is durable.
 // Reads observe a write as soon as it returns, whether or not it is durable.
 //
@@ -73,6 +79,12 @@ func (k RecordKind) String() string {
 // been reclaimed. Opening a store that holds records but no KindQC record
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
+	// PutQC atomically stores a QC and all its blocks. The QC is addressable at
+	// every number in [first, first+len(blocks)); blocks are in ascending number
+	// order and are addressable by number and hash. blocks must be non-empty.
+	// Scan presents the QC followed by its blocks as consecutive logical records.
+	PutQC(first uint64, qc []byte, blocks []BlockRecord) error
+
 	// PutRecord stores value once, addressable as kind at every number in the
 	// half-open range [first, next). Storing an already-stored number is not
 	// supported and the result is undefined.
@@ -92,9 +104,10 @@ type BlockDB interface {
 
 	// Scan iterates the records in the order they were written, newest first
 	// when newestFirst is set and oldest first otherwise. It visits each
-	// record once, at the number it was filed under by PutRecord's first or
-	// PutBlock's n, and never at an alias. The iterator observes a snapshot of
-	// the records present when Scan is called, and must be closed.
+	// logical record once at its first number, including each QC and block
+	// stored together by PutQC, and never repeats covered-number or hash aliases.
+	// The iterator observes a snapshot of the records present when Scan is called,
+	// and must be closed.
 	Scan(newestFirst bool) (RecordIterator, error)
 
 	// GetPruneWatermark returns the number below which records are eligible for

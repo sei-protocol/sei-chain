@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocktest"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
@@ -135,7 +137,7 @@ func runCrashChild(t *testing.T) {
 	require.NotEmpty(t, dir)
 
 	db := openLitt(t, littConfig(t, dir))
-	blocktest.WriteCohorts(t, db, crashCohorts, crashPerCohort)
+	putPackedCohorts(t, db, crashCohorts)
 	require.NoError(t, db.Flush())
 
 	// Hard crash: uncatchable, runs no defers and no graceful Close.
@@ -248,3 +250,87 @@ const (
 	// so both processes operate on the same on-disk DB.
 	crashDirEnv = "LITTBLOCK_CRASH_DIR"
 )
+
+// TestPackedQCRecoversAtomically verifies that a torn packed value loses every
+// lookup key in that group and preserves earlier groups.
+func TestPackedQCRecoversAtomically(t *testing.T) {
+	for _, cohorts := range []uint64{1, 2} {
+		t.Run(strconv.FormatUint(cohorts, 10), func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := littConfig(t, dir)
+			// A volatile keymap models a crash before its derived index is durable.
+			cfg.Litt.KeymapType = keymap.MemKeymapType
+			db := openLitt(t, cfg)
+			putPackedCohorts(t, db, cohorts)
+			require.NoError(t, db.Flush())
+			require.NoError(t, db.Close())
+			valPath, metaPath := largestValueSegmentFiles(t, dir)
+			truncateFileBy(t, valPath, 16)
+			markSegmentUnsealedOnDisk(t, metaPath)
+
+			for range 2 {
+				db = openLitt(t, cfg)
+				for n := uint64(0); n < cohorts*crashPerCohort; n++ {
+					want := n < (cohorts-1)*crashPerCohort
+					for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
+						value, present, err := db.GetRecord(kind, n)
+						require.NoError(t, err)
+						require.Equal(t, want, present)
+						if present {
+							first := n
+							if kind == blocktypes.KindQC {
+								first -= first % crashPerCohort
+							}
+							require.Equal(t, blocktest.RecordValue(kind, first), value)
+						}
+					}
+					_, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+					require.NoError(t, err)
+					require.Equal(t, want, present)
+				}
+				require.Equal(t, int((cohorts-1)*crashPerCohort), requireEveryBlockHasItsQC(t, db))
+				require.NoError(t, db.Close())
+			}
+		})
+	}
+}
+
+// putPackedCohorts writes opaque QC and block fixtures in atomic groups.
+func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
+	t.Helper()
+	for cohort := range cohorts {
+		first := cohort * crashPerCohort
+		blocks := make([]blocktypes.BlockRecord, crashPerCohort)
+		for i := range blocks {
+			n := first + uint64(i)
+			blocks[i] = blocktypes.BlockRecord{Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue(blocktypes.KindBlock, n)}
+		}
+		require.NoError(t, db.PutQC(first, blocktest.RecordValue(blocktypes.KindQC, first), blocks))
+	}
+}
+
+// TestPackedQCPruneRetainsWholeGroup verifies that a packed cohort spanning the
+// segment key-count threshold is retained until its entire range is eligible.
+func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
+	dir := t.TempDir()
+	cfg := strandingConfig(t, dir, 8)
+	db := openLitt(t, cfg)
+	putPackedCohorts(t, db, 3)
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+	db = openLitt(t, cfg)
+	defer func() { require.NoError(t, db.Close()) }()
+	db.SetPruneWatermark(7)
+	require.NoError(t, littblock.ForceGC(db))
+	for n := uint64(0); n < 15; n++ {
+		want := n >= 5
+		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
+			_, present, err := db.GetRecord(kind, n)
+			require.NoError(t, err)
+			require.Equal(t, want, present)
+		}
+		_, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+		require.NoError(t, err)
+		require.Equal(t, want, present)
+	}
+}

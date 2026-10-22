@@ -36,6 +36,7 @@ type Builder func(t *testing.T) Open
 // timing and granularity of the reclaim to the backend, so what a backend
 // actually drops, and when, is covered in that backend's own package.
 func RunContract(t *testing.T, build Builder) {
+	t.Run("AtomicQC", func(t *testing.T) { testAtomicQC(t, build) })
 	t.Run("EmptyStore", func(t *testing.T) { testEmptyStore(t, build) })
 	t.Run("RecordRoundTrip", func(t *testing.T) { testRecordRoundTrip(t, build) })
 	t.Run("BlockHashAlias", func(t *testing.T) { testBlockHashAlias(t, build) })
@@ -73,6 +74,43 @@ var allKinds = []blocktypes.RecordKind{
 	blocktypes.KindQC,
 	blocktypes.KindAppProposal,
 	blocktypes.KindAppQC,
+}
+
+func testAtomicQC(t *testing.T, build Builder) {
+	db, reopen := openFresh(t, build)
+	blocks := make([]blocktypes.BlockRecord, 3)
+	for i := range blocks {
+		n := uint64(i) + 3
+		blocks[i] = blocktypes.BlockRecord{Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)}
+	}
+	qc := RecordValue(blocktypes.KindQC, 3)
+	require.Error(t, db.PutQC(3, qc, nil))
+	require.Empty(t, drain(t, db, false))
+	require.NoError(t, db.PutQC(3, qc, blocks))
+	want := []position{{blocktypes.KindQC, 3}, {blocktypes.KindBlock, 3}, {blocktypes.KindBlock, 4}, {blocktypes.KindBlock, 5}}
+	require.Equal(t, want, positions(drain(t, db, false)))
+	require.Equal(t, reversed(want), positions(drain(t, db, true)))
+	before := drain(t, db, false)
+	db = restart(t, reopen, db)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, before, drain(t, db, false))
+	// A floor inside a packed group retains the entire group.
+	db.SetPruneWatermark(4)
+	for i, block := range blocks {
+		n := uint64(i) + 3
+		got, present, err := db.GetRecord(blocktypes.KindQC, n)
+		require.NoError(t, err)
+		require.True(t, present)
+		require.Equal(t, qc, got)
+		got, present, err = db.GetRecord(blocktypes.KindBlock, n)
+		require.NoError(t, err)
+		require.True(t, present)
+		require.Equal(t, block.Value, got)
+		got, present, err = db.GetBlockByHash(block.Hash)
+		require.NoError(t, err)
+		require.True(t, present)
+		require.Equal(t, block.Value, got)
+	}
 }
 
 func testEmptyStore(t *testing.T, build Builder) {

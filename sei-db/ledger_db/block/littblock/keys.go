@@ -12,12 +12,14 @@ import (
 // Every record kind shares one LittDB table. Each key carries a 1-byte kind prefix
 // so the per-kind number spaces never collide:
 //
-//   - kindBlock     'b' + 8-byte big-endian number (block primary key)
+//   - kindQCGroup   'g' + 8-byte big-endian first  (packed QC and blocks primary)
+//   - kindBlock     'b' + 8-byte big-endian number (block number lookup)
 //   - kindBlockHash 'h' + header hash              (block hash alias)
-//   - kindQC        'q' + 8-byte big-endian number (QC primary + covered aliases)
+//   - kindQC        'q' + 8-byte big-endian number (QC record or lookup aliases)
 //   - kindAppQC     'a' + 8-byte big-endian number (AppQC primary + covered aliases)
 //   - kindAppProp   'p' + 8-byte big-endian number (AppProposal primary + covered aliases)
 const (
+	kindQCGroup   byte = 'g'
 	kindAppQC     byte = 'a'
 	kindBlock     byte = 'b'
 	kindBlockHash byte = 'h'

@@ -29,12 +29,6 @@ type Config struct {
 	Registry *epoch.Registry
 }
 
-// blockEntry is a (number, block) pair collected in runPersist batches.
-type blockEntry struct {
-	n     types.GlobalBlockNumber
-	block *types.Block
-}
-
 // qcEntry is a FullCommitQC stored in qcs, with the epoch used to verify it.
 // The epoch is resolved once at insertQC (or load); later PushBlock / AppQC
 // paths use this pointer instead of querying the registry again.
@@ -889,23 +883,13 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // Errors propagate vertically (kill the component).
 // AppQCs are persisted only when their AppHash matches local execution.
 //
-// Cursors seed from BlockStore.Status() when non-zero so PushQC-before-Run heights
-// are not skipped. When a tip is zero, seed from the recovery floor, never bare
-// registry.FirstBlock() — a QC-only store can skipTo past genesis while
-// NextBlock is still zero.
-//
-// Under the BlockStore write contract (QC before covered blocks), NextQC is never
-// behind NextBlock after a successful write. Persistence is driven by the block
-// cursor; a QC is emitted only when n equals GlobalRange.First and that First
-// is still at or past NextQC (enough coverage for each new block, not every
-// in-memory QC, and no rewrite of QCs already on disk).
-//
+// Cursors seed from BlockStore.Status() so data staged before Run is persisted.
 // In-memory block/QC/AppProposal/AppQC eviction is driven by persisted SuffixRange
-// changes.
+// changes. A QC is persisted only once all its blocks are available.
 func (s *State) runPersist(ctx context.Context) error {
 	for {
 		var qcs []*types.FullCommitQC
-		var blocks []blockEntry
+		var blocks [][]*types.Block
 		var appProposals []*types.AppProposal
 		var appQCs []*types.AppQC
 		var status types.SuffixRange
@@ -913,20 +897,28 @@ func (s *State) runPersist(ctx context.Context) error {
 			status = inner.persisted
 			// Wait until there is anything to persist.
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return status.NextQC < inner.nextQC || status.NextBlock < inner.nextBlock ||
-					status.NextAppProposal < inner.nextAppProposal || status.NextAppQC < inner.nextAppQC
+				if status.NextQC < inner.nextQC && inner.qcs[status.NextQC].qc.QC().GlobalRange().Next <= inner.nextBlock {
+					return true
+				}
+				return status.NextAppProposal < inner.nextAppProposal || status.NextAppQC < inner.nextAppQC
 			}); err != nil {
 				return err
 			}
 			// Collect data to persist.
 			for status.NextQC < inner.nextQC {
 				qc := inner.qcs[status.NextQC].qc
+				gr := qc.QC().GlobalRange()
+				if gr.Next > inner.nextBlock {
+					break
+				}
+				covered := make([]*types.Block, 0, gr.Len())
+				for n := gr.First; n < gr.Next; n++ {
+					covered = append(covered, inner.blocks[n])
+				}
+				blocks = append(blocks, covered)
 				qcs = append(qcs, qc)
-				status.NextQC = qc.QC().GlobalRange().Next
-			}
-			for status.NextBlock < inner.nextBlock {
-				blocks = append(blocks, blockEntry{n: status.NextBlock, block: inner.blocks[status.NextBlock]})
-				status.NextBlock += 1
+				status.NextQC = gr.Next
+				status.NextBlock = gr.Next
 			}
 			for status.NextAppProposal < inner.nextAppProposal {
 				appProposal := inner.appProposals[status.NextAppProposal]
@@ -944,16 +936,10 @@ func (s *State) runPersist(ctx context.Context) error {
 				status.First = status.NextAppQC - 1
 			}
 		}
-		// Write data in order: QCs,blocks,appProposals,appQCs
-		// to maintain the invariants.
-		for _, qc := range qcs {
-			if err := s.blockStore.WriteQC(qc); err != nil {
+		// Persist complete QC groups before their app records.
+		for i, qc := range qcs {
+			if err := s.blockStore.WriteQC(qc, blocks[i]); err != nil {
 				return fmt.Errorf("write QC %d: %w", qc.QC().Index(), err)
-			}
-		}
-		for _, lb := range blocks {
-			if err := s.blockStore.WriteBlock(lb.n, lb.block); err != nil {
-				return fmt.Errorf("write block %d: %w", lb.n, err)
 			}
 		}
 		for _, appProposal := range appProposals {

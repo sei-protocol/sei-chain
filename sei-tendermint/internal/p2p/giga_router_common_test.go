@@ -138,10 +138,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(qc))
-	for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
-		require.NoError(t, db.WriteBlock(n, blocks[i]))
-	}
+	require.NoError(t, db.WriteQC(qc, blocks))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
