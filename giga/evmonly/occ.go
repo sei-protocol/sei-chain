@@ -122,26 +122,6 @@ func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req Pr
 	return result, nil
 }
 
-func (r occSpeculativeRunner) executeTx(
-	ctx context.Context,
-	source StateReader,
-	txIndex int,
-	txIndexUint uint,
-	gasLimit uint64,
-) (occTxExecution, error) {
-	return r.executor.executeTxSpeculative(
-		ctx,
-		source,
-		r.req,
-		txIndex,
-		txIndexUint,
-		r.chainConfig,
-		r.blockCtx,
-		r.baseFee,
-		gasLimit,
-	)
-}
-
 func (r occSpeculativeRunner) runRanges(
 	ctx context.Context,
 	pool *occWorkerPool,
@@ -154,6 +134,7 @@ func (r occSpeculativeRunner) runRanges(
 		return ctx.Err()
 	}
 	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
+		evm := r.workerEVM()
 		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
 			txRange := ranges[rangeIndex]
 			for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
@@ -168,7 +149,7 @@ func (r occSpeculativeRunner) runRanges(
 					source:       source,
 					gasLimit:     gasLimit,
 				}
-				if err := r.executeTaskInto(workerCtx, task, results); err != nil {
+				if err := r.executeTaskInto(workerCtx, evm, task, results); err != nil {
 					return err
 				}
 			}
@@ -187,11 +168,12 @@ func (r occSpeculativeRunner) runTasks(
 		return ctx.Err()
 	}
 	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
+		evm := r.workerEVM()
 		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			if err := r.executeTaskInto(workerCtx, tasks[taskIndex], results); err != nil {
+			if err := r.executeTaskInto(workerCtx, evm, tasks[taskIndex], results); err != nil {
 				return err
 			}
 		}
@@ -199,8 +181,24 @@ func (r occSpeculativeRunner) runTasks(
 	})
 }
 
-func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecutionTask, results []occTxExecution) error {
-	result, err := r.executeTx(ctx, task.source, task.txIndex, task.txIndexUint, task.gasLimit)
+// workerEVM returns an EVM this worker reuses across the transactions it executes.
+func (r occSpeculativeRunner) workerEVM() *vm.EVM {
+	return vm.NewEVM(r.blockCtx, nil, r.chainConfig, vm.Config{}, nil)
+}
+
+func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, task occExecutionTask, results []occTxExecution) error {
+	result, err := r.executor.executeTxSpeculative(
+		ctx,
+		task.source,
+		r.req,
+		task.txIndex,
+		task.txIndexUint,
+		r.chainConfig,
+		r.blockCtx,
+		r.baseFee,
+		task.gasLimit,
+		evm,
+	)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -247,6 +245,7 @@ func (e *Executor) executeTxSpeculative(
 	blockCtx vm.BlockContext,
 	baseFee *big.Int,
 	blockGasLimit uint64,
+	evm *vm.EVM,
 ) (occTxExecution, error) {
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
@@ -255,7 +254,12 @@ func (e *Executor) executeTxSpeculative(
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	stateDB.enableAccessTracking()
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
+	if evm == nil {
+		evm = vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
+	} else {
+		evm.StateDB = stateDB
+		evm.Depth = 0
+	}
 	stateDB.SetEVM(evm)
 	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
