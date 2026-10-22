@@ -52,9 +52,16 @@ type BlockRequest struct {
 	Senders []utils.Option[common.Address]
 }
 
-// PreparedBlock contains decoded transactions with recovered senders. It is a
-// trusted executor-produced value: ExecutePreparedBlock assumes callers pass the
-// result of PrepareBlock unchanged and does not recover senders again.
+// DecodedBlock is a block whose transactions are decoded and validated but whose senders are not
+// yet resolved. Senders is either empty or aligned with Txs.
+type DecodedBlock struct {
+	Context BlockContext
+	Txs     []*ethtypes.Transaction
+	Senders []utils.Option[common.Address]
+}
+
+// PreparedBlock contains decoded transactions with recovered senders, as returned by PrepareBlock
+// or RecoverSenders. ExecutePreparedBlock trusts it unchanged and does not recover senders again.
 type PreparedBlock struct {
 	Context BlockContext
 	Txs     []PreparedTx
