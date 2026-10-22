@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -44,4 +45,17 @@ func TestInjectTelemetryChainID(t *testing.T) {
 
 		require.Equal(t, cfg.GlobalLabels, got.GlobalLabels)
 	})
+}
+
+func TestRemovedGRPCStartFlags(t *testing.T) {
+	cmd := &cobra.Command{Use: "start"}
+	addStartNodeFlags(cmd, t.TempDir())
+	require.NoError(t, cmd.ParseFlags([]string{
+		"--grpc.enable=false",
+		"--grpc.address=0.0.0.0:9090",
+		"--grpc-web.enable",
+		"--grpc-web.address=0.0.0.0:9091",
+	}))
+	// grpc-only meant "do not start Tendermint"; ignoring it would start a full node.
+	require.Error(t, cmd.ParseFlags([]string{"--grpc-only"}))
 }

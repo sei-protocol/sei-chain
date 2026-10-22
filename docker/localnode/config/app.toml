@@ -135,7 +135,7 @@ enabled-unsafe-cors = true
 
 [rosetta]
 
-# Enable defines if the Rosetta API server should be enabled.
+# Enable is no longer read: seid start does not run the Rosetta API server.
 enable = false
 
 # Address defines the Rosetta API server to listen on.
@@ -152,34 +152,6 @@ retries = 3
 
 # Offline defines if Rosetta server should run in offline mode.
 offline = false
-
-###############################################################################
-###                           gRPC Configuration                            ###
-###############################################################################
-
-[grpc]
-
-# Enable defines if the gRPC server should be enabled.
-enable = true
-
-# Address defines the gRPC server address to bind to.
-address = "0.0.0.0:9090"
-
-###############################################################################
-###                        gRPC Web Configuration                           ###
-###############################################################################
-
-[grpc-web]
-
-# GRPCWebEnable defines if the gRPC-web should be enabled.
-# NOTE: gRPC must also be enabled, otherwise, this configuration is a no-op.
-enable = true
-
-# Address defines the gRPC-web server address to bind to.
-address = "0.0.0.0:9091"
-
-# EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
-enable-unsafe-cors = true
 
 ###############################################################################
 ###                        State Sync Configuration                         ###

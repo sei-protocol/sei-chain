@@ -351,7 +351,6 @@ var appKeys = []appKey{
 	{Key: "minimum-gas-prices", Values: [3]string{"0.01usei", "0.02usei", "0.03usei"}, WantGoType: "string"},
 	{Key: "halt-height", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 	{Key: "min-retain-blocks", Values: [3]string{"1000", "2000", "3000"}, Numeric: true, WantGoType: "string"},
-	{Key: "grpc.address", Values: [3]string{"127.0.0.1:9010", "127.0.0.1:9020", "127.0.0.1:9030"}, WantGoType: "string"},
 	{Key: "state-sync.snapshot-interval", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 	// concurrency-workers is registered as an Int flag, which is one of the few
 	// types viper converts rather than passing through as text.
