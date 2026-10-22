@@ -30,6 +30,9 @@ type Config struct {
 	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
 	// The accepted width is ProposalTimeout * (view number + 1).
 	ProposalTimeout time.Duration
+	// ProposalFillWait is how long the leader waits, after the first lane has a new LaneQC, for
+	// every lane to have one before it proposes. 0 proposes as soon as any lane is ready.
+	ProposalFillWait time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
 	PersistentStateDir utils.Option[string]
@@ -305,7 +308,7 @@ func (s *State) runPropose(ctx context.Context) error {
 			return nil
 		}
 		// Wait for laneQCs.
-		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.Epoch, vs.CommitQC)
+		laneQCsMap, err := s.avail.WaitForFullLaneQCs(ctx, vs.Epoch, vs.CommitQC, s.cfg.ProposalFillWait)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
 		}

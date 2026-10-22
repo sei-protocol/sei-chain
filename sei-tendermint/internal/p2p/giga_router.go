@@ -68,7 +68,9 @@ type GigaValidatorConfig struct {
 	ValidatorKey    atypes.SecretKey
 	ViewTimeout     func(atypes.View) time.Duration
 	ProposalTimeout time.Duration
-	Producer        *producer.Config
+	// ProposalFillWait is how long a leader waits for every lane to have a new certified block.
+	ProposalFillWait time.Duration
+	Producer         *producer.Config
 }
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by

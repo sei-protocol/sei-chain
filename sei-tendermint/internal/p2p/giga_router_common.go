@@ -232,13 +232,11 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-// senderRecovery holds lane transactions whose senders should be recovered before execution.
+// senderRecovery holds lane transactions whose senders are recovered before they execute.
 type senderRecovery struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	on       bool
-	queued   [][][]byte
-	inflight int
+	mu     sync.Mutex
+	cond   *sync.Cond
+	queued [][][]byte
 }
 
 func newSenderRecovery() *senderRecovery {
@@ -255,7 +253,7 @@ func (r *gigaRouterCommon) senderRecovery() *senderRecovery {
 	return r.senders
 }
 
-// noteLaneTxs queues txs for sender recovery. Recovery runs while execute is waiting on consensus.
+// noteLaneTxs queues txs for sender recovery in the background.
 func (r *gigaRouterCommon) noteLaneTxs(txs [][]byte) {
 	if len(txs) == 0 {
 		return
@@ -263,58 +261,50 @@ func (r *gigaRouterCommon) noteLaneTxs(txs [][]byte) {
 	s := r.senderRecovery()
 	s.mu.Lock()
 	s.queued = append(s.queued, txs)
-	s.cond.Broadcast()
+	s.cond.Signal()
 	s.mu.Unlock()
-}
-
-// enableSenderRecovery lets queued lane transactions recover while execute waits for a CommitQC.
-func (r *gigaRouterCommon) enableSenderRecovery() {
-	s := r.senderRecovery()
-	s.mu.Lock()
-	s.on = true
-	s.cond.Broadcast()
-	s.mu.Unlock()
-}
-
-// finishSenderRecovery recovers every transaction queued so far, then stops until the next wait.
-func (r *gigaRouterCommon) finishSenderRecovery() {
-	s := r.senderRecovery()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.on = true
-	s.cond.Broadcast()
-	for len(s.queued) > 0 || s.inflight > 0 {
-		s.cond.Wait()
-	}
-	s.on = false
 }
 
 func (r *gigaRouterCommon) recoverQueuedSenders(ctx context.Context) {
 	s := r.senders
 	for {
 		s.mu.Lock()
-		for !s.on || len(s.queued) == 0 {
-			if ctx.Err() != nil {
-				s.mu.Unlock()
-				return
-			}
+		for len(s.queued) == 0 {
 			s.cond.Wait()
 		}
 		batch := s.queued[0]
+		s.queued[0] = nil
 		s.queued = s.queued[1:]
-		s.inflight++
 		s.mu.Unlock()
 
 		r.app.RecoverSenders(ctx, batch)
-
-		s.mu.Lock()
-		s.inflight--
-		s.cond.Broadcast()
-		s.mu.Unlock()
 	}
 }
 
-// superblockRequest builds one FinalizeBlock request for every lane block in a CommitQC.
+// committedSuperBlock waits for the CommitQC finalizing block n and returns every lane block in its
+// range. Every validator cuts superblocks at the same CommitQC boundaries, so they agree on each
+// superblock's app hash.
+func (r *gigaRouterCommon) committedSuperBlock(ctx context.Context, n atypes.GlobalBlockNumber) ([]*atypes.GlobalBlock, error) {
+	fqc, err := r.data.QC(ctx, n)
+	if err != nil {
+		return nil, fmt.Errorf("r.data.QC(%v): %w", n, err)
+	}
+	gr := fqc.QC().Proposal().GlobalRange()
+	if gr.First > n || gr.Next <= n {
+		return nil, fmt.Errorf("commit QC range %v does not cover block %v", gr, n)
+	}
+	blocks := make([]*atypes.GlobalBlock, 0, int(gr.Next-n)) //nolint:gosec // a QC range fits in an int.
+	for h := n; h < gr.Next; h++ {
+		b, err := r.data.GlobalBlock(ctx, h)
+		if err != nil {
+			return nil, fmt.Errorf("r.data.GlobalBlock(%v): %w", h, err)
+		}
+		blocks = append(blocks, b)
+	}
+	return blocks, nil
+}
+
+// superblockRequest builds one FinalizeBlock request for a run of committed lane blocks.
 // The request's height, time and hash are the last block's, and its transactions are the
 // concatenation of the range in global order.
 func (r *gigaRouterCommon) superblockRequest(blocks []*atypes.GlobalBlock) (*abci.RequestFinalizeBlock, error) {
@@ -626,40 +616,17 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
-	lanes := 1
-	if ep := r.nextCommitEpoch.Load(); ep != nil && ep.Committee().Lanes().Len() > 0 {
-		lanes = ep.Committee().Lanes().Len()
-	}
 	for n := next; ; {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		r.enableSenderRecovery()
-		// One CommitQC is often a single lane block. Hold execution until a block from
-		// every lane is committed, and never split a QC range across two executions.
-		blocks := make([]*atypes.GlobalBlock, 0, lanes)
-		for len(blocks) < lanes {
-			fqc, err := r.data.QC(ctx, n)
-			if err != nil {
-				return fmt.Errorf("r.data.QC(%v): %w", n, err)
-			}
-			gr := fqc.QC().Proposal().GlobalRange()
-			if gr.First != n || gr.Next <= n {
-				return fmt.Errorf("commit QC range %v does not start at block %v", gr, n)
-			}
-			for h := gr.First; h < gr.Next; h++ {
-				b, err := r.data.GlobalBlock(ctx, h)
-				if err != nil {
-					return fmt.Errorf("r.data.GlobalBlock(%v): %w", h, err)
-				}
-				blocks = append(blocks, b)
-			}
-			n = gr.Next
+		blocks, err := r.committedSuperBlock(ctx, n)
+		if err != nil {
+			return err
 		}
-		r.finishSenderRecovery()
+		n = blocks[len(blocks)-1].GlobalNumber + 1
 		req, err := r.superblockRequest(blocks)
 		if err != nil {
 			return err
 		}
-		r.app.RecoverSenders(ctx, req.Txs)
 		r.app.BeginEVMPrepare(ctx, req, nil)
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeSuperBlock(ctx, blocks, hashVault, req)

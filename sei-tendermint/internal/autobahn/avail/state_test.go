@@ -1417,3 +1417,61 @@ func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
 		require.Equal(t, qc.Index(), got.Index())
 	}
 }
+
+// certifyLaneBlock pushes a block on key's lane together with a vote from every key.
+func certifyLaneBlock(ctx context.Context, rng utils.Rng, state *State, keys []types.SecretKey, key types.SecretKey) error {
+	b, err := pushPeerLaneBlock(state, key, types.GenPayload(rng))
+	if err != nil {
+		return err
+	}
+	for _, vote := range makeLaneVotes(keys, b.Msg().Block().Header()) {
+		if err := state.PushVote(ctx, vote); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestWaitForFullLaneQCsWaitsForEveryLane(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 3)
+		ep := registry.MustEpoch(0)
+		state, err := NewState(keys[0], newTestDataState(&data.Config{Registry: registry}), utils.None[string]())
+		require.NoError(t, err)
+
+		require.NoError(t, certifyLaneBlock(ctx, rng, state, keys, keys[0]))
+		start := time.Now()
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			for _, key := range keys[1:] {
+				if err := certifyLaneBlock(ctx, rng, state, keys, key); err != nil {
+					panic(err)
+				}
+			}
+		}()
+		laneQCs, err := state.WaitForFullLaneQCs(ctx, ep, utils.None[*types.CommitQC](), time.Second)
+		require.NoError(t, err)
+		require.Len(t, laneQCs, len(keys))
+		require.Equal(t, 100*time.Millisecond, time.Since(start))
+	})
+}
+
+func TestWaitForFullLaneQCsProposesWhatIsReadyWhenTheWaitEnds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 3)
+		ep := registry.MustEpoch(0)
+		state, err := NewState(keys[0], newTestDataState(&data.Config{Registry: registry}), utils.None[string]())
+		require.NoError(t, err)
+
+		require.NoError(t, certifyLaneBlock(ctx, rng, state, keys, keys[0]))
+		start := time.Now()
+		laneQCs, err := state.WaitForFullLaneQCs(ctx, ep, utils.None[*types.CommitQC](), time.Second)
+		require.NoError(t, err)
+		require.Len(t, laneQCs, 1)
+		require.Equal(t, time.Second, time.Since(start))
+	})
+}

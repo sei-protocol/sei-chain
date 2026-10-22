@@ -647,6 +647,14 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 func (s *State) WaitForLaneQCs(
 	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
 ) (map[types.LaneID]*types.LaneQC, error) {
+	return s.WaitForFullLaneQCs(ctx, ep, prev, 0)
+}
+
+// WaitForFullLaneQCs is WaitForLaneQCs that, once one lane has a new LaneQC, keeps waiting up
+// to fill for every lane of ep to have one, so a single proposal carries a block from each lane.
+func (s *State) WaitForFullLaneQCs(
+	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC], fill time.Duration,
+) (map[types.LaneID]*types.LaneQC, error) {
 	var blocked bool
 	var start time.Time
 	defer func() {
@@ -654,9 +662,11 @@ func (s *State) WaitForLaneQCs(
 			meters.LaneQCWait.Observe(time.Since(start).Seconds())
 		}
 	}()
+	waitCtx := ctx
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		var stallLogged bool
+		var filling bool
 		for {
 			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
@@ -668,9 +678,15 @@ func (s *State) WaitForLaneQCs(
 					}
 				}
 			}
-			if len(laneQCs) > 0 {
+			if len(laneQCs) > 0 && (fill <= 0 || len(laneQCs) >= ep.Committee().Lanes().Len()) {
 				observeProposedBlocks(inner, prev, laneQCs)
 				return laneQCs, nil
+			}
+			if len(laneQCs) > 0 && !filling {
+				filling = true
+				fillCtx, cancel := context.WithTimeout(ctx, fill)
+				defer cancel()
+				waitCtx = fillCtx
 			}
 			if !blocked {
 				meters.LaneQCInFlight.Add(1)
@@ -682,8 +698,12 @@ func (s *State) WaitForLaneQCs(
 				stallLogged = true
 				logLaneQCStall(inner, ep, prev, time.Since(start))
 			}
-			if err := ctrl.Wait(ctx); err != nil {
-				return nil, err
+			if err := ctrl.Wait(waitCtx); err != nil {
+				if ctx.Err() != nil {
+					return nil, err
+				}
+				observeProposedBlocks(inner, prev, laneQCs)
+				return laneQCs, nil
 			}
 		}
 	}

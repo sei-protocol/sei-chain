@@ -57,6 +57,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
 		ProposalTimeout:    cfg.ProposalTimeout,
+		ProposalFillWait:   cfg.ProposalFillWait,
 		PersistentStateDir: utils.Some(cfg.PersistentStateDir),
 	}, dataState)
 	if err != nil {
