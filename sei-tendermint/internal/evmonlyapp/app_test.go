@@ -363,6 +363,21 @@ func TestEVMOnlyApplicationExecutesABlockPreparedAhead(t *testing.T) {
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), app.EvmNonce(sender))
+
+	// A prepare that lands after its block has executed must not occupy a slot.
+	evmApp.BeginBlockPrepare(t.Context(), block1, nil)
+	evmApp.BeginBlockPrepare(t.Context(), block2, block1.Hash)
+	for state := range evmApp.ahead.Lock() {
+		require.Empty(t, state.byHeight)
+	}
+	block3 := evmOnlyTestBlock(3, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 2))
+	evmApp.BeginBlockPrepare(t.Context(), block3, block2.Hash)
+	for state := range evmApp.ahead.Lock() {
+		require.Contains(t, state.byHeight, int64(3))
+	}
+	response, err = app.FinalizeBlock(t.Context(), block3)
+	require.NoError(t, err)
+	require.True(t, response.TxResults[0].IsOK())
 }
 
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {

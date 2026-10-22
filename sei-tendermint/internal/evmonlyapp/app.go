@@ -136,8 +136,10 @@ type aheadPrepare struct {
 }
 
 // aheadPrepares holds blocks whose sender recovery is in progress, keyed by height.
+// consumed is the highest height already handed to execution.
 type aheadPrepares struct {
 	byHeight map[int64]*aheadPrepare
+	consumed int64
 }
 
 const (
@@ -867,6 +869,9 @@ func (a *evmOnlyApplication) BeginBlockPrepare(ctx context.Context, req *abci.Re
 		Txs: req.Txs,
 	}
 	for state := range a.ahead.Lock() {
+		if height <= state.consumed {
+			return
+		}
 		if _, exists := state.byHeight[height]; exists {
 			return
 		}
@@ -896,6 +901,9 @@ func (a *evmOnlyApplication) takePrepared(height int64) (evmonly.PreparedBlock, 
 			return evmonly.PreparedBlock{}, false, nil
 		}
 		delete(state.byHeight, height)
+		if height > state.consumed {
+			state.consumed = height
+		}
 		slot = found
 	}
 	<-slot.done
