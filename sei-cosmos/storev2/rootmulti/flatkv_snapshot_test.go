@@ -386,7 +386,7 @@ func TestFlatKVOnlySnapshotRestoreRejectsNodeAtOtherVersion(t *testing.T) {
 	value := []byte("v9")
 	require.NoError(t, writer.WriteMsg(&snapshottypes.SnapshotItem{
 		Item: &snapshottypes.SnapshotItem_IAVL{IAVL: &snapshottypes.SnapshotIAVLItem{
-			Key:     ktype.ModulePhysicalKey("bank", []byte("supply")),
+			Key:     ktype.BuildPhysicalKey("bank", []byte("supply")),
 			Value:   vtype.SerializeMisc(snapHeight, value),
 			Version: snapHeight + 1,
 		}},

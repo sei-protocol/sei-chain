@@ -3,9 +3,10 @@ package statewal
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 // TestIteratorEmptyWALErrors verifies that an empty WAL has no latest block, so any requested end block is
@@ -54,8 +55,7 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte("key"), []byte("value"))}
-	require.NoError(t, w.Write(1, cs))
+	require.NoError(t, w.Write(1, []mutation.Mutation{makeMutation("bank", []byte("key"), []byte("value"))}))
 	require.NoError(t, w.Flush())
 
 	it, err := w.Iterator(1, 1)
@@ -68,7 +68,7 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 	blockNumber, changeset := it.Entry()
 	require.Equal(t, uint64(1), blockNumber)
 	require.Len(t, changeset, 1)
-	require.Equal(t, "evm", changeset[0].Name)
+	require.Equal(t, "bank", changeset[0].Name)
 	require.Equal(t, []byte("key"), changeset[0].Changeset.Pairs[0].Key)
 	require.Equal(t, []byte("value"), changeset[0].Changeset.Pairs[0].Value)
 

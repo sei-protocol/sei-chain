@@ -13,8 +13,8 @@ import (
 
 func TestURLJSONReencode(t *testing.T) {
 	want := URL{URL: &url.URL{
-		Scheme:   "https",
-		Host:     "example.com:8545",
+		Scheme:   "wss",
+		Host:     "example.com:8546",
 		Path:     "/rpc",
 		RawQuery: "foo=bar&baz=qux",
 	}}
@@ -28,15 +28,26 @@ func TestURLJSONReencode(t *testing.T) {
 	require.Equal(t, want.String(), got.String())
 }
 
-func TestURLUnmarshalRejectsNonHTTP(t *testing.T) {
-	var got URL
-	require.Error(t, json.Unmarshal([]byte(`"ws://example.com:8545"`), &got))
+func TestURLUnmarshalAcceptsWebSocket(t *testing.T) {
+	for _, raw := range []string{"ws://example.com:8546", "wss://example.com:8546"} {
+		var got URL
+		require.NoError(t, json.Unmarshal([]byte(`"`+raw+`"`), &got))
+		require.NotNil(t, got.URL)
+		require.Equal(t, raw, got.String())
+	}
+}
+
+func TestURLUnmarshalRejectsNonWebSocket(t *testing.T) {
+	for _, raw := range []string{`"http://example.com:8545"`, `"https://example.com:8545"`, `"file://localhost/rpc"`} {
+		var got URL
+		require.Error(t, json.Unmarshal([]byte(raw), &got))
+	}
 }
 
 func validAutobahnFileConfig() AutobahnFileConfig {
 	return AutobahnFileConfig{
 		Validators: []AutobahnValidator{{
-			EVMRPC: URL{URL: &url.URL{Scheme: "http", Host: "localhost:8545"}},
+			EVMRPC: URL{URL: &url.URL{Scheme: "ws", Host: "localhost:8546"}},
 		}},
 		MaxTxsPerBlock: 1,
 		BlockInterval:  utils.Duration(time.Second),

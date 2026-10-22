@@ -272,7 +272,7 @@ func TestPerModuleLtHashAfterImport(t *testing.T) {
 		// A non-EVM module row goes to miscDB under "gov/".
 		govVal := vtype.NewMiscData().SetBlockHeight(1).SetValue([]byte{i, 0xC0}).Serialize()
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("gov", []byte{i}),
 			Value:   govVal,
 			Version: 1,
 		})
@@ -324,12 +324,12 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 		govVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xC0}).Serialize()
 		bankVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xD0}).Serialize()
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("gov", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("gov", []byte{i}),
 			Value:   govVal,
 			Version: 7,
 		})
 		nodes = append(nodes, &scTypes.SnapshotNode{
-			Key:     ktype.ModulePhysicalKey("bank", []byte{i}),
+			Key:     ktype.BuildPhysicalKey("bank", []byte{i}),
 			Value:   bankVal,
 			Version: 7,
 		})

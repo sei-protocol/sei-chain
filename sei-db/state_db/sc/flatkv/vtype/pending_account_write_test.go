@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 func TestPAW_SetNonce_MergeOntoZeroBase(t *testing.T) {
@@ -273,4 +275,59 @@ func TestPAW_MergeOntoNilBase(t *testing.T) {
 	var zero [32]byte
 	require.Equal(t, (*Balance)(&zero), result.GetBalance())
 	require.Equal(t, (*CodeHash)(&zero), result.GetCodeHash())
+}
+
+func TestPAW_SetField_SetsEachField(t *testing.T) {
+	codeHash := bytes.Repeat([]byte{0xaa}, 32)
+	balance := leftPad32([]byte{0xff})
+	paw := NewPendingAccountWrite()
+
+	require.NoError(t, paw.SetField(keys.EVMKeyNonce, []byte{0, 0, 0, 0, 0, 0, 0, 7}, false))
+	require.NoError(t, paw.SetField(keys.EVMKeyCodeHash, codeHash, false))
+	require.NoError(t, paw.SetField(keys.EVMKeyBalance, balance, false))
+
+	require.Equal(t, uint64(7), paw.GetNonce())
+	require.Equal(t, toCodeHash(codeHash), paw.GetCodeHash())
+	require.Equal(t, toBalance(balance), paw.GetBalance())
+}
+
+func TestPAW_SetField_DeleteSetsZero(t *testing.T) {
+	paw := NewPendingAccountWrite().
+		SetNonce(7).
+		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0xaa}, 32))).
+		SetBalance(toBalance(leftPad32([]byte{0xff})))
+
+	for _, kind := range []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance} {
+		// The value is ignored for a deletion.
+		require.NoError(t, paw.SetField(kind, []byte{0x01}, true))
+	}
+
+	require.True(t, paw.IsNonceSet())
+	require.True(t, paw.IsCodeHashSet())
+	require.True(t, paw.IsBalanceSet())
+	require.True(t, paw.Merge(nil, 1).IsDelete())
+}
+
+func TestPAW_SetField_RejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		kind  keys.EVMKeyKind
+		value []byte
+	}{
+		{name: "short nonce", kind: keys.EVMKeyNonce, value: []byte{1}},
+		{name: "empty nonce", kind: keys.EVMKeyNonce, value: nil},
+		{name: "short code hash", kind: keys.EVMKeyCodeHash, value: []byte{1}},
+		{name: "short balance", kind: keys.EVMKeyBalance, value: []byte{1}},
+		{name: "not an account field", kind: keys.EVMKeyStorage, value: make([]byte, 32)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			paw := NewPendingAccountWrite()
+			require.Error(t, paw.SetField(tt.kind, tt.value, false))
+			require.False(t, paw.IsNonceSet())
+			require.False(t, paw.IsCodeHashSet())
+			require.False(t, paw.IsBalanceSet())
+		})
+	}
 }

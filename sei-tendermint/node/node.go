@@ -715,8 +715,13 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if !ok {
 			return errors.New("autobahn rpc requires giga storage")
 		}
+		evm, ok := n.rpcEnv.App.EVM().Get()
+		if !ok {
+			return errors.New("autobahn rpc requires an EVM application")
+		}
 		if receipts := storage.ReceiptDB(); receipts != nil {
-			n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
+			evmEnv := &rpccore.EVMEnvironment{Environment: n.rpcEnv, EVM: evm}
+			n.evmOnlyRPC, err = evmonlyrpc.Start(evmEnv, receipts, n.evmOnlyRPCPort, n.evmOnlyWSPort, n.evmOnlyRPCLimits)
 			if err != nil {
 				return err
 			}

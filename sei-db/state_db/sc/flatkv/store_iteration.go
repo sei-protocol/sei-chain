@@ -230,12 +230,12 @@ func evmLaneBounds(
 		return nil, nil, true
 	}
 
-	physPrefix := ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte{physByte})
-	lower = ktype.ModulePhysicalKey(keys.EVMStoreKey, append([]byte{physByte}, lo[1:]...))
+	physPrefix := ktype.BuildPhysicalKey(keys.EVMStoreKey, []byte{physByte})
+	lower = ktype.BuildPhysicalKey(keys.EVMStoreKey, append([]byte{physByte}, lo[1:]...))
 	if bytes.Equal(hi, lpEnd) {
 		upper = ktype.PrefixEnd(physPrefix)
 	} else {
-		upper = ktype.ModulePhysicalKey(keys.EVMStoreKey, append([]byte{physByte}, hi[1:]...))
+		upper = ktype.BuildPhysicalKey(keys.EVMStoreKey, append([]byte{physByte}, hi[1:]...))
 	}
 	return lower, upper, false
 }
@@ -243,13 +243,13 @@ func evmLaneBounds(
 // moduleIteratorBounds translates caller logical [start, end) keys into physical
 // bounds for iterating a module-prefixed keyspace in the data DBs.
 func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBound []byte) {
-	modulePrefix := ktype.ModulePhysicalKey(store, nil)
+	modulePrefix := ktype.BuildPhysicalKey(store, nil)
 	lowerBound = modulePrefix
 	if start != nil {
-		lowerBound = ktype.ModulePhysicalKey(store, start)
+		lowerBound = ktype.BuildPhysicalKey(store, start)
 	}
 	if end != nil {
-		upperBound = ktype.ModulePhysicalKey(store, end)
+		upperBound = ktype.BuildPhysicalKey(store, end)
 	} else {
 		upperBound = ktype.PrefixEnd(modulePrefix)
 	}
@@ -324,7 +324,7 @@ func (s *CommitStore) buildCodeLane(
 		if len(value) == 0 {
 			return nil, nil, true, nil
 		}
-		_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
+		_, strippedKey, err := ktype.StripPhysicalEVMKey(key)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -346,7 +346,7 @@ func (s *CommitStore) buildStorageLane(
 		if len(value) == 0 {
 			return nil, nil, true, nil
 		}
-		_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
+		_, strippedKey, err := ktype.StripPhysicalEVMKey(key)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -369,7 +369,7 @@ func (s *CommitStore) buildAccountNonceLane(
 		if len(value) == 0 {
 			return nil, nil, true, nil
 		}
-		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
+		_, addrBytes, err := ktype.StripPhysicalEVMKey(key)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -395,7 +395,7 @@ func (s *CommitStore) buildAccountCodehashLane(
 		if len(value) == 0 {
 			return nil, nil, true, nil
 		}
-		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
+		_, addrBytes, err := ktype.StripPhysicalEVMKey(key)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -424,7 +424,7 @@ func (s *CommitStore) buildAccountBalanceLane(
 		if len(value) == 0 {
 			return nil, nil, true, nil
 		}
-		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
+		_, addrBytes, err := ktype.StripPhysicalEVMKey(key)
 		if err != nil {
 			return nil, nil, false, err
 		}
