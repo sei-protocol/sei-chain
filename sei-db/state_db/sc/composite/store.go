@@ -974,16 +974,16 @@ func (cs *CompositeCommitStore) requireUpgradesLeaveFlatKV(upgrades []*proto.Tre
 	return nil
 }
 
-// routesToFlatKV reports whether mode routes some or all of the named store's data to flatKV.
+// routesToFlatKV reports whether mode may have placed some or all of the named store's data in flatKV.
 func routesToFlatKV(mode types.WriteMode, name string) bool {
 	switch mode {
 	case types.MigrateEVM, types.EVMMigrated, types.TestOnlyDualWrite:
 		return name == keys.EVMStoreKey
 	case types.MigrateAllButBank, types.AllMigratedButBank:
-		return name != keys.BankStoreKey && keys.IsMemIAVLStoreKey(name)
-	case types.MigrateBank:
-		return keys.IsMemIAVLStoreKey(name)
-	case types.FlatKVOnly:
+		// Not keyed on keys.MemIAVLStoreKeys: a store retired in this release has already left that list,
+		// but the binary that migrated it still had it there.
+		return name != keys.BankStoreKey
+	case types.MigrateBank, types.FlatKVOnly:
 		return true
 	default:
 		return false

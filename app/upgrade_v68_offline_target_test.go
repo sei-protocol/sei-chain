@@ -279,7 +279,7 @@ func requireV68OfflineRefusesRetainedStores(t *testing.T, root string, artifact 
 			refusal = err.Error()
 		}
 	}()
-	require.Contains(t, refusal, `store "oracle" was not deleted before the upgrade handler ran`)
+	require.Contains(t, refusal, fmt.Sprintf("store %q was not deleted before the upgrade handler ran", v68DeletedStores[0]))
 }
 
 // requireV68OfflineLegacyAccountsStored requires every recorded vesting account

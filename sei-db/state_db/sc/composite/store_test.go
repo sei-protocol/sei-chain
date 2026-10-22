@@ -2693,6 +2693,7 @@ func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {
 		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, false},
 		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
 		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.MintStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: "tokenfactory", Delete: true}, true},
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%s/%s", tc.mode, tc.upgrade), func(t *testing.T) {
@@ -2701,14 +2702,15 @@ func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {
 			if tc.upgrade.RenameFrom != "" {
 				removed = tc.upgrade.RenameFrom
 			}
-			require.True(t, cs.HasTree(removed))
+			present := cs.HasTree(removed)
 
 			err := cs.ApplyUpgrades([]*proto.TreeNameUpgrade{tc.upgrade})
 			if tc.refused {
 				require.ErrorContains(t, err, "its data is in flatkv")
-				require.True(t, cs.HasTree(removed), "a refused upgrade changed memiavl")
+				require.Equal(t, present, cs.HasTree(removed), "a refused upgrade changed memiavl")
 				return
 			}
+			require.True(t, present)
 			require.NoError(t, err)
 			require.False(t, cs.HasTree(removed))
 		})
