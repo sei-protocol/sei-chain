@@ -56,6 +56,9 @@ type StorageConfig struct {
 	// HashVaultFsyncDisabledUnsafe writes the app-hash vault without fsync. A crash can then lose the
 	// latest recorded hash, so it is for load tests only.
 	HashVaultFsyncDisabledUnsafe bool `mapstructure:"hash_vault_fsync_disabled_unsafe"`
+	// BlockStoreFsyncDisabledUnsafe writes Autobahn's block store without fsync. A crash can then lose
+	// recently stored blocks, so it is for load tests only.
+	BlockStoreFsyncDisabledUnsafe bool `mapstructure:"block_store_fsync_disabled_unsafe"`
 }
 
 // ExecutionConfig is the [giga.execution] sub-table: how the EVM-only executor runs blocks.
@@ -165,6 +168,7 @@ const (
 	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
 	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
 	FlagStorageHashVaultFsyncDisabled    = "giga.storage.hash_vault_fsync_disabled_unsafe"
+	FlagStorageBlockStoreFsyncDisabled   = "giga.storage.block_store_fsync_disabled_unsafe"
 	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
@@ -230,6 +234,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageHashVaultFsyncDisabled); v != nil {
 		if cfg.Storage.HashVaultFsyncDisabledUnsafe, err = cast.ToBoolE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageHashVaultFsyncDisabled, err)
+		}
+	}
+	if v := opts.Get(FlagStorageBlockStoreFsyncDisabled); v != nil {
+		if cfg.Storage.BlockStoreFsyncDisabledUnsafe, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageBlockStoreFsyncDisabled, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionMinGasPrice); v != nil {
@@ -431,6 +440,10 @@ checkpoint_block_interval = {{ .Giga.Storage.CheckpointBlockInterval }}
 # hash_vault_fsync_disabled_unsafe writes the app-hash vault without fsync. A crash can then lose the
 # latest recorded hash, so it is for load tests only.
 hash_vault_fsync_disabled_unsafe = {{ .Giga.Storage.HashVaultFsyncDisabledUnsafe }}
+
+# block_store_fsync_disabled_unsafe writes Autobahn's block store without fsync. A crash can then
+# lose recently stored blocks, so it is for load tests only.
+block_store_fsync_disabled_unsafe = {{ .Giga.Storage.BlockStoreFsyncDisabledUnsafe }}
 
 [giga.execution]
 # min_gas_price is the lowest effective gas price, in wei, this node admits a transaction at.
