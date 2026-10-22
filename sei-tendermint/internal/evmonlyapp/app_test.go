@@ -341,6 +341,30 @@ func TestEVMOnlyApplicationFinalizesBlocksWithoutReceiptStore(t *testing.T) {
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
 }
 
+func TestEVMOnlyApplicationExecutesABlockPreparedAhead(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	block1 := evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0))
+	block2 := evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1))
+
+	evmApp.BeginBlockPrepare(t.Context(), block1, nil)
+	evmApp.BeginBlockPrepare(t.Context(), block2, block1.Hash)
+
+	_, err = app.FinalizeBlock(t.Context(), block1)
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	response, err := app.FinalizeBlock(t.Context(), block2)
+	require.NoError(t, err)
+	require.True(t, response.TxResults[0].IsOK())
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), app.EvmNonce(sender))
+}
+
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID+1, 0)

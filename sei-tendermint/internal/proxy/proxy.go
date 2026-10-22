@@ -43,6 +43,21 @@ func (app *Proxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeB
 	return app.app.FinalizeBlock(ctx, req)
 }
 
+// blockPreparer starts sender recovery before FinalizeBlock executes the block.
+type blockPreparer interface {
+	BeginBlockPrepare(context.Context, *types.RequestFinalizeBlock, []byte)
+}
+
+// BeginEVMPrepare starts sender recovery for req when the wrapped application supports it.
+// parent is the header hash of the previous block when req is two ahead of the commit.
+func (app *Proxy) BeginEVMPrepare(ctx context.Context, req *types.RequestFinalizeBlock, parent []byte) {
+	preparer, ok := app.app.(blockPreparer)
+	if !ok {
+		return
+	}
+	preparer.BeginBlockPrepare(ctx, req, parent)
+}
+
 func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(Global.MethodTimingAt("get_tx_priority", "sync"))()
 	return app.app.GetTxPriorityHint(ctx, req)

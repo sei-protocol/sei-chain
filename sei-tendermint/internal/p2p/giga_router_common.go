@@ -227,11 +227,32 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
-	app := r.app
+// prepareWhenReady starts sender recovery for n once consensus has ordered it.
+func (r *gigaRouterCommon) prepareWhenReady(ctx context.Context, n atypes.GlobalBlockNumber, parent []byte) {
+	b, err := r.data.GlobalBlock(ctx, n)
+	if err != nil {
+		return
+	}
+	if err := r.beginEVMPrepare(ctx, b, parent); err != nil {
+		logger.Error("failed to prepare block ahead of execution", "height", n, "err", err)
+	}
+}
+
+// beginEVMPrepare starts sender recovery for b. parent is nil when b is the next block to execute.
+func (r *gigaRouterCommon) beginEVMPrepare(ctx context.Context, b *atypes.GlobalBlock, parent []byte) error {
+	req, err := r.finalizeRequest(b)
+	if err != nil {
+		return err
+	}
+	r.app.BeginEVMPrepare(ctx, req, parent)
+	return nil
+}
+
+// finalizeRequest builds the FinalizeBlock request for b.
+func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) (*abci.RequestFinalizeBlock, error) {
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
+	if vals := r.app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -241,8 +262,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		}
 		proposerAddress = key.Address()
 	}
-
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	return &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -258,7 +278,16 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}, nil
+}
+
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+	app := r.app
+	req, err := r.finalizeRequest(b)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := app.FinalizeBlock(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -493,11 +522,36 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
+	var queued *atypes.GlobalBlock
 	for n := next; ; n += 1 {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		b, err := r.data.GlobalBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+		var b *atypes.GlobalBlock
+		if queued != nil && queued.GlobalNumber == n {
+			b = queued
+			queued = nil
+		} else {
+			var err error
+			b, err = r.data.GlobalBlock(ctx, n)
+			if err != nil {
+				return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+			}
+		}
+		headerHash := b.Header.Hash()
+		parent := append([]byte(nil), headerHash[:]...)
+		if err := r.beginEVMPrepare(ctx, b, nil); err != nil {
+			return err
+		}
+		if n+1 < r.data.NextBlock() {
+			b2, err := r.data.GlobalBlock(ctx, n+1)
+			if err != nil {
+				return fmt.Errorf("r.data.GlobalBlock(%v): %w", n+1, err)
+			}
+			if err := r.beginEVMPrepare(ctx, b2, parent); err != nil {
+				return err
+			}
+			queued = b2
+		} else {
+			go r.prepareWhenReady(ctx, n+1, parent)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeBlock(ctx, b, hashVault)

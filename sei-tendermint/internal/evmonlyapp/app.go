@@ -120,6 +120,24 @@ type evmOnlyApplication struct {
 	// field so each application instance has its own last-phase clock.
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
 	finalizePhases *seidbmetrics.PhaseTimer
+	// ahead recovers senders for blocks the execute loop has already been handed.
+	// The execute loop is the only caller, and it holds at most aheadPrepareCap entries.
+	ahead utils.Mutex[*aheadPrepares]
+}
+
+// aheadPrepareCap is how many blocks may recover senders before they execute.
+const aheadPrepareCap = 2
+
+// aheadPrepare is one block whose sender recovery has been started.
+type aheadPrepare struct {
+	result evmonly.PreparedBlock
+	err    error
+	done   chan struct{}
+}
+
+// aheadPrepares holds blocks whose sender recovery is in progress, keyed by height.
+type aheadPrepares struct {
+	byHeight map[int64]*aheadPrepare
 }
 
 const (
@@ -176,6 +194,7 @@ func NewEVMOnlyApplication(
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
+		ahead:            utils.NewMutex(&aheadPrepares{byHeight: map[int64]*aheadPrepare{}}),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
@@ -711,9 +730,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		}
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
-		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
-		senders := a.takeSenders(req.Txs)
-		result, err := a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
+		result, err := a.executeBlockPipelined(ctx, executor, height, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
 				Number:      number,
 				Time:        timestamp,
@@ -725,8 +742,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlockHash:   blockHash,
 				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
-			Txs:     req.Txs,
-			Senders: senders,
+			Txs: req.Txs,
 		})
 		if err != nil {
 			return nil, errors.Join(err, a.abandonPending(executor, height))
@@ -793,15 +809,125 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 // executeBlockPipelined executes the block and returns once its state commit
 // has started, leaving the commit to land while the next block executes.
 // Readers of committed state settle it through AwaitCommits.
-func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
-	a.finalizePhases.SetPhase(finalizePhasePrepare)
-	prepared, err := executor.PrepareBlock(ctx, req)
+func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, height int64, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+	prepared, ok, err := a.takePrepared(height)
 	if err != nil {
 		return nil, err
+	}
+	if !ok {
+		a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
+		req.Senders = a.takeSenders(req.Txs)
+		a.finalizePhases.SetPhase(finalizePhasePrepare)
+		prepared, err = executor.PrepareBlock(ctx, req)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// The executor's own timer breaks execution down further.
 	a.finalizePhases.SetPhase(finalizePhaseExecute)
 	return executor.ExecutePreparedBlock(ctx, prepared)
+}
+
+// BeginBlockPrepare starts sender recovery for req. parent is the header hash of the block at
+// height-1 when req is two ahead of the committed block, and is ignored when req is the next block.
+// The gas limit is the committed block's, which evm-only fixes at InitChain.
+func (a *evmOnlyApplication) BeginBlockPrepare(ctx context.Context, req *abci.RequestFinalizeBlock, parent []byte) {
+	if req == nil || req.Header == nil || req.Header.Height <= 0 {
+		return
+	}
+	height := req.Header.Height
+	exec, ok := a.executorNow()
+	if !ok {
+		return
+	}
+	parentHash, gasLimit, err := a.aheadParent(height, parent)
+	if err != nil {
+		return
+	}
+	number, ok := utils.SafeCast[uint64](height)
+	if !ok {
+		return
+	}
+	timestamp, ok := utils.SafeCast[uint64](req.Header.Time.Unix())
+	if !ok {
+		return
+	}
+	blockReq := evmonly.BlockRequest{
+		Context: evmonly.BlockContext{
+			Number:      number,
+			Time:        timestamp,
+			GasLimit:    gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			ParentHash:  parentHash,
+			BlockHash:   common.BytesToHash(req.Hash),
+			PrevRandao:  evmOnlyPrevRandao(timestamp),
+		},
+		Txs: req.Txs,
+	}
+	for state := range a.ahead.Lock() {
+		if _, exists := state.byHeight[height]; exists {
+			return
+		}
+		if len(state.byHeight) >= aheadPrepareCap {
+			return
+		}
+		slot := &aheadPrepare{done: make(chan struct{})}
+		state.byHeight[height] = slot
+		go a.prepareAhead(ctx, exec, blockReq, slot)
+	}
+}
+
+// prepareAhead recovers senders into slot. It does not touch finalizePhases; that timer belongs to
+// the execute loop.
+func (a *evmOnlyApplication) prepareAhead(ctx context.Context, exec *evmonly.Executor, req evmonly.BlockRequest, slot *aheadPrepare) {
+	defer close(slot.done)
+	req.Senders = a.takeSenders(req.Txs)
+	slot.result, slot.err = exec.PrepareBlock(ctx, req)
+}
+
+// takePrepared returns a block whose sender recovery already finished.
+func (a *evmOnlyApplication) takePrepared(height int64) (evmonly.PreparedBlock, bool, error) {
+	var slot *aheadPrepare
+	for state := range a.ahead.Lock() {
+		found, ok := state.byHeight[height]
+		if !ok {
+			return evmonly.PreparedBlock{}, false, nil
+		}
+		delete(state.byHeight, height)
+		slot = found
+	}
+	<-slot.done
+	if slot.err != nil {
+		return evmonly.PreparedBlock{}, true, slot.err
+	}
+	return slot.result, true, nil
+}
+
+// aheadParent returns the parent hash and gas limit for a block one or two ahead of the commit.
+func (a *evmOnlyApplication) aheadParent(height int64, parent []byte) (common.Hash, uint64, error) {
+	for state := range a.cursor.Lock() {
+		switch height - state.committed.height {
+		case 1:
+			return state.committed.blockHash, state.committed.gasLimit, nil
+		case 2:
+			if len(parent) == 0 {
+				return common.Hash{}, 0, fmt.Errorf("block %d needs its parent hash", height)
+			}
+			return common.BytesToHash(parent), state.committed.gasLimit, nil
+		default:
+			return common.Hash{}, 0, fmt.Errorf("block %d is not next (committed %d)", height, state.committed.height)
+		}
+	}
+	panic("unreachable")
+}
+
+func (a *evmOnlyApplication) executorNow() (*evmonly.Executor, bool) {
+	for executor := range a.executor.Lock() {
+		return executor.Get()
+	}
+	panic("unreachable")
 }
 
 // Commit acknowledges the finalized block as the one the chain builds on. The
