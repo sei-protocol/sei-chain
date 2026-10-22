@@ -373,11 +373,12 @@ func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) (*abci.Request
 	}, nil
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault, req *abci.RequestFinalizeBlock) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) executeSuperBlock(ctx context.Context, blocks []*atypes.GlobalBlock, hashVault hashvault.HashVault, req *abci.RequestFinalizeBlock) (*abci.ResponseCommit, error) {
+	last := blocks[len(blocks)-1]
 	app := r.app
 	if req == nil {
 		var err error
-		req, err = r.finalizeRequest(b)
+		req, err = r.superblockRequest(blocks)
 		if err != nil {
 			return nil, err
 		}
@@ -395,7 +396,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
 	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseVaultCommit)
-	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
+	if err := commitAppHashToVault(ctx, hashVault, last.GlobalNumber, resp.AppHash); err != nil {
 		return nil, err
 	}
 
@@ -410,13 +411,21 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		return nil, err
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhasePushAppHash)
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+	gasUsed := finalizeBlockGasUsed(resp)
+	executed := r.executed.Load()
+	for i, b := range blocks {
+		if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
+			return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+		}
+		gas := uint64(0)
+		if i == len(blocks)-1 {
+			gas = utils.Clamp[uint64](gasUsed)
+		}
+		executed = executed.Push(atypes.ExecutedBlock{Number: b.GlobalNumber, GasUsed: gas})
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	gasUsed := finalizeBlockGasUsed(resp)
 	r.data.PushGasUsed(gasUsed)
-	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{Number: b.GlobalNumber, GasUsed: utils.Clamp[uint64](gasUsed)}))
+	r.executed.Store(executed)
 	return commitResp, nil
 }
 
@@ -617,24 +626,33 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
+	lanes := 1
+	if ep := r.nextCommitEpoch.Load(); ep != nil && ep.Committee().Lanes().Len() > 0 {
+		lanes = ep.Committee().Lanes().Len()
+	}
 	for n := next; ; {
 		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		r.enableSenderRecovery()
-		fqc, err := r.data.QC(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.QC(%v): %w", n, err)
-		}
-		gr := fqc.QC().Proposal().GlobalRange()
-		if gr.First != n || gr.Next <= n {
-			return fmt.Errorf("commit QC range %v does not start at block %v", gr, n)
-		}
-		blocks := make([]*atypes.GlobalBlock, 0, int(gr.Len())) //nolint:gosec // a QC range fits in an int.
-		for h := gr.First; h < gr.Next; h++ {
-			b, err := r.data.GlobalBlock(ctx, h)
+		// One CommitQC is often a single lane block. Hold execution until a block from
+		// every lane is committed, and never split a QC range across two executions.
+		blocks := make([]*atypes.GlobalBlock, 0, lanes)
+		for len(blocks) < lanes {
+			fqc, err := r.data.QC(ctx, n)
 			if err != nil {
-				return fmt.Errorf("r.data.GlobalBlock(%v): %w", h, err)
+				return fmt.Errorf("r.data.QC(%v): %w", n, err)
 			}
-			blocks = append(blocks, b)
+			gr := fqc.QC().Proposal().GlobalRange()
+			if gr.First != n || gr.Next <= n {
+				return fmt.Errorf("commit QC range %v does not start at block %v", gr, n)
+			}
+			for h := gr.First; h < gr.Next; h++ {
+				b, err := r.data.GlobalBlock(ctx, h)
+				if err != nil {
+					return fmt.Errorf("r.data.GlobalBlock(%v): %w", h, err)
+				}
+				blocks = append(blocks, b)
+			}
+			n = gr.Next
 		}
 		r.finishSenderRecovery()
 		req, err := r.superblockRequest(blocks)
@@ -644,12 +662,10 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		r.app.RecoverSenders(ctx, req.Txs)
 		r.app.BeginEVMPrepare(ctx, req, nil)
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		last := blocks[len(blocks)-1]
-		commitResp, err := r.executeBlock(ctx, last, hashVault, req)
+		commitResp, err := r.executeSuperBlock(ctx, blocks, hashVault, req)
 		if err != nil {
-			return fmt.Errorf("r.executeBlock(%v): %w", last.GlobalNumber, err)
+			return fmt.Errorf("r.executeSuperBlock(%v): %w", blocks[len(blocks)-1].GlobalNumber, err)
 		}
-		n = gr.Next
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
