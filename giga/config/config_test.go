@@ -86,6 +86,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 		"giga.execution.evm_ws_port":                    "8601",
 		"giga.execution.mock_execution":                 "true",
 		"giga.execution.max_txs_per_lane_block":         "10000",
+		"giga.execution.gc_percent":                     "400",
 		"giga.rpc.max_subscriptions_new_head":           "20",
 		"giga.rpc.max_subscriptions_per_connection":     "5",
 		"giga.rpc.max_request_body_bytes":               "2048",
@@ -118,6 +119,7 @@ func TestReadConfigReadsEveryKey(t *testing.T) {
 			EvmWsPort:           8601,
 			MockExecution:       true,
 			MaxTxsPerLaneBlock:  10000,
+			GCPercent:           400,
 		},
 		RPC: gigaconfig.RPCConfig{
 			MaxSubscriptionsNewHead:       20,
@@ -147,6 +149,7 @@ func TestReadConfigRejectsUnusableValues(t *testing.T) {
 		"negative block interval":         {"giga.storage.checkpoint_block_interval": "-1"},
 		"non-boolean hash vault fsync":    {"giga.storage.hash_vault_fsync_disabled_unsafe": "maybe"},
 		"negative max txs per lane block": {"giga.execution.max_txs_per_lane_block": "-1"},
+		"negative gc percent":             {"giga.execution.gc_percent": "-1"},
 		"evm rpc port zero":               {"giga.execution.evm_rpc_port": "0"},
 		"evm rpc port too high":           {"giga.execution.evm_rpc_port": "65536"},
 		"evm ws port zero":                {"giga.execution.evm_ws_port": "0"},

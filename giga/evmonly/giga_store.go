@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/sync/errgroup"
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -119,9 +120,28 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseEncodeChangesets)
-	changesets, err := e.changeSetEncoder(result.ChangeSet)
-	if err != nil {
-		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
+	// The encoded pairs and the copy the background commit keeps are independent reads of this
+	// block's changes, so they run together.
+	var changesets []*proto.NamedChangeSet
+	var commitCopy *StateChangeSet
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		encoded, err := e.changeSetEncoder(result.ChangeSet)
+		if err != nil {
+			return fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
+		}
+		if groupCtx.Err() != nil {
+			return groupCtx.Err()
+		}
+		changesets = encoded
+		return nil
+	})
+	group.Go(func() error {
+		commitCopy = result.ChangeSet.Clone()
+		return nil
+	})
+	if err := group.Wait(); err != nil {
+		return nil, err
 	}
 	if e.blockChangeSetEncoder != nil {
 		extra, err := e.blockChangeSetEncoder(req.Context, result)
@@ -161,7 +181,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase(phaseCommitState)
-	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
+	if err := e.startPipelineCommit(blockNumber, changesets, commitCopy); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -245,9 +265,8 @@ func (e *Executor) awaitPipelineCommit() error {
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	// The commit outlives the block result, which returns to a pool and is reset.
-	pending := changes.Clone()
+func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, pending *StateChangeSet) error {
+	// pending already outlives the block result, which returns to a pool and is reset.
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {

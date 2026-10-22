@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	maxTxsPerBlock  = 10000                            // Payload.txs max_count
-	maxTotalTxBytes = 5242880                          // Payload.txs max_total_size
+	maxTxsPerBlock  = 50000                            // Payload.txs max_count
+	maxTotalTxBytes = 26214400                         // Payload.txs max_total_size
 	maxBytesPerTx   = maxTotalTxBytes / maxTxsPerBlock // 524
 )
 
