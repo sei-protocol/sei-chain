@@ -76,7 +76,7 @@ type persistedInner struct {
 // PrepareVote, and TimeoutVote must be this node's.
 func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) error {
 	ep := spec.Epoch
-	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
+	// TimeoutQC index must equal ConsensusSpec.Index().
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
 		tqcIndex := tqc.View().Index

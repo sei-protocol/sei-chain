@@ -119,12 +119,15 @@ func TestComputeBlockBounds(t *testing.T) {
 }
 
 // TestPollStart pins where a new log filter's polls start: a numeric fromBlock is kept, an
-// omitted or tag fromBlock starts after the head at creation, and a numeric toBlock below the
-// start is rejected.
+// omitted or tag fromBlock starts after the head at creation, and a numeric fromBlock above 0
+// below the earliest block or a numeric toBlock below the start is rejected.
 func TestPollStart(t *testing.T) {
 	t.Parallel()
 
-	const head = int64(100)
+	const (
+		earliest = int64(30)
+		head     = int64(100)
+	)
 	blockHash := common.HexToHash("0x01")
 	tests := []struct {
 		name        string
@@ -140,6 +143,17 @@ func TestPollStart(t *testing.T) {
 		{name: "tag toBlock leaves the start after the head", crit: filters.FilterCriteria{ToBlock: latestTag}, want: head + 1},
 		{name: "earliest fromBlock starts at block 0", crit: filters.FilterCriteria{FromBlock: earliestTag}, want: 0},
 		{name: "past fromBlock starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(40)}, want: 40},
+		{name: "fromBlock at the earliest block starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(earliest)}, want: earliest},
+		{
+			name:        "fromBlock below the earliest block is rejected",
+			crit:        filters.FilterCriteria{FromBlock: big.NewInt(earliest - 1)},
+			errContains: "requested fromBlock 29 is before earliest available block 30",
+		},
+		{
+			name:        "pruned fromBlock with a tag toBlock is rejected",
+			crit:        filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: latestTag},
+			errContains: "requested fromBlock 1 is before earliest available block 30",
+		},
 		{name: "fromBlock at the head starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(head)}, want: head},
 		{name: "future fromBlock starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(150)}, want: 150},
 		{name: "numeric fromBlock with tag toBlock starts at fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(40), ToBlock: latestTag}, want: 40},
@@ -163,7 +177,7 @@ func TestPollStart(t *testing.T) {
 		{name: "blockHash filter starts at zero", crit: filters.FilterCriteria{BlockHash: &blockHash}, want: 0},
 	}
 
-	fetcher := &LogFetcher{watermarks: newHeightTestWatermarks(newHeightTestClient(0, 1, head), head)}
+	fetcher := &LogFetcher{watermarks: newHeightTestWatermarks(newHeightTestClient(0, earliest, head), head)}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -174,6 +188,38 @@ func TestPollStart(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestPollLogsReportsPrunedBlocks pins that a poll whose cursor pruning has passed fails with an
+// error naming the pruned blocks, up to a lower numeric toBlock, and moves the cursor to the
+// earliest block.
+func TestPollLogsReportsPrunedBlocks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		earliest = int64(30)
+		head     = int64(100)
+	)
+	tests := []struct {
+		name        string
+		crit        filters.FilterCriteria
+		errContains string
+	}{
+		{name: "open filter", errContains: "logs of blocks 10 to 29 were pruned before the filter read them"},
+		{name: "tag toBlock", crit: filters.FilterCriteria{ToBlock: latestTag}, errContains: "logs of blocks 10 to 29 were pruned"},
+		{name: "toBlock below the earliest block", crit: filters.FilterCriteria{ToBlock: big.NewInt(20)}, errContains: "logs of blocks 10 to 20 were pruned"},
+	}
+
+	fetcher := &LogFetcher{watermarks: newHeightTestWatermarks(newHeightTestClient(0, earliest, head), head)}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logs, cursor, err := fetcher.pollLogs(t.Context(), tc.crit, 10)
+			require.ErrorContains(t, err, tc.errContains)
+			require.Nil(t, logs)
+			require.Equal(t, earliest, cursor)
 		})
 	}
 }

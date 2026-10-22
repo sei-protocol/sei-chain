@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -70,14 +72,22 @@ func testV68OfflineUpgradeTargetFixture(t *testing.T) {
 
 	cleanRoot := filepath.Join(root, offlineUpgradeMigratedDir)
 	crashRoot := filepath.Join(root, "crash")
+	noUpgradeInfoRoot := filepath.Join(root, "no-upgrade-info")
 	copyOfflineUpgradeDatabase(t, root, cleanRoot)
 	copyOfflineUpgradeDatabase(t, root, crashRoot)
+	copyOfflineUpgradeDatabase(t, root, noUpgradeInfoRoot)
+
+	requireV68OfflineRefusesRetainedStores(t, noUpgradeInfoRoot, artifact)
 
 	cleanHash := applyV68OfflineUpgradeClean(t, cleanRoot, artifact)
 	crashHash := applyV68OfflineUpgradeCrashReplay(t, crashRoot, artifact)
 	require.Equalf(t, cleanHash, crashHash,
 		"crash-replay application hash diverged from the clean single-pass hash: clean=%x crash-replay=%x",
 		cleanHash, crashHash)
+	recoveredHash := applyV68OfflineUpgradeAfterRefusal(t, noUpgradeInfoRoot, artifact)
+	require.Equalf(t, cleanHash, recoveredHash,
+		"the upgrade after restoring upgrade-info.json diverged from the clean hash: clean=%x recovered=%x",
+		cleanHash, recoveredHash)
 
 	artifact.MigratedRoot = offlineUpgradeMigratedDir
 	artifact.UpgradeHash = offlineUpgradeHashString(cleanHash)
@@ -245,6 +255,53 @@ func finalizeV68OfflineUpgrade(t *testing.T, testApp *App, height int64) {
 		},
 	})
 	require.NoError(t, err)
+}
+
+// requireV68OfflineRefusesRetainedStores requires the v6.8 handler to halt a
+// node that reaches the upgrade height without upgrade-info.json, which leaves
+// the retired stores undeleted.
+func requireV68OfflineRefusesRetainedStores(t *testing.T, root string, artifact offlineUpgradeArtifact) {
+	t.Helper()
+	require.NoError(t, os.Remove(filepath.Join(root, "home", "data", "upgrade-info.json")))
+	testApp := openOfflineUpgradeApp(t, root, false)
+	defer closeOfflineUpgradeApp(t, testApp)
+	for _, name := range v68OfflineDeletedStores {
+		require.True(t, testApp.rootStore.MayHoldStore(name), "%s was deleted without upgrade-info.json", name)
+	}
+
+	var refusal string
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				refusal = fmt.Sprint(r)
+			}
+		}()
+		_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Hash: []byte("offline-upgrade"),
+			Header: &tmproto.Header{
+				ChainID: offlineUpgradeChainID, Height: artifact.UpgradeHeight, Time: v68OfflineUpgradeBlockTime,
+			},
+		})
+		if err != nil {
+			refusal = err.Error()
+		}
+	}()
+	require.Contains(t, refusal, fmt.Sprintf("store %q was not deleted before the v6.8 upgrade handler ran", v68DeletedStores[0]))
+	require.Contains(t, refusal, v68OfflineUpgradeInfo(artifact.UpgradeHeight))
+}
+
+// applyV68OfflineUpgradeAfterRefusal writes upgrade-info.json as the refusal
+// tells the operator to, then applies v6.8 and returns the application hash.
+func applyV68OfflineUpgradeAfterRefusal(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
+	t.Helper()
+	target := filepath.Join(root, "home", "data", "upgrade-info.json")
+	require.NoError(t, os.WriteFile(target, []byte(v68OfflineUpgradeInfo(artifact.UpgradeHeight)), 0o600))
+	return applyV68OfflineUpgradeClean(t, root, artifact)
+}
+
+// v68OfflineUpgradeInfo is the upgrade-info.json content naming v6.8 at height.
+func v68OfflineUpgradeInfo(height int64) string {
+	return fmt.Sprintf(`{"name":%q,"height":%d}`, v68OfflineUpgradeName, height)
 }
 
 // requireV68OfflineLegacyAccountsStored requires every recorded vesting account
@@ -649,8 +706,15 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	t.Setenv("UPGRADE_VERSION_LIST", v68OfflineUpgradeName)
 	chainID := readOfflineUpgradeGenesisChainID(t, home)
 
+	// The store loader deletes the retired stores only when upgrade-info.json
+	// names v6.8, as it does after the previous binary halts at the plan.
+	halted := openOfflineUpgradeSnapshotApp(t, home, chainID)
+	sourceHeight := halted.LastBlockHeight()
+	require.NoError(t, halted.UpgradeKeeper.DumpUpgradeInfoToDisk(sourceHeight+1, v68OfflineUpgradeName))
+	closeOfflineUpgradeApp(t, halted)
+
 	testApp := openOfflineUpgradeSnapshotApp(t, home, chainID)
-	sourceHeight := testApp.LastBlockHeight()
+	require.Equal(t, sourceHeight, testApp.LastBlockHeight())
 	beforeVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, beforeVersions, "oracle")
 	require.Contains(t, beforeVersions, "tokenfactory")

@@ -1357,7 +1357,7 @@ func (x *FullTimeoutVote) GetLatestPrepareQc() *PrepareQC {
 // Derived fields are implementation-dependent and should be recomputed on load.
 type PersistedInner struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Index is the current view RoadIndex (ConsensusSpec.Index; 0 at genesis).
+	// Index is the current view RoadIndex (ConsensusSpec.Index).
 	Index         *uint64          `protobuf:"varint,9,opt,name=index,proto3,oneof" json:"index,omitempty"`
 	PrepareQc     *PrepareQC       `protobuf:"bytes,2,opt,name=prepare_qc,json=prepareQc,proto3,oneof" json:"prepare_qc,omitempty"`
 	TimeoutQc     *TimeoutQC       `protobuf:"bytes,3,opt,name=timeout_qc,json=timeoutQc,proto3,oneof" json:"timeout_qc,omitempty"`

@@ -196,7 +196,7 @@ type restoredQC struct {
 	ep *types.Epoch
 }
 
-// restorePlan is the applied epoch, first RoadIndex (0 or Anchor+1), and
+// restorePlan is the applied epoch, first RoadIndex (genesis or Anchor+1), and
 // verified CommitQCs for construction. The epoch is genesis when there is no
 // tip, otherwise nextViewEpoch of the persisted tip (last restored QC, or the
 // Anchor QC when the queue is empty).
@@ -206,7 +206,7 @@ func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadI
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("genesis epoch 0: %w", err)
 	}
-	var first types.RoadIndex
+	first := genesis.RoadRange().First
 	tip := utils.None[restoredQC]()
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
 		first = anchor.CommitQC.Index() + 1
@@ -704,7 +704,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 
 // Task inserting CommitQCs and local blocks to data state.
 func (s *State) runPushQC(ctx context.Context) error {
-	for n := types.RoadIndex(0); ; n = max(n+1, s.First()) {
+	for n := s.First(); ; n = max(n+1, s.First()) {
 		epoch, qc, err := s.fullCommitQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
@@ -741,7 +741,7 @@ func (s *State) runPushQC(ctx context.Context) error {
 
 // Task inserting AppQCs to data state.
 func (s *State) runPushAppQC(ctx context.Context) error {
-	for n := types.RoadIndex(0); ; n = max(n+1, s.First()) {
+	for n := s.First(); ; n = max(n+1, s.First()) {
 		appQC, err := s.appQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
@@ -773,17 +773,18 @@ func (s *State) runEvict(ctx context.Context) error {
 
 // runEpochAdvance is the sole writer of the applied epoch after construction.
 func (s *State) runEpochAdvance(ctx context.Context) error {
+	registry := s.data.Registry()
 	for {
 		var next types.EpochIndex
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				next = inner.advanceTarget()
+				next = inner.advanceTarget(registry)
 				return next > inner.applied().EpochIndex()+1 || inner.canAdvanceEpoch()
 			}); err != nil {
 				return err
 			}
 		}
-		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
+		ep, err := registry.WaitForEpoch(ctx, next)
 		if err != nil {
 			if !errors.Is(err, types.ErrPruned) {
 				return err
@@ -792,7 +793,7 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			// names a different one.
 			for inner, ctrl := range s.inner.Lock() {
 				if err := ctrl.WaitUntil(ctx, func() bool {
-					return inner.advanceTarget() != next
+					return inner.advanceTarget(registry) != next
 				}); err != nil {
 					return err
 				}
@@ -803,7 +804,7 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			// The tip may have moved while WaitForEpoch was parked. Installing
 			// next now would pair it with a tip whose next road is in a later
 			// epoch, so recompute instead.
-			if inner.advanceTarget() != next {
+			if inner.advanceTarget(registry) != next {
 				break
 			}
 			inner.advanceEpoch(ep)
@@ -920,7 +921,10 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 	for inner, ctrl := range s.inner.Lock() {
 		// Start after the durable tip, clamped to roads.first after prune has
 		// dropped the prefix (and possibly jumped the empty-queue tip to the Anchor).
-		next := types.NextIndexOpt(inner.persistedCommitQC.Load())
+		next := inner.roads.first
+		if qc, ok := inner.persistedCommitQC.Load().Get(); ok {
+			next = qc.Index() + 1
+		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			for lane, q := range inner.blocks {
 				if inner.nextBlockToPersist[lane] < q.next {

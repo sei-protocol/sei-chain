@@ -129,7 +129,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
 	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
@@ -199,7 +199,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
-	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), epoch.FirstRoad(2))
+	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), router.data.Registry().EpochFirstRoad(2))
 	got, err = router.Validators(n)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})

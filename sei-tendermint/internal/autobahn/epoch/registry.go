@@ -16,31 +16,6 @@ import (
 // TODO: move on-chain when epoch length becomes configurable.
 const EpochLength types.RoadIndex = 108_000
 
-// IndexForRoad returns the epoch index containing road.
-func IndexForRoad(road types.RoadIndex) types.EpochIndex {
-	return types.EpochIndex(road / EpochLength)
-}
-
-// FirstRoad returns the first road index of epoch idx.
-func FirstRoad(idx types.EpochIndex) types.RoadIndex {
-	return types.RoadIndex(idx) * EpochLength
-}
-
-// LastRoad returns the last road index of epoch idx.
-func LastRoad(idx types.EpochIndex) types.RoadIndex {
-	return FirstRoad(idx+1) - 1
-}
-
-// ClosingEpoch returns the epoch that road ends, if road is that epoch's last
-// road. Otherwise None.
-func ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
-	idx := IndexForRoad(road)
-	if road != LastRoad(idx) {
-		return utils.None[types.EpochIndex]()
-	}
-	return utils.Some(idx)
-}
-
 type registryState struct {
 	m map[types.EpochIndex]*types.Epoch
 	// pending is the staged committee for live.Next.
@@ -60,7 +35,11 @@ func (s *registryState) activate(idx types.EpochIndex, committee *types.Committe
 	if idx != s.live.Next {
 		return fmt.Errorf("epoch %d cannot be activated, want %d", idx, s.live.Next)
 	}
-	roads := types.RoadRange{First: FirstRoad(idx), Next: FirstRoad(idx + 1)}
+	firstRoad := s.m[0].RoadRange().First
+	roads := types.RoadRange{
+		First: firstRoad + types.RoadIndex(idx)*EpochLength,
+		Next:  firstRoad + types.RoadIndex(idx+1)*EpochLength,
+	}
 	s.m[idx] = types.NewEpoch(idx, roads, s.m[0].FirstTimestamp(), committee, s.m[0].FirstBlock())
 	s.live.Next = idx + 1
 	return nil
@@ -133,17 +112,18 @@ type Registry struct {
 	persister persist.Persister[*pb.PersistedEpochRegistry]
 }
 
-// NewRegistry returns a Registry with epochs 0 and 1 using committee, firstBlock,
-// and genesisTimestamp. stateDir Some opens the epoch snapshot and restores its
-// live and pending committees; None keeps the registry in memory only.
+// NewRegistry returns a Registry with epochs 0 and 1 using committee, firstRoad,
+// firstBlock, and genesisTimestamp. stateDir Some opens the epoch snapshot and
+// restores its live and pending committees; None keeps the registry in memory only.
 func NewRegistry(
 	committee *types.Committee,
+	firstRoad types.RoadIndex,
 	firstBlock types.GlobalBlockNumber,
 	genesisTimestamp time.Time,
 	stateDir utils.Option[string],
 ) (*Registry, error) {
-	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, genesisTimestamp, committee, firstBlock)
-	ep1 := types.NewEpoch(1, types.RoadRange{First: FirstRoad(1), Next: FirstRoad(2)}, genesisTimestamp, committee, firstBlock)
+	ep0 := types.NewEpoch(0, types.RoadRange{First: firstRoad, Next: firstRoad + EpochLength}, genesisTimestamp, committee, firstBlock)
+	ep1 := types.NewEpoch(1, types.RoadRange{First: firstRoad + EpochLength, Next: firstRoad + 2*EpochLength}, genesisTimestamp, committee, firstBlock)
 	state := &registryState{
 		m:       map[types.EpochIndex]*types.Epoch{0: ep0, 1: ep1},
 		pending: utils.None[*types.Committee](),
@@ -162,6 +142,46 @@ func NewRegistry(
 		state:     utils.NewWatch(state),
 		persister: persister,
 	}, nil
+}
+
+// FirstRoad returns the genesis epoch's first road index.
+func (r *Registry) FirstRoad() types.RoadIndex {
+	for s := range r.state.Lock() {
+		return s.m[0].RoadRange().First
+	}
+	panic("unreachable")
+}
+
+// EpochFirstRoad returns the first road index of epoch idx.
+func (r *Registry) EpochFirstRoad(idx types.EpochIndex) types.RoadIndex {
+	for s := range r.state.Lock() {
+		return s.m[0].RoadRange().First + types.RoadIndex(idx)*EpochLength
+	}
+	panic("unreachable")
+}
+
+// LastRoad returns the last road index of epoch idx.
+func (r *Registry) LastRoad(idx types.EpochIndex) types.RoadIndex {
+	return r.EpochFirstRoad(idx+1) - 1
+}
+
+// IndexForRoad returns the epoch index containing road. Road must not precede
+// FirstRoad.
+func (r *Registry) IndexForRoad(road types.RoadIndex) types.EpochIndex {
+	return types.EpochIndex((road - r.FirstRoad()) / EpochLength)
+}
+
+// ClosingEpoch returns the epoch that road ends, if road is that epoch's last
+// road. Otherwise None.
+func (r *Registry) ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
+	if road < r.FirstRoad() {
+		return utils.None[types.EpochIndex]()
+	}
+	idx := r.IndexForRoad(road)
+	if road != r.LastRoad(idx) {
+		return utils.None[types.EpochIndex]()
+	}
+	return utils.Some(idx)
 }
 
 // FirstBlock returns the genesis epoch's first global block number.
@@ -198,8 +218,12 @@ func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, error) {
 
 // EpochAt returns the registered epoch containing roadIndex.
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
-	epochIdx := IndexForRoad(roadIndex)
 	for s := range r.state.Lock() {
+		firstRoad := s.m[0].RoadRange().First
+		if roadIndex < firstRoad {
+			return nil, fmt.Errorf("road %d: %w", roadIndex, types.ErrPruned)
+		}
+		epochIdx := types.EpochIndex((roadIndex - firstRoad) / EpochLength)
 		if s.dropped(epochIdx) {
 			return nil, fmt.Errorf("epoch %d (road %d): %w", epochIdx, roadIndex, types.ErrPruned)
 		}
