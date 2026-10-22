@@ -44,17 +44,14 @@ const (
 	TallyResultMethod    = "tallyResult"
 )
 
-// Flat per-call gas. List methods are priced for a full page.
+// Flat per-call gas, as V2's pcommon.DefaultGasCost prices it from the
+// Cosmos KV gas config, charged on the arguments after the method selector.
 const (
 	unknownMethodGas   = 3_000
-	voteGas            = 60_000
-	voteWeightedGas    = 120_000
-	depositGas         = 150_000
-	submitProposalGas  = 200_000
-	submitProposalWord = 20_000 // per 32 bytes of calldata, covering the stored content
-	pointQueryGas      = 10_000
-	proposalQueryGas   = 50_000
-	listQueryGas       = 200_000
+	transactionGas     = 2_000
+	transactionByteGas = 30
+	queryGas           = 1_000
+	queryByteGas       = 3
 )
 
 var (
@@ -77,21 +74,12 @@ func (Precompile) RequiredGas(input []byte) uint64 {
 	if err != nil {
 		return unknownMethodGas
 	}
+	args := uint64(len(input) - 4) //nolint:gosec // methodOf requires a 4-byte selector
 	switch method.Name {
-	case VoteMethod:
-		return voteGas
-	case VoteWeightedMethod:
-		return voteWeightedGas
-	case DepositMethod:
-		return depositGas
-	case SubmitProposalMethod:
-		return submitProposalGas + submitProposalWord*uint64((len(input)+31)/32) //nolint:gosec // length is non-negative
-	case ProposalMethod:
-		return proposalQueryGas
-	case ProposalsMethod, VotesMethod, DepositsMethod:
-		return listQueryGas
+	case VoteMethod, VoteWeightedMethod, DepositMethod, SubmitProposalMethod:
+		return transactionGas + transactionByteGas*args
 	default:
-		return pointQueryGas
+		return queryGas + queryByteGas*args
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -179,4 +180,75 @@ func TestRegisteredCustomPrecompileOCCMatchesSequential(t *testing.T) {
 	state := NewMemoryState()
 	state.ApplyChangeSet(occ.ChangeSet)
 	require.Equal(t, common.BigToHash(big.NewInt(senders)), state.GetState(registeredPrecompileAddress, common.Hash{}))
+}
+
+func TestPrecompileStateMetersStorageWrites(t *testing.T) {
+	existing := common.HexToHash("0x01")
+	newState := func(gas uint64, metered bool) (*precompileState, *nativeStateDB) {
+		source := NewMemoryState()
+		source.SetState(registeredPrecompileAddress, existing, common.HexToHash("0x05"))
+		db := newNativeStateDB(source)
+		return &precompileState{db: db, metered: metered, gas: gas}, db
+	}
+	one, zero := common.HexToHash("0x01"), common.Hash{}
+
+	s, db := newState(100_000, true)
+	s.SetState(registeredPrecompileAddress, zero, one)
+	require.Equal(t, 100_000-params.ColdSloadCostEIP2929-params.SstoreSetGasEIP2200, s.gas, "cold slot created")
+	gas := s.gas
+	s.SetState(registeredPrecompileAddress, zero, one)
+	require.Equal(t, gas-params.WarmStorageReadCostEIP2929, s.gas, "no-op write")
+	gas = s.gas
+	s.SetState(registeredPrecompileAddress, zero, zero)
+	require.Equal(t, gas-params.WarmStorageReadCostEIP2929, s.gas, "restored to its original")
+	require.Equal(t, params.SstoreSetGasEIP2200-params.WarmStorageReadCostEIP2929, db.GetRefund())
+	require.NoError(t, s.err)
+
+	s, db = newState(100_000, true)
+	s.SetState(registeredPrecompileAddress, existing, zero)
+	require.Equal(t, 100_000-params.SstoreResetGasEIP2200, s.gas, "cold existing slot cleared")
+	require.Equal(t, params.SstoreClearsScheduleRefundEIP3529, db.GetRefund())
+
+	s, db = newState(params.SstoreSentryGasEIP2200, true)
+	s.SetState(registeredPrecompileAddress, zero, one)
+	require.ErrorIs(t, s.err, errPrecompileSstoreSentry)
+	require.Equal(t, zero, db.GetState(registeredPrecompileAddress, zero), "the write is dropped")
+
+	s, db = newState(params.SstoreSetGasEIP2200, true)
+	s.SetState(registeredPrecompileAddress, zero, one)
+	require.ErrorIs(t, s.err, vm.ErrOutOfGas)
+	require.Equal(t, zero, db.GetState(registeredPrecompileAddress, zero), "the write is dropped")
+
+	s, db = newState(0, false)
+	s.GetState(registeredPrecompileAddress, existing)
+	s.SetState(registeredPrecompileAddress, existing, zero)
+	require.NoError(t, s.err)
+	require.Equal(t, params.ColdSloadCostEIP2929+params.SstoreResetGasEIP2200-params.ColdSloadCostEIP2929, s.spent, "unmetered access is counted")
+	require.Zero(t, db.GetRefund(), "unmetered writes earn no refund")
+}
+
+func TestPrecompileStateRejectsBalanceOverflow(t *testing.T) {
+	source := NewMemoryState()
+	maxBalance := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	source.SetBalance(registeredPrecompileAddress, maxBalance)
+	s := &precompileState{db: newNativeStateDB(source)}
+	s.AddBalance(registeredPrecompileAddress, big.NewInt(1))
+	require.ErrorIs(t, s.err, errPrecompileBalanceOverflow)
+	require.Equal(t, maxBalance, s.GetBalance(registeredPrecompileAddress))
+}
+
+func TestPrecompileStateMetersLogs(t *testing.T) {
+	log := &ethtypes.Log{Address: registeredPrecompileAddress, Topics: []common.Hash{{1}, {2}}, Data: make([]byte, 10)}
+	want := params.LogGas + 2*params.LogTopicGas + 10*params.LogDataGas
+
+	s := &precompileState{db: newNativeStateDB(NewMemoryState()), metered: true, gas: want}
+	s.AddLog(log)
+	require.NoError(t, s.err)
+	require.Zero(t, s.gas)
+
+	db := newNativeStateDB(NewMemoryState())
+	s = &precompileState{db: db, metered: true, gas: want - 1}
+	s.AddLog(log)
+	require.ErrorIs(t, s.err, vm.ErrOutOfGas)
+	require.Empty(t, db.logs, "the log is dropped")
 }

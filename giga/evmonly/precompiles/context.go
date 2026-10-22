@@ -19,15 +19,22 @@ type Registry interface {
 	EndBlockers() []common.Address
 }
 
-// Contract is the sdk.Context-free custom precompile interface.
+// Contract is the sdk.Context-free custom precompile interface. Run may be
+// called concurrently and must be deterministic: it reads and writes chain
+// state only through the Context's State and Logs, reads block data only from
+// its Block, and keeps no mutable state of its own. It reads and writes nothing
+// off-chain; compiled-in constants are allowed, but changing one changes the
+// app hash. RequiredGas is the flat cost of a call; storage reads and writes
+// and logs are charged on top of it.
 type Contract interface {
 	RequiredGas(input []byte) uint64
 	Run(*Context, []byte) ([]byte, error)
 }
 
 // EndBlocker is a Contract that also runs once at the end of every block, after
-// the block's transactions. Its writes land in the block's changeset, and a
-// returned error fails the block.
+// the block's transactions, under the same rules as Run. Its writes land in the
+// block's changeset, its storage access is not charged gas, and a returned
+// error fails the block.
 type EndBlocker interface {
 	EndBlock(BlockContext, State) error
 }
@@ -41,7 +48,7 @@ type Context struct {
 	ReadOnly      bool
 	DelegateCall  bool
 	// GasRemaining is the call's gas after RequiredGas, as Run begins. Storage
-	// reads draw on it.
+	// reads and writes and logs draw on it.
 	GasRemaining uint64
 	Block        BlockContext
 	State        State
