@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,8 +21,8 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 	if len(validators) != awsValidatorCount {
 		return fmt.Errorf("start remote cluster: expected %d validators, got %d", awsValidatorCount, len(validators))
 	}
-	load, ok := state.AWS.loadHost()
-	if !ok {
+	loads := state.AWS.loadHosts()
+	if len(loads) == 0 {
 		return fmt.Errorf("start remote cluster: load instance is missing")
 	}
 
@@ -56,14 +57,13 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 		return fmt.Errorf("start validators: %w", err)
 	}
 
-	_, _ = fmt.Fprintln(a.stdout, "Setting up Grafana and Prometheus on the load instance.")
-	if err := a.cloneRemoteRepo(ctx, state, load); err != nil {
-		return err
-	}
-	if err := a.startLoadHost(ctx, state, load, validators); err != nil {
-		return err
-	}
-	return nil
+	_, _ = fmt.Fprintln(a.stdout, "Preparing sei-load on every load instance, and Grafana and Prometheus on the first.")
+	return a.forEachHost(ctx, loads, func(ctx context.Context, load awsHost) error {
+		if err := a.cloneRemoteRepo(ctx, state, load); err != nil {
+			return err
+		}
+		return a.startLoadHost(ctx, state, load, validators, loads)
+	})
 }
 
 func (a *application) startRemoteColocatedCluster(ctx context.Context, state clusterState) error {
@@ -171,24 +171,34 @@ func (a *application) distributeGenesis(ctx context.Context, state clusterState,
 	return nil
 }
 
-func (a *application) startLoadHost(ctx context.Context, state clusterState, load awsHost, validators []awsHost) error {
+// startLoadHost writes the sei-load config on load and installs sei-load there. The first load
+// instance also runs Prometheus, scraping every validator and every sei-load, and Grafana.
+func (a *application) startLoadHost(ctx context.Context, state clusterState, load awsHost, validators, loads []awsHost) error {
 	privateIPs := make([]string, len(validators))
 	for i, host := range validators {
 		privateIPs[i] = host.PrivateIP
 	}
-	prom := prometheusScrapeConfig(privateIPs)
-	loadCfg, err := seiLoadAWSConfig(privateIPs)
+	loadIPs := make([]string, len(loads))
+	for i, host := range loads {
+		loadIPs[i] = host.PrivateIP
+	}
+	loadCfg, err := seiLoadAWSConfigFor(privateIPs, state.AWS.Load)
 	if err != nil {
 		return err
 	}
 	write := strings.Join([]string{
 		"set -euo pipefail",
 		"mkdir -p " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated")),
-		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/prometheus.yml")) + " <<'EOF'\n" + prom + "EOF",
+		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/prometheus.yml")) + " <<'EOF'\n" + prometheusScrapeConfigFor(privateIPs, loadIPs) + "EOF",
 		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "integration_test/autobahn/sei-load.aws.json")) + " <<'EOF'\n" + loadCfg + "EOF",
+		"cd " + shellQuote(state.AWS.RemoteDir),
+		"GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@" + shellQuote(state.AWS.Load.version()),
 	}, "\n")
 	if err := a.remoteStream(ctx, state, load, write); err != nil {
-		return fmt.Errorf("write load-host config: %w", err)
+		return fmt.Errorf("prepare load instance %d: %w", load.Index, err)
+	}
+	if primary, ok := state.AWS.loadHost(); !ok || primary.InstanceID != load.InstanceID {
+		return nil
 	}
 	if err := a.remoteStream(ctx, state, load, remoteMake(state, "docker-aws-load-start", nil)); err != nil {
 		return fmt.Errorf("start load-host monitoring: %w", err)
@@ -196,24 +206,38 @@ func (a *application) startLoadHost(ctx context.Context, state clusterState, loa
 	return nil
 }
 
+// remoteMake runs a make target in the remote checkout with the cluster's node environment and
+// extra, which wins on a shared key.
 func remoteMake(state clusterState, target string, extra map[string]string) string {
 	parts := []string{
 		"cd " + shellQuote(state.AWS.RemoteDir),
 		"AUTOBAHN=true",
 	}
-	keys := make([]string, 0, len(extra))
-	for key := range extra {
+	env := make(map[string]string, len(state.AWS.NodeEnv)+len(extra))
+	for key, value := range state.AWS.NodeEnv {
+		env[key] = value
+	}
+	for key, value := range extra {
+		env[key] = value
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		parts[1] += " " + key + "=" + shellQuote(extra[key])
+		parts[1] += " " + key + "=" + shellQuote(env[key])
 	}
 	parts[1] += " make " + target
 	return strings.Join(parts, " && ")
 }
 
 func prometheusScrapeConfig(privateIPs []string) string {
+	return prometheusScrapeConfigFor(privateIPs, nil)
+}
+
+// prometheusScrapeConfigFor scrapes every validator and, when loadIPs is set, every sei-load.
+func prometheusScrapeConfigFor(privateIPs, loadIPs []string) string {
 	var b strings.Builder
 	b.WriteString("global:\n")
 	b.WriteString("  scrape_interval: 15s\n")
@@ -227,28 +251,51 @@ func prometheusScrapeConfig(privateIPs []string) string {
 		fmt.Fprintf(&b, "          - '%s:%d'\n", ip, awsMetricsPort)
 	}
 	b.WriteString("    scrape_interval: 5s\n")
+	if len(loadIPs) > 0 {
+		b.WriteString("  - job_name: sei-load\n")
+		b.WriteString("    metrics_path: /metrics\n")
+		b.WriteString("    static_configs:\n")
+		b.WriteString("      - targets:\n")
+		for _, ip := range loadIPs {
+			fmt.Fprintf(&b, "          - '%s:%d'\n", ip, seiLoadMetricsPort)
+		}
+		b.WriteString("    scrape_interval: 5s\n")
+	}
 	return b.String()
 }
 
 func seiLoadAWSConfig(privateIPs []string) (string, error) {
+	return seiLoadAWSConfigFor(privateIPs, seiLoadProfile{})
+}
+
+// seiLoadAWSConfigFor is the sei-load config that sends profile's traffic to every validator.
+func seiLoadAWSConfigFor(privateIPs []string, profile seiLoadProfile) (string, error) {
+	scheme, port := "http", awsEVMPort
+	if profile.WebSocket {
+		scheme, port = "ws", awsEVMWSPort
+	}
 	endpoints := make([]string, len(privateIPs))
 	for i, ip := range privateIPs {
-		endpoints[i] = fmt.Sprintf("http://%s:%d", ip, awsEVMPort)
+		endpoints[i] = fmt.Sprintf("%s://%s:%d", scheme, ip, port)
+	}
+	accounts := map[string]any{
+		"count":          cmp.Or(profile.Accounts, defaultSeiLoadAccounts),
+		"newAccountRate": 0,
+	}
+	if profile.Disjoint {
+		accounts["disjoint"] = true
 	}
 	cfg := map[string]any{
 		"chainId":    713715,
 		"seiChainID": "autobahn-evmonly",
 		"endpoints":  endpoints,
-		"accounts": map[string]any{
-			"count":          5000,
-			"newAccountRate": 0,
-		},
+		"accounts":   accounts,
 		"scenarios": []map[string]any{
 			{"name": "EVMTransfer", "weight": 1},
 		},
 		"settings": map[string]any{
 			"workers":               1,
-			"tps":                   250,
+			"tps":                   cmp.Or(profile.TPS, defaultSeiLoadTPS),
 			"statsInterval":         "5s",
 			"bufferSize":            1000,
 			"dryRun":                false,

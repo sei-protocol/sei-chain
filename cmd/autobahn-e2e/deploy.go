@@ -39,6 +39,10 @@ type deployOptions struct {
 	repoURL          string
 	ref              string
 	topology         string
+	loadHosts        int
+	loadInstanceType string
+	nodeEnv          []string
+	load             seiLoadProfile
 }
 
 func (a *application) newDeployCommand() *cobra.Command {
@@ -69,7 +73,15 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags.IntVar(&options.volumeThroughput, "volume-throughput", defaultVolumeThroughputMB, "EC2 root gp3 throughput in MB/s")
 	flags.StringVar(&options.repoURL, "repo-url", "", "Git repository cloned on EC2; defaults to origin")
 	flags.StringVar(&options.ref, "ref", "", "Git ref deployed on EC2; defaults to the current commit")
-	flags.StringVar(&options.topology, "topology", awsTopologyDistributed, "AWS topology: distributed (one validator per EC2 plus a load host) or colocated (four Docker validators on one EC2)")
+	flags.StringVar(&options.topology, "topology", awsTopologyDistributed, "AWS topology: distributed (one validator per EC2 plus load hosts) or colocated (four Docker validators on one EC2)")
+	flags.IntVar(&options.loadHosts, "load-hosts", 1, "number of load instances in the distributed topology; the first also runs Grafana and Prometheus")
+	flags.StringVar(&options.loadInstanceType, "load-instance-type", "", "EC2 instance type of the load instances; defaults to --instance-type")
+	flags.StringArrayVar(&options.nodeEnv, "node-env", nil, "KEY=VALUE passed to every validator's init, genesis and start, e.g. MOCK_BALANCES=true; repeatable")
+	flags.StringVar(&options.load.Version, "seiload-version", seiLoadVersion, "sei-load module version installed on the load instances")
+	flags.IntVar(&options.load.TPS, "load-tps", defaultSeiLoadTPS, "sei-load target transactions per second, per load instance")
+	flags.IntVar(&options.load.Accounts, "load-accounts", defaultSeiLoadAccounts, "sei-load sender accounts, per load instance")
+	flags.BoolVar(&options.load.Disjoint, "load-disjoint", false, "pair each sender with a distinct receiver so no two transactions touch the same account")
+	flags.BoolVar(&options.load.WebSocket, "load-ws", false, "send transactions over the validators' WebSocket port instead of HTTP")
 	return cmd
 }
 

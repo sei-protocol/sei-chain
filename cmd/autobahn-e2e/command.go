@@ -22,11 +22,15 @@ const (
 
 	awsValidatorCount             = 4
 	awsEVMPort                    = 8545
+	awsEVMWSPort                  = 8546
 	awsMetricsPort                = 26660
 	defaultLoadVolumeSizeGiB      = 100
 	defaultLoadVolumeIOPS         = 3000
 	defaultLoadVolumeThroughputMB = 125
 	seiLoadVersion                = "v0.0.1"
+	defaultSeiLoadTPS             = 250
+	defaultSeiLoadAccounts        = 5000
+	seiLoadMetricsPort            = 19698
 )
 
 func grafanaPublicURL(host string) string {

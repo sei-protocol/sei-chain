@@ -4,10 +4,8 @@ services:
     container_name: sei-node-${ID:-0}
     image: "sei-chain/localnode"
     user: "${USERID}:${GROUPID}"
-    ports:
-      - "26656:26656"
-      - "8545:8545"
-      - "26660:26660"
+    # One validator per host: share the host's network stack so peer and RPC traffic skips Docker NAT.
+    network_mode: host
     environment:
       - ID=${ID:-0}
       - CLUSTER_SIZE=4
@@ -25,6 +23,11 @@ services:
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
+      - GENESIS_MAX_GAS
+      - GENESIS_MAX_GAS_WANTED
+      - APP_TOML_OVERRIDES
+      - PPROF_LADDR
+      - AUTOBAHN_ALLOW_EMPTY_BLOCKS
       - GOCACHE=/tmp/go-cache
       - GOMODCACHE=/tmp/go-mod
     volumes:

@@ -490,6 +490,51 @@ func TestPrometheusAndLoadConfigUsePrivateEVMEndpoints(t *testing.T) {
 	require.Contains(t, cfg, "http://10.0.0.11:8545")
 }
 
+func TestLoadConfigFollowsTheProfile(t *testing.T) {
+	cfg, err := seiLoadAWSConfigFor([]string{"10.0.0.10"}, seiLoadProfile{TPS: 60000, Accounts: 400000, Disjoint: true, WebSocket: true})
+	require.NoError(t, err)
+	require.Contains(t, cfg, "ws://10.0.0.10:8546")
+	require.Contains(t, cfg, `"disjoint": true`)
+	require.Contains(t, cfg, `"count": 400000`)
+	require.Contains(t, cfg, `"tps": 60000`)
+
+	prom := prometheusScrapeConfigFor([]string{"10.0.0.10"}, []string{"10.0.0.20", "10.0.0.21"})
+	require.Contains(t, prom, "10.0.0.21:19698")
+}
+
+func TestAssignAWSHostsIndexesEveryLoadInstance(t *testing.T) {
+	hosts, err := assignAWSHosts(nil, []string{"i-load0", "i-load1"}, map[string]instanceAddrs{
+		"i-load0": {publicIP: "203.0.113.20", privateIP: "10.0.0.20"},
+		"i-load1": {publicIP: "203.0.113.21", privateIP: "10.0.0.21"},
+	})
+	require.NoError(t, err)
+	state := &awsState{Hosts: hosts}
+	loads := state.loadHosts()
+	require.Len(t, loads, 2)
+	require.Equal(t, []int{0, 1}, []int{loads[0].Index, loads[1].Index})
+	first, ok := state.loadHost()
+	require.True(t, ok)
+	require.Equal(t, "i-load0", first.InstanceID)
+}
+
+func TestRemoteMakeAddsTheNodeEnvironment(t *testing.T) {
+	env, err := parseNodeEnv([]string{"MOCK_BALANCES=true", "APP_TOML_OVERRIDES=giga.execution.parse_workers=16", "ID=9"})
+	require.NoError(t, err)
+	require.Equal(t, "giga.execution.parse_workers=16", env["APP_TOML_OVERRIDES"])
+	state := clusterState{AWS: &awsState{RemoteDir: "/home/ubuntu/sei", NodeEnv: env}}
+
+	command := remoteMake(state, "docker-aws-validator-start", map[string]string{"ID": "2"})
+	require.Contains(t, command, "MOCK_BALANCES='true'")
+	require.Contains(t, command, "APP_TOML_OVERRIDES='giga.execution.parse_workers=16'")
+	require.Contains(t, command, "ID='2'")
+	require.NotContains(t, command, "ID='9'")
+
+	_, err = parseNodeEnv([]string{"lower=1"})
+	require.Error(t, err)
+	_, err = parseNodeEnv([]string{"NOVALUE"})
+	require.Error(t, err)
+}
+
 func TestGrafanaPublicURL(t *testing.T) {
 	require.Equal(t, "", grafanaPublicURL(""))
 	require.Equal(t, "http://203.0.113.10:3000", grafanaPublicURL("203.0.113.10"))

@@ -60,6 +60,27 @@ type awsState struct {
 	ManagedKey      bool      `json:"managed_key"`
 	RepoURL         string    `json:"repo_url"`
 	Ref             string    `json:"ref"`
+	// NodeEnv is passed to every validator's init, genesis and start.
+	NodeEnv map[string]string `json:"node_env,omitempty"`
+	// Load is the sei-load profile written to every load instance.
+	Load seiLoadProfile `json:"load"`
+}
+
+// seiLoadProfile is the traffic each load instance's sei-load config generates. Zero fields take
+// the defaults.
+type seiLoadProfile struct {
+	Version   string `json:"version,omitempty"`
+	TPS       int    `json:"tps,omitempty"`
+	Accounts  int    `json:"accounts,omitempty"`
+	Disjoint  bool   `json:"disjoint,omitempty"`
+	WebSocket bool   `json:"websocket,omitempty"`
+}
+
+func (p seiLoadProfile) version() string {
+	if p.Version == "" {
+		return seiLoadVersion
+	}
+	return p.Version
 }
 
 func (s *awsState) topology() string {
@@ -114,6 +135,21 @@ func (s *awsState) loadHost() (awsHost, bool) {
 		return awsHost{Role: awsRoleLoad, InstanceID: s.InstanceID, PublicIP: s.PublicIP}, true
 	}
 	return awsHost{}, false
+}
+
+// loadHosts returns every load instance, the one loadHost returns first.
+func (s *awsState) loadHosts() []awsHost {
+	if s == nil {
+		return nil
+	}
+	var hosts []awsHost
+	for _, host := range s.Hosts {
+		if host.Role == awsRoleLoad {
+			hosts = append(hosts, host)
+		}
+	}
+	sort.SliceStable(hosts, func(i, j int) bool { return hosts[i].Index < hosts[j].Index })
+	return hosts
 }
 
 func (s *awsState) validatorByIndex(index int) (awsHost, bool) {

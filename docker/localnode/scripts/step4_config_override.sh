@@ -203,3 +203,31 @@ if [ "$AUTOBAHN" = "true" ]; then
   fi
   echo "Autobahn config written to $AUTOBAHN_CONFIG"
 fi
+
+# APP_TOML_OVERRIDES is a ';'-separated list of section.key=value entries, for example
+# "giga.execution.parse_workers=16;giga.storage.receipts=true". Values are written verbatim, so
+# strings need their own quotes.
+if [ -n "${APP_TOML_OVERRIDES:-}" ]; then
+  echo "$APP_TOML_OVERRIDES" | tr ';' '\n' | while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    path=${entry%%=*}
+    value=${entry#*=}
+    section=${path%.*}
+    key=${path##*.}
+    section_re=$(echo "$section" | sed 's/\./\\./g')
+    if ! grep -q "^\[$section_re\]" ~/.sei/config/app.toml; then
+      printf '\n[%s]\n' "$section" >> ~/.sei/config/app.toml
+    fi
+    sed -i "/^\[$section_re\]/,/^\[/{/^$key[[:space:]]*=/d;}" ~/.sei/config/app.toml
+    sed -i "/^\[$section_re\]/a $key = $value" ~/.sei/config/app.toml
+    echo "Set app.toml [$section] $key = $value for node $NODE_ID"
+  done
+fi
+
+if [ -n "${PPROF_LADDR:-}" ]; then
+  sed -i "s|^pprof-laddr = .*|pprof-laddr = \"$PPROF_LADDR\"|" ~/.sei/config/config.toml
+fi
+
+if [ "$AUTOBAHN" = "true" ] && [ -n "${AUTOBAHN_ALLOW_EMPTY_BLOCKS:-}" ]; then
+  jq ".allow_empty_blocks = $AUTOBAHN_ALLOW_EMPTY_BLOCKS" "$AUTOBAHN_CONFIG" > "$AUTOBAHN_CONFIG.tmp" && mv "$AUTOBAHN_CONFIG.tmp" "$AUTOBAHN_CONFIG"
+fi

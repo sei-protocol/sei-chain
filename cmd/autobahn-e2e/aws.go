@@ -19,7 +19,10 @@ import (
 
 const ubuntuAMD64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 
-var sshUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
+var (
+	sshUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
+	envKeyPattern  = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+)
 
 type awsClient struct {
 	runner  commandRunner
@@ -58,6 +61,16 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	}
 	if !sshUserPattern.MatchString(options.sshUser) {
 		return fmt.Errorf("invalid --ssh-user %q", options.sshUser)
+	}
+	if options.loadHosts == 0 {
+		options.loadHosts = 1
+	}
+	if options.loadHosts < 1 {
+		return fmt.Errorf("--load-hosts must be positive")
+	}
+	nodeEnv, err := parseNodeEnv(options.nodeEnv)
+	if err != nil {
+		return err
 	}
 	for _, name := range []string{"aws", "git", "ssh", "scp"} {
 		if err := a.runner.lookPath(name); err != nil {
@@ -113,6 +126,8 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 			RemoteDir: filepath.Join("/home", options.sshUser, "sei-chain-"+options.name),
 			RepoURL:   repoURL,
 			Ref:       ref,
+			NodeEnv:   nodeEnv,
+			Load:      options.load,
 		},
 	}
 	fail := func(cause error) error {
@@ -225,20 +240,43 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if state.AWS.colocated() {
 		_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready on EC2 instance %s (%s) with four Docker validators.\n", state.Name, state.AWS.InstanceID, state.AWS.PublicIP)
 	} else {
-		_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d validator instances and 1 load instance.\n", state.Name, len(state.AWS.validators()))
+		_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d validator instances and %d load instances.\n", state.Name, len(state.AWS.validators()), len(state.AWS.loadHosts()))
 	}
 	_, _ = fmt.Fprintf(a.stdout, "Grafana: %s  (admin / admin)\n", grafanaPublicURL(state.AWS.PublicIP))
-	if load, ok := state.AWS.loadHost(); ok && !state.AWS.colocated() {
-		_, _ = fmt.Fprintf(a.stdout, "sei-load is not running. Start it on the load instance when you want traffic:\n")
-		_, _ = fmt.Fprintf(a.stdout, "  ssh -i %s %s@%s\n", expandHome(state.AWS.SSHKeyPath), state.AWS.SSHUser, load.PublicIP)
-		_, _ = fmt.Fprintf(a.stdout, "  cd %s && GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@%s\n", state.AWS.RemoteDir, seiLoadVersion)
+	if !state.AWS.colocated() {
+		_, _ = fmt.Fprintf(a.stdout, "sei-load is not running. Start it on each load instance when you want traffic:\n")
+		for _, load := range state.AWS.loadHosts() {
+			_, _ = fmt.Fprintf(a.stdout, "  ssh -i %s %s@%s\n", expandHome(state.AWS.SSHKeyPath), state.AWS.SSHUser, load.PublicIP)
+		}
+		_, _ = fmt.Fprintf(a.stdout, "  cd %s && GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@%s\n", state.AWS.RemoteDir, state.AWS.Load.version())
 		_, _ = fmt.Fprintf(a.stdout, "  ./build/tools/sei-load --config integration_test/autobahn/sei-load.aws.json --metricsListenAddr 0.0.0.0:19698\n")
 	}
 	return nil
 }
 
+// parseNodeEnv turns KEY=VALUE entries into a map, rejecting malformed entries.
+func parseNodeEnv(entries []string) (map[string]string, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	env := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || !envKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("invalid --node-env %q; want KEY=VALUE", entry)
+		}
+		env[key] = value
+	}
+	return env, nil
+}
+
 func (a *application) launchDistributedInstances(ctx context.Context, client awsClient, options deployOptions, state *clusterState, amiID, userDataPath string) error {
-	_, _ = fmt.Fprintf(a.stdout, "Launching %d validator instances and 1 load instance in %s.\n", awsValidatorCount, options.region)
+	loadHosts := max(options.loadHosts, 1)
+	loadInstanceType := options.loadInstanceType
+	if loadInstanceType == "" {
+		loadInstanceType = options.instanceType
+	}
+	_, _ = fmt.Fprintf(a.stdout, "Launching %d validator instances and %d load instances in %s.\n", awsValidatorCount, loadHosts, options.region)
 	var (
 		launchMu     sync.Mutex
 		validatorIDs []string
@@ -247,7 +285,7 @@ func (a *application) launchDistributedInstances(ctx context.Context, client aws
 	// One launch failure must not cancel a sibling run-instances.
 	var launch errgroup.Group
 	launch.Go(func() error {
-		ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
+		ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleValidator, options.instanceType, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
 		if err != nil {
 			return err
 		}
@@ -258,7 +296,7 @@ func (a *application) launchDistributedInstances(ctx context.Context, client aws
 		return a.store().save(*state)
 	})
 	launch.Go(func() error {
-		ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
+		ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleLoad, loadInstanceType, loadHosts, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
 		if err != nil {
 			return err
 		}
@@ -304,7 +342,7 @@ func (a *application) launchDistributedInstances(ctx context.Context, client aws
 
 func (a *application) launchColocatedInstance(ctx context.Context, client awsClient, options deployOptions, state *clusterState, amiID, userDataPath string) error {
 	_, _ = fmt.Fprintf(a.stdout, "Launching 1 colocated instance in %s.\n", options.region)
-	ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleLoad, 1, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
+	ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleLoad, options.instanceType, 1, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
 	if err != nil {
 		return err
 	}
@@ -527,13 +565,13 @@ func (c awsClient) authorizeTCPFromGroup(ctx context.Context, groupID, fromPort,
 	return err
 }
 
-func (c awsClient) runInstances(ctx context.Context, options deployOptions, state clusterState, amiID, userDataPath, role string, count, volumeSize, volumeIOPS, volumeThroughput int) ([]string, error) {
+func (c awsClient) runInstances(ctx context.Context, options deployOptions, state clusterState, amiID, userDataPath, role, instanceType string, count, volumeSize, volumeIOPS, volumeThroughput int) ([]string, error) {
 	name := fmt.Sprintf("sei-autobahn-e2e-%s-%s", options.name, role)
 	runArgs := []string{
 		"ec2", "run-instances",
 		"--image-id", amiID,
 		"--count", strconv.Itoa(count),
-		"--instance-type", options.instanceType,
+		"--instance-type", instanceType,
 		"--key-name", state.AWS.KeyName,
 		"--security-group-ids", state.AWS.SecurityGroupID,
 		"--associate-public-ip-address",
@@ -598,11 +636,6 @@ func hostsFromIDs(role string, ids []string) []awsHost {
 	for i, id := range ids {
 		hosts[i] = awsHost{Role: role, Index: i, InstanceID: id}
 	}
-	if role == awsRoleLoad {
-		for i := range hosts {
-			hosts[i].Index = 0
-		}
-	}
 	return hosts
 }
 
@@ -624,7 +657,7 @@ func assignAWSHosts(validatorIDs, loadIDs []string, infos map[string]instanceAdd
 			PrivateIP:  info.privateIP,
 		})
 	}
-	for _, id := range loadIDs {
+	for i, id := range loadIDs {
 		info, ok := infos[id]
 		if !ok {
 			return nil, fmt.Errorf("missing addresses for load instance %s", id)
@@ -634,6 +667,7 @@ func assignAWSHosts(validatorIDs, loadIDs []string, infos map[string]instanceAdd
 		}
 		hosts = append(hosts, awsHost{
 			Role:       awsRoleLoad,
+			Index:      i,
 			InstanceID: id,
 			PublicIP:   info.publicIP,
 			PrivateIP:  info.privateIP,

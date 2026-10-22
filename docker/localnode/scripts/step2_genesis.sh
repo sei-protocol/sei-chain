@@ -18,9 +18,11 @@ override_genesis '.app_state["staking"]["params"]["bond_denom"]="usei"'
 override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="10000"'
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
-override_genesis '.consensus_params["block"]["max_gas"]="35000000"'
-# Set MaxGasWanted to be 2x of MaxGas, similar to mainnet, in order to avoid false-positive gas related issue reports. 
-override_genesis '.consensus_params["block"]["max_gas_wanted"]="70000000"'
+GENESIS_MAX_GAS=${GENESIS_MAX_GAS:-35000000}
+# MaxGasWanted defaults to 2x MaxGas, similar to mainnet, to avoid false-positive gas related issue reports.
+GENESIS_MAX_GAS_WANTED=${GENESIS_MAX_GAS_WANTED:-$((GENESIS_MAX_GAS * 2))}
+override_genesis ".consensus_params[\"block\"][\"max_gas\"]=\"$GENESIS_MAX_GAS\""
+override_genesis ".consensus_params[\"block\"][\"max_gas_wanted\"]=\"$GENESIS_MAX_GAS_WANTED\""
 # 1500ms, quoted nanoseconds, same encoding as the other genesis durations.
 override_genesis '.autobahn["view_timeout"]="1500000000"'
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
