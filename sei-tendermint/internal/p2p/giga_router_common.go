@@ -850,23 +850,22 @@ func (r *gigaRouterCommon) runInboundMux(
 
 // Validators returns the Autobahn validator set that certified global height n.
 // Before the first CommitQC, FirstBlock resolves to the genesis committee.
-func (r *gigaRouterCommon) Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error) {
+func (r *gigaRouterCommon) Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, error) {
 	first := r.data.Registry().FirstBlock()
 	qc, err := r.data.TryQC(n)
 	var epochIndex atypes.EpochIndex
 	if errors.Is(err, atypes.ErrNotFound) && n == first {
 		epochIndex = 0
 	} else if err != nil {
-		return nil, 0, heightLookupError(n, err)
+		return nil, heightLookupError(n, err)
 	} else {
 		epochIndex = qc.QC().Proposal().EpochIndex()
 	}
 	ep, err := r.data.Registry().EpochByIndex(epochIndex)
 	if err != nil {
-		return nil, 0, heightLookupError(n, err)
+		return nil, heightLookupError(n, err)
 	}
-	vs, err := committeeValidators(ep.Committee())
-	return vs, n, err
+	return committeeValidators(ep.Committee())
 }
 
 // heightLookupError returns the RPC error for a data lookup at global height n.
