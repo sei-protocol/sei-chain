@@ -224,6 +224,51 @@ func TestProxiesTransactionToShardOwnerOverWebSocket(t *testing.T) {
 	require.Equal(t, hexutil.Bytes(raw), proxiedRaw)
 }
 
+// A transaction routed before is routed by its remembered sender, without recovering the signature.
+func TestRoutesARetryByTheRememberedSender(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	remoteHandler := ethrpc.NewServer()
+	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
+		send: func(hexutil.Bytes) common.Hash { return tx.Hash() },
+	}))
+	t.Cleanup(remoteHandler.Stop)
+	remoteServer := httptest.NewServer(remoteHandler)
+	t.Cleanup(remoteServer.Close)
+	remoteClient, err := ethrpc.DialHTTP(remoteServer.URL)
+	require.NoError(t, err)
+	t.Cleanup(remoteClient.Close)
+	backend := &testBackend{proxy: utils.Some(remoteClient)}
+	api := &sendAPI{backend: backend}
+
+	signer := ethtypes.LatestSignerForChainID(tx.ChainId())
+	recovered, err := ethtypes.Sender(signer, tx)
+	require.NoError(t, err)
+	_, err = api.SendRawTransaction(t.Context(), raw)
+	require.NoError(t, err)
+
+	remembered := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	api.senders.put(tx.Hash(), remembered)
+	_, err = api.SendRawTransaction(t.Context(), raw)
+	require.NoError(t, err)
+	require.Equal(t, []common.Address{recovered, remembered}, backend.proxySenders)
+}
+
+func TestSenderCacheKeepsTheNewestGenerations(t *testing.T) {
+	var cache senderCache
+	first := common.Hash{1}
+	cache.put(first, common.Address{1})
+	for i := range 2 * senderCacheCap {
+		cache.put(common.BigToHash(big.NewInt(int64(i)+2)), common.Address{2})
+	}
+	_, ok := cache.get(first)
+	require.False(t, ok)
+	last := common.Hash{9}
+	cache.put(last, common.Address{9})
+	got, ok := cache.get(last)
+	require.True(t, ok)
+	require.Equal(t, common.Address{9}, got)
+}
+
 func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	t.Helper()
 	return testSignedTransactionWithNonce(t, 0)
