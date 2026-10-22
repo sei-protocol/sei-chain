@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -202,7 +203,7 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		7: {MaxCount: 1},
 		8: {MaxCount: 1},
-		6: {MaxCount: 2000, MaxTotalSize: 2048000},
+		6: {MaxCount: 10000, MaxTotalSize: 5242880},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Block.
