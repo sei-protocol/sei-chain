@@ -179,9 +179,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "vm_execution")))
 	}
 
+	// ReturnData and Logs stay unset: EVM RPC serves logs from the receipt and
+	// return data by re-execution.
 	serverRes.GasUsed = res.UsedGas
-	serverRes.ReturnData = res.ReturnData
-	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	return
 }
