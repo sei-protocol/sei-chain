@@ -18,14 +18,16 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
@@ -34,14 +36,13 @@ import (
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 var logger = seilog.NewLogger("db", "db-engine", "pebbledb", "undo")
 
-var _ controller.PrunableStore = (*Database)(nil)
+var _ controllertypes.PrunableStore = (*Database)(nil)
 
 const (
 	// cacheSize bounds the block cache, which holds the filter, index and data blocks a read probes.
@@ -108,16 +109,15 @@ type Database struct {
 	earliestHeight atomic.Uint64
 	openViews      map[uint64]int
 
-	// earliestMu serializes the check, durable write, and publication of earliestHeight.
-	earliestMu sync.Mutex
-
-	// lifecycleMu excludes Resume and Close from queue submissions, pruning and opening views,
-	// and guards closed.
+	// lifecycleMu excludes Resume and Close from queue submissions, pruning, opening views and
+	// reads, and guards closed.
 	lifecycleMu sync.RWMutex
 	closed      bool
 
-	// pruneMu serializes prune passes and guards prunedBucket, the lowest bucket not yet excised.
-	pruneMu      sync.Mutex
+	// historyMu serializes every change to the served history: a resume, a prune pass and a
+	// rollback, each of which moves earliestHeight. It guards prunedBucket, the lowest bucket not
+	// yet excised.
+	historyMu    sync.Mutex
 	prunedBucket uint64
 
 	pending     chan pendingBlock
@@ -129,7 +129,7 @@ type Database struct {
 // pendingBlock is one entry of the write queue: a block, or, with done set, a barrier.
 type pendingBlock struct {
 	version int64
-	prior   []*proto.KVPair
+	changes *gigatypes.StateChangeSet
 	current LiveStateView
 	done    chan struct{}
 }
@@ -305,11 +305,18 @@ func (db *Database) Resume(version int64, current LiveStateView) error {
 	return nil
 }
 
+// Resumed reports whether a Resume has succeeded and the store is not closed.
+func (db *Database) Resumed() bool {
+	return db.head.Load() != nil
+}
+
 func (db *Database) resume(version int64) (uint64, error) {
 	height, err := heightOf(version)
 	if err != nil {
 		return 0, err
 	}
+	db.historyMu.Lock()
+	defer db.historyMu.Unlock()
 	latest := db.latestHeight.Load()
 	if latest > height {
 		return 0, fmt.Errorf("undo: log at %d is ahead of current state at %d", latest, height)
@@ -330,12 +337,11 @@ func (db *Database) resume(version int64) (uint64, error) {
 	return height, nil
 }
 
-// ApplyBlock queues prior balance, nonce, code hash, storage and code values for version,
-// with Delete marking prior absence, and takes ownership of the post-block current view.
-// It panics before a successful Resume or after Close. Unsupported key families and malformed
-// records are fatal write errors.
-func (db *Database) ApplyBlock(version int64, prior []*proto.KVPair, current LiveStateView) {
-	if err := db.enqueue(pendingBlock{version: version, prior: prior, current: current}); err != nil {
+// ApplyBlock queues block version's change set, whose prior values the store records, and takes
+// ownership of the post-block current view. changes is read in the background, so it must not change
+// afterwards; nil means the block changed nothing. It panics before a successful Resume or after Close.
+func (db *Database) ApplyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) {
+	if err := db.enqueue(pendingBlock{version: version, changes: changes, current: current}); err != nil {
 		current.Close()
 		panic(err)
 	}
@@ -372,7 +378,7 @@ func (db *Database) writeInBackground() {
 			close(block.done)
 			continue
 		}
-		if err := db.applyBlock(block.version, block.prior, block.current); err != nil {
+		if err := db.applyBlock(block.version, block.changes, block.current); err != nil {
 			// A block that cannot be written leaves a gap every later read below it would answer wrongly.
 			panic(err)
 		}
@@ -380,8 +386,8 @@ func (db *Database) writeInBackground() {
 }
 
 // applyBlock writes block version and makes current the view reads fall back to.
-func (db *Database) applyBlock(version int64, prior []*proto.KVPair, current LiveStateView) error {
-	height, err := db.writeBlock(version, prior)
+func (db *Database) applyBlock(version int64, changes *gigatypes.StateChangeSet, current LiveStateView) error {
+	height, err := db.writeBlock(version, changes)
 	if err != nil {
 		current.Close()
 		return err
@@ -393,11 +399,11 @@ func (db *Database) applyBlock(version int64, prior []*proto.KVPair, current Liv
 // writeBlock writes block version's records, then moves the latest-height marker to it, and returns
 // the block's height. A crash in between leaves records only above the marker, which the block
 // rewrites when it is applied again.
-func (db *Database) writeBlock(version int64, prior []*proto.KVPair) (height uint64, err error) {
+func (db *Database) writeBlock(version int64, changes *gigatypes.StateChangeSet) (height uint64, err error) {
 	start := time.Now()
 	defer func() {
 		otelMetrics.applyLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
-		otelMetrics.applyRecords.Record(context.Background(), int64(len(prior)))
+		otelMetrics.applyRecords.Record(context.Background(), int64(recordCount(changes)))
 	}()
 	if height, err = heightOf(version); err != nil {
 		return 0, err
@@ -407,18 +413,7 @@ func (db *Database) writeBlock(version int64, prior []*proto.KVPair) (height uin
 	if latest := db.latestHeight.Load(); height != latest+1 {
 		return 0, fmt.Errorf("undo: block %d does not follow the latest applied block %d", height, latest)
 	}
-	if err := validateRecords(prior); err != nil {
-		return 0, err
-	}
-	bucket := height / db.bucketSize
-
-	// Pebble inserts a batch into the memtable on one goroutine, and concurrent batches
-	// concurrently, so the records go out as batches committed in parallel.
-	var g errgroup.Group
-	for records := range slices.Chunk(prior, max(minBatchRecords, (len(prior)+writeParallelism-1)/writeParallelism)) {
-		g.Go(func() error { return db.writeRecords(records, bucket, height) })
-	}
-	if err := g.Wait(); err != nil {
+	if err := db.writeRecords(changes, height/db.bucketSize, height); err != nil {
 		return 0, err
 	}
 	if err := writeMarker(db.storage, latestVersionKey, height, pebble.NoSync); err != nil {
@@ -427,46 +422,133 @@ func (db *Database) writeBlock(version int64, prior []*proto.KVPair) (height uin
 	return height, nil
 }
 
-// validateRecords checks that every prior record has a supported EVM key and value length.
-func validateRecords(prior []*proto.KVPair) error {
-	for _, pair := range prior {
-		if pair == nil {
-			return errors.New("undo: nil prior record")
+// recordCount returns how many records changes writes: one per key it changed, and two per code
+// change, which changes the code hash too.
+func recordCount(changes *gigatypes.StateChangeSet) int {
+	if changes == nil {
+		return 0
+	}
+	return len(changes.Balances) + len(changes.Nonces) + 2*len(changes.Code) + len(changes.Storage)
+}
+
+// writeRecords writes a record of the value before the block at height of every key changes writes,
+// absent for a key that held a zero value or none. A storage clear writes none: it only clears accounts
+// created in the same transaction, whose storage was empty.
+func (db *Database) writeRecords(changes *gigatypes.StateChangeSet, bucket, height uint64) error {
+	if changes == nil {
+		return nil
+	}
+	w := &recordWriter{
+		db:     db,
+		bucket: bucket,
+		height: height,
+		size:   max(minBatchRecords, (recordCount(changes)+writeParallelism-1)/writeParallelism),
+	}
+	for _, change := range changes.Balances {
+		var balance [wordLen]byte
+		if change.PriorBalance != nil {
+			change.PriorBalance.FillBytes(balance[:])
 		}
-		keyLen, valueLen := keyLayout(pair.Key)
-		if keyLen == 0 {
-			return fmt.Errorf("undo: unsupported EVM key %x", pair.Key)
+		w.add(BalanceKeyPrefix[0], change.Address[:], nil, nonZero(balance[:]))
+	}
+	for _, change := range changes.Nonces {
+		var nonce [8]byte
+		binary.BigEndian.PutUint64(nonce[:], change.PriorNonce)
+		w.add(NonceKeyPrefix[0], change.Address[:], nil, nonZero(nonce[:]))
+	}
+	for _, change := range changes.Code {
+		// Code is absent only when empty: zero bytes are valid code.
+		var code, codeHash []byte
+		if len(change.PriorCode) != 0 {
+			code, codeHash = change.PriorCode, crypto.Keccak256(change.PriorCode)
 		}
-		if len(pair.Key) != keyLen {
-			return fmt.Errorf("undo: key %x has length %d, want %d", pair.Key, len(pair.Key), keyLen)
-		}
-		if !pair.Delete && valueLen >= 0 && len(pair.Value) != valueLen {
-			return fmt.Errorf("undo: value for key %x has length %d, want %d", pair.Key, len(pair.Value), valueLen)
+		w.add(CodeHashKeyPrefix[0], change.Address[:], nil, codeHash)
+		w.add(CodeKeyPrefix[0], change.Address[:], nil, code)
+	}
+	for _, change := range changes.Storage {
+		w.add(StateKeyPrefix[0], change.Address[:], change.Key[:], nonZero(change.PriorValue[:]))
+	}
+	return w.finish()
+}
+
+// nonZero returns value, or nil when it is empty or all zeros.
+func nonZero(value []byte) []byte {
+	for _, b := range value {
+		if b != 0 {
+			return value
 		}
 	}
 	return nil
 }
 
-// writeRecords commits the records of prior, all written by the block at height, as one batch.
-func (db *Database) writeRecords(prior []*proto.KVPair, bucket, height uint64) error {
-	b := db.storage.NewBatch()
-	defer func() { _ = b.Close() }()
-	for _, pair := range prior {
-		d := b.SetDeferred(recordKeyLen(pair.Key), valueLen(pair))
-		encodeRecordKey(d.Key, bucket, pair.Key, height)
-		encodeValue(d.Value, pair)
-		if err := d.Finish(); err != nil {
-			return fmt.Errorf("undo: stage record: %w", err)
+// recordWriter stages one block's records into batches of size records, each committed in the
+// background once full. Pebble inserts a batch into the memtable on one goroutine, and concurrent
+// batches concurrently, so a large block goes out as batches committed in parallel.
+type recordWriter struct {
+	db             *Database
+	bucket, height uint64
+	size           int
+
+	batch  *pebble.Batch
+	staged int
+	err    error
+	g      errgroup.Group
+}
+
+// add stages the record of the key prefix | addr | slot, holding value, or absent when value is nil.
+func (w *recordWriter) add(prefix byte, addr, slot, value []byte) {
+	if w.err != nil {
+		return
+	}
+	if w.batch == nil {
+		w.batch = w.db.storage.NewBatch()
+	}
+	var buf [storageKeyLen]byte
+	buf[0] = prefix
+	key := buf[:1+copy(buf[1:], addr)+copy(buf[1+len(addr):], slot)]
+	d := w.batch.SetDeferred(recordKeyLen(key), 1+len(value))
+	encodeRecordKey(d.Key, w.bucket, key, w.height)
+	d.Value[0] = valueAbsent
+	if value != nil {
+		d.Value[0] = valuePresent
+		copy(d.Value[1:], value)
+	}
+	if err := d.Finish(); err != nil {
+		w.err = fmt.Errorf("undo: stage record: %w", err)
+		return
+	}
+	if w.staged++; w.staged == w.size {
+		w.commit()
+	}
+}
+
+// commit commits the staged batch in the background.
+func (w *recordWriter) commit() {
+	b, height := w.batch, w.height
+	w.batch, w.staged = nil, 0
+	w.g.Go(func() error {
+		defer func() { _ = b.Close() }()
+		if err := b.Commit(pebble.NoSync); err != nil {
+			return fmt.Errorf("undo: commit block %d: %w", height, err)
+		}
+		return nil
+	})
+}
+
+// finish commits what is still staged and waits for every batch.
+func (w *recordWriter) finish() error {
+	if w.batch != nil {
+		if w.err != nil {
+			_ = w.batch.Close()
+		} else {
+			w.commit()
 		}
 	}
-	if err := b.Commit(pebble.NoSync); err != nil {
-		return fmt.Errorf("undo: commit block %d: %w", height, err)
-	}
-	return nil
+	return errors.Join(w.err, w.g.Wait())
 }
 
 // head is a current-state view and the height it describes. The store holds one reference and
-// every view pinning it holds another; the last one released closes the view.
+// every read in flight holds another; the last one released closes the view.
 type head struct {
 	height uint64
 	view   LiveStateView
@@ -507,12 +589,10 @@ func (db *Database) acquireHead() *head {
 	}
 }
 
-// View reads the store at one height. It pins the current-state view it falls back to and the
-// buckets it reads, holding back both the state commit store and pruning, so it must be closed
-// promptly.
+// View reads the store at one height. It pins the buckets it reads, holding back pruning, so it must
+// be closed promptly. Its reads fail once the database is closed.
 type View struct {
 	db        *Database
-	head      *head
 	height    uint64
 	closeOnce sync.Once
 
@@ -521,7 +601,7 @@ type View struct {
 }
 
 // OpenView returns a view of the state after block version, and false when the store is closed or
-// does not serve version. The caller must close the view before closing the database.
+// does not serve version.
 func (db *Database) OpenView(version int64) (*View, bool) {
 	db.lifecycleMu.RLock()
 	defer db.lifecycleMu.RUnlock()
@@ -532,15 +612,10 @@ func (db *Database) OpenView(version int64) (*View, bool) {
 	if err != nil {
 		return nil, false
 	}
-	h := db.acquireHead()
-	if h == nil {
+	if h := db.head.Load(); h == nil || height > h.height || !db.pinHeight(height) {
 		return nil, false
 	}
-	if height > h.height || !db.pinHeight(height) {
-		h.release()
-		return nil, false
-	}
-	v := &View{db: db, head: h, height: height}
+	v := &View{db: db, height: height}
 	v.closed = utils.MustClose(v, "undo view")
 	return v, true
 }
@@ -565,22 +640,25 @@ func (db *Database) unpinHeight(height uint64) {
 	}
 }
 
-// Close releases the view's pins. Idempotent.
+// Close releases the view's pin. Idempotent.
 func (v *View) Close() {
 	v.closeOnce.Do(func() {
 		v.closed.Close(v)
-		v.head.release()
-		// Keep the view registered until its live-state reference has been released.
 		v.db.unpinHeight(v.height)
 	})
 }
 
 // Get returns a supported EVM key's value at the view's height, nil when it did not exist.
-// Unsupported or malformed keys return an error.
+// Unsupported or malformed keys, and reads after the database is closed, return an error.
 func (v *View) Get(key []byte) (_ []byte, err error) {
 	keyLen, _ := keyLayout(key)
 	if keyLen == 0 || len(key) != keyLen {
 		return nil, fmt.Errorf("undo: unsupported or malformed EVM key %x", key)
+	}
+	v.db.lifecycleMu.RLock()
+	defer v.db.lifecycleMu.RUnlock()
+	if v.db.closed {
+		return nil, errors.New("undo: read on a closed store")
 	}
 	start := time.Now()
 	probes := 0
@@ -588,7 +666,10 @@ func (v *View) Get(key []byte) (_ []byte, err error) {
 		otelMetrics.getLatency.Record(context.Background(), time.Since(start).Seconds(), successAttr(err))
 		otelMetrics.getProbes.Record(context.Background(), int64(probes))
 	}()
-	h := v.head
+	// The newest head answers a read at any height below it the same way, since every record up to
+	// it is written before it is published.
+	h := v.db.acquireHead()
+	defer h.release()
 	if v.height == h.height {
 		return foundValue(h.view.Get(module, key)), nil
 	}
@@ -638,10 +719,9 @@ func (db *Database) GetEarliestVersion() int64 {
 	return int64(db.earliestHeight.Load()) //nolint:gosec // heights enter the store as int64
 }
 
-// raiseEarliest makes height the lowest served height when it is above the current one.
+// raiseEarliest makes height the lowest served height when it is above the current one. The caller
+// must hold historyMu.
 func (db *Database) raiseEarliest(height uint64) error {
-	db.earliestMu.Lock()
-	defer db.earliestMu.Unlock()
 	if height <= db.earliestHeight.Load() {
 		return nil
 	}
@@ -649,10 +729,9 @@ func (db *Database) raiseEarliest(height uint64) error {
 }
 
 // lowerEarliest makes height the lowest served height when it is below the current one. A rollback
-// below the earliest height leaves no record above height, and a read at height needs none.
+// below the earliest height leaves no record above height, and a read at height needs none. The
+// caller must hold historyMu.
 func (db *Database) lowerEarliest(height uint64) error {
-	db.earliestMu.Lock()
-	defer db.earliestMu.Unlock()
 	if height >= db.earliestHeight.Load() {
 		return nil
 	}
@@ -660,7 +739,7 @@ func (db *Database) lowerEarliest(height uint64) error {
 }
 
 // setEarliestLocked durably records height as the lowest served height, then publishes it.
-// The caller must hold earliestMu.
+// The caller must hold historyMu.
 func (db *Database) setEarliestLocked(height uint64) error {
 	if err := writeMarker(db.storage, earliestVersionKey, height, pebble.Sync); err != nil {
 		return fmt.Errorf("undo: record earliest height %d: %w", height, err)
@@ -701,8 +780,8 @@ func (db *Database) PruneHistory(blockNumber uint64) error {
 	if blockNumber == 0 || head == 0 {
 		return nil
 	}
-	db.pruneMu.Lock()
-	defer db.pruneMu.Unlock()
+	db.historyMu.Lock()
+	defer db.historyMu.Unlock()
 	if err := db.raiseEarliest(min(blockNumber, head)); err != nil {
 		return err
 	}
@@ -773,6 +852,8 @@ func DiscardStateAbove(dataDir string, cfg config.StateStoreConfig, target int64
 // lowers the earliest served height to it. Buckets above target's are excised and target's own
 // bucket is scanned.
 func (db *Database) discardAbove(target uint64) error {
+	db.historyMu.Lock()
+	defer db.historyMu.Unlock()
 	latest := db.latestHeight.Load()
 	if latest < target {
 		return nil
@@ -848,19 +929,13 @@ func (db *Database) deleteRecordsAbove(bucket uint64, height uint64) error {
 	return b.Commit(pebble.Sync)
 }
 
-// Close drains the write queue, releases the current-state view and closes Pebble. If views are
-// still open, it leaves the database open and returns an error; close the views and retry. Idempotent.
+// Close drains the write queue, releases the current-state view and closes Pebble. Views still open
+// fail their reads from then on. Idempotent.
 func (db *Database) Close() error {
 	db.lifecycleMu.Lock()
 	defer db.lifecycleMu.Unlock()
 	if db.closed {
 		return nil
-	}
-	db.mu.Lock()
-	hasOpenViews := len(db.openViews) != 0
-	db.mu.Unlock()
-	if hasOpenViews {
-		return errors.New("undo: cannot close with open views")
 	}
 	db.closed = true
 	close(db.pending)
@@ -870,22 +945,6 @@ func (db *Database) Close() error {
 		h.release()
 	}
 	return db.storage.Close()
-}
-
-func valueLen(pair *proto.KVPair) int {
-	if pair.Delete {
-		return 1
-	}
-	return 1 + len(pair.Value)
-}
-
-func encodeValue(dst []byte, pair *proto.KVPair) {
-	if pair.Delete {
-		dst[0] = valueAbsent
-		return
-	}
-	dst[0] = valuePresent
-	copy(dst[1:], pair.Value)
 }
 
 // decodeValue returns a copy of the value a record holds, nil when the key did not exist.

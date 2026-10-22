@@ -16,6 +16,7 @@ import (
 type subscribeAPI struct {
 	backend Backend
 	store   receipt.ReceiptStore
+	limits  *subscriptionLimiter
 }
 
 // NewHeads serves eth_subscribe("newHeads"), pushing one Ethereum header per
@@ -29,7 +30,17 @@ func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, er
 	if err != nil {
 		return nil, err
 	}
+	// A WebSocket peer's address is unique among open connections.
+	connection := ethrpc.PeerInfoFromContext(ctx).RemoteAddr
+	if err := api.limits.acquireNewHeads(connection); err != nil {
+		return nil, err
+	}
 	rpcSub := notifier.CreateSubscription()
+	go func() {
+		// Err closes on eth_unsubscribe and when the connection drops.
+		<-rpcSub.Err()
+		api.limits.releaseNewHeads(connection)
+	}()
 	// The cursor is taken before the stream goroutine starts so a block committed
 	// in between is not skipped.
 	last := executed.Load().Latest().Number

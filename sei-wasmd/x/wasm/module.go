@@ -129,7 +129,7 @@ type AppModule struct {
 // module. It should be incremented on each consensus-breaking change
 // introduced by the module. To avoid wrong/empty versions, the initial version
 // should be set to 1.
-func (AppModule) ConsensusVersion() uint64 { return 1 }
+func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // NewAppModule creates a new AppModule object
 func NewAppModule(
@@ -146,8 +146,11 @@ func NewAppModule(
 }
 
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(keeper.NewDefaultPermissionKeeper(am.keeper)))
+	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(cfg.QueryServer(), NewQuerier(am.keeper))
+
+	m := keeper.NewMigrator(*am.keeper)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
 }
 
 func (am AppModule) LegacyQuerierHandler(amino *codec.LegacyAmino) sdk.Querier { //nolint:staticcheck
@@ -159,7 +162,7 @@ func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {}
 
 // Route returns the message routing key for the wasm module.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(RouterKey, NewHandler(keeper.NewDefaultPermissionKeeper(am.keeper)))
+	return sdk.NewRoute(RouterKey, NewHandler(am.keeper))
 }
 
 // QuerierRoute returns the wasm module's querier route name.

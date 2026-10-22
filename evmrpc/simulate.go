@@ -34,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -378,6 +379,9 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
 		return b.keeper.GetReceipt(sdkCtx, txHash)
 	})
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		return false, nil, common.Hash{}, 0, 0, nil
+	}
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
@@ -418,26 +422,12 @@ func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
 }
 
-func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
-	blockNum := bn.Int64()
-	switch blockNum {
-	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
-		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
-	case rpc.EarliestBlockNumber.Int64():
-		genesisRes, err := b.tmClient.Genesis(context.Background())
-		if err != nil {
-			panic("could not get genesis info from tendermint")
-		}
-		blockNum = genesisRes.Genesis.InitialHeight
-	case rpc.PendingBlockNumber.Int64():
-		panic("tracing on pending block is not supported")
-	}
-	return blockNum
-}
-
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum := b.ConvertBlockNumber(bn)
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	heightPtr, err := getBlockNumber(ctx, b.tmClient, bn)
+	if err != nil {
+		return nil, nil, err
+	}
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -797,7 +787,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
+	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -884,8 +874,8 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.PrecompiledContract {
-	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+	return b.keeper.CustomPrecompiles()
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {

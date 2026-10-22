@@ -57,12 +57,11 @@ type Store struct {
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
 
+	enableStateProof bool
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
-	// subspaceQuerySem bounds concurrent /subspace scans on the SS fast path only.
-	// The commitment path is reached with SS disabled or a proof requested, where
-	// the pair/byte caps are the only bound.
+	// subspaceQuerySem bounds concurrent /subspace scans. Only the SS path serves /subspace.
 	subspaceQuerySem chan struct{}
 	subspaceLimits   query.Limits
 
@@ -167,6 +166,7 @@ func NewStore(
 			MaxPairs: scConfig.SubspaceMaxPairs,
 			MaxBytes: scConfig.SubspaceMaxBytes,
 		},
+		enableStateProof:   scConfig.EnableStateProof,
 		hashLoggerConfig:   scConfig.HashLogger,
 		hashLogger:         hashLogger,
 		hashLoggerDisabled: !hashLoggingOn,
@@ -1026,22 +1026,28 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	req.Path = subPath
 	req.Height = version // keep downstream store.Query height consistent
 
+	if subPath == "/subspace" {
+		if rs.ssStore == nil {
+			return rs.rejectSubspaceWithoutSS(ctx)
+		}
+		if err := rs.admitSubspaceQuery(ctx); err != nil {
+			return sdkerrors.QueryResult(err)
+		}
+		defer rs.releaseSubspaceQueryPermit()
+	}
+
 	needProof := req.Prove && rootmulti.RequireProof(subPath)
 	latest := version == rs.scStore.Version()
+	if needProof {
+		if err := rs.admitProofQuery(ctx, storeName, latest); err != nil {
+			return sdkerrors.QueryResult(err)
+		}
+	}
 
 	// Fast path: no proof + SS enabled
 	if !needProof && rs.ssStore != nil {
 		if err := rs.validateSSReadVersion(version); err != nil {
 			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()))
-		}
-		if req.Path == "/subspace" {
-			if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
-				storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
-					attribute.String("reason", "semaphore"),
-				))
-				return sdkerrors.QueryResult(err)
-			}
-			defer rs.releaseSubspaceQueryPermit()
 		}
 		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version, rs.subspaceLimits))
 		return rs.finishSubspaceQuery(ctx, req, store.Query(ctx, req))
@@ -1104,6 +1110,40 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	}
 
 	return res
+}
+
+// admitProofQuery rejects deprecated state proofs unless this node explicitly enables them, and records
+// each rejection by store and by whether the query was at the latest height.
+func (rs *Store) admitProofQuery(ctx context.Context, storeName string, latest bool) error {
+	if rs.enableStateProof {
+		return nil
+	}
+	storev2Metrics.stateProofRejected.Add(ctx, 1, otelmetric.WithAttributes(
+		attribute.String("store", storeName),
+		attribute.Bool("latest", latest),
+	))
+	return errors.Wrap(sdkerrors.ErrNotSupported, "state proofs are disabled on this node; set state-commit.sc-enable-state-proof = true to enable")
+}
+
+// admitSubspaceQuery takes a /subspace permit, or records the rejection and returns why it failed.
+// The caller must release a taken permit. The permits bound concurrent /subspace scans.
+func (rs *Store) admitSubspaceQuery(ctx context.Context) error {
+	if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
+		storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+			attribute.String("reason", "semaphore"),
+		))
+		return err
+	}
+	return nil
+}
+
+// rejectSubspaceWithoutSS refuses a /subspace query on a node with SS disabled and records the
+// rejection. /subspace is served only from the state store.
+func (rs *Store) rejectSubspaceWithoutSS(ctx context.Context) abci.ResponseQuery {
+	storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+		attribute.String("reason", "ss_disabled"),
+	))
+	return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrNotSupported, "subspace queries require the state store"))
 }
 
 func (rs *Store) tryAcquireSubspaceQueryPermit() error {

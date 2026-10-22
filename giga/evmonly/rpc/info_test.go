@@ -27,7 +27,7 @@ func TestBlockNumber(t *testing.T) {
 
 func TestBlockNumberEndToEnd(t *testing.T) {
 	backend := &testBackend{blockNumber: func() uint64 { return 42 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -49,7 +49,7 @@ func TestChainId(t *testing.T) {
 
 func TestChainIdEndToEnd(t *testing.T) {
 	backend := &testBackend{chainID: func() uint64 { return 713715 }}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -71,7 +71,7 @@ func TestSyncing(t *testing.T) {
 }
 
 func TestSyncingEndToEnd(t *testing.T) {
-	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(&testBackend{}, evmonly.NewMemoryReceiptStore(), noRPCLimits)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -472,7 +472,7 @@ func TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported(t *testing.T) {
 	}
 	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes.
+	// 33 is not in gigareceipt.DefaultRewardPercentiles, so this recomputes.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
@@ -495,7 +495,7 @@ func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 	}
 	api := &infoAPI{backend: backend, store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes from receipts.
+	// 33 is not in gigareceipt.DefaultRewardPercentiles, so this recomputes from receipts.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)

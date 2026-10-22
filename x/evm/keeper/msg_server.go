@@ -179,9 +179,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "vm_execution")))
 	}
 
+	// ReturnData and Logs stay unset: EVM RPC serves logs from the receipt and
+	// return data by re-execution.
 	serverRes.GasUsed = res.UsedGas
-	serverRes.ReturnData = res.ReturnData
-	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	return
 }
@@ -230,7 +230,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(msg)
 
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles())
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
 	return executeEVMStateTransition(ctx, evmInstance, st)

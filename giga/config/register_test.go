@@ -21,6 +21,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagStorageReceipts,
 		FlagStorageRollbackWindow,
 		FlagStorageLookbackWindow,
+		FlagStorageStateStoreBackend,
 		FlagStoragePruneInterval,
 		FlagStorageCheckpointTimeInterval,
 		FlagStorageCheckpointBlockInterval,
@@ -30,6 +31,14 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 		FlagExecutionBlockResultPoolSize,
 		FlagExecutionEvmRpcPort,
 		FlagExecutionEvmWsPort,
+		FlagRPCMaxSubscriptionsNewHead,
+		FlagRPCMaxSubscriptionsPerConnection,
+		FlagRPCMaxRequestBodyBytes,
+		FlagRPCMaxConcurrentRequestBytes,
+		FlagRPCWSAdmissionTimeout,
+		FlagRPCBatchRequestLimit,
+		FlagRPCBatchResponseMaxSize,
+		FlagRPCMaxWSConnections,
 	}
 	sort.Strings(want)
 	require.Equal(t, want, section.Keys)

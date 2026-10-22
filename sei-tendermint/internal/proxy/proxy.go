@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -130,6 +131,79 @@ func (app *Proxy) EvmCode(addr common.Address) ([]byte, error) {
 		return nil, fmt.Errorf("application does not expose EVM code")
 	}
 	return reader.EvmCode(addr), nil
+}
+
+// evmStorageReader is implemented by applications that can read contract
+// storage from their current EVM state.
+type evmStorageReader interface {
+	EvmStorage(common.Address, common.Hash) common.Hash
+}
+
+// EvmStorage returns the value at key in addr's storage in the wrapped
+// application's current EVM state. It errors if that application does not
+// expose EVM storage.
+func (app *Proxy) EvmStorage(addr common.Address, key common.Hash) (common.Hash, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_storage", "sync"))()
+	reader, ok := app.app.(evmStorageReader)
+	if !ok {
+		return common.Hash{}, fmt.Errorf("application does not expose EVM storage")
+	}
+	return reader.EvmStorage(addr, key), nil
+}
+
+// evmHistoryReader is implemented by applications that serve their EVM state
+// after past heights.
+type evmHistoryReader interface {
+	EvmBalanceAt(common.Address, int64) (uint256.Int, error)
+	EvmCodeAt(common.Address, int64) ([]byte, error)
+	EvmNonceAt(common.Address, int64) (uint64, error)
+	EvmStorageAt(common.Address, common.Hash, int64) (common.Hash, error)
+}
+
+var errNoEVMHistory = errors.New("application does not serve historical EVM state")
+
+// EvmBalanceAt returns addr's balance in the wrapped application's EVM state
+// after height. It errors if that application serves no history.
+func (app *Proxy) EvmBalanceAt(addr common.Address, height int64) (uint256.Int, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_balance_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return uint256.Int{}, errNoEVMHistory
+	}
+	return reader.EvmBalanceAt(addr, height)
+}
+
+// EvmCodeAt returns the contract code at addr in the wrapped application's EVM
+// state after height. It errors if that application serves no history.
+func (app *Proxy) EvmCodeAt(addr common.Address, height int64) ([]byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_code_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return nil, errNoEVMHistory
+	}
+	return reader.EvmCodeAt(addr, height)
+}
+
+// EvmNonceAt returns addr's nonce in the wrapped application's EVM state after
+// height. It errors if that application serves no history.
+func (app *Proxy) EvmNonceAt(addr common.Address, height int64) (uint64, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_nonce_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return 0, errNoEVMHistory
+	}
+	return reader.EvmNonceAt(addr, height)
+}
+
+// EvmStorageAt returns the value at key in addr's storage in the wrapped application's EVM state
+// after height. It errors if that application serves no history.
+func (app *Proxy) EvmStorageAt(addr common.Address, key common.Hash, height int64) (common.Hash, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_storage_at", "sync"))()
+	reader, ok := app.app.(evmHistoryReader)
+	if !ok {
+		return common.Hash{}, errNoEVMHistory
+	}
+	return reader.EvmStorageAt(addr, key, height)
 }
 
 // evmChainConfigProvider is implemented by applications that expose the EVM

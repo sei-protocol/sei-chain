@@ -18,7 +18,7 @@ const receiptBackendMarkerVersion = 1
 // must already be normalized.
 func requireSupportedBackend(backend string) error {
 	switch backend {
-	case receiptBackendLittIdx, receiptBackendPebble:
+	case receiptBackendPebble:
 		return nil
 	default:
 		return fmt.Errorf("unsupported receipt store backend: %s", backend)

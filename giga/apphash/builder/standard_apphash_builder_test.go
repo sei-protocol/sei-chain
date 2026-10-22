@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/apphash"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
 )
 
 const testChainID uint64 = 713715
@@ -20,7 +23,7 @@ const testChainID uint64 = 713715
 const publishTimeout = 10 * time.Second
 
 // Every input, in a fixed order.
-var allInputs = []hashInput{blockHashInput, stateHashInput, budInput, receiptHashInput}
+var allInputs = []hashInput{blockHashInput, stateHashInput, budHashInput, receiptHashInput}
 
 // inputValue returns the value tests report for input at blockHeight. A different salt gives a different value.
 func inputValue(input hashInput, blockHeight uint64, salt byte) [32]byte {
@@ -42,7 +45,7 @@ func expectedChain(gigaActivationHeight uint64, first uint64, last uint64) []*ap
 			height,
 			inputValue(blockHashInput, height, 0),
 			inputValue(stateHashInput, height, 0),
-			inputValue(budInput, height, 0),
+			inputValue(budHashInput, height, 0),
 			inputValue(receiptHashInput, height, 0),
 			previous,
 		)
@@ -62,17 +65,52 @@ func openTestBuilder(
 	gigaActivationHeight uint64,
 ) *StandardAppHashBuilder {
 	t.Helper()
-	b, err := openBuilder(dir, chainID, gigaActivationHeight)
+	b, err := openBuilder(t.Context(), dir, chainID, gigaActivationHeight)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { _ = closeBuilder(b) })
 	return b
 }
 
 // openBuilder opens a builder over the vault in dir.
-func openBuilder(dir string, chainID uint64, gigaActivationHeight uint64) (*StandardAppHashBuilder, error) {
+func openBuilder(
+	ctx context.Context,
+	dir string,
+	chainID uint64,
+	gigaActivationHeight uint64,
+) (*StandardAppHashBuilder, error) {
+	config := testConfig(dir, gigaActivationHeight)
+	config.ChainID = chainID
+	return openBuilderWithConfig(ctx, config)
+}
+
+// openBuilderWithConfig opens the hash vault config.HashVaultConfig names, and a builder over it. closeBuilder()
+// closes both.
+func openBuilderWithConfig(ctx context.Context, config AppHashBuilderConfig) (*StandardAppHashBuilder, error) {
+	hashVault, err := vault.NewStandardHashVault(
+		config.HashVaultConfig, config.ChainID, config.GigaActivationHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open hash vault: %w", err)
+	}
+	b, err := NewStandardAppHashBuilder(ctx, config, hashVault)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("failed to open app hash builder: %w", err), hashVault.Close())
+	}
+	return b, nil
+}
+
+// closeBuilder closes b, then the hash vault it was opened over.
+func closeBuilder(b *StandardAppHashBuilder) error {
+	return errors.Join(b.Close(), b.vault.Close())
+}
+
+// testConfig returns the default configuration for the test chain, with its hash vault in dir and its giga activation
+// at gigaActivationHeight.
+func testConfig(dir string, gigaActivationHeight uint64) AppHashBuilderConfig {
 	config := DefaultAppHashBuilderConfig()
+	config.ChainID = testChainID
+	config.GigaActivationHeight = gigaActivationHeight
 	config.HashVaultConfig.Path = dir
-	return NewStandardAppHashBuilder(config, chainID, gigaActivationHeight)
+	return config
 }
 
 // reportInput reports input's value for blockHeight.
@@ -85,9 +123,9 @@ func reportInput(t *testing.T, b AppHashBuilder, input hashInput, blockHeight ui
 	case blockHashInput:
 		err = b.ReportBlockHash(ctx, blockHeight, value)
 	case stateHashInput:
-		err = b.ReportStateHash(ctx, blockHeight, value)
-	case budInput:
-		err = b.ReportBUD(ctx, blockHeight, value)
+		err = b.ReportStateHash(ctx, blockHeight, value, nil)
+	case budHashInput:
+		err = b.ReportBUDHash(ctx, blockHeight, value)
 	case receiptHashInput:
 		err = b.ReportReceiptHash(ctx, blockHeight, value)
 	}
@@ -173,8 +211,16 @@ func requireSameAppHashes(t *testing.T, expected []*apphash.AppHashData, actual 
 	t.Helper()
 	require.Len(t, actual, len(expected))
 	for i := range expected {
-		require.Equal(t, expected[i].Serialize(), actual[i].Serialize(), "app hash %d", i)
+		require.Equal(t, mustSerialize(t, expected[i]), mustSerialize(t, actual[i]), "app hash %d", i)
 	}
+}
+
+// mustSerialize returns the serialization of appHash.
+func mustSerialize(t *testing.T, appHash *apphash.AppHashData) []byte {
+	t.Helper()
+	data, err := appHash.Serialize()
+	require.NoError(t, err)
+	return data
 }
 
 // buildChain builds blocks 1 through last on a fresh vault in dir with giga activation height 1, then closes the
@@ -186,7 +232,7 @@ func buildChain(t *testing.T, dir string, last uint64) {
 	_, published := registerListener(t, b)
 	reportBlocks(t, b, 1, last)
 	receive(t, published, int(last))
-	require.NoError(t, b.Close())
+	require.NoError(t, closeBuilder(b))
 }
 
 func TestBuildsChainFromEmptyVault(t *testing.T) {
@@ -210,7 +256,7 @@ func TestWaitsForEveryInput(t *testing.T) {
 	// Each input reports its blocks in a burst, so the inputs run far apart.
 	reportInputBlocks(t, b, stateHashInput, 1, 5)
 	reportInputBlocks(t, b, blockHashInput, 1, 5)
-	reportInputBlocks(t, b, budInput, 1, 5)
+	reportInputBlocks(t, b, budHashInput, 1, 5)
 	requireNothingPublished(t, published)
 
 	reportInputBlocks(t, b, receiptHashInput, 1, 3)
@@ -301,7 +347,7 @@ func TestSetupFailsWhenABlockCannotBeComputed(t *testing.T) {
 	b := openTestBuilder(t, dir, testChainID, 1)
 	reportInputBlocks(t, b, blockHashInput, 6, 8)
 	reportInputBlocks(t, b, stateHashInput, 6, 8)
-	reportInputBlocks(t, b, budInput, 6, 8)
+	reportInputBlocks(t, b, budHashInput, 6, 8)
 	require.Error(t, b.SetupComplete(context.Background(), 8))
 
 	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
@@ -347,7 +393,7 @@ func TestRestartWithGigaActivationHeight(t *testing.T) {
 	_, published := registerListener(t, b)
 	reportBlocks(t, b, gigaActivationHeight, gigaActivationHeight+3)
 	receive(t, published, 4)
-	require.NoError(t, b.Close())
+	require.NoError(t, closeBuilder(b))
 
 	reopened := openTestBuilder(t, dir, testChainID, gigaActivationHeight)
 	require.NoError(t, reopened.SetupComplete(context.Background(), gigaActivationHeight-1))
@@ -365,25 +411,15 @@ func TestOutOfOrderReportStopsBuilder(t *testing.T) {
 
 	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
 	require.Error(t, err)
-	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}))
+	require.Error(t, b.ReportStateHash(context.Background(), 1, [32]byte{}, nil))
 	require.Error(t, b.SetupComplete(context.Background(), 0))
-}
-
-func TestFailedBuilderReleasesHashVault(t *testing.T) {
-	dir := t.TempDir()
-	b := openTestBuilder(t, dir, testChainID, 1)
-	reportInput(t, b, blockHashInput, 4, 0)
-	reportInput(t, b, blockHashInput, 6, 0)
-	b.wg.Wait()
-
-	openTestBuilder(t, dir, testChainID, 1)
 }
 
 func TestFirstReportAfterSetupMustFollowStorageHeight(t *testing.T) {
 	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	reportInputBlocks(t, b, budInput, 1, 3)
+	reportInputBlocks(t, b, budHashInput, 1, 3)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
-	reportInput(t, b, budInput, 4, 0)
+	reportInput(t, b, budHashInput, 4, 0)
 
 	_, err := b.RegisterListener(context.Background(), func(*apphash.AppHashData) {})
 	require.Error(t, err)
@@ -431,28 +467,67 @@ func TestIteratorBeyondNewestIsEmpty(t *testing.T) {
 	requireSameAppHashes(t, expectedChain(1, 3, 3), iterateAll(t, b, 3))
 }
 
-func TestPruneKeepsNewestPublishedAppHash(t *testing.T) {
-	b := openTestBuilder(t, t.TempDir(), testChainID, 1)
-	require.NoError(t, b.Prune(context.Background(), 100))
+func TestIteratorFromBelowGigaActivationStartsAtIt(t *testing.T) {
+	b := openTestBuilder(t, t.TempDir(), testChainID, 3)
 	require.NoError(t, b.SetupComplete(context.Background(), 0))
 	_, published := registerListener(t, b)
-	reportBlocks(t, b, 1, 5)
-	receive(t, published, 5)
-	require.NoError(t, b.Prune(context.Background(), 100))
+	reportBlocks(t, b, 3, 5)
+	receive(t, published, 3)
 
-	requireSameAppHashes(t, expectedChain(1, 5, 5), iterateAll(t, b, 5))
+	requireSameAppHashes(t, expectedChain(3, 3, 5), iterateAll(t, b, 1))
+}
+
+func TestOfflineHeadOfEmptyVaultPrecedesGigaActivation(t *testing.T) {
+	head, err := GetLatestBlock(testConfig(t.TempDir(), 5))
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), head)
+}
+
+func TestOfflineHeadIsNewestStoredAppHash(t *testing.T) {
+	dir := t.TempDir()
+	buildChain(t, dir, 3)
+	head, err := GetLatestBlock(testConfig(dir, 1))
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), head)
+}
+
+func TestOfflineHeadFailsWhileBuilderIsOpen(t *testing.T) {
+	dir := t.TempDir()
+	openTestBuilder(t, dir, testChainID, 1)
+	_, err := GetLatestBlock(testConfig(dir, 1))
+	require.Error(t, err)
+}
+
+func TestOfflineHeadRejectsZeroGigaActivationHeight(t *testing.T) {
+	_, err := GetLatestBlock(testConfig(t.TempDir(), 0))
+	require.Error(t, err)
 }
 
 func TestChainIDMismatchFailsStartup(t *testing.T) {
 	dir := t.TempDir()
 	buildChain(t, dir, 3)
-	_, err := openBuilder(dir, testChainID+1, 1)
+	_, err := openBuilder(t.Context(), dir, testChainID+1, 1)
 	require.Error(t, err)
 }
 
 func TestZeroGigaActivationHeightFailsStartup(t *testing.T) {
-	_, err := openBuilder(t.TempDir(), testChainID, 0)
+	_, err := openBuilder(t.Context(), t.TempDir(), testChainID, 0)
 	require.Error(t, err)
+}
+
+func TestCloseStoresQueuedAppHashes(t *testing.T) {
+	dir := t.TempDir()
+	b := openTestBuilder(t, dir, testChainID, 1)
+	require.NoError(t, b.SetupComplete(context.Background(), 0))
+	reportBlocks(t, b, 1, 5)
+	require.NoError(t, closeBuilder(b))
+
+	head, err := GetLatestBlock(testConfig(dir, 1))
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), head)
+	reopened := openTestBuilder(t, dir, testChainID, 1)
+	require.NoError(t, reopened.SetupComplete(context.Background(), 5))
+	requireSameAppHashes(t, expectedChain(1, 1, 5), iterateAll(t, reopened, 1))
 }
 
 func TestCloseStopsBuilder(t *testing.T) {
@@ -469,18 +544,20 @@ const mismatchScenarioEnv = "APPHASH_BUILDER_MISMATCH_SCENARIO"
 // The environment variable naming the vault directory a child test process uses.
 const mismatchDirEnv = "APPHASH_BUILDER_MISMATCH_DIR"
 
-// requireScenarioPanics runs scenario in a child test process and requires it to crash on a changed hash. A panic
-// on the builder goroutine cannot be recovered by the test.
-func requireScenarioPanics(t *testing.T, name string, scenario func(t *testing.T, dir string)) {
+// requireScenarioPanics runs scenario in a child test process and requires it to crash on a changed hash, returning
+// the directory the scenario ran in. A panic on the builder goroutine cannot be recovered by the test.
+func requireScenarioPanics(t *testing.T, name string, scenario func(t *testing.T, dir string)) string {
 	if os.Getenv(mismatchScenarioEnv) == name {
 		scenario(t, os.Getenv(mismatchDirEnv))
-		return
+		require.FailNow(t, "the scenario did not crash")
 	}
+	dir := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$") //nolint:gosec // re-runs this test binary
-	cmd.Env = append(os.Environ(), mismatchScenarioEnv+"="+name, mismatchDirEnv+"="+t.TempDir())
+	cmd.Env = append(os.Environ(), mismatchScenarioEnv+"="+name, mismatchDirEnv+"="+dir)
 	output, err := cmd.CombinedOutput()
 	require.Error(t, err, "the scenario did not crash:\n%s", output)
 	require.Contains(t, string(output), "changed: stored")
+	return dir
 }
 
 func TestChangedInputDuringStartupReplayPanics(t *testing.T) {
@@ -503,7 +580,7 @@ func TestChangedBlockAboveStorageHeightPanics(t *testing.T) {
 		reportInputBlocks(t, b, blockHashInput, 4, 4)
 		reportInputBlocks(t, b, stateHashInput, 4, 4)
 		reportInputBlocks(t, b, receiptHashInput, 4, 4)
-		reportInput(t, b, budInput, 4, 1)
+		reportInput(t, b, budHashInput, 4, 1)
 		// The changed block crashes the process before it is published.
 		receive(t, published, 1)
 	})

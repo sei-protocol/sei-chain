@@ -233,6 +233,46 @@ func TestReactorBasic(t *testing.T) {
 	}
 }
 
+// TestReactorPeersStartWithLoadedRoundState checks that peer routines see the round
+// state loaded at startup rather than the empty one cached at construction, both when
+// the reactor is ready from boot and when it switches to consensus later.
+func TestReactorPeersStartWithLoadedRoundState(t *testing.T) {
+	for _, waitSync := range []bool{false, true} {
+		t.Run(fmt.Sprintf("waitSync=%v", waitSync), func(t *testing.T) {
+			ctx := t.Context()
+			cfg := configSetup(t)
+			state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{Validators: 1, Params: factory.ConsensusParams()})
+			thisConfig, err := config.ResetTestRoot(t.TempDir(), "consensus_reactor_test")
+			require.NoError(t, err)
+			cs := newUnloadedState(t, thisConfig, state, kvstore.NewProxy(), store.NewBlockStore(dbm.NewMemDB()))
+			cs.SetPrivValidator(ctx, utils.Some(privVals[0]))
+
+			// The other node runs no consensus reactor, so its peer state stays at height 0.
+			network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
+			reactor, err := NewReactor(cs.State, network.Nodes()[0].Router, cs.eventBus, waitSync, thisConfig)
+			require.NoError(t, err)
+			reactor.roundStateRefreshInterval = time.Hour
+			blocksSub, err := cs.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
+				ClientID: testSubscriber,
+				Query:    types.EventQueryNewBlock,
+				Limit:    100,
+			})
+			require.NoError(t, err)
+			network.Start(t)
+
+			require.NoError(t, reactor.Start(ctx))
+			t.Cleanup(reactor.Wait)
+			if waitSync {
+				reactor.SwitchToConsensus(cs.GetState(), false)
+			}
+			for range 3 {
+				_, err := blocksSub.Next(ctx)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestReactorWithEvidence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()

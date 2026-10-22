@@ -332,6 +332,27 @@ func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
 	return env.App.EvmNonce(address)
 }
 
+// EvmTransactionCountAt returns the address transaction count (nonce) in the
+// committed EVM state after height.
+func (env *Environment) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+	return env.App.EvmNonceAt(address, height)
+}
+
+// EvmBalanceAt returns the address balance in the committed EVM state after height.
+func (env *Environment) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
+	return env.App.EvmBalanceAt(address, height)
+}
+
+// EvmCodeAt returns the contract code at address in the committed EVM state after height.
+func (env *Environment) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
+	return env.App.EvmCodeAt(address, height)
+}
+
+// EvmStorageAt returns the value at key in address's storage in the committed EVM state after height.
+func (env *Environment) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+	return env.App.EvmStorageAt(address, key, height)
+}
+
 // EvmBlockNumber returns the height of the most recently committed block.
 func (env *Environment) EvmBlockNumber() uint64 {
 	return utils.Clamp[uint64](env.App.LastBlockHeight())
@@ -351,6 +372,12 @@ func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
 // state.
 func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
 	return env.App.EvmCode(address)
+}
+
+// EvmStorage returns the value at key in address's storage in the current
+// committed EVM state.
+func (env *Environment) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
+	return env.App.EvmStorage(address, key)
 }
 
 // EvmCall executes msg as a read-only call against the current committed EVM

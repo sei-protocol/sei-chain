@@ -8,12 +8,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
+
+// The giga state DB must take each block's change set, or its undo log would silently go without it.
+var _ historyStore = (*giga.StateDB)(nil)
 
 type recordingGigaStore struct {
 	snapshot    gigatypes.StateView
@@ -124,6 +129,14 @@ func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
 
 func (s *memoryGigaSnapshot) Get(string, []byte) ([]byte, bool) {
 	return nil, false
+}
+
+func (s *memoryGigaSnapshot) GetRaw([]byte) ([]byte, bool) {
+	panic("memory giga snapshot holds no physical rows")
+}
+
+func (s *memoryGigaSnapshot) BatchGetRaw([][]byte) map[string][]byte {
+	panic("memory giga snapshot holds no physical rows")
 }
 
 func (s *memoryGigaSnapshot) Close() {
@@ -239,7 +252,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, 1, snapshot.closeCount)
 	require.Equal(t, []int64{41}, store.commitBlock)
 	require.Equal(t, [][]*proto.NamedChangeSet{wantChangesets}, store.commits)
-	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7)})
+	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7), PriorBalance: new(uint256.Int).ToBig()})
 	result.Release()
 }
 
@@ -264,8 +277,9 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 	encoder := func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 		for i, recipient := range recipients {
 			require.Contains(t, changes.Balances, BalanceChange{
-				Address: recipient,
-				Balance: big.NewInt(int64(i + 1)),
+				Address:      recipient,
+				Balance:      big.NewInt(int64(i + 1)),
+				PriorBalance: new(uint256.Int).ToBig(),
 			})
 		}
 		return []*proto.NamedChangeSet{}, nil

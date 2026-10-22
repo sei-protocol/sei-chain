@@ -5,16 +5,15 @@
  * selectors still decode and revert; at an unregistered address the same call would
  * succeed against empty code and return no data.
  *
- * Fixture: a tokenfactory denom created from the admin's cosmos key — x/tokenfactory
- * sets bank denom metadata automatically on creation, which is what the creation path
- * used to require. A refusal here is therefore the retirement rather than the
- * missing-metadata rejection that preceded it.
+ * Fixture: a denom carrying bank metadata, read from the bank module — bank metadata
+ * is what the creation path used to require. A refusal here is therefore the
+ * retirement rather than the missing-metadata rejection that preceded it.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
-import { createTokenfactoryDenom } from '../utils/cosmosUtils';
+import { denomWithMetadata } from '../utils/cosmosUtils';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -46,11 +45,7 @@ describe('pointer precompile (0x100b)', function () {
         pointer = precompileContract('pointer', admin.wallet);
         pointerview = precompileContract('pointerview', provider);
         caller = callerContract(runtime, admin.wallet);
-        // Unique subdenom so reruns against a long-lived devnet never collide.
-        denom = await createTokenfactoryDenom(
-            runtime.funded.adminMnemonic,
-            `ptr${Date.now().toString(36)}`,
-        );
+        denom = await denomWithMetadata();
     });
 
     describe('creation is refused', () => {

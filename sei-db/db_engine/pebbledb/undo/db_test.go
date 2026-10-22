@@ -5,18 +5,21 @@ import (
 	"encoding/binary"
 	"fmt"
 	"maps"
+	"math/big"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 var (
@@ -71,6 +74,34 @@ func (s liveState) Get(_ string, key []byte) ([]byte, bool) {
 
 func (liveState) Close() {}
 
+// priorsOf returns the change set of a block that replaced, for each key of prior, the value prior
+// holds for it, nil for none. A code hash changes only with its code, so it has no entry of its own.
+func priorsOf(t testing.TB, prior map[string][]byte) *gigatypes.StateChangeSet {
+	t.Helper()
+	changes := &gigatypes.StateChangeSet{}
+	for key, old := range prior {
+		addr := common.BytesToAddress([]byte(key[1 : 1+addressLen]))
+		switch key[0] {
+		case BalanceKeyPrefix[0]:
+			changes.Balances = append(changes.Balances, gigatypes.BalanceChange{Address: addr, PriorBalance: new(big.Int).SetBytes(old)})
+		case NonceKeyPrefix[0]:
+			var n uint64
+			if old != nil {
+				n = binary.BigEndian.Uint64(old)
+			}
+			changes.Nonces = append(changes.Nonces, gigatypes.NonceChange{Address: addr, PriorNonce: n})
+		case CodeKeyPrefix[0]:
+			changes.Code = append(changes.Code, gigatypes.CodeChange{Address: addr, PriorCode: old})
+		case StateKeyPrefix[0]:
+			changes.Storage = append(changes.Storage, gigatypes.StorageChange{
+				Address: addr, Key: common.BytesToHash([]byte(key[1+addressLen:])), PriorValue: common.BytesToHash(old)})
+		default:
+			t.Fatalf("no change writes key %x on its own", key)
+		}
+	}
+	return changes
+}
+
 // TestUndoLogByHand spells the store out: the live state after the last block, the value each block
 // replaced, and what a read after each block must return.
 func TestUndoLogByHand(t *testing.T) {
@@ -85,20 +116,18 @@ func TestUndoLogByHand(t *testing.T) {
 	}
 
 	// What each block changed, recorded as the value the key held before the block.
-	was := func(key string, value []byte) *proto.KVPair { return &proto.KVPair{Key: []byte(key), Value: value} }
-	wasAbsent := func(key string) *proto.KVPair { return &proto.KVPair{Key: []byte(key), Delete: true} }
-	blocks := map[int64][]*proto.KVPair{
-		103: {was(balanceKey(alice), word(10))}, // alice 10 -> 15
-		105: {wasAbsent(balanceKey(carol))},     // carol created with 3
-		109: {was(balanceKey(alice), word(15))}, // alice 15 -> 25
-		110: {was(balanceKey(dave), word(1))},   // dave deleted
-		112: {was(balanceKey(alice), word(25))}, // alice 25 -> 80
+	blocks := map[int64]map[string][]byte{
+		103: {balanceKey(alice): word(10)}, // alice 10 -> 15
+		105: {balanceKey(carol): nil},      // carol created with 3
+		109: {balanceKey(alice): word(15)}, // alice 15 -> 25
+		110: {balanceKey(dave): word(1)},   // dave deleted
+		112: {balanceKey(alice): word(25)}, // alice 25 -> 80
 	}
 
 	require.NoError(t, db.Resume(100, live))
 	for height := int64(101); height <= 112; height++ {
 		// Every block is handed the final live state: only the last block's is ever read.
-		db.ApplyBlock(height, blocks[height], live)
+		db.ApplyBlock(height, priorsOf(t, blocks[height]), live)
 	}
 	db.WaitForPendingWrites()
 
@@ -202,30 +231,36 @@ func (c *chain) stateAt(height int64, key string) ([]byte, bool) {
 }
 
 // apply commits one block setting (or, for a nil value, deleting) each key, and feeds its prior
-// values to the store.
+// values to the store. As in the state commit store, a zero value is no value, except for code, which
+// is absent only when empty and carries its code hash.
 func (c *chain) apply(changes map[string][]byte, async bool) {
 	c.mu.Lock()
 	prev := c.states[len(c.states)-1]
 	version := c.base + int64(len(c.states))
 	next := maps.Clone(prev)
-	var prior []*proto.KVPair
-	for key, value := range changes {
-		old, existed := prev[key]
-		prior = append(prior, &proto.KVPair{Key: []byte(key), Value: old, Delete: !existed})
-		if value == nil {
+	prior := map[string][]byte{}
+	set := func(key string, value []byte) {
+		if len(value) == 0 || key[0] != CodeKeyPrefix[0] && nonZero(value) == nil {
 			delete(next, key)
 		} else {
 			next[key] = value
+		}
+	}
+	for key, value := range changes {
+		prior[key] = prev[key]
+		set(key, value)
+		if key[0] == CodeKeyPrefix[0] {
+			set(string(CodeHashKeyPrefix)+key[1:], crypto.Keccak256(value))
 		}
 	}
 	c.states = append(c.states, next)
 	c.mu.Unlock()
 
 	if async {
-		c.db.ApplyBlock(version, prior, c.view(next))
+		c.db.ApplyBlock(version, priorsOf(c.t, prior), c.view(next))
 		return
 	}
-	require.NoError(c.t, c.db.applyBlock(version, prior, c.view(next)))
+	require.NoError(c.t, c.db.applyBlock(version, priorsOf(c.t, prior), c.view(next)))
 }
 
 // read returns key's value after block height through a view of the store.
@@ -307,24 +342,6 @@ func TestReadsFollowTheSpecExample(t *testing.T) {
 	require.Equal(t, []record{
 		{10, balance, 101, nil}, {10, balance, 103, word(10)}, {10, balance, 109, word(15)}, {11, balance, 112, word(25)},
 	}, records(t, c.db))
-}
-
-func TestAbsentAndEmptyValuesStayDistinct(t *testing.T) {
-	c := newChain(t, t.TempDir(), 4, 0)
-	defer func() { require.NoError(t, c.db.Close()) }()
-
-	code := codeKey(contract)
-	c.apply(map[string][]byte{code: {}}, false)                 // 1: created with empty code
-	c.apply(map[string][]byte{code: {0x60, 0x00, 0xf3}}, false) // 2: PUSH1 0x00 RETURN
-	c.apply(map[string][]byte{code: nil}, false)                // 3: deleted
-	c.apply(map[string][]byte{codeKey(account(0xbeef)): {0x00}}, false)
-
-	for h := int64(0); h <= 4; h++ {
-		c.requireRead(h, code)
-	}
-	got := read(t, c.db, 1, code)
-	require.NotNil(t, got)
-	require.Empty(t, got)
 }
 
 func TestRandomHistoryMatchesTheModel(t *testing.T) {
@@ -493,7 +510,7 @@ func TestReadersNeverSeeExcisedHistory(t *testing.T) {
 	t.Logf("%d reads, %d views refused as pruned", reads.Load(), refused.Load())
 }
 
-func TestViewsAreClosedOnceReplacedAndUnpinned(t *testing.T) {
+func TestCurrentStateViewsAreClosedOnceReplaced(t *testing.T) {
 	c := newChain(t, t.TempDir(), 4, 0)
 	key := nonceKey(alice)
 	for h := uint64(1); h <= 10; h++ {
@@ -504,7 +521,7 @@ func TestViewsAreClosedOnceReplacedAndUnpinned(t *testing.T) {
 	pinned, ok := c.db.OpenView(5)
 	require.True(t, ok)
 	c.apply(map[string][]byte{key: nonce(11)}, false)
-	require.Equal(t, c.created.Load()-2, c.closes.Load(), "the pinned view outlives its replacement")
+	require.Equal(t, c.created.Load()-1, c.closes.Load(), "an open view holds no current-state view")
 	got, err := pinned.Get([]byte(key))
 	require.NoError(t, err)
 	require.Equal(t, nonce(5), got)
@@ -550,7 +567,7 @@ func TestNewDatabaseUsesDefaultBucketSize(t *testing.T) {
 	require.Equal(t, uint64(defaultBucketSize), db.bucketSize)
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(0, liveState{}))
-	db.ApplyBlock(1, []*proto.KVPair{{Key: []byte(key), Delete: true}}, liveState{key: nonce(1)})
+	db.ApplyBlock(1, priorsOf(t, map[string][]byte{key: nil}), liveState{key: nonce(1)})
 	db.WaitForPendingWrites()
 	require.Nil(t, read(t, db, 0, key))
 	require.Equal(t, nonce(1), read(t, db, 1, key))
@@ -656,8 +673,7 @@ func TestDiscardStateAboveClearsAHalfWrittenBlock(t *testing.T) {
 			for h := uint64(1); h <= 9; h++ {
 				c.apply(map[string][]byte{slot: word(h)}, false)
 			}
-			stale := []*proto.KVPair{{Key: []byte(slot), Value: word(0xbad)}}
-			require.NoError(t, c.db.writeRecords(stale, 1, 10))
+			require.NoError(t, c.db.writeRecords(priorsOf(t, map[string][]byte{slot: word(0xbad)}), 1, 10))
 			require.NoError(t, c.db.Close())
 
 			require.NoError(t, DiscardStateAbove(dir, testConfig(), target))
@@ -716,38 +732,31 @@ func TestRollbackBelowTheEarliestHeightServesTheTarget(t *testing.T) {
 	require.False(t, ok, "history below the target stays pruned")
 }
 
-func TestConcurrentEarliestChangesKeepDiskAndMemoryConsistent(t *testing.T) {
-	for _, direction := range []string{"raise", "lower"} {
-		t.Run(direction, func(t *testing.T) {
-			db := openTestDB(t, t.TempDir(), 10)
-			defer func() { require.NoError(t, db.Close()) }()
-			for round := uint64(1); round <= 50; round++ {
-				base := round * 100
-				update := db.raiseEarliest
-				want := base + 7
-				if direction == "lower" {
-					require.NoError(t, db.raiseEarliest(base+8))
-					update = db.lowerEarliest
-					want = base
+// Concurrent prunes leave the earliest height the same on disk as in memory: the highest one asked for.
+func TestConcurrentPrunesKeepEarliestOnDiskAndInMemory(t *testing.T) {
+	c := newChain(t, t.TempDir(), 10, 0)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	for h := uint64(1); h <= 100; h++ {
+		c.apply(map[string][]byte{nonceKey(alice): nonce(h)}, false)
+	}
+	for round := uint64(1); round <= 10; round++ {
+		base := round * 8
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for worker := range uint64(8) {
+			wg.Go(func() {
+				<-start
+				if err := c.db.PruneHistory(base + worker); err != nil {
+					t.Error(err)
 				}
-				start := make(chan struct{})
-				var wg sync.WaitGroup
-				for worker := range uint64(8) {
-					wg.Go(func() {
-						<-start
-						if err := update(base + worker); err != nil {
-							t.Error(err)
-						}
-					})
-				}
-				close(start)
-				wg.Wait()
-				onDisk, err := readMarker(db.storage, earliestVersionKey)
-				require.NoError(t, err)
-				require.Equal(t, want, onDisk, "round %d", round)
-				require.Equal(t, onDisk, db.earliestHeight.Load(), "round %d", round)
-			}
-		})
+			})
+		}
+		close(start)
+		wg.Wait()
+		onDisk, err := readMarker(c.db.storage, earliestVersionKey)
+		require.NoError(t, err)
+		require.Equal(t, base+7, onDisk, "round %d", round)
+		require.Equal(t, onDisk, c.db.earliestHeight.Load(), "round %d", round)
 	}
 }
 
@@ -803,7 +812,7 @@ func TestBlocksRequireSuccessfulResume(t *testing.T) {
 
 	key := nonceKey(alice)
 	require.NoError(t, db.Resume(5, liveState{key: nonce(1)}))
-	db.ApplyBlock(6, []*proto.KVPair{{Key: []byte(key), Value: nonce(1)}}, liveState{key: nonce(2)})
+	db.ApplyBlock(6, priorsOf(t, map[string][]byte{key: nonce(1)}), liveState{key: nonce(2)})
 	db.WaitForPendingWrites()
 	require.Equal(t, int64(6), db.GetLatestVersion())
 	require.Equal(t, nonce(1), read(t, db, 5, key))
@@ -836,83 +845,77 @@ func TestCloseWithoutResume(t *testing.T) {
 	require.Zero(t, reopened.GetLatestVersion())
 }
 
-func TestCloseRequiresAllViewsClosed(t *testing.T) {
+// A view open across Close no longer reads, and closing it afterwards is harmless.
+func TestCloseFailsTheReadsOfOpenViews(t *testing.T) {
 	c := newChain(t, t.TempDir(), 4, 0)
-	defer func() { require.NoError(t, c.db.Close()) }()
 	key := nonceKey(alice)
 	c.apply(map[string][]byte{key: nonce(1)}, false)
 	c.apply(map[string][]byte{key: nonce(2)}, false)
-	first, ok := c.db.OpenView(1)
+	v, ok := c.db.OpenView(1)
 	require.True(t, ok)
-	defer first.Close()
-	second, ok := c.db.OpenView(1)
-	require.True(t, ok)
-	defer second.Close()
-	c.apply(map[string][]byte{key: nonce(3)}, false)
 
-	require.ErrorContains(t, c.db.Close(), "open views")
-	first.Close()
-	first.Close()
-	require.ErrorContains(t, c.db.Close(), "open views", "another view at the same height is still open")
-
-	// A refused Close leaves both the existing reader and the write queue usable.
-	c.apply(map[string][]byte{key: nonce(4)}, true)
-	c.db.WaitForPendingWrites()
-	got, err := second.Get([]byte(key))
-	require.NoError(t, err)
-	require.Equal(t, nonce(1), got)
-	require.Equal(t, nonce(4), read(t, c.db, 4, key))
-	require.Equal(t, c.created.Load()-2, c.closes.Load(), "the reader still owns its retired head")
-
-	second.Close()
-	require.NoError(t, c.db.Close(), "Close can be retried after every view is released")
-	require.Equal(t, c.created.Load(), c.closes.Load())
+	require.NoError(t, c.db.Close(), "Close does not wait for open views")
+	require.Equal(t, c.created.Load(), c.closes.Load(), "an open view holds no current-state view")
+	_, err := v.Get([]byte(key))
+	require.ErrorContains(t, err, "closed")
+	v.Close()
+	v.Close()
 	require.NoError(t, c.db.Close())
-	v, ok := c.db.OpenView(4)
+	_, ok = c.db.OpenView(2)
 	require.False(t, ok)
-	require.Nil(t, v)
 }
 
-type blockingCloseView struct {
+// blockingGetView parks its first read until released.
+type blockingGetView struct {
 	LiveStateView
 	started chan struct{}
 	release chan struct{}
+	once    sync.Once
 }
 
-func (v *blockingCloseView) Close() {
-	close(v.started)
-	<-v.release
-	v.LiveStateView.Close()
+func (v *blockingGetView) Get(module string, key []byte) ([]byte, bool) {
+	v.once.Do(func() {
+		close(v.started)
+		<-v.release
+	})
+	return v.LiveStateView.Get(module, key)
 }
 
-func TestCloseRequiresViewReleaseToFinish(t *testing.T) {
+// A read in flight keeps its current-state view open after a newer one replaces it, and Close waits
+// for the read.
+func TestAReadInFlightHoldsItsHead(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 4)
-	defer func() { require.NoError(t, db.Close()) }()
 	var closes atomic.Int64
-	live := &blockingCloseView{
+	live := &blockingGetView{
 		LiveStateView: &mapView{closes: &closes},
 		started:       make(chan struct{}),
 		release:       make(chan struct{}),
 	}
-	unblock := sync.OnceFunc(func() { close(live.release) })
 	require.NoError(t, db.Resume(0, live))
 	v, ok := db.OpenView(0)
 	require.True(t, ok)
 	defer v.Close()
-	defer unblock()
-	db.ApplyBlock(1, nil, &mapView{closes: &closes})
-	db.WaitForPendingWrites()
 
-	done := make(chan struct{})
+	read := make(chan error, 1)
 	go func() {
-		v.Close()
-		close(done)
+		_, err := v.Get([]byte(nonceKey(alice)))
+		read <- err
 	}()
 	<-live.started
-	require.ErrorContains(t, db.Close(), "open views", "the retired live-state view is still being released")
-	unblock()
-	<-done
-	require.NoError(t, db.Close())
+	db.ApplyBlock(1, nil, &mapView{closes: &closes})
+	db.WaitForPendingWrites()
+	require.Zero(t, closes.Load(), "the replaced view stays open while a read uses it")
+
+	closed := make(chan error, 1)
+	go func() { closed <- db.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned %v with a read in flight", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(live.release)
+	require.NoError(t, <-read)
+	require.NoError(t, <-closed)
 	require.Equal(t, int64(2), closes.Load())
 }
 
@@ -926,28 +929,28 @@ func TestOpenViewRacesWithClose(t *testing.T) {
 			c.apply(map[string][]byte{key: nonce(2)}, false)
 			start := make(chan struct{})
 			var v *View
-			var closeErr error
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				<-start
 				v, _ = c.db.OpenView(1)
 			})
-			wg.Go(func() {
+			closed := make(chan error, 1)
+			go func() {
 				<-start
-				closeErr = c.db.Close()
-			})
+				closed <- c.db.Close()
+			}()
 			close(start)
 			wg.Wait()
-			if v == nil {
-				require.NoError(t, closeErr)
-			} else {
-				defer v.Close()
-				require.ErrorContains(t, closeErr, "open views")
-				got, err := v.Get([]byte(key))
-				require.NoError(t, err)
-				require.Equal(t, nonce(1), got, "an admitted view remains readable")
+			if v != nil {
+				// An admitted view reads until Close takes the store away.
+				if got, err := v.Get([]byte(key)); err != nil {
+					require.ErrorContains(t, err, "closed")
+				} else {
+					require.Equal(t, nonce(1), got)
+				}
 				v.Close()
 			}
+			require.NoError(t, <-closed)
 			require.NoError(t, c.db.Close())
 			require.Equal(t, c.created.Load(), c.closes.Load())
 		})
@@ -1066,73 +1069,39 @@ func TestLargeBlocksLandWhole(t *testing.T) {
 	require.Equal(t, slots, atTwo)
 }
 
-func TestValidEVMRecords(t *testing.T) {
+func TestEveryFamilyIsRecorded(t *testing.T) {
 	db := openTestDB(t, t.TempDir(), 10)
 	defer func() { require.NoError(t, db.Close()) }()
-	var prior []*proto.KVPair
-	for _, kind := range evmTypes {
-		_, valueSize := keyLayout([]byte{kind})
-		prior = append(prior,
-			&proto.KVPair{Key: evmKey(kind, 0), Value: make([]byte, max(valueSize, 0))},
-			&proto.KVPair{Key: evmKey(kind, 1), Delete: true},
-		)
-	}
-	require.Zero(t, testing.AllocsPerRun(100, func() {
-		if err := validateRecords(prior); err != nil {
-			t.Fatal(err)
-		}
-	}))
-	height, err := db.writeBlock(1, prior)
+	changes := priorsOf(t, map[string][]byte{
+		balanceKey(alice):       word(1),
+		nonceKey(alice):         nonce(2),
+		codeKey(contract):       {0x60, 0x00},
+		storageKey(contract, 1): word(3),
+	})
+	height, err := db.writeBlock(1, changes)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), height)
-	require.Len(t, records(t, db), len(prior))
+	require.Len(t, records(t, db), recordCount(changes))
+	require.Equal(t, 5, recordCount(changes), "code records its code hash too")
 	db.latestHeight.Store(height)
 
 	// An empty block must still advance the committed height.
 	height, err = db.writeBlock(2, nil)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), height)
-	require.Len(t, records(t, db), len(prior))
+	require.Len(t, records(t, db), 5)
 	latest, err := readMarker(db.storage, latestVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
 }
 
-func TestMalformedEVMRecordsLeaveBlockUnwritten(t *testing.T) {
-	db := openTestDB(t, t.TempDir(), 10)
-	defer func() { require.NoError(t, db.Close()) }()
-	valid := &proto.KVPair{Key: evmKey(CodeKeyPrefix[0], 0), Value: []byte("code")}
-	check := func(name string, bad *proto.KVPair) {
-		t.Run(name, func(t *testing.T) {
-			_, err := db.writeBlock(1, []*proto.KVPair{valid, bad})
-			require.Error(t, err)
-			require.Empty(t, records(t, db), "validation must precede every batch write")
-			latest, err := readMarker(db.storage, latestVersionKey)
-			require.NoError(t, err)
-			require.Zero(t, latest)
-		})
-	}
-	check("nil", nil)
-	check("empty key", &proto.KVPair{})
-	check("unknown type", &proto.KVPair{Key: []byte{0xff}, Delete: true})
-	check("unsupported family", &proto.KVPair{
-		Key: append([]byte{0x09}, make([]byte, addressLen)...), Value: make([]byte, 8),
-	})
-	for _, kind := range evmTypes {
-		key := evmKey(kind, 1)
-		for _, size := range []int{1, len(key) - 1, len(key) + 1} {
-			malformed := make([]byte, size)
-			copy(malformed, key)
-			check(fmt.Sprintf("type=%x/key=%d", kind, size), &proto.KVPair{Key: malformed, Delete: true})
-		}
-		_, valueSize := keyLayout(key)
-		if valueSize < 0 {
-			continue
-		}
-		for _, size := range []int{0, 1, valueSize - 1, valueSize + 1} {
-			check(fmt.Sprintf("type=%x/value=%d", kind, size), &proto.KVPair{Key: key, Value: make([]byte, size)})
-		}
-	}
+func TestZeroByteCodeIsPresent(t *testing.T) {
+	c := newChain(t, t.TempDir(), 10, 0)
+	defer func() { require.NoError(t, c.db.Close()) }()
+	c.apply(map[string][]byte{codeKey(contract): {0x00}}, false)
+	c.apply(map[string][]byte{codeKey(contract): {0x60, 0x00}}, false)
+	c.requireRead(1, codeKey(contract))
+	c.requireRead(1, string(CodeHashKeyPrefix)+codeKey(contract)[1:])
 }
 
 func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
@@ -1140,6 +1109,9 @@ func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	c := newChain(t, dir, 2, 0)
 	initial, updated, deleted := map[string][]byte{}, map[string][]byte{}, map[string][]byte{}
 	for _, kind := range evmTypes {
+		if kind == CodeHashKeyPrefix[0] {
+			continue // written with its code
+		}
 		_, size := keyLayout([]byte{kind})
 		for _, fill := range []byte{0, 0xff} {
 			key := string(evmKey(kind, fill))
@@ -1161,7 +1133,7 @@ func TestEVMFamiliesReadAcrossFlushCompactionAndReopen(t *testing.T) {
 	require.NoError(t, c.db.storage.Flush())
 	require.NoError(t, c.db.storage.Compact(t.Context(), bucketBoundary(0), bucketBoundary(2), true))
 	verify := func() {
-		for key := range initial {
+		for key := range c.states[1] {
 			for h := int64(0); h <= 3; h++ {
 				c.requireRead(h, key)
 			}

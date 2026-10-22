@@ -80,12 +80,117 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
+// newStateProofTestStore opens a store in which bank key "k" is "v1" at height 1 and "v2" at height 2.
+// With ssEnabled, it returns once SS has both heights.
+func newStateProofTestStore(t *testing.T, enableStateProof, ssEnabled bool) *Store {
+	t.Helper()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.EnableStateProof = enableStateProof
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = ssEnabled
+
+	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
+	t.Cleanup(func() { _ = store.Close() })
+
+	store.MountStoreWithDB(types.NewKVStoreKey("bank"), types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	for i, val := range [][]byte{[]byte("v1"), []byte("v2")} {
+		kv := store.GetStoreByName("bank").(types.KVStore)
+		kv.Set([]byte("k"), val)
+		require.Equal(t, int64(i+1), store.Commit(true).Version)
+	}
+	if ssEnabled {
+		waitUntilSSVersion(t, store, 2)
+	}
+	return store
+}
+
+var stateProofTestHeights = []struct {
+	name   string
+	height int64
+	value  []byte
+}{
+	{name: "latest", height: 2, value: []byte("v2")},
+	{name: "historical", height: 1, value: []byte("v1")},
+}
+
+func TestQuery_StateProofDisabledByDefault(t *testing.T) {
+	store := newStateProofTestStore(t, false, false)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  false,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.Equal(t, tc.value, resp.Value)
+
+			resp = store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.Equal(t, uint32(sdkerrors.ErrNotSupported.ABCICode()), resp.Code)
+			require.Contains(t, resp.Log, "state proofs are disabled on this node")
+			require.Contains(t, resp.Log, "state-commit.sc-enable-state-proof")
+		})
+	}
+}
+
+// TestQuery_StateProofDisabledAdmitsProveOnSubspace pins that the guard rejects only paths that
+// produce a proof: on a node that serves /subspace, a /subspace query asking for one is served
+// unproven, as before.
+func TestQuery_StateProofDisabledAdmitsProveOnSubspace(t *testing.T) {
+	store := newStateProofTestStore(t, false, true)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/subspace",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.NotEmpty(t, resp.Value)
+			require.Nil(t, resp.ProofOps)
+		})
+	}
+}
+
+func TestQuery_StateProofEnabledReturnsProofOps(t *testing.T) {
+	store := newStateProofTestStore(t, true, false)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.Equal(t, tc.value, resp.Value)
+			require.NotNil(t, resp.ProofOps)
+			require.NotEmpty(t, resp.ProofOps.Ops)
+		})
+	}
+}
+
 func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	// Enable both SC and SS, but make SC WAL writes synchronous so the
 	// historical proof query below cannot race memIAVL durability.
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = true
 	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	ssCfg := config.DefaultStateStoreConfig()
@@ -482,6 +587,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = true
 	scCfg.HistoricalProofRateLimit = 0
 	scCfg.HistoricalProofMaxInFlight = 1
 	ssCfg := config.DefaultStateStoreConfig()

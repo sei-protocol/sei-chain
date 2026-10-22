@@ -3,7 +3,8 @@ package statewal
 import (
 	"context"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
@@ -19,7 +20,7 @@ import (
 // returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
 // mutate such data must copy it first.
 type StateWAL interface {
-	controller.PrunableStore
+	controllertypes.PrunableStore
 
 	// Write a block's changes to the WAL as a single record.
 	//
@@ -114,7 +115,7 @@ type StateWAL interface {
 }
 
 // A callback that receives the hash of the key-value pairs modified by executing the transactions in a block. Its
-// signature matches AppHashBuilder.ReportBUD(), so that method registers as one directly.
+// signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
 //
 // The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
 type HashListener func(

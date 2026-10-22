@@ -27,10 +27,9 @@ type AppHashData struct {
 	// The hash of the state lattice hash.
 	stateHash [32]byte
 
-	// The "Block Update Digest", aka the hash of
-	// the key-value pairs that changed as a result
-	// of executing this block.
-	bud [32]byte
+	// The BUD hash (Block Update Digest hash): a commitment to the key-value pairs that changed as a result of
+	// executing this block.
+	budHash BUDHash
 
 	// The hash of the transaction receipts
 	// produced by executing this block.
@@ -43,7 +42,14 @@ type AppHashData struct {
 	// The app hash: SHA-256 of appHashDomain followed by the canonical byte format.
 	// It is not itself serialized.
 	appHash [32]byte
+
+	// Whether this is the record of the block before the giga activation height, whose hashes are all zeros by
+	// definition. Such a record cannot be serialized.
+	zeroHash bool
 }
+
+// BUDHash is the hash committing to the key-value changes produced by executing a block.
+type BUDHash [32]byte
 
 // Construct a new AppHashData object at the current schema version.
 func NewAppHashData(
@@ -55,10 +61,9 @@ func NewAppHashData(
 	blockHash [32]byte,
 	// The hash of the state lattice hash.
 	stateHash [32]byte,
-	// The "Block Update Digest", aka the hash of
-	// the key-value pairs that changed as a result
-	// of executing this block.
-	bud [32]byte,
+	// The BUD hash (Block Update Digest hash): a commitment to the key-value pairs that changed as a result of
+	// executing this block.
+	budHash BUDHash,
 	// The hash of the transaction receipts produced by executing this block.
 	receiptHash [32]byte,
 	// The app hash of block (blockHeight-1), or all 0s if this is the first block.
@@ -70,12 +75,28 @@ func NewAppHashData(
 		blockHeight:     blockHeight,
 		blockHash:       blockHash,
 		stateHash:       stateHash,
-		bud:             bud,
+		budHash:         budHash,
 		receiptHash:     receiptHash,
 		previousAppHash: previousAppHash,
 	}
-	ahd.appHash = sha256.Sum256(append([]byte(appHashDomain), ahd.Serialize()...))
+	ahd.appHash = sha256.Sum256(append([]byte(appHashDomain), ahd.canonicalBytes()...))
 	return ahd
+}
+
+// Construct the record of the block before gigaActivationHeight. Every hash it holds, its app hash included, is all
+// zeros. It cannot be serialized.
+func NewZeroAppHashData(
+	// The EVM chain ID of the chain the block belongs to.
+	chainID uint64,
+	// The first block whose app hash is computed. Must be at least 1.
+	gigaActivationHeight uint64,
+) *AppHashData {
+	return &AppHashData{
+		version:     appHashVersion,
+		chainID:     chainID,
+		blockHeight: gigaActivationHeight - 1,
+		zeroHash:    true,
+	}
 }
 
 // Version returns the version of the app hash schema.
@@ -103,10 +124,10 @@ func (ahd *AppHashData) StateHash() [32]byte {
 	return ahd.stateHash
 }
 
-// BUD returns the "Block Update Digest", aka the hash of the key-value pairs that changed as a result of executing
-// this block.
-func (ahd *AppHashData) BUD() [32]byte {
-	return ahd.bud
+// BUDHash returns the BUD hash (Block Update Digest hash): a commitment to the key-value pairs that changed as a
+// result of executing this block.
+func (ahd *AppHashData) BUDHash() BUDHash {
+	return ahd.budHash
 }
 
 // ReceiptHash returns the hash of the transaction receipts produced by executing this block.
@@ -119,7 +140,8 @@ func (ahd *AppHashData) PreviousAppHash() [32]byte {
 	return ahd.previousAppHash
 }
 
-// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format.
+// AppHash returns the app hash: the SHA-256 of appHashDomain followed by the canonical byte format, or all zeros for
+// a record built by NewZeroAppHashData().
 func (ahd *AppHashData) AppHash() [32]byte {
 	return ahd.appHash
 }

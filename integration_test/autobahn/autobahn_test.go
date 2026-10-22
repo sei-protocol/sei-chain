@@ -13,6 +13,7 @@ package autobahn
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,9 +22,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,6 +42,9 @@ import (
 )
 
 const (
+	// setupTimeout bounds TestMain's setup, which runs outside the go test timeout.
+	setupTimeout = 30 * time.Minute
+
 	// Cluster lifecycle (TestMain).
 	clusterBootTimeout  = 5 * time.Minute
 	clusterBootPoll     = 5 * time.Second
@@ -63,8 +69,8 @@ const (
 	// progressTxAccountBase is past the 4_000 deterministic senders EVMOnlyLoad
 	// uses, so a later progress tx is a nonce-0 transfer from a funded account.
 	progressTxAccountBase = 1_000_000
-	// prebuiltImagesEnv selects run-rpc-node-skipbuild-ci for the sidecar, which
-	// runs the already present sei-chain/rpcnode image instead of rebuilding it.
+	// prebuiltImagesEnv selects the -ci make targets, which reuse the prebuilt
+	// sei-chain/localnode and sei-chain/rpcnode images and build/seid.
 	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
 
 	// Fault-tolerance subtests. Execution height is read from each
@@ -87,6 +93,32 @@ const (
 	evmOnlyMetricsURL  = "http://127.0.0.1:26660/metrics"
 	evmOnlyNextBlock   = "tendermint_internal_autobahn_data_next_block"
 	evmOnlyTxLatency   = "tendermint_internal_autobahn_data_latency_count"
+
+	// RPC query checks that run after EVMOnlyLoad's transfers execute.
+	evmOnlyRPCTimeout = 3 * time.Minute
+	evmOnlyRPCPoll    = 200 * time.Millisecond
+	// evmOnlyContractDeployerAccount is past the load and progress-tx senders,
+	// so the contract deploy is the first transaction from its account.
+	evmOnlyContractDeployerAccount = 2_000_000
+	evmOnlyContractGasLimit        = 200_000
+	evmOnlyTransferGas             = 21_000
+)
+
+var (
+	// evmOnlyContractRuntime returns storage slot 0 as one 32-byte word:
+	// PUSH1 0 SLOAD PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN.
+	evmOnlyContractRuntime = []byte{0x60, 0x00, 0x54, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3}
+	// evmOnlyContractInitCode stores evmOnlyContractSlotValue at slot 0, emits
+	// one log with topic evmOnlyContractLogTopic and no data, then deploys
+	// evmOnlyContractRuntime.
+	evmOnlyContractInitCode = append([]byte{
+		0x60, 0x2a, 0x60, 0x00, 0x55, // SSTORE(0, 0x2a)
+		0x60, 0x01, 0x60, 0x00, 0x60, 0x00, 0xa1, // LOG1(0, 0, topic 1)
+		0x60, 0x0b, 0x60, 0x18, 0x60, 0x00, 0x39, // CODECOPY(0, 24, 11)
+		0x60, 0x0b, 0x60, 0x00, 0xf3, // RETURN(0, 11)
+	}, evmOnlyContractRuntime...)
+	evmOnlyContractSlotValue = common.BigToHash(big.NewInt(0x2a))
+	evmOnlyContractLogTopic  = common.BigToHash(big.NewInt(1))
 )
 
 // clusterSize is set once at TestAutobahn start from the number of running
@@ -159,13 +191,8 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "chdir to %s: %v\n", root, err)
 		os.Exit(1)
 	}
-	if err := setupCluster(); err != nil {
-		fmt.Fprintf(os.Stderr, "cluster setup failed: %v\n", err)
-		teardownCluster()
-		os.Exit(1)
-	}
-	if err := setupFullnodeNode(); err != nil {
-		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
+	if err := setup(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		teardownCluster()
 		os.Exit(1)
 	}
@@ -193,35 +220,70 @@ func findRepoRoot() (string, error) {
 	}
 }
 
+// setup brings up the validator cluster and the fullnode sidecar, failing
+// if they are not both ready within setupTimeout.
+func setup() error {
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer cancel()
+	if err := setupCluster(ctx); err != nil {
+		return fmt.Errorf("cluster setup failed: %w", err)
+	}
+	if err := setupFullnodeNode(ctx); err != nil {
+		return fmt.Errorf("fullnode sidecar setup failed: %w", err)
+	}
+	return nil
+}
+
 // runMake runs `make <target>` from the current directory, streaming output.
-func runMake(env []string, target string) error {
-	cmd := exec.Command("make", target)
+// The process and its children are killed when ctx ends.
+func runMake(ctx context.Context, env []string, target string) error {
+	cmd := exec.CommandContext(ctx, "make", target)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	err := cmd.Run()
+	if err != nil && ctx.Err() != nil {
+		return fmt.Errorf("%w: %w", ctx.Err(), err)
+	}
+	return err
+}
+
+// pause waits for d, returning ctx's error if ctx ends first.
+func pause(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
 }
 
 // setupCluster starts the autobahn docker cluster and waits until all nodes
 // have signalled readiness via build/generated/launch.complete.
-func setupCluster() error {
+func setupCluster(ctx context.Context) error {
 	fmt.Println("=== Starting Autobahn Integration Tests ===")
 	// Best-effort cleanup of any prior cluster, then wipe generated state.
-	_ = runMake(nil, "docker-cluster-stop")
+	_ = runMake(ctx, nil, "docker-cluster-stop")
 	if err := os.RemoveAll("build/generated"); err != nil {
 		return fmt.Errorf("rm -rf build/generated: %w", err)
 	}
-	if err := runMake([]string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, "docker-cluster-start"); err != nil {
-		return fmt.Errorf("docker-cluster-start: %w", err)
+	target := "docker-cluster-start"
+	if prebuiltImages() {
+		target += "-ci"
+	}
+	if err := runMake(ctx, []string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, target); err != nil {
+		return fmt.Errorf("%s: %w", target, err)
 	}
 	// Count created containers (they exist immediately post-compose-up) to
 	// determine how many launch.complete entries to wait for.
-	expected, err := countSeiContainers()
+	expected, err := countSeiContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
 	}
 	if expected == 0 {
-		return fmt.Errorf("no sei-node-* containers found after docker-cluster-start")
+		return fmt.Errorf("no sei-node-* containers found after %s", target)
 	}
 	fmt.Printf("Waiting for %d nodes to be ready...\n", expected)
 	deadline := time.Now().Add(clusterBootTimeout)
@@ -229,18 +291,19 @@ func setupCluster() error {
 		if n := countLaunchComplete("build/generated/launch.complete"); n >= expected {
 			fmt.Printf("All %d nodes are ready\n", expected)
 			fmt.Printf("Waiting %s for autobahn connections to establish...\n", autobahnSettleDelay)
-			time.Sleep(autobahnSettleDelay)
-			return nil
+			return pause(ctx, autobahnSettleDelay)
 		}
-		time.Sleep(clusterBootPoll)
+		if err := pause(ctx, clusterBootPoll); err != nil {
+			return fmt.Errorf("waiting for nodes to be ready: %w", err)
+		}
 	}
 	return fmt.Errorf("cluster failed to start within %s", clusterBootTimeout)
 }
 
 // countSeiContainers returns the number of sei-node-* containers that exist
 // (running or not yet started).
-func countSeiContainers() (int, error) {
-	out, err := exec.Command("docker", "ps", "-a",
+func countSeiContainers(ctx context.Context) (int, error) {
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-a",
 		"--filter", "name=sei-node-",
 		"--format", "{{.Names}}").Output()
 	if err != nil {
@@ -263,14 +326,14 @@ func prebuiltImages() bool {
 // `go install` cycle. The autobahn role itself comes from mode = "full"
 // in docker/rpcnode/config/config.toml — setup.go picks the fullnode
 // constructor when there's no local validator key.
-func setupFullnodeNode() error {
+func setupFullnodeNode(ctx context.Context) error {
 	fmt.Println("=== Starting fullnode sidecar ===")
-	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
+	_ = runMake(ctx, nil, "kill-rpc-node") // best-effort cleanup
 
 	// Discover the cluster size from docker so the rpc-node's autobahn config
 	// covers exactly the validators that came up — non-four-node test runs
 	// would otherwise produce a mismatched committee.
-	clusterSize, err := countSeiContainers()
+	clusterSize, err := countSeiContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("count cluster containers: %w", err)
 	}
@@ -297,7 +360,7 @@ func setupFullnodeNode() error {
 	// Phase 1: wait for the container to exist and run. Anything `make` does
 	// before `docker run` (image build, pull) lands here, not in the boot budget.
 	startDeadline := time.Now().Add(fullnodeStartTimeout)
-	for !fullnodeRunning() {
+	for !fullnodeRunning(ctx) {
 		select {
 		case err := <-exited:
 			return fmt.Errorf("make %s exited before %s was running: %v", target, fullnodeContainer, err)
@@ -306,7 +369,9 @@ func setupFullnodeNode() error {
 		if !time.Now().Before(startDeadline) {
 			return fmt.Errorf("fullnode sidecar container didn't start within %s", fullnodeStartTimeout)
 		}
-		time.Sleep(fullnodeBootPoll)
+		if err := pause(ctx, fullnodeBootPoll); err != nil {
+			return fmt.Errorf("waiting for %s to start: %w", fullnodeContainer, err)
+		}
 	}
 
 	// Phase 2: the node's own boot.
@@ -317,17 +382,19 @@ func setupFullnodeNode() error {
 			return fmt.Errorf("make %s exited while %s was booting: %v", target, fullnodeContainer, err)
 		default:
 		}
-		if fullnodeRunning() && fullnodeEVMReady() {
+		if fullnodeRunning(ctx) && fullnodeEVMReady() {
 			fmt.Println("fullnode sidecar is ready")
 			return nil
 		}
-		time.Sleep(fullnodeBootPoll)
+		if err := pause(ctx, fullnodeBootPoll); err != nil {
+			return fmt.Errorf("waiting for %s to boot: %w", fullnodeContainer, err)
+		}
 	}
 	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting", fullnodeBootTimeout)
 }
 
-func fullnodeRunning() bool {
-	out, err := exec.Command("docker", "ps",
+func fullnodeRunning(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, "docker", "ps",
 		"--filter", "name="+fullnodeContainer,
 		"--filter", "status=running",
 		"--format", "{{.Names}}").Output()
@@ -337,9 +404,8 @@ func fullnodeRunning() bool {
 	return strings.TrimSpace(string(out)) == fullnodeContainer
 }
 
-// fullnodeEVMReady reports whether the sidecar answers on the EVM-only RPC,
-// which serves eth_getBalance, eth_getTransactionReceipt and
-// eth_sendRawTransaction and nothing else.
+// fullnodeEVMReady reports whether the sidecar answers eth_getBalance on the
+// EVM-only RPC.
 func fullnodeEVMReady() bool {
 	r, err := evmRPCInContainer(fullnodeContainer, "eth_getBalance", []any{fullnodeProbeAddress, "latest"})
 	return err == nil && r.Error == nil && len(r.Result) > 0
@@ -366,7 +432,7 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 		return nil, err
 	}
 	out, err := exec.Command("docker", "exec", container,
-		"curl", "-sf", "-X", "POST",
+		"curl", "-sf", "--max-time", "10", "-X", "POST",
 		"-H", "content-type: application/json",
 		"--data", string(body),
 		evmRPCURLOnContainerLocalhost).Output()
@@ -387,9 +453,9 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 // new sidecars later goes here too.
 func teardownCluster() {
 	fmt.Println("=== Stopping fullnode sidecar ===")
-	_ = runMake(nil, "kill-rpc-node")
+	_ = runMake(context.Background(), nil, "kill-rpc-node")
 	fmt.Println("=== Stopping cluster ===")
-	_ = runMake(nil, "docker-cluster-stop")
+	_ = runMake(context.Background(), nil, "docker-cluster-stop")
 }
 
 // countLaunchComplete returns the number of non-empty lines in the launch
@@ -733,6 +799,13 @@ func testEVMOnlyLoad(t *testing.T) {
 	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
 		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
 	t.Logf("all validators executed through at least height %d", lastHeight)
+
+	rpcCtx, rpcCancel := context.WithTimeout(t.Context(), evmOnlyRPCTimeout)
+	defer rpcCancel()
+	assertEVMOnlyBlockQueries(t, rpcCtx, clients, block.Txs[0])
+	assertEVMOnlyNodeInfo(t, rpcCtx, clients)
+	assertEVMOnlyContractQueries(t, rpcCtx, clients)
+	assertEVMOnlyNewHeads(t, rpcCtx, clients)
 }
 
 func assertEVMOnlyBalances(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
@@ -950,4 +1023,464 @@ func prometheusSample(metrics []byte, name string, labels ...string) (float64, b
 		return value, true
 	}
 	return 0, false
+}
+
+// evmOnlyBlockSummary is the part of an eth_getBlockBy* response, with
+// transaction hashes only, that the RPC query checks compare.
+type evmOnlyBlockSummary struct {
+	Hash         common.Hash    `json:"hash"`
+	Number       hexutil.Uint64 `json:"number"`
+	GasLimit     hexutil.Uint64 `json:"gasLimit"`
+	GasUsed      hexutil.Uint64 `json:"gasUsed"`
+	Transactions []common.Hash  `json:"transactions"`
+}
+
+// evmOnlyReceiptSummary is the part of a receipt that the RPC query checks
+// compare.
+type evmOnlyReceiptSummary struct {
+	BlockHash        common.Hash       `json:"blockHash"`
+	BlockNumber      hexutil.Uint64    `json:"blockNumber"`
+	ContractAddress  *common.Address   `json:"contractAddress"`
+	GasUsed          hexutil.Uint64    `json:"gasUsed"`
+	Logs             []json.RawMessage `json:"logs"`
+	Status           hexutil.Uint64    `json:"status"`
+	TransactionHash  common.Hash       `json:"transactionHash"`
+	TransactionIndex hexutil.Uint64    `json:"transactionIndex"`
+}
+
+// evmOnlyCall calls method on node nodeIndex and returns its raw JSON result.
+func evmOnlyCall(t *testing.T, ctx context.Context, client *ethrpc.Client, nodeIndex int, method string, args ...any) json.RawMessage {
+	t.Helper()
+	var result json.RawMessage
+	if err := client.CallContext(ctx, &result, method, args...); err != nil {
+		t.Fatalf("node %d %s: %v", nodeIndex, method, err)
+	}
+	return result
+}
+
+// decodeEVMOnlyResult decodes method's raw result from node nodeIndex into v.
+func decodeEVMOnlyResult(t *testing.T, nodeIndex int, method string, raw json.RawMessage, v any) {
+	t.Helper()
+	if err := json.Unmarshal(raw, v); err != nil {
+		t.Fatalf("node %d %s: decode %s: %v", nodeIndex, method, raw, err)
+	}
+}
+
+// requireSameJSON fails unless a and b encode the same JSON value.
+func requireSameJSON(t *testing.T, what string, a, b json.RawMessage) {
+	t.Helper()
+	var av, bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		t.Fatalf("%s: decode %s: %v", what, a, err)
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		t.Fatalf("%s: decode %s: %v", what, b, err)
+	}
+	if !reflect.DeepEqual(av, bv) {
+		t.Fatalf("%s differ:\n%s\n%s", what, a, b)
+	}
+}
+
+// waitForEVMOnlyResult polls method on every node until it answers non-null,
+// returning node 0's answer.
+func waitForEVMOnlyResult(t *testing.T, ctx context.Context, clients []*ethrpc.Client, method string, args ...any) json.RawMessage {
+	t.Helper()
+	var first json.RawMessage
+	for nodeIndex, client := range clients {
+		for {
+			raw := evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
+			if string(raw) != "null" {
+				if nodeIndex == 0 {
+					first = raw
+				}
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatalf("node %d %s%v stayed null: %v", nodeIndex, method, args, ctx.Err())
+			case <-time.After(evmOnlyRPCPoll):
+			}
+		}
+	}
+	return first
+}
+
+// assertEVMOnlyBlockQueries checks every block-scoped method against the block
+// that executed raw, on every node: the block lists raw at its receipt's index,
+// lookups by number, by hash, and by index agree with each other and with
+// eth_getTransactionByHash and eth_getTransactionReceipt, the block's receipts
+// account for its gasUsed, eth_feeHistory reports that same block, and every
+// node returns the identical block and receipts.
+func assertEVMOnlyBlockQueries(t *testing.T, ctx context.Context, clients []*ethrpc.Client, raw []byte) {
+	t.Helper()
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		t.Fatalf("decode EVM-only transaction: %v", err)
+	}
+	txHash := tx.Hash()
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)), tx)
+	if err != nil {
+		t.Fatalf("recover EVM-only sender: %v", err)
+	}
+	var receipt evmOnlyReceiptSummary
+	decodeEVMOnlyResult(t, 0, "eth_getTransactionReceipt", evmOnlyCall(t, ctx, clients[0], 0, "eth_getTransactionReceipt", txHash), &receipt)
+	height, blockHash, index := receipt.BlockNumber, receipt.BlockHash, int(receipt.TransactionIndex)
+	// A block's receipts, and the gasUsed derived from them, are served once
+	// they are indexed, which can trail the receipt lookup by hash.
+	waitForEVMOnlyResult(t, ctx, clients, "eth_getBlockReceipts", height)
+	gasPrice := evmOnlyTransferConfig(1).GasPrice
+
+	var firstBlock, firstReceipts json.RawMessage
+	for nodeIndex, client := range clients {
+		call := func(method string, args ...any) json.RawMessage {
+			return evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
+		}
+
+		hashOnly := call("eth_getBlockByNumber", height, false)
+		var block evmOnlyBlockSummary
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockByNumber", hashOnly, &block)
+		if block.Hash != blockHash || block.Number != height {
+			t.Fatalf("node %d block %d has hash %s number %d, want %s %d", nodeIndex, height, block.Hash, block.Number, blockHash, height)
+		}
+		if index >= len(block.Transactions) || block.Transactions[index] != txHash {
+			t.Fatalf("node %d block %d does not list %s at receipt index %d: %v", nodeIndex, height, txHash, index, block.Transactions)
+		}
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getBlockByNumber and eth_getBlockByHash", nodeIndex),
+			hashOnly, call("eth_getBlockByHash", blockHash, false))
+
+		full := call("eth_getBlockByNumber", height, true)
+		requireSameJSON(t, fmt.Sprintf("node %d full eth_getBlockByNumber and eth_getBlockByHash", nodeIndex),
+			full, call("eth_getBlockByHash", blockHash, true))
+		var fullTxs struct {
+			Transactions []json.RawMessage `json:"transactions"`
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockByNumber", full, &fullTxs)
+		if len(fullTxs.Transactions) != len(block.Transactions) {
+			t.Fatalf("node %d block %d lists %d full transactions and %d hashes", nodeIndex, height, len(fullTxs.Transactions), len(block.Transactions))
+		}
+		for i, rawTx := range fullTxs.Transactions {
+			var fullTx struct {
+				Hash common.Hash `json:"hash"`
+			}
+			decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockByNumber", rawTx, &fullTx)
+			if fullTx.Hash != block.Transactions[i] {
+				t.Fatalf("node %d block %d full transaction %d is %s, hash list has %s", nodeIndex, height, i, fullTx.Hash, block.Transactions[i])
+			}
+		}
+
+		byHash := call("eth_getTransactionByHash", txHash)
+		var located struct {
+			BlockHash        common.Hash    `json:"blockHash"`
+			BlockNumber      hexutil.Uint64 `json:"blockNumber"`
+			From             common.Address `json:"from"`
+			Hash             common.Hash    `json:"hash"`
+			TransactionIndex hexutil.Uint64 `json:"transactionIndex"`
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getTransactionByHash", byHash, &located)
+		if located.Hash != txHash || located.From != sender || located.BlockHash != blockHash ||
+			located.BlockNumber != height || int(located.TransactionIndex) != index {
+			t.Fatalf("node %d eth_getTransactionByHash(%s) = %s, want block %s/%d index %d from %s",
+				nodeIndex, txHash, byHash, blockHash, height, index, sender)
+		}
+		requireSameJSON(t, fmt.Sprintf("node %d full block transaction and eth_getTransactionByHash", nodeIndex),
+			fullTxs.Transactions[index], byHash)
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getTransactionByBlockNumberAndIndex and eth_getTransactionByHash", nodeIndex),
+			call("eth_getTransactionByBlockNumberAndIndex", height, hexutil.Uint(index)), byHash)
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getTransactionByBlockHashAndIndex and eth_getTransactionByHash", nodeIndex),
+			call("eth_getTransactionByBlockHashAndIndex", blockHash, hexutil.Uint(index)), byHash)
+		if past := call("eth_getTransactionByBlockNumberAndIndex", height, hexutil.Uint(len(block.Transactions))); string(past) != "null" {
+			t.Fatalf("node %d returned %s for the index past block %d's last transaction, want null", nodeIndex, past, height)
+		}
+
+		for _, count := range []struct {
+			method string
+			block  any
+		}{
+			{"eth_getBlockTransactionCountByNumber", height},
+			{"eth_getBlockTransactionCountByHash", blockHash},
+		} {
+			var got hexutil.Uint
+			decodeEVMOnlyResult(t, nodeIndex, count.method, call(count.method, count.block), &got)
+			if int(got) != len(block.Transactions) {
+				t.Fatalf("node %d %s(%v) = %d, block lists %d transactions", nodeIndex, count.method, count.block, got, len(block.Transactions))
+			}
+		}
+
+		receiptsRaw := call("eth_getBlockReceipts", height)
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getBlockReceipts by number and by hash", nodeIndex),
+			receiptsRaw, call("eth_getBlockReceipts", blockHash))
+		var receipts []evmOnlyReceiptSummary
+		var receiptsJSON []json.RawMessage
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockReceipts", receiptsRaw, &receipts)
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockReceipts", receiptsRaw, &receiptsJSON)
+		var gasUsed uint64
+		previous, found := -1, false
+		for i, r := range receipts {
+			ri := int(r.TransactionIndex)
+			if r.BlockHash != blockHash || r.BlockNumber != height || ri <= previous || ri >= len(block.Transactions) ||
+				block.Transactions[ri] != r.TransactionHash {
+				t.Fatalf("node %d block %d receipt %d (%s at index %d) does not match the block's transaction list", nodeIndex, height, i, r.TransactionHash, ri)
+			}
+			if r.Status != hexutil.Uint64(ethtypes.ReceiptStatusSuccessful) || r.GasUsed != evmOnlyTransferGas {
+				t.Fatalf("node %d block %d receipt for %s has status %d gasUsed %d, want a successful transfer", nodeIndex, height, r.TransactionHash, r.Status, r.GasUsed)
+			}
+			previous = ri
+			gasUsed += uint64(r.GasUsed)
+			if r.TransactionHash == txHash {
+				found = true
+				requireSameJSON(t, fmt.Sprintf("node %d eth_getBlockReceipts entry and eth_getTransactionReceipt", nodeIndex),
+					receiptsJSON[i], call("eth_getTransactionReceipt", txHash))
+			}
+		}
+		if !found {
+			t.Fatalf("node %d eth_getBlockReceipts(%d) omits %s", nodeIndex, height, txHash)
+		}
+		if uint64(block.GasUsed) != gasUsed {
+			t.Fatalf("node %d block %d reports gasUsed %d, its receipts sum to %d", nodeIndex, height, block.GasUsed, gasUsed)
+		}
+
+		var logs []json.RawMessage
+		logsRaw := call("eth_getLogs", map[string]any{"fromBlock": height, "toBlock": height})
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getLogs", logsRaw, &logs)
+		if logs == nil || len(logs) != 0 {
+			t.Fatalf("node %d eth_getLogs over transfer block %d = %s, want []", nodeIndex, height, logsRaw)
+		}
+
+		var history struct {
+			OldestBlock  hexutil.Uint64   `json:"oldestBlock"`
+			BaseFee      []*hexutil.Big   `json:"baseFeePerGas"`
+			GasUsedRatio []float64        `json:"gasUsedRatio"`
+			Reward       [][]*hexutil.Big `json:"reward"`
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_feeHistory", call("eth_feeHistory", hexutil.Uint64(1), height, []float64{50}), &history)
+		// gasUsedRatio is truncated to four decimal places, and zero without a gas limit.
+		wantRatio := 0.0
+		if block.GasLimit > 0 {
+			wantRatio = float64(uint64(block.GasUsed)*10000/uint64(block.GasLimit)) / 10000
+		}
+		if history.OldestBlock != height || len(history.GasUsedRatio) != 1 || history.GasUsedRatio[0] != wantRatio {
+			t.Fatalf("node %d eth_feeHistory(1, %d) = oldest %d ratios %v, want oldest %d ratio %v", nodeIndex, height, history.OldestBlock, history.GasUsedRatio, height, wantRatio)
+		}
+		// Every transfer in the block paid gasPrice over a zero base fee;
+		// baseFeePerGas also carries the next block's projected fee.
+		if len(history.BaseFee) != 2 || history.BaseFee[0].ToInt().Sign() != 0 || history.BaseFee[1].ToInt().Sign() != 0 ||
+			len(history.Reward) != 1 || len(history.Reward[0]) != 1 || history.Reward[0][0].ToInt().Cmp(gasPrice) != 0 {
+			t.Fatalf("node %d eth_feeHistory(1, %d) base fees %v rewards %v, want a zero base fee and a %s reward", nodeIndex, height, history.BaseFee, history.Reward, gasPrice)
+		}
+
+		if nodeIndex == 0 {
+			firstBlock, firstReceipts = full, receiptsRaw
+			continue
+		}
+		requireSameJSON(t, fmt.Sprintf("block %d on node 0 and node %d", height, nodeIndex), firstBlock, full)
+		requireSameJSON(t, fmt.Sprintf("block %d receipts on node 0 and node %d", height, nodeIndex), firstReceipts, receiptsRaw)
+	}
+}
+
+// assertEVMOnlyNodeInfo checks the node-level methods on every node: the
+// network version is the chain ID, eth_syncing is unsupported as on v2, and
+// the suggested prices clear the price the load paid.
+func assertEVMOnlyNodeInfo(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
+	t.Helper()
+	wantVersion := strconv.FormatUint(tmconfig.AutobahnEVMOnlyChainID, 10)
+	gasPrice := evmOnlyTransferConfig(1).GasPrice
+	for nodeIndex, client := range clients {
+		var version string
+		decodeEVMOnlyResult(t, nodeIndex, "net_version", evmOnlyCall(t, ctx, client, nodeIndex, "net_version"), &version)
+		if version != wantVersion {
+			t.Fatalf("node %d net_version = %q, want %q", nodeIndex, version, wantVersion)
+		}
+
+		var syncing json.RawMessage
+		if err := client.CallContext(ctx, &syncing, "eth_syncing"); err == nil || !strings.Contains(err.Error(), "eth_syncing is not supported") {
+			t.Fatalf("node %d eth_syncing = %s, %v; want the not-supported error", nodeIndex, syncing, err)
+		}
+
+		var suggested hexutil.Big
+		decodeEVMOnlyResult(t, nodeIndex, "eth_gasPrice", evmOnlyCall(t, ctx, client, nodeIndex, "eth_gasPrice"), &suggested)
+		if suggested.ToInt().Cmp(gasPrice) < 0 {
+			t.Fatalf("node %d eth_gasPrice = %s, below the %s the load was admitted at", nodeIndex, suggested.ToInt(), gasPrice)
+		}
+		var tip hexutil.Big
+		decodeEVMOnlyResult(t, nodeIndex, "eth_maxPriorityFeePerGas", evmOnlyCall(t, ctx, client, nodeIndex, "eth_maxPriorityFeePerGas"), &tip)
+		if tip.ToInt().Sign() <= 0 {
+			t.Fatalf("node %d eth_maxPriorityFeePerGas = %s, want a positive tip", nodeIndex, tip.ToInt())
+		}
+	}
+}
+
+// assertEVMOnlyContractQueries deploys evmOnlyContractInitCode and checks the
+// state and log methods against what its constructor did, on every node: the
+// deployed code, the stored slot, a call that reads it back, gas estimates
+// that cover the deploy and the call, and the constructor's log through both
+// the receipt and eth_getLogs.
+func assertEVMOnlyContractQueries(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
+	t.Helper()
+	key, err := scenarios.DeterministicPrivateKey(evmOnlyContractDeployerAccount)
+	if err != nil {
+		t.Fatalf("derive contract deployer key: %v", err)
+	}
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	var nonce hexutil.Uint64
+	decodeEVMOnlyResult(t, 0, "eth_getTransactionCount",
+		evmOnlyCall(t, ctx, clients[0], 0, "eth_getTransactionCount", sender, "latest"), &nonce)
+	contract := crypto.CreateAddress(sender, uint64(nonce))
+
+	var deployEstimate hexutil.Uint64
+	decodeEVMOnlyResult(t, 0, "eth_estimateGas", evmOnlyCall(t, ctx, clients[0], 0, "eth_estimateGas",
+		map[string]any{"from": sender, "data": hexutil.Bytes(evmOnlyContractInitCode)}), &deployEstimate)
+	if deployEstimate <= 53_000 || deployEstimate > evmOnlyContractGasLimit {
+		t.Fatalf("eth_estimateGas for the contract deploy = %d, want above the 53000 creation floor and at most %d", deployEstimate, evmOnlyContractGasLimit)
+	}
+
+	signed, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    uint64(nonce),
+		GasPrice: evmOnlyTransferConfig(1).GasPrice,
+		Gas:      evmOnlyContractGasLimit,
+		Data:     evmOnlyContractInitCode,
+	}), ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID)), key)
+	if err != nil {
+		t.Fatalf("sign contract deploy: %v", err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatalf("encode contract deploy: %v", err)
+	}
+	var sent common.Hash
+	if err := clients[0].CallContext(ctx, &sent, "eth_sendRawTransaction", hexutil.Bytes(raw)); err != nil {
+		t.Fatalf("send contract deploy: %v", err)
+	}
+	if sent != signed.Hash() {
+		t.Fatalf("send contract deploy: hash %s, want %s", sent, signed.Hash())
+	}
+
+	receiptRaw := waitForEVMOnlyResult(t, ctx, clients, "eth_getTransactionReceipt", signed.Hash())
+	var receipt evmOnlyReceiptSummary
+	decodeEVMOnlyResult(t, 0, "eth_getTransactionReceipt", receiptRaw, &receipt)
+	if receipt.Status != hexutil.Uint64(ethtypes.ReceiptStatusSuccessful) || receipt.ContractAddress == nil ||
+		*receipt.ContractAddress != contract || uint64(receipt.GasUsed) > uint64(deployEstimate) || len(receipt.Logs) != 1 {
+		t.Fatalf("contract deploy receipt %s, want a successful deploy of %s using at most the %d estimate with one log", receiptRaw, contract, deployEstimate)
+	}
+	var log struct {
+		Address         common.Address `json:"address"`
+		Topics          []common.Hash  `json:"topics"`
+		Data            hexutil.Bytes  `json:"data"`
+		BlockHash       common.Hash    `json:"blockHash"`
+		TransactionHash common.Hash    `json:"transactionHash"`
+	}
+	decodeEVMOnlyResult(t, 0, "eth_getTransactionReceipt", receipt.Logs[0], &log)
+	if log.Address != contract || len(log.Topics) != 1 || log.Topics[0] != evmOnlyContractLogTopic ||
+		len(log.Data) != 0 || log.BlockHash != receipt.BlockHash || log.TransactionHash != signed.Hash() {
+		t.Fatalf("contract deploy log %s, want the constructor's log from %s", receipt.Logs[0], contract)
+	}
+	wantLogs, err := json.Marshal(receipt.Logs)
+	if err != nil {
+		t.Fatalf("encode contract deploy logs: %v", err)
+	}
+	waitForEVMOnlyResult(t, ctx, clients, "eth_getBlockReceipts", receipt.BlockNumber)
+
+	for nodeIndex, client := range clients {
+		call := func(method string, args ...any) json.RawMessage {
+			return evmOnlyCall(t, ctx, client, nodeIndex, method, args...)
+		}
+		requireSameJSON(t, fmt.Sprintf("contract deploy receipt on node 0 and node %d", nodeIndex),
+			receiptRaw, call("eth_getTransactionReceipt", signed.Hash()))
+
+		var code hexutil.Bytes
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getCode", call("eth_getCode", contract, "latest"), &code)
+		if !bytes.Equal(code, evmOnlyContractRuntime) {
+			t.Fatalf("node %d eth_getCode(%s) = %s, want %s", nodeIndex, contract, code, hexutil.Bytes(evmOnlyContractRuntime))
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getCode", call("eth_getCode", sender, "latest"), &code)
+		if len(code) != 0 {
+			t.Fatalf("node %d eth_getCode(%s) = %s for an account without code, want 0x", nodeIndex, sender, code)
+		}
+
+		for _, slot := range []struct {
+			key  string
+			want common.Hash
+		}{
+			{"0x0", evmOnlyContractSlotValue},
+			{"0x1", common.Hash{}},
+		} {
+			var value hexutil.Bytes
+			decodeEVMOnlyResult(t, nodeIndex, "eth_getStorageAt", call("eth_getStorageAt", contract, slot.key, "latest"), &value)
+			if !bytes.Equal(value, slot.want[:]) {
+				t.Fatalf("node %d eth_getStorageAt(%s, %s) = %s, want %s", nodeIndex, contract, slot.key, value, slot.want)
+			}
+		}
+
+		var result hexutil.Bytes
+		decodeEVMOnlyResult(t, nodeIndex, "eth_call", call("eth_call", map[string]any{"to": contract}, "latest"), &result)
+		if !bytes.Equal(result, evmOnlyContractSlotValue[:]) {
+			t.Fatalf("node %d eth_call(%s) = %s, want slot 0's %s", nodeIndex, contract, result, evmOnlyContractSlotValue)
+		}
+
+		var transferEstimate, callEstimate hexutil.Uint64
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGas", call("eth_estimateGas",
+			map[string]any{"from": sender, "to": common.Address{0x01}, "value": (*hexutil.Big)(big.NewInt(1))}), &transferEstimate)
+		if transferEstimate != evmOnlyTransferGas {
+			t.Fatalf("node %d eth_estimateGas for a transfer = %d, want %d", nodeIndex, transferEstimate, evmOnlyTransferGas)
+		}
+		decodeEVMOnlyResult(t, nodeIndex, "eth_estimateGas", call("eth_estimateGas",
+			map[string]any{"from": sender, "to": contract}), &callEstimate)
+		if callEstimate <= evmOnlyTransferGas {
+			t.Fatalf("node %d eth_estimateGas for a call reading storage = %d, want more than %d", nodeIndex, callEstimate, evmOnlyTransferGas)
+		}
+
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getLogs over the deploy block and the deploy receipt's logs", nodeIndex),
+			call("eth_getLogs", map[string]any{"fromBlock": receipt.BlockNumber, "toBlock": receipt.BlockNumber}), wantLogs)
+		requireSameJSON(t, fmt.Sprintf("node %d eth_getLogs by block hash and the deploy receipt's logs", nodeIndex),
+			call("eth_getLogs", map[string]any{"blockHash": receipt.BlockHash, "address": contract}), wantLogs)
+		var unmatched []json.RawMessage
+		decodeEVMOnlyResult(t, nodeIndex, "eth_getLogs", call("eth_getLogs", map[string]any{
+			"blockHash": receipt.BlockHash, "topics": []common.Hash{common.BigToHash(big.NewInt(2))},
+		}), &unmatched)
+		if len(unmatched) != 0 {
+			t.Fatalf("node %d eth_getLogs with a topic no log carries returned %d logs", nodeIndex, len(unmatched))
+		}
+	}
+}
+
+// assertEVMOnlyNewHeads subscribes to newHeads over every node's WebSocket
+// listener, seals a block with one transfer, and checks that each node pushes
+// a head that matches the block it serves at that height.
+func assertEVMOnlyNewHeads(t *testing.T, ctx context.Context, clients []*ethrpc.Client) {
+	t.Helper()
+	type head struct {
+		Hash   common.Hash    `json:"hash"`
+		Number hexutil.Uint64 `json:"number"`
+	}
+	heads := make([]chan head, len(clients))
+	subs := make([]*ethrpc.ClientSubscription, len(clients))
+	for nodeIndex := range clients {
+		ws, err := ethrpc.DialContext(ctx, fmt.Sprintf("ws://localhost:%d", 8546+2*nodeIndex))
+		if err != nil {
+			t.Fatalf("create node %d EVM WebSocket client: %v", nodeIndex, err)
+		}
+		t.Cleanup(ws.Close)
+		heads[nodeIndex] = make(chan head, 16)
+		subs[nodeIndex], err = ws.EthSubscribe(ctx, heads[nodeIndex], "newHeads")
+		if err != nil {
+			t.Fatalf("node %d eth_subscribe(newHeads): %v", nodeIndex, err)
+		}
+		t.Cleanup(subs[nodeIndex].Unsubscribe)
+	}
+	// Empty blocks are not produced, so a transfer is what seals the next head.
+	sendEvmTx(t, "sei-node-0")
+	for nodeIndex, client := range clients {
+		select {
+		case got := <-heads[nodeIndex]:
+			var block evmOnlyBlockSummary
+			decodeEVMOnlyResult(t, nodeIndex, "eth_getBlockByNumber",
+				evmOnlyCall(t, ctx, client, nodeIndex, "eth_getBlockByNumber", got.Number, false), &block)
+			if got.Number == 0 || got.Hash != block.Hash {
+				t.Fatalf("node %d pushed head %d %s, it serves block %d as %s", nodeIndex, got.Number, got.Hash, got.Number, block.Hash)
+			}
+		case err := <-subs[nodeIndex].Err():
+			t.Fatalf("node %d newHeads subscription ended: %v", nodeIndex, err)
+		case <-ctx.Done():
+			t.Fatalf("node %d pushed no head: %v", nodeIndex, ctx.Err())
+		}
+	}
 }

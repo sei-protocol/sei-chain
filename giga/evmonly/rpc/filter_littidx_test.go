@@ -11,6 +11,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/gigareceipt"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -28,7 +29,7 @@ func TestGetLogsLittIdxLogIndexMatchesReceipt(t *testing.T) {
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
 	cfg.AsyncWriteBuffer = 0
-	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	store, err := gigareceipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 

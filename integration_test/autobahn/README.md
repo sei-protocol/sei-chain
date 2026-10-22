@@ -370,46 +370,129 @@ For local debugging, follow a validator's `seid` log:
 tail -f build/generated/logs/seid-0.log
 ```
 
-The public EVM JSON-RPC surface intentionally contains only:
+The EVM-only JSON-RPC serves these methods over HTTP (port 8545 by default) and
+WebSocket (port 8546 by default):
 
-- `eth_sendRawTransaction`, used by `sei-load` and `cast publish`;
-- `eth_getTransactionReceipt`, for finalized receipts;
-- `eth_getTransactionByHash`, for a finalized transaction's decoded fields;
-- `eth_getBalance`, for the current committed EVM balance;
-- `eth_getTransactionCount`, for the current committed nonce;
-- `eth_getCode`, for the current committed contract code at an address;
-- `eth_blockNumber`, for the current committed block height;
-- `eth_chainId`, for the configured EVM chain ID;
-- `eth_call`, for a read-only message call against current committed state;
-- `eth_estimateGas`, for the lowest gas limit that lets a message succeed
-  against current committed state;
-- `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
-  height (including any height still within the node's retention window) or
-  by hash;
-- `eth_getBlockTransactionCountByNumber` and
-  `eth_getBlockTransactionCountByHash`, for the number of transactions in a
-  finalized block, resolved the same way as `eth_getBlockByNumber` and
-  `eth_getBlockByHash`;
-- `eth_getTransactionByBlockNumberAndIndex` and
-  `eth_getTransactionByBlockHashAndIndex`, for the transaction at a position in
-  a finalized block, exactly as the full-transaction `eth_getBlockByNumber` and
-  `eth_getBlockByHash` list it.
+- Transactions: `eth_sendRawTransaction` (used by `sei-load` and
+  `cast publish`), `eth_getTransactionReceipt`, `eth_getTransactionByHash`,
+  and `eth_getTransactionByBlockNumberAndIndex` /
+  `eth_getTransactionByBlockHashAndIndex`, which return the transaction at a
+  position in a block exactly as the full-transaction block lists it.
+- State: `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and
+  `eth_getStorageAt`, at the latest block or a past one still within a full
+  node's retention window; `eth_call` and `eth_estimateGas`, against the
+  latest state only.
+- Blocks: `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`,
+  `eth_getBlockTransactionCountByNumber` /
+  `eth_getBlockTransactionCountByHash`, and `eth_getBlockReceipts`. Block
+  lookups accept any height still within the node's retention window.
+  `eth_getBlockReceipts` lists only receipts stored for that block: a rejected
+  transaction with no receipt is skipped, and a repeated transaction's receipt
+  stays with the block where it first executed. Its tags resolve to the latest
+  block whose receipts are indexed, and a block whose receipts are not indexed
+  yet returns `null`.
+- Logs: `eth_getLogs`.
+- Fees: `eth_gasPrice`, `eth_maxPriorityFeePerGas`, and `eth_feeHistory`.
+- Node: `eth_chainId`, `net_version`, and `eth_syncing`, which returns a
+  not-supported error, as on the regular RPC.
+- Subscriptions, over WebSocket only: `eth_subscribe("newHeads")`.
 
-All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
-for a pending or unknown hash returns `null`.
+A lookup for a pending or unknown hash returns `null`. Every other method
+returns JSON-RPC method-not-found, and `eth_subscribe` rejects any
+subscription other than `newHeads`:
+
+- Not supported yet: the `debug_*` tracing and raw-data methods, the polling
+  filter methods (`eth_newFilter`, `eth_newBlockFilter`,
+  `eth_newPendingTransactionFilter`, `eth_getFilterChanges`,
+  `eth_getFilterLogs`, `eth_uninstallFilter`), `eth_subscribe("logs")`,
+  `eth_getVMError`, `eth_getTransactionErrorByHash`, `eth_createAccessList`,
+  `eth_estimateGasAfterCalls`, and `web3_clientVersion`.
+- Not planned, because they need something the EVM-only chain does not have
+  (Cosmos accounts, server-side keys, a mempool view, blobs, or state proofs),
+  duplicate another method, or are development-only: `sei_getSeiAddress`,
+  `sei_getEVMAddress`, `sei_getCosmosTx`, `eth_sign`, `eth_signTransaction`,
+  `eth_sendTransaction`, `eth_accounts`, `eth_coinbase`, `eth_getNonce`,
+  `txpool_content`, `eth_blobBaseFee`, `eth_getProof`, and the `echo` and
+  `test` namespaces.
+
+### Known limitations
+
+- Past state needs a full node. `eth_getBalance`, `eth_getTransactionCount`,
+  `eth_getCode`, and `eth_getStorageAt` answer an explicit height or
+  `earliest` only on a node that keeps the EVM state store (a full node, not a
+  validator), and only within its retention window. A block hash returns an
+  error. `eth_call` and `eth_estimateGas` serve the latest state only.
+- Any address that has never been written reports `2^200` wei, including
+  inside `eth_call` and `eth_estimateGas`. This is the test network's funding
+  rule, in place of genesis allocations.
+- `eth_call` and `eth_estimateGas` take no state or block override arguments,
+  unlike the regular RPC.
+- `pending` means the latest committed state, and there is no mempool view, so
+  a submitted transaction is not returned by hash until it executes.
+- Block fields: `logsBloom` is always empty, `baseFeePerGas` is always zero,
+  `gasLimit` is the current limit even for old blocks, and `gasUsed` covers
+  one Autobahn lane. `stateRoot` is the app hash and `receiptsRoot` the
+  results hash, not Ethereum trie roots.
+- A block lists every finalized transaction, including rejected ones, and
+  `transactionIndex` is the position in that list, so a block's receipts can
+  skip positions. Hiding rejected transactions from block results is planned.
+- `eth_getLogs` covers at most 2,000 blocks and 10,000 logs per query, and a
+  bound outside the indexed, retained range returns an error.
+  `eth_feeHistory` covers at most 1,024 blocks.
+- `newHeads` is the only subscription.
+- Blocks and receipts below the node's retention window are pruned: a lookup by
+  number returns an error, and a lookup by hash returns `null`.
+- Blob (EIP-4844) transactions are not accepted.
+
+`make autobahn-integration-test` starts a local four-validator cluster and,
+after a 4,000-transfer load and one contract deploy, checks every method above
+on all four validators, including that they return the same blocks and
+receipts.
+
+### Request and WebSocket limits
+
+The same methods are served over WebSocket on port 8546
+(`giga.execution.evm_ws_port`), which also serves `eth_subscribe("newHeads")`.
+The `[giga.rpc]` section of `app.toml` sets the limits the server enforces,
+with the same defaults as the regular EVM RPC; `0` disables a limit unless
+the row says otherwise:
+
+| Key | Default | Limit |
+| --- | --- | --- |
+| `max_subscriptions_new_head` | 10000 | open `newHeads` subscriptions across all connections |
+| `max_subscriptions_per_connection` | 100 | open subscriptions on one WebSocket connection |
+| `max_request_body_bytes` | 5242880 (5 MiB) | size of one HTTP request body (larger ones get HTTP 413) or WebSocket message (closes the connection with code 1009); must be positive |
+| `max_concurrent_request_bytes` | 134217728 (128 MiB) | WebSocket request bytes read and processed at once; values below `max_request_body_bytes` act as `max_request_body_bytes` |
+| `ws_admission_timeout` | `30s` | how long a WebSocket connection waits for that byte budget before it is closed with error `-32005`; `0` means 30s |
+| `batch_request_limit` | 100 | requests in one JSON-RPC batch |
+| `batch_response_max_size` | 25000000 | bytes of responses in one JSON-RPC batch |
+| `max_ws_connections` | 2000 | open WebSocket connections; further connections wait |
+
+A subscription refused by either cap returns an error, and its slot frees when
+the client unsubscribes or the connection closes. A connection is identified by
+its remote address, so clients behind one proxy connection share its cap.
 
 ### Fetch balances with `cast`
 
 `eth_getBalance` accepts `latest`, `safe`, `finalized`, and `pending`; all four
-read the current committed state because Sei has instant finality. Explicit
-block numbers and hashes return an error because historical EVM-only state is
-not wired yet.
+read the current committed state because Sei has instant finality. An explicit
+height (`--block`) reads the balance after that block, and `earliest` reads
+block 0. A past height is served from the EVM state store, so it needs a node
+that keeps one (a full node, not a validator), and fails once that height is
+pruned. A block hash, or a height above the current head, returns an error.
 
 Every previously unseen address starts with the test-only `2^200` wei balance:
 
 ```sh
 cast balance \
   --rpc-url http://127.0.0.1:8545 \
+  0x000000000000000000000000000000000000dEaD
+```
+
+```sh
+cast balance \
+  --rpc-url http://127.0.0.1:8545 \
+  --block 100 \
   0x000000000000000000000000000000000000dEaD
 ```
 
@@ -433,7 +516,7 @@ offline, publish the raw transaction, and fetch its receipt:
 
 ```sh
 RPC_URL=http://127.0.0.1:8545
-TEST_KEY=$(cast wallet new --json | jq -r '.[0].private_key')
+TEST_KEY=$(cast wallet new --json | jq -r '.data[0].private_key')
 RAW_TX=$(cast mktx \
   0x000000000000000000000000000000000000dEaD \
   --private-key "$TEST_KEY" \
@@ -477,6 +560,7 @@ EVM-only RPC:
 
 ```sh
 cast nonce --rpc-url http://127.0.0.1:8545 0xYOUR_ADDRESS
+cast nonce --rpc-url http://127.0.0.1:8545 --block 100 0xYOUR_ADDRESS
 cast block-number --rpc-url http://127.0.0.1:8545
 cast chain-id --rpc-url http://127.0.0.1:8545
 ```
@@ -490,9 +574,9 @@ broadcast-to-commit window `pending` exists to cover. Two transactions sent
 back-to-back from the same key before the first commits are therefore
 assigned the same nonce, and the second is rejected; callers issuing rapid
 sequential sends must track the next nonce themselves rather than relying on
-`pending`. An explicit height, an explicit hash, or `earliest` returns an
-error: historical state is not available from this RPC. `eth_blockNumber` and
-`eth_chainId` take no block selector and always return the current height and
+`pending`. An explicit height or `earliest` reads the nonce after that block,
+the same way as `eth_getBalance`. `eth_blockNumber` and `eth_chainId` take no
+block selector and always return the current height and
 the network's configured EVM chain ID.
 
 ### Make a read-only call with `cast call`
@@ -509,9 +593,9 @@ cast call \
   0xYOUR_ADDRESS
 ```
 
-`eth_call` accepts the same `latest`/`safe`/`finalized`/`pending` block tags as
-`eth_getBalance` and `eth_getTransactionCount`; an explicit height, an explicit
-hash, or `earliest` returns the same historical-state error. A caller-omitted
+`eth_call` accepts only the `latest`/`safe`/`finalized`/`pending` block tags;
+an explicit height, an explicit hash, or `earliest` returns an error, because
+calls do not run against historical state. A caller-omitted
 gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
@@ -538,12 +622,25 @@ ABI-decoded revert error `eth_call` would.
 
 ```sh
 cast code --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS
+cast code --rpc-url http://127.0.0.1:8545 --block 100 0xYOUR_CONTRACT_ADDRESS
 ```
 
-`eth_getCode` accepts the same `latest`/`safe`/`finalized`/`pending` block tags
-as `eth_getBalance`; an explicit height, an explicit hash, or `earliest`
-returns the same historical-state error. An address with no code, including an
-EOA or an address that was never touched, returns `0x`, as go-ethereum does.
+`eth_getCode` accepts the same block selectors as `eth_getBalance`, and an
+explicit height reads the code after that block. An address with no code at
+that block, including an EOA or an address that was never touched, returns
+`0x`, as go-ethereum does.
+
+### Read contract storage with `cast storage`
+
+```sh
+cast storage --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS 0
+cast storage --rpc-url http://127.0.0.1:8545 --block 100 0xYOUR_CONTRACT_ADDRESS 0
+```
+
+`eth_getStorageAt` accepts the same block selectors as `eth_getBalance`, and an
+explicit height reads the slot after that block. The slot is a hex number of at
+most 32 bytes, as in go-ethereum. An unset slot, including any slot of an
+address with no contract, returns 32 zero bytes.
 
 Block context for a call is a mix of real and best-effort values: `Number` and
 `GasLimit` are the actual current committed values, but `Coinbase` is always
@@ -554,10 +651,9 @@ function that depends on either reads a placeholder rather than a real value.
 
 ### Fetch a block with `cast block`
 
-`cast block` works by height or by hash. Unlike `eth_getBalance`,
-`eth_getTransactionCount`, and `eth_call`, an explicit height is not
-historical-state-restricted: any past height still within the node's
-retention window works the same as `latest`:
+`cast block` works by height or by hash. Unlike `eth_getBalance` at a past
+height, it does not need the EVM state store: any past height still within the node's block retention window works the
+same as `latest`, on validators too:
 
 ```sh
 cast block --rpc-url http://127.0.0.1:8545 latest
@@ -565,11 +661,11 @@ cast block --rpc-url http://127.0.0.1:8545 1
 cast block --rpc-url http://127.0.0.1:8545 0xYOUR_BLOCK_HASH
 ```
 
-A height above the current chain head, `earliest` (this executor's first
-committed height is 1, not 0), or a height the node has since pruned all
-return `null` rather than an error, matching `eth_getTransactionByHash`'s
-treatment of an unknown hash. `nonce`, `mixHash`, `sha3Uncles`, `difficulty`,
-`extraData`, `uncles`, and `totalDifficulty` are always their
+A height above the current chain head or `earliest` (this executor's first
+committed height is 1, not 0) returns `null`, matching
+`eth_getTransactionByHash`'s treatment of an unknown hash. A height the node
+has since pruned returns an error. `nonce`, `mixHash`, `sha3Uncles`,
+`difficulty`, `extraData`, `uncles`, and `totalDifficulty` are always their
 Ethereum-inapplicable zero value, matching `eth_getBlockByNumber` on the
 regular (non-EVM-only) RPC. `logsBloom` is always empty, unlike the regular
 RPC, which aggregates it from a receipt per transaction. `gasUsed` and the
@@ -588,9 +684,10 @@ transaction counts, and the by-block-and-index lookups) all report that full
 list. Two kinds of rejected transaction have no receipt at the block that lists
 them:
 
-- A transaction that can still succeed later (nonce too high or insufficient
-  funds) has no receipt; `eth_getTransactionReceipt` returns `null` unless it
-  later executes in another block, and then reports that block.
+- A transaction rejected for any reason other than an already-used nonce (for
+  example nonce too high, insufficient funds, or the block's gas limit
+  reached) has no receipt; `eth_getTransactionReceipt` returns `null` unless
+  it later executes in another block, and then reports that block.
 - A transaction repeated after it already executed keeps its original receipt,
   so `eth_getTransactionReceipt` and `eth_getTransactionByHash` report the
   earlier block and index where it ran.
@@ -598,11 +695,8 @@ them:
 Indexers that pair each listed transaction with a receipt at the same block
 and index should expect these two cases.
 
-The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
-does not currently print every submitted hash.
-There are also no fee-estimation, log, or WebSocket subscription methods.
-Commands that depend on those queries cannot operate normally; raw
-transactions must still provide gas price offline as in the example above.
+`sei-load` does not currently print every submitted hash. `cast` commands
+that depend on a method listed above as not supported cannot operate normally.
 
 ## Tear down
 
