@@ -3,8 +3,7 @@
 // Package inprocess stands up N sei-chain validators in a single Go process —
 // real CometBFT consensus, each node serving its own Tendermint RPC + EVM
 // JSON-RPC (HTTP/WS), with deterministic teardown. It is the in-process
-// provisioning foundation for the SDK "local" provider (design:
-// bdchatham-designs/designs/test-harness/sdk-local-provider-lld.md).
+// provisioning foundation for the SDK "local" provider.
 //
 // Use Validators = 1 or Validators >= 3; Start rejects 2 (see "Choosing the
 // validator count"). The package is gated behind the `inprocess` build tag so
