@@ -1629,6 +1629,70 @@ func TestComposite_PinnedSteadyStateModes_RefuseInFlightMigration(t *testing.T) 
 	require.Equal(t, types.MigrateEVM, cs.loadWriteMode(), "sanity: the migration is still in flight")
 }
 
+// TestComposite_PinnedMigrationModes_MatchPersistedState opens stores at each persisted migration
+// state with each migration-mode pin. A pin refuses to load only when the persisted state lies past
+// its own completion; every earlier state loads, because a store pinned from genesis writes no
+// version marker until its first migration completes and so cannot be told apart from one.
+func TestComposite_PinnedMigrationModes_MatchPersistedState(t *testing.T) {
+	t.Run("evm_in_flight", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E1)
+		cs := openAutoStore(t, dir, 8)
+		for i := 0; i < 12; i++ {
+			commitRecorded(t, cs, workload.generateBlock(6, 0, 0, 4, 0))
+		}
+		require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+		commitRecorded(t, cs, workload.generateBlock(2, 2, 1, 0, 0))
+		require.NoError(t, cs.Close())
+
+		for _, mode := range []types.WriteMode{types.MigrateEVM, types.MigrateCosmos} {
+			require.NoError(t, loadLatestError(t, dir, pinnedConfig(mode)), "pinned %s", mode)
+		}
+	})
+
+	t.Run("evm_migrated", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E2)
+		cs := openAutoStore(t, dir, 8)
+		for i := 0; i < 12; i++ {
+			commitRecorded(t, cs, workload.generateBlock(6, 0, 0, 4, 0))
+		}
+		require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+		runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+		require.NoError(t, cs.Close())
+
+		for _, mode := range []types.WriteMode{types.MigrateEVM, types.MigrateCosmos} {
+			require.NoError(t, loadLatestError(t, dir, pinnedConfig(mode)), "pinned %s", mode)
+		}
+	})
+
+	t.Run("cosmos_in_flight", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E3)
+		cs := openAutoStore(t, dir, 8)
+		walkToMigrateCosmos(t, cs, workload)
+		commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
+		require.NoError(t, cs.Close())
+
+		require.NoError(t, loadLatestError(t, dir, pinnedConfig(types.MigrateCosmos)))
+		require.ErrorContains(t, loadLatestError(t, dir, pinnedConfig(types.MigrateEVM)),
+			`persisted migration state is "migrate_cosmos"`)
+	})
+
+	t.Run("flatkv_only", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E4)
+		cs := openAutoStore(t, dir, 8)
+		walkToMigrateCosmos(t, cs, workload)
+		commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
+		require.NoError(t, cs.Close())
+
+		require.NoError(t, loadLatestError(t, dir, pinnedConfig(types.MigrateCosmos)))
+		require.ErrorContains(t, loadLatestError(t, dir, pinnedConfig(types.MigrateEVM)),
+			`persisted migration state is "flatkv_only"`)
+	})
+}
+
 // TestComposite_PinnedFlatKVOnly_GenesisStoreReopensAndRollsBack checks that a store pinned to FlatKVOnly
 // from genesis, which has no migration metadata, still reopens and rolls back.
 func TestComposite_PinnedFlatKVOnly_GenesisStoreReopensAndRollsBack(t *testing.T) {

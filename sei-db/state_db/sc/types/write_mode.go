@@ -119,6 +119,25 @@ func nextInChain(m WriteMode) (WriteMode, bool) {
 	return "", false
 }
 
+// ChainDistance returns how many steps along the migration chain to lies
+// ahead of from; the result is negative when to lies behind. ok is false when
+// either mode is off the chain (Auto, TestOnlyDualWrite, unknown modes).
+func ChainDistance(from, to WriteMode) (distance int, ok bool) {
+	fromIdx, toIdx := -1, -1
+	for i, mode := range migrationChain {
+		if mode == from {
+			fromIdx = i
+		}
+		if mode == to {
+			toIdx = i
+		}
+	}
+	if fromIdx < 0 || toIdx < 0 {
+		return 0, false
+	}
+	return toIdx - fromIdx, true
+}
+
 // ValidateTransition returns nil if from -> to is a legal runtime
 // write-mode transition, or an error describing why it is not.
 //

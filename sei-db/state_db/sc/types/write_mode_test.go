@@ -70,6 +70,33 @@ func TestValidateTransitionExhaustive(t *testing.T) {
 	require.Equal(t, len(legal), legalSeen)
 }
 
+// TestChainDistanceExhaustive pins that ChainDistance is the signed index
+// difference along the migration chain for every pair of chain modes, and
+// that any pair with a mode off the chain reports ok == false.
+func TestChainDistanceExhaustive(t *testing.T) {
+	index := map[WriteMode]int{}
+	for i, mode := range migrationChain {
+		index[mode] = i
+	}
+
+	onChainPairs := 0
+	for _, from := range allModes {
+		for _, to := range allModes {
+			distance, ok := ChainDistance(from, to)
+			fromIdx, fromOnChain := index[from]
+			toIdx, toOnChain := index[to]
+			if !fromOnChain || !toOnChain {
+				require.False(t, ok, "ChainDistance(%q, %q) must report off-chain", from, to)
+				continue
+			}
+			require.True(t, ok, "ChainDistance(%q, %q)", from, to)
+			require.Equal(t, toIdx-fromIdx, distance, "ChainDistance(%q, %q)", from, to)
+			onChainPairs++
+		}
+	}
+	require.Equal(t, len(migrationChain)*len(migrationChain), onChainPairs)
+}
+
 // TestIsMigrationMode pins the modes whose exit transitions require a
 // completed migration (the second half of the SetWriteMode safety check).
 func TestIsMigrationMode(t *testing.T) {

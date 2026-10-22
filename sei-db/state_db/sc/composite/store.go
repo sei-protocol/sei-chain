@@ -608,13 +608,15 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 }
 
 // requirePinnedModeMatchesMigration returns an error when the configured
-// steady-state write mode disagrees with the migration state persisted in
-// flatkv. A store whose history began in flatkv carries no migration
-// metadata and derives MemiavlOnly, so that state is accepted for any pin.
+// write mode cannot serve the migration state persisted in flatkv. A
+// steady-state pin must match the persisted state exactly. A migration-mode
+// pin is refused only when the persisted state lies past its own completion.
+// A store whose history began in flatkv carries no migration metadata and
+// derives MemiavlOnly, so that state is accepted for any pin.
 func (cs *CompositeCommitStore) requirePinnedModeMatchesMigration() error {
 	pinned := cs.config.WriteMode
 	switch pinned {
-	case types.EVMMigrated, types.FlatKVOnly:
+	case types.EVMMigrated, types.FlatKVOnly, types.MigrateEVM, types.MigrateCosmos:
 	default:
 		return nil
 	}
@@ -628,6 +630,17 @@ func (cs *CompositeCommitStore) requirePinnedModeMatchesMigration() error {
 	}
 	if persisted == pinned || persisted == types.MemiavlOnly {
 		return nil
+	}
+	if pinned.IsMigrationMode() {
+		// A migration router serves the layout before its migration starts
+		// and after it completes. An earlier persisted state can also be the
+		// pin's own in-flight boundary: the version key is written only at
+		// completion, so a store pinned from genesis carries no marker for
+		// the versions it skipped and its boundary derives as an earlier
+		// migration. Only a layout past the pin's completion is unambiguous.
+		if ahead, ok := types.ChainDistance(pinned, persisted); ok && ahead <= 1 {
+			return nil
+		}
 	}
 	return fmt.Errorf(
 		"write mode is pinned to %q but the persisted migration state is %q; "+
