@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"runtime"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -75,6 +76,12 @@ func (c *senderCache) put(hash common.Hash, sender common.Address) {
 		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
 	}
 	c.fresh[hash] = sender
+}
+
+func (c *senderCache) contains(hash common.Hash) bool {
+	_, fresh := c.fresh[hash]
+	_, stale := c.stale[hash]
+	return fresh || stale
 }
 
 // take returns the sender remembered for hash, if any, and forgets it.
@@ -230,7 +237,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
-		BlockResultPoolSize:  max(a.execution.BlockResultPoolSize, 2),
+		BlockResultPoolSize:  a.execution.BlockResultPoolSize,
 		MockExecution:        a.execution.MockExecution,
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
@@ -248,18 +255,23 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
 	}
 	for state := range a.cursor.Lock() {
-		if height != state.committed.height+1 {
+		if height <= state.committed.height {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
+		}
+		storeVersion := state.committed.storeVersion + 1
+		if block.StateVersion != 0 && block.StateVersion != uint64(storeVersion) {
+			return nil, fmt.Errorf("EVM-only block state version %d does not follow %d", block.StateVersion, state.committed.storeVersion)
 		}
 		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
 		if err != nil {
 			return nil, err
 		}
 		next := evmOnlyCursor{
-			height:    height,
-			appHash:   appHash,
-			blockHash: block.BlockHash,
-			gasLimit:  block.GasLimit,
+			height:       height,
+			appHash:      appHash,
+			blockHash:    block.BlockHash,
+			gasLimit:     block.GasLimit,
+			storeVersion: storeVersion,
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
@@ -285,7 +297,7 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		}
 		a.installExecutor(executor)
 		for state := range a.cursor.Lock() {
-			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
+			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit, storeVersion: req.InitialHeight - 1}
 		}
 		return &abci.ResponseInitChain{}, nil
 	}
@@ -399,6 +411,53 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 	for senders := range a.checkedSenders.Lock() {
 		senders.put(hash, sender)
 	}
+}
+
+// RecoverSenders recovers the sender of every tx and remembers it for execution.
+// Transactions whose sender is already remembered are left in the cache.
+func (a *evmOnlyApplication) RecoverSenders(ctx context.Context, txs [][]byte) {
+	if len(txs) == 0 {
+		return
+	}
+	hashes := hashRawTxs(txs)
+	missing := make([]int, 0, len(txs))
+	for senders := range a.checkedSenders.Lock() {
+		for i, hash := range hashes {
+			if !senders.contains(hash) {
+				missing = append(missing, i)
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	workers := workersOrGOMAXPROCS(a.execution.ParseWorkers)
+	if workers > len(missing) {
+		workers = len(missing)
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				i := int(next.Add(1) - 1)
+				if i >= len(missing) {
+					return
+				}
+				tx, sender, err := a.parseTx(txs[missing[i]])
+				if err != nil {
+					continue
+				}
+				a.rememberSender(tx.Hash(), sender)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // takeSenders returns, aligned with txs, the sender CheckTx recovered for each
@@ -730,19 +789,24 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
+		stateVersion, ok := utils.SafeCast[uint64](parent.storeVersion + 1)
+		if !ok {
+			return nil, fmt.Errorf("EVM-only state version exceeds uint64: %d", parent.storeVersion+1)
+		}
 		// Closes the stage in flight, so the gap until the next block is charged to neither.
 		defer a.finalizePhases.Reset()
 		result, err := a.executeBlockPipelined(ctx, executor, height, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
-				Number:      number,
-				Time:        timestamp,
-				GasLimit:    parent.gasLimit,
-				ChainID:     new(big.Int).Set(a.chainID),
-				BaseFee:     evmOnlyBaseFee(),
-				BlobBaseFee: new(big.Int),
-				ParentHash:  parent.blockHash,
-				BlockHash:   blockHash,
-				PrevRandao:  evmOnlyPrevRandao(timestamp),
+				Number:       number,
+				StateVersion: stateVersion,
+				Time:         timestamp,
+				GasLimit:     parent.gasLimit,
+				ChainID:      new(big.Int).Set(a.chainID),
+				BaseFee:      evmOnlyBaseFee(),
+				BlobBaseFee:  new(big.Int),
+				ParentHash:   parent.blockHash,
+				BlockHash:    blockHash,
+				PrevRandao:   evmOnlyPrevRandao(timestamp),
 			},
 			Txs: req.Txs,
 		})
@@ -770,8 +834,8 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 		if state.pending.IsPresent() {
 			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)
 		}
-		if next := state.committed.height + 1; height != next {
-			return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not match next height %d", height, next)
+		if height <= state.committed.height {
+			return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
 		return state.committed, nil
 	}
@@ -925,6 +989,9 @@ func (a *evmOnlyApplication) aheadParent(height int64, parent []byte) (common.Ha
 			}
 			return common.BytesToHash(parent), state.committed.gasLimit, nil
 		default:
+			if height > state.committed.height {
+				return state.committed.blockHash, state.committed.gasLimit, nil
+			}
 			return common.Hash{}, 0, fmt.Errorf("block %d is not next (committed %d)", height, state.committed.height)
 		}
 	}

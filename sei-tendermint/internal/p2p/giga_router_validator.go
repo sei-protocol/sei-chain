@@ -2,7 +2,10 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -90,6 +93,41 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	}, nil
 }
 
+// recoverLaneSenders recovers each lane block's senders as the block arrives.
+func (r *gigaValidatorRouter) recoverLaneSenders(ctx context.Context) error {
+	avail := r.consensus.Avail()
+	if _, err := avail.Epoch().Wait(ctx, func(ep *atypes.Epoch) bool {
+		return ep.Committee().Lanes().Len() > 0
+	}); err != nil {
+		return err
+	}
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for lane := range avail.Epoch().Load().Committee().Lanes().All() {
+			s.Spawn(func() error { return r.followLane(ctx, lane) })
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	})
+}
+
+// followLane queues a lane's transactions for sender recovery as each block is stored.
+func (r *gigaValidatorRouter) followLane(ctx context.Context, lane atypes.LaneID) error {
+	avail := r.consensus.Avail()
+	var n atypes.BlockNumber
+	for {
+		proposal, err := avail.Block(ctx, lane, n)
+		if err != nil {
+			if errors.Is(err, atypes.ErrPruned) {
+				n++
+				continue
+			}
+			return err
+		}
+		n++
+		r.noteLaneTxs(slices.Clone(proposal.Msg().Block().Payload().Txs()))
+	}
+}
+
 func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 	return utils.Some(r.producer)
 }
@@ -103,6 +141,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("recover-senders", func() error { return r.recoverLaneSenders(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})

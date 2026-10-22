@@ -16,16 +16,17 @@ import (
 const (
 	evmOnlyCursorModule = "evmonly"
 	evmOnlyCursorKey    = "cursor"
-	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + 8
+	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + 8 + 8
 )
 
 // evmOnlyCursor identifies a block whose state is committed to storage and
 // what the next block executes against.
 type evmOnlyCursor struct {
-	height    int64
-	appHash   common.Hash
-	blockHash common.Hash
-	gasLimit  uint64
+	height       int64
+	appHash      common.Hash
+	blockHash    common.Hash
+	gasLimit     uint64
+	storeVersion int64
 }
 
 func (c evmOnlyCursor) changeSet() *proto.NamedChangeSet {
@@ -43,7 +44,8 @@ func (c evmOnlyCursor) encode() []byte {
 	buf = binary.BigEndian.AppendUint64(buf, uint64(c.height)) //nolint:gosec // G115: height is non-negative.
 	buf = append(buf, c.appHash[:]...)
 	buf = append(buf, c.blockHash[:]...)
-	return binary.BigEndian.AppendUint64(buf, c.gasLimit)
+	buf = binary.BigEndian.AppendUint64(buf, c.gasLimit)
+	return binary.BigEndian.AppendUint64(buf, uint64(c.storeVersion)) //nolint:gosec // storeVersion is non-negative.
 }
 
 func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
@@ -55,11 +57,16 @@ func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
 		return evmOnlyCursor{}, fmt.Errorf("EVM-only cursor height exceeds int64")
 	}
 	raw = raw[8:]
+	storeVersion, ok := utils.SafeCast[int64](binary.BigEndian.Uint64(raw[2*common.HashLength+8:]))
+	if !ok {
+		return evmOnlyCursor{}, fmt.Errorf("EVM-only cursor store version exceeds int64")
+	}
 	return evmOnlyCursor{
-		height:    height,
-		appHash:   common.BytesToHash(raw[:common.HashLength]),
-		blockHash: common.BytesToHash(raw[common.HashLength : 2*common.HashLength]),
-		gasLimit:  binary.BigEndian.Uint64(raw[2*common.HashLength:]),
+		height:       height,
+		appHash:      common.BytesToHash(raw[:common.HashLength]),
+		blockHash:    common.BytesToHash(raw[common.HashLength : 2*common.HashLength]),
+		gasLimit:     binary.BigEndian.Uint64(raw[2*common.HashLength:]),
+		storeVersion: storeVersion,
 	}, nil
 }
 
@@ -82,8 +89,12 @@ func loadEVMOnlyCursor(store *flatkv.CommitStore) (utils.Option[evmOnlyCursor], 
 	if err != nil {
 		return utils.None[evmOnlyCursor](), err
 	}
-	if cursor.height != latest {
-		return utils.None[evmOnlyCursor](), fmt.Errorf("EVM-only cursor is at height %d but state is at %d", cursor.height, latest)
+	version := cursor.storeVersion
+	if version == 0 {
+		version = cursor.height
+	}
+	if version != latest {
+		return utils.None[evmOnlyCursor](), fmt.Errorf("EVM-only cursor is at state version %d but state is at %d", version, latest)
 	}
 	return utils.Some(cursor), nil
 }

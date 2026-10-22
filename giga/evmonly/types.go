@@ -69,16 +69,18 @@ type PreparedTx struct {
 
 // BlockContext contains block-constant EVM execution data.
 type BlockContext struct {
-	Number      uint64
-	Time        uint64
-	GasLimit    uint64
-	ChainID     *big.Int
-	BaseFee     *big.Int
-	BlobBaseFee *big.Int
-	Coinbase    common.Address
-	ParentHash  common.Hash
-	BlockHash   common.Hash
-	PrevRandao  common.Hash
+	Number uint64
+	// StateVersion is the state-store version this block commits. 0 commits at Number.
+	StateVersion uint64
+	Time         uint64
+	GasLimit     uint64
+	ChainID      *big.Int
+	BaseFee      *big.Int
+	BlobBaseFee  *big.Int
+	Coinbase     common.Address
+	ParentHash   common.Hash
+	BlockHash    common.Hash
+	PrevRandao   common.Hash
 }
 
 // BlockResult is the executor output consumed by the new runtime boundary.

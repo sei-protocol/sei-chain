@@ -22,7 +22,8 @@ func TestEVMOnlyCursorRoundTrip(t *testing.T) {
 	require.Equal(t, uint64(cursor.height), binary.BigEndian.Uint64(raw[:8])) //nolint:gosec // G115: fixture height is non-negative.
 	require.Equal(t, cursor.appHash, common.BytesToHash(raw[8:40]))
 	require.Equal(t, cursor.blockHash, common.BytesToHash(raw[40:72]))
-	require.Equal(t, cursor.gasLimit, binary.BigEndian.Uint64(raw[72:]))
+	require.Equal(t, cursor.gasLimit, binary.BigEndian.Uint64(raw[72:80]))
+	require.Equal(t, uint64(cursor.storeVersion), binary.BigEndian.Uint64(raw[80:]))
 
 	decoded, err := decodeEVMOnlyCursor(raw)
 	require.NoError(t, err)

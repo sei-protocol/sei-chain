@@ -1004,15 +1004,12 @@ func (s *nativeStateDB) clearSnapshots() {
 
 func (s *nativeStateDB) account(addr common.Address) *nativeAccount {
 	if acct, ok := s.accounts[addr]; ok {
-		accountReads.record(accountReadState)
 		return acct
 	}
 	base, ok := s.base[addr]
 	if !ok {
 		base = s.loadAccount(addr)
 		s.base[addr] = base.clone()
-	} else {
-		accountReads.record(accountReadState)
 	}
 	s.accounts[addr] = base.clone()
 	return s.accounts[addr]
@@ -1141,7 +1138,6 @@ type baseAccountReader interface {
 }
 
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
-	accountReads.record(accountReadStore)
 	if reader, ok := s.source.(baseAccountReader); ok {
 		if account, served := reader.ReadAccount(addr); served {
 			balance, err := uint256FromBig(account.Balance)

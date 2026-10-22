@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/big"
 	"sort"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -133,9 +134,18 @@ func (r occSpeculativeRunner) runRanges(
 	if len(ranges) == 0 {
 		return ctx.Err()
 	}
-	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
-		evm := r.workerEVM()
-		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
+	// Ranges are claimed as workers finish, so a slow slice does not idle the rest of the pass.
+	var claimed atomic.Int64
+	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, _ int, _ int) error {
+		stateDB := r.executor.acquireStateDB(nil)
+		defer r.executor.releaseStateDB(stateDB)
+		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, nil)
+		stateDB.SetEVM(evm)
+		for {
+			rangeIndex := int(claimed.Add(1) - 1)
+			if rangeIndex >= len(ranges) {
+				return nil
+			}
 			txRange := ranges[rangeIndex]
 			for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
 				if err := workerCtx.Err(); err != nil {
@@ -149,12 +159,11 @@ func (r occSpeculativeRunner) runRanges(
 					source:       source,
 					gasLimit:     gasLimit,
 				}
-				if err := r.executeTaskInto(workerCtx, evm, task, results); err != nil {
+				if err := r.executeTaskInto(workerCtx, evm, stateDB, task, results); err != nil {
 					return err
 				}
 			}
 		}
-		return nil
 	})
 }
 
@@ -168,12 +177,15 @@ func (r occSpeculativeRunner) runTasks(
 		return ctx.Err()
 	}
 	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
-		evm := r.workerEVM()
+		stateDB := r.executor.acquireStateDB(nil)
+		defer r.executor.releaseStateDB(stateDB)
+		evm := vm.NewEVM(r.blockCtx, stateDB, r.chainConfig, vm.Config{}, nil)
+		stateDB.SetEVM(evm)
 		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			if err := r.executeTaskInto(workerCtx, evm, tasks[taskIndex], results); err != nil {
+			if err := r.executeTaskInto(workerCtx, evm, stateDB, tasks[taskIndex], results); err != nil {
 				return err
 			}
 		}
@@ -181,12 +193,7 @@ func (r occSpeculativeRunner) runTasks(
 	})
 }
 
-// workerEVM returns an EVM this worker reuses across the transactions it executes.
-func (r occSpeculativeRunner) workerEVM() *vm.EVM {
-	return vm.NewEVM(r.blockCtx, nil, r.chainConfig, vm.Config{}, nil)
-}
-
-func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, task occExecutionTask, results []occTxExecution) error {
+func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, stateDB *nativeStateDB, task occExecutionTask, results []occTxExecution) error {
 	result, err := r.executor.executeTxSpeculative(
 		ctx,
 		task.source,
@@ -198,6 +205,7 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, 
 		r.baseFee,
 		task.gasLimit,
 		evm,
+		stateDB,
 	)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -246,13 +254,20 @@ func (e *Executor) executeTxSpeculative(
 	baseFee *big.Int,
 	blockGasLimit uint64,
 	evm *vm.EVM,
+	reused *nativeStateDB,
 ) (occTxExecution, error) {
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
 	}
 	p := req.Txs[txIndex]
-	stateDB := e.acquireStateDB(source)
-	defer e.releaseStateDB(stateDB)
+	var stateDB *nativeStateDB
+	if reused != nil {
+		stateDB = reused
+		stateDB.reset(source)
+	} else {
+		stateDB = e.acquireStateDB(source)
+		defer e.releaseStateDB(stateDB)
+	}
 	stateDB.enableAccessTracking()
 	if evm == nil {
 		evm = vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
@@ -653,23 +668,77 @@ func (k stateAccessKind) String() string {
 	}
 }
 
+// occMergeChunk is how many results one worker copies into the block result at a time.
+const occMergeChunk = 1024
+
+// fillMergedResults copies each result's outcome and receipt into blockResult in block order.
+func fillMergedResults(ctx context.Context, pool *occWorkerPool, blockResult *BlockResult, results []occTxExecution) error {
+	if pool == nil || len(results) < 2*occMergeChunk {
+		blockResult.GasUsed, _ = fillMergedRange(blockResult, results, 0, len(results), 0, 0)
+		return ctx.Err()
+	}
+	chunks := (len(results) + occMergeChunk - 1) / occMergeChunk
+	gasBefore := make([]uint64, chunks+1)
+	logsBefore := make([]uint, chunks+1)
+	err := pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+		for c := workerID; c < chunks; c += workers {
+			for i := c * occMergeChunk; i < min((c+1)*occMergeChunk, len(results)); i++ {
+				gasBefore[c+1] += results[i].gasUsed
+				if results[i].receipt != nil {
+					logsBefore[c+1] += uint(len(results[i].receipt.Logs))
+				}
+			}
+		}
+		return workerCtx.Err()
+	})
+	if err != nil {
+		return err
+	}
+	for c := range chunks {
+		gasBefore[c+1] += gasBefore[c]
+		logsBefore[c+1] += logsBefore[c]
+	}
+	err = pool.Run(ctx, chunks, func(workerCtx context.Context, workerID int, workers int) error {
+		for c := workerID; c < chunks; c += workers {
+			fillMergedRange(blockResult, results, c*occMergeChunk, min((c+1)*occMergeChunk, len(results)), gasBefore[c], logsBefore[c])
+		}
+		return workerCtx.Err()
+	})
+	if err != nil {
+		return err
+	}
+	blockResult.GasUsed = gasBefore[chunks]
+	return nil
+}
+
+// fillMergedRange fills results [start, end) into blockResult, continuing from gasUsed and logIndex.
+func fillMergedRange(blockResult *BlockResult, results []occTxExecution, start int, end int, gasUsed uint64, logIndex uint) (uint64, uint) {
+	for i := start; i < end; i++ {
+		result := &results[i]
+		gasUsed += result.gasUsed
+		result.txResult.CumulativeGasUsed = gasUsed
+		if result.receipt != nil {
+			result.receipt.CumulativeGasUsed = gasUsed
+			for _, log := range result.receipt.Logs {
+				log.Index = logIndex
+				logIndex++
+			}
+		}
+		blockResult.Txs[i] = result.txResult
+		blockResult.Receipts[i] = result.receipt
+	}
+	return gasUsed, logIndex
+}
+
 func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution, finalState *blockSTMState) (*BlockResult, error) {
 	blockResult, err := e.acquireBlockResult(ctx, len(results))
 	if err != nil {
 		return nil, err
 	}
 	blockResult.prepareIndexedResults(len(results))
-	var logIndex uint
-	for i, result := range results {
-		blockResult.GasUsed += result.gasUsed
-		result.txResult.CumulativeGasUsed = blockResult.GasUsed
-		result.receipt.CumulativeGasUsed = blockResult.GasUsed
-		for _, log := range result.receipt.Logs {
-			log.Index = logIndex
-			logIndex++
-		}
-		blockResult.Txs[i] = result.txResult
-		blockResult.Receipts[i] = result.receipt
+	if err := fillMergedResults(ctx, e.occPool, blockResult, results); err != nil {
+		blockResult.Release()
+		return nil, err
 	}
 	if err := finalState.changeSetIntoParallel(ctx, e.occPool, &blockResult.ChangeSet); err != nil {
 		blockResult.Release()

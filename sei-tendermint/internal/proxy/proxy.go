@@ -58,6 +58,20 @@ func (app *Proxy) BeginEVMPrepare(ctx context.Context, req *types.RequestFinaliz
 	preparer.BeginBlockPrepare(ctx, req, parent)
 }
 
+// senderRecoverer recovers transaction senders before the block that contains them executes.
+type senderRecoverer interface {
+	RecoverSenders(context.Context, [][]byte)
+}
+
+// RecoverSenders recovers senders when the wrapped application supports it.
+func (app *Proxy) RecoverSenders(ctx context.Context, txs [][]byte) {
+	recoverer, ok := app.app.(senderRecoverer)
+	if !ok {
+		return
+	}
+	recoverer.RecoverSenders(ctx, txs)
+}
+
 func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(Global.MethodTimingAt("get_tx_priority", "sync"))()
 	return app.app.GetTxPriorityHint(ctx, req)
