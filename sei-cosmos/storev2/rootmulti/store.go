@@ -901,8 +901,10 @@ func (rs *Store) mayAdvanceWriteMode(mode sctypes.WriteMode, batchSize int) bool
 }
 
 // startNextMigration moves an auto SC store from mode into its next migration.
-// It is safe to call mid-block: SetWriteMode only swaps the composite store's
-// router, so the block's live cache-multi-store keeps its views.
+// It runs on the block-execution goroutine in BeginBlock, after the previous
+// Commit and before the block's first ApplyChangeSets. SetWriteMode only swaps
+// the composite store's router, so the block's live cache-multi-store keeps
+// its views. It is not safe to call in parallel with block execution.
 func (rs *Store) startNextMigration(mode sctypes.WriteMode) error {
 	switch mode {
 	case sctypes.MemiavlOnly:
