@@ -854,10 +854,13 @@ func TestFilterGetFilterChangesSkipsPrunedBlocks(t *testing.T) {
 	filterClient.latestOverride = 3
 	earliestTag := newLogFilter(t, map[string]interface{}{"fromBlock": "earliest"})
 	belowEarliest := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1"})
+	prunedRange := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1", "toBlock": "0x1"})
 	want := logsInRange(t, 2, 3)
 	require.NotEmpty(t, want)
 	require.Equal(t, want, filterChanges(t, earliestTag))
 	require.Equal(t, want, filterChanges(t, belowEarliest))
+	require.Empty(t, filterChanges(t, prunedRange), "a filter whose whole range is pruned is exhausted")
+	require.Empty(t, filterChanges(t, prunedRange))
 
 	// Pruning passes the cursor of the filter last polled at head 1.
 	filterClient.earliestOverride = 4
