@@ -24,6 +24,10 @@ type laneSenders struct {
 	senders []utils.Option[common.Address]
 }
 
+// takenLaneSenders marks a block whose senders a superblock already took, so a copy of the block
+// arriving later is not recovered again.
+var takenLaneSenders = &laneSenders{}
+
 type laneSenderJob struct {
 	entry *laneSenders
 	txs   [][]byte
@@ -63,14 +67,15 @@ func (s *laneSenderStore) add(hash atypes.BlockHeaderHash, txs [][]byte) {
 	s.cond.Signal()
 }
 
-// take removes and returns the entry for the block, if it was added.
+// take returns the entry for the block, if it was added and not yet taken, and marks the block
+// taken.
 func (s *laneSenderStore) take(hash atypes.BlockHeaderHash) (*laneSenders, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, gen := range [...]map[atypes.BlockHeaderHash]*laneSenders{s.fresh, s.stale} {
 		if entry, ok := gen[hash]; ok {
-			delete(gen, hash)
-			return entry, true
+			gen[hash] = takenLaneSenders
+			return entry, entry != takenLaneSenders
 		}
 	}
 	return nil, false

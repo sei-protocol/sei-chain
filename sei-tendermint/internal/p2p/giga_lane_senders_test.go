@@ -51,9 +51,14 @@ func TestSuperblockSendersAlignsRecoveredAndMissingBlocks(t *testing.T) {
 		require.False(t, got[len(recovered.Payload.Txs())+i].IsPresent())
 	}
 
-	// A block's senders are handed out once.
+	// A block's senders are handed out once, and a later copy of the block is not recovered again.
 	_, ok := store.take(recovered.Header.Hash())
 	require.False(t, ok)
+	store.add(recovered.Header.Hash(), recovered.Payload.Txs())
+	store.mu.Lock()
+	queued := len(store.queue)
+	store.mu.Unlock()
+	require.Equal(t, 0, queued)
 }
 
 func TestSuperblockSendersIsNilWithoutRecovery(t *testing.T) {
