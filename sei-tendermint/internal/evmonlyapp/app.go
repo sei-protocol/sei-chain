@@ -150,6 +150,7 @@ const (
 	finalizeTimerName = "evmonly_finalize"
 
 	finalizePhaseTakeSenders = "take_senders"
+	finalizePhaseAwaitPrep   = "await_prepare"
 	finalizePhasePrepare     = "prepare"
 	finalizePhaseExecute     = "execute"
 	finalizePhaseTxResults   = "tx_results"
@@ -861,6 +862,7 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 // has started, leaving the commit to land while the next block executes.
 // Readers of committed state settle it through AwaitCommits.
 func (a *evmOnlyApplication) executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, height int64, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+	a.finalizePhases.SetPhase(finalizePhaseAwaitPrep)
 	prepared, ok, err := a.takePrepared(height)
 	if err != nil {
 		return nil, err

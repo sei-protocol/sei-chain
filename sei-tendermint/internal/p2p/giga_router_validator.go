@@ -114,8 +114,42 @@ func (r *gigaValidatorRouter) recoverLaneSenders(ctx context.Context) error {
 		for lane := range ep.Committee().Lanes().All() {
 			s.Spawn(func() error { return r.followLane(ctx, store, lane) })
 		}
+		s.Spawn(func() error { return r.followCommittedBlocks(ctx, store) })
 		return nil
 	})
+}
+
+// committedRecoveryWindow is how many global blocks past the last executed one
+// followCommittedBlocks queues for sender recovery.
+const committedRecoveryWindow = 1000
+
+// followCommittedBlocks queues each committed block for sender recovery up to
+// committedRecoveryWindow past this node's execution. A node executing behind the network stops
+// receiving lane blocks once its lane window is full, and fetches committed blocks instead, which
+// followLane never sees.
+func (r *gigaValidatorRouter) followCommittedBlocks(ctx context.Context, store *laneSenderStore) error {
+	executed := r.executed.Subscribe()
+	n := executed.Load().Latest().Number + 1
+	for {
+		latest, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+			return n <= w.Latest().Number+committedRecoveryWindow
+		})
+		if err != nil {
+			return err
+		}
+		// Blocks already executed need no recovery.
+		n = max(n, latest.Latest().Number+1)
+		b, err := r.data.GlobalBlock(ctx, n)
+		if errors.Is(err, atypes.ErrPruned) {
+			n++
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		store.add(b.Header.Hash(), b.Payload.Txs())
+		n++
+	}
 }
 
 // followLane queues each block of lane for sender recovery as it is stored, until the lane leaves
