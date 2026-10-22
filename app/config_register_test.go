@@ -125,6 +125,7 @@ func TestStateCommitResolvesTheModuleDeclaredValues(t *testing.T) {
 			FlagSCHistoricalProofMaxInFlight: live.HistoricalProofMaxInFlight,
 			FlagSCHistoricalProofRateLimit:   live.HistoricalProofRateLimit,
 			FlagSCHistoricalProofBurst:       live.HistoricalProofBurst,
+			FlagSCEnableStateProof:           live.EnableStateProof,
 			FlagSCSubspaceQueryMaxInFlight:   live.SubspaceQueryMaxInFlight,
 			FlagSCSubspaceMaxPairs:           live.SubspaceMaxPairs,
 			FlagSCSubspaceMaxBytes:           live.SubspaceMaxBytes,

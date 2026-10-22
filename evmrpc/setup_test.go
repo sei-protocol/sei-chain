@@ -190,8 +190,11 @@ var BlockFilterNotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
 	client.Client
-	latestOverride int64
+	latestOverride   int64
+	earliestOverride int64
 }
+
+var filterClient = &MockClient{}
 
 func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
@@ -511,10 +514,14 @@ func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	if latest < 1 {
 		latest = 1
 	}
+	earliest := c.earliestOverride
+	if earliest <= 0 {
+		earliest = 1
+	}
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{
 			LatestBlockHeight:   latest,
-			EarliestBlockHeight: 1,
+			EarliestBlockHeight: earliest,
 		},
 	}, nil
 }
@@ -691,7 +698,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, filterClient, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}

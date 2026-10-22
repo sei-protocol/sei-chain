@@ -34,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -378,6 +379,9 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
 		return b.keeper.GetReceipt(sdkCtx, txHash)
 	})
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		return false, nil, common.Hash{}, 0, 0, nil
+	}
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}

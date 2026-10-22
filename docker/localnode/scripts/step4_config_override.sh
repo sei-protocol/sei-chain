@@ -191,8 +191,6 @@ if [ "$AUTOBAHN" = "true" ]; then
   # query surfaces it does not serve.
   sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
   sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-  sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-  sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
   echo "Enabled Autobahn for node $NODE_ID (EVM JSON-RPC only)"
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
