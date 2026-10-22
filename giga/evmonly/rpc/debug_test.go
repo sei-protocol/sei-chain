@@ -42,8 +42,8 @@ var (
 )
 
 // traceChain is a two-block chain served to the debug API: block 1 is empty, and block 2 holds two
-// transfers from one sender around a spent-nonce duplicate, which the block rejected and stored no
-// receipt for.
+// transfers from one sender around two spent-nonce transactions the block rejected: a duplicate,
+// which stored no receipt, and one with a new hash, which stored a receipt that used no gas.
 type traceChain struct {
 	sender   common.Address
 	blocks   map[int64]*coretypes.ResultBlock
@@ -56,6 +56,7 @@ func newTraceChain(t *testing.T) *traceChain {
 	t.Helper()
 	first, rawFirst := testSignedTransactionWithNonce(t, 0)
 	_, rawDuplicate := testSignedTransactionWithNonce(t, 0)
+	stale, rawStale := dynamicFeeTransfer(t, 0)
 	second, rawSecond := dynamicFeeTransfer(t, 1)
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(traceChainID)), first)
 	require.NoError(t, err)
@@ -63,23 +64,25 @@ func newTraceChain(t *testing.T) *traceChain {
 		sender: sender,
 		blocks: map[int64]*coretypes.ResultBlock{
 			1: traceResultBlock(1, nil),
-			2: traceResultBlock(2, tmtypes.Txs{rawFirst, rawDuplicate, rawSecond}),
+			2: traceResultBlock(2, tmtypes.Txs{rawFirst, rawDuplicate, rawStale, rawSecond}),
 		},
 		executed: []*ethtypes.Transaction{first, second},
 		store:    evmonly.NewMemoryReceiptStore(),
 	}
-	stored := func(tx *ethtypes.Transaction, index uint32) receipt.ReceiptRecord {
+	stored := func(tx *ethtypes.Transaction, index uint32, gasUsed uint64) receipt.ReceiptRecord {
 		return receipt.ReceiptRecord{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
 			TxHashHex:        tx.Hash().Hex(),
 			BlockNumber:      2,
 			TransactionIndex: index,
 			From:             sender.Hex(),
-			GasUsed:          traceTransfer,
+			GasUsed:          gasUsed,
 		}}
 	}
 	ctx := sdk.Context{}.WithContext(t.Context())
 	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(1), nil))
-	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{stored(first, 0), stored(second, 2)}))
+	require.NoError(t, chain.store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{
+		stored(first, 0, traceTransfer), stored(stale, 2, 0), stored(second, 3, traceTransfer),
+	}))
 
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = big.NewInt(traceChainID)
@@ -316,7 +319,7 @@ func TestDebugTraceBlock(t *testing.T) {
 				require.Empty(t, result.Error)
 				require.Equal(t, hexutil.Uint64(traceTransfer), result.Result.GasUsed)
 			}
-			// The rejected duplicate, which has no receipt, is not traced.
+			// Neither rejected transaction is traced, so the sender's nonce carries over intact.
 			require.Equal(t, want, hashes)
 		})
 	}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 var (
@@ -30,9 +31,8 @@ var (
 var _ tracers.Backend = (*traceBackend)(nil)
 
 // traceBackend serves go-ethereum's tracer API from the EVM-only node: finalized blocks holding the
-// transactions they stored a receipt for, and the state a transaction executed against. A
-// transaction without a receipt was rejected before it ran and changed nothing, so leaving it out
-// keeps every replay faithful.
+// transactions that executed, and the state a transaction executed against. A transaction the block
+// rejected before it ran changed nothing, so leaving it out keeps every replay faithful.
 type traceBackend struct {
 	backend Backend
 	blocks  *blockAPI
@@ -96,7 +96,7 @@ func genesisBlock() *ethtypes.Block {
 }
 
 // ethBlock returns block as go-ethereum's tracer reads it: carrying the block's own hash, and holding
-// the transactions it stored a receipt for, in execution order.
+// the transactions that executed, in execution order.
 func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBlock) (*ethtypes.Block, error) {
 	height := uint64(block.Block.Height) //nolint:gosec // G115: a resolved block's height is positive.
 	if _, latest := indexedRange(b.backend, b.blocks.store); height > latest {
@@ -110,11 +110,16 @@ func (b *traceBackend) ethBlock(ctx context.Context, block *coretypes.ResultBloc
 	if earliest, _ := indexedRange(b.backend, b.blocks.store); height < earliest {
 		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errTraceBlockPruned, height, earliest)
 	}
-	txs := make([]*ethtypes.Transaction, len(records))
-	for i, record := range records {
-		if txs[i], err = blockTx(block, int(record.Receipt.TransactionIndex)); err != nil {
+	txs := make([]*ethtypes.Transaction, 0, len(records))
+	for _, record := range records {
+		if !executed(record.Receipt) {
+			continue
+		}
+		tx, err := blockTx(block, int(record.Receipt.TransactionIndex))
+		if err != nil {
 			return nil, err
 		}
+		txs = append(txs, tx)
 	}
 	header, err := b.header(ctx, block)
 	if err != nil {
@@ -256,6 +261,13 @@ func (b *traceBackend) Engine() consensus.Engine {
 // ChainDb returns nil; only tracer methods this node does not serve read it.
 func (b *traceBackend) ChainDb() ethdb.Database {
 	return nil
+}
+
+// executed reports whether the transaction a stored receipt belongs to ran in the EVM. A transaction
+// the block rejected for a spent nonce stores a receipt that used no gas, while every transaction
+// that ran paid at least its intrinsic gas.
+func executed(receipt *evmtypes.Receipt) bool {
+	return receipt.GasUsed > 0
 }
 
 // blockTx decodes the transaction at index of block's stored transactions.
