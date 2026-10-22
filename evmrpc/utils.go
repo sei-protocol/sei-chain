@@ -211,6 +211,10 @@ func requireReceiptStore(k *keeper.Keeper) error {
 	return nil
 }
 
+// filterTransactions returns, in block order, the block's EVM transaction messages that executed in
+// it, plus its CosmWasm execute messages when includeSyntheticTxs is set. A message whose receipt
+// cannot be read is omitted, so callers answering for a block identifier must reject heights below
+// the receipt floor before calling it.
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
