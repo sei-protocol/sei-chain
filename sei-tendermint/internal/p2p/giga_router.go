@@ -82,6 +82,6 @@ type GigaRouter interface {
 	// EvmProxyEnabled reports whether EvmProxy can return Some for any sender.
 	EvmProxyEnabled() bool
 	Mempool() utils.Option[*producer.State]
-	Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error)
+	Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, error)
 	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }
