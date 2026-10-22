@@ -19,15 +19,15 @@ func TestAcquireInFlightCapsConcurrencyPerIP(t *testing.T) {
 	r := inFlightRegistry(t, 2)
 	ctx := context.Background()
 
-	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
-	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
-	require.False(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
+	require.False(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
 
 	// The cap is per address, so a second IP has its own allowance.
-	require.True(t, r.AcquireInFlight(ctx, "5.6.7.8", PlaneGRPC, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "5.6.7.8", PlaneCometBFT, "svc/M"))
 
 	r.ReleaseInFlight("1.2.3.4")
-	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
 }
 
 // TestReleaseInFlightDropsTheKey pins that the counter cannot grow with the
@@ -36,8 +36,8 @@ func TestReleaseInFlightDropsTheKey(t *testing.T) {
 	r := inFlightRegistry(t, 2)
 	ctx := context.Background()
 
-	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
-	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
 	r.ReleaseInFlight("1.2.3.4")
 	require.Equal(t, 1, r.InFlightHeld("1.2.3.4"))
 	r.ReleaseInFlight("1.2.3.4")
@@ -55,8 +55,8 @@ func TestReleaseInFlightUnheldIsANoOp(t *testing.T) {
 	r.ReleaseInFlight("1.2.3.4")
 	r.ReleaseInFlight("1.2.3.4")
 
-	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
-	require.False(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
+	require.False(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
 }
 
 // TestAcquireInFlightSharesAnIPv6Prefix holds the concurrency cap to the same
@@ -65,9 +65,9 @@ func TestAcquireInFlightSharesAnIPv6Prefix(t *testing.T) {
 	r := inFlightRegistry(t, 1)
 	ctx := context.Background()
 
-	require.True(t, r.AcquireInFlight(ctx, "2001:db8::1", PlaneGRPC, "svc/M"))
-	require.False(t, r.AcquireInFlight(ctx, "2001:db8::2", PlaneGRPC, "svc/M"))
-	require.True(t, r.AcquireInFlight(ctx, "2001:db9::1", PlaneGRPC, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "2001:db8::1", PlaneCometBFT, "svc/M"))
+	require.False(t, r.AcquireInFlight(ctx, "2001:db8::2", PlaneCometBFT, "svc/M"))
+	require.True(t, r.AcquireInFlight(ctx, "2001:db9::1", PlaneCometBFT, "svc/M"))
 }
 
 // TestAcquireInFlightDisabledAdmitsEverything pins that a zero limit leaves the
@@ -77,7 +77,7 @@ func TestAcquireInFlightDisabledAdmitsEverything(t *testing.T) {
 	ctx := context.Background()
 
 	for range 100 {
-		require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M"))
+		require.True(t, r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M"))
 	}
 	require.Equal(t, 0, r.InFlightHeld("1.2.3.4"))
 	r.ReleaseInFlight("1.2.3.4")
@@ -93,7 +93,7 @@ func TestAcquireInFlightIsConcurrencySafe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if r.AcquireInFlight(ctx, "1.2.3.4", PlaneGRPC, "svc/M") {
+			if r.AcquireInFlight(ctx, "1.2.3.4", PlaneCometBFT, "svc/M") {
 				r.ReleaseInFlight("1.2.3.4")
 			}
 		}()
@@ -101,18 +101,4 @@ func TestAcquireInFlightIsConcurrencySafe(t *testing.T) {
 	wg.Wait()
 
 	require.Equal(t, 0, r.InFlightHeld("1.2.3.4"))
-}
-
-func TestIsKnownGRPCMethod(t *testing.T) {
-	r := inFlightRegistry(t, 1)
-
-	// Nothing is known until the server has declared what it serves.
-	require.False(t, r.IsKnownGRPCMethod("/testdata.Query/Echo"))
-
-	r.SetKnownGRPCMethods([]string{"testdata.Query/Echo"})
-	require.True(t, r.IsKnownGRPCMethod("/testdata.Query/Echo"))
-	require.True(t, r.IsKnownGRPCMethod("testdata.Query/Echo"))
-	require.False(t, r.IsKnownGRPCMethod("/testdata.Query/Nope"))
-	require.False(t, r.IsKnownGRPCMethod("/nope"))
-	require.False(t, r.IsKnownGRPCMethod(""))
 }

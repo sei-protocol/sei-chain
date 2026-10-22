@@ -41,7 +41,6 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -136,7 +135,6 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
 		config.Cmd(),
-		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
 	)
