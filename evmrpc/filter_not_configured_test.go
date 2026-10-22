@@ -28,14 +28,14 @@ func TestGetLogsByFiltersWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 	f := &LogFetcher{k: &keeper.Keeper{}}
 
-	logs, _, err := f.GetLogsByFilters(context.Background(), filters.FilterCriteria{}, 0)
+	logs, _, err := f.GetLogsByFilters(context.Background(), filters.FilterCriteria{})
 	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 	require.Nil(t, logs)
 
 	// BlockHash queries skip the range path and would otherwise fall through to
 	// collectLogs, which used to log-and-continue into an empty result.
 	blockHash := common.HexToHash("0xabc")
-	logs, _, err = f.GetLogsByFilters(context.Background(), filters.FilterCriteria{BlockHash: &blockHash}, 0)
+	logs, _, err = f.GetLogsByFilters(context.Background(), filters.FilterCriteria{BlockHash: &blockHash})
 	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 	require.Nil(t, logs)
 }

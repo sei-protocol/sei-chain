@@ -222,7 +222,8 @@ type filter struct {
 	blockHashes []common.Hash
 
 	// LogsSubscription
-	lastToHeight int64
+	// logCursor is the cursor pollLogs takes: the first block height the filter's next poll scans.
+	logCursor int64
 }
 
 // Log slice pool to reduce allocations in batch processing
@@ -510,14 +511,19 @@ func (a *FilterAPI) NewFilter(
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
+	cursor, err := a.logFetcher.pollStart(ctx, crit)
+	if err != nil {
+		return "", err
+	}
+
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
 	curFilterID, err := a.addFilter(filter{
-		typ:          LogsSubscription,
-		fc:           crit,
-		cancelFunc:   cancel,
-		lastAccess:   time.Now(),
-		lastToHeight: 0,
+		typ:        LogsSubscription,
+		fc:         crit,
+		cancelFunc: cancel,
+		lastAccess: time.Now(),
+		logCursor:  cursor,
 	})
 	if err != nil {
 		cancel()
@@ -604,30 +610,25 @@ func (a *FilterAPI) GetFilterChanges(
 
 		return hashes, nil
 	case LogsSubscription:
-		// filter by hash would have no updates if it has previously queried for this crit
-		if filter.fc.BlockHash != nil && filter.lastToHeight > 0 {
-			return result, nil
+		logs, cursor, err := a.logFetcher.pollLogs(ctx, filter.fc, filter.logCursor)
+
+		// Update filter with write lock, also when the poll failed, as a poll that fails on a
+		// block it cannot serve moves the cursor past it. A concurrent poll of the same filter
+		// may have advanced the cursor further, and moving it back would deliver those blocks
+		// again.
+		a.filtersMu.Lock()
+		if updatedFilter, exists := a.filters[filterID]; exists && cursor > updatedFilter.logCursor {
+			updatedFilter.logCursor = cursor
+			a.filters[filterID] = updatedFilter
 		}
-		// filter with a ToBlock would have no updates if it has previously queried for this crit
-		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
-			return result, nil
-		}
-		logs, lastToHeight, err := a.logFetcher.getLogsByFiltersWithBackoff(ctx, filter.fc, filter.lastToHeight)
+		a.filtersMu.Unlock()
+
 		if err != nil {
 			return nil, err
 		}
 		if logs == nil {
 			logs = result
 		}
-
-		// Update filter with write lock
-		a.filtersMu.Lock()
-		if updatedFilter, exists := a.filters[filterID]; exists {
-			updatedFilter.lastToHeight = lastToHeight + 1
-			a.filters[filterID] = updatedFilter
-		}
-		a.filtersMu.Unlock()
-
 		return logs, nil
 	default:
 		return nil, errors.New("unknown filter type")
@@ -658,7 +659,7 @@ func (a *FilterAPI) GetFilterLogs(
 	a.updateFilterAccess(filterID)
 
 	// Read-only history query: the eth_getFilterChanges cursor is left untouched.
-	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
+	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc)
 	if err != nil {
 		return nil, err
 	}
@@ -683,7 +684,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		earliest = 0
 	}
 
-	begin, end, err := ComputeBlockBounds(latest, earliest, 0, crit)
+	begin, end, err := ComputeBlockBounds(latest, earliest, crit)
 	if err != nil {
 		return nil, err
 	}
@@ -727,7 +728,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		return nil, fmt.Errorf("server I/O saturated, rejecting new request (semaphore: %d/%d in use)", semInUse, semCapacity)
 	}
 
-	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
+	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit)
 	if err != nil {
 		return nil, err
 	}
@@ -818,12 +819,10 @@ type LogFetcher struct {
 	watermarks               *WatermarkManager
 }
 
-// ComputeBlockBounds validates that the requested block range lies within the
-// available bounds and returns the effective range, taking incremental
-// pagination into account. The function never widens the range – any request
-// that extends beyond the available history results in an error so we avoid
-// returning truncated data.
-func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64, error) {
+// ComputeBlockBounds returns the block range crit requests, with tags such as latest
+// resolved to the height latest. It returns an error rather than a truncated range when
+// the range is inverted or reaches outside [earliest, latest].
+func ComputeBlockBounds(latest, earliest int64, crit filters.FilterCriteria) (int64, int64, error) {
 	begin := latest
 	end := latest
 
@@ -853,10 +852,6 @@ func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.Filte
 		return 0, 0, fmt.Errorf("requested toBlock %d is before earliest available block %d", end, earliest)
 	}
 
-	if lastToHeight > begin {
-		begin = lastToHeight
-	}
-
 	return begin, end, nil
 }
 
@@ -880,7 +875,7 @@ func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
 	return receipt.NewLogBudgetBytesOnly(maxLogBytes)
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, end int64, err error) {
 	if err := requireReceiptStore(f.k); err != nil {
 		return nil, 0, err
 	}
@@ -892,12 +887,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		earliest = 0
 	}
-	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	begin, end, err := ComputeBlockBounds(latest, earliest, crit)
 	if err != nil {
 		return nil, 0, err
-	}
-	if begin > end {
-		return []*ethtypes.Log{}, end, nil
 	}
 
 	blockRange := end - begin + 1
@@ -931,7 +923,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Fall back to block-by-block querying for backends that don't support range queries
 
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
-	blocks, end, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
+	blocks, end, err := f.fetchBlocksByCrit(ctx, crit, bloomIndexes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1043,44 +1035,130 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	return res, end, err
 }
 
-// getLogsByFiltersWithBackoff wraps GetLogsByFilters for polling callers
-// (GetFilterChanges, the WS backfill loop): on cap overflow it halves the
-// window and retries so the cursor still advances instead of wedging forever.
-func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
-	narrowed := crit
+// pollStart returns the cursor a new log filter starts polling from: crit's fromBlock when it
+// is a number, and otherwise the block after the current head. A blockHash crit starts at 0. It
+// rejects a numeric toBlock below that start.
+func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria) (int64, error) {
+	if crit.BlockHash != nil {
+		return 0, nil
+	}
+	head, err := f.latestHeight(ctx)
+	if err != nil {
+		return 0, err
+	}
+	start := head + 1
+	if crit.FromBlock != nil && crit.FromBlock.Sign() >= 0 {
+		start = crit.FromBlock.Int64()
+	}
+	if crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && crit.ToBlock.Int64() < start {
+		return 0, fmt.Errorf("requested toBlock %d is before the filter's start block %d", crit.ToBlock.Int64(), start)
+	}
+	return start, nil
+}
+
+// pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
+// from, also when it returns an error. A poll scans up to the head, or to crit's toBlock when it
+// is a number below the head, and scans fewer blocks when that range exceeds the block or log
+// caps. A block whose logs alone exceed the log caps fails the poll that reaches it, and the
+// returned cursor is past it. A blockHash crit's block is returned by the poll at cursor 0.
+func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, cursor int64) ([]*ethtypes.Log, int64, error) {
+	if logsExhausted(crit, cursor) {
+		return []*ethtypes.Log{}, cursor, nil
+	}
+	if crit.BlockHash != nil {
+		logs, _, err := f.GetLogsByFilters(ctx, crit)
+		if exceedsLogCaps(err) {
+			// Every later poll would fail on the block again, so the filter ends with the error.
+			return nil, cursor + 1, err
+		}
+		if err != nil {
+			return nil, cursor, err
+		}
+		return logs, cursor + 1, nil
+	}
+	head, err := f.latestHeight(ctx)
+	if err != nil {
+		return nil, cursor, err
+	}
+	from, to, ok := pollWindow(crit.ToBlock, cursor, head, f.filterConfig.maxBlock)
+	if !ok {
+		return []*ethtypes.Log{}, cursor, nil
+	}
+	logs, end, err := f.getLogsByFiltersWithBackoff(ctx, crit, from, to)
+	var oversized *oversizedBlockError
+	if errors.As(err, &oversized) {
+		// Every later poll would fail on the block again, so the filter moves on without it.
+		return nil, oversized.height + 1, err
+	}
+	if err != nil {
+		return nil, cursor, err
+	}
+	return logs, end + 1, nil
+}
+
+// pollWindow returns the block range a log filter's poll scans: from cursor to the head, or to
+// toBlock when it is a number below the head, and at most maxBlock blocks when maxBlock is
+// positive. ok is false when the range is empty.
+func pollWindow(toBlock *big.Int, cursor, head, maxBlock int64) (from, to int64, ok bool) {
+	to = head
+	if toBlock != nil && toBlock.Sign() >= 0 {
+		to = min(to, toBlock.Int64())
+	}
+	if cursor > to {
+		return 0, 0, false
+	}
+	if maxBlock > 0 && to-cursor >= maxBlock {
+		to = cursor + maxBlock - 1
+	}
+	return cursor, to, true
+}
+
+// logsExhausted reports whether no poll from cursor on can match a log for crit: cursor is past
+// its numeric toBlock, or its blockHash block has been polled. A toBlock tag such as latest
+// follows the head and is never passed.
+func logsExhausted(crit filters.FilterCriteria, cursor int64) bool {
+	if crit.BlockHash != nil {
+		return cursor > 0
+	}
+	return crit.ToBlock != nil && crit.ToBlock.Sign() >= 0 && cursor > crit.ToBlock.Int64()
+}
+
+// exceedsLogCaps reports whether err is a query failing on the log count or byte caps.
+func exceedsLogCaps(err error) bool {
+	return errors.Is(err, receipt.ErrTooManyLogs) || errors.Is(err, receipt.ErrTooManyLogBytes)
+}
+
+// oversizedBlockError reports a block whose logs matching a filter alone exceed the log caps.
+type oversizedBlockError struct {
+	height int64
+	err    error
+}
+
+func (e *oversizedBlockError) Error() string {
+	return fmt.Sprintf("logs of block %d skipped: %v", e.height, e.err)
+}
+
+func (e *oversizedBlockError) Unwrap() error { return e.err }
+
+// getLogsByFiltersWithBackoff returns the logs crit matches in the blocks from through to, and
+// the last height they cover. When those logs exceed the log caps it halves the range until they
+// fit, and fails with an oversizedBlockError when block from alone exceeds them.
+func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filters.FilterCriteria, from, to int64) ([]*ethtypes.Log, int64, error) {
+	window := crit
+	window.FromBlock = big.NewInt(from)
 	for {
-		logs, end, err := f.GetLogsByFilters(ctx, narrowed, lastToHeight)
+		window.ToBlock = big.NewInt(to)
+		logs, end, err := f.GetLogsByFilters(ctx, window)
 		if err == nil {
 			return logs, end, nil
 		}
-		if !errors.Is(err, receipt.ErrTooManyLogs) && !errors.Is(err, receipt.ErrTooManyLogBytes) {
+		if !exceedsLogCaps(err) {
 			return nil, 0, err
 		}
-
-		latest, hErr := f.latestHeight(ctx)
-		if hErr != nil {
-			return nil, 0, hErr
+		if from == to {
+			return nil, 0, &oversizedBlockError{height: from, err: err}
 		}
-		earliest, eErr := f.earliestHeight(ctx)
-		if eErr != nil {
-			earliest = 0
-		}
-		begin, curEnd, boundsErr := ComputeBlockBounds(latest, earliest, lastToHeight, narrowed)
-		if boundsErr != nil {
-			return nil, 0, boundsErr
-		}
-		if curEnd <= begin {
-			// Even a single block overflows the cap; nothing left to narrow.
-			return nil, 0, err
-		}
-		mid := begin + (curEnd-begin)/2
-		if mid <= lastToHeight {
-			// Halving cannot exclude any block the cursor has not already passed.
-			return nil, 0, err
-		}
-
-		narrowed.FromBlock = big.NewInt(begin)
-		narrowed.ToBlock = big.NewInt(mid)
+		to = from + (to-from)/2
 	}
 }
 
@@ -1417,7 +1495,7 @@ func MatchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
 }
 
 // Optimized fetchBlocksByCrit with batch processing
-func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
 	if crit.BlockHash != nil {
 		// Check for invalid zero hash
 		zeroHash := common.Hash{}
@@ -1457,13 +1535,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if err != nil {
 		earliest = 0
 	}
-	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
+	begin, end, err := ComputeBlockBounds(latest, earliest, crit)
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if begin > end {
-		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
