@@ -1063,9 +1063,10 @@ func (f *LogFetcher) pollStart(ctx context.Context, crit filters.FilterCriteria)
 }
 
 // pollLogs returns the logs crit matches from cursor on, and the cursor the next poll starts
-// from. A poll scans up to the head, or to crit's toBlock when it is a number below the head, and
-// scans fewer blocks when that range exceeds the block or log caps. A blockHash crit's block is
-// returned by the poll at cursor 0.
+// from. A poll scans from cursor, or from the earliest available block when cursor is below it, up
+// to the head, or to crit's toBlock when it is a number below the head, and scans fewer blocks when
+// that range exceeds the block or log caps. A blockHash crit's block is returned by the poll at
+// cursor 0.
 func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, cursor int64) ([]*ethtypes.Log, int64, error) {
 	if logsExhausted(crit, cursor) {
 		return []*ethtypes.Log{}, cursor, nil
@@ -1080,6 +1081,11 @@ func (f *LogFetcher) pollLogs(ctx context.Context, crit filters.FilterCriteria, 
 	head, err := f.latestHeight(ctx)
 	if err != nil {
 		return nil, cursor, err
+	}
+	if earliest, err := f.earliestHeight(ctx); err == nil {
+		// Pruned blocks cannot be served on any later poll either, so scanning them would fail
+		// every poll of the filter.
+		cursor = max(cursor, earliest)
 	}
 	from, to, ok := pollWindow(crit.ToBlock, cursor, head, f.filterConfig.maxBlock)
 	if !ok {

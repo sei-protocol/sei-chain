@@ -834,6 +834,37 @@ func TestFilterGetFilterChangesAfterFromBlockIsPruned(t *testing.T) {
 	require.Equal(t, want, filterChanges(t, filterID))
 }
 
+// TestFilterGetFilterChangesSkipsPrunedBlocks asserts that a filter whose
+// cursor is below the earliest available block, because its fromBlock is or
+// because pruning overtook it, polls from the earliest block instead of failing.
+// This test is intentionally not parallel because it moves the latest and
+// earliest heights of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterChangesSkipsPrunedBlocks(t *testing.T) {
+	t.Cleanup(func() {
+		filterClient.latestOverride = 0
+		filterClient.earliestOverride = 0
+	})
+	filterClient.latestOverride = 1
+	lagging := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1"})
+	require.Empty(t, filterChanges(t, lagging))
+
+	// Block 2 holds the mock chain's logs, so a filter that polls from the
+	// earliest block returns them.
+	filterClient.earliestOverride = 2
+	filterClient.latestOverride = 3
+	earliestTag := newLogFilter(t, map[string]interface{}{"fromBlock": "earliest"})
+	belowEarliest := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1"})
+	want := logsInRange(t, 2, 3)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, filterChanges(t, earliestTag))
+	require.Equal(t, want, filterChanges(t, belowEarliest))
+
+	// Pruning passes the cursor of the filter last polled at head 1.
+	filterClient.earliestOverride = 4
+	filterClient.latestOverride = MockHeight8
+	require.Equal(t, logsInRange(t, 4, MockHeight8), filterChanges(t, lagging))
+}
+
 // TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter asserts that
 // eth_getFilterChanges returns [] (not null) once a bounded filter's range is
 // fully consumed (Ethereum JSON-RPC spec requires an array, never null).
