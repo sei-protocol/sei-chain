@@ -21,7 +21,7 @@ func (u *URL) UnmarshalText(text []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := utils.CheckHTTPURL(*parsed); err != nil {
+	if err := utils.CheckRPCURL(*parsed); err != nil {
 		return err
 	}
 	u.URL = parsed
@@ -119,7 +119,7 @@ func (fc *AutobahnFileConfig) Validate() error {
 		if v.EVMRPC.URL == nil {
 			return fmt.Errorf("validator %s is missing evmrpc URL", v.ValidatorKey)
 		}
-		if err := utils.CheckHTTPURL(*v.EVMRPC.URL); err != nil {
+		if err := utils.CheckRPCURL(*v.EVMRPC.URL); err != nil {
 			return fmt.Errorf("validator %s evmrpc: %w", v.ValidatorKey, err)
 		}
 	}

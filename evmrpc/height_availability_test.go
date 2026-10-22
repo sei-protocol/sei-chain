@@ -3,7 +3,9 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -11,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -413,4 +416,210 @@ func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
 	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+// receiptFloorTestHeights sets up a node whose blocks reach back to 1 while its receipts start at
+// 150, the shape a state-synced or snapshot-restored node has.
+const (
+	receiptFloorTestBlockEarliest   = int64(1)
+	receiptFloorTestReceiptEarliest = int64(150)
+	receiptFloorTestLatest          = int64(200)
+)
+
+func newReceiptFloorTestWatermarks(client client.LocalClient) *WatermarkManager {
+	rs := &fakeReceiptStore{latest: receiptFloorTestLatest, earliest: receiptFloorTestReceiptEarliest}
+	return NewWatermarkManager(client, testCtxProvider, nil, rs)
+}
+
+func TestEarliestReceiptHeight(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		blockEarliest int64
+		receiptStore  *fakeReceiptStore
+		want          int64
+	}{
+		{
+			name:          "receipt floor above block floor",
+			blockEarliest: 1,
+			receiptStore:  &fakeReceiptStore{latest: 200, earliest: 150},
+			want:          150,
+		},
+		{
+			name:          "never-pruned receipt store",
+			blockEarliest: 1,
+			receiptStore:  &fakeReceiptStore{latest: 200, earliest: 0},
+			want:          1,
+		},
+		{
+			name:          "receipt floor below block floor",
+			blockEarliest: 50,
+			receiptStore:  &fakeReceiptStore{latest: 200, earliest: 10},
+			want:          50,
+		},
+		{
+			name:          "no receipt store",
+			blockEarliest: 50,
+			receiptStore:  nil,
+			want:          50,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newHeightTestClient(100, tt.blockEarliest, 200)
+			var wm *WatermarkManager
+			if tt.receiptStore == nil {
+				wm = NewWatermarkManager(client, testCtxProvider, nil, nil)
+			} else {
+				wm = NewWatermarkManager(client, testCtxProvider, nil, tt.receiptStore)
+			}
+			got, err := wm.EarliestReceiptHeight(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestEnsureReceiptHeightAvailableWrapsSentinel(t *testing.T) {
+	t.Parallel()
+
+	wm := newReceiptFloorTestWatermarks(newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest))
+
+	err := wm.EnsureReceiptHeightAvailable(100)
+	require.ErrorIs(t, err, ErrReceiptsPruned)
+	require.EqualError(t, err, "requested height 100 receipts have been pruned; earliest available is 150")
+
+	require.NoError(t, wm.EnsureReceiptHeightAvailable(receiptFloorTestReceiptEarliest))
+}
+
+func TestGetTransactionByBlockAndIndexReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest)
+	api := NewTransactionAPI(client, nil, testCtxProvider, testTxConfigProvider, "", ConnectionTypeHTTP,
+		utils.None[time.Duration](), newReceiptFloorTestWatermarks(client), nil, nil)
+	ctx := context.Background()
+
+	_, err := api.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(100), 0)
+	require.ErrorIs(t, err, ErrReceiptsPruned)
+
+	_, err = api.GetTransactionByBlockHashAndIndex(ctx, common.HexToHash(highBlockHashHex), 0)
+	require.ErrorIs(t, err, ErrReceiptsPruned)
+
+	// At the receipt floor the guard passes; the nil keeper then fails the receipt read instead.
+	_, err = api.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receiptFloorTestReceiptEarliest), 0)
+	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+}
+
+func TestDebugTraceBlockGuardsReceiptFloor(t *testing.T) {
+	t.Parallel()
+
+	latestCtx := sdk.Context{}.WithBlockHeight(receiptFloorTestLatest)
+	base := newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest)
+	notFoundHashHex := "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+	client := &blockNotFoundTestClient{
+		heightTestClient: base,
+		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
+	}
+	api := &DebugAPI{
+		tmClient:         client,
+		ctxProvider:      func(int64) sdk.Context { return latestCtx },
+		connectionType:   ConnectionTypeHTTP,
+		maxBlockLookback: -1,
+		backend:          &Backend{watermarks: newReceiptFloorTestWatermarks(client)},
+	}
+	ctx := context.Background()
+
+	require.ErrorIs(t, api.guardDebugTraceBlockByNumber(ctx, rpc.BlockNumber(100)), ErrReceiptsPruned)
+	require.NoError(t, api.guardDebugTraceBlockByNumber(ctx, rpc.BlockNumber(receiptFloorTestReceiptEarliest)))
+
+	require.ErrorIs(t, api.guardDebugTraceBlockByHash(ctx, common.HexToHash(highBlockHashHex)), ErrReceiptsPruned)
+	require.NoError(t, api.guardDebugTraceBlockByHash(ctx, common.HexToHash(notFoundHashHex)),
+		"an unknown hash passes so the tracer reports it")
+
+	// debug_traceCall needs state, not receipts, and keeps working below the receipt floor.
+	require.NoError(t, api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall",
+		rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100))))
+	require.NoError(t, api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall",
+		rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), false)))
+}
+
+func TestLogFetcherRespectsReceiptFloor(t *testing.T) {
+	t.Parallel()
+
+	notFoundHashHex := "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+	newFetcher := func(highHeight int64) *LogFetcher {
+		client := &blockNotFoundTestClient{
+			heightTestClient: newHeightTestClient(highHeight, receiptFloorTestBlockEarliest, receiptFloorTestLatest),
+			notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
+		}
+		return &LogFetcher{
+			tmClient:           client,
+			txConfigProvider:   testTxConfigProvider,
+			ctxProvider:        testCtxProvider,
+			filterConfig:       &FilterConfig{maxLog: DefaultMaxLogLimit, maxBlock: DefaultMaxBlockRange},
+			dbReadSemaphore:    make(chan struct{}, 1),
+			globalBlockCache:   NewBlockCache(2),
+			globalLogSlicePool: NewLogSlicePool(),
+			watermarks:         newReceiptFloorTestWatermarks(client),
+		}
+	}
+	ctx := context.Background()
+
+	t.Run("range floor is the receipt floor", func(t *testing.T) {
+		earliest, err := newFetcher(100).earliestHeight(ctx)
+		require.NoError(t, err)
+		require.Equal(t, receiptFloorTestReceiptEarliest, earliest)
+	})
+
+	t.Run("range below the receipt floor errors", func(t *testing.T) {
+		crit := filters.FilterCriteria{FromBlock: big.NewInt(100), ToBlock: big.NewInt(120)}
+		_, _, err := newFetcher(100).fetchBlocksByCrit(ctx, crit, nil)
+		require.ErrorContains(t, err, "requested fromBlock 100 is before earliest available block 150")
+	})
+
+	t.Run("block hash below the receipt floor errors", func(t *testing.T) {
+		hash := common.HexToHash(highBlockHashHex)
+		_, _, err := newFetcher(100).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, nil)
+		require.ErrorIs(t, err, ErrReceiptsPruned)
+	})
+
+	t.Run("block hash at the receipt floor is served", func(t *testing.T) {
+		hash := common.HexToHash(highBlockHashHex)
+		blocks, _, err := newFetcher(receiptFloorTestReceiptEarliest).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, nil)
+		require.NoError(t, err)
+		block := <-blocks
+		require.Equal(t, receiptFloorTestReceiptEarliest, block.Block.Height)
+	})
+
+	t.Run("unknown block hash returns no blocks", func(t *testing.T) {
+		hash := common.HexToHash(notFoundHashHex)
+		blocks, _, err := newFetcher(100).fetchBlocksByCrit(ctx, filters.FilterCriteria{BlockHash: &hash}, nil)
+		require.NoError(t, err)
+		_, open := <-blocks
+		require.False(t, open)
+	})
+}
+
+func TestFeeHistoryFloorIsReceiptFloor(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest)
+	api := &InfoAPI{tmClient: client, watermarks: newReceiptFloorTestWatermarks(client)}
+
+	earliest, err := api.earliestHeight(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, receiptFloorTestReceiptEarliest, earliest)
+}
+
+func TestCategorizeErrorCountsPrunedAsBlockNotFound(t *testing.T) {
+	t.Parallel()
+
+	wm := newReceiptFloorTestWatermarks(newHeightTestClient(100, receiptFloorTestBlockEarliest, receiptFloorTestLatest))
+	m := &WorkerPoolMetrics{}
+	m.categorizeError(wm.EnsureReceiptHeightAvailable(100))
+	m.categorizeError(ensureWithinWatermarks(1, 10, 20))
+	require.Equal(t, int64(2), m.ErrBlockNotFound.Load())
+	require.Equal(t, int64(0), m.ErrOther.Load())
 }

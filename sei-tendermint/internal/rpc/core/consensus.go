@@ -37,11 +37,10 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 		if !ok {
 			return nil, fmt.Errorf("invalid height %d", height)
 		}
-		vs, resolved, err := giga.Validators(gbn)
+		vs, err := giga.Validators(gbn)
 		if err != nil {
 			return nil, err
 		}
-		height = utils.Clamp[int64](resolved)
 		totalCount := len(vs)
 		perPage := env.validatePerPage(req.PerPage.IntPtr())
 		page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)

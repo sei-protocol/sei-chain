@@ -103,12 +103,12 @@ func evmStorageKey(addr ktype.Address, slot ktype.Slot) []byte {
 
 // accountPhysKey returns the physical DB key for an account address.
 func accountPhysKey(addr ktype.Address) []byte {
-	return ktype.EVMPhysicalKey(ktype.EVMKeyAccount, addr[:])
+	return ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:])
 }
 
 // storagePhysKey returns the physical DB key for a storage slot.
 func storagePhysKey(addr ktype.Address, slot ktype.Slot) []byte {
-	return ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	return ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 }
 
 // padLeft32 returns a 32-byte big-endian value with the given bytes right-aligned.

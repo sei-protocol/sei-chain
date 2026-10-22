@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -231,12 +233,18 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]url.URL{}
+	// DialContext opens the websocket before the first call, so the URL has
+	// to name a listener.
+	rpcSrv := ethrpc.NewServer()
+	t.Cleanup(rpcSrv.Stop)
+	httpSrv := httptest.NewServer(rpcSrv.WebsocketHandler([]string{"*"}))
+	t.Cleanup(httpSrv.Close)
+	rpcURL := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpSrv.URL, "http")))
 	// NewGigaRouter requires EVMRPC on every committee member in both
 	// validator and fullnode modes.
-	for i, validatorKey := range validatorKeys {
+	for _, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},

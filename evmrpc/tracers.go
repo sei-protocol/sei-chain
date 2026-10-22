@@ -132,14 +132,65 @@ func (api *DebugAPI) guardHistoricalDebugTraceByNumber(ctx context.Context, endp
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	height, found, err := api.debugTraceBlockHeightByHash(ctx, hash)
+	if err != nil || !found {
+		return nil
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
+}
+
+// debugTraceBlockHeightByHash returns the height of the block with the given hash. It reports false
+// when the block does not exist or is above the safe latest height.
+func (api *DebugAPI) debugTraceBlockHeightByHash(ctx context.Context, hash common.Hash) (int64, bool, error) {
 	if api.backend == nil || api.tmClient == nil {
+		return 0, false, nil
+	}
+	block, err := blockByHashOrNullForJSONRPC(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
+	if err != nil {
+		return 0, false, err
+	}
+	if block == nil || block.Block == nil {
+		return 0, false, nil
+	}
+	return block.Block.Height, true, nil
+}
+
+// guardDebugTraceBlockByNumber rejects a block number beyond the trace lookback window or below the
+// receipt floor.
+func (api *DebugAPI) guardDebugTraceBlockByNumber(ctx context.Context, number rpc.BlockNumber) error {
+	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
+	if err != nil {
+		return err
+	}
+	if err := api.guardHistoricalDebugTraceHeight(ctx, "debug_traceBlockByNumber", height); err != nil {
+		return err
+	}
+	return api.guardReceiptFloorHeight(height)
+}
+
+// guardDebugTraceBlockByHash rejects a block hash whose block is beyond the trace lookback window or
+// below the receipt floor. A hash with no available block passes, and the tracer reports it.
+func (api *DebugAPI) guardDebugTraceBlockByHash(ctx context.Context, hash common.Hash) error {
+	height, found, err := api.debugTraceBlockHeightByHash(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if !found {
 		return nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
-	if err != nil || block == nil || block.Block == nil {
+	if err := api.guardHistoricalDebugTraceHeight(ctx, "debug_traceBlockByHash", height); err != nil {
+		return err
+	}
+	return api.guardReceiptFloorHeight(height)
+}
+
+// guardReceiptFloorHeight returns an error wrapping ErrReceiptsPruned when blockHeight is below the
+// earliest version the receipt store retains.
+func (api *DebugAPI) guardReceiptFloorHeight(blockHeight int64) error {
+	if api.backend == nil || api.backend.watermarks == nil {
 		return nil
 	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, block.Block.Height)
+	return api.backend.watermarks.EnsureReceiptHeightAvailable(blockHeight)
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
@@ -508,7 +559,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardHistoricalDebugTraceByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
+	if returnErr = api.guardDebugTraceBlockByNumber(ctx, number); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -551,7 +602,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+	if returnErr = api.guardDebugTraceBlockByHash(ctx, hash); returnErr != nil {
 		return nil, returnErr
 	}
 

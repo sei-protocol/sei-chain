@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -546,13 +547,13 @@ func TestGetLogsByFiltersRangePathUsesNormalizeBudget(t *testing.T) {
 		MaxBlock: evmrpc.DefaultMaxBlockRange,
 	})
 
-	logs, _, err := fixture.fetcher.GetLogsByFilters(fixture.ctx, rangeCapBlockCriteria(match), 0)
+	logs, _, err := fixture.fetcher.GetLogsByFilters(fixture.ctx, rangeCapBlockCriteria(match))
 	require.NoError(t, err)
 	require.Len(t, logs, 5)
 }
 
 // Cap overflow must narrow the window and advance the cursor, not wedge polling filters forever.
-func TestGetLogsByFiltersWithBackoffAdvancesOnOverflow(t *testing.T) {
+func TestPollLogsAdvancesOnOverflow(t *testing.T) {
 	t.Parallel()
 
 	match := common.HexToAddress(LogCapAddr)
@@ -570,11 +571,12 @@ func TestGetLogsByFiltersWithBackoffAdvancesOnOverflow(t *testing.T) {
 		Addresses: []common.Address{match},
 	}
 
-	logs, end, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, 0)
+	// The first poll of a filter with fromBlock 1 starts its cursor at 1.
+	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, 1)
 	require.NoError(t, err, "backoff must narrow past the overflowing tail instead of erroring")
 	require.Empty(t, logs)
-	require.Greater(t, end, int64(0), "cursor must advance so the next poll doesn't re-scan the same wedged window")
-	require.Less(t, end, rangeCapTestHeight, "the narrowed window must stop short of the overflowing block")
+	require.Greater(t, cursor, int64(1), "cursor must advance so the next poll doesn't re-scan the same wedged window")
+	require.LessOrEqual(t, cursor, rangeCapTestHeight, "the narrowed window must stop short of the overflowing block")
 
 	calls := fixture.store.getWindowCalls()
 	var narrowedFrom uint64
@@ -587,9 +589,9 @@ func TestGetLogsByFiltersWithBackoffAdvancesOnOverflow(t *testing.T) {
 	require.Equal(t, uint64(1), narrowedFrom, "narrowed scan must start at the overflow window begin, not collapse to mid")
 }
 
-// Halving must pin FromBlock to the effective window start (here the poll
-// cursor), not collapse to [mid, mid] when only ToBlock is narrowed.
-func TestGetLogsByFiltersWithBackoffPinsFromBlockAtCursor(t *testing.T) {
+// Halving must keep the poll cursor as the window start, not collapse to
+// [mid, mid] when only the end of the window is narrowed.
+func TestPollLogsNarrowsFromTheCursor(t *testing.T) {
 	t.Parallel()
 
 	match := common.HexToAddress(LogCapAddr)
@@ -604,13 +606,13 @@ func TestGetLogsByFiltersWithBackoffPinsFromBlockAtCursor(t *testing.T) {
 		FromBlock: big.NewInt(1),
 		Addresses: []common.Address{match},
 	}
-	// Simulate an open-ended poll cursor: the effective window is [10, 42].
-	lastToHeight := int64(10)
+	// An open-ended filter already polled through block 9: this poll scans [10, 42].
+	cursor := int64(10)
 
-	logs, end, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, lastToHeight)
+	logs, next, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
 	require.NoError(t, err)
 	require.Empty(t, logs)
-	require.Less(t, end, rangeCapTestHeight)
+	require.LessOrEqual(t, next, rangeCapTestHeight)
 
 	calls := fixture.store.getWindowCalls()
 	var narrowedFrom uint64
@@ -620,14 +622,14 @@ func TestGetLogsByFiltersWithBackoffPinsFromBlockAtCursor(t *testing.T) {
 			break
 		}
 	}
-	require.Equal(t, uint64(lastToHeight), narrowedFrom, "narrowed scan must start at the cursor, not collapse to mid")
+	require.Equal(t, uint64(cursor), narrowedFrom, "narrowed scan must start at the cursor, not collapse to mid")
 }
 
-// TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow proves the
-// backoff wrapper does not mask a genuine overflow: when even a single block
-// exceeds the cap there is nothing left to narrow, and the real error must
-// reach the caller.
-func TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow(t *testing.T) {
+// TestPollLogsPropagatesSingleBlockOverflow proves the backoff does not mask
+// a genuine overflow: when even a single block exceeds the cap there is
+// nothing left to narrow, and the real error must reach the caller along with
+// a cursor past that block.
+func TestPollLogsPropagatesSingleBlockOverflow(t *testing.T) {
 	t.Parallel()
 
 	match := common.HexToAddress(LogCapAddr)
@@ -643,20 +645,24 @@ func TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow(t *testing.T) 
 		Addresses: []common.Address{match},
 	}
 
-	logs, _, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, rangeCapTestHeight-1)
+	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, rangeCapTestHeight)
 	require.Error(t, err)
 	require.Nil(t, logs)
 	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+	require.ErrorContains(t, err, fmt.Sprintf("block %d", rangeCapTestHeight), "the error must name the skipped block")
+	require.Equal(t, rangeCapTestHeight+1, cursor)
 }
 
-// When only the tip block overflows and halving would re-scan an already
-// delivered block, backoff must surface the cap error instead of looping.
-func TestGetLogsByFiltersWithBackoffTipOverflowCannotNarrow(t *testing.T) {
+// A block that alone exceeds the caps fails the poll that reaches it, after the
+// polls before it return the blocks that fit, and the next poll continues from
+// the block after it instead of failing on it again.
+func TestPollLogsSkipsAnOverflowingBlock(t *testing.T) {
 	t.Parallel()
 
 	match := common.HexToAddress(LogCapAddr)
 	topic := common.HexToHash(LogCapBlockHash)
-	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	overflowing := rangeCapTestHeight - 1
+	candidates := buildRangeCapCandidates(5, uint64(overflowing), match, topic, nil)
 	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
 		MaxLog:   1,
 		MaxBlock: evmrpc.DefaultMaxBlockRange,
@@ -666,17 +672,89 @@ func TestGetLogsByFiltersWithBackoffTipOverflowCannotNarrow(t *testing.T) {
 		FromBlock: big.NewInt(1),
 		Addresses: []common.Address{match},
 	}
-	lastToHeight := rangeCapTestHeight - 1
 
-	logs, end, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, lastToHeight)
-	require.Error(t, err)
-	require.Nil(t, logs)
-	require.Zero(t, end)
-	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, overflowing-1)
+	require.NoError(t, err, "the block before the overflowing one fits the caps and must be returned")
+	require.Empty(t, logs)
+	require.Equal(t, overflowing, cursor)
 
-	// A second call at the same cursor must not succeed by re-delivering block L.
-	logs, end, err = fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, lastToHeight)
-	require.Error(t, err)
+	logs, cursor, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+	require.ErrorIs(t, err, receipt.ErrTooManyLogs)
 	require.Nil(t, logs)
-	require.Zero(t, end)
+	require.Equal(t, overflowing+1, cursor, "a poll failing on the overflowing block must move the cursor past it")
+
+	logs, cursor, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+	require.NoError(t, err, "the poll after the overflowing block must not fail on it again")
+	require.Empty(t, logs)
+	require.Equal(t, rangeCapTestHeight+1, cursor)
+}
+
+// setupAdjacentOverflowFixture returns a fixture whose last two blocks each
+// match 3 logs, under a cap of 5: either block fits alone, both together
+// overflow. The fixture serves its one block at every height, so a candidate
+// at either height normalizes to that block's 3 receipt logs.
+func setupAdjacentOverflowFixture(t *testing.T) *rangeCapFixture {
+	t.Helper()
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	tip := uint64(rangeCapTestHeight)
+	candidates := append(
+		buildRangeCapCandidates(1, tip-1, match, topic, nil),
+		buildRangeCapCandidates(1, tip, match, topic, nil)...,
+	)
+	return setupRangeCapFixture(t, 3, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   5,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+}
+
+// Two blocks that overflow the caps only together are returned one poll at a
+// time, starting with the block at the cursor, instead of failing every poll.
+func TestPollLogsNarrowsToTheCursorBlock(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupAdjacentOverflowFixture(t)
+	crit := filters.FilterCriteria{Addresses: []common.Address{fixture.match}}
+
+	cursor := rangeCapTestHeight - 1
+	for _, wantBlock := range []int64{rangeCapTestHeight - 1, rangeCapTestHeight} {
+		logs, next, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+		require.NoError(t, err)
+		require.Len(t, logs, 3)
+		for _, lg := range logs {
+			require.Equal(t, uint64(wantBlock), lg.BlockNumber)
+		}
+		require.Equal(t, wantBlock+1, next)
+		cursor = next
+	}
+}
+
+// A narrowed poll that stops short of a numeric toBlock leaves toBlock for the
+// next poll, and the filter is exhausted only after toBlock has been returned.
+func TestPollLogsReturnsToBlockAfterNarrowing(t *testing.T) {
+	t.Parallel()
+
+	fixture := setupAdjacentOverflowFixture(t)
+	crit := filters.FilterCriteria{
+		FromBlock: big.NewInt(rangeCapTestHeight - 2),
+		ToBlock:   big.NewInt(rangeCapTestHeight),
+		Addresses: []common.Address{fixture.match},
+	}
+
+	// The full range overflows, so the first poll is narrowed to its first two blocks.
+	logs, cursor, err := fixture.fetcher.PollLogsForTest(fixture.ctx, crit, rangeCapTestHeight-2)
+	require.NoError(t, err)
+	require.Len(t, logs, 3)
+	require.Equal(t, rangeCapTestHeight, cursor)
+
+	logs, cursor, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+	require.NoError(t, err)
+	require.Len(t, logs, 3, "toBlock must still be returned after a narrowed poll")
+	for _, lg := range logs {
+		require.Equal(t, uint64(rangeCapTestHeight), lg.BlockNumber)
+	}
+
+	logs, _, err = fixture.fetcher.PollLogsForTest(fixture.ctx, crit, cursor)
+	require.NoError(t, err)
+	require.Empty(t, logs, "the filter is exhausted once toBlock has been returned")
 }
