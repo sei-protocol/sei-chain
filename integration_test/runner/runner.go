@@ -51,23 +51,12 @@ type Verifier struct {
 }
 
 // execer runs one command step against a target node and returns its trimmed
-// stdout. It is the seam between the two backends: the docker arm runs the
-// command via `docker exec`, the in-process arm runs it on the host against an
-// inprocess.Network. node is the Input's resolved target (a docker container
-// name / a "sei-node-N" moniker); env is the accumulated capture map. A non-zero
+// stdout. node is the Input's resolved target docker container; env is the
+// accumulated capture map. A non-zero
 // command exit is reported via the returned string (the captured code), not err
 // — err is reserved for harness-level failures (mirrors the runner.py contract).
 type execer interface {
 	run(t *testing.T, cmd, node string, env map[string]string, opts Options) (string, error)
-}
-
-// backendPreparer is an optional execer capability: a backend whose one-time
-// setup must be scoped to the parent test rather than a per-case subtest
-// implements it, and RunFile invokes it before running any case. The in-process
-// arm uses it to build its shared seid binary; the docker arm needs no setup and
-// does not implement it.
-type backendPreparer interface {
-	prepare(t *testing.T) error
 }
 
 // Options controls how RunFile executes commands.
@@ -79,10 +68,7 @@ type Options struct {
 	// Shell is the shell used to execute commands (e.g. "sh", "bash").
 	// Resolved via PATH at runtime. Defaults to "sh".
 	Shell string
-	// exec is the backend. nil selects the docker arm (the default), so existing
-	// docker runs are unaffected. The in-process arm is installed via
-	// WithInProcessNetwork (build-tagged `inprocess`); it never enters a normal
-	// runner build.
+	// exec is the backend. nil selects the docker backend.
 	exec execer
 }
 
@@ -104,13 +90,6 @@ func WithShell(shell string) Option {
 	return func(o *Options) { o.Shell = shell }
 }
 
-// withExecer installs a backend execer. Unexported: callers select the
-// in-process arm via WithInProcessNetwork (build-tagged), and the docker arm is
-// the zero-value default.
-func withExecer(e execer) Option {
-	return func(o *Options) { o.exec = e }
-}
-
 func newOptions(opts []Option) Options {
 	var o Options
 	//applying default options
@@ -130,12 +109,6 @@ func newOptions(opts []Option) Options {
 func RunFile(t *testing.T, path string, opts ...Option) {
 	t.Helper()
 	o := newOptions(opts)
-	// One-time backend setup, scoped to the parent test so it runs before — and
-	// outlives — every per-case subtest (see ensureBin). The docker arm implements
-	// nothing here.
-	if p, ok := o.exec.(backendPreparer); ok {
-		require.NoError(t, p.prepare(t), "prepare backend")
-	}
 	data, err := os.ReadFile(path) //nolint:gosec
 	require.NoError(t, err, "read %s: %v", path, err)
 	var cases []TestCase
