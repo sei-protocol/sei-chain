@@ -366,6 +366,7 @@ func TestDebugTraceCall(t *testing.T) {
 		{name: "the block before reads its state", block: "0x1", wantNonce: 0},
 		{name: "block 0 reads the state the chain started from", block: "0x0", wantNonce: 0},
 		{name: "txIndex reads the state before that transaction", block: "0x2", txIndex: utilsPtr(hexutil.Uint(2)), wantNonce: 1},
+		{name: "txIndex 0 of an empty block reads the state it started from", block: "0x1", txIndex: utilsPtr(hexutil.Uint(0)), wantNonce: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := map[string]any{"tracer": "prestateTracer"}

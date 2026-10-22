@@ -193,7 +193,8 @@ func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, 
 }
 
 // StateAtTransaction returns the transaction at txIndex of block's stored transactions, and the
-// block context and state it executed against.
+// block context and state it executed against. Index 0 of an empty block returns no transaction
+// and the state the block started from.
 func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, _ uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	stored, err := b.blocks.resolveBlockByNumber(ctx, ethrpc.BlockNumber(block.Number().Int64()))
 	if err != nil {
@@ -202,9 +203,11 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 	if stored == nil {
 		return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("block %d not found", block.NumberU64())
 	}
-	tx, err := blockTx(stored, txIndex)
-	if err != nil {
-		return nil, vm.BlockContext{}, nil, nil, err
+	var tx *ethtypes.Transaction
+	if txIndex != 0 || len(stored.Block.Txs) != 0 {
+		if tx, err = blockTx(stored, txIndex); err != nil {
+			return nil, vm.BlockContext{}, nil, nil, err
+		}
 	}
 	header := block.Header()
 	blockCtx, err := b.backend.EvmBlockContext(header)
