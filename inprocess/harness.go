@@ -502,15 +502,9 @@ func newNodeApp(n *node, enc encoding) *app.App {
 }
 
 // writeAppConfig writes a minimal per-node app.toml. The harness serves TM RPC +
-// EVM (HTTP/WS) only; the cosmos gRPC server stays off (nothing in the harness
-// path calls servergrpc.StartGRPCServer, so enabling it would advertise a port
-// no listener binds).
+// EVM (HTTP/WS) only.
 func writeAppConfig(path string) {
 	appCfg := srvconfig.DefaultConfig()
-	// No gRPC listener is started; keep the written config consistent with that
-	// and avoid an N>1 fixed-port collision if the standard start path is ever wired.
-	appCfg.GRPC.Enable = false
-	appCfg.GRPCWeb.Enable = false
 	appCfg.Telemetry.Enabled = false
 	srvconfig.WriteConfigFile(path, appCfg)
 }

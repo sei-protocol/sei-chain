@@ -1991,13 +1991,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// Build Data field to match standard executor format.
 	// Standard path wraps MsgEVMTransactionResponse in TxMsgData.
-	// This is critical for LastResultsHash to match.
+	// This is critical for LastResultsHash to match. Like the standard path, it
+	// leaves ReturnData and Logs unset.
 	evmResponse := &evmtypes.MsgEVMTransactionResponse{
-		GasUsed:    execResult.UsedGas,
-		VmError:    vmError,
-		ReturnData: execResult.ReturnData,
-		Hash:       ethTx.Hash().Hex(),
-		Logs:       evmtypes.NewLogsFromEth(stateDB.GetAllLogs()),
+		GasUsed: execResult.UsedGas,
+		VmError: vmError,
+		Hash:    ethTx.Hash().Hex(),
 	}
 	evmResponseBytes, marshalErr := evmResponse.Marshal()
 	if marshalErr != nil {

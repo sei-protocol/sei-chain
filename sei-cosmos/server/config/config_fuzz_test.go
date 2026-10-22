@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -13,7 +12,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// GetConfig is the second parser of app.toml, feeding api, grpc, grpc-web, rosetta,
+// GetConfig is the second parser of app.toml, feeding api, rosetta,
 // telemetry and state-sync. app/seidb.go parses [state-commit] and [state-store] out
 // of the same viper for the store; GetConfig parses them again through a different
 // mechanism (viper.IsSet plus typed getters) into a Config the store never sees.
@@ -119,90 +118,6 @@ func TestGetConfigPanicsOnNonStringLabel(t *testing.T) {
 	_, _ = GetConfig(v)
 }
 
-// grpcClamp is a duration key GetConfig clamps rather than accepts verbatim.
-type grpcClamp struct {
-	Key     string
-	Path    string
-	Default time.Duration
-}
-
-var grpcClamps = []grpcClamp{
-	{Key: "grpc.max-connection-idle", Path: "GRPC.MaxConnectionIdle", Default: DefaultGRPCMaxConnectionIdle},
-	{Key: "grpc.keepalive-time", Path: "GRPC.KeepaliveTime", Default: DefaultGRPCKeepaliveTime},
-	{Key: "grpc.keepalive-timeout", Path: "GRPC.KeepaliveTimeout", Default: DefaultGRPCKeepaliveTimeout},
-	{Key: "grpc.keepalive-min-time", Path: "GRPC.KeepaliveMinTime", Default: DefaultGRPCKeepaliveMinTime},
-	{Key: "grpc.max-connection-age", Path: "GRPC.MaxConnectionAge", Default: DefaultGRPCMaxConnectionAge},
-	{
-		Key: "grpc.max-connection-age-grace", Path: "GRPC.MaxConnectionAgeGrace",
-		Default: DefaultGRPCMaxConnectionAgeGrace,
-	},
-}
-
-// FuzzGetConfigGRPCDurationClamps pins the negative-duration clamp on the gRPC
-// keepalive keys.
-//
-// gRPC accepts a negative keepalive verbatim and behaves pathologically, so GetConfig
-// substitutes the in-code default instead of passing it through. Only a negative is
-// clamped, uniformly across the keys in grpcClamps: zero passes through, which matters
-// on the age keys where gRPC reads zero as "no limit".
-//
-// Each value is driven both typed and as its own String() spelling, because app.toml and
-// the environment only ever produce text; the typed form skips the cast.ToDuration step
-// that sits between the file layer and this comparison.
-func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
-	f.Add(uint(0), int64(0), false)
-	f.Add(uint(0), int64(-1), false)
-	f.Add(uint(0), int64((30 * time.Second)), false)
-	f.Add(uint(4), int64(0), false)
-	f.Add(uint(4), int64(-1), false)
-	f.Add(uint(1), int64(-1000000000), false)
-	f.Add(uint(2), int64((time.Hour)), false)
-	// The same values as an operator would write them.
-	f.Add(uint(0), int64((30 * time.Second)), true)
-	f.Add(uint(0), int64(-1000000000), true) // "-1s"
-	f.Add(uint(4), int64(0), true)
-	f.Add(uint(2), int64((time.Hour)), true)
-
-	f.Fuzz(func(t *testing.T, keyIdx uint, nanos int64, asString bool) {
-		row := grpcClamps[keyIdx%uint(len(grpcClamps))]
-		d := time.Duration(nanos)
-
-		// A typed duration and its own String() spelling must resolve identically, since
-		// viper.GetDuration casts the text back. Any divergence is in cast, not in the clamp.
-		var raw any = d
-		if asString {
-			// Duration.String has not always round-tripped at the int64 boundary, and a
-			// spelling the parser rejects would resolve to zero and fail with a message about
-			// the clamp rather than about the encoding, so such a value is declined instead.
-			spelled := d.String()
-			if back, perr := time.ParseDuration(spelled); perr != nil || back != d {
-				return // no faithful text spelling; the typed shape already covers this value
-			}
-			raw = spelled
-		}
-
-		cfg, err := GetConfig(newAppViper(t, map[string]any{row.Key: raw}))
-		if err != nil {
-			t.Fatalf("%s = %#v must parse, got %v", row.Key, raw, err)
-		}
-
-		want := d
-		if d < 0 {
-			want = row.Default
-		}
-		got, ok := configtest.LeafAt(configtest.Dump(cfg), row.Path)
-		if !ok {
-			t.Fatalf("%s resolves into %q, which is not in the parsed config", row.Key, row.Path)
-		}
-		if wantLeaf := configtest.DumpAt(row.Path, want); got != wantLeaf {
-			t.Fatalf("%s = %#v resolved wrongly\n got: %s\nwant: %s\n"+
-				"a negative duration falls back to the in-code default; zero passes through, and "+
-				"the typed and string spellings must agree",
-				row.Key, raw, got, wantLeaf)
-		}
-	})
-}
-
 // FuzzGetConfigWriteMode pins GetConfig's own copy of the write-mode resolution.
 //
 // The rules match app/seidb.go — always parse, then let sc-write-mode-enable-auto
@@ -304,9 +219,6 @@ var guardedKeys = []guardedKey{
 		Key: "state-commit.flatkv.enable-read-write-metrics", Path: "StateCommit.FlatKVConfig.EnableReadWriteMetrics",
 		Set: true, DefaultIsZero: true,
 	},
-	{Key: "grpc.max-recv-msg-size", Path: "GRPC.MaxRecvMsgSize", Set: 8 * 1024 * 1024},
-	{Key: "grpc.max-open-connections", Path: "GRPC.MaxOpenConnections", Set: 123},
-	{Key: "grpc-web.max-open-connections", Path: "GRPCWeb.MaxOpenConnections", Set: 456},
 }
 
 // FuzzGetConfigGuardedKeysPreserveDefaults pins the guarded half of GetConfig: an
@@ -586,8 +498,7 @@ func FuzzConfigValidateBasic(f *testing.F) {
 // declared default when the section is absent from app.toml.
 //
 // One table for all of them, because the divergence is one property and a reader comparing sections
-// wants them side by side: the unguarded api.max-open-connections sits beside the guarded
-// grpc-web.max-open-connections, which is the contrast worth seeing.
+// wants them side by side.
 //
 // The diverges column asserts both directions, so a key is anchored whether or not it moves today; a
 // declared default shifting onto the getter's zero, or off it, fails here rather than changing the
@@ -612,12 +523,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"rosetta.blockchain", cfg.Rosetta.Blockchain, def.Rosetta.Blockchain, true},
 		{"rosetta.network", cfg.Rosetta.Network, def.Rosetta.Network, true},
 		{"rosetta.retries", cfg.Rosetta.Retries, def.Rosetta.Retries, true},
-		{"grpc-web.enable", cfg.GRPCWeb.Enable, def.GRPCWeb.Enable, true},
-		{"grpc-web.address", cfg.GRPCWeb.Address, def.GRPCWeb.Address, true},
-		// The [grpc] keys read as plain casts. The rest of the section is guarded or clamped, and
-		// held by TestGetConfigGRPCAbsentReads.
-		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
-		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
 		{"telemetry.prometheus-retention-time",
 			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, false},
@@ -654,11 +559,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		// the only thing tying these sections' absent-key resolution to their declared defaults.
 		{"rosetta.enable", cfg.Rosetta.Enable, def.Rosetta.Enable, false},
 		{"rosetta.offline", cfg.Rosetta.Offline, def.Rosetta.Offline, false},
-		{"grpc-web.enable-unsafe-cors", cfg.GRPCWeb.EnableUnsafeCORS, def.GRPCWeb.EnableUnsafeCORS, false},
-		{
-			"grpc.keepalive-permit-without-stream",
-			cfg.GRPC.KeepalivePermitWithoutStream, def.GRPC.KeepalivePermitWithoutStream, false,
-		},
 		{"telemetry.service-name", cfg.Telemetry.ServiceName, def.Telemetry.ServiceName, false},
 		{"telemetry.enable-hostname", cfg.Telemetry.EnableHostname, def.Telemetry.EnableHostname, false},
 		{
@@ -673,12 +573,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		// index-events resolves to a []string, which is why the comparison is reflect.DeepEqual. Both
 		// sides are nil today, so it is a false row.
 		{"index-events", cfg.IndexEvents, def.IndexEvents, false},
-		// The guarded read. Its absent value is the declared default, which is the property the
-		// guard exists to provide.
-		{
-			"grpc-web.max-open-connections",
-			cfg.GRPCWeb.MaxOpenConnections, def.GRPCWeb.MaxOpenConnections, false,
-		},
 	} {
 		if got := !reflect.DeepEqual(c.absent, c.declared); got != c.diverges {
 			verb := "no longer diverges from"
@@ -688,75 +582,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			t.Errorf("%s %s its declared default: absent=%v declared=%v. If a guard was added or "+
 				"removed, or a default moved onto the getter's zero, update this table", c.key,
 				verb, c.absent, c.declared)
-		}
-	}
-}
-
-// TestGetConfigGRPCAbsentReads records what an absent [grpc] key resolves to, holding the guarded
-// reads apart from the two that only look guarded.
-//
-// The split matters because the two groups fail for different reasons and a reader needs the right
-// one. The guarded keys are read behind v.IsSet, so a guard is what returns the declared default and
-// losing it is the failure. max-connection-age and max-connection-age-grace have no guard at all:
-// they are read unconditionally and clamped, so an absent key resolves 0 and that happens to equal
-// their declared default. Moving either default off 0 turns them into a visible clobber, which is a
-// different event from a guard disappearing.
-func TestGetConfigGRPCAbsentReads(t *testing.T) {
-	cfg, err := GetConfig(newAppViper(t, nil))
-	if err != nil {
-		t.Fatalf("GetConfig: %v", err)
-	}
-	def := DefaultConfig().GRPC
-	got := cfg.GRPC
-
-	// Read behind v.IsSet, so the guard is what restores the declared default.
-	for _, c := range []struct {
-		key              string
-		absent, declared any
-	}{
-		{"grpc.max-recv-msg-size", got.MaxRecvMsgSize, def.MaxRecvMsgSize},
-		{"grpc.max-open-connections", got.MaxOpenConnections, def.MaxOpenConnections},
-		{"grpc.max-connections-per-ip", got.MaxConnectionsPerIP, def.MaxConnectionsPerIP},
-		{"grpc.max-connection-idle", got.MaxConnectionIdle, def.MaxConnectionIdle},
-		{"grpc.keepalive-time", got.KeepaliveTime, def.KeepaliveTime},
-		{"grpc.keepalive-timeout", got.KeepaliveTimeout, def.KeepaliveTimeout},
-		{"grpc.keepalive-min-time", got.KeepaliveMinTime, def.KeepaliveMinTime},
-		{"grpc.ip-rate-limit-rps", got.IPRateLimitRPS, def.IPRateLimitRPS},
-		{"grpc.ip-rate-limit-burst", got.IPRateLimitBurst, def.IPRateLimitBurst},
-		{"grpc.max-in-flight-per-ip", got.MaxInFlightPerIP, def.MaxInFlightPerIP},
-		{"grpc.rate-limiting-enabled", got.RateLimitingEnabled, def.RateLimitingEnabled},
-	} {
-		if c.absent != c.declared {
-			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its v.IsSet guard "+
-				"is gone. That is the failure the guard exists to prevent: a node upgrading with an "+
-				"older app.toml stays bounded", c.key, c.absent, c.declared)
-		}
-	}
-
-	if got.TrustedProxyCIDRs != nil {
-		t.Errorf("an absent grpc.trusted-proxy-cidrs resolved to %v rather than nil", got.TrustedProxyCIDRs)
-	}
-
-	// Read unconditionally and clamped. Nothing guards these, so the assertion is on the coincidence
-	// itself: the declared default is the getter's zero, which is why an absent key looks correct.
-	for _, c := range []struct {
-		key      string
-		absent   time.Duration
-		declared time.Duration
-	}{
-		{"grpc.max-connection-age", got.MaxConnectionAge, def.MaxConnectionAge},
-		{"grpc.max-connection-age-grace", got.MaxConnectionAgeGrace, def.MaxConnectionAgeGrace},
-	} {
-		if c.declared != 0 {
-			t.Errorf("%s's declared default is now %v rather than 0. It is read unconditionally and "+
-				"only clamped, so an absent key still resolves 0, which is now a clobber "+
-				"TestGetConfigAbsentSectionDivergences should carry as a row", c.key, c.declared)
-			continue
-		}
-		if c.absent != 0 {
-			t.Errorf("an absent %s resolved to %v rather than 0. That means a guard was added or the "+
-				"clamp changed, which is a fine end state and moves this key into the guarded group "+
-				"above", c.key, c.absent)
 		}
 	}
 }

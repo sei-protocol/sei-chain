@@ -11,7 +11,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/spf13/cast"
-	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -118,9 +117,6 @@ func queryOriginIP(ctx context.Context) string {
 		if addr := callInfo.RemoteAddr(); addr != "" {
 			return addr
 		}
-	}
-	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
-		return p.Addr.String()
 	}
 	return ""
 }
