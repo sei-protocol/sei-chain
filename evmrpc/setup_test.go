@@ -190,7 +190,8 @@ var BlockFilterNotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
 	client.Client
-	latestOverride int64
+	latestOverride   int64
+	earliestOverride int64
 }
 
 var filterClient = &MockClient{}
@@ -513,10 +514,14 @@ func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	if latest < 1 {
 		latest = 1
 	}
+	earliest := c.earliestOverride
+	if earliest <= 0 {
+		earliest = 1
+	}
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{
 			LatestBlockHeight:   latest,
-			EarliestBlockHeight: 1,
+			EarliestBlockHeight: earliest,
 		},
 	}, nil
 }
