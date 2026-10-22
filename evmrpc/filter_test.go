@@ -783,6 +783,44 @@ func TestFilterGetFilterChangesCoversEveryBlockSincePreviousPoll(t *testing.T) {
 	}
 }
 
+// TestFilterGetFilterChangesStartsAfterTheHead asserts that a filter with an
+// omitted or tag fromBlock never returns the logs of the block that was the
+// head at its creation, while a numeric fromBlock at that block does.
+// This test is intentionally not parallel because it moves the latest height
+// of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterChangesStartsAfterTheHead(t *testing.T) {
+	t.Cleanup(func() { filterClient.latestOverride = 0 })
+	// Block 2, the only block up to the mock chain's head of 8 that holds logs,
+	// is the head when the filters are created.
+	filterClient.latestOverride = MockHeight2
+	atHead := newLogFilter(t, map[string]interface{}{"fromBlock": "0x2"})
+	criteria := []map[string]interface{}{
+		{},
+		{"fromBlock": "latest"},
+		{"fromBlock": "safe"},
+		{"fromBlock": "finalized"},
+		{"fromBlock": "pending"},
+		{"toBlock": "latest"},
+	}
+	afterHead := make([]string, len(criteria))
+	for i, crit := range criteria {
+		afterHead[i] = newLogFilter(t, crit)
+	}
+
+	want := logsInRange(t, MockHeight2, MockHeight2)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, filterChanges(t, atHead))
+	for i, filterID := range afterHead {
+		require.Empty(t, filterChanges(t, filterID), "filter %v polled at its creation head", criteria[i])
+	}
+
+	filterClient.latestOverride = MockHeight8
+	want = logsInRange(t, MockHeight2+1, MockHeight8)
+	for i, filterID := range afterHead {
+		require.Equal(t, want, filterChanges(t, filterID), "filter %v polled after its creation head", criteria[i])
+	}
+}
+
 // TestFilterGetFilterChangesWaitsForFutureBounds asserts that a numeric
 // fromBlock or toBlock above the head makes eth_getFilterChanges return []
 // rather than fail, that each block is returned once the head reaches it, and

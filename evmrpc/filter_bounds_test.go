@@ -17,6 +17,7 @@ var (
 	safeTag      = big.NewInt(rpc.SafeBlockNumber.Int64())
 	finalizedTag = big.NewInt(rpc.FinalizedBlockNumber.Int64())
 	pendingTag   = big.NewInt(rpc.PendingBlockNumber.Int64())
+	earliestTag  = big.NewInt(rpc.EarliestBlockNumber.Int64())
 )
 
 func TestComputeBlockBounds(t *testing.T) {
@@ -118,7 +119,8 @@ func TestComputeBlockBounds(t *testing.T) {
 }
 
 // TestPollStart pins where a new log filter's polls start: a numeric fromBlock is kept, an
-// omitted or tag fromBlock is pinned to the head at creation, and an inverted range is rejected.
+// omitted or tag fromBlock starts after the head at creation, and a numeric toBlock below the
+// start is rejected.
 func TestPollStart(t *testing.T) {
 	t.Parallel()
 
@@ -130,26 +132,33 @@ func TestPollStart(t *testing.T) {
 		want        int64
 		errContains string
 	}{
-		{name: "omitted fromBlock starts at the head", want: head},
-		{name: "latest fromBlock starts at the head", crit: filters.FilterCriteria{FromBlock: latestTag}, want: head},
-		{name: "safe fromBlock starts at the head", crit: filters.FilterCriteria{FromBlock: safeTag}, want: head},
-		{name: "finalized fromBlock starts at the head", crit: filters.FilterCriteria{FromBlock: finalizedTag}, want: head},
-		{name: "pending fromBlock starts at the head", crit: filters.FilterCriteria{FromBlock: pendingTag}, want: head},
-		{name: "tag toBlock leaves the start at the head", crit: filters.FilterCriteria{ToBlock: latestTag}, want: head},
+		{name: "omitted fromBlock starts after the head", want: head + 1},
+		{name: "latest fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: latestTag}, want: head + 1},
+		{name: "safe fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: safeTag}, want: head + 1},
+		{name: "finalized fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: finalizedTag}, want: head + 1},
+		{name: "pending fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: pendingTag}, want: head + 1},
+		{name: "tag toBlock leaves the start after the head", crit: filters.FilterCriteria{ToBlock: latestTag}, want: head + 1},
+		{name: "earliest fromBlock starts at block 0", crit: filters.FilterCriteria{FromBlock: earliestTag}, want: 0},
 		{name: "past fromBlock starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(40)}, want: 40},
+		{name: "fromBlock at the head starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(head)}, want: head},
 		{name: "future fromBlock starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(150)}, want: 150},
 		{name: "numeric fromBlock with tag toBlock starts at fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(40), ToBlock: latestTag}, want: 40},
-		{name: "omitted fromBlock defaults to a toBlock below the head", crit: filters.FilterCriteria{ToBlock: big.NewInt(40)}, want: 40},
-		{name: "omitted fromBlock with a future toBlock starts at the head", crit: filters.FilterCriteria{ToBlock: big.NewInt(150)}, want: head},
+		{name: "omitted fromBlock with the next block as toBlock starts after the head", crit: filters.FilterCriteria{ToBlock: big.NewInt(head + 1)}, want: head + 1},
+		{name: "omitted fromBlock with a future toBlock starts after the head", crit: filters.FilterCriteria{ToBlock: big.NewInt(150)}, want: head + 1},
 		{
 			name:        "fromBlock above toBlock is rejected",
 			crit:        filters.FilterCriteria{FromBlock: big.NewInt(50), ToBlock: big.NewInt(40)},
-			errContains: "requested fromBlock 50 is greater than toBlock 40",
+			errContains: "requested toBlock 40 is before the filter's start block 50",
 		},
 		{
-			name:        "tag fromBlock above toBlock is rejected",
+			name:        "omitted fromBlock with the head as toBlock is rejected",
+			crit:        filters.FilterCriteria{ToBlock: big.NewInt(head)},
+			errContains: "requested toBlock 100 is before the filter's start block 101",
+		},
+		{
+			name:        "tag fromBlock with a toBlock below the head is rejected",
 			crit:        filters.FilterCriteria{FromBlock: latestTag, ToBlock: big.NewInt(40)},
-			errContains: "requested fromBlock 100 is greater than toBlock 40",
+			errContains: "requested toBlock 40 is before the filter's start block 101",
 		},
 		{name: "blockHash filter starts at zero", crit: filters.FilterCriteria{BlockHash: &blockHash}, want: 0},
 	}
