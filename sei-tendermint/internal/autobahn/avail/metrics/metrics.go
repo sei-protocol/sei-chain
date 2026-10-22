@@ -40,7 +40,7 @@ type metrics struct {
 	laneVotesIngested prometheus.CounterIntVec
 	// Latency from a lane block's creation to the given stage, observed by a node holding the block.
 	laneBlockLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
-	// Latency from a proposal's construction to the given QC being observed for it.
+	// Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC.
 	proposalLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.0005, 1.5, 30)"`
 }
 
@@ -76,6 +76,12 @@ func ObserveCommitQC(qc *types.CommitQC) {
 		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
+}
+
+// ObservePrepareVote records how long after p's construction this node cast its PrepareVote for it.
+// Call it once per view.
+func ObservePrepareVote(p *types.Proposal) {
+	Global.proposalLatencyAt("prepare_vote").Observe(time.Since(p.Timestamp()).Seconds())
 }
 
 // ObservePrepareQC records how long after its proposal's construction a PrepareQC was observed.

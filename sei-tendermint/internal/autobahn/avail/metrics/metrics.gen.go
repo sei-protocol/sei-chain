@@ -109,7 +109,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_latency",
-			Help:      "Latency from a proposal's construction to the given QC being observed for it.",
+			Help:      "Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC.",
 			Buckets:   prometheus.ExponentialBuckets(0.0005, 1.5, 30),
 		}, []string{"stage"}),
 	}

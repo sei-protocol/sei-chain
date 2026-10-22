@@ -235,6 +235,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 			return nil
 		}
 		v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
+		availmetrics.ObservePrepareVote(proposal.Proposal().Msg())
 		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
