@@ -518,7 +518,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		// be in flight, but scope.Parallel in runPersist ensures they complete
 		// before the next batch, so the data is durable by scope exit.
 		if _, err := state.LastCommitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
-			return types.NextIndexOpt(qc) > wantAppQCIdx
+			commitQC, ok := qc.Get()
+			return ok && commitQC.Index()+1 > wantAppQCIdx
 		}); err != nil {
 			return fmt.Errorf("waitForCommitQC: %w", err)
 		}

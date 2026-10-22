@@ -46,8 +46,8 @@ func newTestAvail(t *testing.T, registry *epoch.Registry, key types.SecretKey) (
 	return ds, av
 }
 
-// seedPersistedInner persists view-local WAL state. The WAL records the current
-// view Index (NextIndexOpt of tip) for ErrAvailBehindConsensus on restore.
+// seedPersistedInner persists view-local WAL state. A tip advances the WAL to
+// its next view; without one, state supplies the current view index.
 func seedPersistedInner(dir string, tip utils.Option[*types.CommitQC], state *persistedInner) {
 	p, _, err := persist.NewPersister[*pb.PersistedInner](utils.Some(dir), innerFile)
 	if err != nil {
@@ -60,7 +60,9 @@ func seedPersistedInner(dir string, tip utils.Option[*types.CommitQC], state *pe
 
 func encodeWal(tip utils.Option[*types.CommitQC], state *persistedInner) *pb.PersistedInner {
 	s := *state
-	s.Index = types.NextIndexOpt(tip)
+	if qc, ok := tip.Get(); ok {
+		s.Index = qc.Index() + 1
+	}
 	return innerProtoConv.Encode(&s)
 }
 
