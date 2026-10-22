@@ -205,8 +205,39 @@ func writeJSONRPCErrorWithStatus(w http.ResponseWriter, reqBody []byte, httpStat
 	if len(reqBody) > 0 {
 		_ = json.Unmarshal(reqBody, &req)
 	}
-	resp := req.MakeErrorf(code, format, args...)
-	body, err := json.Marshal(resp)
+	writeJSONWithStatus(w, httpStatus, req.MakeErrorf(code, format, args...))
+}
+
+// writeJSONRPCTooManyRequests writes the HTTP 429 reply for a POST / request
+// rejected by the rate limiter. A well-formed, non-empty batch gets an array
+// with one error response per non-notification request; any other body gets a
+// single error object.
+func writeJSONRPCTooManyRequests(w http.ResponseWriter, reqBody []byte) {
+	const msg = "too many requests"
+	var reqs []rpctypes.RPCRequest
+	if !isBatchRequest(reqBody) || json.Unmarshal(reqBody, &reqs) != nil || len(reqs) == 0 {
+		writeJSONRPCErrorWithStatus(w, reqBody, http.StatusTooManyRequests, rpctypes.CodeInternalError, msg)
+		return
+	}
+
+	var resps []rpctypes.RPCResponse
+	for _, req := range reqs {
+		if req.IsNotification() {
+			continue
+		}
+		resps = append(resps, req.MakeErrorf(rpctypes.CodeInternalError, msg))
+	}
+	// A batch of only notifications gets no response body, as when it is served.
+	if len(resps) == 0 {
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	writeJSONWithStatus(w, http.StatusTooManyRequests, resps)
+}
+
+// writeJSONWithStatus writes v as a JSON body with the given HTTP status.
+func writeJSONWithStatus(w http.ResponseWriter, httpStatus int, v any) {
+	body, err := json.Marshal(v)
 	if err != nil {
 		logger.Error("Error encoding RPC response", "err", err)
 		writeError(w, http.StatusInternalServerError, err)

@@ -64,7 +64,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 		if !allowed {
 			logger.Debug("rate limit rejected JSON-RPC request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
-			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+			writeJSONRPCTooManyRequests(w, body)
 			return
 		}
 
@@ -94,7 +94,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip string, body []byte, status int, code rpctypes.ErrorCode, msg string) {
 	if m.gate.ChargeAdmissionRejection(ctx, ip) {
-		writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+		writeJSONRPCTooManyRequests(w, body)
 		return
 	}
 	writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)
