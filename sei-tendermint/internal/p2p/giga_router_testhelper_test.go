@@ -207,7 +207,9 @@ func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 type preparingTestApp struct {
 	*testApp
 	holdUntil int64
-	log       utils.Watch[*prepareLog]
+	// releaseFinalize, when set, blocks every FinalizeBlock until it is closed.
+	releaseFinalize <-chan struct{}
+	log             utils.Watch[*prepareLog]
 }
 
 type prepareLog struct {
@@ -233,6 +235,13 @@ func (a *preparingTestApp) PrepareBlock(_ context.Context, req *abci.RequestFina
 }
 
 func (a *preparingTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	if a.releaseFinalize != nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-a.releaseFinalize:
+		}
+	}
 	height := req.Header.Height
 	for log, ctrl := range a.log.Lock() {
 		if height < a.holdUntil {
@@ -251,6 +260,34 @@ func (a *preparingTestApp) FinalizeBlock(ctx context.Context, req *abci.RequestF
 		delete(log.prepared, height)
 	}
 	return a.testApp.FinalizeBlock(ctx, req)
+}
+
+// WaitPreparedHeight waits until PrepareBlock has recorded height and FinalizeBlock has not yet taken it.
+func (a *preparingTestApp) WaitPreparedHeight(ctx context.Context, height int64) error {
+	for log, ctrl := range a.log.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool {
+			_, ok := log.prepared[height]
+			return ok
+		})
+	}
+	panic("unreachable")
+}
+
+// WaitPrepared waits until PrepareBlock has recorded n blocks that FinalizeBlock has not yet taken.
+func (a *preparingTestApp) WaitPrepared(ctx context.Context, n int) error {
+	for log, ctrl := range a.log.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool { return len(log.prepared) >= n })
+	}
+	panic("unreachable")
+}
+
+// HasPrepared reports whether height is recorded and not yet finalized.
+func (a *preparingTestApp) HasPrepared(height int64) bool {
+	for log := range a.log.Lock() {
+		_, ok := log.prepared[height]
+		return ok
+	}
+	panic("unreachable")
 }
 
 // PreparedCounts returns how many finalized blocks PrepareBlock had seen, and how many it had not.
