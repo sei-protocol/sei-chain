@@ -549,14 +549,14 @@ func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) err
 	if ctx.GasLimit == 0 {
 		return errInvalidBlockGasLimit
 	}
-	if chainConfig != nil {
-		blockNumber := new(big.Int).SetUint64(ctx.Number)
-		if chainConfig.IsLondon(blockNumber) && ctx.BaseFee == nil {
-			return errMissingBaseFee
-		}
-		if chainConfig.IsCancun(blockNumber, ctx.Time) && ctx.BlobBaseFee == nil {
-			return errMissingBlobBaseFee
-		}
+	if !chainConfig.IsCancun(new(big.Int).SetUint64(ctx.Number), ctx.Time) {
+		return errPreCancunBlock
+	}
+	if ctx.BaseFee == nil {
+		return errMissingBaseFee
+	}
+	if ctx.BlobBaseFee == nil {
+		return errMissingBlobBaseFee
 	}
 	return nil
 }
@@ -578,7 +578,8 @@ func EffectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 var (
 	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
 	errInvalidBlockGasLimit = fmt.Errorf("block gas limit must be non-zero")
-	errMissingBaseFee       = fmt.Errorf("missing base fee for post-London block")
-	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee for post-Cancun block")
+	errPreCancunBlock       = fmt.Errorf("pre-Cancun blocks are not supported")
+	errMissingBaseFee       = fmt.Errorf("missing base fee")
+	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee")
 	errUnsupportedBlobTx    = fmt.Errorf("blob transactions require block-level blob gas accounting")
 )
