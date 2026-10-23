@@ -89,6 +89,9 @@ type ExecutionConfig struct {
 	// FlatKVAccountMaxUnflushed, when non-zero, replaces how many versions the FlatKV account database
 	// holds unflushed before a commit waits.
 	FlatKVAccountMaxUnflushed uint64 `mapstructure:"flatkv_account_max_unflushed"`
+	// MaxTxsPerLaneBlock, when non-zero, replaces the autobahn config's max_txs_per_block for the
+	// lane blocks this validator produces. It stays capped by the protocol's per-block maximum.
+	MaxTxsPerLaneBlock uint64 `mapstructure:"max_txs_per_lane_block"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -179,6 +182,7 @@ const (
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVAccountCacheMB    = "giga.execution.flatkv_account_cache_mb"
 	FlagExecutionFlatKVAccountMaxUnflush = "giga.execution.flatkv_account_max_unflushed"
+	FlagExecutionMaxTxsPerLaneBlock      = "giga.execution.max_txs_per_lane_block"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -296,6 +300,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionFlatKVViewShards); v != nil {
 		if cfg.Execution.FlatKVViewShards, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVViewShards, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxTxsPerLaneBlock); v != nil {
+		if cfg.Execution.MaxTxsPerLaneBlock, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxTxsPerLaneBlock, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -501,6 +510,9 @@ flatkv_account_cache_mb = {{ .Giga.Execution.FlatKVAccountCacheMB }}
 # flatkv_account_max_unflushed, when non-zero, replaces how many versions the FlatKV account database
 # holds unflushed before a commit waits.
 flatkv_account_max_unflushed = {{ .Giga.Execution.FlatKVAccountMaxUnflushed }}
+# max_txs_per_lane_block, when non-zero, replaces the autobahn config's max_txs_per_block for the
+# lane blocks this validator produces. It stays capped by the protocol's per-block maximum.
+max_txs_per_lane_block = {{ .Giga.Execution.MaxTxsPerLaneBlock }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
