@@ -19,6 +19,8 @@ func TestParamsValidateRejects(t *testing.T) {
 		"expedited not shorter":      func(p *Params) { p.ExpeditedVotingPeriod = p.VotingPeriod },
 		"no deposit period":          func(p *Params) { p.MaxDepositPeriod = 0 },
 		"missing deposit":            func(p *Params) { p.MinDeposit = nil },
+		"zero deposit":               func(p *Params) { p.MinDeposit = new(big.Int) },
+		"zero expedited deposit":     func(p *Params) { p.MinExpeditedDeposit = new(big.Int) },
 		"wei remainder":              func(p *Params) { p.MinDeposit = big.NewInt(1) },
 		"expedited deposit too low":  func(p *Params) { p.MinExpeditedDeposit = new(big.Int) },
 		"quorum above one":           func(p *Params) { p.Quorum = decOne + 1 },

@@ -287,17 +287,18 @@ func (q proposalQueue) remove(id, end uint64) {
 	q.heap.Remove(queueKey(end, id))
 }
 
-// due returns the queued proposal that ends first, lowest id first, if it ends
-// at or before now.
-func (q proposalQueue) due(now uint64) (uint64, bool) {
+// due returns the id and end time of the queued proposal that ends first,
+// lowest id first, if it ends at or before now.
+func (q proposalQueue) due(now uint64) (id, end uint64, ok bool) {
 	if q.Len() == 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	key := q.heap.At(0)
-	if binary.BigEndian.Uint64(key[16:24]) > now {
-		return 0, false
+	end = binary.BigEndian.Uint64(key[16:24])
+	if end > now {
+		return 0, 0, false
 	}
-	return solstorage.MemberUint64(key), true
+	return solstorage.MemberUint64(key), end, true
 }
 
 // tallyState is a tally in progress, in 1e18-scaled voting power.

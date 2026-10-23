@@ -357,12 +357,12 @@ func TestProposalQueueOrdersByEndThenID(t *testing.T) {
 	q.add(4, 100)
 	q.add(9, 50)
 
-	_, ok := q.due(49)
+	_, _, ok := q.due(49)
 	require.False(t, ok, "nothing ends by 49")
 	var order []uint64
-	for id, ok := q.due(200); ok; id, ok = q.due(200) {
+	for id, end, ok := q.due(200); ok; id, end, ok = q.due(200) {
 		order = append(order, id)
-		end := map[uint64]uint64{3: 200, 4: 100, 5: 100, 9: 50}[id]
+		require.Equal(t, map[uint64]uint64{3: 200, 4: 100, 5: 100, 9: 50}[id], end)
 		require.True(t, q.contains(id, end))
 		q.remove(id, end)
 	}
@@ -462,4 +462,64 @@ func TestEndBlockFinishesTallyLargerThanBudget(t *testing.T) {
 	require.Equal(t, StatusVotingPeriod, h.status(id), "counting the vote spent part of the budget")
 	h.endBlock(1)
 	require.Equal(t, StatusPassed, h.status(id), "the finish runs alone on a fresh budget")
+}
+
+func (h *harness) tallyResult(id uint64) TallyResultData {
+	var got TallyResultData
+	h.convert(h.mustCall(alice, callOpts{}, TallyResultMethod, id)[0], &got)
+	return got
+}
+
+func TestTallyResultIsLiveDuringVoting(t *testing.T) {
+	h := newElectedHarness(t, delegatedElectorate{})
+	id := h.open(textProposal, usei(10))
+	h.vote(alice, id, OptionNo)
+	h.vote(v1, id, OptionYes)
+
+	live := TallyResultData{Yes: "80", Abstain: "0", No: "50", NoWithVeto: "0"}
+	require.Equal(t, live, h.tallyResult(id))
+	require.Zero(t, newStore(h.state).tallyDeduction(id, v1).Sign(), "the query writes nothing")
+	require.False(t, newStore(h.state).tallyCounting(id))
+
+	h.time += testParams.VotingPeriod
+	h.endBlock(1)
+	require.Equal(t, StatusPassed, h.status(id))
+	require.Equal(t, live, h.tallyResult(id), "the final tally matches the live one")
+}
+
+func TestTallyResultIsLiveWhileCounting(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.open(textProposal, usei(10))
+	h.vote(alice, id, OptionYes)
+	h.vote(bob, id, OptionYes)
+	for d := range endBlockBudget {
+		h.vote(depositor(d), id, OptionNo)
+	}
+	h.time += testParams.VotingPeriod
+	h.endBlock(0)
+	require.True(t, newStore(h.state).tallyCounting(id))
+	require.Equal(t, TallyResultData{Yes: "200", Abstain: "0", No: "0", NoWithVeto: "0"}, h.tallyResult(id))
+}
+
+func TestTallyResultStartsOverAfterExpeditedConversion(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	id := h.open(expedProposal, usei(40))
+	h.vote(alice, id, OptionYes)
+	h.vote(bob, id, OptionYes)
+	h.time = startTime + testParams.ExpeditedVotingPeriod
+	h.endBlock(1)
+	require.Equal(t, StatusVotingPeriod, h.status(id))
+	require.Equal(t, TallyResultData{Yes: "0", Abstain: "0", No: "0", NoWithVeto: "0"}, h.tallyResult(id))
+}
+
+func TestEndBlockDrainsQueuedMissingProposals(t *testing.T) {
+	h := newElectedHarness(t, equalElectorate)
+	s := newStore(h.state)
+	s.depositQueue().add(98, startTime)
+	s.votingQueue().add(99, startTime)
+	h.endBlock(1)
+	require.Zero(t, s.depositQueue().Len())
+	require.Zero(t, s.votingQueue().Len())
+	_, ok := s.proposal(99)
+	require.False(t, ok, "no proposal is written for a missing id")
 }

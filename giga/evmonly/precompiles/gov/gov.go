@@ -3,6 +3,9 @@
 //
 // Its ABI is precompiles/gov's without the grant*, revoke* and
 // *WithAuthorization methods.
+//
+// Unlike x/gov, it accepts at most 200 depositors per proposal and requires a
+// positive minimum deposit.
 package gov
 
 import (
@@ -55,10 +58,11 @@ const (
 )
 
 var (
-	errDelegateCall  = errors.New("cannot delegatecall gov")
-	errStaticCall    = fmt.Errorf("cannot call gov precompile from staticcall: %w", vm.ErrWriteProtection)
-	errNonPayable    = errors.New("sending funds to a non-payable function")
-	errUnknownMethod = errors.New("unknown gov method")
+	errDelegateCall   = errors.New("cannot delegatecall gov")
+	errStaticCall     = fmt.Errorf("cannot call gov precompile from staticcall: %w", vm.ErrWriteProtection)
+	errNonPayable     = errors.New("sending funds to a non-payable function")
+	errUnknownMethod  = errors.New("unknown gov method")
+	errProposalsExist = errors.New("gov already has proposals")
 )
 
 // Precompile is the gov precompile. Electorate weighs votes when a voting
@@ -159,7 +163,13 @@ func HasParams(state precompiles.State) bool {
 }
 
 // SetStartingProposalID sets the id gov assigns its first proposal, for
-// genesis. Ids below it are never assigned.
-func SetStartingProposalID(state precompiles.State, id uint64) {
-	newStore(state).setStartingProposalID(id)
+// genesis. Ids below it are never assigned. It fails once any proposal has an
+// id.
+func SetStartingProposalID(state precompiles.State, id uint64) error {
+	s := newStore(state)
+	if s.lastProposalID() != 0 {
+		return errProposalsExist
+	}
+	s.setStartingProposalID(id)
+	return nil
 }

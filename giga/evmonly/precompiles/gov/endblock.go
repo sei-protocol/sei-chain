@@ -24,16 +24,16 @@ const endBlockBudget = 1_000
 func (p Precompile) EndBlock(block precompiles.BlockContext, state precompiles.State) error {
 	s := newStore(state)
 	budget := uint64(endBlockBudget)
-	for id, ok := s.depositQueue().due(block.Time); ok; id, ok = s.depositQueue().due(block.Time) {
+	for id, end, ok := s.depositQueue().due(block.Time); ok; id, end, ok = s.depositQueue().due(block.Time) {
 		if !take(&budget, 1+s.depositors(id).Len()) {
 			return nil
 		}
-		if err := dropProposal(s, id); err != nil {
+		if err := dropProposal(s, id, end); err != nil {
 			return err
 		}
 	}
-	for id, ok := s.votingQueue().due(block.Time); ok; id, ok = s.votingQueue().due(block.Time) {
-		settled, err := p.endVoting(block, state, s, id, &budget)
+	for id, end, ok := s.votingQueue().due(block.Time); ok; id, end, ok = s.votingQueue().due(block.Time) {
+		settled, err := p.endVoting(block, state, s, id, end, &budget)
 		if err != nil || !settled {
 			return err
 		}
@@ -55,22 +55,27 @@ func take(budget *uint64, n uint64) bool {
 	return true
 }
 
-// dropProposal burns proposal id's deposits and deletes it.
-func dropProposal(s store, id uint64) error {
-	prop, _ := s.proposal(id)
+// dropProposal burns proposal id's deposits, deletes it, and removes it from
+// the deposit queue, where it is keyed by end.
+func dropProposal(s store, id, end uint64) error {
 	if err := settleDeposits(s, id, true); err != nil {
 		return err
 	}
-	s.depositQueue().remove(id, prop.depositEndTime)
+	s.depositQueue().remove(id, end)
 	s.deleteProposal(id)
 	return nil
 }
 
-// endVoting counts proposal id's votes and, once all are counted, settles it,
-// reporting whether it settled within budget. A failed expedited proposal
-// becomes a regular one with a fresh round of voting for the rest of the
-// regular period.
-func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.State, s store, id uint64, budget *uint64) (bool, error) {
+// endVoting counts proposal id's votes and, once all are counted, settles it
+// and removes it from the voting queue, where it is keyed by end, reporting
+// whether it settled within budget. A failed expedited proposal becomes a
+// regular one with a fresh round of voting for the rest of the regular period.
+func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.State, s store, id, end uint64, budget *uint64) (bool, error) {
+	prop, ok := s.proposal(id)
+	if !ok {
+		s.votingQueue().remove(id, end)
+		return true, nil
+	}
 	snap := snapshotElectorate(state, p.Electorate)
 	if !countVotes(state, p.Electorate, s, id, snap, budget) {
 		return false, nil
@@ -78,11 +83,10 @@ func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.
 	if !take(budget, uint64(len(snap.validators))+1+s.depositors(id).Len()) {
 		return false, nil
 	}
-	prop, _ := s.proposal(id)
 	params := s.params()
 	outcome := finishTally(state, p.Electorate, s, id, prop, params, snap)
 
-	s.votingQueue().remove(id, prop.votingEndTime)
+	s.votingQueue().remove(id, end)
 	if !prop.isExpedited || outcome.passes {
 		if err := settleDeposits(s, id, outcome.burnDeposits); err != nil {
 			return false, err
@@ -101,10 +105,7 @@ func (p Precompile) endVoting(block precompiles.BlockContext, state precompiles.
 	default:
 		prop.status = StatusRejected
 	}
-	prop.tallyYes = outcome.tokens(OptionYes)
-	prop.tallyAbstain = outcome.tokens(OptionAbstain)
-	prop.tallyNo = outcome.tokens(OptionNo)
-	prop.tallyNoWithVeto = outcome.tokens(OptionNoWithVeto)
+	prop.recordTally(outcome)
 	s.setProposal(id, prop)
 	return true, nil
 }
