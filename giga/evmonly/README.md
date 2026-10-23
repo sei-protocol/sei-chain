@@ -87,9 +87,7 @@ changeset so the store can advance its height. Stateless preparation can
 continue concurrently with store-backed execution.
 
 The encoder is explicit because `giga.StateDB` defines the protobuf commit
-transport but does not define an on-disk key layout. In particular, an encoder
-must preserve `StorageClears` as prefix clears rather than silently dropping
-persisted slots that were not read during execution. Encoding, state commit, or
+transport but does not define an on-disk key layout. Encoding, state commit, or
 receipt-store failures release the block result and return an error without
 invoking `ResultSink`. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared
@@ -171,12 +169,10 @@ runtime-provided hash source in a later integration step.
 - `Balances`: final balance for each changed EVM address
 - `Nonces`: final nonce for each changed EVM address
 - `Code`: final bytecode updates or deletions
-- `StorageClears`: addresses whose persisted storage must be fully cleared
 - `Storage`: final storage slot updates or deletions
 
 The changeset should be deterministic and serializable by the runtime layer.
 The executor should not require `sdk.Context` or Cosmos stores to build it.
-State writers should apply `StorageClears` before per-slot `Storage` updates.
 
 `Receipts` are emitted in transaction order and should contain the Ethereum
 receipt fields needed by RPC and indexing: status, cumulative gas used, bloom,

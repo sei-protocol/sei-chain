@@ -15,7 +15,6 @@ progressively the deeper you go. Existing package guides include:
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `giga/evmonly/precompiles/AGENTS.md` — EVM-only custom precompiles: state access, determinism and gas rules
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
-- `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
 - `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
 
 ## Changelogs
@@ -31,9 +30,7 @@ how a value is cast will fail that suite. **Adding** a key does not always: the 
 check compares struct fields, so a second key landing in a field some row already
 claims is uncaught and the row has to be written by hand. Where there is a failure it
 is the review prompt: record the new behavior so the old and new value land in a diff,
-rather than skipping the row or widening the assertion until it passes. Read
-[`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
-configuration read, and before adding one.
+rather than skipping the row or widening the assertion until it passes.
 
 ## Upgrade names
 
@@ -220,5 +217,5 @@ Size from the peak each run reports.
 
 ## Benchmarking
 
-See [`benchmark/CLAUDE.md`](benchmark/CLAUDE.md) for benchmark usage, environment
+See [`benchmark/AGENTS.md`](benchmark/AGENTS.md) for benchmark usage, environment
 variables, and comparison workflows.

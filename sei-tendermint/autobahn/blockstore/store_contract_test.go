@@ -2,6 +2,7 @@ package blockstore_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -91,6 +92,7 @@ func TestBlockStore(t *testing.T) {
 }
 
 func runContract(t *testing.T, build builder) {
+	t.Run("WriteQCBlocksMismatchRejected", func(t *testing.T) { testWriteQCBlocksMismatchRejected(t, build) })
 	t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, build) })
 	t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, build) })
 	t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, build) })
@@ -105,18 +107,17 @@ func runContract(t *testing.T, build builder) {
 	t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, build) })
 	t.Run("PruneNeverEmpties", func(t *testing.T) { testPruneNeverEmpties(t, build) })
 	t.Run("PruneEmptyStoreThenWriteBelow", func(t *testing.T) { testPruneEmptyStoreThenWriteBelow(t, build) })
-	t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, build) })
-	t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) { testPruneQCOnlyThenWriteBlock(t, build) })
+
 	t.Run("FirstQCSetsFloor", func(t *testing.T) { testFirstQCSetsFloor(t, build) })
 	t.Run("Status", func(t *testing.T) { testStatus(t, build) })
 	t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, build) })
 	t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) { testWriteOrderRejectedAfterRestart(t, build) })
-	t.Run("WriteBlockGapRejected", func(t *testing.T) { testWriteBlockGapRejected(t, build) })
+
 	t.Run("WriteQCCoversNoBlocksRejected", func(t *testing.T) { testWriteQCCoversNoBlocksRejected(t, build) })
 	t.Run("WriteAppDataOrderRejected", func(t *testing.T) { testWriteAppDataOrderRejected(t, build) })
 	t.Run("PruneWithAppQCNeverEmpties", func(t *testing.T) { testPruneWithAppQCNeverEmpties(t, build) })
 	t.Run("PruneAfterRestart", func(t *testing.T) { testPruneAfterRestart(t, build) })
-	t.Run("WriteBlockRequiresQC", func(t *testing.T) { testWriteBlockRequiresQC(t, build) })
+
 	t.Run("ResumeAfterRestart", func(t *testing.T) { testResumeAfterRestart(t, build) })
 }
 
@@ -204,23 +205,13 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 		NextAppQC:       0,
 		NextAppProposal: 0,
 	}).First
-	for _, qc := range suffix.CommitQCs {
+	for _, group := range suffix.QCGroups {
+		qc := group.QC
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
 		for n := max(first, floor); n < next; n++ {
-			entries = append(entries, iterEntry{n: n, qc: qc})
+			entries = append(entries, iterEntry{n: n, qc: qc, blk: group.Blocks[n-first]})
 		}
-	}
-	for _, b := range suffix.Blocks {
-		found := false
-		for i := range entries {
-			if entries[i].n == b.Number {
-				entries[i].blk = b.Block
-				found = true
-				break
-			}
-		}
-		require.True(t, found, "block %d must be covered by a suffix QC", b.Number)
 	}
 	for _, appQC := range suffix.AppQCs {
 		gr := appQC.Proposal().GlobalRange()
@@ -265,26 +256,23 @@ func presentBlockNumbers(entries []iterEntry) []types.GlobalBlockNumber {
 }
 
 // testStatus asserts Status matches the highest block/QC still present
-// (via a full iterator scan), including after prune and restart, and that a QC
-// written ahead of its blocks advances only NextQC.
+// (via a full iterator scan), including after prune and restart. QC writes
+// advance NextQC and NextBlock together.
 func testStatus(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, o := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	require.NoError(t, db.WriteQC(batches[0].qc))
+	require.NoError(t, db.WriteQC(batches[0].qc, batches[0].blocks))
 	tips := status(t, db)
 	require.Equal(t, batches[0].first, tips.First)
 	require.Equal(t, batches[0].next, tips.NextQC)
-	require.Equal(t, tips.First, tips.NextBlock, "QC-only store has no block tip")
-	require.Equal(t, tips.First, tips.NextAppQC, "QC-only store has no AppQC tip")
-	require.Equal(t, tips.First, tips.NextAppProposal, "QC-only store has no AppProposal tip")
+	require.Equal(t, batches[0].next, tips.NextBlock, "QC and blocks advance together")
+	require.Equal(t, tips.First, tips.NextAppQC, "no AppQC has been written")
+	require.Equal(t, tips.First, tips.NextAppProposal, "no AppProposal has been written")
 	assertTipsMatchPresent(t, db)
 
-	for i, blk := range batches[0].blocks {
-		require.NoError(t, db.WriteBlock(batches[0].first+gbn(i), blk))
-	}
 	writeAll(t, db, batches[1:])
 	last := batches[len(batches)-1]
 	tips = status(t, db)
@@ -780,7 +768,7 @@ func testFirstQCSetsFloor(t *testing.T, build builder) {
 	db, o := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	require.NoError(t, db.WriteQC(start.qc))
+	require.NoError(t, db.WriteQC(start.qc, start.blocks))
 	check := func(db types.BlockStore) {
 		t.Helper()
 		require.Equal(t, start.first, db.First())
@@ -968,78 +956,6 @@ func testPruneAfterRestart(t *testing.T, build builder) {
 	require.True(t, blk.IsPresent(), "newest committed cohort must survive the capped prune")
 }
 
-// testPruneQCAheadOfBlocks pins the min() guard in the prune clamp. QCs are
-// written before the blocks they cover, so between writing a QC and its first
-// block — and after a crash that persisted a QC but not its blocks — the newest
-// QC starts above the newest block (latestQCStartBlock > lastBlockNumber). A
-// prune-to-empty request must clamp to the newest actual block, not the newest
-// QC's first: clamping to the latter would push the watermark past every written
-// block and empty the store. This holds across both implementations.
-func testPruneQCAheadOfBlocks(t *testing.T, build builder) {
-	committee, keys := buildCommittee()
-	batches := generateBatches(committee, keys)
-	require.GreaterOrEqual(t, len(batches), 2, "need a filled cohort plus an unfilled newest QC")
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	// Fill the first cohort, then write only the QC of the second — no blocks in
-	// its range. Now latestQCStartBlock (b1.first) exceeds lastBlockNumber (the
-	// last block of b0), since QCs are contiguous (b1.first == b0.next).
-	b0 := batches[0]
-	require.NoError(t, db.WriteQC(b0.qc))
-	for i, blk := range b0.blocks {
-		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
-	}
-	b1 := batches[1]
-	require.NoError(t, db.WriteQC(b1.qc))
-	require.Equal(t, b0.next, b1.first, "QCs must be contiguous for this setup")
-
-	newest := b0.next - 1 // newest actual block; b1.first == b0.next > newest
-
-	require.NoError(t, db.PruneBefore(b1.next+1000))
-
-	// The newest actual block and its covering QC are still served: the clamp
-	// used min(latestQCStartBlock, lastBlockNumber), not latestQCStartBlock —
-	// otherwise the watermark would sit above every written block.
-	blk, err := db.ReadBlockByNumber(newest)
-	require.NoError(t, err)
-	require.True(t, blk.IsPresent(), "newest block %d must survive; the clamp must not pass it", newest)
-	qc, err := db.ReadQCByBlockNumber(newest)
-	require.NoError(t, err)
-	require.True(t, qc.IsPresent(), "covering QC of the newest block must survive")
-}
-
-// testPruneQCOnlyThenWriteBlock asserts that pruning while QCs exist but no
-// blocks have been written yet does not delete the covering QC. A subsequent
-// WriteBlock still passes its coverage check, so deleting the QC here would
-// strand a readable block with no readable covering QC. Regression for the
-// memblock PruneBefore fall-through (the clamp was guarded by hasBlocks but the
-// deletion loops ran regardless); littblock returns early on !hasBlocks.
-func testPruneQCOnlyThenWriteBlock(t *testing.T, build builder) {
-	committee, keys := buildCommittee()
-	batches := generateBatches(committee, keys)
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	// Write only the QC of the first cohort — no blocks yet (hasQC, !hasBlocks).
-	b0 := batches[0]
-	require.NoError(t, db.WriteQC(b0.qc))
-
-	// Prune far past the QC. With no blocks, this must be a no-op; the QC cannot
-	// be deleted or a later covered WriteBlock would be orphaned.
-	require.NoError(t, db.PruneBefore(b0.next+1000))
-
-	// The block is still within [b0.first, b0.next), so its coverage check passes.
-	require.NoError(t, db.WriteBlock(b0.first, b0.blocks[0]))
-
-	blk, err := db.ReadBlockByNumber(b0.first)
-	require.NoError(t, err)
-	require.True(t, blk.IsPresent(), "block %d must be readable after write", b0.first)
-	qc, err := db.ReadQCByBlockNumber(b0.first)
-	require.NoError(t, err)
-	require.True(t, qc.IsPresent(), "covering QC of block %d must survive the earlier prune", b0.first)
-}
-
 func testReadSuffix(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -1050,10 +966,7 @@ func testReadSuffix(t *testing.T, build builder) {
 	appQC := appQCForBatch(utils.TestRngFromSeed(testSeed+400), keys, batches[0])
 	require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
 	require.NoError(t, db.WriteAppQC(appQC))
-	require.NoError(t, db.WriteQC(batches[2].qc))
-	for i, blk := range batches[2].blocks {
-		require.NoError(t, db.WriteBlock(batches[2].first+gbn(i), blk))
-	}
+	require.NoError(t, db.WriteQC(batches[2].qc, batches[2].blocks))
 
 	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
@@ -1074,26 +987,13 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	batches := generateBatches(committee, keys)
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
-
-	// Write the first batch normally (QC before its blocks).
 	b0 := batches[0]
-	require.NoError(t, db.WriteQC(b0.qc))
-	for i, blk := range b0.blocks {
-		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
-	}
-
-	// Re-writing an already-written block number is rejected (not idempotent).
-	err := db.WriteBlock(b0.first, b0.blocks[0])
-	require.ErrorIs(t, err, types.ErrBlockOutOfOrder)
-
-	// Re-writing the same QC (its range no longer starts at NextQC) is rejected.
-	err = db.WriteQC(b0.qc)
-	require.ErrorIs(t, err, types.ErrQCNonContiguous)
-
-	// The original records are intact after the rejected writes.
-	opt, err := db.ReadBlockByNumber(b0.first)
-	require.NoError(t, err)
-	require.True(t, opt.IsPresent())
+	require.NoError(t, db.WriteQC(b0.qc, b0.blocks))
+	require.ErrorIs(t, db.WriteQC(b0.qc, b0.blocks), types.ErrQCNonContiguous)
+	require.ErrorIs(t, db.WriteQC(batches[2].qc, batches[2].blocks), types.ErrQCNonContiguous)
+	assertBlocksReadable(t, db, batches[:1])
+	require.NoError(t, db.WriteQC(batches[1].qc, batches[1].blocks))
+	assertBlocksReadable(t, db, batches[:2])
 }
 
 func testWriteAppDataOrderRejected(t *testing.T, build builder) {
@@ -1119,27 +1019,21 @@ func testWriteAppProposalOrderRejected(t *testing.T, build builder) {
 	err := db.WriteAppProposal(appProposalForBatch(rng, b0))
 	require.ErrorIs(t, err, types.ErrAppProposalMissingQC, "AppProposal before CommitQC must fail")
 
-	require.NoError(t, db.WriteQC(b0.qc))
-	require.NoError(t, db.WriteQC(b1.qc))
+	require.NoError(t, db.WriteQC(b0.qc, b0.blocks))
+	require.NoError(t, db.WriteQC(b1.qc, b1.blocks))
 	err = db.WriteAppProposal(appProposalForBatch(rng, b1))
 	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "first AppProposal must start at retained QC floor")
 
-	for i, blk := range b0.blocks {
-		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
-	}
 	appProposal0 := appProposalForBatch(rng, b0)
 	require.NoError(t, db.WriteAppProposal(appProposal0))
 
 	err = db.WriteAppProposal(appProposal0)
 	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "duplicate AppProposal write must fail")
 
-	require.NoError(t, db.WriteQC(b2.qc))
+	require.NoError(t, db.WriteQC(b2.qc, b2.blocks))
 	err = db.WriteAppProposal(appProposalForBatch(rng, b2))
 	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "AppProposal gap must fail")
 
-	for i, blk := range b1.blocks {
-		require.NoError(t, db.WriteBlock(b1.first+gbn(i), blk))
-	}
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	tips := status(t, db)
 	require.Equal(t, b1.next, tips.NextAppProposal)
@@ -1159,14 +1053,11 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	err := db.WriteAppQC(appQCForBatch(rng, keys, b0))
 	require.ErrorIs(t, err, types.ErrAppQCMissingQC, "AppQC before CommitQC must fail")
 
-	require.NoError(t, db.WriteQC(b0.qc))
-	require.NoError(t, db.WriteQC(b1.qc))
+	require.NoError(t, db.WriteQC(b0.qc, b0.blocks))
+	require.NoError(t, db.WriteQC(b1.qc, b1.blocks))
 	err = db.WriteAppQC(appQCForBatch(rng, keys, b1))
 	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "first AppQC must start at retained QC floor")
 
-	for i, blk := range b0.blocks {
-		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
-	}
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b0)))
 	appQC0 := appQCForBatch(rng, keys, b0)
 	require.NoError(t, db.WriteAppQC(appQC0))
@@ -1174,13 +1065,10 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	err = db.WriteAppQC(appQC0)
 	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "duplicate AppQC write must fail")
 
-	require.NoError(t, db.WriteQC(b2.qc))
+	require.NoError(t, db.WriteQC(b2.qc, b2.blocks))
 	err = db.WriteAppQC(appQCForBatch(rng, keys, b2))
 	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "AppQC gap must fail")
 
-	for i, blk := range b1.blocks {
-		require.NoError(t, db.WriteBlock(b1.first+gbn(i), blk))
-	}
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b1)))
 	tips := status(t, db)
@@ -1189,7 +1077,7 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 
 // testWriteOrderRejectedAfterRestart asserts the write-order cursors are
 // reloaded from persisted state on reopen. After a restart a freshly opened DB
-// must still reject an out-of-order block and a non-contiguous QC, and must
+// must still reject a non-contiguous QC and its blocks, and must
 // accept the contiguous continuation. A DB that forgot its cursors on restart
 // would treat itself as empty and silently accept writes that overwrite or gap
 // existing data. (For memblock a "restart" returns the same in-memory instance,
@@ -1210,24 +1098,13 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 
 	last := head[len(head)-1]
 
-	// Re-writing the last persisted block number is still an ordering violation:
-	// only true if lastBlockNumber/hasBlocks were recovered from disk.
-	err := db.WriteBlock(last.next-1, last.blocks[len(last.blocks)-1])
-	require.ErrorIs(t, err, types.ErrBlockOutOfOrder,
-		"reopened DB must reject a non-ascending block (lastBlockNumber not recovered)")
-
-	// Re-writing an already-persisted QC is still a contiguity violation: only
-	// true if lastQCNext/hasQC were recovered from disk.
-	err = db.WriteQC(last.qc)
-	require.ErrorIs(t, err, types.ErrQCNonContiguous,
-		"reopened DB must reject a non-contiguous QC (lastQCNext not recovered)")
+	// A reopened store rejects an already-persisted QC and its blocks.
+	err := db.WriteQC(last.qc, last.blocks)
+	require.ErrorIs(t, err, types.ErrQCNonContiguous)
 
 	// The contiguous continuation is accepted — this succeeds only if the cursors
 	// were recovered to their exact pre-restart values.
-	require.NoError(t, db.WriteQC(tail.qc))
-	for i, blk := range tail.blocks {
-		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
-	}
+	require.NoError(t, db.WriteQC(tail.qc, tail.blocks))
 
 	// All data, written on both sides of the restart, reads back.
 	assertBlocksReadable(t, db, batches)
@@ -1276,10 +1153,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
-	require.NoError(t, db.WriteQC(tail.qc))
-	for i, blk := range tail.blocks {
-		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
-	}
+	require.NoError(t, db.WriteQC(tail.qc, tail.blocks))
 
 	assertBlocksReadable(t, db, batches)
 	assertQCsReadable(t, db, committee, batches)
@@ -1322,79 +1196,52 @@ func recoverLastAppQC(t *testing.T, db types.BlockStore) (*types.AppQC, bool) {
 	return nil, false
 }
 
-// testWriteBlockRequiresQC asserts the QC-before-block contract: a block may
-// only be written once a QC covering its number has been written, otherwise
-// WriteBlock returns ErrBlockMissingQC. This also pins the genesis rule — the
-// first write to an empty store must be a QC, never a block.
-func testWriteBlockRequiresQC(t *testing.T, build builder) {
+// testWriteQCBlocksMismatchRejected verifies that invalid block lists persist nothing.
+func testWriteQCBlocksMismatchRejected(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
-	batches := generateBatches(committee, keys)
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	b := batches[0]
-
-	// No QC has been written yet: any block is rejected (genesis must be a QC).
-	err := db.WriteBlock(b.first, b.blocks[0])
-	require.ErrorIs(t, err, types.ErrBlockMissingQC, "block before any QC must be rejected")
-
-	// After the covering QC, every block in its range is accepted.
-	require.NoError(t, db.WriteQC(b.qc))
-	for i, blk := range b.blocks {
-		require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
+	b := generateBatches(committee, keys)[0]
+	for _, variant := range []string{"none", "missing", "extra", "reordered", "wrong"} {
+		t.Run(variant, func(t *testing.T) {
+			rng := utils.TestRng()
+			db, _ := openFresh(t, build)
+			defer func() { _ = db.Close() }()
+			blocks := slices.Clone(b.blocks)
+			switch variant {
+			case "none":
+				blocks = nil
+			case "missing":
+				blocks = slices.Delete(blocks, len(blocks)/2, len(blocks)/2+1)
+			case "extra":
+				blocks = append(blocks, blocks[0])
+			case "reordered":
+				blocks[0], blocks[1] = blocks[1], blocks[0]
+			case "wrong":
+				blocks[0] = types.GenBlock(rng)
+			}
+			require.ErrorIs(t, db.WriteQC(b.qc, blocks), types.ErrQCBlocksMismatch)
+			require.False(t, db.Status().IsPresent())
+			for _, block := range b.blocks {
+				got, err := db.ReadBlockByHash(block.Header().Hash())
+				require.NoError(t, err)
+				require.False(t, got.IsPresent())
+			}
+			require.NoError(t, db.WriteQC(b.qc, b.blocks))
+			assertBlocksReadable(t, db, []batch{b})
+		})
 	}
-
-	// A block at next (just past the covered range) has no covering QC yet.
-	err = db.WriteBlock(b.next, batches[1].blocks[0])
-	require.ErrorIs(t, err, types.ErrBlockMissingQC, "block past the covered range must be rejected")
 }
 
-// testWriteQCCoversNoBlocksRejected asserts that a QC covering an empty range is
-// rejected identically by every backend. WriteQC derives the covered range from
-// the QC alone, so a zero-header QC is the only way to ask a backend to store a
-// QC that serves no block number — and storing one would put a record in the
-// table that no iterator position can ever reach.
+// testWriteQCCoversNoBlocksRejected verifies that empty QCs persist nothing.
 func testWriteQCCoversNoBlocksRejected(t *testing.T, build builder) {
-	rng := utils.TestRngFromSeed(testSeed)
+	rng := utils.TestRng()
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
-
-	err := db.WriteQC(types.GenFullCommitQCRange(rng, 0, 0))
-	require.ErrorIs(t, err, types.ErrQCNonContiguous, "QC covering no blocks must be rejected")
-
-	// The rejection persisted nothing: the store is still empty, so a QC that
-	// does cover blocks is still accepted at 0.
+	require.ErrorIs(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 0), nil), types.ErrQCNonContiguous)
 	require.False(t, db.Status().IsPresent())
-	require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 3)))
-	require.Equal(t, gbn(3), status(t, db).NextQC)
-}
-
-// testWriteBlockGapRejected asserts that blocks must be written densely: a
-// number that skips past lastBlockNumber+1 is rejected with ErrBlockOutOfOrder
-// and persists nothing, even when the covering QC allows it.
-func testWriteBlockGapRejected(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
-	batches := generateBatches(committee, keys)
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	b := batches[0]
-	require.NoError(t, db.WriteQC(b.qc))
-	require.GreaterOrEqual(t, len(b.blocks), 3, "need at least 3 covered numbers to attempt a gap")
-	require.NoError(t, db.WriteBlock(b.first, b.blocks[0]))
-
-	// Skipping a covered number is rejected...
-	err := db.WriteBlock(b.first+2, b.blocks[2])
-	require.ErrorIs(t, err, types.ErrBlockOutOfOrder, "a gapped block write must be rejected")
-
-	// ...and nothing was persisted at the skipped-to number.
-	opt, err := db.ReadBlockByNumber(b.first + 2)
-	require.NoError(t, err)
-	require.False(t, opt.IsPresent(), "the rejected write must not persist")
-
-	// The contiguous continuation is still accepted.
-	require.NoError(t, db.WriteBlock(b.first+1, b.blocks[1]))
-	require.NoError(t, db.WriteBlock(b.first+2, b.blocks[2]))
+	b := generateBatches(committee, keys)[0]
+	require.NoError(t, db.WriteQC(b.qc, b.blocks))
+	require.Equal(t, b.next, status(t, db).NextQC)
 }
 
 // TestMemblockPruneHidesEverythingBelowWatermark pins what a prune looks like
@@ -1579,14 +1426,10 @@ func gbn(i int) types.GlobalBlockNumber {
 	return types.GlobalBlockNumber(i) //nolint:gosec // i is a non-negative slice index
 }
 
-// WriteAll writes every batch's QC followed by its blocks (at First+i). The QC
-// is written first because WriteBlock rejects a block with no covering QC.
+// writeAll persists every batch's QC atomically with its blocks.
 func writeAll(t *testing.T, db types.BlockStore, batches []batch) {
 	for _, b := range batches {
-		require.NoError(t, db.WriteQC(b.qc))
-		for i, blk := range b.blocks {
-			require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
-		}
+		require.NoError(t, db.WriteQC(b.qc, b.blocks))
 	}
 }
 

@@ -31,7 +31,7 @@ func newGovEVMOnlyTestApp(t *testing.T, params gov.Params, startingProposalID ui
 		evmOnlyTestChainID,
 		nil,
 		storage,
-		evmonly.NewFlatKVChangeSetEncoder(storage.SC()),
+		evmonly.NewFlatKVChangeSetEncoder(),
 		gigaconfig.DefaultConfig.Execution,
 		utils.Some(registry),
 	)

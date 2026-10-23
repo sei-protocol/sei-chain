@@ -108,9 +108,6 @@ global-labels = []
 # Enable defines if the API server should be enabled.
 enable = true
 
-# Swagger defines if swagger documentation should automatically be registered.
-swagger = false
-
 # Address defines the API server to listen on.
 address = "tcp://0.0.0.0:1317"
 

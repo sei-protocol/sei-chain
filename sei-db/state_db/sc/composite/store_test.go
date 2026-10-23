@@ -2690,17 +2690,16 @@ func TestCompositeApplyUpgradesRefusesRemovingFlatKVStores(t *testing.T) {
 		{types.MemiavlOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
 		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
 		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
-		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, false},
-		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
-		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.MintStoreKey, RenameFrom: keys.StakingStoreKey}, true},
-		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: "tokenfactory", Delete: true}, true},
-		{types.AllMigratedButBank, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, RenameFrom: keys.BankStoreKey}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.MintStoreKey, RenameFrom: keys.StakingStoreKey}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: "tokenfactory", Delete: true}, true},
+		{types.MigrateCosmos, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, RenameFrom: keys.BankStoreKey}, true},
 		{types.EVMMigrated, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, RenameFrom: keys.StakingStoreKey}, true},
 		{types.MigrateEVM, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
 		{types.MigrateEVM, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
 		{types.TestOnlyDualWrite, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, false},
 		{types.TestOnlyDualWrite, &proto.TreeNameUpgrade{Name: keys.EVMStoreKey, Delete: true}, true},
-		{types.MigrateBank, &proto.TreeNameUpgrade{Name: keys.BankStoreKey, Delete: true}, true},
 		{types.FlatKVOnly, &proto.TreeNameUpgrade{Name: keys.StakingStoreKey, Delete: true}, true},
 	}
 	for _, tc := range cases {
@@ -2736,7 +2735,7 @@ func TestCompositeMayHoldStore(t *testing.T) {
 		{types.MemiavlOnly, "oracle", false},
 		{types.EVMMigrated, "oracle", false},
 		{types.EVMMigrated, keys.EVMStoreKey, true},
-		{types.AllMigratedButBank, "tokenfactory", true},
+		{types.MigrateCosmos, "tokenfactory", true},
 		{types.FlatKVOnly, "oracle", true},
 	}
 	for _, tc := range cases {

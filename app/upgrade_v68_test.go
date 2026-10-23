@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/app/retiredtokenfactory"
 	"github.com/sei-protocol/sei-chain/app/retiredvesting"
@@ -661,10 +662,10 @@ func TestV68DenomAllowListPruneIsBounded(t *testing.T) {
 	require.Equal(t, sdk.NewInt64Coin(kept, 40), a.BankKeeper.GetBalance(a.Ctx(), recipient, kept))
 }
 
-// TestV68PrunesTokenfactoryParams pins that every entry of the tokenfactory
-// parameter subspace is deleted from the params store and that nothing else in
-// the store changes. The subspace holds the parameter v6.7 keeps and a creation
-// fee an older tokenfactory version left behind.
+// TestV68PrunesTokenfactoryParams pins that v6.8 deletes every entry of the
+// tokenfactory parameter subspace, writes MigrateCosmosEnabled, and changes
+// nothing else in the params store. The subspace holds the parameter v6.7 keeps
+// and a creation fee an older tokenfactory version left behind.
 func TestV68PrunesTokenfactoryParams(t *testing.T) {
 	a := newV68Chain(t)
 	store := a.Ctx().KVStore(a.GetKey(paramstypes.StoreKey))
@@ -676,15 +677,33 @@ func TestV68PrunesTokenfactoryParams(t *testing.T) {
 		store.Set([]byte(key), []byte(value))
 	}
 	store.Set([]byte("tokenfactoryless"), []byte("unrelated"))
+	migrateCosmosEnabled := migration.SubspaceName + "/" + string(migration.KeyMigrateCosmosEnabled)
+	store.Delete([]byte(migrateCosmosEnabled))
 	kept := v68PrefixEntries(t, store, nil)
 	for key := range retired {
 		delete(kept, key)
 	}
+	kept[migrateCosmosEnabled] = []byte("true")
 
 	applyV68(t, a)
 
 	require.Equal(t, kept, v68PrefixEntries(t, store, nil),
-		"v6.8 changed the params store beyond deleting the tokenfactory subspace")
+		"v6.8 changed the params store beyond deleting the tokenfactory subspace and enabling MigrateCosmos")
+}
+
+// TestV68EnablesMigrateCosmos pins that the upgrade allows the SC store to
+// start MigrateCosmos once its EVM migration is complete.
+func TestV68EnablesMigrateCosmos(t *testing.T) {
+	a := newV68Chain(t)
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+	subspace.Set(a.Ctx(), migration.KeyMigrateCosmosEnabled, false)
+
+	applyV68(t, a)
+
+	var enabled bool
+	subspace.Get(a.Ctx(), migration.KeyMigrateCosmosEnabled, &enabled)
+	require.True(t, enabled, "v6.8 must enable MigrateCosmos")
 }
 
 // TestV68StoresTheWasmFlags pins that v6.8 stores the wasm

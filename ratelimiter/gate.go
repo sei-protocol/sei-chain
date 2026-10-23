@@ -45,16 +45,27 @@ func (g *Gate) ChargeAdmissionRejection(ctx context.Context, ip string) bool {
 // Parse errors still charge the bucket under MethodInvalid so malformed bodies
 // can't bypass rate limiting.
 func (g *Gate) CheckJSONRPC(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, err error) {
-	methods, _, parseErr := g.parser.Parse(body)
+	allowed, rejectMethod, _, err = g.CheckJSONRPCBatch(ctx, ip, body)
+	return allowed, rejectMethod, err
+}
+
+// CheckJSONRPCBatch applies per-IP rate limits like CheckJSONRPC and also
+// returns the number of requests in body when it is a valid JSON-RPC batch, or
+// 0 when it is a single request or fails to parse.
+func (g *Gate) CheckJSONRPCBatch(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, batchLen int, err error) {
+	methods, batch, parseErr := g.parser.Parse(body)
 	if parseErr != nil {
 		if !g.registry.Allow(ctx, ip, g.plane, MethodInvalid) {
-			return false, MethodInvalid, nil
+			return false, MethodInvalid, 0, nil
 		}
-		return false, "", parseErr
+		return false, "", 0, parseErr
 	}
 
-	if n := len(methods); n > 0 && !g.registry.AllowN(ctx, ip, g.plane, methods[0], n) {
-		return false, methods[0], nil
+	if batch {
+		batchLen = len(methods)
 	}
-	return true, "", nil
+	if n := len(methods); n > 0 && !g.registry.AllowN(ctx, ip, g.plane, methods[0], n) {
+		return false, methods[0], batchLen, nil
+	}
+	return true, "", batchLen, nil
 }

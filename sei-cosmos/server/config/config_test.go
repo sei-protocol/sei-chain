@@ -46,11 +46,6 @@ func TestOCCEnabled(t *testing.T) {
 	require.False(t, cfg.OccEnabled)
 }
 
-func TestDefaultSwaggerConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	require.True(t, cfg.API.Swagger)
-}
-
 func TestDefaultTelemetryConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.Telemetry.Enabled, "Telemetry should be enabled by default")
@@ -62,7 +57,6 @@ func TestDefaultAPIConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.False(t, cfg.API.Enable, "API should be disabled by default")
 	require.Equal(t, "tcp://0.0.0.0:1317", cfg.API.Address)
-	require.True(t, cfg.API.Swagger)
 	require.Equal(t, uint(1000), cfg.API.MaxOpenConnections)
 }
 
@@ -222,7 +216,6 @@ func TestGetConfig(t *testing.T) {
 	v.Set("telemetry.prometheus-retention-time", int64(7200))
 	v.Set("telemetry.global-labels", []interface{}{})
 	v.Set("api.enable", false)
-	v.Set("api.swagger", true)
 	v.Set("api.address", "tcp://0.0.0.0:1317")
 	v.Set("concurrency-workers", DefaultConcurrencyWorkers)
 	v.Set("occ-enabled", DefaultOccEnabled)

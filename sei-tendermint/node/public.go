@@ -227,7 +227,7 @@ func wrapApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,
 			manager,
-			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
+			evmonly.NewFlatKVChangeSetEncoder(),
 			execution,
 			customPrecompiles,
 		)
