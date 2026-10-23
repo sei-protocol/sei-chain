@@ -111,7 +111,9 @@ func TestWALReadsBothBlockFormats(t *testing.T) {
 		// Blocks stored in the changeset format hash to the zero hash.
 		var want [32]byte
 		if mutations, ok := written[hash.blockNumber]; ok {
-			want = computePlaceholderHash(serializeBlock(mutations))
+			tree, err := budTreeFromMutations(mutations)
+			require.NoError(t, err)
+			want = tree.BUDHash()
 		}
 		require.Equal(t, want, hash.hash, "block %d", hash.blockNumber)
 	}
