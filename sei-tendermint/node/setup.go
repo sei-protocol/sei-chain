@@ -292,7 +292,6 @@ func buildGigaRouter(
 	genDoc *types.GenesisDoc,
 	blockStore atypes.BlockStore,
 	hashVaultFsyncDisabled bool,
-	maxTxsPerLaneBlock uint64,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -331,9 +330,6 @@ func buildGigaRouter(
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		valCfg.HashVaultFsyncDisabledUnsafe = hashVaultFsyncDisabled
-		if maxTxsPerLaneBlock > 0 {
-			valCfg.Producer.MaxTxsPerBlock = maxTxsPerLaneBlock
-		}
 		valCfg.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
@@ -572,7 +568,6 @@ func createRouter(
 	dbProvider config.DBProvider,
 	storageManager utils.Option[*bootstrap.GigaStorageManager],
 	hashVaultFsyncDisabled bool,
-	maxTxsPerLaneBlock uint64,
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
@@ -639,7 +634,7 @@ func createRouter(
 		}
 		giga, err := buildGigaRouter(
 			cfg, nodeKey, validatorKey, proxyApp, genDoc,
-			manager.BlockStore(), hashVaultFsyncDisabled, maxTxsPerLaneBlock,
+			manager.BlockStore(), hashVaultFsyncDisabled,
 		)
 		if err != nil {
 			return nil, closer, noneDB, err
