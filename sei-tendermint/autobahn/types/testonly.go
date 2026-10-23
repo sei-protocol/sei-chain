@@ -473,8 +473,13 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 // Next), for tests that index a QC by its own range. littblock does not verify
 // signatures, so the QC need not be otherwise well-formed.
 func GenFullCommitQCRange(rng utils.Rng, first GlobalBlockNumber, next GlobalBlockNumber) *FullCommitQC {
-	qc := GenCommitQC(rng)
-	qc.vote.Msg().Proposal().globalRange = GlobalRange{First: first, Next: next}
+	var ranges []*LaneRange
+	if first < next {
+		last := NewBlock(GenLaneID(rng), BlockNumber(next-first-1), GenBlockHeaderHash(rng), GenPayload(rng)).Header()
+		ranges = append(ranges, NewLaneRange(last.Lane(), 0, utils.Some(last)))
+	}
+	proposal := newProposal(GenView(rng), utils.GenTimestamp(rng), ranges, first)
+	qc := NewCommitQC([]*Signed[*CommitVote]{GenSigned(rng, NewCommitVote(proposal))})
 	headers := utils.GenSliceN(rng, int(next-first), GenBlockHeader) //nolint:gosec // small test range
 	return NewFullCommitQC(qc, headers)
 }
