@@ -311,6 +311,7 @@ func makeNode(
 		dbProvider,
 		gigaStorageManager,
 		opts.giga.Storage.HashVaultFsyncDisabledUnsafe,
+		opts.giga.Execution.MaxTxsPerLaneBlock,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

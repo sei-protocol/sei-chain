@@ -81,6 +81,9 @@ type ExecutionConfig struct {
 	GCPercent int `mapstructure:"gc_percent"`
 	// LaneCapacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 	LaneCapacity int `mapstructure:"lane_capacity"`
+	// MaxTxsPerLaneBlock, when non-zero, replaces the autobahn config's max_txs_per_block for the
+	// lane blocks this validator produces. It stays capped by the protocol's per-block maximum.
+	MaxTxsPerLaneBlock uint64 `mapstructure:"max_txs_per_lane_block"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -168,6 +171,7 @@ const (
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
+	FlagExecutionMaxTxsPerLaneBlock      = "giga.execution.max_txs_per_lane_block"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -270,6 +274,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
 		if cfg.Execution.LaneCapacity, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionLaneCapacity, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxTxsPerLaneBlock); v != nil {
+		if cfg.Execution.MaxTxsPerLaneBlock, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxTxsPerLaneBlock, err)
 		}
 	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
@@ -465,6 +474,9 @@ gc_percent = {{ .Giga.Execution.GCPercent }}
 
 # lane_capacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 lane_capacity = {{ .Giga.Execution.LaneCapacity }}
+# max_txs_per_lane_block, when non-zero, replaces the autobahn config's max_txs_per_block for the
+# lane blocks this validator produces. It stays capped by the protocol's per-block maximum.
+max_txs_per_lane_block = {{ .Giga.Execution.MaxTxsPerLaneBlock }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
