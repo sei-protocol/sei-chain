@@ -13,4 +13,4 @@ The `.proto` files within this section are core to the protocol and updates must
   1a. Submission of an RFC as a pull request should be made to facilitate further discussion.
   1b. Merge the RFC.
 2. Make the necessary changes to the `.proto` file(s).
-3. Rebuild the Go protocol buffers by running `make proto-gen`. Ensure that the project builds correctly by running `make build`.
+3. Rebuild the Go protocol buffers by running `./scripts/protoc.sh` from the root of the repo. Ensure that the project builds correctly by running `make build`.

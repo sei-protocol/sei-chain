@@ -27,7 +27,7 @@ A detailed description of the ABCI methods and message types is contained in:
 To compile the protobuf file, run (from the root of the repo):
 
 ```sh
-make protoc_abci
+./scripts/protoc.sh
 ```
 
 See `protoc --help` and [the Protocol Buffers site](https://developers.google.com/protocol-buffers)
