@@ -19,11 +19,9 @@ func init() {
 		Global.laneCapacityWaitLatency,
 		Global.laneQcWaitLatency,
 		Global.inFlight,
-		Global.laneBlocksInFlight,
 		Global.laneQcs,
 		Global.laneVotesIngested,
 		Global.laneBlockLatency,
-		Global.proposalLatency,
 	)
 }
 
@@ -80,12 +78,6 @@ func newMetrics() *metrics {
 			Name:      "in_flight",
 			Help:      "Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.",
 		}, []string{"wait"}),
-		laneBlocksInFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "lane_blocks_in_flight",
-			Help:      "Lane blocks this node holds, by the consensus step they are waiting on.",
-		}, []string{"stage"}),
 		laneQcs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -104,13 +96,6 @@ func newMetrics() *metrics {
 			Name:      "lane_block_latency",
 			Help:      "Latency from a lane block's creation by its producer to the given stage on this node, once per block. It includes clock skew between the producer and this node.",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
-		}, []string{"stage"}),
-		proposalLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "proposal_latency",
-			Help:      "Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC. It includes clock skew between the leader and this node.",
-			Buckets:   prometheus.ExponentialBuckets(0.0005, 1.5, 30),
 		}, []string{"stage"}),
 	}
 }
@@ -147,10 +132,6 @@ func (m *metrics) inFlightAt(wait string) *tmprometheus.GaugeInt {
 	return m.inFlight.WithLabelValues(wait)
 }
 
-func (m *metrics) laneBlocksInFlightAt(stage string) *tmprometheus.GaugeInt {
-	return m.laneBlocksInFlight.WithLabelValues(stage)
-}
-
 func (m *metrics) laneQcsAt() *tmprometheus.CounterInt {
 	return m.laneQcs.WithLabelValues()
 }
@@ -161,8 +142,4 @@ func (m *metrics) laneVotesIngestedAt() *tmprometheus.CounterInt {
 
 func (m *metrics) laneBlockLatencyAt(stage string) *tmprometheus.Histogram {
 	return m.laneBlockLatency.WithLabelValues(stage)
-}
-
-func (m *metrics) proposalLatencyAt(stage string) *tmprometheus.Histogram {
-	return m.proposalLatency.WithLabelValues(stage)
 }

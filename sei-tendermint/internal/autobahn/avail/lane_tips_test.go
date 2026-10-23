@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-func TestLaneTipsTrackHeldCertifiedAndCommittedBlocks(t *testing.T) {
+func TestLaneTipsTrackHeldWithLaneQCAndCommittedBlocks(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -27,18 +27,18 @@ func TestLaneTipsTrackHeldCertifiedAndCommittedBlocks(t *testing.T) {
 		require.NoError(t, err)
 		headers = append(headers, p.Msg().Block().Header())
 	}
-	require.Equal(t, LaneTip{Committed: 0, Certified: 0, Held: 3}, state.LaneTips()[lane])
+	require.Equal(t, LaneTip{Committed: 0, WithLaneQC: 0, Held: 3}, state.LaneTips()[lane])
 
 	for _, h := range headers[:2] {
 		for _, vote := range makeLaneVotes(keys, h) {
 			require.NoError(t, state.PushVote(ctx, vote))
 		}
 	}
-	require.Equal(t, LaneTip{Committed: 0, Certified: 2, Held: 3}, state.LaneTips()[lane])
+	require.Equal(t, LaneTip{Committed: 0, WithLaneQC: 2, Held: 3}, state.LaneTips()[lane])
 
 	pruneToHeader(state, keys, headers[0])
 	tips := state.LaneTips()
-	require.Equal(t, LaneTip{Committed: 1, Certified: 2, Held: 3}, tips[lane])
+	require.Equal(t, LaneTip{Committed: 1, WithLaneQC: 2, Held: 3}, tips[lane])
 	for other, tip := range tips {
 		if other != lane {
 			require.Equal(t, LaneTip{}, tip)

@@ -84,9 +84,9 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	availmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -235,10 +235,10 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 			return nil
 		}
 		v := types.Sign(s.cfg.Key, types.NewPrepareVote(proposal.Proposal().Msg()))
-		availmetrics.ObservePrepareVote(proposal.Proposal().Msg())
 		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
+	meters.PrepareVoteLatency.Observe(time.Since(proposal.Proposal().Msg().Timestamp()).Seconds())
 	return nil
 }
 
@@ -262,11 +262,11 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 			return nil
 		}
 		i.PrepareQC = utils.Some(qc)
-		availmetrics.ObservePrepareQC(qc)
 		v := types.Sign(s.cfg.Key, types.NewCommitVote(qc.Proposal()))
 		i.CommitVote = utils.Some(v)
 		isend.Store(i)
 	}
+	meters.PrepareQCLatency.Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
 	return nil
 }
 

@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
-	availmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -31,7 +30,7 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	proposal := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(votes),
 	}).Proposal()
-	tips := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, Certified: 4, Held: 6}}
+	tips := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, WithLaneQC: 4, Held: 6}}
 
 	var prepareVotes []*types.Signed[*types.PrepareVote]
 	for _, k := range keys {
@@ -39,19 +38,19 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	}
 
 	noProposal := inner{}
-	require.Equal(t, availmetrics.LaneBlockStages{LaneQC: 2, Proposal: 4}, laneBlockStages(tips, noProposal))
+	require.Equal(t, laneBlockStages{laneQC: 2, proposal: 4}, noProposal.laneBlockStages(tips))
 
 	voted := inner{}
 	voted.PrepareVote = utils.Some(prepareVotes[0])
-	require.Equal(t, availmetrics.LaneBlockStages{LaneQC: 2, Proposal: 2, PrepareQC: 2}, laneBlockStages(tips, voted))
+	require.Equal(t, laneBlockStages{laneQC: 2, proposal: 2, prepareQC: 2}, voted.laneBlockStages(tips))
 
 	prepared := inner{}
 	prepared.PrepareVote = utils.Some(prepareVotes[0])
 	prepared.PrepareQC = utils.Some(types.NewPrepareQC(prepareVotes))
-	require.Equal(t, availmetrics.LaneBlockStages{LaneQC: 2, Proposal: 2, CommitQC: 2}, laneBlockStages(tips, prepared))
+	require.Equal(t, laneBlockStages{laneQC: 2, proposal: 2, commitQC: 2}, prepared.laneBlockStages(tips))
 }
 
-func TestLaneBlockStagesCountEachHeldBlockOnce(t *testing.T) {
+func TestLaneBlockStagesPartitionThePositionsPastTheCommittedTip(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep := registry.MustEpoch(0)
@@ -74,12 +73,12 @@ func TestLaneBlockStagesCountEachHeldBlockOnce(t *testing.T) {
 	voted := inner{}
 	voted.PrepareVote = utils.Some(types.Sign(keys[0], types.NewPrepareVote(commitQC.Proposal())))
 
-	// The proposal arrived before this node formed any LaneQC and while it holds only blocks 0..1.
-	early := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, Certified: 0, Held: 2}}
-	require.Equal(t, availmetrics.LaneBlockStages{PrepareQC: 2}, laneBlockStages(early, voted))
+	// The proposal arrived before this replica formed any LaneQC or received blocks 2..3, which still
+	// count once, in the proposal.
+	early := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, WithLaneQC: 0, Held: 2}}
+	require.Equal(t, laneBlockStages{prepareQC: 4}, voted.laneBlockStages(early))
 
-	// Consensus has committed blocks 0..3 while avail's persisted CommitQC still starts at 0.
-	committed := inner{spec: types.ConsensusSpec{CommitQC: utils.Some(commitQC), Epoch: ep}}
-	lagging := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, Certified: 5, Held: 6}}
-	require.Equal(t, availmetrics.LaneBlockStages{LaneQC: 1, Proposal: 1}, laneBlockStages(lagging, committed))
+	// Past the proposal, block 4 has a LaneQC and block 5 is only held.
+	ahead := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, WithLaneQC: 5, Held: 6}}
+	require.Equal(t, laneBlockStages{prepareQC: 4, proposal: 1, laneQC: 1}, voted.laneBlockStages(ahead))
 }

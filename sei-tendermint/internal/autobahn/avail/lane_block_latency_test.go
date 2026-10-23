@@ -47,11 +47,4 @@ func TestLaneBlockLatencyRecordsEachStepOncePerBlock(t *testing.T) {
 	}
 	require.Equal(t, votes+2, sampleCount(t, meters.LaneVoteReceive))
 	require.Equal(t, qcs+2, sampleCount(t, meters.LaneQCFormed))
-
-	proposed := sampleCount(t, meters.LaneBlockProposed)
-	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
-		lane: types.NewLaneQC(makeLaneVotes(keys, headers[1])),
-	})
-	state.ObserveProposal(qc.Proposal())
-	require.Equal(t, proposed+2, sampleCount(t, meters.LaneBlockProposed))
 }

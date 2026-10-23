@@ -488,9 +488,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			}
 		}
 		q.pushBack(p)
-		meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 		ctrl.Updated()
 	}
+	meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 	return nil
 }
 
@@ -506,6 +506,8 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
+	var createdAt time.Time
+	var observeVote, observeQC bool
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			q, ok := inner.votes[lane]
@@ -533,17 +535,20 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		}
 		firstVote := len(q.q[n].byKey) == 0
 		hadQC := q.q[n].qcCounted
-		if q.q[n].pushVote(applied, vote) {
-			if createdAt, ok := inner.blockCreatedAt(lane, n, h.Hash()).Get(); ok {
-				if firstVote {
-					meters.LaneVoteReceive.Observe(time.Since(createdAt).Seconds())
-				}
-				if !hadQC && q.q[n].qcCounted {
-					meters.LaneQCFormed.Observe(time.Since(createdAt).Seconds())
-				}
-			}
-			ctrl.Updated()
+		if !q.q[n].pushVote(applied, vote) {
+			return nil
 		}
+		ctrl.Updated()
+		at, known := inner.blockCreatedAt(lane, n, h.Hash()).Get()
+		createdAt = at
+		observeVote = known && firstVote
+		observeQC = known && !hadQC && q.q[n].qcCounted
+	}
+	if observeVote {
+		meters.LaneVoteReceive.Observe(time.Since(createdAt).Seconds())
+	}
+	if observeQC {
+		meters.LaneQCFormed.Observe(time.Since(createdAt).Seconds())
 	}
 	return nil
 }
@@ -691,9 +696,9 @@ func (s *State) WaitForLaneQCs(
 type LaneTip struct {
 	// Committed is the first block not finalized by the latest persisted CommitQC.
 	Committed types.BlockNumber
-	// Certified is one past the highest block with a LaneQC, and at least Committed.
-	Certified types.BlockNumber
-	// Held is one past the highest block this node holds, and at least Certified.
+	// WithLaneQC is one past the highest block with a LaneQC, and at least Committed.
+	WithLaneQC types.BlockNumber
+	// Held is one past the highest block this node holds, and at least WithLaneQC.
 	Held types.BlockNumber
 }
 
@@ -704,16 +709,16 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 		tips := map[types.LaneID]LaneTip{}
 		for lane := range inner.applied().Committee().Lanes().All() {
 			t := LaneTip{Committed: types.LaneRangeOpt(committed, lane).Next()}
-			t.Certified = t.Committed
+			t.WithLaneQC = t.Committed
 			if vq, ok := inner.votes[lane]; ok {
 				for n := vq.next; n > max(vq.first, t.Committed); n-- {
 					if vq.q[n-1].qc.IsPresent() {
-						t.Certified = n
+						t.WithLaneQC = n
 						break
 					}
 				}
 			}
-			t.Held = t.Certified
+			t.Held = t.WithLaneQC
 			if bq, ok := inner.blocks[lane]; ok {
 				t.Held = max(t.Held, bq.next)
 			}
@@ -722,23 +727,6 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 		return tips
 	}
 	panic("unreachable")
-}
-
-// ObserveProposal records, for each lane block p newly includes that this node holds, how long after
-// the block's creation p was built. Call it once for each proposal this node constructs.
-func (s *State) ObserveProposal(p *types.Proposal) {
-	for inner := range s.inner.Lock() {
-		for lane := range inner.applied().Committee().Lanes().All() {
-			r := p.LaneRange(lane)
-			q, ok := inner.blocks[lane]
-			if !ok {
-				continue
-			}
-			for n := max(r.First(), q.first); n < min(r.Next(), q.next); n++ {
-				meters.LaneBlockProposed.Observe(p.Timestamp().Sub(q.q[n].Msg().Block().Payload().CreatedAt()).Seconds())
-			}
-		}
-	}
 }
 
 // ProduceLocalBlock appends a new block to the producers lane.

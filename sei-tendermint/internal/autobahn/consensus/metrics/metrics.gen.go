@@ -16,6 +16,8 @@ func init() {
 		Global.commits,
 		Global.votesIngested,
 		Global.viewNumber,
+		Global.proposalLatency,
+		Global.laneBlocksInFlight,
 	)
 }
 
@@ -51,6 +53,19 @@ func newMetrics() *metrics {
 			Name:      "view_number",
 			Help:      "View number of the current consensus view.",
 		}, nil),
+		proposalLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "proposal_latency",
+			Help:      "Latency from a proposal's construction to this replica casting its PrepareVote, and to it observing the PrepareQC and the CommitQC. It includes clock skew between the leader and this replica.",
+			Buckets:   prometheus.ExponentialBuckets(0.0005, 1.5, 30),
+		}, []string{"stage"}),
+		laneBlocksInFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_blocks_in_flight",
+			Help:      "Lane block positions past the latest CommitQC, by the consensus step they wait on. Positions in the current proposal count whether or not this replica holds those blocks.",
+		}, []string{"stage"}),
 	}
 }
 
@@ -72,4 +87,12 @@ func (m *metrics) votesIngestedAt(l0_type string) *tmprometheus.CounterInt {
 
 func (m *metrics) viewNumberAt() *tmprometheus.GaugeInt {
 	return m.viewNumber.WithLabelValues()
+}
+
+func (m *metrics) proposalLatencyAt(stage string) *tmprometheus.Histogram {
+	return m.proposalLatency.WithLabelValues(stage)
+}
+
+func (m *metrics) laneBlocksInFlightAt(stage string) *tmprometheus.GaugeInt {
+	return m.laneBlocksInFlight.WithLabelValues(stage)
 }

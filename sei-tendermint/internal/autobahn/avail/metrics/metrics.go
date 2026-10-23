@@ -32,16 +32,12 @@ type metrics struct {
 	laneQcWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.001, 2, 22)"`
 	// Number of WaitForCapacity / WaitForLaneQCs calls currently blocked.
 	inFlight prometheus.GaugeIntVec `metrics_labels:"wait"`
-	// Lane blocks this node holds, by the consensus step they are waiting on.
-	laneBlocksInFlight prometheus.GaugeIntVec `metrics_labels:"stage"`
 	// LaneQCs formed by lane votes reaching quorum.
 	laneQcs prometheus.CounterIntVec
 	// Lane votes newly stored.
 	laneVotesIngested prometheus.CounterIntVec
 	// Latency from a lane block's creation by its producer to the given stage on this node, once per block. It includes clock skew between the producer and this node.
 	laneBlockLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
-	// Latency from a proposal's construction to this node casting its PrepareVote or observing its PrepareQC or CommitQC. It includes clock skew between the leader and this node.
-	proposalLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.0005, 1.5, 30)"`
 }
 
 type observed[T any] struct {
@@ -71,44 +67,15 @@ func ObserveCommitQC(qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
-		Global.proposalLatencyAt("commit_qc").Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
 		Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
 		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
 
-// ObservePrepareVote records how long after p's construction this node cast its PrepareVote for it.
-// Call it once per view.
-func ObservePrepareVote(p *types.Proposal) {
-	Global.proposalLatencyAt("prepare_vote").Observe(time.Since(p.Timestamp()).Seconds())
-}
-
-// ObservePrepareQC records how long after its proposal's construction a PrepareQC was observed.
-// Call it once per view.
-func ObservePrepareQC(qc *types.PrepareQC) {
-	Global.proposalLatencyAt("prepare_qc").Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
-}
-
 // ObserveProducedTxs counts txs included in a successfully produced local lane block.
 func ObserveProducedTxs(n int) {
 	Global.producedTxsAt().Add(int64(n))
-}
-
-// LaneBlockStages counts the lane blocks a node holds by the consensus step each is waiting on.
-type LaneBlockStages struct {
-	LaneQC    int64
-	Proposal  int64
-	PrepareQC int64
-	CommitQC  int64
-}
-
-// ObserveLaneBlockStages publishes s as lane_blocks_in_flight{stage}.
-func ObserveLaneBlockStages(s LaneBlockStages) {
-	Global.laneBlocksInFlightAt("lane_qc").Set(s.LaneQC)
-	Global.laneBlocksInFlightAt("proposal").Set(s.Proposal)
-	Global.laneBlocksInFlightAt("prepare_qc").Set(s.PrepareQC)
-	Global.laneBlocksInFlightAt("commit_qc").Set(s.CommitQC)
 }
 
 // Metrics are the avail instruments callers write directly.
@@ -122,11 +89,10 @@ type Metrics struct {
 	LaneQCs                 *prometheus.CounterInt
 	LaneVotesIngested       *prometheus.CounterInt
 	// Latency from a lane block's creation to: the block arriving from its producer, the first lane
-	// vote on it arriving, its LaneQC forming, and this node building a proposal that includes it.
-	LaneBlockReceive  *prometheus.Histogram
-	LaneVoteReceive   *prometheus.Histogram
-	LaneQCFormed      *prometheus.Histogram
-	LaneBlockProposed *prometheus.Histogram
+	// vote on it arriving, and its LaneQC forming.
+	LaneBlockReceive *prometheus.Histogram
+	LaneVoteReceive  *prometheus.Histogram
+	LaneQCFormed     *prometheus.Histogram
 }
 
 // Get returns the avail instruments.
@@ -143,6 +109,5 @@ func Get() *Metrics {
 		LaneBlockReceive:        Global.laneBlockLatencyAt("block_receive"),
 		LaneVoteReceive:         Global.laneBlockLatencyAt("vote_receive"),
 		LaneQCFormed:            Global.laneBlockLatencyAt("lane_qc"),
-		LaneBlockProposed:       Global.laneBlockLatencyAt("proposal"),
 	}
 }

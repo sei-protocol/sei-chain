@@ -319,7 +319,6 @@ func (s *State) runPropose(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForProposal(): %w", err)
 		}
-		s.avail.ObserveProposal(fullProposal.Proposal().Msg())
 		s.myProposal.Store(utils.Some(fullProposal))
 		return nil
 	})
@@ -381,7 +380,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("storeCommitQC", func() error {
 			return s.commitQC().Iter(ctx, func(ctx context.Context, qc utils.Option[*types.CommitQC]) error {
 				if qc, ok := qc.Get(); ok {
-					// s.metrics.ObserveCommitQC(qc)
+					meters.CommitQCLatency.Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
 					// We push the locally generated CommitQC into "avail" to act as a
 					// sequencer and to trigger data pruning.
 					return s.avail.PushCommitQC(ctx, qc)
