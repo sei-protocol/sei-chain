@@ -29,6 +29,16 @@ var (
 		)),
 	}
 
+	senderMetrics = struct {
+		resolved metric.Int64Counter
+	}{
+		resolved: must(occMeter.Int64Counter(
+			"giga_evmonly_senders_total",
+			metric.WithDescription("Transaction senders resolved before execution, by source (known, untrusted, recovered)"),
+			metric.WithUnit("{transaction}"),
+		)),
+	}
+
 	occMetrics = struct {
 		blocks     metric.Int64Counter
 		fallbacks  metric.Int64Counter

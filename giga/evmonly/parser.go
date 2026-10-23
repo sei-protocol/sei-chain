@@ -9,6 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -54,8 +56,17 @@ func decodeBlockTxs(ctx context.Context, txs [][]byte, workers int) ([]*ethtypes
 // resolveBlockSenders resolves the sender of every decoded transaction, spread across workers.
 func resolveBlockSenders(ctx context.Context, txs []*ethtypes.Transaction, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]PreparedTx, error) {
 	parsed := make([]PreparedTx, len(txs))
+	var known, untrusted atomic.Int64
 	err := forEachTx(ctx, len(txs), workers, func(i int) error {
-		sender, err := resolveSender(txs[i], signer, senderAt(senders, i))
+		supplied := senderAt(senders, i)
+		if _, ok := supplied.Get(); ok {
+			if signerAccepts(signer, txs[i]) {
+				known.Add(1)
+			} else {
+				untrusted.Add(1)
+			}
+		}
+		sender, err := resolveSender(txs[i], signer, supplied)
 		if err != nil {
 			return err
 		}
@@ -65,7 +76,15 @@ func resolveBlockSenders(ctx context.Context, txs []*ethtypes.Transaction, signe
 	if err != nil {
 		return nil, err
 	}
+	recordSenderSources(ctx, known.Load(), untrusted.Load(), int64(len(txs))-known.Load()-untrusted.Load())
 	return parsed, nil
+}
+
+// recordSenderSources counts a block's senders by how they were resolved.
+func recordSenderSources(ctx context.Context, known, untrusted, recovered int64) {
+	senderMetrics.resolved.Add(ctx, known, metric.WithAttributes(attribute.String("source", "known")))
+	senderMetrics.resolved.Add(ctx, untrusted, metric.WithAttributes(attribute.String("source", "untrusted")))
+	senderMetrics.resolved.Add(ctx, recovered, metric.WithAttributes(attribute.String("source", "recovered")))
 }
 
 // forEachTx calls fn for every index below n, with workers goroutines claiming parseClaim indexes
