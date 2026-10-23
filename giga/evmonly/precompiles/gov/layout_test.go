@@ -206,9 +206,10 @@ func TestStoreReadsCompilerWrites(t *testing.T) {
 	require.Equal(t, uint64(2), s.votingQueue().Len())
 	require.True(t, s.votingQueue().contains(5, 1_700_000_004))
 	require.True(t, s.votingQueue().contains(6, 1_700_000_004))
-	due, ok := s.votingQueue().due(1_700_000_004)
+	due, end, ok := s.votingQueue().due(1_700_000_004)
 	require.True(t, ok)
 	require.Equal(t, uint64(5), due)
+	require.Equal(t, uint64(1_700_000_004), end)
 	require.Equal(t, uint64(1), s.depositQueue().Len())
 	require.True(t, s.depositQueue().contains(3, 1_700_000_002))
 

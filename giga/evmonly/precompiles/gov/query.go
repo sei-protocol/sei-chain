@@ -152,6 +152,9 @@ func (p Precompile) tallyResultQuery(s store, method *abi.Method, args []interfa
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", errUnknownProposal, id)
 	}
+	if prop.status == StatusVotingPeriod {
+		prop.recordTally(liveTally(s.State, p.Electorate, s, id))
+	}
 	return method.Outputs.Pack(tallyResult(prop))
 }
 

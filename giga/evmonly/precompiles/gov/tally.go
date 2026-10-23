@@ -50,6 +50,9 @@ func countVotes(state precompiles.State, electorate Electorate, s store, id uint
 	t.counting = true
 	defer s.setTally(id, t)
 
+	deduct := func(validator common.Address, shares *big.Int) {
+		s.setTallyDeduction(id, validator, new(big.Int).Add(s.tallyDeduction(id, validator), shares))
+	}
 	voters := s.votersByProposal(id)
 	for n := voters.Len(); n > 0; n-- {
 		if !take(budget, 1) {
@@ -57,17 +60,7 @@ func countVotes(state precompiles.State, electorate Electorate, s store, id uint
 		}
 		member := voters.At(n - 1)
 		voter := solstorage.MemberAddress(member)
-		vote := s.vote(id, voter)
-		if electorate != nil {
-			for _, d := range electorate.Delegations(state, voter) {
-				v, ok := snap.byOperator[d.Validator]
-				if !ok {
-					continue
-				}
-				s.setTallyDeduction(id, v.Operator, new(big.Int).Add(s.tallyDeduction(id, v.Operator), d.Shares))
-				t.add(vote, votingPower(d.Shares, v))
-			}
-		}
+		creditVoter(state, electorate, s, id, voter, snap, &t, deduct)
 		if _, ok := snap.byOperator[voter]; !ok {
 			s.setVote(id, voter, nil)
 		}
@@ -82,9 +75,9 @@ func countVotes(state precompiles.State, electorate Electorate, s store, id uint
 // the outcome as x/gov's tally does.
 func finishTally(state precompiles.State, electorate Electorate, s store, id uint64, prop proposal, params Params, snap electorateSnapshot) tallyOutcome {
 	t := s.tally(id)
+	creditValidators(s, id, snap, &t, func(validator common.Address) *big.Int { return s.tallyDeduction(id, validator) })
 	for _, v := range snap.validators {
-		if vote := s.vote(id, v.Operator); len(vote) > 0 {
-			t.add(vote, votingPower(new(big.Int).Sub(v.DelegatorShares, s.tallyDeduction(id, v.Operator)), v))
+		if len(s.vote(id, v.Operator)) > 0 {
 			s.setVote(id, v.Operator, nil)
 		}
 		s.setTallyDeduction(id, v.Operator, new(big.Int))
@@ -124,6 +117,56 @@ func finishTally(state precompiles.State, electorate Electorate, s store, id uin
 	return out
 }
 
+// liveTally returns proposal id's tally as if its voting ended now, without
+// writing state, as x/gov's TallyResult query does for a proposal in voting.
+func liveTally(state precompiles.State, electorate Electorate, s store, id uint64) tallyOutcome {
+	snap := snapshotElectorate(state, electorate)
+	t := s.tally(id)
+	deductions := map[common.Address]*big.Int{}
+	deducted := func(validator common.Address) *big.Int {
+		if d, ok := deductions[validator]; ok {
+			return d
+		}
+		return s.tallyDeduction(id, validator)
+	}
+	voters := s.votersByProposal(id)
+	for i := range voters.Len() {
+		creditVoter(state, electorate, s, id, solstorage.MemberAddress(voters.At(i)), snap, &t, func(validator common.Address, shares *big.Int) {
+			deductions[validator] = new(big.Int).Add(deducted(validator), shares)
+		})
+	}
+	creditValidators(s, id, snap, &t, deducted)
+	return tallyOutcome{results: t.results}
+}
+
+// creditVoter adds voter's vote on proposal id to t through each of its
+// delegations to a bonded validator, passing deduct the shares it takes from
+// that validator's own vote.
+func creditVoter(state precompiles.State, electorate Electorate, s store, id uint64, voter common.Address, snap electorateSnapshot, t *tallyState, deduct func(common.Address, *big.Int)) {
+	if electorate == nil {
+		return
+	}
+	vote := s.vote(id, voter)
+	for _, d := range electorate.Delegations(state, voter) {
+		v, ok := snap.byOperator[d.Validator]
+		if !ok {
+			continue
+		}
+		deduct(v.Operator, d.Shares)
+		t.add(vote, votingPower(d.Shares, v))
+	}
+}
+
+// creditValidators adds each bonded validator's own vote on proposal id to t,
+// weighted by its delegator shares less deducted(validator).
+func creditValidators(s store, id uint64, snap electorateSnapshot, t *tallyState, deducted func(common.Address) *big.Int) {
+	for _, v := range snap.validators {
+		if vote := s.vote(id, v.Operator); len(vote) > 0 {
+			t.add(vote, votingPower(new(big.Int).Sub(v.DelegatorShares, deducted(v.Operator)), v))
+		}
+	}
+}
+
 // votingPower is shares of v's delegator shares, in 1e18-scaled tokens.
 func votingPower(shares *big.Int, v Validator) *big.Int {
 	return quoDec(new(big.Int).Mul(shares, v.BondedTokens), v.DelegatorShares)
@@ -136,6 +179,14 @@ func (t *tallyState) add(vote []weightedVote, power *big.Int) {
 		t.results[option.option].Add(t.results[option.option], weighted)
 	}
 	t.power.Add(t.power, power)
+}
+
+// recordTally sets p's tally to o's voting power in whole tokens.
+func (p *proposal) recordTally(o tallyOutcome) {
+	p.tallyYes = o.tokens(OptionYes)
+	p.tallyAbstain = o.tokens(OptionAbstain)
+	p.tallyNo = o.tokens(OptionNo)
+	p.tallyNoWithVeto = o.tokens(OptionNoWithVeto)
 }
 
 // tokens returns option's voting power, truncated to whole tokens.

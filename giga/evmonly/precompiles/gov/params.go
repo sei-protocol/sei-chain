@@ -25,7 +25,8 @@ func DefaultParams() Params {
 	}
 }
 
-// Validate checks p as x/gov checks its params.
+// Validate checks p as x/gov checks its params, and also requires both
+// minimum deposits to be positive, which x/gov does not.
 func (p Params) Validate() error {
 	if p.VotingPeriod == 0 || p.VotingPeriod > maxPeriod {
 		return fmt.Errorf("voting_period must be in 1..%d seconds", uint64(maxPeriod))
@@ -36,9 +37,11 @@ func (p Params) Validate() error {
 	if p.MaxDepositPeriod == 0 || p.MaxDepositPeriod > maxPeriod {
 		return fmt.Errorf("max_deposit_period must be in 1..%d seconds", uint64(maxPeriod))
 	}
+	// The depositor cap relies on a positive minimum: a zero one makes
+	// depositorShare zero, so 200 dust deposits could fill every slot.
 	for name, d := range map[string]*big.Int{"min_deposit": p.MinDeposit, "min_expedited_deposit": p.MinExpeditedDeposit} {
-		if d == nil || d.Sign() < 0 || new(big.Int).Mod(d, weiPerUsei).Sign() != 0 {
-			return fmt.Errorf("%s must be a non-negative whole number of usei, in wei", name)
+		if d == nil || d.Sign() <= 0 || new(big.Int).Mod(d, weiPerUsei).Sign() != 0 {
+			return fmt.Errorf("%s must be a positive whole number of usei, in wei", name)
 		}
 	}
 	if p.MinExpeditedDeposit.Cmp(p.MinDeposit) < 0 {

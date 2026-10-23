@@ -358,7 +358,7 @@ func TestProposalsQueryFiltersAndPages(t *testing.T) {
 
 func TestStartingProposalID(t *testing.T) {
 	h := newHarness(t)
-	SetStartingProposalID(h.state, 500)
+	require.NoError(t, SetStartingProposalID(h.state, 500))
 
 	first := h.submit(alice, textProposal, nil)
 	require.Equal(t, uint64(500), first)
@@ -377,12 +377,14 @@ func TestStartingProposalID(t *testing.T) {
 	require.Empty(t, values[1].([]byte))
 }
 
-func TestStartingProposalIDNeverReusesIDs(t *testing.T) {
+func TestStartingProposalIDIsFixedOnceProposalsExist(t *testing.T) {
 	h := newHarness(t)
 	h.submit(alice, textProposal, nil)
 	h.submit(alice, textProposal, nil)
-	SetStartingProposalID(h.state, 2)
+	require.ErrorIs(t, SetStartingProposalID(h.state, 5), errProposalsExist)
 	require.Equal(t, uint64(3), h.submit(alice, textProposal, nil))
+	_, err := h.call(alice, callOpts{}, ProposalMethod, uint64(1))
+	require.NoError(t, err, "earlier proposals stay visible")
 }
 
 func TestParamsQuery(t *testing.T) {
