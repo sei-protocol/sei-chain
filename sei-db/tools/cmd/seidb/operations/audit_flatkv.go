@@ -30,6 +30,9 @@ func AuditFlatKVCmd() *cobra.Command {
 	cmd.Flags().Float64("read-limit-mb", 0, "Cap on key and value bytes read, in MiB/s; 0 means no cap")
 	cmd.Flags().Uint32("hashers", defaults.Hashers, "Number of goroutines hashing rows")
 	cmd.Flags().Bool("no-color", false, "Print the report without ANSI colors")
+	cmd.Flags().Bool("keep-stale-audit-dirs", false,
+		"Leave the directories earlier audits left under <flatkv-dir> in place; otherwise they are removed, "+
+			"including that of an audit still running")
 	return cmd
 }
 
@@ -40,6 +43,7 @@ func executeAuditFlatKV(cmd *cobra.Command, args []string) error {
 	readLimitMiBps, _ := cmd.Flags().GetFloat64("read-limit-mb")
 	hashers, _ := cmd.Flags().GetUint32("hashers")
 	noColor, _ := cmd.Flags().GetBool("no-color")
+	keepStaleAuditDirs, _ := cmd.Flags().GetBool("keep-stale-audit-dirs")
 	if readLimitMiBps < 0 {
 		return errors.New("--read-limit-mb must be at least 0")
 	}
@@ -49,6 +53,9 @@ func executeAuditFlatKV(cmd *cobra.Command, args []string) error {
 	config.Version = version
 	config.ReadBytesPerSecond = uint64(readLimitMiBps * bytesPerMiB)
 	config.Hashers = hashers
+	config.KeepStaleAuditDirs = keepStaleAuditDirs
+	// Kept off stdout, which carries the report.
+	config.Log = cmd.ErrOrStderr()
 
 	// A cancelled audit still removes the directory it linked the snapshot into.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

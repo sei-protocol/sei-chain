@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"os"
@@ -292,6 +293,63 @@ func TestAuditSnapshotRejectsAMissingSnapshot(t *testing.T) {
 	_, err := AuditSnapshot(t.Context(), config)
 	require.ErrorIs(t, err, os.ErrNotExist)
 	requireNoAuditDirs(t, snapshot.root)
+}
+
+func TestAuditSnapshotRemovesStaleAuditDirs(t *testing.T) {
+	snapshot := newAuditTestSnapshot(t)
+	stale := plantStaleAuditDir(t, snapshot)
+	unrelated := filepath.Join(snapshot.root, "unrelated")
+	require.NoError(t, os.Mkdir(unrelated, 0o750))
+
+	report, err := AuditSnapshot(t.Context(), auditTestConfig(snapshot, 4))
+	require.NoError(t, err)
+	require.True(t, report.Passed())
+	require.NoDirExists(t, stale)
+	requireNoAuditDirs(t, snapshot.root)
+	require.DirExists(t, unrelated)
+	//nolint:gosec // small
+	require.DirExists(t, filepath.Join(snapshot.root, flatkv.SnapshotDirName(int64(snapshot.version))))
+
+	// Removing the stale links must leave the snapshot they pointed at intact.
+	again, err := AuditSnapshot(t.Context(), auditTestConfig(snapshot, 4))
+	require.NoError(t, err)
+	require.True(t, again.Passed())
+}
+
+func TestAuditSnapshotKeepsStaleAuditDirsWhenAsked(t *testing.T) {
+	snapshot := newAuditTestSnapshot(t)
+	stale := plantStaleAuditDir(t, snapshot)
+	config := auditTestConfig(snapshot, 4)
+	config.KeepStaleAuditDirs = true
+
+	report, err := AuditSnapshot(t.Context(), config)
+	require.NoError(t, err)
+	require.True(t, report.Passed())
+	require.DirExists(t, stale)
+}
+
+func TestAuditSnapshotLogsItsLinkDirectory(t *testing.T) {
+	snapshot := newAuditTestSnapshot(t)
+	var log bytes.Buffer
+	config := auditTestConfig(snapshot, 4)
+	config.Log = &log
+
+	_, err := AuditSnapshot(t.Context(), config)
+	require.NoError(t, err)
+	root, err := filepath.Abs(snapshot.root)
+	require.NoError(t, err)
+	require.Contains(t, log.String(), filepath.Join(root, snapshotAuditDirPrefix))
+}
+
+// plantStaleAuditDir leaves behind under the snapshot's root what an audit killed mid-scan leaves: its temporary
+// directory, holding a hard-linked copy of the snapshot. It returns the directory's path.
+func plantStaleAuditDir(t *testing.T, snapshot auditTestSnapshot) string {
+	t.Helper()
+	stale, err := os.MkdirTemp(snapshot.root, snapshotAuditDirPrefix+"*")
+	require.NoError(t, err)
+	version := int64(snapshot.version) //nolint:gosec // small
+	require.NoError(t, flatkv.HardLinkSnapshot(snapshot.root, version, filepath.Join(stale, snapshotAuditLinkName)))
+	return stale
 }
 
 // requireNoAuditDirs asserts that no audit left its temporary directory under root.

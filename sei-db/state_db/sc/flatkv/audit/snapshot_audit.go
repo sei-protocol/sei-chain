@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -93,9 +95,10 @@ type auditHasherResult struct {
 // AuditSnapshot recomputes the lattice hashes and stats of a FlatKV snapshot from a full scan of its rows, and
 // compares them against the per-module, per-database and store-wide values the snapshot's metadata records.
 //
-// The snapshot is hard-linked into a temporary directory under the root, which is removed before returning, and
-// its databases are opened read-only, so it is safe to audit a snapshot of a running node. A mismatch is reported
-// in the returned report, and an error means the audit could not be completed.
+// The snapshot is hard-linked into a temporary directory under the root and opened read-only, so it is safe to
+// audit a snapshot of a running node. The directory is removed before returning, and one left by an audit that
+// never returned is removed by the next audit unless KeepStaleAuditDirs is set. A mismatch is reported in the
+// returned report, and an error means the audit could not be completed.
 func AuditSnapshot(ctx context.Context, config *SnapshotAuditConfig) (_ *SnapshotAuditReport, retErr error) {
 	started := time.Now()
 	if err := config.Validate(); err != nil {
@@ -105,6 +108,12 @@ func AuditSnapshot(ctx context.Context, config *SnapshotAuditConfig) (_ *Snapsho
 	version, err := resolveAuditVersion(config)
 	if err != nil {
 		return nil, err
+	}
+
+	if !config.KeepStaleAuditDirs {
+		if err := removeStaleAuditDirs(config.Root); err != nil {
+			return nil, err
+		}
 	}
 
 	// The temporary directory must share a filesystem with the snapshot, or it cannot be hard-linked.
@@ -118,6 +127,9 @@ func AuditSnapshot(ctx context.Context, config *SnapshotAuditConfig) (_ *Snapsho
 			retErr = errors.Join(retErr, fmt.Errorf("remove the audit directory %q: %w", linkDir, err))
 		}
 	}()
+	if err := logAuditDir(config.Log, linkDir); err != nil {
+		return nil, err
+	}
 
 	snapshotDir := filepath.Join(linkDir, snapshotAuditLinkName)
 	//nolint:gosec // Validate() bounds the version, and a resolved one came from an int64
@@ -131,6 +143,40 @@ func AuditSnapshot(ctx context.Context, config *SnapshotAuditConfig) (_ *Snapsho
 	}
 	report.Elapsed = time.Since(started)
 	return report, nil
+}
+
+// removeStaleAuditDirs removes every temporary directory an audit left under root.
+func removeStaleAuditDirs(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("list %q for stale audit directories: %w", root, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), snapshotAuditDirPrefix) {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove the stale audit directory %q: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// logAuditDir tells whoever runs the audit where the snapshot is linked, and that the directory needs removing by
+// hand if the audit does not exit normally. It writes nothing when log is nil.
+func logAuditDir(log io.Writer, linkDir string) error {
+	if log == nil {
+		return nil
+	}
+	// An absolute path can be pasted into a cleanup command from any working directory.
+	dir, err := filepath.Abs(linkDir)
+	if err != nil {
+		return fmt.Errorf("resolve the audit directory %q: %w", linkDir, err)
+	}
+	_, _ = fmt.Fprintf(log, "Hard-linking the snapshot into %s. If this tool does not exit normally, "+
+		"that directory may need to be removed by hand.\n", dir)
+	return nil
 }
 
 // resolveAuditVersion returns the version of the snapshot the config selects.

@@ -2,6 +2,7 @@ package audit
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"runtime"
 )
@@ -23,6 +24,13 @@ type SnapshotAuditConfig struct {
 
 	// BatchSize is how many rows the reader hands a hasher at a time.
 	BatchSize uint32
+
+	// KeepStaleAuditDirs leaves in place the temporary directories earlier audits left under Root. When false,
+	// an audit removes them, including the directory of an audit still running against the same root.
+	KeepStaleAuditDirs bool
+
+	// Log receives the audit's notices for whoever runs it. Nil discards them.
+	Log io.Writer
 }
 
 // DefaultSnapshotAuditConfig returns the default audit configuration. Root has no default and must be set.
