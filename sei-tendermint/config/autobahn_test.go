@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -96,4 +99,52 @@ func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 	require.Equal(t, wantRetention, cfg.RetentionTime)
 	require.Equal(t, wantGCPeriod, cfg.Litt.GCPeriod)
 	require.True(t, cfg.Litt.Fsync)
+}
+
+func governedAutobahnFileConfig() AutobahnFileConfig {
+	fc := validAutobahnFileConfig()
+	second := fc.Validators[0]
+	fc.Validators[0].EVMVoter = utils.Some(common.HexToAddress("0x01"))
+	second.EVMVoter = utils.Some(common.HexToAddress("0x02"))
+	fc.Validators = append(fc.Validators, second)
+	fc.EVMGovernance = utils.Some(EVMGovernance{Params: gov.DefaultParams(), StartingProposalID: 7})
+	return fc
+}
+
+func TestAutobahnFileConfig_ValidateEVMGovernance(t *testing.T) {
+	valid := governedAutobahnFileConfig()
+	require.NoError(t, valid.Validate())
+	for name, edit := range map[string]func(*AutobahnFileConfig){
+		"voter without governance": func(fc *AutobahnFileConfig) { fc.EVMGovernance = utils.None[EVMGovernance]() },
+		"missing voter":            func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = utils.None[common.Address]() },
+		"zero voter":               func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = utils.Some(common.Address{}) },
+		"shared voter":             func(fc *AutobahnFileConfig) { fc.Validators[1].EVMVoter = fc.Validators[0].EVMVoter },
+		"invalid params": func(fc *AutobahnFileConfig) {
+			g, _ := fc.EVMGovernance.Get()
+			g.Params.VotingPeriod = 0
+			fc.EVMGovernance = utils.Some(g)
+		},
+	} {
+		fc := governedAutobahnFileConfig()
+		edit(&fc)
+		require.Error(t, fc.Validate(), name)
+	}
+}
+
+func TestAutobahnFileConfig_EVMGovernanceJSON(t *testing.T) {
+	plain, err := json.Marshal(validAutobahnFileConfig())
+	require.NoError(t, err)
+	require.NotContains(t, string(plain), "evm_governance")
+	require.NotContains(t, string(plain), "evm_voter")
+
+	want := governedAutobahnFileConfig()
+	encoded, err := json.Marshal(want)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"starting_proposal_id":7`)
+	require.Contains(t, string(encoded), `"voting_period":172800`)
+	var got AutobahnFileConfig
+	require.NoError(t, json.Unmarshal(encoded, &got))
+	require.NoError(t, got.Validate())
+	require.Equal(t, want.EVMGovernance, got.EVMGovernance)
+	require.Equal(t, want.Validators[1].EVMVoter, got.Validators[1].EVMVoter)
 }
