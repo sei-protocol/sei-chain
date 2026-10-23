@@ -13,6 +13,7 @@ progressively the deeper you go. Existing package guides include:
 
 - `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
+- `giga/evmonly/precompiles/AGENTS.md` — EVM-only custom precompiles: state access, determinism and gas rules
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
 - `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
 - `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
