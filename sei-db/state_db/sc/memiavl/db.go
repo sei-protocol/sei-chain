@@ -923,13 +923,10 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 	return updateCurrentSymlink(db.dir, snapshotDir)
 }
 
-// validateSnapshot loads the snapshot at path and verifies it holds the state
-// this DB would publish: its __metadata must record lastCommitInfo and the
-// DB's initial version, and every loaded store's version and root hash must
-// match lastCommitInfo. File sizes and record alignment are checked by the
-// load; interior nodes and key data are not otherwise verified. Failures that
-// prove the data is bad carry errCorruptedSnapshot; environmental failures do
-// not.
+// validateSnapshot loads the snapshot at path and verifies that its __metadata
+// record and its trees both hold the state this DB would publish. Interior
+// nodes and key data are not verified. Failures that prove the data is bad
+// carry errCorruptedSnapshot; environmental failures do not.
 func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr error) {
 	opts := db.opts
 	opts.SnapshotPrefetchThreshold = 0
@@ -954,11 +951,6 @@ func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr erro
 
 // validateSnapshotMetadata verifies that a snapshot's __metadata records
 // exactly lastCommitInfo and the DB's initial version.
-//
-// A DB reopened from the snapshot takes its commit info and initial version
-// from this record rather than recomputing them from the trees, so a record
-// that disagrees with the trees would surface as a wrong commit hash or a
-// misnumbered WAL replay after restart.
 func (db *DB) validateSnapshotMetadata(metadata *proto.MultiTreeMetadata) error {
 	if metadata.InitialVersion != int64(db.initialVersion.Load()) {
 		return fmt.Errorf("%w: snapshot metadata initial version %d does not match expected initial version %d",
