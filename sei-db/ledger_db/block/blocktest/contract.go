@@ -36,7 +36,6 @@ type Builder func(t *testing.T) Open
 // timing and granularity of the reclaim to the backend, so what a backend
 // actually drops, and when, is covered in that backend's own package.
 func RunContract(t *testing.T, build Builder) {
-	t.Run("StandaloneKinds", func(t *testing.T) { testStandaloneKinds(t, build) })
 	t.Run("AtomicQC", func(t *testing.T) { testAtomicQC(t, build) })
 	t.Run("EmptyStore", func(t *testing.T) { testEmptyStore(t, build) })
 	t.Run("RecordRoundTrip", func(t *testing.T) { testRecordRoundTrip(t, build) })
@@ -78,40 +77,26 @@ var allKinds = []blocktypes.RecordKind{
 	blocktypes.KindQCGroup,
 }
 
-func testStandaloneKinds(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { require.NoError(t, db.Close()) }()
-	for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock, blocktypes.KindQCGroup, blocktypes.RecordKind(255)} {
-		require.Error(t, db.PutRecord(kind, 3, 5, RecordValue(kind, 3)))
-	}
-	require.Empty(t, drain(t, db, false))
-	for _, kind := range allKinds {
-		_, present, err := db.GetRecord(kind, 3)
-		require.NoError(t, err)
-		require.False(t, present)
-	}
-	PutQC(t, db, 3, 5)
-	PutAppData(t, db, 3, 5)
-	require.Len(t, drain(t, db, false), 3)
-}
-
 func testAtomicQC(t *testing.T, build Builder) {
 	db, reopen := openFresh(t, build)
-	blocks := make([]blocktypes.BlockRecord, 3)
-	for i := range blocks {
-		n := uint64(i) + 3
-		blocks[i] = blocktypes.BlockRecord{Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)}
+	numbers := []blocktypes.BlockNumber{3, 5, 8}
+	blocks := make([]blocktypes.BlockRecord, len(numbers))
+	for i, n := range numbers {
+		blocks[i] = blocktypes.BlockRecord{Number: n, Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)}
 	}
-	qc := RecordValue(blocktypes.KindQC, 3)
-	require.Error(t, db.PutQC(3, qc, nil))
+	qc := blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, 3)}
+	require.Error(t, db.PutQC(qc))
 	require.Empty(t, drain(t, db, false))
-	require.NoError(t, db.PutQC(3, qc, blocks))
+	qc.Blocks = blocks
+	require.NoError(t, db.PutQC(qc))
 	later := make([]blocktypes.BlockRecord, len(blocks))
 	for i, block := range blocks {
-		later[i] = blocktypes.BlockRecord{Hash: BlockHash(6 + uint64(i)), Value: block.Value}
+		later[i] = blocktypes.BlockRecord{Number: 10 + blocktypes.BlockNumber(i), Hash: BlockHash(10 + blocktypes.BlockNumber(i)), Value: block.Value}
 	}
-	require.NoError(t, db.PutQC(6, qc, later))
-	want := []position{{blocktypes.KindQCGroup, 3}, {blocktypes.KindQCGroup, 6}}
+	laterQC := qc
+	laterQC.Blocks = later
+	require.NoError(t, db.PutQC(laterQC))
+	want := []position{{blocktypes.KindQCGroup, 3}, {blocktypes.KindQCGroup, 10}}
 	require.Equal(t, want, positions(drain(t, db, false)))
 	require.Equal(t, reversed(want), positions(drain(t, db, true)))
 	for _, newestFirst := range []bool{false, true} {
@@ -122,7 +107,7 @@ func testAtomicQC(t *testing.T, build Builder) {
 			require.Equal(t, group, entry.Value)
 			gotQC, gotBlocks, err := blocktypes.DecodeQCGroup(entry.Value)
 			require.NoError(t, err)
-			require.Equal(t, qc, gotQC)
+			require.Equal(t, qc.Data, gotQC)
 			require.Len(t, gotBlocks, len(blocks))
 			for i, block := range blocks {
 				require.Equal(t, block.Value, gotBlocks[i])
@@ -134,13 +119,13 @@ func testAtomicQC(t *testing.T, build Builder) {
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, before, drain(t, db, false))
 	// A floor inside a packed group retains the entire group.
-	db.SetPruneWatermark(4)
-	for i, block := range blocks {
-		n := uint64(i) + 3
+	db.SetPruneWatermark(7)
+	for _, block := range blocks {
+		n := block.Number
 		got, present, err := db.GetRecord(blocktypes.KindQC, n)
 		require.NoError(t, err)
 		require.True(t, present)
-		require.Equal(t, qc, got)
+		require.Equal(t, qc.Data, got)
 		got, present, err = db.GetRecord(blocktypes.KindBlock, n)
 		require.NoError(t, err)
 		require.True(t, present)
@@ -149,6 +134,25 @@ func testAtomicQC(t *testing.T, build Builder) {
 		require.NoError(t, err)
 		require.True(t, present)
 		require.Equal(t, block.Value, got)
+	}
+	for _, n := range []blocktypes.BlockNumber{4, 6, 7} {
+		for _, kind := range []blocktypes.RecordKind{blocktypes.KindBlock, blocktypes.KindQC} {
+			_, present, err := db.GetRecord(kind, n)
+			require.NoError(t, err)
+			require.False(t, present, "only explicit block numbers should be indexed")
+		}
+	}
+	// Reclaim the first group using its last explicit block number as the bound.
+	db.SetPruneWatermark(9)
+	for i, n := range numbers {
+		_, qcPresent, err := db.GetRecord(blocktypes.KindQC, n)
+		require.NoError(t, err)
+		_, blockPresent, err := db.GetRecord(blocktypes.KindBlock, n)
+		require.NoError(t, err)
+		require.Equal(t, qcPresent, blockPresent)
+		_, hashPresent, err := db.GetBlockByHash(blocks[i].Hash)
+		require.NoError(t, err)
+		require.Equal(t, blockPresent, hashPresent)
 	}
 }
 
@@ -167,36 +171,42 @@ func testEmptyStore(t *testing.T, build Builder) {
 
 	require.Empty(t, drain(t, db, false), "an empty store scans to nothing")
 
-	require.Equal(t, uint64(0), db.GetPruneWatermark(), "nothing is eligible for reclamation yet")
+	require.Equal(t, blocktypes.BlockNumber(0), db.GetPruneWatermark(), "nothing is eligible for reclamation yet")
 }
 
 func testRecordRoundTrip(t *testing.T, build Builder) {
-	db, _ := openFresh(t, build)
-	defer func() { _ = db.Close() }()
-
-	require.NoError(t, db.PutRecord(blocktypes.KindAppProposal, 3, 8, RecordValue(blocktypes.KindAppProposal, 3)))
-
-	want := RecordValue(blocktypes.KindAppProposal, 3)
-	for n := uint64(3); n < 8; n++ {
-		value, exists, err := db.GetRecord(blocktypes.KindAppProposal, n)
-		require.NoError(t, err)
-		require.True(t, exists, "the record must be addressable at covered number %d", n)
-		require.Equal(t, want, value, "every covered number resolves to the one stored value")
-	}
-	for _, n := range []uint64{2, 8} {
-		_, exists, err := db.GetRecord(blocktypes.KindAppProposal, n)
-		require.NoError(t, err)
-		require.False(t, exists, "%d is outside the stored range", n)
-	}
-
-	// Kinds partition the number space, so nothing else was filed at 3.
-	for _, kind := range allKinds {
-		if kind == blocktypes.KindAppProposal {
-			continue
-		}
-		_, exists, err := db.GetRecord(kind, 3)
-		require.NoError(t, err)
-		require.False(t, exists, "a %s and an app proposal at the same number are distinct records", kind)
+	for _, kind := range []blocktypes.RecordKind{blocktypes.KindAppProposal, blocktypes.KindAppQC} {
+		t.Run(kind.String(), func(t *testing.T) {
+			db, _ := openFresh(t, build)
+			defer func() { require.NoError(t, db.Close()) }()
+			data := RecordValue(kind, 3)
+			version := blocktypes.RecordVersion(7)
+			want := append([]byte{byte(version)}, data...)
+			if kind == blocktypes.KindAppQC {
+				require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{Version: version, Data: data, First: 3, Next: 8}))
+			} else {
+				require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{Version: version, Data: data, First: 3, Next: 8}))
+			}
+			for n := blocktypes.BlockNumber(3); n < 8; n++ {
+				value, exists, err := db.GetRecord(kind, n)
+				require.NoError(t, err)
+				require.True(t, exists, "the record must be addressable at covered number %d", n)
+				require.Equal(t, want, value, "every covered number resolves to the one stored value")
+			}
+			for _, n := range []blocktypes.BlockNumber{2, 8} {
+				_, exists, err := db.GetRecord(kind, n)
+				require.NoError(t, err)
+				require.False(t, exists, "%d is outside the stored range", n)
+			}
+			for _, other := range allKinds {
+				if other == kind {
+					continue
+				}
+				_, exists, err := db.GetRecord(other, 3)
+				require.NoError(t, err)
+				require.False(t, exists, "record kinds must have distinct lookup keys")
+			}
+		})
 	}
 }
 
@@ -206,7 +216,7 @@ func testBlockHashAlias(t *testing.T, build Builder) {
 
 	PutQC(t, db, 0, 3)
 
-	for n := uint64(0); n < 3; n++ {
+	for n := blocktypes.BlockNumber(0); n < 3; n++ {
 		want := RecordValue(blocktypes.KindBlock, n)
 
 		byNumber, exists, err := db.GetRecord(blocktypes.KindBlock, n)
@@ -265,7 +275,7 @@ func testScanIsASnapshot(t *testing.T, build Builder) {
 		if !ok {
 			break
 		}
-		require.Less(t, it.Number(), uint64(2), "the scan must not surface a record written after it opened")
+		require.Less(t, it.Number(), blocktypes.BlockNumber(2), "the scan must not surface a record written after it opened")
 		seen++
 	}
 	require.Equal(t, 1, seen, "the snapshot holds exactly the QC group present at Scan")
@@ -280,7 +290,7 @@ func testRestartPersistsRecords(t *testing.T, build Builder) {
 	defer func() { _ = db.Close() }()
 
 	require.Equal(t, before, drain(t, db, false), "a restart must not disturb the record log")
-	for n := uint64(0); n < 6; n++ {
+	for n := blocktypes.BlockNumber(0); n < 6; n++ {
 		_, exists, err := db.GetRecord(blocktypes.KindBlock, n)
 		require.NoError(t, err)
 		require.True(t, exists, "block %d must survive the restart", n)
@@ -298,18 +308,18 @@ func testWatermarkIsMonotonic(t *testing.T, build Builder) {
 	WriteCohorts(t, db, 4, 5)
 
 	db.SetPruneWatermark(10)
-	require.Equal(t, uint64(10), db.GetPruneWatermark(), "the floor moves where it is told")
+	require.Equal(t, blocktypes.BlockNumber(10), db.GetPruneWatermark(), "the floor moves where it is told")
 
 	db.SetPruneWatermark(3)
-	require.Equal(t, uint64(10), db.GetPruneWatermark(), "the floor must never move backwards")
+	require.Equal(t, blocktypes.BlockNumber(10), db.GetPruneWatermark(), "the floor must never move backwards")
 
 	db.SetPruneWatermark(10)
-	require.Equal(t, uint64(10), db.GetPruneWatermark(), "repeating a request changes nothing")
+	require.Equal(t, blocktypes.BlockNumber(10), db.GetPruneWatermark(), "repeating a request changes nothing")
 
 	// A floor above everything held is legal: the layer above is the one that caps
 	// the request, and refusing it here would hide that it stopped doing so.
 	db.SetPruneWatermark(1_000)
-	require.Equal(t, uint64(1_000), db.GetPruneWatermark())
+	require.Equal(t, blocktypes.BlockNumber(1_000), db.GetPruneWatermark())
 }
 
 // --- scanning ---
@@ -317,7 +327,7 @@ func testWatermarkIsMonotonic(t *testing.T, build Builder) {
 // position is a record's kind and the number it was filed under.
 type position struct {
 	Kind   blocktypes.RecordKind
-	Number uint64
+	Number blocktypes.BlockNumber
 }
 
 // entry is one record observed while draining a scan.
@@ -376,13 +386,13 @@ const valueSize = 64
 
 // BlockHash returns the hash the fixtures file the block at n under. A hash must
 // be unique per block, so it is derived from the number.
-func BlockHash(n uint64) []byte {
+func BlockHash(n blocktypes.BlockNumber) []byte {
 	return []byte(fmt.Sprintf("block-hash-%020d", n))
 }
 
 // RecordValue returns the bytes the fixtures store for kind at first. Values are
 // distinct per record, so a read can prove it found the one it asked for.
-func RecordValue(kind blocktypes.RecordKind, first uint64) []byte {
+func RecordValue(kind blocktypes.RecordKind, first blocktypes.BlockNumber) []byte {
 	value := []byte(fmt.Sprintf("%s@%d", kind, first))
 	if len(value) >= valueSize {
 		return value
@@ -391,31 +401,29 @@ func RecordValue(kind blocktypes.RecordKind, first uint64) []byte {
 }
 
 // PutQC stores a QC and block fixtures covering [first, next) atomically.
-func PutQC(t *testing.T, db blocktypes.BlockDB, first, next uint64) {
+func PutQC(t *testing.T, db blocktypes.BlockDB, first, next blocktypes.BlockNumber) {
 	t.Helper()
 	blocks := make([]blocktypes.BlockRecord, 0, next-first)
 	for n := first; n < next; n++ {
-		blocks = append(blocks, blocktypes.BlockRecord{Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)})
+		blocks = append(blocks, blocktypes.BlockRecord{Number: n, Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)})
 	}
-	require.NoError(t, db.PutQC(first, RecordValue(blocktypes.KindQC, first), blocks))
+	require.NoError(t, db.PutQC(blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
 }
 
 // PutAppData stores an AppProposal and an AppQC, each covering [first, next).
 // The pair is what moves the ceiling a prune is capped at.
-func PutAppData(t *testing.T, db blocktypes.BlockDB, first, next uint64) {
+func PutAppData(t *testing.T, db blocktypes.BlockDB, first, next blocktypes.BlockNumber) {
 	t.Helper()
-	require.NoError(t, db.PutRecord(
-		blocktypes.KindAppProposal, first, next, RecordValue(blocktypes.KindAppProposal, first)))
-	require.NoError(t, db.PutRecord(
-		blocktypes.KindAppQC, first, next, RecordValue(blocktypes.KindAppQC, first)))
+	require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindAppProposal, first), First: first, Next: next}))
+	require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindAppQC, first), First: first, Next: next}))
 }
 
 // WriteCohorts stores consecutive atomic QC groups starting at 0, without app data.
 func WriteCohorts(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64) {
 	t.Helper()
 	for i := range cohorts {
-		first := i * perCohort
-		PutQC(t, db, first, first+perCohort)
+		first := blocktypes.BlockNumber(i * perCohort)
+		PutQC(t, db, first, first+blocktypes.BlockNumber(perCohort))
 	}
 }
 
@@ -425,7 +433,7 @@ func WriteCohorts(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64
 func WriteAppData(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64) {
 	t.Helper()
 	for i := range cohorts {
-		first := i * perCohort
-		PutAppData(t, db, first, first+perCohort)
+		first := blocktypes.BlockNumber(i * perCohort)
+		PutAppData(t, db, first, first+blocktypes.BlockNumber(perCohort))
 	}
 }

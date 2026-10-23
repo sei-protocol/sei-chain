@@ -1,23 +1,21 @@
-package littblock
+package types
 
 import (
 	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
 func TestKeyRoundTrip(t *testing.T) {
-	cases := []uint64{
+	cases := []BlockNumber{
 		0,
 		1,
 		42,
 		255,
 		256,
 		1 << 32,
-		^uint64(0), // max uint64
+		^BlockNumber(0), // maximum block number
 	}
 	for _, n := range cases {
 		key := encodeKey(n)
@@ -29,7 +27,7 @@ func TestKeyRoundTrip(t *testing.T) {
 func TestKeyBigEndianOrdering(t *testing.T) {
 	// Lexicographic byte order must match numeric order so LittDB's
 	// insertion/range semantics line up with block numbers.
-	pairs := [][2]uint64{
+	pairs := [][2]BlockNumber{
 		{0, 1},
 		{1, 2},
 		{255, 256},
@@ -44,7 +42,7 @@ func TestKeyBigEndianOrdering(t *testing.T) {
 func TestPrefixedKeys(t *testing.T) {
 	// Block and QC number keys carry distinct kind prefixes, so the same number
 	// never collides across the two record kinds in the shared table.
-	const n uint64 = 42
+	const n BlockNumber = 42
 	bk := numberKey(kindBlock, n)
 	qk := numberKey(kindQC, n)
 	require.Len(t, bk, 9, "block key is 1 prefix byte + 8 number bytes")
@@ -60,20 +58,20 @@ func TestPrefixedKeys(t *testing.T) {
 	for i := range hash {
 		hash[i] = byte(i)
 	}
-	hk := blockHashKey(hash)
+	hk := BlockHashKey(hash)
 	require.Equal(t, kindBlockHash, keyKind(hk))
 	require.Len(t, hk, 1+len(hash))
-	require.Equal(t, hash, hk[1:])
+	require.Equal(t, hash, []byte(hk[1:]))
 }
 
 func TestKindPrefixRoundTrip(t *testing.T) {
 	// Only primary record kinds may be returned by a scan.
-	kinds := []blocktypes.RecordKind{
-		blocktypes.KindQCGroup,
-		blocktypes.KindAppProposal,
-		blocktypes.KindAppQC,
+	kinds := []RecordKind{
+		KindQCGroup,
+		KindAppProposal,
+		KindAppQC,
 	}
-	seen := make(map[byte]blocktypes.RecordKind, len(kinds))
+	seen := make(map[byte]RecordKind, len(kinds))
 	for _, kind := range kinds {
 		prefix, err := kindPrefix(kind)
 		require.NoError(t, err)

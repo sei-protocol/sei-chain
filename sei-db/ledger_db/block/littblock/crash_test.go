@@ -160,7 +160,7 @@ func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
 		require.Equal(t, blocktest.RecordValue(blocktypes.KindQC, it.Number()), qc)
 		require.Len(t, blocks, crashPerCohort)
 		for i, block := range blocks {
-			require.Equal(t, blocktest.RecordValue(blocktypes.KindBlock, it.Number()+uint64(i)), block)
+			require.Equal(t, blocktest.RecordValue(blocktypes.KindBlock, it.Number()+blocktypes.BlockNumber(i)), block)
 		}
 		count += len(blocks)
 	}
@@ -255,8 +255,8 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 
 			for range 2 {
 				db = openLitt(t, cfg)
-				for n := uint64(0); n < cohorts*crashPerCohort; n++ {
-					want := n < (cohorts-1)*crashPerCohort
+				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts*crashPerCohort); n++ {
+					want := n < blocktypes.BlockNumber((cohorts-1)*crashPerCohort)
 					for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
 						value, present, err := db.GetRecord(kind, n)
 						require.NoError(t, err)
@@ -284,13 +284,13 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 	t.Helper()
 	for cohort := range cohorts {
-		first := cohort * crashPerCohort
+		first := blocktypes.BlockNumber(cohort * crashPerCohort)
 		blocks := make([]blocktypes.BlockRecord, crashPerCohort)
 		for i := range blocks {
-			n := first + uint64(i)
-			blocks[i] = blocktypes.BlockRecord{Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue(blocktypes.KindBlock, n)}
+			n := first + blocktypes.BlockNumber(i)
+			blocks[i] = blocktypes.BlockRecord{Number: n, Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue(blocktypes.KindBlock, n)}
 		}
-		require.NoError(t, db.PutQC(first, blocktest.RecordValue(blocktypes.KindQC, first), blocks))
+		require.NoError(t, db.PutQC(blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: blocktest.RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
 	}
 }
 
@@ -307,7 +307,7 @@ func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
 	defer func() { require.NoError(t, db.Close()) }()
 	db.SetPruneWatermark(7)
 	require.NoError(t, littblock.ForceGC(db))
-	for n := uint64(0); n < 15; n++ {
+	for n := blocktypes.BlockNumber(0); n < 15; n++ {
 		want := n >= 5
 		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
 			_, present, err := db.GetRecord(kind, n)

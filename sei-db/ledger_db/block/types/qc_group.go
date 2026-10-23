@@ -6,27 +6,60 @@ import (
 	"math"
 )
 
-// EncodeQCGroup frames a QC and its blocks as a sequence of length-prefixed values.
-func EncodeQCGroup(qc []byte, blocks []BlockRecord) ([]byte, error) {
-	size := uint64(4) + uint64(len(qc)) + 4*uint64(len(blocks))
-	for _, block := range blocks {
+// ValueRange identifies a value's byte range within an encoded QC group.
+type ValueRange struct {
+	Offset uint32
+	Length uint32
+}
+
+// Encode returns an atomic QC and block record ready for insertion.
+func (qc QCRecord) Encode() (Record, error) {
+	if len(qc.Blocks) == 0 {
+		return Record{}, fmt.Errorf("QC group requires blocks")
+	}
+	size := uint64(1+4) + uint64(len(qc.Data)) + 4*uint64(len(qc.Blocks))
+	for _, block := range qc.Blocks {
+		if block.Number == math.MaxUint64 {
+			return Record{}, fmt.Errorf("block number %d has no exclusive upper bound", block.Number)
+		}
 		size += uint64(len(block.Value))
 	}
 	if size >= math.MaxUint32 {
-		return nil, fmt.Errorf("QC group exceeds value size limit: %d bytes", size)
+		return Record{}, fmt.Errorf("QC group exceeds value size limit: %d bytes", size)
 	}
-	value := make([]byte, 0, int(size))                           //nolint:gosec // size fits uint32
-	value = binary.BigEndian.AppendUint32(value, uint32(len(qc))) //nolint:gosec // length fits within size
-	value = append(value, qc...)
-	for _, block := range blocks {
-		value = binary.BigEndian.AppendUint32(value, uint32(len(block.Value))) //nolint:gosec // length fits within size
-		value = append(value, block.Value...)
+	record := Record{
+		Key:     numberKey(kindQCGroup, qc.Blocks[0].Number),
+		Value:   make([]byte, 0, int(size)), //nolint:gosec // size fits uint32
+		Aliases: make([]Alias, 0, 3*len(qc.Blocks)),
 	}
-	return value, nil
+	record.Value = append(record.Value, byte(qc.Version))
+	var qcRange ValueRange
+	record.Value, qcRange = appendGroupValue(record.Value, qc.Data)
+	for _, block := range qc.Blocks {
+		var location ValueRange
+		record.Value, location = appendGroupValue(record.Value, block.Value)
+		record.Aliases = append(record.Aliases,
+			Alias{Key: numberKey(kindQC, block.Number), ValueRange: qcRange},
+			Alias{Key: numberKey(kindBlock, block.Number), ValueRange: location},
+			Alias{Key: BlockHashKey(block.Hash), ValueRange: location})
+	}
+	return record, nil
 }
 
-// DecodeQCGroup returns the QC and block values from a length-prefixed sequence.
+// appendGroupValue appends a framed value and returns its byte range.
+func appendGroupValue(group, value []byte) ([]byte, ValueRange) {
+	length := uint32(len(value)) //nolint:gosec // QCRecord.Encode bounds the total size before encoding
+	group = binary.BigEndian.AppendUint32(group, length)
+	location := ValueRange{Offset: uint32(len(group)), Length: length} //nolint:gosec // offset fits within the validated group size
+	return append(group, value...), location
+}
+
+// DecodeQCGroup reads a versioned group containing length-prefixed QC and block values.
 func DecodeQCGroup(value []byte) ([]byte, [][]byte, error) {
+	value, err := ConsumeVersion(value)
+	if err != nil {
+		return nil, nil, err
+	}
 	var records [][]byte
 	for len(value) > 0 {
 		if len(value) < 4 {

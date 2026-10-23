@@ -1,8 +1,6 @@
 package memblock
 
 import (
-	"fmt"
-	"slices"
 	"sync"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -10,95 +8,75 @@ import (
 
 var _ blocktypes.BlockDB = (*blockDB)(nil)
 
-// recordKey addresses a stored value by the kind and number it is filed under.
-type recordKey struct {
-	kind   blocktypes.RecordKind
-	number uint64
-}
-
-// record is one primary entry in the write-order log. next is its exclusive
-// coverage bound; blocks contains the lookup entries owned by a QC group.
-type record struct {
-	kind   blocktypes.RecordKind
-	number uint64
-	next   uint64
-	value  []byte
-	blocks []blocktypes.BlockRecord // blocks owned by an atomic QC group
-}
-
-// blockDB is an in-memory blocktypes.BlockDB. Records are kept in maps for
+// blockDB is an in-memory blocktypes.BlockDB. Records are kept in a map for
 // lookup and in an append-only log for write-order scans. Raising the watermark
 // reclaims eagerly, so memory tracks what the store still serves.
 type blockDB struct {
 	mu sync.RWMutex
-
 	// log holds one entry per primary record, in the order it was written.
-	log []record
-	// values maps every number a record is addressable at — its primary and
-	// each covered-range alias — to the single shared value.
-	values map[recordKey][]byte
-	// blocksByHash aliases block records by header hash.
-	blocksByHash map[string][]byte
+	log []blocktypes.Record
+	// values maps primary and alias keys to their stored value bytes.
+	values map[string][]byte
 	// watermark is the reclamation floor.
-	watermark uint64
+	watermark blocktypes.BlockNumber
 }
 
 // NewBlockDB returns an in-memory blocktypes.BlockDB.
 func NewBlockDB() blocktypes.BlockDB {
-	return &blockDB{
-		values:       make(map[recordKey][]byte),
-		blocksByHash: make(map[string][]byte),
-	}
+	return &blockDB{values: make(map[string][]byte)}
 }
 
-func (s *blockDB) PutQC(first uint64, qc []byte, blocks []blocktypes.BlockRecord) error {
-	if len(blocks) == 0 || uint64(len(blocks)) > ^uint64(0)-first {
-		return fmt.Errorf("invalid QC block range starting at %d with %d blocks", first, len(blocks))
-	}
-	value, err := blocktypes.EncodeQCGroup(qc, blocks)
+func (s *blockDB) PutQC(qc blocktypes.QCRecord) error {
+	record, err := qc.Encode()
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.values[recordKey{kind: blocktypes.KindQCGroup, number: first}] = value
-	next := first + uint64(len(blocks))
-	for n := first; n < next; n++ {
-		s.values[recordKey{kind: blocktypes.KindQC, number: n}] = qc
-	}
-	s.log = append(s.log, record{kind: blocktypes.KindQCGroup, number: first, next: next, value: value, blocks: slices.Clone(blocks)})
-	for i, block := range blocks {
-		n := first + uint64(i)
-		s.values[recordKey{kind: blocktypes.KindBlock, number: n}] = block.Value
-		s.blocksByHash[string(block.Hash)] = block.Value
-	}
-	return nil
+	return s.putRecord(record)
 }
 
-func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
-	if err := kind.ValidateStandalone(); err != nil {
+func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
+	record, err := qc.Encode()
+	if err != nil {
 		return err
 	}
+	return s.putRecord(record)
+}
+
+func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
+	record, err := proposal.Encode()
+	if err != nil {
+		return err
+	}
+	return s.putRecord(record)
+}
+
+// putRecord inserts an encoded record and its aliases.
+func (s *blockDB) putRecord(record blocktypes.Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for n := first; n < next; n++ {
-		s.values[recordKey{kind: kind, number: n}] = value
+	s.values[string(record.Key)] = record.Value
+	for _, alias := range record.Aliases {
+		s.values[string(alias.Key)] = record.Value[alias.Offset : alias.Offset+alias.Length]
 	}
-	s.log = append(s.log, record{kind: kind, number: first, next: next, value: value})
+	s.log = append(s.log, record)
 	return nil
 }
 
-func (s *blockDB) GetRecord(kind blocktypes.RecordKind, n uint64) ([]byte, bool, error) {
+func (s *blockDB) GetRecord(kind blocktypes.RecordKind, n blocktypes.BlockNumber) ([]byte, bool, error) {
+	key, err := kind.Key(n)
+	if err != nil {
+		return nil, false, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	value, ok := s.values[recordKey{kind: kind, number: n}]
+	value, ok := s.values[string(key)]
 	return value, ok, nil
 }
 
 func (s *blockDB) GetBlockByHash(hash []byte) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	value, ok := s.blocksByHash[string(hash)]
+	value, ok := s.values[string(blocktypes.BlockHashKey(hash))]
 	return value, ok, nil
 }
 
@@ -111,15 +89,14 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 }
 
 // GetPruneWatermark returns the reclamation floor.
-func (s *blockDB) GetPruneWatermark() uint64 {
+func (s *blockDB) GetPruneWatermark() blocktypes.BlockNumber {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.watermark
 }
 
-// SetPruneWatermark raises the reclamation floor to n and immediately drops
-// every record that falls wholly below it.
-func (s *blockDB) SetPruneWatermark(n uint64) {
+// SetPruneWatermark raises the reclamation floor and eagerly reclaims eligible records.
+func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if n <= s.watermark {
@@ -129,47 +106,49 @@ func (s *blockDB) SetPruneWatermark(n uint64) {
 	s.reclaim()
 }
 
-// reclaim drops the records whose coverage ends at or below the watermark. A
-// record straddling it is kept whole, since its value is shared by every number
-// it covers. mu must be held.
+// reclaim drops records whose keys and aliases are all below the watermark.
+// mu must be held.
 func (s *blockDB) reclaim() {
-	// A fresh slice rather than a filter in place: iterators handed out by Scan
-	// hold a reslice of the current backing array as their snapshot.
-	kept := make([]record, 0, len(s.log))
-	for _, rec := range s.log {
-		if rec.next > s.watermark {
-			kept = append(kept, rec)
+	canReclaim := func(key blocktypes.Key) bool {
+		eligible, err := key.Reclaimable(s.watermark)
+		if err != nil {
+			panic(err)
+		} // Keys are produced by record Encode methods.
+		return eligible
+	}
+	// Existing iterators keep their snapshot of the old backing array.
+	kept := make([]blocktypes.Record, 0, len(s.log))
+	for _, record := range s.log {
+		eligible := canReclaim(record.Key)
+		if eligible {
+			for _, alias := range record.Aliases {
+				if !canReclaim(alias.Key) {
+					eligible = false
+					break
+				}
+			}
+		}
+		if !eligible {
+			kept = append(kept, record)
 			continue
 		}
-		kind := rec.kind
-		if kind == blocktypes.KindQCGroup {
-			delete(s.values, recordKey{kind: kind, number: rec.number})
-			kind = blocktypes.KindQC
-		}
-		for n := rec.number; n < rec.next; n++ {
-			delete(s.values, recordKey{kind: kind, number: n})
-		}
-		for i, block := range rec.blocks {
-			delete(s.values, recordKey{kind: blocktypes.KindBlock, number: rec.number + uint64(i)})
-			delete(s.blocksByHash, string(block.Hash))
+		delete(s.values, string(record.Key))
+		for _, alias := range record.Aliases {
+			delete(s.values, string(alias.Key))
 		}
 	}
 	s.log = kept
 }
 
 // Flush is a no-op: an in-memory store has no disk to make durable.
-func (s *blockDB) Flush() error {
-	return nil
-}
+func (s *blockDB) Flush() error { return nil }
 
 // Close is a no-op: an in-memory store holds no resources to release.
-func (s *blockDB) Close() error {
-	return nil
-}
+func (s *blockDB) Close() error { return nil }
 
 // recordIterator walks a snapshot of the write-order log.
 type recordIterator struct {
-	records     []record
+	records     []blocktypes.Record
 	newestFirst bool
 	// pos counts advances, starting at -1 before the first Next.
 	pos int
@@ -184,7 +163,7 @@ func (r *recordIterator) Next() (bool, error) {
 	return true, nil
 }
 
-func (r *recordIterator) current() record {
+func (r *recordIterator) current() blocktypes.Record {
 	if r.newestFirst {
 		return r.records[len(r.records)-1-r.pos]
 	}
@@ -192,18 +171,13 @@ func (r *recordIterator) current() record {
 }
 
 func (r *recordIterator) Kind() blocktypes.RecordKind {
-	return r.current().kind
+	kind, _ := r.current().Key.RecordKind()
+	return kind
 }
 
-func (r *recordIterator) Number() uint64 {
-	return r.current().number
-}
+func (r *recordIterator) Number() blocktypes.BlockNumber { return r.current().Key.Number() }
 
-func (r *recordIterator) Value() ([]byte, error) {
-	return r.current().value, nil
-}
+func (r *recordIterator) Value() ([]byte, error) { return r.current().Value, nil }
 
 // Close is a no-op: the iterator holds no resources.
-func (r *recordIterator) Close() error {
-	return nil
-}
+func (r *recordIterator) Close() error { return nil }

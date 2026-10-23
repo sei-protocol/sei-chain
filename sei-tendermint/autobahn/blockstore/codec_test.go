@@ -1,9 +1,13 @@
 package blockstore
 
 import (
+	"slices"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -15,7 +19,6 @@ func TestBlockRoundTrip(t *testing.T) {
 		n := types.GlobalBlockNumber(i)
 		blk := types.GenBlock(rng)
 		value := encodeBlock(n, blk)
-		require.Equal(t, blockSerializationVersion, value[0], "value must be version-prefixed")
 		gotN, decoded, err := decodeBlock(value)
 		require.NoError(t, err)
 		// The embedded block number must round-trip.
@@ -32,7 +35,6 @@ func TestQCRoundTrip(t *testing.T) {
 	for range 16 {
 		qc := types.GenFullCommitQC(rng)
 		value := encodeQC(qc)
-		require.Equal(t, qcSerializationVersion, value[0], "value must be version-prefixed")
 		decoded, err := decodeQC(value)
 		require.NoError(t, err)
 		// Re-encoding the decoded QC must reproduce the same bytes.
@@ -50,17 +52,61 @@ func TestDecodeRejectsGarbage(t *testing.T) {
 }
 
 func TestDecodeRejectsUnknownVersion(t *testing.T) {
-	rng := utils.TestRngFromSeed(3)
+	t.Run("QCGroup", func(t *testing.T) {
+		rng := utils.TestRng()
+		block := types.GenBlock(rng)
+		qc := types.GenFullCommitQCRange(rng, 1, 2)
+		qc = types.NewFullCommitQC(qc.QC(), []*types.BlockHeader{block.Header()})
+		db := memblock.NewBlockDB()
+		err := db.PutQC(blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: encodeQC(qc), Blocks: []blocktypes.BlockRecord{
+			{Number: 1, Hash: block.Header().Hash().Bytes(), Value: encodeBlock(1, block)},
+		}})
+		require.NoError(t, err)
+		value, present, err := db.GetRecord(blocktypes.KindQCGroup, 1)
+		require.NoError(t, err)
+		require.True(t, present)
+		decoded, err := decodeQCGroup(value)
+		require.NoError(t, err)
+		require.Equal(t, qc.QC().GlobalRange(), decoded.QC.QC().GlobalRange())
+		require.Len(t, decoded.Blocks, 1)
+		require.Equal(t, block.Header().Hash(), decoded.Blocks[0].Header().Hash())
 
-	// A block value whose version byte is not the current one must be rejected,
-	// even though the rest of the value is well-formed.
-	blockValue := encodeBlock(1, types.GenBlock(rng))
-	blockValue[0] = blockSerializationVersion + 1
-	_, _, blockErr := decodeBlock(blockValue)
-	require.Error(t, blockErr)
-
-	qcValue := encodeQC(types.GenFullCommitQC(rng))
-	qcValue[0] = qcSerializationVersion + 1
-	_, qcErr := decodeQC(qcValue)
-	require.Error(t, qcErr)
+		// The group version governs both the QC and its blocks.
+		value = slices.Clone(value)
+		value[0]++
+		_, err = decodeQCGroup(value)
+		require.Error(t, err)
+	})
+	t.Run("AppProposal", func(t *testing.T) {
+		rng := utils.TestRng()
+		db := memblock.NewBlockDB()
+		require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{
+			Version: blocktypes.CurrentRecordVersion, Data: encodeAppProposal(types.GenAppProposal(rng)), First: 1, Next: 2,
+		}))
+		value, present, err := db.GetRecord(blocktypes.KindAppProposal, 1)
+		require.NoError(t, err)
+		require.True(t, present)
+		_, err = decodeAppProposal(value)
+		require.NoError(t, err)
+		value = slices.Clone(value)
+		value[0]++
+		_, err = decodeAppProposal(value)
+		require.Error(t, err)
+	})
+	t.Run("AppQC", func(t *testing.T) {
+		rng := utils.TestRng()
+		db := memblock.NewBlockDB()
+		require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{
+			Version: blocktypes.CurrentRecordVersion, Data: encodeAppQC(types.GenAppQC(rng)), First: 1, Next: 2,
+		}))
+		value, present, err := db.GetRecord(blocktypes.KindAppQC, 1)
+		require.NoError(t, err)
+		require.True(t, present)
+		_, err = decodeAppQC(value)
+		require.NoError(t, err)
+		value = slices.Clone(value)
+		value[0]++
+		_, err = decodeAppQC(value)
+		require.Error(t, err)
+	})
 }

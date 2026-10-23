@@ -32,7 +32,7 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *littb
 // physicallyPresent reports whether a record is still on disk. Reads are not
 // gated on the watermark, so this distinguishes a record GC has reclaimed from
 // one that is merely below the floor.
-func physicallyPresent(t *testing.T, db blocktypes.BlockDB, kind blocktypes.RecordKind, n uint64) bool {
+func physicallyPresent(t *testing.T, db blocktypes.BlockDB, kind blocktypes.RecordKind, n blocktypes.BlockNumber) bool {
 	t.Helper()
 	_, exists, err := db.GetRecord(kind, n)
 	require.NoError(t, err)
@@ -55,8 +55,8 @@ func TestRecoveredWatermarkTracksOldestGroup(t *testing.T) {
 	require.NoError(t, db.Close())
 	db = openLitt(t, cfg)
 	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, uint64(5), db.GetPruneWatermark())
-	for n := uint64(0); n < 20; n++ {
+	require.Equal(t, blocktypes.BlockNumber(5), db.GetPruneWatermark())
+	for n := blocktypes.BlockNumber(0); n < 20; n++ {
 		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
 			require.Equal(t, n >= 5, physicallyPresent(t, db, kind, n))
 		}
@@ -90,11 +90,11 @@ func TestReclaimsAcrossRestart(t *testing.T) {
 	db2.SetPruneWatermark(15)
 	require.NoError(t, littblock.ForceGC(db2))
 
-	for n := uint64(0); n < 15; n++ {
+	for n := blocktypes.BlockNumber(0); n < 15; n++ {
 		require.False(t, physicallyPresent(t, db2, blocktypes.KindBlock, n), "block %d must be reclaimed", n)
 		require.False(t, physicallyPresent(t, db2, blocktypes.KindQC, n), "QC key %d must be reclaimed", n)
 	}
-	for n := uint64(15); n < 20; n++ {
+	for n := blocktypes.BlockNumber(15); n < 20; n++ {
 		require.True(t, physicallyPresent(t, db2, blocktypes.KindBlock, n), "block %d must survive the capped prune", n)
 	}
 	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 15), "covering QC[15,20) must survive the capped prune")
@@ -127,7 +127,7 @@ func TestPruneIntoCohortRetainsTheWholeCohort(t *testing.T) {
 	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 9), "cohort QC[5,10) alias must survive")
 
 	// Pinning the QC's segment retains the whole range it covers.
-	for n := uint64(5); n < 10; n++ {
+	for n := blocktypes.BlockNumber(5); n < 10; n++ {
 		require.True(t, physicallyPresent(t, db2, blocktypes.KindBlock, n),
 			"block %d in the cohort must be retained on disk", n)
 	}

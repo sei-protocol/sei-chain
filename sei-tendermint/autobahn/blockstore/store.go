@@ -55,7 +55,7 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 			return fmt.Errorf("block %d does not match QC header: %w", i, types.ErrQCBlocksMismatch)
 		}
 		n := gr.First + types.GlobalBlockNumber(i) //nolint:gosec // non-negative slice index
-		records[i] = blocktypes.BlockRecord{Hash: block.Header().Hash().Bytes(), Value: encodeBlock(n, block)}
+		records[i] = blocktypes.BlockRecord{Number: blocktypes.BlockNumber(n), Hash: block.Header().Hash().Bytes(), Value: encodeBlock(n, block)}
 	}
 
 	s.mu.Lock()
@@ -64,7 +64,9 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	if ok && status.NextQC != gr.First {
 		return fmt.Errorf("QC starts at %d, expected %d: %w", gr.First, status.NextQC, types.ErrQCNonContiguous)
 	}
-	if err := s.db.PutQC(uint64(gr.First), encodeQC(qc), records); err != nil {
+	if err := s.db.PutQC(blocktypes.QCRecord{
+		Version: blocktypes.CurrentRecordVersion, Data: encodeQC(qc), Blocks: records,
+	}); err != nil {
 		return fmt.Errorf("failed to put QC [%d,%d): %w", gr.First, gr.Next, err)
 	}
 	if !ok {
@@ -99,7 +101,10 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 		return fmt.Errorf("AppQC [%d,%d) is not covered by written AppProposals: %w", gr.First, gr.Next, types.ErrAppQCMissingQC)
 	}
 
-	if err := s.db.PutRecord(blocktypes.KindAppQC, uint64(gr.First), uint64(gr.Next), encodeAppQC(appQC)); err != nil {
+	if err := s.db.PutAppQC(blocktypes.AppQCRecord{
+		Version: blocktypes.CurrentRecordVersion, Data: encodeAppQC(appQC),
+		First: blocktypes.BlockNumber(gr.First), Next: blocktypes.BlockNumber(gr.Next),
+	}); err != nil {
 		return fmt.Errorf("failed to put AppQC [%d,%d): %w", gr.First, gr.Next, err)
 	}
 	status.NextAppQC = gr.Next
@@ -127,9 +132,10 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 		return fmt.Errorf("AppProposal [%d,%d) is not covered by written blocks: %w", gr.First, gr.Next, types.ErrAppProposalMissingQC)
 	}
 
-	if err := s.db.PutRecord(
-		blocktypes.KindAppProposal, uint64(gr.First), uint64(gr.Next), encodeAppProposal(appProposal),
-	); err != nil {
+	if err := s.db.PutAppProposal(blocktypes.AppProposalRecord{
+		Version: blocktypes.CurrentRecordVersion, Data: encodeAppProposal(appProposal),
+		First: blocktypes.BlockNumber(gr.First), Next: blocktypes.BlockNumber(gr.Next),
+	}); err != nil {
 		return fmt.Errorf("failed to put AppProposal [%d,%d): %w", gr.First, gr.Next, err)
 	}
 	status.NextAppProposal = gr.Next
@@ -161,7 +167,7 @@ func (s *Store) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 // setPruneWatermark raises the floor below which reads return ErrPruned to n, and
 // leaves it unchanged when it already sits at or above n.
 func (s *Store) setPruneWatermark(n types.GlobalBlockNumber) {
-	s.db.SetPruneWatermark(uint64(n))
+	s.db.SetPruneWatermark(blocktypes.BlockNumber(n))
 	Global.pruneWatermarkAt().Set(utils.Clamp[int64](s.db.GetPruneWatermark()))
 }
 
@@ -280,10 +286,10 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 
 func (s *Store) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
 	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.db.GetPruneWatermark() {
+	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.Block](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindBlock, uint64(n))
+	value, exists, err := s.db.GetRecord(blocktypes.KindBlock, blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.Block](), fmt.Errorf("failed to read block: %w", err)
 	}
@@ -311,7 +317,7 @@ func (s *Store) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.
 	}
 	// The number is not known until the block is resolved;
 	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.db.GetPruneWatermark() {
+	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[types.BlockWithNumber](), nil
 	}
 	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
@@ -321,10 +327,10 @@ func (s *Store) ReadQCByBlockNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
-	if uint64(n) < s.db.GetPruneWatermark() {
+	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindQC, uint64(n))
+	value, exists, err := s.db.GetRecord(blocktypes.KindQC, blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to read QC: %w", err)
 	}
@@ -341,10 +347,10 @@ func (s *Store) ReadQCByBlockNumber(
 func (s *Store) ReadAppProposalByBlockNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.AppProposal], error) {
-	if uint64(n) < s.db.GetPruneWatermark() {
+	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppProposal](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindAppProposal, uint64(n))
+	value, exists, err := s.db.GetRecord(blocktypes.KindAppProposal, blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.AppProposal](), fmt.Errorf("failed to read AppProposal: %w", err)
 	}
@@ -361,10 +367,10 @@ func (s *Store) ReadAppProposalByBlockNumber(
 func (s *Store) ReadAppQCByBlockNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.AppQC], error) {
-	if uint64(n) < s.db.GetPruneWatermark() {
+	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppQC](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindAppQC, uint64(n))
+	value, exists, err := s.db.GetRecord(blocktypes.KindAppQC, blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.AppQC](), fmt.Errorf("failed to read AppQC: %w", err)
 	}
