@@ -203,7 +203,7 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		7: {MaxCount: 1},
 		8: {MaxCount: 1},
-		6: {MaxCount: 50000, MaxTotalSize: 10485760},
+		6: {MaxCount: 10000, MaxTotalSize: 5242880},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Block.
