@@ -416,3 +416,112 @@ func TestValidateSnapshotComparesCommitInfo(t *testing.T) {
 	err = db.validateSnapshot(context.Background(), freshTarget)
 	require.ErrorContains(t, err, "root hash does not match")
 }
+
+// rewriteSnapshotMetadata applies mutate to the __metadata record of the
+// snapshot at dir.
+func rewriteSnapshotMetadata(t *testing.T, dir string, mutate func(*proto.MultiTreeMetadata)) {
+	t.Helper()
+	metadata, err := readMetadata(dir)
+	require.NoError(t, err)
+	mutate(metadata)
+	bz, err := metadata.Marshal()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, MetadataFileName), bz, 0o600))
+}
+
+func TestValidateSnapshotRejectsMetadataStoreHashMismatch(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	target := filepath.Join(dir, snapshotName(db.Version()))
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.CommitInfo.StoreInfos[0].CommitId.Hash = []byte("not the real root hash")
+	})
+
+	err := db.validateSnapshot(context.Background(), target)
+
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, `snapshot metadata store "test" root hash does not match`)
+}
+
+func TestValidateSnapshotRejectsMetadataStoreVersionMismatch(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	target := filepath.Join(dir, snapshotName(db.Version()))
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.CommitInfo.StoreInfos[0].CommitId.Version++
+	})
+
+	err := db.validateSnapshot(context.Background(), target)
+
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, `snapshot metadata store "test" version`)
+}
+
+func TestValidateSnapshotRejectsMetadataStoreListMismatch(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	target := filepath.Join(dir, snapshotName(db.Version()))
+
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.CommitInfo.StoreInfos[0].Name = "other"
+	})
+	err := db.validateSnapshot(context.Background(), target)
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, `records store "other"`)
+
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.CommitInfo.StoreInfos = nil
+	})
+	err = db.validateSnapshot(context.Background(), target)
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, "snapshot metadata records 0 stores, expected 1")
+}
+
+func TestValidateSnapshotRejectsMetadataInitialVersionMismatch(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	target := filepath.Join(dir, snapshotName(db.Version()))
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.InitialVersion += 5
+	})
+
+	err := db.validateSnapshot(context.Background(), target)
+
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, "initial version")
+}
+
+// TestValidateSnapshotRejectsTreeRootHashMismatch pins the tree comparison on
+// its own: the metadata agrees with lastCommitInfo, so only the loaded tree's
+// root hash can catch the mismatch.
+func TestValidateSnapshotRejectsTreeRootHashMismatch(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	target := filepath.Join(dir, snapshotName(db.Version()))
+	db.lastCommitInfo.StoreInfos[0].CommitId.Hash = []byte("not the real root hash")
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.CommitInfo.StoreInfos[0].CommitId.Hash = []byte("not the real root hash")
+	})
+
+	err := db.validateSnapshot(context.Background(), target)
+
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, `snapshot store "test" root hash does not match`)
+}
+
+func TestRewriteSnapshotReplacesSnapshotWithMismatchedMetadata(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	snapshotDir := snapshotName(db.Version())
+	target := filepath.Join(dir, snapshotDir)
+	rewriteSnapshotMetadata(t, target, func(m *proto.MultiTreeMetadata) {
+		m.CommitInfo.StoreInfos[0].CommitId.Hash = []byte("not the real root hash")
+	})
+
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+
+	require.NoError(t, db.validateSnapshot(context.Background(), target))
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, current)
+}
