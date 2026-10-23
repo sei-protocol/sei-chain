@@ -48,3 +48,35 @@ func TestLaneBlockLatencyRecordsEachStepOncePerBlock(t *testing.T) {
 	require.Equal(t, votes+2, sampleCount(t, meters.LaneVoteReceive))
 	require.Equal(t, qcs+2, sampleCount(t, meters.LaneQCFormed))
 }
+
+// A block whose votes arrive before it is still timed, once, when the block arrives.
+func TestLaneBlockLatencyTimesVotesThatArriveBeforeTheBlock(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[1].Public()).OrPanic("lane")
+	block := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+	votesOf := func() *blockVotes {
+		for inner := range state.inner.Lock() {
+			return inner.votes[lane].q[0]
+		}
+		panic("unreachable")
+	}
+
+	for _, vote := range makeLaneVotes(keys, block.Header()) {
+		require.NoError(t, state.PushVote(ctx, vote))
+	}
+	bv := votesOf()
+	require.True(t, bv.firstVoteAt.IsPresent() && bv.qcAt.IsPresent())
+	require.False(t, bv.voteTimed || bv.qcTimed, "no creation time to observe against before the block arrives")
+
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[1], types.NewLaneProposal(block))))
+	require.True(t, bv.voteTimed && bv.qcTimed, "the block's arrival observes both")
+	vote, qc := bv.untimed()
+	require.False(t, vote.IsPresent() || qc.IsPresent(), "each latency is observed once")
+}
