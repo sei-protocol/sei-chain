@@ -3,7 +3,6 @@ package node
 import (
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 )
 
@@ -13,7 +12,6 @@ import (
 type AutobahnLayout struct {
 	PersistentStateDir string
 	FlatKVDir          string
-	EpochRegistryFiles []string
 	RestoreMarkerFile  string
 }
 
@@ -31,7 +29,6 @@ func ResolveAutobahnLayout(conf *config.Config) (AutobahnLayout, error) {
 	return AutobahnLayout{
 		PersistentStateDir: psd,
 		FlatKVDir:          dbutils.GetFlatKVPath(psd),
-		EpochRegistryFiles: epoch.SnapshotFiles(psd),
 		RestoreMarkerFile:  p2p.RestoreMarkerFile(psd),
 	}, nil
 }

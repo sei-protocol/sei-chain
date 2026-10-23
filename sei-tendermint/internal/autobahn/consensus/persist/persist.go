@@ -136,7 +136,8 @@ func NewPersister[T protoutils.Message](dir utils.Option[string], prefix string)
 	// Ensure both A/B files exist and are writable so Persist never creates new
 	// directory entries. Empty files are treated as non-existent by loadFile,
 	// so they won't interfere with loading on restart.
-	for _, path := range FilePaths(d, prefix) {
+	for _, suffix := range []string{suffixA, suffixB} {
+		path := filepath.Join(d, prefix+suffix)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // path is stateDir + hardcoded suffix; not user-controlled
 		if err != nil {
 			return nil, none, fmt.Errorf("state file %q is not writable: %w", path, err)
@@ -166,11 +167,6 @@ func NewPersister[T protoutils.Message](dir utils.Option[string], prefix string)
 		prefix: prefix,
 		seq:    ds.seq,
 	}, loaded, nil
-}
-
-// FilePaths returns the paths of the two A/B files that a persister with prefix keeps in dir.
-func FilePaths(dir, prefix string) []string {
-	return []string{filepath.Join(dir, prefix+suffixA), filepath.Join(dir, prefix+suffixB)}
 }
 
 // Persist writes a proto message to persistent storage. Not safe for concurrent use.
