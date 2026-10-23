@@ -366,10 +366,16 @@ func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
 		require.Equal(t, gr.Next, state.NextAppProposal())
 		for n := state.Registry().FirstBlock(); n <= last; n++ {
 			sum := testAppHashData(n).AppHash()
-			got, ok, err := vault.CommittedHash(ctx, uint64(n))
-			require.NoError(t, err)
-			require.True(t, ok, "block %d", n)
-			require.Equal(t, sum[:], got, "block %d", n)
+			// A conflicting write fails only when backfill already recorded sum.
+			// Writing sum first would succeed on an empty height and hide a missed record.
+			other := sum
+			other[0] ^= 0xff
+			if err := vault.CommitToHash(ctx, uint64(n), other[:]); !errors.Is(err, hashvault.ErrHashMismatch) {
+				return fmt.Errorf("block %d: CommitToHash(other) = %v, want ErrHashMismatch", n, err)
+			}
+			if err := vault.CommitToHash(ctx, uint64(n), sum[:]); err != nil {
+				return fmt.Errorf("block %d: CommitToHash(recorded hash): %w", n, err)
+			}
 		}
 		return nil
 	}))
