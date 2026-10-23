@@ -82,12 +82,7 @@ func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
 func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
-		gr := qc.QC().GlobalRange()
-		utils.OrPanic(store.WriteQC(qc))
-		for j, n := 0, gr.First; n < gr.Next; n++ {
-			utils.OrPanic(store.WriteBlock(n, blockss[i][j]))
-			j++
-		}
+		utils.OrPanic(store.WriteQC(qc, blockss[i]))
 	}
 	utils.OrPanic(store.Flush())
 }
@@ -835,6 +830,48 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 		require.NoError(t, err, "block %d", n)
 		require.NotNil(t, got)
 	}
+}
+
+// TestRunPersistWaitsForCompleteQC verifies that a pending QC's partial blocks
+// stay out of storage until its final block arrives.
+func TestRunPersistWaitsForCompleteQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
+	store := newTestBlockStore(t, t.TempDir())
+	state := newTestState(t, &Config{Registry: registry}, store)
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state.PushQC(ctx, qc2, blocks2[:len(blocks2)-1]))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		for inner, ctrl := range state.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc1.QC().GlobalRange().Next }); err != nil {
+				return err
+			}
+		}
+		if got := store.Status().OrPanic("persisted QC"); got.NextQC != qc1.QC().GlobalRange().Next {
+			return fmt.Errorf("incomplete QC was persisted: %v", got)
+		}
+		for _, block := range blocks2 {
+			got, err := store.ReadBlockByHash(block.Header().Hash())
+			if err != nil {
+				return err
+			}
+			if got.IsPresent() {
+				return fmt.Errorf("partial QC block was persisted")
+			}
+		}
+		if err := state.PushBlock(ctx, qc2.QC().GlobalRange().Next-1, blocks2[len(blocks2)-1]); err != nil {
+			return err
+		}
+		for inner, ctrl := range state.inner.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc2.QC().GlobalRange().Next })
+		}
+		panic("unreachable")
+	}))
+	require.Equal(t, qc2.QC().GlobalRange().Next, store.Status().OrPanic("complete QCs").NextQC)
 }
 
 // TestEvictionWaitsForAppQC checks that setPersisted does not drop
