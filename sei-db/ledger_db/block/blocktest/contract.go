@@ -36,12 +36,76 @@ type Builder func(t *testing.T) Open
 // timing and granularity of the reclaim to the backend, so what a backend
 // actually drops, and when, is covered in that backend's own package.
 func RunContract(t *testing.T, build Builder) {
+	t.Run("TypedRecordRoundTrip", func(t *testing.T) {
+		db, reopen := openFresh(t, build)
+		qc := blocktypes.QCGroupRecord{Version: 7, Data: []byte("opaque QC"), Blocks: []blocktypes.BlockRecord{
+			{Number: 3, Hash: []byte("hash 3"), Value: []byte("opaque block 3")},
+			{Number: 4, Hash: []byte("hash 4"), Value: []byte("opaque block 4")},
+		}}
+		appQC := blocktypes.AppQCRecord{Version: 7, Data: []byte("opaque AppQC"), First: 3, Next: 5}
+		proposal := blocktypes.AppProposalRecord{Version: 7, Data: []byte("opaque AppProposal"), First: 3, Next: 5}
+		require.NoError(t, db.PutQCGroup(qc))
+		require.NoError(t, db.PutAppProposal(proposal))
+		require.NoError(t, db.PutAppQC(appQC))
+		db = restart(t, reopen, db)
+		defer func() { require.NoError(t, db.Close()) }()
+		for _, block := range qc.Blocks {
+			gotQC, ok, err := db.GetQC(block.Number)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, blocktypes.QCRecord{Version: qc.Version, Data: qc.Data}, gotQC)
+			gotBlock, ok, err := db.GetBlock(block.Number)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, block, gotBlock)
+			gotBlock, ok, err = db.GetBlockByHash(block.Hash)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, block, gotBlock)
+			gotAppQC, ok, err := db.GetAppQC(block.Number)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, appQC, gotAppQC)
+			gotProposal, ok, err := db.GetAppProposal(block.Number)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, proposal, gotProposal)
+		}
+		suffix, err := db.ReadSuffix()
+		require.NoError(t, err)
+		require.Equal(t, blocktypes.Suffix{QCs: []blocktypes.QCRecord{{Version: qc.Version, Data: qc.Data}}, Blocks: qc.Blocks, AppQCs: []blocktypes.AppQCRecord{appQC}, AppProposals: []blocktypes.AppProposalRecord{proposal}}, suffix)
+	})
 	t.Run("AtomicQC", func(t *testing.T) { testAtomicQC(t, build) })
 	t.Run("EmptyStore", func(t *testing.T) { testEmptyStore(t, build) })
 	t.Run("RecordRoundTrip", func(t *testing.T) { testRecordRoundTrip(t, build) })
 	t.Run("BlockHashAlias", func(t *testing.T) { testBlockHashAlias(t, build) })
-	t.Run("ScanFollowsWriteOrder", func(t *testing.T) { testScanFollowsWriteOrder(t, build) })
-	t.Run("ScanIsASnapshot", func(t *testing.T) { testScanIsASnapshot(t, build) })
+	t.Run("ReadSuffixFollowsWriteOrder", func(t *testing.T) { testReadSuffixFollowsWriteOrder(t, build) })
+	t.Run("ReadSuffixIsASnapshot", func(t *testing.T) { testReadSuffixIsASnapshot(t, build) })
+	t.Run("ReadSuffixStartsAtLatestAppQC", func(t *testing.T) {
+		db, _ := openFresh(t, build)
+		defer func() { require.NoError(t, db.Close()) }()
+		PutQCGroup(t, db, 0, 3)
+		PutQCGroup(t, db, 3, 6)
+		PutAppData(t, db, 0, 3)
+		PutQCGroup(t, db, 6, 9)
+		PutAppData(t, db, 3, 6)
+		PutQCGroup(t, db, 9, 12)
+		suffix := readSuffix(t, db)
+		require.Equal(t, []blocktypes.QCRecord{
+			{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, 3)},
+			{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, 6)},
+			{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, 9)},
+		}, suffix.QCs)
+		require.Len(t, suffix.Blocks, 9)
+		for i, block := range suffix.Blocks {
+			require.Equal(t, blocktypes.BlockNumber(i+3), block.Number)
+		}
+		require.Len(t, suffix.AppQCs, 1)
+		require.Equal(t, blocktypes.BlockNumber(3), suffix.AppQCs[0].First)
+		require.Len(t, suffix.AppProposals, 1)
+		require.Equal(t, blocktypes.BlockNumber(3), suffix.AppProposals[0].First)
+
+	})
 	t.Run("RestartPersistsRecords", func(t *testing.T) { testRestartPersistsRecords(t, build) })
 	t.Run("WatermarkIsMonotonic", func(t *testing.T) { testWatermarkIsMonotonic(t, build) })
 }
@@ -84,60 +148,55 @@ func testAtomicQC(t *testing.T, build Builder) {
 	for i, n := range numbers {
 		blocks[i] = blocktypes.BlockRecord{Number: n, Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)}
 	}
-	qc := blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, 3)}
-	require.Error(t, db.PutQC(qc))
-	require.Empty(t, drain(t, db, false))
+	qc := blocktypes.QCGroupRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, 3)}
+	require.Error(t, db.PutQCGroup(qc))
+	require.Equal(t, blocktypes.Suffix{}, readSuffix(t, db))
 	qc.Blocks = blocks
-	require.NoError(t, db.PutQC(qc))
+	require.NoError(t, db.PutQCGroup(qc))
 	later := make([]blocktypes.BlockRecord, len(blocks))
 	for i, block := range blocks {
 		later[i] = blocktypes.BlockRecord{Number: 10 + blocktypes.BlockNumber(i), Hash: BlockHash(10 + blocktypes.BlockNumber(i)), Value: block.Value}
 	}
 	laterQC := qc
 	laterQC.Blocks = later
-	require.NoError(t, db.PutQC(laterQC))
-	want := []position{{blocktypes.KindQCGroup, 3}, {blocktypes.KindQCGroup, 10}}
-	require.Equal(t, want, positions(drain(t, db, false)))
-	require.Equal(t, reversed(want), positions(drain(t, db, true)))
-	for _, newestFirst := range []bool{false, true} {
-		for _, entry := range drain(t, db, newestFirst) {
-			group, present, err := db.GetRecord(blocktypes.KindQCGroup, entry.Number)
-			require.NoError(t, err)
-			require.True(t, present)
-			require.Equal(t, group, entry.Value)
-			gotQC, gotBlocks, err := blocktypes.DecodeQCGroup(entry.Value)
-			require.NoError(t, err)
-			require.Equal(t, qc.Data, gotQC)
-			require.Len(t, gotBlocks, len(blocks))
-			for i, block := range blocks {
-				require.Equal(t, block.Value, gotBlocks[i])
-			}
+	require.NoError(t, db.PutQCGroup(laterQC))
+	suffix := readSuffix(t, db)
+	require.Equal(t, []blocktypes.QCRecord{{Version: qc.Version, Data: qc.Data}, {Version: laterQC.Version, Data: laterQC.Data}}, suffix.QCs)
+	require.Equal(t, append(append([]blocktypes.BlockRecord{}, blocks...), later...), suffix.Blocks)
+	for _, n := range []blocktypes.BlockNumber{3, 10} {
+		got, present, err := db.GetQC(n)
+		require.NoError(t, err)
+		require.True(t, present)
+		want := qc
+		if n == 10 {
+			want = laterQC
 		}
+		require.Equal(t, blocktypes.QCRecord{Version: want.Version, Data: want.Data}, got)
 	}
-	before := drain(t, db, false)
+	before := readSuffix(t, db)
 	db = restart(t, reopen, db)
 	defer func() { require.NoError(t, db.Close()) }()
-	require.Equal(t, before, drain(t, db, false))
+	require.Equal(t, before, readSuffix(t, db))
 	// A floor inside a packed group retains the entire group.
 	db.SetPruneWatermark(7)
 	for _, block := range blocks {
 		n := block.Number
-		got, present, err := db.GetRecord(blocktypes.KindQC, n)
+		got, present, err := ReadFixture(db, blocktypes.KindQC, n)
 		require.NoError(t, err)
 		require.True(t, present)
 		require.Equal(t, qc.Data, got)
-		got, present, err = db.GetRecord(blocktypes.KindBlock, n)
+		got, present, err = ReadFixture(db, blocktypes.KindBlock, n)
 		require.NoError(t, err)
 		require.True(t, present)
 		require.Equal(t, block.Value, got)
-		got, present, err = db.GetBlockByHash(block.Hash)
+		byHash, present, err := db.GetBlockByHash(block.Hash)
 		require.NoError(t, err)
 		require.True(t, present)
-		require.Equal(t, block.Value, got)
+		require.Equal(t, block, byHash)
 	}
 	for _, n := range []blocktypes.BlockNumber{4, 6, 7} {
 		for _, kind := range []blocktypes.RecordKind{blocktypes.KindBlock, blocktypes.KindQC} {
-			_, present, err := db.GetRecord(kind, n)
+			_, present, err := ReadFixture(db, kind, n)
 			require.NoError(t, err)
 			require.False(t, present, "only explicit block numbers should be indexed")
 		}
@@ -145,9 +204,9 @@ func testAtomicQC(t *testing.T, build Builder) {
 	// Reclaim the first group using its last explicit block number as the bound.
 	db.SetPruneWatermark(9)
 	for i, n := range numbers {
-		_, qcPresent, err := db.GetRecord(blocktypes.KindQC, n)
+		_, qcPresent, err := ReadFixture(db, blocktypes.KindQC, n)
 		require.NoError(t, err)
-		_, blockPresent, err := db.GetRecord(blocktypes.KindBlock, n)
+		_, blockPresent, err := ReadFixture(db, blocktypes.KindBlock, n)
 		require.NoError(t, err)
 		require.Equal(t, qcPresent, blockPresent)
 		_, hashPresent, err := db.GetBlockByHash(blocks[i].Hash)
@@ -161,7 +220,7 @@ func testEmptyStore(t *testing.T, build Builder) {
 	defer func() { _ = db.Close() }()
 
 	for _, kind := range allKinds {
-		_, exists, err := db.GetRecord(kind, 0)
+		_, exists, err := ReadFixture(db, kind, 0)
 		require.NoError(t, err)
 		require.False(t, exists, "%s must be absent from an empty store", kind)
 	}
@@ -169,7 +228,7 @@ func testEmptyStore(t *testing.T, build Builder) {
 	require.NoError(t, err)
 	require.False(t, exists, "no hash resolves in an empty store")
 
-	require.Empty(t, drain(t, db, false), "an empty store scans to nothing")
+	require.Equal(t, blocktypes.Suffix{}, readSuffix(t, db))
 
 	require.Equal(t, blocktypes.BlockNumber(0), db.GetPruneWatermark(), "nothing is eligible for reclamation yet")
 }
@@ -181,20 +240,20 @@ func testRecordRoundTrip(t *testing.T, build Builder) {
 			defer func() { require.NoError(t, db.Close()) }()
 			data := RecordValue(kind, 3)
 			version := blocktypes.RecordVersion(7)
-			want := append([]byte{byte(version)}, data...)
+			want := data
 			if kind == blocktypes.KindAppQC {
 				require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{Version: version, Data: data, First: 3, Next: 8}))
 			} else {
 				require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{Version: version, Data: data, First: 3, Next: 8}))
 			}
 			for n := blocktypes.BlockNumber(3); n < 8; n++ {
-				value, exists, err := db.GetRecord(kind, n)
+				value, exists, err := ReadFixture(db, kind, n)
 				require.NoError(t, err)
 				require.True(t, exists, "the record must be addressable at covered number %d", n)
 				require.Equal(t, want, value, "every covered number resolves to the one stored value")
 			}
 			for _, n := range []blocktypes.BlockNumber{2, 8} {
-				_, exists, err := db.GetRecord(kind, n)
+				_, exists, err := ReadFixture(db, kind, n)
 				require.NoError(t, err)
 				require.False(t, exists, "%d is outside the stored range", n)
 			}
@@ -202,7 +261,7 @@ func testRecordRoundTrip(t *testing.T, build Builder) {
 				if other == kind {
 					continue
 				}
-				_, exists, err := db.GetRecord(other, 3)
+				_, exists, err := ReadFixture(db, other, 3)
 				require.NoError(t, err)
 				require.False(t, exists, "record kinds must have distinct lookup keys")
 			}
@@ -214,12 +273,12 @@ func testBlockHashAlias(t *testing.T, build Builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	PutQC(t, db, 0, 3)
+	PutQCGroup(t, db, 0, 3)
 
 	for n := blocktypes.BlockNumber(0); n < 3; n++ {
 		want := RecordValue(blocktypes.KindBlock, n)
 
-		byNumber, exists, err := db.GetRecord(blocktypes.KindBlock, n)
+		byNumber, exists, err := ReadFixture(db, blocktypes.KindBlock, n)
 		require.NoError(t, err)
 		require.True(t, exists, "block %d must resolve by number", n)
 		require.Equal(t, want, byNumber)
@@ -227,7 +286,7 @@ func testBlockHashAlias(t *testing.T, build Builder) {
 		byHash, exists, err := db.GetBlockByHash(BlockHash(n))
 		require.NoError(t, err)
 		require.True(t, exists, "block %d must resolve by hash", n)
-		require.Equal(t, want, byHash, "both addresses reach the same value")
+		require.Equal(t, want, byHash.Value, "both addresses reach the same value")
 	}
 
 	_, exists, err := db.GetBlockByHash([]byte("no-block-was-stored-under-this"))
@@ -235,63 +294,49 @@ func testBlockHashAlias(t *testing.T, build Builder) {
 	require.False(t, exists)
 }
 
-func testScanFollowsWriteOrder(t *testing.T, build Builder) {
+func testReadSuffixFollowsWriteOrder(t *testing.T, build Builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	PutQC(t, db, 0, 3)
+	PutQCGroup(t, db, 0, 3)
 	PutAppData(t, db, 0, 3)
 
-	// One entry per record, at the number it was filed under — never at a covered
-	// alias, and never at a block's hash.
-	want := []position{
-		{blocktypes.KindQCGroup, 0},
-		{blocktypes.KindAppProposal, 0},
-		{blocktypes.KindAppQC, 0},
-	}
-	require.Equal(t, want, positions(drain(t, db, false)), "oldest-first must reproduce the write order")
+	suffix := readSuffix(t, db)
+	require.Len(t, suffix.QCs, 1)
+	require.Len(t, suffix.Blocks, 3)
+	require.Len(t, suffix.AppQCs, 1)
+	require.Len(t, suffix.AppProposals, 1)
 
-	newestFirst := positions(drain(t, db, true))
-	require.Equal(t, reversed(want), newestFirst, "newest-first must be the exact reverse")
 }
 
-func testScanIsASnapshot(t *testing.T, build Builder) {
+func testReadSuffixIsASnapshot(t *testing.T, build Builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	PutQC(t, db, 0, 2)
+	PutQCGroup(t, db, 0, 2)
 
-	it, err := db.Scan(false)
+	before, err := db.ReadSuffix()
 	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
+	PutQCGroup(t, db, 2, 4)
+	require.Len(t, before.QCs, 1)
+	require.Equal(t, blocktypes.BlockNumber(0), before.Blocks[0].Number)
+	after, err := db.ReadSuffix()
+	require.NoError(t, err)
+	require.Len(t, after.QCs, 2)
 
-	// Written after the scan opened, so the walk below must not see it.
-	PutQC(t, db, 2, 4)
-
-	seen := 0
-	for {
-		ok, err := it.Next()
-		require.NoError(t, err)
-		if !ok {
-			break
-		}
-		require.Less(t, it.Number(), blocktypes.BlockNumber(2), "the scan must not surface a record written after it opened")
-		seen++
-	}
-	require.Equal(t, 1, seen, "the snapshot holds exactly the QC group present at Scan")
 }
 
 func testRestartPersistsRecords(t *testing.T, build Builder) {
 	db, o := openFresh(t, build)
 	WriteCohorts(t, db, 2, 3)
-	before := drain(t, db, false)
+	before := readSuffix(t, db)
 
 	db = restart(t, o, db)
 	defer func() { _ = db.Close() }()
 
-	require.Equal(t, before, drain(t, db, false), "a restart must not disturb the record log")
+	require.Equal(t, before, readSuffix(t, db), "a restart must not disturb the record log")
 	for n := blocktypes.BlockNumber(0); n < 6; n++ {
-		_, exists, err := db.GetRecord(blocktypes.KindBlock, n)
+		_, exists, err := ReadFixture(db, blocktypes.KindBlock, n)
 		require.NoError(t, err)
 		require.True(t, exists, "block %d must survive the restart", n)
 
@@ -322,60 +367,12 @@ func testWatermarkIsMonotonic(t *testing.T, build Builder) {
 	require.Equal(t, blocktypes.BlockNumber(1_000), db.GetPruneWatermark())
 }
 
-// --- scanning ---
-
-// position is a record's kind and the number it was filed under.
-type position struct {
-	Kind   blocktypes.RecordKind
-	Number blocktypes.BlockNumber
-}
-
-// entry is one record observed while draining a scan.
-type entry struct {
-	position
-	Value []byte
-}
-
-// drain walks a whole scan and returns what it visited.
-func drain(t *testing.T, db blocktypes.BlockDB, newestFirst bool) []entry {
+// readSuffix reads the typed recovery suffix.
+func readSuffix(t *testing.T, db blocktypes.BlockDB) blocktypes.Suffix {
 	t.Helper()
-	it, err := db.Scan(newestFirst)
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-
-	var out []entry
-	for {
-		ok, err := it.Next()
-		require.NoError(t, err)
-		if !ok {
-			return out
-		}
-		value, err := it.Value()
-		require.NoError(t, err)
-		out = append(out, entry{
-			position: position{Kind: it.Kind(), Number: it.Number()},
-			Value:    bytes.Clone(value),
-		})
-	}
-}
-
-// positions drops the values, for assertions about what was visited and in what
-// order.
-func positions(entries []entry) []position {
-	out := make([]position, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, e.position)
-	}
-	return out
-}
-
-// reversed returns ps back to front.
-func reversed(ps []position) []position {
-	out := make([]position, 0, len(ps))
-	for i := len(ps) - 1; i >= 0; i-- {
-		out = append(out, ps[i])
-	}
-	return out
+	return suffix
 }
 
 // --- record fixtures ---
@@ -400,14 +397,14 @@ func RecordValue(kind blocktypes.RecordKind, first blocktypes.BlockNumber) []byt
 	return append(value, bytes.Repeat([]byte("."), valueSize-len(value))...)
 }
 
-// PutQC stores a QC and block fixtures covering [first, next) atomically.
-func PutQC(t *testing.T, db blocktypes.BlockDB, first, next blocktypes.BlockNumber) {
+// PutQCGroup stores a QC and block fixtures covering [first, next) atomically.
+func PutQCGroup(t *testing.T, db blocktypes.BlockDB, first, next blocktypes.BlockNumber) {
 	t.Helper()
 	blocks := make([]blocktypes.BlockRecord, 0, next-first)
 	for n := first; n < next; n++ {
 		blocks = append(blocks, blocktypes.BlockRecord{Number: n, Hash: BlockHash(n), Value: RecordValue(blocktypes.KindBlock, n)})
 	}
-	require.NoError(t, db.PutQC(blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
+	require.NoError(t, db.PutQCGroup(blocktypes.QCGroupRecord{Version: blocktypes.CurrentRecordVersion, Data: RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
 }
 
 // PutAppData stores an AppProposal and an AppQC, each covering [first, next).
@@ -423,7 +420,7 @@ func WriteCohorts(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64
 	t.Helper()
 	for i := range cohorts {
 		first := blocktypes.BlockNumber(i * perCohort)
-		PutQC(t, db, first, first+blocktypes.BlockNumber(perCohort))
+		PutQCGroup(t, db, first, first+blocktypes.BlockNumber(perCohort))
 	}
 }
 
@@ -435,5 +432,25 @@ func WriteAppData(t *testing.T, db blocktypes.BlockDB, cohorts, perCohort uint64
 	for i := range cohorts {
 		first := blocktypes.BlockNumber(i * perCohort)
 		PutAppData(t, db, first, first+blocktypes.BlockNumber(perCohort))
+	}
+}
+
+// ReadFixture reads fixture payload bytes through the typed lookup APIs.
+func ReadFixture(db blocktypes.BlockDB, kind blocktypes.RecordKind, n blocktypes.BlockNumber) ([]byte, bool, error) {
+	switch kind {
+	case blocktypes.KindQC, blocktypes.KindQCGroup:
+		qc, ok, err := db.GetQC(n)
+		return qc.Data, ok, err
+	case blocktypes.KindBlock:
+		block, ok, err := db.GetBlock(n)
+		return block.Value, ok, err
+	case blocktypes.KindAppQC:
+		qc, ok, err := db.GetAppQC(n)
+		return qc.Data, ok, err
+	case blocktypes.KindAppProposal:
+		proposal, ok, err := db.GetAppProposal(n)
+		return proposal.Data, ok, err
+	default:
+		panic("invalid record kind")
 	}
 }

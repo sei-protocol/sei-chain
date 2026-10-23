@@ -4,7 +4,6 @@ package blockstore
 
 import (
 	"fmt"
-	"slices"
 	"sync"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -16,7 +15,7 @@ var _ types.BlockStore = (*Store)(nil)
 
 // Store implements the consensus block store contract on top of any
 // blocktypes.BlockDB. It owns what the storage layer is deliberately ignorant
-// of: the value codec, the write-ordering contract, the recovery suffix, and the
+// of: the value codec, the write-ordering contract, and the
 // retention policy the storage garbage collector drives.
 type Store struct {
 	db blocktypes.BlockDB
@@ -55,7 +54,7 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 			return fmt.Errorf("block %d does not match QC header: %w", i, types.ErrQCBlocksMismatch)
 		}
 		n := gr.First + types.GlobalBlockNumber(i) //nolint:gosec // non-negative slice index
-		records[i] = blocktypes.BlockRecord{Number: blocktypes.BlockNumber(n), Hash: block.Header().Hash().Bytes(), Value: encodeBlock(n, block)}
+		records[i] = blocktypes.BlockRecord{Number: blocktypes.BlockNumber(n), Hash: block.Header().Hash().Bytes(), Value: encodeBlock(block)}
 	}
 
 	s.mu.Lock()
@@ -64,7 +63,7 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	if ok && status.NextQC != gr.First {
 		return fmt.Errorf("QC starts at %d, expected %d: %w", gr.First, status.NextQC, types.ErrQCNonContiguous)
 	}
-	if err := s.db.PutQC(blocktypes.QCRecord{
+	if err := s.db.PutQCGroup(blocktypes.QCGroupRecord{
 		Version: blocktypes.CurrentRecordVersion, Data: encodeQC(qc), Blocks: records,
 	}); err != nil {
 		return fmt.Errorf("failed to put QC [%d,%d): %w", gr.First, gr.Next, err)
@@ -194,72 +193,56 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	it, err := s.db.Scan(true)
+	records, err := s.db.ReadSuffix()
 	if err != nil {
-		return types.Suffix{}, fmt.Errorf("failed to open suffix iterator: %w", err)
+		return types.Suffix{}, fmt.Errorf("failed to read suffix: %w", err)
 	}
-	defer func() { _ = it.Close() }()
 	var suffix types.Suffix
 	var status types.SuffixRange
-	var oldestQC *types.FullCommitQC
-	var gotQC, gotAppProposal, gotAppQC bool
-	for !gotAppQC || !gotQC || status.NextAppQC < oldestQC.QC().GlobalRange().Next {
-		ok, err := it.Next()
+	blocks := records.Blocks
+	for _, record := range records.QCs {
+		qc, err := decodeQCRecord(record)
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to advance suffix iterator: %w", err)
+			return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
 		}
-		if !ok {
-			break
+		count := len(qc.Headers())
+		if count > len(blocks) {
+			return types.Suffix{}, types.ErrQCBlocksMismatch
 		}
-		value, err := it.Value()
+		group, err := decodeQCGroupBlocks(qc, blocks[:count])
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to read suffix value: %w", err)
+			return types.Suffix{}, err
 		}
-		switch it.Kind() {
-		case blocktypes.KindAppQC:
-			appQC, err := decodeAppQC(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
-			}
-			gr := appQC.Proposal().GlobalRange()
-			if !gotAppQC {
-				status.NextAppQC = gr.Next
-				status.First = gr.Next - 1
-				gotAppQC = true
-			}
-			suffix.AppQCs = append(suffix.AppQCs, appQC)
-		case blocktypes.KindAppProposal:
-			appProposal, err := decodeAppProposal(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
-			}
-			gr := appProposal.GlobalRange()
-			if !gotAppProposal {
-				status.NextAppProposal = gr.Next
-				gotAppProposal = true
-			}
-			suffix.AppProposals = append(suffix.AppProposals, appProposal)
-		case blocktypes.KindQCGroup:
-			group, err := decodeQCGroup(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
-			}
-			qc := group.QC
-			gr := qc.QC().GlobalRange()
-			if !gotQC {
-				status.NextQC = gr.Next
-				gotQC = true
-			}
-			oldestQC = qc
-			suffix.QCGroups = append(suffix.QCGroups, group)
-		}
+		blocks = blocks[count:]
+		status.NextQC = qc.QC().GlobalRange().Next
+		suffix.QCGroups = append(suffix.QCGroups, group)
 	}
-	if !gotQC {
+	if len(blocks) > 0 {
+		return types.Suffix{}, types.ErrQCBlocksMismatch
+	}
+	for _, record := range records.AppProposals {
+		proposal, err := decodeAppProposal(record)
+		if err != nil {
+			return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
+		}
+		status.NextAppProposal = proposal.GlobalRange().Next
+		suffix.AppProposals = append(suffix.AppProposals, proposal)
+	}
+	for _, record := range records.AppQCs {
+		qc, err := decodeAppQC(record)
+		if err != nil {
+			return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
+		}
+		status.NextAppQC = qc.Proposal().GlobalRange().Next
+		status.First = status.NextAppQC - 1
+		suffix.AppQCs = append(suffix.AppQCs, qc)
+	}
+	if len(suffix.QCGroups) == 0 {
 		// Empty db.
 		return types.Suffix{}, nil
 	}
 	// Set fields for missing resources.
-	first := oldestQC.QC().GlobalRange().First
+	first := suffix.QCGroups[0].QC.QC().GlobalRange().First
 	status.NextQC = max(status.NextQC, first)
 	status.NextBlock = status.NextQC
 	status.NextAppProposal = max(status.NextAppProposal, first)
@@ -267,20 +250,6 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 	status.First = max(status.First, first)
 	suffix.Status = utils.Some(status)
 
-	// Prune resources fully below status.First.
-	suffix.QCGroups = slices.DeleteFunc(suffix.QCGroups, func(group types.QCGroup) bool {
-		return group.QC.QC().GlobalRange().Next <= status.First
-	})
-	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(appProposal *types.AppProposal) bool {
-		return appProposal.GlobalRange().Next <= status.First
-	})
-	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(appQC *types.AppQC) bool {
-		return appQC.Proposal().GlobalRange().Next <= status.First
-	})
-	// Put resources in increasing order.
-	slices.Reverse(suffix.QCGroups)
-	slices.Reverse(suffix.AppProposals)
-	slices.Reverse(suffix.AppQCs)
 	return suffix, nil
 }
 
@@ -289,14 +258,14 @@ func (s *Store) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*type
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.Block](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindBlock, blocktypes.BlockNumber(n))
+	value, exists, err := s.db.GetBlock(blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.Block](), fmt.Errorf("failed to read block: %w", err)
 	}
 	if !exists {
 		return utils.None[*types.Block](), nil
 	}
-	_, blk, err := decodeBlock(value)
+	blk, err := decodeBlock(value.Value)
 	if err != nil {
 		return utils.None[*types.Block](), fmt.Errorf("failed to unmarshal block: %w", err)
 	}
@@ -311,16 +280,16 @@ func (s *Store) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.
 	if !exists {
 		return utils.None[types.BlockWithNumber](), nil
 	}
-	n, blk, err := decodeBlock(value)
+	blk, err := decodeBlock(value.Value)
 	if err != nil {
 		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to unmarshal block: %w", err)
 	}
 	// The number is not known until the block is resolved;
 	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
+	if value.Number < s.db.GetPruneWatermark() {
 		return utils.None[types.BlockWithNumber](), nil
 	}
-	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
+	return utils.Some(types.BlockWithNumber{Block: blk, Number: types.GlobalBlockNumber(value.Number)}), nil
 }
 
 func (s *Store) ReadQCByBlockNumber(
@@ -330,14 +299,14 @@ func (s *Store) ReadQCByBlockNumber(
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindQC, blocktypes.BlockNumber(n))
+	value, exists, err := s.db.GetQC(blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to read QC: %w", err)
 	}
 	if !exists {
 		return utils.None[*types.FullCommitQC](), nil
 	}
-	qc, err := decodeQC(value)
+	qc, err := decodeQCRecord(value)
 	if err != nil {
 		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to unmarshal QC: %w", err)
 	}
@@ -350,7 +319,7 @@ func (s *Store) ReadAppProposalByBlockNumber(
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppProposal](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindAppProposal, blocktypes.BlockNumber(n))
+	value, exists, err := s.db.GetAppProposal(blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.AppProposal](), fmt.Errorf("failed to read AppProposal: %w", err)
 	}
@@ -370,7 +339,7 @@ func (s *Store) ReadAppQCByBlockNumber(
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppQC](), types.ErrPruned
 	}
-	value, exists, err := s.db.GetRecord(blocktypes.KindAppQC, blocktypes.BlockNumber(n))
+	value, exists, err := s.db.GetAppQC(blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.AppQC](), fmt.Errorf("failed to read AppQC: %w", err)
 	}

@@ -34,7 +34,7 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *littb
 // one that is merely below the floor.
 func physicallyPresent(t *testing.T, db blocktypes.BlockDB, kind blocktypes.RecordKind, n blocktypes.BlockNumber) bool {
 	t.Helper()
-	_, exists, err := db.GetRecord(kind, n)
+	_, exists, err := blocktest.ReadFixture(db, kind, n)
 	require.NoError(t, err)
 	return exists
 }

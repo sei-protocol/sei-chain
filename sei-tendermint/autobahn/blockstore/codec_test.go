@@ -1,7 +1,6 @@
 package blockstore
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -15,18 +14,15 @@ import (
 
 func TestBlockRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(1)
-	for i := range 16 {
-		n := types.GlobalBlockNumber(i)
+	for range 16 {
 		blk := types.GenBlock(rng)
-		value := encodeBlock(n, blk)
-		gotN, decoded, err := decodeBlock(value)
+		value := encodeBlock(blk)
+		decoded, err := decodeBlock(value)
 		require.NoError(t, err)
-		// The embedded block number must round-trip.
-		require.Equal(t, n, gotN)
 		// Header hash uniquely identifies a block; equal hash => same block.
 		require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
-		// Re-encoding the decoded block (with the same number) must reproduce the same bytes.
-		require.Equal(t, value, encodeBlock(gotN, decoded))
+		// Re-encoding the decoded block must reproduce the same bytes.
+		require.Equal(t, value, encodeBlock(decoded))
 	}
 }
 
@@ -45,7 +41,7 @@ func TestQCRoundTrip(t *testing.T) {
 func TestDecodeRejectsGarbage(t *testing.T) {
 	// Invalid bytes must surface an error rather than a partial value.
 	garbage := []byte{0xff, 0xff, 0xff, 0xff}
-	_, _, blockErr := decodeBlock(garbage)
+	_, blockErr := decodeBlock(garbage)
 	require.Error(t, blockErr)
 	_, qcErr := decodeQC(garbage)
 	require.Error(t, qcErr)
@@ -58,23 +54,20 @@ func TestDecodeRejectsUnknownVersion(t *testing.T) {
 		qc := types.GenFullCommitQCRange(rng, 1, 2)
 		qc = types.NewFullCommitQC(qc.QC(), []*types.BlockHeader{block.Header()})
 		db := memblock.NewBlockDB()
-		err := db.PutQC(blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: encodeQC(qc), Blocks: []blocktypes.BlockRecord{
-			{Number: 1, Hash: block.Header().Hash().Bytes(), Value: encodeBlock(1, block)},
+		err := db.PutQCGroup(blocktypes.QCGroupRecord{Version: blocktypes.CurrentRecordVersion, Data: encodeQC(qc), Blocks: []blocktypes.BlockRecord{
+			{Number: 1, Hash: block.Header().Hash().Bytes(), Value: encodeBlock(block)},
 		}})
 		require.NoError(t, err)
-		value, present, err := db.GetRecord(blocktypes.KindQCGroup, 1)
+		value, present, err := db.GetQC(1)
 		require.NoError(t, err)
 		require.True(t, present)
-		decoded, err := decodeQCGroup(value)
+		decoded, err := decodeQCRecord(value)
 		require.NoError(t, err)
-		require.Equal(t, qc.QC().GlobalRange(), decoded.QC.QC().GlobalRange())
-		require.Len(t, decoded.Blocks, 1)
-		require.Equal(t, block.Header().Hash(), decoded.Blocks[0].Header().Hash())
+		require.Equal(t, qc.QC().GlobalRange(), decoded.QC().GlobalRange())
 
 		// The group version governs both the QC and its blocks.
-		value = slices.Clone(value)
-		value[0]++
-		_, err = decodeQCGroup(value)
+		value.Version++
+		_, err = decodeQCRecord(value)
 		require.Error(t, err)
 	})
 	t.Run("AppProposal", func(t *testing.T) {
@@ -83,13 +76,12 @@ func TestDecodeRejectsUnknownVersion(t *testing.T) {
 		require.NoError(t, db.PutAppProposal(blocktypes.AppProposalRecord{
 			Version: blocktypes.CurrentRecordVersion, Data: encodeAppProposal(types.GenAppProposal(rng)), First: 1, Next: 2,
 		}))
-		value, present, err := db.GetRecord(blocktypes.KindAppProposal, 1)
+		value, present, err := db.GetAppProposal(1)
 		require.NoError(t, err)
 		require.True(t, present)
 		_, err = decodeAppProposal(value)
 		require.NoError(t, err)
-		value = slices.Clone(value)
-		value[0]++
+		value.Version++
 		_, err = decodeAppProposal(value)
 		require.Error(t, err)
 	})
@@ -99,13 +91,12 @@ func TestDecodeRejectsUnknownVersion(t *testing.T) {
 		require.NoError(t, db.PutAppQC(blocktypes.AppQCRecord{
 			Version: blocktypes.CurrentRecordVersion, Data: encodeAppQC(types.GenAppQC(rng)), First: 1, Next: 2,
 		}))
-		value, present, err := db.GetRecord(blocktypes.KindAppQC, 1)
+		value, present, err := db.GetAppQC(1)
 		require.NoError(t, err)
 		require.True(t, present)
 		_, err = decodeAppQC(value)
 		require.NoError(t, err)
-		value = slices.Clone(value)
-		value[0]++
+		value.Version++
 		_, err = decodeAppQC(value)
 		require.Error(t, err)
 	})

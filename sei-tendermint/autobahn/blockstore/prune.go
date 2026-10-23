@@ -67,14 +67,14 @@ func (s *Store) GetLatestBlock() (uint64, error) {
 // clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
 // (which can happen if you prune the same n twice).
 func (s *Store) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.GlobalBlockNumber, error) {
-	value, exists, err := s.db.GetRecord(blocktypes.KindQC, blocktypes.BlockNumber(blockHeight))
+	value, exists, err := s.db.GetQC(blocktypes.BlockNumber(blockHeight))
 	if err != nil {
 		return 0, fmt.Errorf("failed to read covering QC for %d: %w", blockHeight, err)
 	}
 	if !exists {
 		return blockHeight, nil
 	}
-	qc, err := decodeQC(value)
+	qc, err := decodeQCRecord(value)
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode covering QC for %d: %w", blockHeight, err)
 	}

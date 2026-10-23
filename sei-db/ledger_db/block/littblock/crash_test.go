@@ -135,35 +135,23 @@ func runCrashChild(t *testing.T) {
 // requireEveryBlockHasItsQC fails unless every surviving block record is still
 // covered by a surviving QC, and returns how many blocks survived.
 //
-// Survivors are enumerated by scanning rather than by reading each number in
-// turn: the scan reports what recovery kept, where a point read of a number
-// whose value was torn away fails instead of reporting the record as absent.
+// With no app data, the recovery suffix contains every surviving group.
 func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
 	t.Helper()
-	it, err := db.Scan(false)
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-	count := 0
-	for {
-		ok, err := it.Next()
-		require.NoError(t, err)
-		if !ok {
-			return count
+	require.Len(t, suffix.Blocks, len(suffix.QCs)*crashPerCohort)
+	for i, qc := range suffix.QCs {
+		blocks := suffix.Blocks[i*crashPerCohort : (i+1)*crashPerCohort]
+		first := blocks[0].Number
+		require.Equal(t, blocktest.RecordValue(blocktypes.KindQC, first), qc.Data)
+		for j, block := range blocks {
+			require.Equal(t, first+blocktypes.BlockNumber(j), block.Number)
+			require.Equal(t, blocktest.RecordValue(blocktypes.KindBlock, block.Number), block.Value)
 		}
-		if it.Kind() != blocktypes.KindQCGroup {
-			continue
-		}
-		value, err := it.Value()
-		require.NoError(t, err)
-		qc, blocks, err := blocktypes.DecodeQCGroup(value)
-		require.NoError(t, err)
-		require.Equal(t, blocktest.RecordValue(blocktypes.KindQC, it.Number()), qc)
-		require.Len(t, blocks, crashPerCohort)
-		for i, block := range blocks {
-			require.Equal(t, blocktest.RecordValue(blocktypes.KindBlock, it.Number()+blocktypes.BlockNumber(i)), block)
-		}
-		count += len(blocks)
 	}
+	return len(suffix.Blocks)
+
 }
 
 // largestValueSegmentFiles walks the litt data directory under dir and returns
@@ -258,7 +246,7 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts*crashPerCohort); n++ {
 					want := n < blocktypes.BlockNumber((cohorts-1)*crashPerCohort)
 					for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
-						value, present, err := db.GetRecord(kind, n)
+						value, present, err := blocktest.ReadFixture(db, kind, n)
 						require.NoError(t, err)
 						require.Equal(t, want, present)
 						if present {
@@ -290,7 +278,7 @@ func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 			n := first + blocktypes.BlockNumber(i)
 			blocks[i] = blocktypes.BlockRecord{Number: n, Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue(blocktypes.KindBlock, n)}
 		}
-		require.NoError(t, db.PutQC(blocktypes.QCRecord{Version: blocktypes.CurrentRecordVersion, Data: blocktest.RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
+		require.NoError(t, db.PutQCGroup(blocktypes.QCGroupRecord{Version: blocktypes.CurrentRecordVersion, Data: blocktest.RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
 	}
 }
 
@@ -310,7 +298,7 @@ func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
 	for n := blocktypes.BlockNumber(0); n < 15; n++ {
 		want := n >= 5
 		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
-			_, present, err := db.GetRecord(kind, n)
+			_, present, err := blocktest.ReadFixture(db, kind, n)
 			require.NoError(t, err)
 			require.Equal(t, want, present)
 		}

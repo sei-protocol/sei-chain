@@ -1,7 +1,6 @@
 package blockstore
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -12,31 +11,16 @@ import (
 // This file is the single home for translating between the in-memory consensus
 // types and the opaque byte values the underlying BlockDB stores.
 
-// blockValuePrefixLen is the size of the GlobalBlockNumber preceding block proto bytes.
-const blockValuePrefixLen = 8
+// encodeBlock marshals a block to its protobuf bytes.
+func encodeBlock(block *types.Block) []byte { return types.BlockConv.Marshal(block) }
 
-// encodeBlock marshals a block with its GlobalBlockNumber prefix.
-func encodeBlock(n types.GlobalBlockNumber, blk *types.Block) []byte {
-	proto := types.BlockConv.Marshal(blk)
-	value := make([]byte, 0, blockValuePrefixLen+len(proto))
-	// By-hash lookups need the number even when they read only this block's slice.
-	value = binary.BigEndian.AppendUint64(value, uint64(n))
-	value = append(value, proto...)
-	return value
-}
-
-// decodeBlock unmarshals a block and its embedded GlobalBlockNumber from the
-// value produced by encodeBlock.
-func decodeBlock(value []byte) (types.GlobalBlockNumber, *types.Block, error) {
-	if len(value) < blockValuePrefixLen {
-		return 0, nil, fmt.Errorf("block value too short: %d bytes", len(value))
-	}
-	n := types.GlobalBlockNumber(binary.BigEndian.Uint64(value[:blockValuePrefixLen]))
-	blk, err := types.BlockConv.Unmarshal(value[blockValuePrefixLen:])
+// decodeBlock unmarshals a block from its protobuf bytes.
+func decodeBlock(value []byte) (*types.Block, error) {
+	block, err := types.BlockConv.Unmarshal(value)
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to unmarshal block: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
 	}
-	return n, blk, nil
+	return block, nil
 }
 
 // encodeQC marshals a FullCommitQC to its protobuf bytes.
@@ -60,12 +44,11 @@ func encodeAppProposal(appProposal *types.AppProposal) []byte {
 
 // decodeAppProposal unmarshals an AppProposal from the value produced by
 // encodeAppProposal.
-func decodeAppProposal(value []byte) (*types.AppProposal, error) {
-	value, err := blocktypes.ConsumeVersion(value)
-	if err != nil {
+func decodeAppProposal(record blocktypes.AppProposalRecord) (*types.AppProposal, error) {
+	if err := record.Version.Validate(); err != nil {
 		return nil, err
 	}
-	appProposal, err := types.AppProposalConv.Unmarshal(value)
+	appProposal, err := types.AppProposalConv.Unmarshal(record.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal appProposal: %w", err)
 	}
@@ -78,41 +61,39 @@ func encodeAppQC(appQC *types.AppQC) []byte {
 }
 
 // decodeAppQC unmarshals an AppQC from the value produced by encodeAppQC.
-func decodeAppQC(value []byte) (*types.AppQC, error) {
-	value, err := blocktypes.ConsumeVersion(value)
-	if err != nil {
+func decodeAppQC(record blocktypes.AppQCRecord) (*types.AppQC, error) {
+	if err := record.Version.Validate(); err != nil {
 		return nil, err
 	}
-	appQC, err := types.AppQCConv.Unmarshal(value)
+	appQC, err := types.AppQCConv.Unmarshal(record.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal appQC: %w", err)
 	}
 	return appQC, nil
 }
 
-// decodeQCGroup decodes a complete committed group.
-func decodeQCGroup(value []byte) (types.QCGroup, error) {
-	qcValue, blocks, err := blocktypes.DecodeQCGroup(value)
-	if err != nil {
-		return types.QCGroup{}, err
-	}
-	qc, err := decodeQC(qcValue)
-	if err != nil {
-		return types.QCGroup{}, err
-	}
+// decodeQCGroupBlocks decodes and validates a QC's complete block set.
+func decodeQCGroupBlocks(qc *types.FullCommitQC, blocks []blocktypes.BlockRecord) (types.QCGroup, error) {
 	group := types.QCGroup{QC: qc, Blocks: make([]*types.Block, 0, len(blocks))}
 	if len(blocks) != len(qc.Headers()) || uint64(len(blocks)) != qc.QC().GlobalRange().Len() {
 		return types.QCGroup{}, types.ErrQCBlocksMismatch
 	}
 	for i, value := range blocks {
-		n, block, err := decodeBlock(value)
+		block, err := decodeBlock(value.Value)
 		if err != nil {
 			return types.QCGroup{}, err
 		}
-		if n != qc.QC().GlobalRange().First+types.GlobalBlockNumber(i) || block.Header().Hash() != qc.Headers()[i].Hash() { //nolint:gosec // non-negative slice index
+		if types.GlobalBlockNumber(value.Number) != qc.QC().GlobalRange().First+types.GlobalBlockNumber(i) || block.Header().Hash() != qc.Headers()[i].Hash() { //nolint:gosec // non-negative slice index
 			return types.QCGroup{}, types.ErrQCBlocksMismatch
 		}
 		group.Blocks = append(group.Blocks, block)
 	}
 	return group, nil
+}
+
+func decodeQCRecord(record blocktypes.QCRecord) (*types.FullCommitQC, error) {
+	if err := record.Version.Validate(); err != nil {
+		return nil, err
+	}
+	return decodeQC(record.Data)
 }

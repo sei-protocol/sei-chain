@@ -33,8 +33,14 @@ func (k RecordKind) String() string {
 // BlockNumber identifies a block in the ledger.
 type BlockNumber uint64
 
-// QCRecord contains a QC's version, unprefixed serialized data, and numbered blocks.
+// QCRecord contains a QC's version and unprefixed serialized data.
 type QCRecord struct {
+	Version RecordVersion
+	Data    []byte
+}
+
+// QCGroupRecord contains a QC's version, unprefixed serialized data, and numbered blocks.
+type QCGroupRecord struct {
 	Version RecordVersion
 	Data    []byte
 	Blocks  []BlockRecord
@@ -63,12 +69,19 @@ type BlockRecord struct {
 	Value  []byte
 }
 
+// Suffix contains whole records in increasing order within each kind.
+type Suffix struct {
+	QCs          []QCRecord
+	Blocks       []BlockRecord
+	AppQCs       []AppQCRecord
+	AppProposals []AppProposalRecord
+}
+
 // BlockDB is the storage substrate a consensus block store is built on. It
 // holds immutable opaque records addressed by (RecordKind, number), plus a
 // by-hash alias for block records, and it owns reclamation.
 //
-// It ascribes no meaning to a record's bytes or to the numbers it is filed
-// under: ordering rules, contiguity, payload encoding and suffix recovery belong to the
+// Record payloads are opaque; contiguity and payload encoding belong to the
 // layer above.
 //
 // # Concurrency
@@ -78,7 +91,7 @@ type BlockRecord struct {
 //
 // # Durability
 //
-// Writes are two-phase: PutQC, PutAppQC and PutAppProposal may return before
+// Writes are two-phase: PutQCGroup, PutAppQC and PutAppProposal may return before
 // their records are on disk. Flush blocks until every previously-returned
 // write is durable.
 // Reads observe a write as soon as it returns, whether or not it is durable.
@@ -110,11 +123,11 @@ type BlockRecord struct {
 // been reclaimed. Opening a store that holds records but no KindQCGroup record
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
-	// PutQC atomically stores qc and its blocks. QC lookups resolve at each block's
+	// PutQCGroup atomically stores qc and its blocks. QC lookups resolve at each block's
 	// Number; blocks resolve by Number and Hash. qc.Blocks must be non-empty and
 	// ordered by increasing Number. The group is indexed by qc.Blocks[0].Number.
-	// Scan returns the complete KindQCGroup.
-	PutQC(qc QCRecord) error
+	// ReadSuffix returns the QC and block records of each retained group.
+	PutQCGroup(qc QCGroupRecord) error
 
 	// PutAppQC stores record at every number in [record.First, record.Next).
 	// Storing an already-stored number is unsupported and the result is undefined.
@@ -124,21 +137,19 @@ type BlockDB interface {
 	// Storing an already-stored number is unsupported and the result is undefined.
 	PutAppProposal(record AppProposalRecord) error
 
-	// GetRecord returns the value filed under kind at n, and whether one is
-	// present.
-	GetRecord(kind RecordKind, n BlockNumber) (value []byte, exists bool, err error)
-
-	// GetBlockByHash returns the block record indexed under hash by PutQC,
-	// and whether one is present.
-	GetBlockByHash(hash []byte) (value []byte, exists bool, err error)
-
-	// Scan iterates the records in the order they were written, newest first
-	// when newestFirst is set and oldest first otherwise. It visits each
-	// primary record once at its first number. A PutQC group is returned whole
-	// as KindQCGroup; its blocks and lookup aliases are not visited separately.
-	// The iterator observes a snapshot of the records present when Scan is called,
-	// and must be closed.
-	Scan(newestFirst bool) (RecordIterator, error)
+	// GetQC returns the QC covering n.
+	GetQC(n BlockNumber) (QCRecord, bool, error)
+	// GetBlock returns the block numbered n.
+	GetBlock(n BlockNumber) (BlockRecord, bool, error)
+	// GetBlockByHash returns the block indexed by hash.
+	GetBlockByHash(hash []byte) (BlockRecord, bool, error)
+	// GetAppQC returns the application QC covering n.
+	GetAppQC(n BlockNumber) (AppQCRecord, bool, error)
+	// GetAppProposal returns the application proposal covering n.
+	GetAppProposal(n BlockNumber) (AppProposalRecord, bool, error)
+	// ReadSuffix returns a snapshot starting at the newest AppQC's group,
+	// or all retained records when no AppQC exists. Returned bytes are immutable.
+	ReadSuffix() (Suffix, error)
 
 	// GetPruneWatermark returns the number below which records are eligible for
 	// reclamation, which is 0 until the first SetPruneWatermark advances it.
@@ -156,29 +167,5 @@ type BlockDB interface {
 
 	// Close releases the resources held by the store. No other method may be
 	// called afterwards.
-	Close() error
-}
-
-// RecordIterator walks the records of a BlockDB. It is created by BlockDB.Scan
-// and is not safe for concurrent use.
-type RecordIterator interface {
-	// Next advances to the next record, reporting false once the scan is
-	// complete. After it returns false or an error, only Close may be called.
-	Next() (bool, error)
-
-	// Kind returns the current record's kind. Valid only after Next returned
-	// true.
-	Kind() RecordKind
-
-	// Number returns the number the current record was filed under. Valid only
-	// after Next returned true.
-	Number() BlockNumber
-
-	// Value returns the current record's bytes, which must not be modified.
-	// Valid only after Next returned true.
-	Value() ([]byte, error)
-
-	// Close releases the iterator's resources. It MUST be called; failing to
-	// do so may leak disk.
 	Close() error
 }
