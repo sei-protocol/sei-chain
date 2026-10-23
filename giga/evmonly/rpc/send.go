@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -18,6 +19,38 @@ import (
 
 type sendAPI struct {
 	backend Backend
+	// senders remembers the sender recovered for each transaction routed here, so a retry of the
+	// same transaction is routed without recovering its signature again.
+	senders senderCache
+}
+
+// senderCacheCap bounds the senders a senderCache remembers per generation.
+const senderCacheCap = 1 << 18
+
+// senderCache maps transaction hashes to their recovered senders, keeping two generations so the
+// most recent entries survive a rollover. The zero value is ready to use.
+type senderCache struct {
+	mu           sync.Mutex
+	fresh, stale map[common.Hash]common.Address
+}
+
+func (c *senderCache) get(hash common.Hash) (common.Address, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if sender, ok := c.fresh[hash]; ok {
+		return sender, true
+	}
+	sender, ok := c.stale[hash]
+	return sender, ok
+}
+
+func (c *senderCache) put(hash common.Hash, sender common.Address) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.fresh == nil || len(c.fresh) >= senderCacheCap {
+		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, senderCacheCap)
+	}
+	c.fresh[hash] = sender
 }
 
 // SendRawTransaction submits a signed raw Ethereum transaction to Autobahn and
@@ -29,7 +62,7 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 	}
 	hash := tx.Hash()
 
-	if client, ok := api.shardProxy(tx).Get(); ok {
+	if client, ok := api.shardProxy(tx, hash).Get(); ok {
 		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
 			return hash, err
 		}
@@ -58,13 +91,18 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 // shardProxy returns the RPC client of the validator owning tx's sender shard,
 // or None when the transaction is handled locally. Sender recovery is skipped
 // entirely when the backend has no proxies, since CheckTx recovers it anyway.
-func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Client] {
+func (api *sendAPI) shardProxy(tx *ethtypes.Transaction, hash common.Hash) utils.Option[*ethrpc.Client] {
 	if !api.backend.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
 	}
-	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
-	if err != nil {
-		return utils.None[*ethrpc.Client]()
+	sender, ok := api.senders.get(hash)
+	if !ok {
+		var err error
+		sender, err = ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
+		if err != nil {
+			return utils.None[*ethrpc.Client]()
+		}
+		api.senders.put(hash, sender)
 	}
 	return api.backend.EvmProxy(sender)
 }
