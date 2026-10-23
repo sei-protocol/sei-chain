@@ -1,16 +1,13 @@
 package giga
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 )
 
 const kB rpc.InBytes = 1024
-
-// maxBlockMsgSize bounds a message carrying one lane block.
-var maxBlockMsgSize = rpc.InBytes(types.MaxBlockProtoSize)
+const MB rpc.InBytes = 1024 * kB
 
 type API struct{}
 
@@ -22,7 +19,7 @@ var Ping = rpc.Register[API](0, "ping",
 var StreamLaneProposals = rpc.Register[API](1, "stream_lane_proposals",
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamLaneProposalsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.LaneProposal]{MsgSize: maxBlockMsgSize, Window: 5},
+	rpc.Msg[*pb.LaneProposal]{MsgSize: 2 * MB, Window: 5},
 )
 var StreamLaneVotes = rpc.Register[API](2, "stream_lane_votes",
 	rpc.Limit{Rate: 1, Concurrent: 1},
@@ -60,5 +57,5 @@ var GetBlock = rpc.Register[API](8, "get_block",
 	// TODO: bumped from 10 to unblock the giga testnet for now. Proper capacity planning later.
 	rpc.Limit{Rate: 200, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
-	rpc.Msg[*pb.GetBlockResp]{MsgSize: maxBlockMsgSize, Window: 1},
+	rpc.Msg[*pb.GetBlockResp]{MsgSize: 2 * MB, Window: 1},
 )

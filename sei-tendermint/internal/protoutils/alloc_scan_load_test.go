@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	maxTxsPerBlock  = 10000                            // Payload.txs max_count
-	maxTotalTxBytes = 5242880                          // Payload.txs max_total_size
-	maxBytesPerTx   = maxTotalTxBytes / maxTxsPerBlock // 524
+	maxTxsPerBlock  = 2000                             // Payload.txs max_count
+	maxTotalTxBytes = 2048000                          // Payload.txs max_total_size
+	maxBytesPerTx   = maxTotalTxBytes / maxTxsPerBlock // 1024
 )
 
 // maxBlock builds a Block at the wireguard limits: maxTxsPerBlock transactions
@@ -54,9 +54,9 @@ func TestUnmarshalWithLimit_MaxBlockAccepted(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("max block wire size: %d bytes", len(bz))
 
-	// Limit is 2× the max tx payload, leaving room for header overhead
+	// Limit is 4MB: 2× the 2MB tx payload, leaving room for header overhead
 	// and the ~8× varint amplification in the worst case.
-	const limitBytes = 2 * maxTotalTxBytes
+	const limitBytes = 4 << 20
 	_, err = protoutils.UnmarshalWithLimit[*autopb.Block](bz, limitBytes)
 	require.NoError(t, err, "legitimately max-sized block must be accepted")
 }
