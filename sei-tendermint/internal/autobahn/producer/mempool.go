@@ -107,12 +107,13 @@ func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *m
 }
 
 // close ends the session and fails every blocked InsertTx call with ErrNotProducing.
-func (m *mempoolInner) close(ctrl *utils.WatchCtrl) {
+func (mp *mempool) close(m *mempoolInner, ctrl *utils.WatchCtrl) {
 	m.closed = true
 	for _, t := range m.waiters {
 		t.finish(ErrNotProducing)
 	}
 	m.waiters = nil
+	mp.pendingInserts.Store(0)
 	ctrl.Updated()
 }
 
@@ -473,14 +474,16 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		if m.closed {
 			return nil, ErrNotProducing
 		}
-		if m.IsFull() && !waitIfFull {
-			return nil, errMempoolFull
-		}
+		s.drainWaiters(mp, m, ctrl)
 		if !m.IsFull() && len(m.waiters) == 0 {
 			if err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first); err != nil {
 				return nil, err
 			}
 			return resp.ResponseCheckTx, nil
+		}
+		// A call that may not wait never joins the queue, and never jumps ahead of it.
+		if !waitIfFull {
+			return nil, errMempoolFull
 		}
 		if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
 			return nil, errPendingFull
@@ -492,7 +495,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		mp.enqueue(m, ticket)
 		s.drainWaiters(mp, m, ctrl)
 	}
-	defer func() { metrics.ObserveCapacityWait(waited, 1) }()
+	defer func() { metrics.ObserveCapacityWait(waited) }()
 	leaveAdmit()
 	d, waitErr := ticket.waitForCapacity(ctx)
 	waited += d

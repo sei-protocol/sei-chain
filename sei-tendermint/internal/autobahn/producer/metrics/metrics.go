@@ -21,8 +21,6 @@ type metrics struct {
 	capacityWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.0001, 2, 30)"`
 	// Time an insert spent acquiring and holding the mempool lock, excluding time spent waiting for capacity.
 	admitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.000001, 2, 30)"`
-	// Number of times a blocked insert woke up and found the mempool still full.
-	capacityWaitWakeups prometheus.CounterIntVec
 	// Number of inserts currently in the given phase.
 	inFlight prometheus.GaugeIntVec `metrics_labels:"phase"`
 	// Number of finished inserts by outcome.
@@ -71,10 +69,9 @@ func ObserveCheckTx(d time.Duration) { Global.checkTxLatencyAt().Observe(d.Secon
 // ObserveNonceLookup records the duration of one app nonce lookup.
 func ObserveNonceLookup(d time.Duration) { Global.nonceLookupLatencyAt().Observe(d.Seconds()) }
 
-// ObserveCapacityWait records the total time one insert waited for capacity and how many times it woke up.
-func ObserveCapacityWait(d time.Duration, wakeups int64) {
+// ObserveCapacityWait records the total time one insert waited for capacity.
+func ObserveCapacityWait(d time.Duration) {
 	Global.capacityWaitLatencyAt().Observe(d.Seconds())
-	Global.capacityWaitWakeupsAt().Add(wakeups)
 }
 
 // ObserveAdmit records the time one insert spent in the locked admission section.

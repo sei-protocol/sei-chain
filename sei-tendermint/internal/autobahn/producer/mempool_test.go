@@ -889,6 +889,29 @@ func TestInsertTx_FreedBlockAdmitsTheWholeQueue(t *testing.T) {
 	}))
 }
 
+// Closing the session fails every queued InsertTx call and empties the queue.
+func TestInsertTx_CloseFailsTheQueuedInserts(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 3, ErrNotProducing); err != nil {
+			return err
+		}
+		for m, ctrl := range mp.inner.Lock() {
+			mp.close(m, ctrl)
+		}
+		if got := mp.pendingInserts.Load(); got != 0 {
+			return fmt.Errorf("pending after close: got %d, want 0", got)
+		}
+		return nil
+	}))
+}
+
 // A cancelled waiter leaves the queue without holding up the ones behind it.
 func TestInsertTx_CancelledWaiterLeavesQueue(t *testing.T) {
 	ctx := t.Context()
