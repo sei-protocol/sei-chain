@@ -42,7 +42,9 @@ func (g govPrecompile) EndBlock(block precompiles.BlockContext, state precompile
 	if !gov.HasParams(state) {
 		gov.SetParams(state, g.params)
 		if g.startingProposalID != 0 {
-			gov.SetStartingProposalID(state, g.startingProposalID)
+			if err := gov.SetStartingProposalID(state, g.startingProposalID); err != nil {
+				return err
+			}
 		}
 	}
 	return g.Precompile.EndBlock(block, state)
