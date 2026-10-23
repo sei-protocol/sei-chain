@@ -43,7 +43,6 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
-	proxySenders     []common.Address
 	storage          func(common.Address, common.Hash) (common.Hash, error)
 	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	transactionCount func(common.Address) uint64
@@ -126,9 +125,8 @@ func (b *testBackend) EvmMinGasPrice() (*big.Int, error) {
 	return b.minGasPrice()
 }
 
-func (b *testBackend) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
+func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	b.proxyCalls++
-	b.proxySenders = append(b.proxySenders, sender)
 	return b.proxy
 }
 
