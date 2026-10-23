@@ -5,7 +5,6 @@ go 1.27.3
 require (
 	cosmossdk.io/errors v1.0.2
 	github.com/99designs/keyring v1.2.1
-	github.com/BurntSushi/toml v1.5.0
 	github.com/adlio/schema v1.3.9
 	github.com/alitto/pond v1.8.3
 	github.com/armon/go-metrics v0.4.1
@@ -54,7 +53,6 @@ require (
 	github.com/linxGnu/grocksdb v1.8.11
 	github.com/magiconair/properties v1.8.10
 	github.com/mattn/go-isatty v0.0.20
-	github.com/mroth/weightedrand v1.0.0
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/patrickmn/go-cache v2.1.0+incompatible
