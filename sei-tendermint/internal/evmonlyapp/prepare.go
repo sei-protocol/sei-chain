@@ -22,9 +22,9 @@ const (
 	preparePhaseParse = "parse"
 	preparePhaseWarm  = "warm_accounts"
 
-	// maxPreparedBlocks bounds the prepared blocks held: the block about to execute
-	// and the one after it.
-	maxPreparedBlocks = 2
+	// maxPreparedBlocks bounds the prepared global blocks held ahead of execution.
+	// At 100 blocks per second it holds one second of decoded transactions.
+	maxPreparedBlocks = 100
 )
 
 // MaxPreparedBlocks is the prepared-block bound in use; it defaults to maxPreparedBlocks.
@@ -81,14 +81,13 @@ func newPreparedBlocksCounter(meter otelmetric.Meter) otelmetric.Int64Counter {
 }
 
 // PrepareBlock decodes a block's transactions and recovers their senders before
-// FinalizeBlock is called for it, so that work runs while the previous block
-// executes. It may run concurrently with FinalizeBlock. A prepared block is kept,
-// at most maxPreparedBlocks at a time, until FinalizeBlock takes it or its height
-// can no longer execute, and FinalizeBlock uses it only for the same height and
-// hash. Preparing the wrong block costs only the work, and the senders CheckTx
-// cached stay cached until a prepared block is consumed. Anything that would fail
-// the block is left for FinalizeBlock to report; the only error returned is ctx
-// ending.
+// FinalizeBlock is called for it. It may run concurrently with FinalizeBlock.
+// A prepared block is kept, at most maxPreparedBlocks at a time, until
+// FinalizeBlock takes it or its height can no longer execute, and FinalizeBlock
+// uses it only for the same height and hash. Preparing the wrong block costs
+// only the work, and the senders CheckTx cached stay cached until a prepared
+// block is consumed. Anything that would fail the block is left for
+// FinalizeBlock to report; the only error returned is ctx ending.
 func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.RequestFinalizeBlock) error {
 	executor, ok := a.settler.Load().Get()
 	if !ok {
