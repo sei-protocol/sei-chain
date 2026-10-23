@@ -2731,3 +2731,7 @@ func (r staticPrecompileRegistry) Get(addr common.Address) (precompiles.Contract
 func (r staticPrecompileRegistry) Addresses() []common.Address {
 	return []common.Address{r.addr}
 }
+
+func (staticPrecompileRegistry) EndBlockers() []common.Address {
+	return nil
+}
