@@ -156,7 +156,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	defer func() {
 		err = errors.Join(err, storage.Close())
 	}()
-	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
+	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder()
 	genesisChanges, err := changeSetEncoder(state.changeSet())
 	if err != nil {
 		return fmt.Errorf("encode generated genesis state: %w", err)
