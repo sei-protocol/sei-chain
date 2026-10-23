@@ -51,17 +51,18 @@ func (s *Store) GetRollbackFloor(rollbackWindow uint64) uint64 {
 }
 
 // GetLatestBlock returns the newest block number written, or 0 when none has been. It reports the
-// written cursor rather than the flushed one, so a block a crash would lose still counts as ingested.
+// written status rather than the flushed one, so a block a crash would lose still counts as ingested.
 //
 // Global block numbers start at genesis block 0, so a store holding only that block is
 // indistinguishable from an empty one.
 func (s *Store) GetLatestBlock() (uint64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if status, ok := s.status.Get(); ok && types.GlobalBlockNumber(s.db.GetPruneWatermark()) < status.NextBlock {
-		return uint64(status.NextBlock - 1), nil
+	for status := range s.status.Lock() {
+		if current, ok := status.Get(); ok && types.GlobalBlockNumber(s.db.GetPruneWatermark()) < current.NextBlock {
+			return uint64(current.NextBlock - 1), nil
+		}
+		return 0, nil
 	}
-	return 0, nil
+	panic("unreachable")
 }
 
 // clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
