@@ -91,8 +91,8 @@ func TestGenAutobahnConfigRejectsBadEVMGovernance(t *testing.T) {
 		"shared voter": {"--evm-governance-voting-period", "40s",
 			genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
 			genNodeDir(t, "node1", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
-		"fractional period":     {"--evm-governance-voting-period", "2500ms", genNodeDir(t, "node0", "0x01")},
-		"period below two":      {"--evm-governance-voting-period", "1s", genNodeDir(t, "node0", "0x01")},
+		"fractional period":     {"--evm-governance-voting-period", "2500ms", genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
+		"period below two":      {"--evm-governance-voting-period", "1s", genNodeDir(t, "node0", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")},
 		"start without enabled": {"--evm-governance-starting-proposal-id", "5", genNodeDir(t, "node0", "")},
 	} {
 		_, err := runGenAutobahnConfig(t, args...)
