@@ -115,25 +115,9 @@ func newFlatKVChangeSetBuilder(changes StateChangeSet, clearPairs []*proto.KVPai
 
 // fill encodes every balance, nonce, code and storage change into its place.
 func (b *flatKVChangeSetBuilder) fill(changes StateChangeSet) {
-	balances, nonces, code := len(changes.Balances), len(changes.Nonces), len(changes.Code)
-	nonceStart, codeStart, storageStart := balances, balances+nonces, balances+nonces+code
-	total := storageStart + len(changes.Storage)
-	encodeRange := func(start, end int) {
-		for i := start; i < end; i++ {
-			switch {
-			case i < nonceStart:
-				b.encodeBalance(i, changes.Balances[i])
-			case i < codeStart:
-				b.encodeNonce(balances, i-nonceStart, changes.Nonces[i-nonceStart])
-			case i < storageStart:
-				b.encodeCode(balances, nonces, i-codeStart, changes.Code[i-codeStart])
-			default:
-				b.encodeStorage(balances, nonces, code, i-storageStart, changes.Storage[i-storageStart])
-			}
-		}
-	}
+	total := flatKVChangeCount(changes)
 	if total < 2*flatKVParallelEncodeChunk {
-		encodeRange(0, total)
+		b.encodeRange(changes, 0, total)
 		return
 	}
 	var claimed atomic.Int64
@@ -148,11 +132,35 @@ func (b *flatKVChangeSetBuilder) fill(changes StateChangeSet) {
 				if start >= total {
 					return
 				}
-				encodeRange(start, min(start+flatKVParallelEncodeChunk, total))
+				b.encodeRange(changes, start, min(start+flatKVParallelEncodeChunk, total))
 			}
 		}()
 	}
 	wg.Wait()
+}
+
+// flatKVChangeCount is the number of balance, nonce, code and storage changes fill encodes.
+func flatKVChangeCount(changes StateChangeSet) int {
+	return len(changes.Balances) + len(changes.Nonces) + len(changes.Code) + len(changes.Storage)
+}
+
+// encodeRange encodes changes [start, end) of the block's balance, nonce, code and storage changes,
+// taken in that order.
+func (b *flatKVChangeSetBuilder) encodeRange(changes StateChangeSet, start, end int) {
+	balances, nonces, code := len(changes.Balances), len(changes.Nonces), len(changes.Code)
+	nonceStart, codeStart, storageStart := balances, balances+nonces, balances+nonces+code
+	for i := start; i < end; i++ {
+		switch {
+		case i < nonceStart:
+			b.encodeBalance(i, changes.Balances[i])
+		case i < codeStart:
+			b.encodeNonce(balances, i-nonceStart, changes.Nonces[i-nonceStart])
+		case i < storageStart:
+			b.encodeCode(balances, nonces, i-codeStart, changes.Code[i-codeStart])
+		default:
+			b.encodeStorage(balances, nonces, code, i-storageStart, changes.Storage[i-storageStart])
+		}
+	}
 }
 
 func (b *flatKVChangeSetBuilder) encodeBalance(i int, change BalanceChange) {
