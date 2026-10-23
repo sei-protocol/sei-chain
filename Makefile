@@ -165,9 +165,6 @@ install-rocksdb: go.sum
 	go install $(BUILD_FLAGS) -tags "$(build_tags) rocksdbBackend" ./cmd/seid
 	@echo "seid installed with RocksDB backend support!"
 
-loadtest: go.sum
-		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
-
 go.sum: go.mod
 		@echo "--> Ensure dependencies have not been modified"
 		@go mod verify
@@ -217,10 +214,6 @@ build-verbose:
 clean:
 	rm -rf ./build
 .PHONY: clean
-
-build-loadtest:
-	go build -o build/loadtest ./loadtest/
-.PHONY: build-loadtest
 
 build-evmonly-loadtest:
 	mkdir -p ./build

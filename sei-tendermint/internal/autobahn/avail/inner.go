@@ -239,13 +239,13 @@ func (i *inner) advanceEpoch(ep *types.Epoch) {
 // advanceTarget is the epoch to install next: the epoch of the road following
 // the durable tip, or applied+1 while that road is still inside the applied
 // epoch.
-func (i *inner) advanceTarget() types.EpochIndex {
+func (i *inner) advanceTarget(registry *epoch.Registry) types.EpochIndex {
 	next := i.applied().EpochIndex() + 1
 	tip, ok := i.persistedCommitQC.Load().Get()
 	if !ok {
 		return next
 	}
-	return max(next, epoch.IndexForRoad(tip.Index()+1))
+	return max(next, registry.IndexForRoad(tip.Index()+1))
 }
 
 // canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is

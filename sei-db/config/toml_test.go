@@ -49,6 +49,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-historical-proof-max-inflight =", "Missing sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit =", "Missing sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst =", "Missing sc-historical-proof-burst")
+	require.Contains(t, output, "sc-enable-state-proof =", "Missing sc-enable-state-proof")
 	require.Contains(t, output, "sc-subspace-query-max-inflight =", "Missing sc-subspace-query-max-inflight")
 	require.Contains(t, output, "sc-subspace-max-pairs =", "Missing sc-subspace-max-pairs")
 	require.Contains(t, output, "sc-subspace-max-bytes =", "Missing sc-subspace-max-bytes")
@@ -182,9 +183,7 @@ func TestWriteModeValues(t *testing.T) {
 		{types.MemiavlOnly, "memiavl_only"},
 		{types.MigrateEVM, "migrate_evm"},
 		{types.EVMMigrated, "evm_migrated"},
-		{types.MigrateAllButBank, "migrate_all_but_bank"},
-		{types.AllMigratedButBank, "all_migrated_but_bank"},
-		{types.MigrateBank, "migrate_bank"},
+		{types.MigrateCosmos, "migrate_cosmos"},
 		{types.FlatKVOnly, "flatkv_only"},
 		{types.TestOnlyDualWrite, "test_only_dual_write"},
 		{types.Auto, "auto"},
@@ -210,9 +209,7 @@ func TestParseWriteMode(t *testing.T) {
 		{"memiavl_only", types.MemiavlOnly, false},
 		{"migrate_evm", types.MigrateEVM, false},
 		{"evm_migrated", types.EVMMigrated, false},
-		{"migrate_all_but_bank", types.MigrateAllButBank, false},
-		{"all_migrated_but_bank", types.AllMigratedButBank, false},
-		{"migrate_bank", types.MigrateBank, false},
+		{"migrate_cosmos", types.MigrateCosmos, false},
 		{"flatkv_only", types.FlatKVOnly, false},
 		{"test_only_dual_write", types.TestOnlyDualWrite, false},
 		{"auto", types.Auto, false},

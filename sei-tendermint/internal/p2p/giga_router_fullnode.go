@@ -85,7 +85,7 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // it. A live connection is not dropped just because the epoch advanced.
 //
 // TODO(autobahn-state-sync): block sync from a single peer is bounded by
-// GetBlock's per-stream rate limit (rpc.Limit{Rate:10, Concurrent:10}) —
+// GetBlock's per-stream rate limit (rpc.Limit{Rate:200, Concurrent:10}) —
 // initial catch-up of a fresh node joining an established cluster is
 // slow. Long-term fix is autobahn snapshot transfer (CometBFT-style state
 // sync). This loop is correct for "fresh cluster" and "restart of a

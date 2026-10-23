@@ -70,7 +70,7 @@ func TestResolveAutobahnLayoutEpochRegistryFiles(t *testing.T) {
 	require.NoError(t, err)
 
 	committee, _ := atypes.GenCommittee(utils.TestRng(), 4)
-	_, err = epoch.NewRegistry(committee, 1, time.Time{}, utils.Some(psd))
+	_, err = epoch.NewRegistry(committee, 1, 1, time.Time{}, utils.Some(psd))
 	require.NoError(t, err)
 
 	entries, err := os.ReadDir(filepath.Join(psd, "epochs"))

@@ -11,7 +11,7 @@ const (
 	DefaultQueryMaxIterations = DefaultQueryMaxOffset + DefaultQueryMaxLimit
 )
 
-// QueryConfig holds node-local ABCI/gRPC pagination limits. Runtime reads go
+// QueryConfig holds node-local ABCI query pagination limits. Runtime reads go
 // through baseapp.readQueryConfig; this type supplies template defaults and the
 // GetConfig absent-key baseline only.
 type QueryConfig struct {
@@ -19,10 +19,9 @@ type QueryConfig struct {
 	DisableLimits bool `mapstructure:"disable-limits"`
 
 	// TrustedCIDRs is a CIDR allowlist whose callers receive unlimited pagination.
-	// Matching uses the direct TCP peer (Tendermint RPC RemoteAddr or gRPC peer
-	// address), not forwarded headers. It applies only to abci_query on the
-	// Tendermint RPC listener and to queries on grpc.address; REST/LCD on
-	// api.address relays queries in-process without caller origin.
+	// Matching uses the direct TCP peer (Tendermint RPC RemoteAddr), not forwarded
+	// headers. It applies only to abci_query on the Tendermint RPC listener;
+	// REST/LCD on api.address relays queries in-process without caller origin.
 	TrustedCIDRs []string `mapstructure:"trusted-cidrs"`
 
 	// MaxLimit is the maximum page size for untrusted query origins.

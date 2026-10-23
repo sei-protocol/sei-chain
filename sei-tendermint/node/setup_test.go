@@ -46,7 +46,7 @@ func makeValidator(valSeed, nodeSeed []byte, address string) config.AutobahnVali
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
 		Address:      hp,
-		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("http://" + address))},
+		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("ws://" + address))},
 	}
 }
 
@@ -383,6 +383,7 @@ func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	require.Nil(t, manager.SS())
 	require.NotNil(t, manager.ReceiptDB())
 	require.Equal(t, "evmonly", prepared.Info().Data)
+	require.True(t, proxy.New(prepared).EVM().IsPresent())
 	validators := prepared.GetValidators()
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)

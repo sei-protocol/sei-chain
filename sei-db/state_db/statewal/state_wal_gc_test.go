@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 // openWALForGC opens a WAL and returns it as the collector sees it, closing it on cleanup.
@@ -35,7 +35,7 @@ func TestGCLatestBlockFollowsWrittenBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
 
-	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{makeChangeSet("evm", []byte{3}, []byte{3})}))
+	require.NoError(t, w.Write(3, []mutation.Mutation{makeMutation("bank", []byte{3}, []byte{3})}))
 	latest, err = store.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
@@ -164,8 +164,8 @@ func TestGCConcurrentWithWriter(t *testing.T) {
 		defer close(done)
 		for block := uint64(1); block <= blocks; block++ {
 			// Assertions are not allowed off the main test goroutine; fail loudly instead.
-			cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
-			if err := w.Write(block, cs); err != nil {
+			mutations := []mutation.Mutation{makeMutation("bank", []byte{byte(block)}, []byte{byte(block)})}
+			if err := w.Write(block, mutations); err != nil {
 				panic(err)
 			}
 		}

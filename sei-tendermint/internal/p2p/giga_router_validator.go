@@ -38,7 +38,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if self.Key != key.Public() {
 		return nil, fmt.Errorf("local validator node key = %v, want %v", self.Key, key.Public())
 	}
-	if err := utils.CheckHTTPURL(self.EVMRPC); err != nil {
+	if err := utils.CheckRPCURL(self.EVMRPC); err != nil {
 		return nil, fmt.Errorf("local validator %v evmrpc: %w", validatorKey, err)
 	}
 	selfAddr := NodeAddress{
