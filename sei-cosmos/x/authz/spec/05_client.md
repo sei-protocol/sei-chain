@@ -93,48 +93,6 @@ Example:
 simd tx authz revoke cosmos1.. /cosmos.bank.v1beta1.MsgSend --from=cosmos1..
 ```
 
-## gRPC
-
-A user can query the `authz` module using gRPC endpoints.
-
-### Grants
-
-The `Grants` endpoint allows users to query grants for a granter-grantee pair. If the message type URL is set, it selects grants only for that message type.
-
-```bash
-cosmos.authz.v1beta1.Query/Grants
-```
-
-Example:
-
-```bash
-grpcurl -plaintext \
-    -d '{"granter":"cosmos1..","grantee":"cosmos1..","msg_type_url":"/cosmos.bank.v1beta1.MsgSend"}' \
-    localhost:9090 \
-    cosmos.authz.v1beta1.Query/Grants
-```
-
-Example Output:
-
-```bash
-{
-  "grants": [
-    {
-      "authorization": {
-        "@type": "/cosmos.bank.v1beta1.SendAuthorization",
-        "spendLimit": [
-          {
-            "denom":"usei",
-            "amount":"100"
-          }
-        ]
-      },
-      "expiration": "2022-01-01T00:00:00Z"
-    }
-  ]
-}
-```
-
 ## REST
 
 A user can query the `authz` module using REST endpoints.
