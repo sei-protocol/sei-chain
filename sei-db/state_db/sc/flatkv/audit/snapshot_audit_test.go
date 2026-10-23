@@ -363,5 +363,5 @@ func storageDeletePair(addr ktype.Address, slot ktype.Slot) *proto.KVPair {
 
 // storagePhysKey returns the key a storage slot is stored under in the storage database.
 func storagePhysKey(addr ktype.Address, slot ktype.Slot) []byte {
-	return ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	return ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 }
