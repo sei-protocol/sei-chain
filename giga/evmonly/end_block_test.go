@@ -222,7 +222,7 @@ func TestMergeChangeSet(t *testing.T) {
 			{Address: c, Key: testHash(9), Value: testHash(0x39)},
 		},
 	}
-	require.NoError(t, mergeChangeSet(&dst, later))
+	mergeChangeSet(&dst, later)
 	require.Equal(t, StateChangeSet{
 		Balances: []BalanceChange{
 			{Address: a, Balance: big.NewInt(1), PriorBalance: big.NewInt(0)},
@@ -238,6 +238,4 @@ func TestMergeChangeSet(t *testing.T) {
 			{Address: c, Key: testHash(9), Value: testHash(0x39)},
 		},
 	}, dst)
-
-	require.ErrorIs(t, mergeChangeSet(&dst, StateChangeSet{StorageClears: []common.Address{a}}), errEndBlockClearedStorage)
 }

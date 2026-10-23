@@ -8,24 +8,13 @@ import "errors"
 // means the height is below the retention / eviction floor.
 var ErrNotFound = errors.New("not found")
 
-// ErrBlockGap is returned when persisted blocks are not contiguous. WriteBlock
-// rejects gapped writes, so a gap on disk indicates store corruption.
+// ErrBlockGap indicates that persisted blocks are not contiguous.
 var ErrBlockGap = errors.New("block gap in BlockDB")
-
-// ErrBlockOutOfOrder is returned by WriteBlock when the supplied
-// GlobalBlockNumber is not exactly one greater than the previously written
-// block number. Blocks must be written densely ascending.
-var ErrBlockOutOfOrder = errors.New("block: WriteBlock out of order")
 
 // ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First
 // does not equal the previous QC's GlobalRange().Next. QCs must be written as
 // a contiguous, ascending sequence.
 var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
-
-// ErrBlockMissingQC is returned by WriteBlock when no previously written QC
-// covers the block's GlobalBlockNumber. A QC covering a block must be written
-// before that block (see the BlockDB ordering contract).
-var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
 // ErrAppProposalNonContiguous is returned by WriteAppProposal when the supplied
 // AppProposal does not extend the existing AppProposal prefix. AppProposals must
@@ -64,3 +53,6 @@ var ErrAppQCMissingQC = errors.New("block: WriteAppQC without matching CommitQC"
 // may afterward read as present (or as utils.None). Callers should treat
 // ErrPruned as "not currently served," not as a guarantee the record is gone.
 var ErrPruned = errors.New("pruned: below retention watermark")
+
+// ErrQCBlocksMismatch indicates that blocks do not match a QC's complete header list.
+var ErrQCBlocksMismatch = errors.New("QC blocks do not match headers")

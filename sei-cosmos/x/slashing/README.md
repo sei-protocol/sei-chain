@@ -1,8 +1,6 @@
 # x/slashing
 
 ## Overview
-To understand how the original slashing module works in general, please refer to: [slashing spec](https://github.com/sei-protocol/sei-cosmos/tree/main/x/slashing/spec).
-
 The slashing module enables Cosmos SDK-based blockchains to disincentivize any attributable action
 by a protocol-recognized actor with value at stake by penalizing them ("slashing").
 
