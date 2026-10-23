@@ -35,6 +35,11 @@ import (
 // you need more.
 const maxInboundFullnodePeers = 10000
 
+// prepareAheadBlocks is how many global blocks above the execute cursor may be
+// decoded. A height in that window is prepared as soon as its block is stored,
+// and the height just beyond it waits until one of these is executed.
+const prepareAheadBlocks = 100
+
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
 type gigaRouterCommon struct {
@@ -263,15 +268,9 @@ func (r *gigaRouterCommon) proposerAddress() (types.Address, error) {
 	return key.Address(), nil
 }
 
-// fetchedBlock is a global block with the FinalizeBlock request built for it.
-type fetchedBlock struct {
-	block *atypes.GlobalBlock
-	req   *abci.RequestFinalizeBlock
-}
-
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
-	b := f.block
+	req := r.finalizeRequest(b)
 	// Read from the app's state on the execute loop, after the previous block's Commit.
 	// WARNING: the reward distribution has corner cases where it forgets the proposer,
 	// because reward is distributed with a delay. This is not our problem here though.
@@ -279,8 +278,8 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, has
 	if err != nil {
 		return nil, err
 	}
-	f.req.Header.ProposerAddress = proposer
-	resp, err := app.FinalizeBlock(ctx, f.req)
+	req.Header.ProposerAddress = proposer
+	resp, err := app.FinalizeBlock(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -491,37 +490,47 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	}
 
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Blocks are fetched and prepared one ahead of execution: the unbuffered
-		// channel lets the fetcher hold block n+1, already prepared, while the
-		// loop below executes block n.
-		blocks := make(chan fetchedBlock)
+		// The execute cursor opens the next prepareAheadBlocks heights. Each height
+		// is prepared when its own block is stored, including a gap-fill, and
+		// execution below still waits for the contiguous prefix.
+		executedNext := utils.NewAtomicSend(next)
 		s.Spawn(func() error {
-			for n := next; ; n += 1 {
-				b, err := r.data.GlobalBlock(ctx, n)
+			started := next
+			cursor := executedNext.Subscribe()
+			for {
+				tip, err := cursor.Wait(ctx, func(n atypes.GlobalBlockNumber) bool {
+					return started < n+prepareAheadBlocks
+				})
 				if err != nil {
-					return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
-				}
-				req := r.finalizeRequest(b)
-				if err := app.PrepareBlock(ctx, req); err != nil {
-					return fmt.Errorf("app.PrepareBlock(%v): %w", n, err)
-				}
-				if err := utils.Send(ctx, blocks, fetchedBlock{block: b, req: req}); err != nil {
 					return err
+				}
+				for limit := tip + prepareAheadBlocks; started < limit; started++ {
+					h := started
+					s.Spawn(func() error {
+						b, err := r.data.AvailableGlobalBlock(ctx, h)
+						if err != nil {
+							return err
+						}
+						if err := app.PrepareBlock(ctx, r.finalizeRequest(b)); err != nil {
+							return fmt.Errorf("app.PrepareBlock(%v): %w", h, err)
+						}
+						return nil
+					})
 				}
 			}
 		})
-		for {
+		for n := next; ; n++ {
 			gigametrics.SetPhase(gigametrics.PhaseConsensus)
-			f, err := utils.Recv(ctx, blocks)
+			b, err := r.data.GlobalBlock(ctx, n)
 			if err != nil {
-				return err
+				return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 			}
-			n := f.block.GlobalNumber
 			gigametrics.SetPhase(gigametrics.PhaseExecution)
-			commitResp, err := r.executeBlock(ctx, f, hashVault)
+			commitResp, err := r.executeBlock(ctx, b, hashVault)
 			if err != nil {
 				return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 			}
+			executedNext.Store(n + 1)
 			pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 			if !ok {
 				return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)

@@ -631,6 +631,24 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 	return s.globalBlockFromDB(n)
 }
 
+// AvailableGlobalBlock returns a global block once its block and covering QC
+// are available, including a gap-fill above the contiguous prefix.
+func (s *State) AvailableGlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if n < inner.first {
+			break
+		}
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_, ok := inner.blocks[n]
+			return ok
+		}); err != nil {
+			return nil, err
+		}
+		return assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n].qc), nil
+	}
+	return s.globalBlockFromDB(n)
+}
+
 func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
 	opt, err := s.blockStore.ReadBlockByNumber(n)
 	if err != nil {

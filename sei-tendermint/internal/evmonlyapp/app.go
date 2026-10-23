@@ -852,6 +852,9 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 // decoded this block, and decodes it here otherwise.
 func (a *evmOnlyApplication) executeBlock(ctx context.Context, executor *evmonly.Executor, txs [][]byte, block finalizeRequest, blockCtx evmonly.BlockContext) (*evmonly.BlockResult, error) {
 	prepared, hit := a.takePrepared(block.height, block.blockHash)
+	if hit && !slices.Equal(prepared.txHashes, hashRawTxs(txs)) {
+		hit = false
+	}
 	a.preparedBlocks.Add(ctx, 1, otelmetric.WithAttributes(attribute.Bool("prepared", hit)))
 	a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 	if !hit {

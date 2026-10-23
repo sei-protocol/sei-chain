@@ -48,14 +48,14 @@ func decodeEVMOnlyTestTx(t *testing.T, raw []byte) *ethtypes.Transaction {
 	return tx
 }
 
-func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, common.Address) {
+func signedEVMOnlyTestTx(t testing.TB, chainID uint64, nonce uint64) ([]byte, common.Address) {
 	t.Helper()
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	return signedEVMOnlyTestTxFrom(t, key, chainID, nonce), crypto.PubkeyToAddress(key.PublicKey)
 }
 
-func signedEVMOnlyTestTxFrom(t *testing.T, key *ecdsa.PrivateKey, chainID uint64, nonce uint64) []byte {
+func signedEVMOnlyTestTxFrom(t testing.TB, key *ecdsa.PrivateKey, chainID uint64, nonce uint64) []byte {
 	t.Helper()
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
@@ -83,7 +83,7 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
 	}
 }
 
-func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
+func finalizeAndCommitEVMOnlyTestBlock(t testing.TB, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
 	t.Helper()
 	response, err := app.FinalizeBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func evmOnlyTestInitChain() *abci.RequestInitChain {
 	}
 }
 
-func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
+func newInitializedEVMOnlyTestApp(t testing.TB) abci.Application {
 	t.Helper()
 	app := newEVMOnlyTestApp(t, nil)
 	_, err := app.InitChain(evmOnlyTestInitChain())
@@ -162,13 +162,13 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	return app
 }
 
-func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
+func newEVMOnlyTestApp(t testing.TB, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
 	return newEVMOnlyTestAppWithExecution(t, validators, gigaconfig.DefaultConfig.Execution)
 }
 
 func newEVMOnlyTestAppWithExecution(
-	t *testing.T,
+	t testing.TB,
 	validators []abci.ValidatorUpdate,
 	execution gigaconfig.ExecutionConfig,
 ) abci.Application {
@@ -179,7 +179,7 @@ func newEVMOnlyTestAppWithExecution(
 }
 
 func newEVMOnlyTestAppWithStorage(
-	t *testing.T,
+	t testing.TB,
 	validators []abci.ValidatorUpdate,
 	execution gigaconfig.ExecutionConfig,
 	storageConfig *seidbconfig.GigaStorageConfig,
@@ -201,7 +201,7 @@ func newEVMOnlyTestAppWithStorage(
 // openEVMOnlyTestStorage opens Giga storage that outlives the test body: the
 // last block's commit may still be landing when it ends, and it is settled from
 // a cleanup, which runs after t.Context() is cancelled.
-func openEVMOnlyTestStorage(t *testing.T, storageConfig *seidbconfig.GigaStorageConfig) *bootstrap.GigaStorageManager {
+func openEVMOnlyTestStorage(t testing.TB, storageConfig *seidbconfig.GigaStorageConfig) *bootstrap.GigaStorageManager {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -226,7 +226,7 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 // store is empty, so a reopen skips recovery, and the app hash builder resumes
 // at the state's height only when it holds the app hashes up to it. A node
 // lowers its recovery target to the app hashes it holds instead.
-func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
+func closeEVMOnlyTestApp(t testing.TB, app abci.Application, storage *bootstrap.GigaStorageManager) {
 	t.Helper()
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
@@ -1172,6 +1172,32 @@ func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherHash(t *testing.T) {
 	require.True(t, ok)
 }
 
+// The same height and block hash with another transaction list is decoded again.
+func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherTransactionList(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	preparedTx, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	executedTx, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	preparedBlock := evmOnlyTestBlock(1, preparedTx)
+	executed := evmOnlyTestBlock(1, executedTx)
+	require.Equal(t, preparedBlock.Hash, executed.Hash)
+	require.NoError(t, preparedApp.PrepareBlock(t.Context(), preparedBlock))
+
+	preparedHash := finalizeAndCommitEVMOnlyTestBlock(t, prepared, executed)
+	unpreparedHash := finalizeAndCommitEVMOnlyTestBlock(t, unprepared, executed)
+	require.Equal(t, unpreparedHash, preparedHash)
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(0), counts[true])
+	require.Equal(t, int64(1), counts[false])
+}
+
 // A block PrepareBlock cannot decode is reported by FinalizeBlock, the same as
 // when nobody prepared it.
 func TestEVMOnlyApplicationReportsAnUndecodableBlockFromFinalizeBlock(t *testing.T) {
@@ -1304,17 +1330,17 @@ func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
 	q.put(block(5, 1), 5)
 	q.put(block(7, 1), 5)
 	q.put(block(6, 1), 5)
-	require.Equal(t, []preparedBlock{block(5, 1), block(6, 1)}, contents(q))
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 1), block(7, 1)}, contents(q))
 
 	q.put(block(6, 2), 5)
-	require.Equal(t, []preparedBlock{block(5, 1), block(6, 2)}, contents(q))
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 2), block(7, 1)}, contents(q))
 
 	q.put(block(8, 1), 6)
-	require.Equal(t, []preparedBlock{block(6, 2), block(8, 1)}, contents(q))
+	require.Equal(t, []preparedBlock{block(6, 2), block(7, 1), block(8, 1)}, contents(q))
 
 	_, ok := q.take(6, common.Hash{1})
 	require.False(t, ok)
-	require.Equal(t, []preparedBlock{block(6, 2), block(8, 1)}, contents(q))
+	require.Equal(t, []preparedBlock{block(6, 2), block(7, 1), block(8, 1)}, contents(q))
 
 	got, ok := q.take(8, common.Hash{1})
 	require.True(t, ok)
@@ -1479,4 +1505,168 @@ func TestPreparedQueueReleasesAnEvictedBlock(t *testing.T) {
 	for _, evicted := range q[len(q):cap(q)] {
 		require.Nil(t, evicted.txs, "an evicted block must not stay reachable through the queue's backing array")
 	}
+}
+
+// BenchmarkCatchUpSenderRecovery compares recovery while a validator catches up
+// five minutes at 100 blocks per second. Fetches deliver up to 200 blocks, ten
+// at a time, in a slightly out-of-order sequence. It models each ordered
+// execution phase as ten milliseconds rather than executing EVM transactions.
+// Run with -benchtime=1x so benchmark calibration does not change the fixed
+// catch-up range.
+func BenchmarkCatchUpSenderRecovery(b *testing.B) {
+	const (
+		blocks                   = 5 * 60 * 100
+		txsPerBlock              = 2_000
+		maxBlocksPerFetch        = 200
+		concurrentBlockFetches   = 10
+		prepareAheadBlockWindow  = 100
+		executionBlocksPerSecond = 100
+	)
+	key, err := crypto.GenerateKey()
+	require.NoError(b, err)
+	txs := make([][]byte, txsPerBlock)
+	for i := range txs {
+		txs[i] = signedEVMOnlyTestTxFrom(b, key, evmOnlyTestChainID, uint64(i)) //nolint:gosec // benchmark counters are non-negative.
+	}
+	requests := make([]*abci.RequestFinalizeBlock, blocks)
+	for height := range requests {
+		requests[height] = evmOnlyTestBlock(int64(height+1), txs...) //nolint:gosec // benchmark heights are small.
+	}
+	arrivalOrder := catchUpArrivalOrder(blocks, maxBlocksPerFetch, concurrentBlockFetches)
+
+	b.Run("synchronous", func(b *testing.B) {
+		for range b.N {
+			b.StopTimer()
+			app := newInitializedEVMOnlyTestApp(b)
+			b.StartTimer()
+			require.NoError(b, prepareCatchUpSynchronously(
+				b.Context(),
+				app.(*evmOnlyApplication),
+				requests,
+				arrivalOrder,
+				time.Second/executionBlocksPerSecond,
+			))
+			b.StopTimer()
+		}
+		b.ReportMetric(float64(blocks*txsPerBlock), "txs/catch-up")
+	})
+	b.Run("ahead_100", func(b *testing.B) {
+		for range b.N {
+			b.StopTimer()
+			app := newInitializedEVMOnlyTestApp(b)
+			b.StartTimer()
+			require.NoError(b, prepareCatchUpAhead(
+				b.Context(),
+				app.(*evmOnlyApplication),
+				requests,
+				arrivalOrder,
+				prepareAheadBlockWindow,
+				time.Second/executionBlocksPerSecond,
+			))
+			b.StopTimer()
+		}
+		b.ReportMetric(float64(blocks*txsPerBlock), "txs/catch-up")
+	})
+}
+
+// catchUpArrivalOrder models ten concurrent getBlock fetches. A fetch returns
+// consecutive blocks, while adjacent fetches complete in swapped order.
+func catchUpArrivalOrder(blocks, maxBlocksPerFetch, concurrentFetches int) []int {
+	order := make([]int, 0, blocks)
+	for groupStart := 0; groupStart < blocks; groupStart += maxBlocksPerFetch * concurrentFetches {
+		for fetch := 0; fetch < concurrentFetches; fetch += 2 {
+			for _, offset := range []int{fetch + 1, fetch} {
+				batchStart := groupStart + offset*maxBlocksPerFetch
+				batchEnd := min(batchStart+maxBlocksPerFetch, blocks)
+				if batchStart >= blocks {
+					continue
+				}
+				for height := batchStart; height < batchEnd; height++ {
+					order = append(order, height)
+				}
+			}
+		}
+	}
+	return order
+}
+
+func prepareCatchUpSynchronously(
+	ctx context.Context,
+	app *evmOnlyApplication,
+	requests []*abci.RequestFinalizeBlock,
+	arrivalOrder []int,
+	executionTime time.Duration,
+) error {
+	available := make([]bool, len(requests))
+	for _, height := range arrivalOrder {
+		available[height] = true
+	}
+	for height, req := range requests {
+		if !available[height] {
+			return fmt.Errorf("height %d did not arrive", height)
+		}
+		if err := app.PrepareBlock(ctx, req); err != nil {
+			return err
+		}
+		if err := waitForExecution(ctx, executionTime); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func prepareCatchUpAhead(
+	ctx context.Context,
+	app *evmOnlyApplication,
+	requests []*abci.RequestFinalizeBlock,
+	arrivalOrder []int,
+	window int,
+	executionTime time.Duration,
+) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		available := make([]bool, len(requests))
+		started := make([]bool, len(requests))
+		prepared := make([]bool, len(requests))
+		done := make(chan int, window)
+		nextExecute := 0
+
+		start := func(height int) {
+			if height >= len(requests) || started[height] || !available[height] || height >= nextExecute+window {
+				return
+			}
+			started[height] = true
+			s.Spawn(func() error {
+				if err := app.PrepareBlock(ctx, requests[height]); err != nil {
+					return err
+				}
+				return utils.Send(ctx, done, height)
+			})
+		}
+		for _, height := range arrivalOrder {
+			available[height] = true
+			start(height)
+		}
+		for nextExecute < len(requests) {
+			for !prepared[nextExecute] {
+				height, err := utils.Recv(ctx, done)
+				if err != nil {
+					return err
+				}
+				prepared[height] = true
+			}
+			if err := waitForExecution(ctx, executionTime); err != nil {
+				return err
+			}
+			nextExecute++
+			start(nextExecute + window - 1)
+		}
+		return nil
+	})
+}
+
+func waitForExecution(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	_, err := utils.Recv(ctx, timer.C)
+	return err
 }
