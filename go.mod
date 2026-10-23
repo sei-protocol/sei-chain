@@ -73,7 +73,6 @@ require (
 	github.com/sei-protocol/sei-tm-db v0.0.5
 	github.com/sei-protocol/seilog v0.0.3
 	github.com/shirou/gopsutil/v3 v3.23.2
-	github.com/snikch/goodman v0.0.0-20171125024755-10e37e294daa
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

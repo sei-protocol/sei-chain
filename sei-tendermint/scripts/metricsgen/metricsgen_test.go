@@ -88,8 +88,8 @@ func TestFromData(t *testing.T) {
 			}
 			if !bytes.Equal(bNew, bOld) {
 				t.Fatalf("newly generated code in file %s does not match golden file %s\n"+
-					"if the output of the metricsgen tool is expected to change run the following make target: \n"+
-					"\tmake metrics", outFile, goldenFile)
+					"if the output of the metricsgen tool is expected to change run the following command: \n"+
+					"\tgo generate -run=\"scripts/metricsgen\" ./...", outFile, goldenFile)
 			}
 		})
 	}
