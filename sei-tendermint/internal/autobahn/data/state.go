@@ -759,6 +759,44 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 	return s.activateStagedEpoch()
 }
 
+// ClosingEpoch returns the epoch closed by n, if n is the last block of the
+// last road of that epoch.
+func (s *State) ClosingEpoch(n types.GlobalBlockNumber) (utils.Option[types.EpochIndex], error) {
+	for inner := range s.inner.Lock() {
+		if n < inner.first || n >= inner.nextBlock {
+			return utils.None[types.EpochIndex](), nil
+		}
+		qc, ok := inner.qcs[n]
+		if !ok {
+			return utils.None[types.EpochIndex](), fmt.Errorf("missing QC for block %v", n)
+		}
+		p := qc.qc.QC().Proposal()
+		if n != p.GlobalRange().Next-1 {
+			return utils.None[types.EpochIndex](), nil
+		}
+		return s.cfg.Registry.ClosingEpoch(p.Index()), nil
+	}
+	panic("unreachable")
+}
+
+// EpochStateWindow returns the state window to commit with n, if n closes an
+// epoch.
+func (s *State) EpochStateWindow(n types.GlobalBlockNumber, weights map[types.PublicKey]uint64) (utils.Option[epoch.StateWindow], error) {
+	closing, err := s.ClosingEpoch(n)
+	if err != nil {
+		return utils.None[epoch.StateWindow](), err
+	}
+	endEpoch, ok := closing.Get()
+	if !ok {
+		return utils.None[epoch.StateWindow](), nil
+	}
+	window, err := s.cfg.Registry.StateWindow(endEpoch, weights)
+	if err != nil {
+		return utils.None[epoch.StateWindow](), err
+	}
+	return utils.Some(window), nil
+}
+
 func (s *State) PushGasUsed(gasUsed int64) {
 	s.metrics.GasUsed.Add(gasUsed)
 }

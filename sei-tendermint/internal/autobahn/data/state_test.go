@@ -174,6 +174,32 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	require.Equal(t, ep2, state.NextCommitEpoch().Load(), "next road is in epoch 2, already filled from end(0)")
 }
 
+func TestClosingEpochReportsOnlyLastBlockOfLastRoad(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+
+	qc, blocks := commitQCAtRoadBlocks(ep0, keys, registry.LastRoad(0), ep0.FirstBlock(), 2)
+	require.NoError(t, state.PushQC(ctx, qc, blocks))
+	gr := qc.QC().GlobalRange()
+
+	got, err := state.ClosingEpoch(gr.First)
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
+
+	got, err = state.ClosingEpoch(gr.Next - 1)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(0), got.OrPanic("closing epoch"))
+
+	qc, blocks = commitQCAtRoad(ep0, keys, registry.EpochFirstRoad(0), gr.Next)
+	require.NoError(t, state.PushQC(ctx, qc, blocks))
+	got, err = state.ClosingEpoch(qc.QC().GlobalRange().Next - 1)
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
+}
+
 func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

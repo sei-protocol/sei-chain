@@ -286,6 +286,28 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 	panic("unreachable")
 }
 
+// StateWindow returns the three committee records that app state stores after
+// endEpoch closes.
+func (r *Registry) StateWindow(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) (StateWindow, error) {
+	target := endEpoch + 2
+	for s := range r.state.Lock() {
+		prev, ok := s.m[endEpoch]
+		if !ok {
+			return StateWindow{}, fmt.Errorf("epoch %d not registered", endEpoch)
+		}
+		current, ok := s.m[endEpoch+1]
+		if !ok {
+			return StateWindow{}, fmt.Errorf("epoch %d not registered", endEpoch+1)
+		}
+		next, err := current.Committee().DeriveNext(weights, target)
+		if err != nil {
+			return StateWindow{}, fmt.Errorf("DeriveNext(%d): %w", target, err)
+		}
+		return NewStateWindow(endEpoch, prev.Committee(), endEpoch+1, current.Committee(), target, next)
+	}
+	panic("unreachable")
+}
+
 // ActivateEpoch publishes the staged committee for idx.
 // A no-op if idx is already live. An error if idx is not the staged epoch.
 func (r *Registry) ActivateEpoch(idx types.EpochIndex) error {

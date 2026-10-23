@@ -145,6 +145,48 @@ func TestStageEpoch_FromEndStake(t *testing.T) {
 	require.Equal(t, ep, r.MustEpoch(2))
 }
 
+func TestStateWindow_FromEndStake(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng)
+	b := types.GenSecretKey(rng)
+	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		a.Public(): 1, b.Public(): 1,
+	}))
+	r := utils.OrPanic1(NewRegistry(committee, 0, 0, time.Time{}, utils.None[string]()))
+	weights := map[types.PublicKey]uint64{b.Public(): 7}
+
+	window, err := r.StateWindow(0, weights)
+	require.NoError(t, err)
+	prev, prevCommittee, err := DecodeStateEpochRecord(window.Prev)
+	require.NoError(t, err)
+	current, currentCommittee, err := DecodeStateEpochRecord(window.Current)
+	require.NoError(t, err)
+	next, nextCommittee, err := DecodeStateEpochRecord(window.Next)
+	require.NoError(t, err)
+
+	require.Equal(t, types.EpochIndex(0), prev)
+	require.Equal(t, types.EpochIndex(1), current)
+	require.Equal(t, types.EpochIndex(2), next)
+	require.True(t, r.MustEpoch(0).Committee().Equal(prevCommittee))
+	require.True(t, r.MustEpoch(1).Committee().Equal(currentCommittee))
+
+	staged := addFromEnd(t, r, 0, weights)
+	require.True(t, staged.Committee().Equal(nextCommittee))
+}
+
+func TestStateWindow_RequiresCurrentEpochs(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	weights := map[types.PublicKey]uint64{pk: 1}
+
+	_, err := r.StateWindow(1, weights)
+	require.Error(t, err)
+
+	require.NoError(t, r.StageAndActivate(0, weights))
+	_, err = r.StateWindow(1, weights)
+	require.NoError(t, err)
+}
+
 func TestStageEpoch_RequiresNext(t *testing.T) {
 	rng := utils.TestRng()
 	pk := types.GenSecretKey(rng).Public()

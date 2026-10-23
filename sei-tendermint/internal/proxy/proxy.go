@@ -12,6 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -84,6 +86,28 @@ func (app *Proxy) AwaitCommits() error {
 		return nil
 	}
 	return settler.AwaitCommits()
+}
+
+type epochWindowSetter interface {
+	SetEpochWindow(atypes.GlobalBlockNumber, epoch.StateWindow) error
+}
+
+// SupportsEpochWindow reports whether the wrapped application stores Autobahn
+// epoch state.
+func (app *Proxy) SupportsEpochWindow() bool {
+	_, ok := app.app.(epochWindowSetter)
+	return ok
+}
+
+// SetEpochWindow stages an epoch window on applications that store Autobahn
+// epoch state.
+func (app *Proxy) SetEpochWindow(height atypes.GlobalBlockNumber, window epoch.StateWindow) error {
+	defer addTimeSample(Global.MethodTimingAt("set_epoch_window", "sync"))()
+	setter, ok := app.app.(epochWindowSetter)
+	if !ok {
+		return nil
+	}
+	return setter.SetEpochWindow(height, window)
 }
 
 // evmCodeReader is implemented by applications that can read contract code

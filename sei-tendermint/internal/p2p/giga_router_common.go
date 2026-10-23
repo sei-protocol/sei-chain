@@ -229,8 +229,9 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
 	hash := b.Header.Hash()
+	vals := app.GetValidators()
 	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
+	if len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -239,6 +240,22 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
+	}
+
+	if app.SupportsEpochWindow() {
+		weights, err := committeeWeights(vals)
+		if err != nil {
+			return nil, err
+		}
+		window, err := r.data.EpochStateWindow(b.GlobalNumber, weights)
+		if err != nil {
+			return nil, fmt.Errorf("epoch state window for block %v: %w", b.GlobalNumber, err)
+		}
+		if window, ok := window.Get(); ok {
+			if err := app.SetEpochWindow(b.GlobalNumber, window); err != nil {
+				return nil, fmt.Errorf("SetEpochWindow(%v): %w", b.GlobalNumber, err)
+			}
+		}
 	}
 
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{

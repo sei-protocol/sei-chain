@@ -28,6 +28,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -147,6 +149,12 @@ type evmOnlyCursorState struct {
 	// pendingBlockTime is the Time of the block staged in pending; Commit
 	// promotes it to lastBlockTime.
 	pendingBlockTime uint64
+	pendingEpoch     utils.Option[pendingEpochWindow]
+}
+
+type pendingEpochWindow struct {
+	height int64
+	window epoch.StateWindow
 }
 
 var _ proxy.EVMApplication = (*evmOnlyApplication)(nil)
@@ -242,7 +250,37 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		return []*proto.NamedChangeSet{next.changeSet()}, nil
+		changeSets := []*proto.NamedChangeSet{next.changeSet()}
+		if pending, ok := state.pendingEpoch.Get(); ok {
+			if pending.height != height {
+				return nil, fmt.Errorf("EVM-only block %d has epoch window for height %d", height, pending.height)
+			}
+			changeSet, err := pending.window.ChangeSet()
+			if err != nil {
+				return nil, fmt.Errorf("encode epoch window: %w", err)
+			}
+			changeSets = append(changeSets, changeSet)
+		}
+		return changeSets, nil
+	}
+	panic("unreachable")
+}
+
+// SetEpochWindow stages the epoch committee window that must be committed with height.
+func (a *evmOnlyApplication) SetEpochWindow(height atypes.GlobalBlockNumber, window epoch.StateWindow) error {
+	h, ok := utils.SafeCast[int64](height)
+	if !ok {
+		return fmt.Errorf("EVM-only epoch window height exceeds int64: %d", height)
+	}
+	if err := window.Validate(); err != nil {
+		return fmt.Errorf("validate epoch window: %w", err)
+	}
+	for state := range a.cursor.Lock() {
+		if state.pending.IsPresent() {
+			return fmt.Errorf("EVM-only epoch window for block %d staged while a block is pending", height)
+		}
+		state.pendingEpoch = utils.Some(pendingEpochWindow{height: h, window: window})
+		return nil
 	}
 	panic("unreachable")
 }
@@ -775,6 +813,7 @@ func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height i
 	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
+		state.pendingEpoch = utils.None[pendingEpochWindow]()
 	}
 	return commitErr
 }
@@ -816,6 +855,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyCursor]()
+		state.pendingEpoch = utils.None[pendingEpochWindow]()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")
