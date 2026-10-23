@@ -16,7 +16,6 @@ func init() {
 		Global.nonceLookupLatency,
 		Global.capacityWaitLatency,
 		Global.admitLatency,
-		Global.capacityWaitWakeups,
 		Global.inFlight,
 		Global.inserts,
 	)
@@ -59,12 +58,6 @@ func newMetrics() *metrics {
 			Help:      "Time an insert spent acquiring and holding the mempool lock, excluding time spent waiting for capacity.",
 			Buckets:   prometheus.ExponentialBuckets(0.000001, 2, 30),
 		}, nil),
-		capacityWaitWakeups: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "capacity_wait_wakeups",
-			Help:      "Number of times a blocked insert woke up and found the mempool still full.",
-		}, nil),
 		inFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -98,10 +91,6 @@ func (m *metrics) capacityWaitLatencyAt() *tmprometheus.Histogram {
 
 func (m *metrics) admitLatencyAt() *tmprometheus.Histogram {
 	return m.admitLatency.WithLabelValues()
-}
-
-func (m *metrics) capacityWaitWakeupsAt() *tmprometheus.CounterInt {
-	return m.capacityWaitWakeups.WithLabelValues()
 }
 
 func (m *metrics) inFlightAt(phase string) *tmprometheus.GaugeInt {
