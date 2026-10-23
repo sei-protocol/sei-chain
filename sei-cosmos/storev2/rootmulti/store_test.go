@@ -733,3 +733,34 @@ func TestQuery_SubspaceEmptyPrefixRejected(t *testing.T) {
 	require.NotEqualValues(t, 0, resp.Code)
 	require.Contains(t, resp.Log, "subspace prefix must not be empty")
 }
+
+func TestUnmountedStoreKeepsItsTreeUntilDeleted(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	open := func(names ...string) *Store {
+		store := NewStore(home, scCfg, config.StateStoreConfig{}, []string{})
+		for _, name := range names {
+			store.MountStoreWithDB(types.NewKVStoreKey(name), types.StoreTypeIAVL, nil)
+		}
+		return store
+	}
+
+	store := open("bank", "oracle")
+	require.NoError(t, store.LoadLatestVersion())
+	store.GetStoreByName("oracle").(types.KVStore).Set([]byte("k"), []byte("v"))
+	store.Commit(true)
+	require.NoError(t, store.Close())
+
+	store = open("bank")
+	require.NoError(t, store.LoadLatestVersion())
+	require.True(t, store.MayHoldStore("oracle"), "loading without the store upgrade dropped the unmounted tree")
+	require.NoError(t, store.Close())
+
+	store = open("bank")
+	require.NoError(t, store.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Deleted: []string{"oracle"}}))
+	defer func() { _ = store.Close() }()
+	require.False(t, store.MayHoldStore("oracle"))
+	require.True(t, store.MayHoldStore("bank"))
+}

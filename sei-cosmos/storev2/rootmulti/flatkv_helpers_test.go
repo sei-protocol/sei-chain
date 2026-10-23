@@ -132,6 +132,12 @@ func migrateEVMConfig() seidbconfig.StateCommitConfig {
 	return withTestMemIAVL(cfg)
 }
 
+func migrateCosmosConfig() seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = sctypes.MigrateCosmos
+	return withTestMemIAVL(cfg)
+}
+
 // restartRootMultiWithConfig closes the given store and reopens a fresh
 // rootmulti store rooted at the same dir under newCfg. This is the
 // shortest reliable simulation of the production "operator stops the

@@ -205,8 +205,8 @@ func TestRestoreInner_Empty(t *testing.T) {
 	i, err := restoreInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{})
 	require.NoError(t, err)
 
-	require.Equal(t, types.RoadIndex(0), i.roads.first)
-	require.Equal(t, types.RoadIndex(0), i.roads.next)
+	require.Equal(t, registry.FirstRoad(), i.roads.first)
+	require.Equal(t, registry.FirstRoad(), i.roads.next)
 	_, ok := i.persistedCommitQC.Load().Get()
 	require.False(t, ok)
 	require.NotNil(t, i.nextBlockToPersist)
@@ -460,10 +460,10 @@ func TestRestoreInner_LoadedCommitQCs(t *testing.T) {
 		}
 		inner, err := restoreInner(ds, &loadedState{commitQCs: qcs})
 		require.NoError(t, err)
-		require.Equal(t, types.RoadIndex(0), inner.roads.first)
-		require.Equal(t, types.RoadIndex(3), inner.roads.next)
+		require.Equal(t, registry.FirstRoad(), inner.roads.first)
+		require.Equal(t, registry.FirstRoad()+3, inner.roads.next)
 		for i, qc := range qcs {
-			require.NoError(t, utils.TestDiff(qc, inner.roads.q[types.RoadIndex(i)].commitQC))
+			require.NoError(t, utils.TestDiff(qc, inner.roads.q[registry.FirstRoad()+types.RoadIndex(i)].commitQC))
 		}
 		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), inner.persistedCommitQC.Load()))
 		require.Equal(t, int64(qcs[2].Index()), gathered(t, "tendermint_internal_autobahn_avail_commit_road_index", nil))
@@ -514,7 +514,7 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
 
-	last := epoch.LastRoad(0)
+	last := registry.LastRoad(0)
 	qcPrev := types.BuildCommitQC(ep0, keys, utils.Some(tipLink(ep0, keys[0], last-2)), nil)
 	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(qcPrev), nil)
 	require.Equal(t, last-1, qcPrev.Index())
@@ -555,7 +555,7 @@ func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
 
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: epoch.LastRoad(1), Number: 0}, ep1.FirstBlock()))),
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: registry.LastRoad(1), Number: 0}, ep1.FirstBlock()))),
 	})
 	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
 	i.prune(data.Anchor{

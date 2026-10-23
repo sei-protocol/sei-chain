@@ -428,14 +428,6 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
-	// constructed in RegisterLocalServices so an embedding orchestrator (the
-	// in-process harness) can Stop() them at teardown. Nil when the respective
-	// listener is disabled. Production seid does not read these; its process exit
-	// reaps the listeners.
-	evmHTTPServer evmrpc.EVMServer
-	evmWSServer   evmrpc.EVMServer
-
 	txPrioritizer sdk.TxPrioritizer
 
 	benchmarkManager *benchmark.Manager
@@ -1118,6 +1110,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
+	app.enableMigrateCosmos(ctx)
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
@@ -2540,7 +2533,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		if err != nil {
 			panic(err)
 		}
-		app.evmHTTPServer = evmHTTPServer
 		go func() {
 			<-app.Initialized()
 			if err := evmHTTPServer.Start(); err != nil {
@@ -2554,7 +2546,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		if err != nil {
 			panic(err)
 		}
-		app.evmWSServer = evmWSServer
 		go func() {
 			<-app.Initialized()
 			if err := evmWSServer.Start(); err != nil {

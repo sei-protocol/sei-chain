@@ -689,7 +689,7 @@ func TestRawGlobalIterator_LexOrderAcrossDBs(t *testing.T) {
 	commitAndCheck(t, s)
 
 	storageKey := storagePhysKey(addr, slot)
-	codeKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:])
+	codeKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:])
 	accountKey := accountPhysKey(addr)
 
 	keys := collectIterKeys(t, requireRawGlobalIterator(t, s))

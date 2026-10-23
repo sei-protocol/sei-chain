@@ -349,7 +349,7 @@ func (s *State) activateStagedEpoch() error {
 	}
 	for inner := range s.inner.Lock() {
 		endEpoch := idx - 2
-		if !inner.appQCCertifiesRoad(epoch.LastRoad(endEpoch)) {
+		if !inner.appQCCertifiesRoad(s.cfg.Registry.LastRoad(endEpoch)) {
 			return nil
 		}
 		break
@@ -710,7 +710,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			if n >= inner.first {
 				p := inner.qcs[n].qc.QC().Proposal()
 				if n == p.GlobalRange().Next-1 {
-					endEpoch = epoch.ClosingEpoch(p.Index())
+					endEpoch = s.cfg.Registry.ClosingEpoch(p.Index())
 				}
 			}
 			break
@@ -741,7 +741,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		endEpoch = epoch.ClosingEpoch(p.Index())
+		endEpoch = s.cfg.Registry.ClosingEpoch(p.Index())
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.

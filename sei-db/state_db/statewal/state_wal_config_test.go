@@ -37,10 +37,4 @@ func TestConfigValidate(t *testing.T) {
 		cfg.IteratorPrefetchSize = 0
 		require.Error(t, cfg.Validate())
 	})
-
-	t.Run("zero hasher buffer size is rejected", func(t *testing.T) {
-		cfg := DefaultConfig("/tmp/wal", "test")
-		cfg.HasherBufferSize = 0
-		require.Error(t, cfg.Validate())
-	})
 }

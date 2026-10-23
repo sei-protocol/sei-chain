@@ -94,6 +94,10 @@ type Store struct {
 	nextResultHash []byte
 }
 
+type writeModeCompletionReporter interface {
+	IsWriteModeComplete(sctypes.WriteMode) (bool, error)
+}
+
 type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
@@ -795,37 +799,16 @@ func (rs *Store) SetInitialVersion(version int64) error {
 	return nil
 }
 
-// SetMigrationBatchSize forwards the governance-controlled number of keys
-// to migrate per block to the SC store, and — when migration has been
-// requested (batch size > 0) while an auto store is still in the
-// pre-migration steady state — kicks it off by transitioning memiavl_only
-// -> migrate_evm.
-//
-// The kick-off only fires for an auto-configured store. A node pinned to a
-// fixed mode never transitions at runtime: fixed modes other than
-// memiavl_only do not report a memiavl_only effective mode, and a node
-// pinned to fixed memiavl_only is deliberately excluded here — it is opting
-// out of the migration and will intentionally diverge from the network at
-// the activation height. We log that loudly and skip rather than calling
-// SetWriteMode (which rejects fixed configs) and swallowing the error,
-// which would hide the divergence.
-//
-// The kick-off is level-triggered, not edge-triggered: it fires whenever
-// batchSize > 0 and the effective mode is still memiavl_only. This is the
-// determinism contract SetWriteMode requires — every (auto) node reads the
-// same gov param at the same height and transitions together; the
-// transition is not persisted until the next commit, so a node crashing in
-// that window re-derives memiavl_only on restart and re-fires, while a node
-// past the persisted boundary derives migrate_evm directly and the guard
-// makes the re-fire a no-op.
-//
-// The app calls this from BeginBlock. Forwarding the batch size to the SC
-// store first means the migration router installed by the memiavl_only ->
-// migrate_evm transition already observes the new rate. SetWriteMode only
-// swaps the composite store's router — it does not rebuild rootmulti's
-// cached views or require an empty write buffer — so it is safe to call
-// mid-block without orphaning the block's live cache-multi-store.
-func (rs *Store) SetMigrationBatchSize(batchSize int) error {
+// SetMigrationBatchSize forwards the governance-controlled number of keys to
+// migrate per block to the SC store. When batchSize > 0 and an auto store has
+// a write-mode advance due, it also performs it: migrate_evm from
+// memiavl_only; when allowMigrateCosmos is set, migrate_cosmos once the EVM
+// migration is complete; and flatkv_only once MigrateCosmos is complete. A
+// store pinned to a fixed write mode never advances. The app calls this from
+// BeginBlock.
+func (rs *Store) SetMigrationBatchSize(batchSize int, allowMigrateCosmos bool) error {
+	// Forwarding first means a router installed by the transition below
+	// already observes the new rate.
 	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
@@ -834,42 +817,130 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return nil
 	}
 	mode, ok := rs.GetWriteMode()
-	if !ok || mode != sctypes.MemiavlOnly {
+	if !ok {
 		return nil
 	}
-	// effective mode is memiavl_only. Only an auto store may be advanced to
-	// migrate_evm at runtime; a node pinned to fixed memiavl_only must not.
-	configured, hasConfigured := rs.ConfiguredWriteMode()
-	if !hasConfigured {
-		// The underlying SC store does not expose a configured mode, so we
-		// cannot tell whether this is an auto store. Don't assume a deliberate
-		// opt-out — skip with a distinct message so it isn't mistaken for the
-		// pinned-memiavl_only case below during debugging.
-		if !rs.shouldLogMigrationSkip(batchSize) {
-			return nil
+	due, err := rs.writeModeAdvanceDue(mode, allowMigrateCosmos)
+	if err != nil || !due {
+		return err
+	}
+	if !rs.mayAdvanceWriteMode(mode, batchSize) {
+		return nil
+	}
+	// Level-triggered: the transition is not persisted until the next commit,
+	// so a node that crashes before then derives the earlier mode on restart
+	// and starts the transition again on the next block, together with its
+	// peers.
+	return rs.advanceWriteMode(mode)
+}
+
+// writeModeAdvanceDue reports whether an SC store in mode has a write-mode
+// advance due: migrate_evm from memiavl_only; when allowMigrateCosmos is set,
+// migrate_cosmos from evm_migrated or from a completed migrate_evm; and
+// flatkv_only from a completed migrate_cosmos.
+func (rs *Store) writeModeAdvanceDue(mode sctypes.WriteMode, allowMigrateCosmos bool) (bool, error) {
+	switch mode {
+	case sctypes.MemiavlOnly:
+		return true, nil
+	case sctypes.EVMMigrated:
+		return allowMigrateCosmos, nil
+	case sctypes.MigrateEVM:
+		if !allowMigrateCosmos {
+			return false, nil
 		}
+		return rs.isMigrationComplete(mode)
+	case sctypes.MigrateCosmos:
+		// The completion flip leaves the migration router, whose reads take
+		// a lock and consult the boundary, for the direct flatkv router. It
+		// needs no gate: the migration it ends has already run.
+		return rs.isMigrationComplete(mode)
+	default:
+		return false, nil
+	}
+}
+
+// isMigrationComplete reports whether the SC store's migration for mode has
+// persisted its target migration version.
+func (rs *Store) isMigrationComplete(mode sctypes.WriteMode) (bool, error) {
+	reporter, ok := rs.scStore.(writeModeCompletionReporter)
+	if !ok {
+		return false, fmt.Errorf("SC store %T does not report migration completion", rs.scStore)
+	}
+	complete, err := reporter.IsWriteModeComplete(mode)
+	if err != nil {
+		return false, fmt.Errorf("failed to check %s migration completion: %w", mode, err)
+	}
+	return complete, nil
+}
+
+// mayAdvanceWriteMode reports whether the SC store is configured as auto and
+// so may change its write mode at runtime. When it may not, it logs the skip
+// once per batch size, except for the flatkv_only flip after a completed
+// migrate_cosmos.
+//
+// A node pinned to a fixed mode opts out of the migration and diverges from
+// the network once its peers advance. It is logged loudly and skipped, rather
+// than calling SetWriteMode (which rejects fixed configs) and swallowing the
+// error, which would hide the divergence.
+func (rs *Store) mayAdvanceWriteMode(mode sctypes.WriteMode, batchSize int) bool {
+	configured, hasConfigured := rs.ConfiguredWriteMode()
+	if hasConfigured && configured == sctypes.Auto {
+		return true
+	}
+	if mode == sctypes.MigrateCosmos {
+		// Only a completed migrate_cosmos has an advance due, and its commit
+		// info already matches a flatkv_only peer, so skipping it does not
+		// diverge.
+		return false
+	}
+	if !rs.shouldLogMigrationSkip(batchSize) {
+		return false
+	}
+	if !hasConfigured {
+		// Without a configured mode there is no evidence of a deliberate
+		// opt-out, so this is not reported as the pinned case below.
 		logger.Info(
 			"migration requested (batch size > 0) but the SC store does not expose a "+
 				"configured write mode; skipping migration kick-off",
 			"effectiveWriteMode", mode, "batchSize", batchSize)
-		return nil
+		return false
 	}
-	if configured != sctypes.Auto {
-		if !rs.shouldLogMigrationSkip(batchSize) {
-			return nil
-		}
-		logger.Error(
-			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
-				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
-				"the migration and will intentionally diverge from the network at the activation "+
-				"height — set sc-write-mode-enable-auto = true (the default) to participate.",
-			"configuredWriteMode", configured, "batchSize", batchSize)
-		return nil
-	}
-	if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
-		return fmt.Errorf("failed to start EVM migration (memiavl_only -> migrate_evm): %w", err)
-	}
+	logger.Error(
+		"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
+			"mode by configuration; skipping migration kick-off. This node opts out of "+
+			"the migration and will intentionally diverge from the network at the activation "+
+			"height — set sc-write-mode-enable-auto = true (the default) to participate.",
+		"effectiveWriteMode", mode, "configuredWriteMode", configured, "batchSize", batchSize)
+	return false
+}
 
+// advanceWriteMode moves an auto SC store from mode to the next write mode
+// that is due: into its next migration, or into the steady state that follows
+// a completed one. It runs on the block-execution goroutine in BeginBlock,
+// after the previous Commit and before the block's first ApplyChangeSets.
+// SetWriteMode only swaps the composite store's router, so the block's live
+// cache-multi-store keeps its views. It is not safe to call in parallel with
+// block execution.
+func (rs *Store) advanceWriteMode(mode sctypes.WriteMode) error {
+	switch mode {
+	case sctypes.MemiavlOnly:
+		if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
+			return fmt.Errorf("failed to start EVM migration (memiavl_only -> migrate_evm): %w", err)
+		}
+	case sctypes.MigrateEVM:
+		if err := rs.SetWriteMode(sctypes.EVMMigrated); err != nil {
+			return fmt.Errorf("failed to finish EVM migration mode (migrate_evm -> evm_migrated): %w", err)
+		}
+		fallthrough
+	case sctypes.EVMMigrated:
+		if err := rs.SetWriteMode(sctypes.MigrateCosmos); err != nil {
+			return fmt.Errorf("failed to start full migration (evm_migrated -> migrate_cosmos): %w", err)
+		}
+	case sctypes.MigrateCosmos:
+		if err := rs.SetWriteMode(sctypes.FlatKVOnly); err != nil {
+			return fmt.Errorf("failed to finish full migration mode (migrate_cosmos -> flatkv_only): %w", err)
+		}
+	}
 	return nil
 }
 
@@ -988,6 +1059,12 @@ func warnStateStoreStaysAhead(target, ssVersion int64, reason error) {
 	fmt.Printf("WARNING: the commit store and Tendermint roll back to version %d while the state store stays at version %d\n",
 		target, ssVersion)
 	fmt.Printf("WARNING: rebuild the state store from state sync unless the chain replays the same blocks above version %d\n", target)
+}
+
+// MayHoldStore reports whether the state commitment store may hold data for the named store,
+// whether or not a store is mounted for it.
+func (rs *Store) MayHoldStore(name string) bool {
+	return rs.scStore.MayHoldStore(name)
 }
 
 // getStoreByName performs a lookup of a StoreKey given a store name typically

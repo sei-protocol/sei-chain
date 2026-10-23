@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
@@ -15,6 +16,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -47,6 +49,20 @@ func TestMockAppFinalizeBlockBumpsNoncesAndUsesGasWanted(t *testing.T) {
 	checkRes := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: tx2})
 	require.True(t, checkRes.IsEVM)
 	require.Equal(t, ethTx2.Hash(), checkRes.EVMHash)
+}
+
+func TestMockAppServesTheEVMOnlyChainWithoutExecution(t *testing.T) {
+	app := NewMockApp(abci.BaseApplication{})
+
+	require.Equal(t, config.AutobahnEVMOnlyChainID, app.EvmChainID())
+	require.Equal(t, new(big.Int).SetUint64(config.AutobahnEVMOnlyChainID), app.EvmChainConfig().ChainID)
+	require.Equal(t, 0, app.EvmBaseFee().Sign())
+	require.Equal(t, 0, app.EvmMinGasPrice().Sign())
+	require.Equal(t, uint64(0), app.EvmGasLimit())
+	_, err := app.EvmCall(t.Context(), &ethcore.Message{})
+	require.ErrorIs(t, err, errMockAppNoExecution)
+	_, _, err = app.EvmEstimateGas(t.Context(), &ethcore.Message{}, 0)
+	require.ErrorIs(t, err, errMockAppNoExecution)
 }
 
 func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {

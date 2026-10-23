@@ -10,9 +10,7 @@ var allModes = []WriteMode{
 	MemiavlOnly,
 	MigrateEVM,
 	EVMMigrated,
-	MigrateAllButBank,
-	AllMigratedButBank,
-	MigrateBank,
+	MigrateCosmos,
 	FlatKVOnly,
 	TestOnlyDualWrite,
 	Auto,
@@ -37,8 +35,8 @@ func TestParseWriteMode(t *testing.T) {
 }
 
 // TestValidateTransitionExhaustive checks every (from, to) pair of write
-// modes. Exactly six edges are legal: the three steady-state -> migration
-// steps and the three migration -> completion steps. Everything else,
+// modes. Exactly four edges are legal: the steady-state -> migration
+// steps and the migration -> completion steps. Everything else,
 // including same-mode pairs (handled as no-ops by callers before invoking
 // ValidateTransition), must be rejected.
 //
@@ -51,12 +49,10 @@ func TestValidateTransitionExhaustive(t *testing.T) {
 		to   WriteMode
 	}
 	legal := map[edge]bool{
-		{MemiavlOnly, MigrateEVM}:               true,
-		{EVMMigrated, MigrateAllButBank}:        true,
-		{AllMigratedButBank, MigrateBank}:       true,
-		{MigrateEVM, EVMMigrated}:               true,
-		{MigrateAllButBank, AllMigratedButBank}: true,
-		{MigrateBank, FlatKVOnly}:               true,
+		{MemiavlOnly, MigrateEVM}:    true,
+		{EVMMigrated, MigrateCosmos}: true,
+		{MigrateEVM, EVMMigrated}:    true,
+		{MigrateCosmos, FlatKVOnly}:  true,
 	}
 
 	legalSeen := 0
@@ -74,13 +70,39 @@ func TestValidateTransitionExhaustive(t *testing.T) {
 	require.Equal(t, len(legal), legalSeen)
 }
 
+// TestChainDistanceExhaustive pins that ChainDistance is the signed index
+// difference along the migration chain for every pair of chain modes, and
+// that any pair with a mode off the chain reports ok == false.
+func TestChainDistanceExhaustive(t *testing.T) {
+	index := map[WriteMode]int{}
+	for i, mode := range migrationChain {
+		index[mode] = i
+	}
+
+	onChainPairs := 0
+	for _, from := range allModes {
+		for _, to := range allModes {
+			distance, ok := ChainDistance(from, to)
+			fromIdx, fromOnChain := index[from]
+			toIdx, toOnChain := index[to]
+			if !fromOnChain || !toOnChain {
+				require.False(t, ok, "ChainDistance(%q, %q) must report off-chain", from, to)
+				continue
+			}
+			require.True(t, ok, "ChainDistance(%q, %q)", from, to)
+			require.Equal(t, toIdx-fromIdx, distance, "ChainDistance(%q, %q)", from, to)
+			onChainPairs++
+		}
+	}
+	require.Equal(t, len(migrationChain)*len(migrationChain), onChainPairs)
+}
+
 // TestIsMigrationMode pins the modes whose exit transitions require a
 // completed migration (the second half of the SetWriteMode safety check).
 func TestIsMigrationMode(t *testing.T) {
 	migrationModes := map[WriteMode]bool{
-		MigrateEVM:        true,
-		MigrateAllButBank: true,
-		MigrateBank:       true,
+		MigrateEVM:    true,
+		MigrateCosmos: true,
 	}
 	for _, mode := range allModes {
 		require.Equal(t, migrationModes[mode], mode.IsMigrationMode(), "IsMigrationMode(%q)", mode)

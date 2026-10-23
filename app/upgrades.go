@@ -2,6 +2,7 @@ package app
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -154,6 +155,9 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
+				if err := app.requireStoresDeleted(plan, v68DeletedStores); err != nil {
+					return nil, err
+				}
 				// Proposals must be readable before any module migration walks
 				// the gov store, so the retired IBC records are rewritten first.
 				app.rewriteRetiredIBCProposals(ctx)
@@ -169,6 +173,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.pruneDenomAllowLists(ctx)
 				app.pruneTokenfactoryParams(ctx)
 				app.StakingKeeper.StartDelegationByValIndexBackfill(ctx)
+				app.enableMigrateCosmos(ctx)
 				return newVM, nil
 			}
 
@@ -184,6 +189,21 @@ func (app *App) deleteRetiredModuleVersions(ctx sdk.Context) {
 		app.UpgradeKeeper.DeleteModuleVersion(ctx, name)
 	}
 	app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+}
+
+// requireStoresDeleted returns an error if the state commitment store may still hold data for any of
+// names when plan runs. The store loader deletes them only if upgrade-info.json named plan when the
+// node started.
+func (app *App) requireStoresDeleted(plan upgradetypes.Plan, names []string) error {
+	for _, name := range names {
+		if app.rootStore.MayHoldStore(name) {
+			return fmt.Errorf("store %q was not deleted before the %s upgrade handler ran because "+
+				"data/upgrade-info.json did not name the upgrade when the node started: write "+
+				`{"name":%q,"height":%d} to data/upgrade-info.json in the node home and restart`,
+				name, plan.Name, plan.Name, plan.Height)
+		}
+	}
+	return nil
 }
 
 // rewriteRetiredIBCProposals replaces the content of every stored governance

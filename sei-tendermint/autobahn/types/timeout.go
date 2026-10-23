@@ -157,7 +157,11 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 	}
 	c := ep.Committee()
 	// Check that the TimeoutQC is from the correct consensus instance.
-	if got, want := view.Index, NextIndexOpt(prev); got != want {
+	want := ep.RoadRange().First
+	if qc, ok := prev.Get(); ok {
+		want = qc.Index() + 1
+	}
+	if got := view.Index; got != want {
 		return fmt.Errorf("timeoutQC.View().Index = %v, want %v", got, want)
 	}
 	// Verify the signatures.

@@ -58,7 +58,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					}
 				})
 				s.Spawn(func() error {
-					next := types.RoadIndex(0)
+					next := from.First()
 					for {
 						qc, err := from.CommitQC(ctx, next)
 						if err != nil {
