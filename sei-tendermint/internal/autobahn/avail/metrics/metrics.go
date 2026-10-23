@@ -36,6 +36,8 @@ type metrics struct {
 	laneQcs prometheus.CounterIntVec
 	// Lane votes newly stored.
 	laneVotesIngested prometheus.CounterIntVec
+	// Latency from a lane block's creation by its producer to the given stage on this node, once per block. It includes clock skew between the producer and this node.
+	laneBlockLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
 }
 
 type observed[T any] struct {
@@ -86,6 +88,11 @@ type Metrics struct {
 	LaneQCInFlight          *prometheus.GaugeInt
 	LaneQCs                 *prometheus.CounterInt
 	LaneVotesIngested       *prometheus.CounterInt
+	// Latency from a lane block's creation to: the block arriving from its producer, the first lane
+	// vote on it arriving, and its LaneQC forming.
+	LaneBlockReceive *prometheus.Histogram
+	LaneVoteReceive  *prometheus.Histogram
+	LaneQCFormed     *prometheus.Histogram
 }
 
 // Get returns the avail instruments.
@@ -99,5 +106,8 @@ func Get() *Metrics {
 		LaneQCInFlight:          Global.inFlightAt("lane_qc"),
 		LaneQCs:                 Global.laneQcsAt(),
 		LaneVotesIngested:       Global.laneVotesIngestedAt(),
+		LaneBlockReceive:        Global.laneBlockLatencyAt("block_receive"),
+		LaneVoteReceive:         Global.laneBlockLatencyAt("vote_receive"),
+		LaneQCFormed:            Global.laneBlockLatencyAt("lane_qc"),
 	}
 }

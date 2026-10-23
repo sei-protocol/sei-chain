@@ -21,6 +21,7 @@ func init() {
 		Global.inFlight,
 		Global.laneQcs,
 		Global.laneVotesIngested,
+		Global.laneBlockLatency,
 	)
 }
 
@@ -89,6 +90,13 @@ func newMetrics() *metrics {
 			Name:      "lane_votes_ingested",
 			Help:      "Lane votes newly stored.",
 		}, nil),
+		laneBlockLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "lane_block_latency",
+			Help:      "Latency from a lane block's creation by its producer to the given stage on this node, once per block. It includes clock skew between the producer and this node.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
+		}, []string{"stage"}),
 	}
 }
 
@@ -130,4 +138,8 @@ func (m *metrics) laneQcsAt() *tmprometheus.CounterInt {
 
 func (m *metrics) laneVotesIngestedAt() *tmprometheus.CounterInt {
 	return m.laneVotesIngested.WithLabelValues()
+}
+
+func (m *metrics) laneBlockLatencyAt(stage string) *tmprometheus.Histogram {
+	return m.laneBlockLatency.WithLabelValues(stage)
 }
