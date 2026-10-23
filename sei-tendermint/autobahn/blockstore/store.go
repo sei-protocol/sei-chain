@@ -54,7 +54,7 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 			return fmt.Errorf("block %d does not match QC header: %w", i, types.ErrQCBlocksMismatch)
 		}
 		n := gr.First + types.GlobalBlockNumber(i) //nolint:gosec // non-negative slice index
-		records[i] = blocktypes.BlockRecord{Number: blocktypes.BlockNumber(n), Hash: block.Header().Hash().Bytes(), Value: encodeBlock(block)}
+		records[i] = blocktypes.BlockRecord{Number: blocktypes.BlockNumber(n), Hash: blocktypes.BlockHash(block.Header().Hash().Bytes()), Value: encodeBlock(block)}
 	}
 
 	s.mu.Lock()
@@ -63,8 +63,8 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	if ok && status.NextQC != gr.First {
 		return fmt.Errorf("QC starts at %d, expected %d: %w", gr.First, status.NextQC, types.ErrQCNonContiguous)
 	}
-	if err := s.db.PutQCGroup(blocktypes.QCGroupRecord{
-		Version: blocktypes.CurrentRecordVersion, Data: encodeQC(qc), Blocks: records,
+	if err := s.db.PutQC(blocktypes.QCGroupRecord{
+		QC: blocktypes.QCRecord{Data: encodeQC(qc)}, Blocks: records,
 	}); err != nil {
 		return fmt.Errorf("failed to put QC [%d,%d): %w", gr.First, gr.Next, err)
 	}
@@ -101,7 +101,7 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 	}
 
 	if err := s.db.PutAppQC(blocktypes.AppQCRecord{
-		Version: blocktypes.CurrentRecordVersion, Data: encodeAppQC(appQC),
+		Data:  encodeAppQC(appQC),
 		First: blocktypes.BlockNumber(gr.First), Next: blocktypes.BlockNumber(gr.Next),
 	}); err != nil {
 		return fmt.Errorf("failed to put AppQC [%d,%d): %w", gr.First, gr.Next, err)
@@ -132,7 +132,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 	}
 
 	if err := s.db.PutAppProposal(blocktypes.AppProposalRecord{
-		Version: blocktypes.CurrentRecordVersion, Data: encodeAppProposal(appProposal),
+		Data:  encodeAppProposal(appProposal),
 		First: blocktypes.BlockNumber(gr.First), Next: blocktypes.BlockNumber(gr.Next),
 	}); err != nil {
 		return fmt.Errorf("failed to put AppProposal [%d,%d): %w", gr.First, gr.Next, err)
@@ -201,7 +201,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 	var status types.SuffixRange
 	blocks := records.Blocks
 	for _, record := range records.QCs {
-		qc, err := decodeQCRecord(record)
+		qc, err := decodeQC(record.Data)
 		if err != nil {
 			return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
 		}
@@ -221,7 +221,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 		return types.Suffix{}, types.ErrQCBlocksMismatch
 	}
 	for _, record := range records.AppProposals {
-		proposal, err := decodeAppProposal(record)
+		proposal, err := decodeAppProposal(record.Data)
 		if err != nil {
 			return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
 		}
@@ -229,7 +229,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 		suffix.AppProposals = append(suffix.AppProposals, proposal)
 	}
 	for _, record := range records.AppQCs {
-		qc, err := decodeAppQC(record)
+		qc, err := decodeAppQC(record.Data)
 		if err != nil {
 			return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
 		}
@@ -265,7 +265,7 @@ func (s *Store) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*type
 	if !exists {
 		return utils.None[*types.Block](), nil
 	}
-	blk, err := decodeBlock(value.Value)
+	blk, err := decodeBlock(value)
 	if err != nil {
 		return utils.None[*types.Block](), fmt.Errorf("failed to unmarshal block: %w", err)
 	}
@@ -273,23 +273,23 @@ func (s *Store) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*type
 }
 
 func (s *Store) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.BlockWithNumber], error) {
-	value, exists, err := s.db.GetBlockByHash(hash.Bytes())
+	number, value, exists, err := s.db.GetBlockByHash(blocktypes.BlockHash(hash.Bytes()))
 	if err != nil {
 		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to read block: %w", err)
 	}
 	if !exists {
 		return utils.None[types.BlockWithNumber](), nil
 	}
-	blk, err := decodeBlock(value.Value)
+	blk, err := decodeBlock(value)
 	if err != nil {
 		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to unmarshal block: %w", err)
 	}
 	// The number is not known until the block is resolved;
 	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if value.Number < s.db.GetPruneWatermark() {
+	if number < s.db.GetPruneWatermark() {
 		return utils.None[types.BlockWithNumber](), nil
 	}
-	return utils.Some(types.BlockWithNumber{Block: blk, Number: types.GlobalBlockNumber(value.Number)}), nil
+	return utils.Some(types.BlockWithNumber{Block: blk, Number: types.GlobalBlockNumber(number)}), nil
 }
 
 func (s *Store) ReadQCByBlockNumber(
@@ -306,7 +306,7 @@ func (s *Store) ReadQCByBlockNumber(
 	if !exists {
 		return utils.None[*types.FullCommitQC](), nil
 	}
-	qc, err := decodeQCRecord(value)
+	qc, err := decodeQC(value)
 	if err != nil {
 		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to unmarshal QC: %w", err)
 	}

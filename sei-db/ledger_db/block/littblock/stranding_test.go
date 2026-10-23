@@ -60,7 +60,7 @@ func TestRecoveredWatermarkTracksOldestGroup(t *testing.T) {
 		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
 			require.Equal(t, n >= 5, physicallyPresent(t, db, kind, n))
 		}
-		_, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+		_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
 		require.NoError(t, err)
 		require.Equal(t, n >= 5, present)
 	}

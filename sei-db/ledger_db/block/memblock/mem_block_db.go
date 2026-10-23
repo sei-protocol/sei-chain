@@ -1,7 +1,6 @@
 package memblock
 
 import (
-	"fmt"
 	"math"
 	"slices"
 	"sync"
@@ -29,11 +28,11 @@ func NewBlockDB() blocktypes.BlockDB {
 		qcs: make(map[blocktypes.BlockNumber]blocktypes.QCRecord), blocks: make(map[blocktypes.BlockNumber]blocktypes.BlockRecord), hashes: make(map[string]blocktypes.BlockRecord), appQCs: make(map[blocktypes.BlockNumber]blocktypes.AppQCRecord), proposals: make(map[blocktypes.BlockNumber]blocktypes.AppProposalRecord),
 	}
 }
-func (s *blockDB) PutQCGroup(qc blocktypes.QCGroupRecord) error {
+func (s *blockDB) PutQC(qc blocktypes.QCGroupRecord) error {
 	if err := qc.Validate(); err != nil {
-		return err
+		panic(err)
 	}
-	qc.Data = slices.Clone(qc.Data)
+	qc.QC.Data = slices.Clone(qc.QC.Data)
 	qc.Blocks = slices.Clone(qc.Blocks)
 	for i := range qc.Blocks {
 		qc.Blocks[i].Hash = slices.Clone(qc.Blocks[i].Hash)
@@ -43,15 +42,15 @@ func (s *blockDB) PutQCGroup(qc blocktypes.QCGroupRecord) error {
 	defer s.mu.Unlock()
 	s.groups = append(s.groups, qc)
 	for _, block := range qc.Blocks {
-		s.qcs[block.Number] = blocktypes.QCRecord{Version: qc.Version, Data: qc.Data}
+		s.qcs[block.Number] = qc.QC
 		s.blocks[block.Number] = block
 		s.hashes[string(block.Hash)] = block
 	}
 	return nil
 }
 func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
-	if uint64(len(qc.Data))+17 >= math.MaxUint32 {
-		return fmt.Errorf("app record exceeds value size limit")
+	if uint64(len(qc.Data))+16 >= math.MaxUint32 {
+		panic("app record exceeds value size limit")
 	}
 	qc.Data = slices.Clone(qc.Data)
 	s.mu.Lock()
@@ -63,8 +62,8 @@ func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
 	return nil
 }
 func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
-	if uint64(len(proposal.Data))+17 >= math.MaxUint32 {
-		return fmt.Errorf("app record exceeds value size limit")
+	if uint64(len(proposal.Data))+16 >= math.MaxUint32 {
+		panic("app record exceeds value size limit")
 	}
 	proposal.Data = slices.Clone(proposal.Data)
 	s.mu.Lock()
@@ -75,35 +74,35 @@ func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
 	}
 	return nil
 }
-func (s *blockDB) GetQC(n blocktypes.BlockNumber) (blocktypes.QCRecord, bool, error) {
+func (s *blockDB) GetQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	qc, ok := s.qcs[n]
-	return qc, ok, nil
+	return qc.Data, ok, nil
 }
-func (s *blockDB) GetBlock(n blocktypes.BlockNumber) (blocktypes.BlockRecord, bool, error) {
+func (s *blockDB) GetBlock(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	block, ok := s.blocks[n]
-	return block, ok, nil
+	return block.Value, ok, nil
 }
-func (s *blockDB) GetBlockByHash(hash []byte) (blocktypes.BlockRecord, bool, error) {
+func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockNumber, []byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	block, ok := s.hashes[string(hash)]
-	return block, ok, nil
+	return block.Number, block.Value, ok, nil
 }
-func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) (blocktypes.AppQCRecord, bool, error) {
+func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	qc, ok := s.appQCs[n]
-	return qc, ok, nil
+	return qc.Data, ok, nil
 }
-func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) (blocktypes.AppProposalRecord, bool, error) {
+func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	proposal, ok := s.proposals[n]
-	return proposal, ok, nil
+	return proposal.Data, ok, nil
 }
 func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 	s.mu.RLock()
@@ -115,8 +114,10 @@ func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 	var suffix blocktypes.Suffix
 	for _, qc := range s.groups {
 		if qc.Blocks[0].Number >= first {
-			suffix.QCs = append(suffix.QCs, blocktypes.QCRecord{Version: qc.Version, Data: qc.Data})
-			suffix.Blocks = append(suffix.Blocks, qc.Blocks...)
+			suffix.QCs = append(suffix.QCs, qc.QC)
+			for _, block := range qc.Blocks {
+				suffix.Blocks = append(suffix.Blocks, blocktypes.BlockRecord{Number: block.Number, Value: block.Value})
+			}
 		}
 	}
 	for _, qc := range s.suffix.AppQCs {

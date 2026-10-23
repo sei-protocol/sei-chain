@@ -3,18 +3,15 @@ package types
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 // Key is an encoded primary or secondary lookup key.
 type Key []byte
 
-// Key returns the numbered lookup key for kind.
-func (kind RecordKind) Key(n BlockNumber) (Key, error) {
-	prefix, err := kindPrefix(kind)
-	if err != nil {
-		return nil, err
-	}
-	return numberKey(prefix, n), nil
+// Key returns the numbered lookup key for kind, panicking for an unknown kind.
+func (kind RecordKind) Key(n BlockNumber) Key {
+	return numberKey(kindPrefix(kind), n)
 }
 
 // RecordKind returns the primary record kind; lookup-only keys return false.
@@ -33,51 +30,44 @@ func (key Key) Reclaimable(watermark BlockNumber) (bool, error) {
 	case kindBlockHash:
 		return true, nil
 	default:
-		return false, fmt.Errorf("unknown ledger key kind %q", key[0])
+		return false, fmt.Errorf("unknown ledger key kind in %x", key)
 	}
 }
 
 // This file is the single home for the table's key layout.
 
-// Every record kind shares one ledger keyspace. Each key carries a 1-byte kind prefix
-// so the per-kind number spaces never collide:
-//
-//   - kindQCGroup   'g' + 8-byte big-endian first  (packed QC and blocks primary)
-//   - kindBlock     'b' + 8-byte big-endian number (secondary block number lookup)
-//   - kindBlockHash 'h' + header hash              (block hash alias)
-//   - kindQC        'q' + 8-byte big-endian number (secondary QC lookup)
-//   - kindAppQC     'a' + 8-byte big-endian number (AppQC primary + covered aliases)
-//   - kindAppProp   'p' + 8-byte big-endian number (AppProposal primary + covered aliases)
+// Every key starts with an unsigned varint kind, followed by either an
+// 8-byte big-endian block number or a block header hash.
 const (
-	kindQCGroup   byte = 'g'
-	kindAppQC     byte = 'a'
-	kindBlock     byte = 'b'
-	kindBlockHash byte = 'h'
-	kindAppProp   byte = 'p'
-	kindQC        byte = 'q'
+	kindQCGroup uint64 = iota + 1
+	kindAppQC
+	kindBlock
+	kindBlockHash
+	kindAppProp
+	kindQC
 )
 
-// kindPrefix returns the key prefix byte for a record kind.
-func kindPrefix(kind RecordKind) (byte, error) {
+// kindPrefix returns the key prefix for a record kind.
+func kindPrefix(kind RecordKind) uint64 {
 	switch kind {
 	case KindQCGroup:
-		return kindQCGroup, nil
+		return kindQCGroup
 	case KindBlock:
-		return kindBlock, nil
+		return kindBlock
 	case KindQC:
-		return kindQC, nil
+		return kindQC
 	case KindAppProposal:
-		return kindAppProp, nil
+		return kindAppProp
 	case KindAppQC:
-		return kindAppQC, nil
+		return kindAppQC
 	default:
-		return 0, fmt.Errorf("unknown record kind %d", kind)
+		panic(fmt.Errorf("unknown record kind %d", kind))
 	}
 }
 
 // recordKind returns the primary record kind for a key prefix. Lookup-only
 // prefixes do not identify primary records.
-func recordKind(prefix byte) (RecordKind, bool) {
+func recordKind(prefix uint64) (RecordKind, bool) {
 	switch prefix {
 	case kindQCGroup:
 		return KindQCGroup, true
@@ -107,24 +97,27 @@ func decodeKey(b [8]byte) BlockNumber {
 // numberKey returns the key under which a record of the given kind prefix is
 // stored at number n — used both for a record's primary key and for each
 // covered-number alias.
-func numberKey(prefix byte, n BlockNumber) Key {
-	return append([]byte{prefix}, encodeKey(n)...)
+func numberKey(prefix uint64, n BlockNumber) Key {
+	return append(binary.AppendUvarint(nil, prefix), encodeKey(n)...)
 }
 
 // BlockHashKey returns the secondary (alias) key under which a block is reachable
 // by its header hash.
-func BlockHashKey(hash []byte) Key {
-	return append([]byte{kindBlockHash}, hash...)
+func BlockHashKey(hash BlockHash) Key {
+	return append(binary.AppendUvarint(nil, kindBlockHash), hash...)
 }
 
-// keyKind returns the kind prefix byte of a stored key.
-func keyKind(key []byte) byte {
-	return key[0]
+// keyKind returns the unsigned varint kind of a stored key.
+func keyKind(key []byte) uint64 {
+	kind, n := binary.Uvarint(key)
+	if n <= 0 {
+		return math.MaxUint64
+	}
+	return kind
 }
 
-// decodeNumberKey decodes the record number from a number-keyed key (i.e. a key
-// whose prefix is followed by an 8-byte big-endian number). Panics if key is not
-// 9 bytes (1B kind + 8B number).
+// decodeNumberKey decodes a key's block number after its varint kind.
 func decodeNumberKey(key []byte) BlockNumber {
-	return decodeKey([8]byte(key[1:]))
+	_, n := binary.Uvarint(key)
+	return decodeKey([8]byte(key[n:]))
 }

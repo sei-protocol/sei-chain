@@ -2,7 +2,7 @@ package types
 
 // RecordKind identifies a primary record or secondary lookup namespace.
 // KindBlock and KindQC are lookup-only; QCs and blocks are written as groups.
-type RecordKind uint8
+type RecordKind uint64
 
 const (
 	KindBlock RecordKind = iota // block-number lookup only
@@ -33,39 +33,38 @@ func (k RecordKind) String() string {
 // BlockNumber identifies a block in the ledger.
 type BlockNumber uint64
 
-// QCRecord contains a QC's version and unprefixed serialized data.
+// BlockHash identifies a block by its header hash.
+type BlockHash []byte
+
+// QCRecord contains a QC's serialized data.
 type QCRecord struct {
-	Version RecordVersion
-	Data    []byte
+	Data []byte
 }
 
-// QCGroupRecord contains a QC's version, unprefixed serialized data, and numbered blocks.
+// QCGroupRecord contains a QC record and its numbered blocks.
 type QCGroupRecord struct {
-	Version RecordVersion
-	Data    []byte
-	Blocks  []BlockRecord
+	QC     QCRecord
+	Blocks []BlockRecord
 }
 
-// AppQCRecord contains an AppQC's version, unprefixed serialized data, and block range.
+// AppQCRecord contains an AppQC's serialized data and block range.
 type AppQCRecord struct {
-	Version RecordVersion
-	Data    []byte
-	First   BlockNumber
-	Next    BlockNumber
+	Data  []byte
+	First BlockNumber
+	Next  BlockNumber
 }
 
-// AppProposalRecord contains an AppProposal's version, unprefixed serialized data, and block range.
+// AppProposalRecord contains an AppProposal's serialized data and block range.
 type AppProposalRecord struct {
-	Version RecordVersion
-	Data    []byte
-	First   BlockNumber
-	Next    BlockNumber
+	Data  []byte
+	First BlockNumber
+	Next  BlockNumber
 }
 
 // BlockRecord is an opaque encoded block with its number and header-hash lookup key.
 type BlockRecord struct {
 	Number BlockNumber
-	Hash   []byte
+	Hash   BlockHash // secondary lookup key for writes; unset in ReadSuffix
 	Value  []byte
 }
 
@@ -91,7 +90,7 @@ type Suffix struct {
 //
 // # Durability
 //
-// Writes are two-phase: PutQCGroup, PutAppQC and PutAppProposal may return before
+// Writes are two-phase: PutQC, PutAppQC and PutAppProposal may return before
 // their records are on disk. Flush blocks until every previously-returned
 // write is durable.
 // Reads observe a write as soon as it returns, whether or not it is durable.
@@ -123,30 +122,33 @@ type Suffix struct {
 // been reclaimed. Opening a store that holds records but no KindQCGroup record
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
-	// PutQCGroup atomically stores qc and its blocks. QC lookups resolve at each block's
+	// PutQC atomically stores qc and its blocks. QC lookups resolve at each block's
 	// Number; blocks resolve by Number and Hash. qc.Blocks must be non-empty and
 	// ordered by increasing Number. The group is indexed by qc.Blocks[0].Number.
+	// Invalid or oversized groups panic.
 	// ReadSuffix returns the QC and block records of each retained group.
-	PutQCGroup(qc QCGroupRecord) error
+	PutQC(qc QCGroupRecord) error
 
 	// PutAppQC stores record at every number in [record.First, record.Next).
-	// Storing an already-stored number is unsupported and the result is undefined.
+	// Oversized records panic. Storing an already-stored number is unsupported
+	// and the result is undefined.
 	PutAppQC(record AppQCRecord) error
 
 	// PutAppProposal stores record at every number in [record.First, record.Next).
-	// Storing an already-stored number is unsupported and the result is undefined.
+	// Oversized records panic. Storing an already-stored number is unsupported
+	// and the result is undefined.
 	PutAppProposal(record AppProposalRecord) error
 
-	// GetQC returns the QC covering n.
-	GetQC(n BlockNumber) (QCRecord, bool, error)
-	// GetBlock returns the block numbered n.
-	GetBlock(n BlockNumber) (BlockRecord, bool, error)
-	// GetBlockByHash returns the block indexed by hash.
-	GetBlockByHash(hash []byte) (BlockRecord, bool, error)
-	// GetAppQC returns the application QC covering n.
-	GetAppQC(n BlockNumber) (AppQCRecord, bool, error)
-	// GetAppProposal returns the application proposal covering n.
-	GetAppProposal(n BlockNumber) (AppProposalRecord, bool, error)
+	// GetQC returns the serialized QC covering n.
+	GetQC(n BlockNumber) ([]byte, bool, error)
+	// GetBlock returns the serialized block numbered n.
+	GetBlock(n BlockNumber) ([]byte, bool, error)
+	// GetBlockByHash returns the number and serialized payload of the block indexed by hash.
+	GetBlockByHash(hash BlockHash) (BlockNumber, []byte, bool, error)
+	// GetAppQC returns the serialized application QC covering n.
+	GetAppQC(n BlockNumber) ([]byte, bool, error)
+	// GetAppProposal returns the serialized application proposal covering n.
+	GetAppProposal(n BlockNumber) ([]byte, bool, error)
 	// ReadSuffix returns a snapshot starting at the newest AppQC's group,
 	// or all retained records when no AppQC exists. Returned bytes are immutable.
 	ReadSuffix() (Suffix, error)

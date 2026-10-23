@@ -257,7 +257,7 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 							require.Equal(t, blocktest.RecordValue(kind, first), value)
 						}
 					}
-					_, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+					_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
 					require.NoError(t, err)
 					require.Equal(t, want, present)
 				}
@@ -278,7 +278,7 @@ func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 			n := first + blocktypes.BlockNumber(i)
 			blocks[i] = blocktypes.BlockRecord{Number: n, Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue(blocktypes.KindBlock, n)}
 		}
-		require.NoError(t, db.PutQCGroup(blocktypes.QCGroupRecord{Version: blocktypes.CurrentRecordVersion, Data: blocktest.RecordValue(blocktypes.KindQC, first), Blocks: blocks}))
+		require.NoError(t, db.PutQC(blocktypes.QCGroupRecord{QC: blocktypes.QCRecord{Data: blocktest.RecordValue(blocktypes.KindQC, first)}, Blocks: blocks}))
 	}
 }
 
@@ -302,7 +302,7 @@ func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, want, present)
 		}
-		_, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+		_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
 		require.NoError(t, err)
 		require.Equal(t, want, present)
 	}

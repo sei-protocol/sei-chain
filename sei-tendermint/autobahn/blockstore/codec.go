@@ -44,11 +44,8 @@ func encodeAppProposal(appProposal *types.AppProposal) []byte {
 
 // decodeAppProposal unmarshals an AppProposal from the value produced by
 // encodeAppProposal.
-func decodeAppProposal(record blocktypes.AppProposalRecord) (*types.AppProposal, error) {
-	if err := record.Version.Validate(); err != nil {
-		return nil, err
-	}
-	appProposal, err := types.AppProposalConv.Unmarshal(record.Data)
+func decodeAppProposal(value []byte) (*types.AppProposal, error) {
+	appProposal, err := types.AppProposalConv.Unmarshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal appProposal: %w", err)
 	}
@@ -61,11 +58,8 @@ func encodeAppQC(appQC *types.AppQC) []byte {
 }
 
 // decodeAppQC unmarshals an AppQC from the value produced by encodeAppQC.
-func decodeAppQC(record blocktypes.AppQCRecord) (*types.AppQC, error) {
-	if err := record.Version.Validate(); err != nil {
-		return nil, err
-	}
-	appQC, err := types.AppQCConv.Unmarshal(record.Data)
+func decodeAppQC(value []byte) (*types.AppQC, error) {
+	appQC, err := types.AppQCConv.Unmarshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal appQC: %w", err)
 	}
@@ -89,11 +83,4 @@ func decodeQCGroupBlocks(qc *types.FullCommitQC, blocks []blocktypes.BlockRecord
 		group.Blocks = append(group.Blocks, block)
 	}
 	return group, nil
-}
-
-func decodeQCRecord(record blocktypes.QCRecord) (*types.FullCommitQC, error) {
-	if err := record.Version.Validate(); err != nil {
-		return nil, err
-	}
-	return decodeQC(record.Data)
 }

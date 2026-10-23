@@ -74,7 +74,7 @@ func (s *Store) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.G
 	if !exists {
 		return blockHeight, nil
 	}
-	qc, err := decodeQCRecord(value)
+	qc, err := decodeQC(value)
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode covering QC for %d: %w", blockHeight, err)
 	}

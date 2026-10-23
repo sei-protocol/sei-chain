@@ -129,29 +129,17 @@ func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 	}
 }
 
-// PutQCGroup stores a QC and its blocks in one atomic LittDB value.
-func (s *blockDB) PutQCGroup(qc blocktypes.QCGroupRecord) error {
-	record, err := encodeQC(qc)
-	if err != nil {
-		return err
-	}
-	return s.putRecord(record)
+// PutQC stores a QC and its blocks in one atomic LittDB value.
+func (s *blockDB) PutQC(group blocktypes.QCGroupRecord) error {
+	return s.putRecord(encodeQCGroup(group))
 }
 
 func (s *blockDB) PutAppQC(appQC blocktypes.AppQCRecord) error {
-	record, err := encodeAppQC(appQC)
-	if err != nil {
-		return err
-	}
-	return s.putRecord(record)
+	return s.putRecord(encodeAppQC(appQC))
 }
 
 func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
-	record, err := encodeAppProposal(proposal)
-	if err != nil {
-		return err
-	}
-	return s.putRecord(record)
+	return s.putRecord(encodeAppProposal(proposal))
 }
 
 // putRecord inserts an encoded record and its aliases.
@@ -163,10 +151,7 @@ func (s *blockDB) putRecord(record record) error {
 }
 
 func (s *blockDB) getRecord(kind blocktypes.RecordKind, n blocktypes.BlockNumber) ([]byte, bool, error) {
-	key, err := kind.Key(n)
-	if err != nil {
-		return nil, false, err
-	}
+	key := kind.Key(n)
 	value, exists, err := s.table.Get(key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to read %s %d: %w", kind, n, err)
@@ -174,13 +159,13 @@ func (s *blockDB) getRecord(kind blocktypes.RecordKind, n blocktypes.BlockNumber
 	return value, exists, nil
 }
 
-func (s *blockDB) GetBlockByHash(hash []byte) (blocktypes.BlockRecord, bool, error) {
+func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockNumber, []byte, bool, error) {
 	value, exists, err := s.table.Get(blocktypes.BlockHashKey(hash))
 	if err != nil || !exists {
-		return blocktypes.BlockRecord{}, exists, err
+		return 0, nil, exists, err
 	}
 	block, err := decodeBlock(value)
-	return block, err == nil, err
+	return block.Number, block.Value, err == nil, err
 }
 
 func (s *blockDB) scan(newestFirst bool) (*recordIterator, error) {
@@ -221,11 +206,11 @@ func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 			}
 			switch it.Kind() {
 			case blocktypes.KindQCGroup:
-				qc, err := decodeQCGroup(value)
+				group, err := decodeQCGroup(value)
 				if err != nil {
 					return blocktypes.Suffix{}, err
 				}
-				groups = append(groups, qc)
+				groups = append(groups, group)
 			case blocktypes.KindAppQC:
 				qc, err := decodeAppQC(value)
 				if err != nil {
@@ -244,12 +229,12 @@ func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 			break
 		}
 	}
-	groups = slices.DeleteFunc(groups, func(qc blocktypes.QCGroupRecord) bool { return gotAppQC && qc.Blocks[0].Number < first })
+	groups = slices.DeleteFunc(groups, func(group blocktypes.QCGroupRecord) bool { return gotAppQC && group.Blocks[0].Number < first })
 	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc blocktypes.AppQCRecord) bool { return gotAppQC && qc.First < first })
 	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal blocktypes.AppProposalRecord) bool { return gotAppQC && proposal.First < first })
 	slices.Reverse(groups)
 	for _, group := range groups {
-		suffix.QCs = append(suffix.QCs, blocktypes.QCRecord{Version: group.Version, Data: group.Data})
+		suffix.QCs = append(suffix.QCs, group.QC)
 		suffix.Blocks = append(suffix.Blocks, group.Blocks...)
 	}
 	slices.Reverse(suffix.AppQCs)
@@ -303,7 +288,7 @@ func (r *recordIterator) Next() (bool, error) {
 		recordKey := blocktypes.Key(key)
 		kind, ok := recordKey.RecordKind()
 		if !ok {
-			return false, fmt.Errorf("invalid primary ledger key kind %q", key[0])
+			return false, fmt.Errorf("invalid primary ledger key %x", key)
 		}
 		r.kind = kind
 		r.number = recordKey.Number()
@@ -360,37 +345,27 @@ type record struct {
 	Aliases []*litttypes.SecondaryKey
 }
 
-func encodeQC(qc blocktypes.QCGroupRecord) (record, error) {
-	if err := qc.Validate(); err != nil {
-		return record{}, err
+func encodeQCGroup(group blocktypes.QCGroupRecord) record {
+	if err := group.Validate(); err != nil {
+		panic(err)
 	}
-	key, err := blocktypes.KindQCGroup.Key(qc.Blocks[0].Number)
-	if err != nil {
-		return record{}, err
-	}
-	r := record{Key: key, Value: []byte{byte(qc.Version)}}
-	r.Value, _, _ = appendValue(r.Value, qc.Data)
+	key := blocktypes.KindQCGroup.Key(group.Blocks[0].Number)
+	r := record{Key: key}
+	r.Value, _, _ = appendValue(r.Value, group.QC.Data)
 	qcLength := uint32(len(r.Value)) //nolint:gosec // Validate bounds the value size
-	for _, block := range qc.Blocks {
+	for _, block := range group.Blocks {
 		value := binary.BigEndian.AppendUint64(nil, uint64(block.Number))
-		value, _, _ = appendValue(value, block.Hash)
 		value = append(value, block.Value...)
 		var offset, length uint32
 		r.Value, offset, length = appendValue(r.Value, value)
-		key, err := blocktypes.KindBlock.Key(block.Number)
-		if err != nil {
-			return record{}, err
-		}
-		qcKey, err := blocktypes.KindQC.Key(block.Number)
-		if err != nil {
-			return record{}, err
-		}
+		key := blocktypes.KindBlock.Key(block.Number)
+		qcKey := blocktypes.KindQC.Key(block.Number)
 		r.Aliases = append(r.Aliases,
 			&litttypes.SecondaryKey{Key: qcKey, Length: qcLength},
 			&litttypes.SecondaryKey{Key: key, Offset: offset, Length: length},
 			&litttypes.SecondaryKey{Key: blocktypes.BlockHashKey(block.Hash), Offset: offset, Length: length})
 	}
-	return r, nil
+	return r
 }
 
 func appendValue(dst, value []byte) ([]byte, uint32, uint32) {
@@ -400,32 +375,26 @@ func appendValue(dst, value []byte) ([]byte, uint32, uint32) {
 	return append(dst, value...), offset, length
 }
 
-func encodeAppQC(qc blocktypes.AppQCRecord) (record, error) {
-	return encodeApp(blocktypes.KindAppQC, qc.Version, qc.First, qc.Next, qc.Data)
+func encodeAppQC(qc blocktypes.AppQCRecord) record {
+	return encodeApp(blocktypes.KindAppQC, qc.First, qc.Next, qc.Data)
 }
-func encodeAppProposal(proposal blocktypes.AppProposalRecord) (record, error) {
-	return encodeApp(blocktypes.KindAppProposal, proposal.Version, proposal.First, proposal.Next, proposal.Data)
+func encodeAppProposal(proposal blocktypes.AppProposalRecord) record {
+	return encodeApp(blocktypes.KindAppProposal, proposal.First, proposal.Next, proposal.Data)
 }
-func encodeApp(kind blocktypes.RecordKind, version blocktypes.RecordVersion, first, next blocktypes.BlockNumber, data []byte) (record, error) {
-	if uint64(len(data))+17 >= math.MaxUint32 {
-		return record{}, fmt.Errorf("app record exceeds value size limit")
+func encodeApp(kind blocktypes.RecordKind, first, next blocktypes.BlockNumber, data []byte) record {
+	if uint64(len(data))+16 >= math.MaxUint32 {
+		panic("app record exceeds value size limit")
 	}
-	key, err := kind.Key(first)
-	if err != nil {
-		return record{}, err
-	}
-	r := record{Key: key, Value: []byte{byte(version)}}
+	key := kind.Key(first)
+	r := record{Key: key}
 	r.Value = binary.BigEndian.AppendUint64(r.Value, uint64(first))
 	r.Value = binary.BigEndian.AppendUint64(r.Value, uint64(next))
 	r.Value = append(r.Value, data...)
 	for n := first + 1; n < next; n++ {
-		key, err := kind.Key(n)
-		if err != nil {
-			return record{}, err
-		}
+		key := kind.Key(n)
 		r.Aliases = append(r.Aliases, &litttypes.SecondaryKey{Key: key, Length: uint32(len(r.Value))}) //nolint:gosec // checked above
 	}
-	return r, nil
+	return r
 }
 
 func consumeValue(value []byte) ([]byte, []byte, error) {
@@ -440,12 +409,9 @@ func consumeValue(value []byte) ([]byte, []byte, error) {
 	return value[:length], value[length:], nil
 }
 func decodeQCGroup(value []byte) (blocktypes.QCGroupRecord, error) {
-	if len(value) == 0 {
-		return blocktypes.QCGroupRecord{}, fmt.Errorf("missing record version")
-	}
-	qc := blocktypes.QCGroupRecord{Version: blocktypes.RecordVersion(value[0])}
+	var group blocktypes.QCGroupRecord
 	var err error
-	qc.Data, value, err = consumeValue(value[1:])
+	group.QC.Data, value, err = consumeValue(value)
 	if err != nil {
 		return blocktypes.QCGroupRecord{}, err
 	}
@@ -459,73 +425,70 @@ func decodeQCGroup(value []byte) (blocktypes.QCGroupRecord, error) {
 		if err != nil {
 			return blocktypes.QCGroupRecord{}, err
 		}
-		qc.Blocks = append(qc.Blocks, block)
+		group.Blocks = append(group.Blocks, block)
 	}
-	if len(qc.Blocks) == 0 {
+	if len(group.Blocks) == 0 {
 		return blocktypes.QCGroupRecord{}, fmt.Errorf("QC group requires blocks")
 	}
-	return qc, nil
+	return group, nil
 }
 func decodeBlock(value []byte) (blocktypes.BlockRecord, error) {
 	if len(value) < 8 {
 		return blocktypes.BlockRecord{}, fmt.Errorf("truncated block number")
 	}
-	block := blocktypes.BlockRecord{Number: blocktypes.BlockNumber(binary.BigEndian.Uint64(value))}
-	var err error
-	block.Hash, block.Value, err = consumeValue(value[8:])
-	return block, err
+	return blocktypes.BlockRecord{
+		Number: blocktypes.BlockNumber(binary.BigEndian.Uint64(value)),
+		Value:  value[8:],
+	}, nil
 }
-func decodeApp(value []byte) (blocktypes.RecordVersion, blocktypes.BlockNumber, blocktypes.BlockNumber, []byte, error) {
-	if len(value) < 17 {
-		return 0, 0, 0, nil, fmt.Errorf("truncated app record")
+func decodeApp(value []byte) (blocktypes.BlockNumber, blocktypes.BlockNumber, []byte, error) {
+	if len(value) < 16 {
+		return 0, 0, nil, fmt.Errorf("truncated app record")
 	}
-	return blocktypes.RecordVersion(value[0]), blocktypes.BlockNumber(binary.BigEndian.Uint64(value[1:9])), blocktypes.BlockNumber(binary.BigEndian.Uint64(value[9:17])), value[17:], nil
+	return blocktypes.BlockNumber(binary.BigEndian.Uint64(value[:8])), blocktypes.BlockNumber(binary.BigEndian.Uint64(value[8:16])), value[16:], nil
 }
 func decodeAppQC(value []byte) (blocktypes.AppQCRecord, error) {
-	version, first, next, data, err := decodeApp(value)
-	return blocktypes.AppQCRecord{Version: version, First: first, Next: next, Data: data}, err
+	first, next, data, err := decodeApp(value)
+	return blocktypes.AppQCRecord{First: first, Next: next, Data: data}, err
 }
 func decodeAppProposal(value []byte) (blocktypes.AppProposalRecord, error) {
-	version, first, next, data, err := decodeApp(value)
-	return blocktypes.AppProposalRecord{Version: version, First: first, Next: next, Data: data}, err
+	first, next, data, err := decodeApp(value)
+	return blocktypes.AppProposalRecord{First: first, Next: next, Data: data}, err
 }
-func (s *blockDB) GetQC(n blocktypes.BlockNumber) (blocktypes.QCRecord, bool, error) {
+func (s *blockDB) GetQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	value, exists, err := s.getRecord(blocktypes.KindQC, n)
 	if err != nil || !exists {
-		return blocktypes.QCRecord{}, exists, err
+		return nil, exists, err
 	}
 	qc, err := decodeQC(value)
-	return qc, err == nil, err
+	return qc.Data, err == nil, err
 }
-func (s *blockDB) GetBlock(n blocktypes.BlockNumber) (blocktypes.BlockRecord, bool, error) {
+func (s *blockDB) GetBlock(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	value, exists, err := s.getRecord(blocktypes.KindBlock, n)
 	if err != nil || !exists {
-		return blocktypes.BlockRecord{}, exists, err
+		return nil, exists, err
 	}
 	block, err := decodeBlock(value)
-	return block, err == nil, err
+	return block.Value, err == nil, err
 }
-func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) (blocktypes.AppQCRecord, bool, error) {
+func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	value, exists, err := s.getRecord(blocktypes.KindAppQC, n)
 	if err != nil || !exists {
-		return blocktypes.AppQCRecord{}, exists, err
+		return nil, exists, err
 	}
 	qc, err := decodeAppQC(value)
-	return qc, err == nil, err
+	return qc.Data, err == nil, err
 }
-func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) (blocktypes.AppProposalRecord, bool, error) {
+func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	value, exists, err := s.getRecord(blocktypes.KindAppProposal, n)
 	if err != nil || !exists {
-		return blocktypes.AppProposalRecord{}, exists, err
+		return nil, exists, err
 	}
 	proposal, err := decodeAppProposal(value)
-	return proposal, err == nil, err
+	return proposal.Data, err == nil, err
 }
 
 func decodeQC(value []byte) (blocktypes.QCRecord, error) {
-	if len(value) == 0 {
-		return blocktypes.QCRecord{}, fmt.Errorf("missing record version")
-	}
-	data, _, err := consumeValue(value[1:])
-	return blocktypes.QCRecord{Version: blocktypes.RecordVersion(value[0]), Data: data}, err
+	data, _, err := consumeValue(value)
+	return blocktypes.QCRecord{Data: data}, err
 }

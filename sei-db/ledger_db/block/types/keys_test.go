@@ -2,6 +2,8 @@ package types
 
 import (
 	"bytes"
+	"encoding/binary"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,8 +47,6 @@ func TestPrefixedKeys(t *testing.T) {
 	const n BlockNumber = 42
 	bk := numberKey(kindBlock, n)
 	qk := numberKey(kindQC, n)
-	require.Len(t, bk, 9, "block key is 1 prefix byte + 8 number bytes")
-	require.Len(t, qk, 9, "qc key is 1 prefix byte + 8 number bytes")
 	require.Equal(t, kindBlock, keyKind(bk))
 	require.Equal(t, kindQC, keyKind(qk))
 	require.NotEqual(t, bk, qk, "same number must not collide across kinds")
@@ -54,14 +54,15 @@ func TestPrefixedKeys(t *testing.T) {
 	require.Equal(t, n, decodeNumberKey(qk))
 
 	// The header-hash alias has its own kind and round-trips the hash bytes.
-	hash := make([]byte, 32)
+	hash := make(BlockHash, 32)
 	for i := range hash {
 		hash[i] = byte(i)
 	}
 	hk := BlockHashKey(hash)
 	require.Equal(t, kindBlockHash, keyKind(hk))
-	require.Len(t, hk, 1+len(hash))
-	require.Equal(t, hash, []byte(hk[1:]))
+	_, prefixLen := binary.Uvarint(hk)
+	require.Positive(t, prefixLen)
+	require.Equal(t, hash, BlockHash(hk[prefixLen:]))
 }
 
 func TestKindPrefixRoundTrip(t *testing.T) {
@@ -71,10 +72,9 @@ func TestKindPrefixRoundTrip(t *testing.T) {
 		KindAppProposal,
 		KindAppQC,
 	}
-	seen := make(map[byte]RecordKind, len(kinds))
+	seen := make(map[uint64]RecordKind, len(kinds))
 	for _, kind := range kinds {
-		prefix, err := kindPrefix(kind)
-		require.NoError(t, err)
+		prefix := kindPrefix(kind)
 		require.NotContains(t, seen, prefix, "kind prefixes must be distinct")
 		seen[prefix] = kind
 
@@ -83,8 +83,20 @@ func TestKindPrefixRoundTrip(t *testing.T) {
 		require.Equal(t, kind, got)
 	}
 
-	for _, prefix := range []byte{kindQC, kindBlock, kindBlockHash} {
+	for _, prefix := range []uint64{kindQC, kindBlock, kindBlockHash} {
 		_, ok := recordKind(prefix)
 		require.False(t, ok, "lookup prefixes must not identify primary records")
+	}
+}
+
+func TestVarintKindPrefixes(t *testing.T) {
+	for _, kind := range []uint64{0, 127, 128, 300, math.MaxUint64} {
+		key := numberKey(kind, 42)
+		got, n := binary.Uvarint(key)
+		require.Positive(t, n)
+		require.Equal(t, kind, got)
+		require.Equal(t, kind, keyKind(key))
+		require.Equal(t, BlockNumber(42), decodeNumberKey(key))
+		require.Len(t, key, n+8)
 	}
 }
