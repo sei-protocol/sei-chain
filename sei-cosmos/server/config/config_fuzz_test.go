@@ -525,7 +525,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 
 		// [api]. The rows set false have a declared default that is already the getter's zero, so
 		// nothing about the resolved value distinguishes a guard from its absence.
-		{"api.swagger", cfg.API.Swagger, def.API.Swagger, true},
 		{"api.address", cfg.API.Address, def.API.Address, true},
 		{"api.max-open-connections", cfg.API.MaxOpenConnections, def.API.MaxOpenConnections, true},
 		{"api.rpc-read-timeout", cfg.API.RPCReadTimeout, def.API.RPCReadTimeout, true},

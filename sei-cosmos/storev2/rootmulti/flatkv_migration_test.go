@@ -106,7 +106,7 @@ func driveRootMultiMigration(
 
 	// --- Restart: MemiavlOnly -> MigrateEVM ---
 	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
-	require.NoError(t, store.SetMigrationBatchSize(migrateBatchSize))
+	require.NoError(t, store.SetMigrationBatchSize(migrateBatchSize, false))
 
 	for i := phase1Blocks + 1; i <= phase1Blocks+phase2Blocks; i++ {
 		records = append(records, simulateBlock(t, store, storeKeys, i, addrBase))
@@ -153,7 +153,7 @@ func TestRootMultiMigrateEVM_ReopenPreservesPreFlipAppHash(t *testing.T) {
 	require.NotEmpty(t, preFlipID.Hash)
 
 	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
-	require.NoError(t, store.SetMigrationBatchSize(2))
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	require.Equal(t, preFlipID, store.LastCommitID(),
@@ -173,7 +173,7 @@ func TestRootMultiMigrateEVM_EmptyBlocksAdvanceMigration(t *testing.T) {
 	simulateBlockManyStorage(t, store, storeKeys, 1, storageKeys, addrBase)
 
 	store, _ = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
-	require.NoError(t, store.SetMigrationBatchSize(2))
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
 
 	for i := 0; i < 4; i++ {
 		rec := finalizeBlock(t, store)
@@ -199,7 +199,7 @@ func TestRootMultiMigrateEVM_EVMIteratorAvailableDuringMigration(t *testing.T) {
 	require.Equal(t, int64(1), rec.version)
 
 	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
-	require.NoError(t, store.SetMigrationBatchSize(2))
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	cms = store.CacheMultiStore()
@@ -411,7 +411,7 @@ func TestRootMultiMigrateEVM_DoubleFlushAppHashStable(t *testing.T) {
 	// per-block advances are required to drain. ---
 	const batch = 4
 	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
-	require.NoError(t, store.SetMigrationBatchSize(batch))
+	require.NoError(t, store.SetMigrationBatchSize(batch, false))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	// Alternate empty blocks (exercise the "empty changesets in

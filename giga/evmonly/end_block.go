@@ -3,7 +3,6 @@ package evmonly
 import (
 	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -15,8 +14,6 @@ import (
 )
 
 var endBlockLogger = seilog.NewLogger("giga", "evmonly", "endblock")
-
-var errEndBlockClearedStorage = errors.New("end-block state changes may not clear storage")
 
 // endBlocker is a registered custom precompile that runs at the end of every block.
 type endBlocker struct {
@@ -79,7 +76,8 @@ func (e *Executor) runEndBlockers(block BlockContext, source StateReader, result
 	stateDB.Finalise(true)
 	var changes StateChangeSet
 	stateDB.ChangeSetInto(&changes)
-	return mergeChangeSet(&result.ChangeSet, changes)
+	mergeChangeSet(&result.ChangeSet, changes)
+	return nil
 }
 
 func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockContext {
@@ -97,10 +95,7 @@ func endBlockContext(block BlockContext, chainID *big.Int) precompiles.BlockCont
 // mergeChangeSet applies later, a changeset computed on top of dst, to dst. An
 // entry of later replaces dst's value for the same key but keeps dst's prior,
 // which is the value before the block. Every list stays sorted by key.
-func mergeChangeSet(dst *StateChangeSet, later StateChangeSet) error {
-	if len(later.StorageClears) > 0 {
-		return errEndBlockClearedStorage
-	}
+func mergeChangeSet(dst *StateChangeSet, later StateChangeSet) {
 	for _, change := range later.Balances {
 		dst.Balances = upsertSorted(dst.Balances, change, compareAddress[BalanceChange](func(c BalanceChange) common.Address { return c.Address }),
 			func(c *BalanceChange, prior BalanceChange) { c.PriorBalance = prior.PriorBalance })
@@ -117,7 +112,6 @@ func mergeChangeSet(dst *StateChangeSet, later StateChangeSet) error {
 		dst.Storage = upsertSorted(dst.Storage, change, compareStorageChange,
 			func(c *StorageChange, prior StorageChange) { c.PriorValue = prior.PriorValue })
 	}
-	return nil
 }
 
 // compareAddress orders changes by the address addr reads from them.
