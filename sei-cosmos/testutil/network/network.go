@@ -210,7 +210,6 @@ func New(t *testing.T, cfg Config) *Network {
 		appCfg.Pruning = cfg.PruningStrategy
 		appCfg.MinGasPrices = cfg.MinGasPrices
 		appCfg.API.Enable = true
-		appCfg.API.Swagger = false
 		appCfg.Telemetry.Enabled = false
 
 		ctx := server.NewDefaultContext()

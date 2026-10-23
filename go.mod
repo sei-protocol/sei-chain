@@ -63,7 +63,6 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.66.1
 	github.com/prometheus/otlptranslator v0.0.2
-	github.com/rakyll/statik v0.1.7
 	github.com/regen-network/cosmos-proto v0.3.1
 	github.com/rs/cors v1.11.1
 	github.com/sasha-s/go-deadlock v0.3.5
