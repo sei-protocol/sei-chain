@@ -179,7 +179,7 @@ func TestGigaRouterCommon_RunExecutePreparesTheNextBlockAhead(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
 	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
@@ -189,10 +189,7 @@ func TestGigaRouterCommon_RunExecutePreparesTheNextBlockAhead(t *testing.T) {
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(qc))
-	for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
-		require.NoError(t, db.WriteBlock(n, blocks[i]))
-	}
+	require.NoError(t, db.WriteQC(qc, blocks))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -240,7 +237,7 @@ func TestGigaRouterCommon_RunExecuteStopsAtThePrepareWindow(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
 
 	var prev utils.Option[*atypes.CommitQC]
@@ -261,12 +258,9 @@ func TestGigaRouterCommon_RunExecuteStopsAtThePrepareWindow(t *testing.T) {
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
 	for _, batch := range batches {
-		require.NoError(t, db.WriteQC(batch.qc))
 		gr := batch.qc.QC().GlobalRange()
 		require.Equal(t, gr.Len(), uint64(len(batch.blocks)))
-		for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
-			require.NoError(t, db.WriteBlock(n, batch.blocks[i]))
-		}
+		require.NoError(t, db.WriteQC(batch.qc, batch.blocks))
 	}
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -327,7 +321,7 @@ func TestGigaRouterCommon_RunExecutePreparesAGapFill(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
 	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
@@ -336,7 +330,6 @@ func TestGigaRouterCommon_RunExecutePreparesAGapFill(t *testing.T) {
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(qc))
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -356,10 +349,10 @@ func TestGigaRouterCommon_RunExecutePreparesAGapFill(t *testing.T) {
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
-		for i := 1; i < len(blocks); i++ {
-			if err := state.PushBlock(ctx, gr.First+atypes.GlobalBlockNumber(i), blocks[i]); err != nil { //nolint:gosec // test block counts are small.
-				return err
-			}
+		// The blockstore stores a QC only with every block it covers, so the hole
+		// is opened in memory: every block except the first arrives with the QC.
+		if err := state.PushQC(ctx, qc, blocks[1:]); err != nil {
+			return err
 		}
 		gapHeight := int64(gr.First) + 1 //nolint:gosec // test heights are small.
 		if err := app.WaitPreparedHeight(ctx, gapHeight); err != nil {
