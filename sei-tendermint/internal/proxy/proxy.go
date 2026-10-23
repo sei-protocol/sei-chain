@@ -53,6 +53,19 @@ func (app *Proxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeB
 	return app.app.FinalizeBlock(ctx, req)
 }
 
+// senderPrerecoverer recovers transaction senders ahead of FinalizeBlock.
+type senderPrerecoverer interface {
+	PrerecoverSenders(context.Context, [][]byte)
+}
+
+// PrerecoverSenders recovers the senders of txs ahead of FinalizeBlock when the wrapped application
+// supports it.
+func (app *Proxy) PrerecoverSenders(ctx context.Context, txs [][]byte) {
+	if p, ok := app.app.(senderPrerecoverer); ok {
+		p.PrerecoverSenders(ctx, txs)
+	}
+}
+
 func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(Global.MethodTimingAt("get_tx_priority", "sync"))()
 	return app.app.GetTxPriorityHint(ctx, req)

@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"runtime"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -76,6 +77,15 @@ func (c *senderCache) put(hash common.Hash, sender common.Address) {
 		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
 	}
 	c.fresh[hash] = sender
+}
+
+// has reports whether a sender is remembered for hash.
+func (c *senderCache) has(hash common.Hash) bool {
+	if _, ok := c.fresh[hash]; ok {
+		return true
+	}
+	_, ok := c.stale[hash]
+	return ok
 }
 
 // take returns the sender remembered for hash, if any, and forgets it.
@@ -395,6 +405,59 @@ func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Add
 		}
 	}
 	return out
+}
+
+// prerecoverWorkers bounds the goroutines PrerecoverSenders recovers signatures on, so recovery
+// ahead of execution leaves most cores to the executor.
+const prerecoverWorkers = 8
+
+// PrerecoverSenders recovers the senders of txs ahead of FinalizeBlock and remembers them for
+// takeSenders. A transaction whose sender is already remembered, or that does not decode or
+// recover, is skipped and left to FinalizeBlock.
+func (a *evmOnlyApplication) PrerecoverSenders(ctx context.Context, txs [][]byte) {
+	hashes := hashRawTxs(txs)
+	var missing []int
+	for senders := range a.checkedSenders.Lock() {
+		for i, hash := range hashes {
+			if !senders.has(hash) {
+				missing = append(missing, i)
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	signer := ethtypes.LatestSignerForChainID(a.chainID)
+	recovered := make([]utils.Option[common.Address], len(missing))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(prerecoverWorkers, len(missing)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				j := int(next.Add(1)) - 1
+				if j >= len(missing) || ctx.Err() != nil {
+					return
+				}
+				tx := new(ethtypes.Transaction)
+				if err := tx.UnmarshalBinary(txs[missing[j]]); err != nil {
+					continue
+				}
+				if sender, err := ethtypes.Sender(signer, tx); err == nil {
+					recovered[j] = utils.Some(sender)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	for senders := range a.checkedSenders.Lock() {
+		for j, i := range missing {
+			if sender, ok := recovered[j].Get(); ok {
+				senders.put(hashes[i], sender)
+			}
+		}
+	}
 }
 
 // hashRawTxs returns the keccak of every raw transaction, aligned with txs.

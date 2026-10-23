@@ -1068,6 +1068,22 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	}
 }
 
+func TestPrerecoverSendersRemembersRecoveredSenders(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	first, firstSender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	second, secondSender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	txs := [][]byte{first, second, {0x01}}
+
+	evmOnlyApp.PrerecoverSenders(t.Context(), txs)
+	senders := evmOnlyApp.takeSenders(txs)
+	require.Equal(t, utils.Some(firstSender), senders[0])
+	require.Equal(t, utils.Some(secondSender), senders[1])
+	require.False(t, senders[2].IsPresent())
+	require.False(t, evmOnlyApp.takeSenders(txs)[0].IsPresent())
+}
+
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {

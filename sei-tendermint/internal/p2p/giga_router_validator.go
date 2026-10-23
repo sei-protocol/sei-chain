@@ -64,6 +64,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:             &cfg.GigaRouterCommonConfig,
+			prerecovery:     make(chan [][]byte, prerecoverAhead),
 			key:             key,
 			data:            dataState,
 			nextCommitEpoch: dataState.NextCommitEpoch(),
@@ -103,6 +104,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("prerecover", func() error { return r.runPrerecovery(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})

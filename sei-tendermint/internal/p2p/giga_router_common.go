@@ -60,6 +60,10 @@ type gigaRouterCommon struct {
 	// executed is the window of blocks executeBlock committed to the app, seeded
 	// with the app's height at construction.
 	executed utils.AtomicSend[atypes.ExecutedBlocks]
+	// prerecovery carries the txs of committed blocks to runPrerecovery. prerecoverNext is the
+	// first block not yet queued; only runExecute touches it.
+	prerecovery    chan [][]byte
+	prerecoverNext atypes.GlobalBlockNumber
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;
@@ -480,6 +484,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
+		r.queuePrerecovery(ctx, n)
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeBlock(ctx, b, hashVault)
 		if err != nil {
@@ -506,6 +511,45 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			}
 		}
 		gigametrics.EndStoragePhase()
+	}
+}
+
+// prerecoverAhead is how many committed blocks past the one about to execute have their senders
+// recovered in the background.
+const prerecoverAhead = 2
+
+// queuePrerecovery hands runPrerecovery the committed blocks just past n that consensus has already
+// delivered. A full queue drops the rest, leaving their recovery to FinalizeBlock.
+func (r *gigaRouterCommon) queuePrerecovery(ctx context.Context, n atypes.GlobalBlockNumber) {
+	if r.prerecovery == nil {
+		return
+	}
+	for m := max(r.prerecoverNext, n+1); m <= n+prerecoverAhead && m < r.data.NextBlock(); m++ {
+		b, err := r.data.GlobalBlock(ctx, m)
+		if err != nil {
+			return
+		}
+		select {
+		case r.prerecovery <- b.Payload.Txs():
+			r.prerecoverNext = m + 1
+		default:
+			return
+		}
+	}
+}
+
+// runPrerecovery recovers the senders of queued blocks one block at a time.
+func (r *gigaRouterCommon) runPrerecovery(ctx context.Context) error {
+	if r.prerecovery == nil {
+		return nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case txs := <-r.prerecovery:
+			r.app.PrerecoverSenders(ctx, txs)
+		}
 	}
 }
 
