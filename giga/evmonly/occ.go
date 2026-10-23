@@ -200,8 +200,6 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, evm *vm.EVM, 
 		r.req,
 		task.txIndex,
 		task.txIndexUint,
-		r.chainConfig,
-		r.blockCtx,
 		r.baseFee,
 		task.gasLimit,
 		evm,
@@ -249,32 +247,19 @@ func (e *Executor) executeTxSpeculative(
 	req PreparedBlock,
 	txIndex int,
 	txIndexUint uint,
-	chainConfig *params.ChainConfig,
-	blockCtx vm.BlockContext,
 	baseFee *big.Int,
 	blockGasLimit uint64,
 	evm *vm.EVM,
-	reused *nativeStateDB,
+	stateDB *nativeStateDB,
 ) (occTxExecution, error) {
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
 	}
 	p := req.Txs[txIndex]
-	var stateDB *nativeStateDB
-	if reused != nil {
-		stateDB = reused
-		stateDB.reset(source)
-	} else {
-		stateDB = e.acquireStateDB(source)
-		defer e.releaseStateDB(stateDB)
-	}
+	stateDB.reset(source)
 	stateDB.enableAccessTracking()
-	if evm == nil {
-		evm = vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
-	} else {
-		evm.StateDB = stateDB
-		evm.Depth = 0
-	}
+	evm.StateDB = stateDB
+	evm.Depth = 0
 	stateDB.SetEVM(evm)
 	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
