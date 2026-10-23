@@ -34,7 +34,7 @@ type blockDB struct {
 // config.RetentionTime as a TTL failsafe (pruning never reclaims data younger
 // than that even once the watermark has advanced past it).
 //
-// Opening a store that holds records but no QC fails: the store lost data out of
+// Opening a store that holds records but no QC group fails: the store lost data out of
 // band and must not be served.
 func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 	if err := config.Validate(); err != nil {
@@ -72,14 +72,13 @@ func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 }
 
 // recoverWatermark re-derives the reclamation floor from the oldest surviving QC
-// record. The floor is in-memory only, so a restart forgets every
+// group. The floor is in-memory only, so a restart forgets every
 // SetPruneWatermark; that costs nothing for reclamation, since nothing new is
 // released, but it must not leave blocks readable whose covering QC is already
 // gone.
 //
-// QC records are written before anything else covering the same number, so the
-// oldest one bounds what the store may serve, and the scan stops at it. A
-// non-empty store with no QC record has lost that bound and must not reopen.
+// The oldest QC group bounds what the store may serve. A non-empty store
+// without a QC group has lost that bound and must not reopen.
 func (s *blockDB) recoverWatermark() error {
 	it, err := s.Scan(false)
 	if err != nil {
@@ -96,13 +95,13 @@ func (s *blockDB) recoverWatermark() error {
 			break
 		}
 		empty = false
-		if it.Kind() == blocktypes.KindQC {
+		if it.Kind() == blocktypes.KindQCGroup {
 			s.watermark.Store(it.Number())
 			return nil
 		}
 	}
 	if !empty {
-		return fmt.Errorf("corrupt store: no QC in non-empty store")
+		return fmt.Errorf("corrupt store: no QC group in non-empty store")
 	}
 	return nil
 }
@@ -128,6 +127,9 @@ func (s *blockDB) SetPruneWatermark(n uint64) {
 }
 
 func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
+	if err := kind.ValidateStandalone(); err != nil {
+		return err
+	}
 	prefix, err := kindPrefix(kind)
 	if err != nil {
 		return err
@@ -142,18 +144,6 @@ func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, valu
 	}
 	if err := s.table.Put(numberKey(prefix, first), value, aliases...); err != nil {
 		return fmt.Errorf("failed to put %s [%d,%d): %w", kind, first, next, err)
-	}
-	return nil
-}
-
-func (s *blockDB) PutBlock(n uint64, hash []byte, value []byte) error {
-	hashAlias := &litttypes.SecondaryKey{
-		Key:    blockHashKey(hash),
-		Offset: 0,
-		Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
-	}
-	if err := s.table.Put(numberKey(kindBlock, n), value, hashAlias); err != nil {
-		return fmt.Errorf("failed to put block %d: %w", n, err)
 	}
 	return nil
 }
@@ -183,7 +173,7 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open record iterator: %w", err)
 	}
-	return &recordIterator{it: it, newestFirst: newestFirst}, nil
+	return &recordIterator{it: it}, nil
 }
 
 // gcFilter marks a key in the shared ledger table as reclaimable, dispatching on
@@ -195,7 +185,7 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 //     watermark — i.e. once Next <= watermark; a QC/AppProposal/AppQC straddling the
 //     watermark is retained;
 //   - header-hash aliases share their block's segment, so they always pass — the
-//     block's primary number key is what actually gates segment reclamation.
+//     block-number and QC lookup keys gate segment reclamation.
 func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
 	switch keyKind(key) {
 	case kindQCGroup, kindBlock, kindQC, kindAppProp, kindAppQC:
@@ -222,25 +212,15 @@ func (s *blockDB) Close() error {
 }
 
 // recordIterator adapts a littdb.Iterator to blocktypes.RecordIterator, presenting
-// logical QC and block records while skipping lookup aliases.
+// primary records, including complete packed QC groups.
 type recordIterator struct {
-	it          littdb.Iterator
-	kind        blocktypes.RecordKind
-	number      uint64
-	newestFirst bool
-	pending     []groupRecord
-	value       []byte
+	it     littdb.Iterator
+	kind   blocktypes.RecordKind
+	number uint64
 }
 
 func (r *recordIterator) Next() (bool, error) {
-	r.value = nil
 	for {
-		if len(r.pending) > 0 {
-			record := r.pending[0]
-			r.pending = r.pending[1:]
-			r.kind, r.number, r.value = record.kind, record.number, record.value
-			return true, nil
-		}
 		ok, err := r.it.Next()
 		if err != nil {
 			return false, fmt.Errorf("failed to advance record iterator: %w", err)
@@ -255,20 +235,9 @@ func (r *recordIterator) Next() (bool, error) {
 		if !isPrimary {
 			continue
 		}
-		if keyKind(key) == kindQCGroup {
-			value, err := r.it.GetValue()
-			if err != nil {
-				return false, err
-			}
-			r.pending, err = decodeQCGroup(decodeNumberKey(key), value, r.newestFirst)
-			if err != nil {
-				return false, err
-			}
-			continue
-		}
 		kind, ok := recordKind(keyKind(key))
 		if !ok {
-			continue
+			return false, fmt.Errorf("invalid primary ledger key kind %q", keyKind(key))
 		}
 		r.kind = kind
 		r.number = decodeNumberKey(key)
@@ -285,9 +254,6 @@ func (r *recordIterator) Number() uint64 {
 }
 
 func (r *recordIterator) Value() ([]byte, error) {
-	if r.value != nil {
-		return r.value, nil
-	}
 	value, err := r.it.GetValue()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read record value: %w", err)

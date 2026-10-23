@@ -2,6 +2,7 @@ package memblock
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -15,17 +16,14 @@ type recordKey struct {
 	number uint64
 }
 
-// record is one primary entry in the write-order log. next is the exclusive end
-// of the range the value is addressable over, and hash is the header-hash alias
-// of a block record, empty for every other kind; reclamation needs both to find
-// the entries a dropped record leaves behind.
+// record is one primary entry in the write-order log. next is its exclusive
+// coverage bound; blocks contains the lookup entries owned by a QC group.
 type record struct {
-	kind      blocktypes.RecordKind
-	number    uint64
-	next      uint64
-	hash      string
-	value     []byte
-	groupNext uint64 // reclamation boundary of the atomic QC group, or zero
+	kind   blocktypes.RecordKind
+	number uint64
+	next   uint64
+	value  []byte
+	blocks []blocktypes.BlockRecord // blocks owned by an atomic QC group
 }
 
 // blockDB is an in-memory blocktypes.BlockDB. Records are kept in maps for
@@ -57,41 +55,36 @@ func (s *blockDB) PutQC(first uint64, qc []byte, blocks []blocktypes.BlockRecord
 	if len(blocks) == 0 || uint64(len(blocks)) > ^uint64(0)-first {
 		return fmt.Errorf("invalid QC block range starting at %d with %d blocks", first, len(blocks))
 	}
+	value, err := blocktypes.EncodeQCGroup(qc, blocks)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.values[recordKey{kind: blocktypes.KindQCGroup, number: first}] = value
 	next := first + uint64(len(blocks))
 	for n := first; n < next; n++ {
 		s.values[recordKey{kind: blocktypes.KindQC, number: n}] = qc
 	}
-	s.log = append(s.log, record{kind: blocktypes.KindQC, number: first, next: next, value: qc})
+	s.log = append(s.log, record{kind: blocktypes.KindQCGroup, number: first, next: next, value: value, blocks: slices.Clone(blocks)})
 	for i, block := range blocks {
 		n := first + uint64(i)
 		s.values[recordKey{kind: blocktypes.KindBlock, number: n}] = block.Value
 		s.blocksByHash[string(block.Hash)] = block.Value
-		s.log = append(s.log, record{kind: blocktypes.KindBlock, number: n, next: n + 1,
-			hash: string(block.Hash), value: block.Value, groupNext: next})
 	}
 	return nil
 }
 
 func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
+	if err := kind.ValidateStandalone(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for n := first; n < next; n++ {
 		s.values[recordKey{kind: kind, number: n}] = value
 	}
 	s.log = append(s.log, record{kind: kind, number: first, next: next, value: value})
-	return nil
-}
-
-func (s *blockDB) PutBlock(n uint64, hash []byte, value []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.values[recordKey{kind: blocktypes.KindBlock, number: n}] = value
-	s.blocksByHash[string(hash)] = value
-	s.log = append(s.log, record{
-		kind: blocktypes.KindBlock, number: n, next: n + 1, hash: string(hash), value: value,
-	})
 	return nil
 }
 
@@ -144,15 +137,21 @@ func (s *blockDB) reclaim() {
 	// hold a reslice of the current backing array as their snapshot.
 	kept := make([]record, 0, len(s.log))
 	for _, rec := range s.log {
-		if max(rec.next, rec.groupNext) > s.watermark {
+		if rec.next > s.watermark {
 			kept = append(kept, rec)
 			continue
 		}
-		for n := rec.number; n < rec.next; n++ {
-			delete(s.values, recordKey{kind: rec.kind, number: n})
+		kind := rec.kind
+		if kind == blocktypes.KindQCGroup {
+			delete(s.values, recordKey{kind: kind, number: rec.number})
+			kind = blocktypes.KindQC
 		}
-		if rec.hash != "" {
-			delete(s.blocksByHash, rec.hash)
+		for n := rec.number; n < rec.next; n++ {
+			delete(s.values, recordKey{kind: kind, number: n})
+		}
+		for i, block := range rec.blocks {
+			delete(s.values, recordKey{kind: blocktypes.KindBlock, number: rec.number + uint64(i)})
+			delete(s.blocksByHash, string(block.Hash))
 		}
 	}
 	s.log = kept

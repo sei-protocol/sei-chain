@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
@@ -130,4 +132,31 @@ func decodeAppQC(value []byte) (*types.AppQC, error) {
 		return nil, fmt.Errorf("failed to unmarshal appQC: %w", err)
 	}
 	return appQC, nil
+}
+
+// decodeQCGroup decodes a complete committed group.
+func decodeQCGroup(value []byte) (types.QCGroup, error) {
+	qcValue, blocks, err := blocktypes.DecodeQCGroup(value)
+	if err != nil {
+		return types.QCGroup{}, err
+	}
+	qc, err := decodeQC(qcValue)
+	if err != nil {
+		return types.QCGroup{}, err
+	}
+	group := types.QCGroup{QC: qc, Blocks: make([]*types.Block, 0, len(blocks))}
+	if len(blocks) != len(qc.Headers()) || uint64(len(blocks)) != qc.QC().GlobalRange().Len() {
+		return types.QCGroup{}, types.ErrQCBlocksMismatch
+	}
+	for i, value := range blocks {
+		n, block, err := decodeBlock(value)
+		if err != nil {
+			return types.QCGroup{}, err
+		}
+		if n != qc.QC().GlobalRange().First+types.GlobalBlockNumber(i) || block.Header().Hash() != qc.Headers()[i].Hash() { //nolint:gosec // non-negative slice index
+			return types.QCGroup{}, types.ErrQCBlocksMismatch
+		}
+		group.Blocks = append(group.Blocks, block)
+	}
+	return group, nil
 }

@@ -295,18 +295,25 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		anchor:          utils.NewAtomicSend(utils.None[Anchor]()),
 		nextCommitEpoch: utils.NewAtomicSend(genesis),
 	}
-	for _, qc := range suffix.CommitQCs {
+	for _, group := range suffix.QCGroups {
+		qc := group.QC
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from BlockStore: %w", err)
 		}
 	}
-	for _, b := range suffix.Blocks {
-		prop := types.NewLaneProposal(b.Block)
-		if err := prop.Verify(); err != nil {
-			return nil, fmt.Errorf("verify block %d from BlockStore: %w", b.Number, err)
-		}
-		if err := inner.insertBlock(b.Number, b.Block); err != nil {
-			return nil, fmt.Errorf("insert block %d from BlockStore: %w", b.Number, err)
+	for _, group := range suffix.QCGroups {
+		for i, block := range group.Blocks {
+			n := group.QC.QC().GlobalRange().First + types.GlobalBlockNumber(i) //nolint:gosec // non-negative slice index
+			if n < inner.first {
+				continue
+			}
+			prop := types.NewLaneProposal(block)
+			if err := prop.Verify(); err != nil {
+				return nil, fmt.Errorf("verify block %d from BlockStore: %w", n, err)
+			}
+			if err := inner.insertBlock(n, block); err != nil {
+				return nil, fmt.Errorf("insert block %d from BlockStore: %w", n, err)
+			}
 		}
 	}
 	// Advance nextBlock through contiguous loaded blocks. Don't use

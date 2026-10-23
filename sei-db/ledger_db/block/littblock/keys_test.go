@@ -67,11 +67,9 @@ func TestPrefixedKeys(t *testing.T) {
 }
 
 func TestKindPrefixRoundTrip(t *testing.T) {
-	// Every kind the storage contract defines must map to a prefix and back, so
-	// a record written under one kind is never scanned back as another.
+	// Only primary record kinds may be returned by a scan.
 	kinds := []blocktypes.RecordKind{
-		blocktypes.KindBlock,
-		blocktypes.KindQC,
+		blocktypes.KindQCGroup,
 		blocktypes.KindAppProposal,
 		blocktypes.KindAppQC,
 	}
@@ -87,7 +85,8 @@ func TestKindPrefixRoundTrip(t *testing.T) {
 		require.Equal(t, kind, got)
 	}
 
-	// A hash alias is not number-keyed, so a scan must not report it as a record.
-	_, ok := recordKind(kindBlockHash)
-	require.False(t, ok, "hash alias prefix must not decode to a record kind")
+	for _, prefix := range []byte{kindQC, kindBlock, kindBlockHash} {
+		_, ok := recordKind(prefix)
+		require.False(t, ok, "lookup prefixes must not identify primary records")
+	}
 }

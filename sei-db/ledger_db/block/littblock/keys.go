@@ -13,9 +13,9 @@ import (
 // so the per-kind number spaces never collide:
 //
 //   - kindQCGroup   'g' + 8-byte big-endian first  (packed QC and blocks primary)
-//   - kindBlock     'b' + 8-byte big-endian number (block number lookup)
+//   - kindBlock     'b' + 8-byte big-endian number (secondary block number lookup)
 //   - kindBlockHash 'h' + header hash              (block hash alias)
-//   - kindQC        'q' + 8-byte big-endian number (QC record or lookup aliases)
+//   - kindQC        'q' + 8-byte big-endian number (secondary QC lookup)
 //   - kindAppQC     'a' + 8-byte big-endian number (AppQC primary + covered aliases)
 //   - kindAppProp   'p' + 8-byte big-endian number (AppProposal primary + covered aliases)
 const (
@@ -30,6 +30,8 @@ const (
 // kindPrefix returns the key prefix byte for a record kind.
 func kindPrefix(kind blocktypes.RecordKind) (byte, error) {
 	switch kind {
+	case blocktypes.KindQCGroup:
+		return kindQCGroup, nil
 	case blocktypes.KindBlock:
 		return kindBlock, nil
 	case blocktypes.KindQC:
@@ -43,14 +45,12 @@ func kindPrefix(kind blocktypes.RecordKind) (byte, error) {
 	}
 }
 
-// recordKind returns the record kind a key prefix denotes. The second result is
-// false for a prefix that is not number-keyed, such as a hash alias.
+// recordKind returns the primary record kind for a key prefix. Lookup-only
+// prefixes do not identify primary records.
 func recordKind(prefix byte) (blocktypes.RecordKind, bool) {
 	switch prefix {
-	case kindBlock:
-		return blocktypes.KindBlock, true
-	case kindQC:
-		return blocktypes.KindQC, true
+	case kindQCGroup:
+		return blocktypes.KindQCGroup, true
 	case kindAppProp:
 		return blocktypes.KindAppProposal, true
 	case kindAppQC:

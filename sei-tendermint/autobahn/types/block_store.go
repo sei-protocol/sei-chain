@@ -155,17 +155,10 @@ type BlockStore interface {
 	// None means the DB is empty.
 	Status() utils.Option[SuffixRange]
 
-	// ReadSuffix returns the materialized startup-recovery suffix.
-	//
-	// Implementations find the newest persisted AppQC, then collect all
-	// CommitQCs whose Index is greater than or equal to that AppQC's
-	// RoadIndex, and all blocks whose GlobalBlockNumber is greater than or
-	// equal to that AppQC's GlobalRange.First. If no AppQC is present,
-	// ReadSuffix returns all retained CommitQCs and blocks.
-	//
-	// Returned CommitQCs and Blocks are in ascending GlobalBlockNumber order so
-	// data.State can replay them directly. If AppQC is present, CommitQCs
-	// starts with its matching CommitQC.
+	// ReadSuffix returns complete QC groups and app records for startup recovery.
+	// Groups are ordered by ascending GlobalBlockNumber, with blocks in header
+	// order. If an AppQC exists, the suffix starts with its matching QC group;
+	// otherwise all retained groups are returned.
 	ReadSuffix() (Suffix, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
@@ -250,7 +243,7 @@ type BlockStore interface {
 // Elements since the last anchor (last full row which contains AppQC,AppProposal,Block,QC) to
 // the tips persisted in the DB. These are the elements that would be loaded by data.State on restart
 // via BlockStore.ReadSuffix.
-// First <= NextAppQC <= NextAppProposal <= NextBlock <= NextQC
+// First <= NextAppQC <= NextAppProposal <= NextBlock == NextQC
 type SuffixRange struct {
 	// First is either NextAppQC, or NextAppQC-1, depending on whether there is at least 1 AppQC in the BlockStore.
 	First GlobalBlockNumber
@@ -270,10 +263,10 @@ type SuffixRange struct {
 	NextQC GlobalBlockNumber
 }
 
-// SuffixBlock is one block returned by BlockStore.ReadSuffix.
-type SuffixBlock struct {
-	Number GlobalBlockNumber
-	Block  *Block
+// QCGroup is a committed QC and all its blocks in header order.
+type QCGroup struct {
+	QC     *FullCommitQC
+	Blocks []*Block
 }
 
 // Suffix is the materialized suffix used by data.State startup recovery.
@@ -282,8 +275,7 @@ type Suffix struct {
 	// None if the BlockStore is empty.
 	Status utils.Option[SuffixRange]
 	// Elements which constitute the suffix.
-	CommitQCs    []*FullCommitQC
-	Blocks       []SuffixBlock
+	QCGroups     []QCGroup
 	AppProposals []*AppProposal
 	AppQCs       []*AppQC
 }

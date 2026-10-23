@@ -196,8 +196,8 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 	var suffix types.Suffix
 	var status types.SuffixRange
 	var oldestQC *types.FullCommitQC
-	var gotBlock, gotQC, gotAppProposal, gotAppQC bool
-	for !gotAppQC || !gotQC || status.NextAppQC <= oldestQC.QC().GlobalRange().Next {
+	var gotQC, gotAppProposal, gotAppQC bool
+	for !gotAppQC || !gotQC || status.NextAppQC < oldestQC.QC().GlobalRange().Next {
 		ok, err := it.Next()
 		if err != nil {
 			return types.Suffix{}, fmt.Errorf("failed to advance suffix iterator: %w", err)
@@ -210,16 +210,6 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 			return types.Suffix{}, fmt.Errorf("failed to read suffix value: %w", err)
 		}
 		switch it.Kind() {
-		case blocktypes.KindBlock:
-			n, block, err := decodeBlock(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix block: %w", err)
-			}
-			if !gotBlock {
-				status.NextBlock = n + 1
-				gotBlock = true
-			}
-			suffix.Blocks = append(suffix.Blocks, types.SuffixBlock{Number: n, Block: block})
 		case blocktypes.KindAppQC:
 			appQC, err := decodeAppQC(value)
 			if err != nil {
@@ -243,18 +233,19 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 				gotAppProposal = true
 			}
 			suffix.AppProposals = append(suffix.AppProposals, appProposal)
-		case blocktypes.KindQC:
-			qc, err := decodeQC(value)
+		case blocktypes.KindQCGroup:
+			group, err := decodeQCGroup(value)
 			if err != nil {
 				return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
 			}
+			qc := group.QC
 			gr := qc.QC().GlobalRange()
 			if !gotQC {
 				status.NextQC = gr.Next
 				gotQC = true
 			}
 			oldestQC = qc
-			suffix.CommitQCs = append(suffix.CommitQCs, qc)
+			suffix.QCGroups = append(suffix.QCGroups, group)
 		}
 	}
 	if !gotQC {
@@ -264,18 +255,15 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 	// Set fields for missing resources.
 	first := oldestQC.QC().GlobalRange().First
 	status.NextQC = max(status.NextQC, first)
-	status.NextBlock = max(status.NextBlock, first)
+	status.NextBlock = status.NextQC
 	status.NextAppProposal = max(status.NextAppProposal, first)
 	status.NextAppQC = max(status.NextAppQC, first)
 	status.First = max(status.First, first)
 	suffix.Status = utils.Some(status)
 
 	// Prune resources fully below status.First.
-	suffix.CommitQCs = slices.DeleteFunc(suffix.CommitQCs, func(qc *types.FullCommitQC) bool {
-		return qc.QC().GlobalRange().Next <= status.First
-	})
-	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block types.SuffixBlock) bool {
-		return block.Number < status.First
+	suffix.QCGroups = slices.DeleteFunc(suffix.QCGroups, func(group types.QCGroup) bool {
+		return group.QC.QC().GlobalRange().Next <= status.First
 	})
 	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(appProposal *types.AppProposal) bool {
 		return appProposal.GlobalRange().Next <= status.First
@@ -284,8 +272,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 		return appQC.Proposal().GlobalRange().Next <= status.First
 	})
 	// Put resources in increasing order.
-	slices.Reverse(suffix.CommitQCs)
-	slices.Reverse(suffix.Blocks)
+	slices.Reverse(suffix.QCGroups)
 	slices.Reverse(suffix.AppProposals)
 	slices.Reverse(suffix.AppQCs)
 	return suffix, nil

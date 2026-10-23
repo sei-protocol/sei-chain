@@ -27,21 +27,8 @@ const (
 	crashTotalBlock = crashCohorts * crashPerCohort
 )
 
-// TestNoBlockWithoutQCAfterTornTail is the end-to-end proof of the headline crash
-// invariant: after a torn write, every surviving block is still covered by a
-// surviving QC. A surviving QC may be missing some of its blocks; never the
-// reverse.
-//
-// It writes QC-then-blocks cohorts into the single-shard ledger table, then
-// physically truncates the tail of the segment's value file — dropping the
-// last-written bytes — and marks the segment unsealed so reopening runs litt's
-// group-atomic recovery, which keeps a contiguous write-order prefix. Because
-// every covering QC is written before its blocks, that prefix can never contain a
-// block whose QC was dropped.
-//
-// The segment-level TestSealLoadedSegmentSingleShardPrefix proves the underlying
-// single-shard prefix property in isolation; this pins the store behavior that
-// depends on it: one shared table, QC before block.
+// TestNoBlockWithoutQCAfterTornTail verifies that a torn value discards the
+// entire QC group and preserves the earlier groups.
 func TestNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	dir := t.TempDir()
 
@@ -156,29 +143,27 @@ func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
 	it, err := db.Scan(false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
-
-	var blocks []uint64
-	qcs := map[uint64]bool{}
+	count := 0
 	for {
 		ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
-			break
+			return count
 		}
-		switch it.Kind() {
-		case blocktypes.KindBlock:
-			blocks = append(blocks, it.Number())
-		case blocktypes.KindQC:
-			qcs[it.Number()] = true
+		if it.Kind() != blocktypes.KindQCGroup {
+			continue
 		}
+		value, err := it.Value()
+		require.NoError(t, err)
+		qc, blocks, err := blocktypes.DecodeQCGroup(value)
+		require.NoError(t, err)
+		require.Equal(t, blocktest.RecordValue(blocktypes.KindQC, it.Number()), qc)
+		require.Len(t, blocks, crashPerCohort)
+		for i, block := range blocks {
+			require.Equal(t, blocktest.RecordValue(blocktypes.KindBlock, it.Number()+uint64(i)), block)
+		}
+		count += len(blocks)
 	}
-
-	for _, n := range blocks {
-		cohortStart := n - n%crashPerCohort
-		require.True(t, qcs[cohortStart],
-			"block %d survived but its covering QC at %d was lost", n, cohortStart)
-	}
-	return len(blocks)
 }
 
 // largestValueSegmentFiles walks the litt data directory under dir and returns

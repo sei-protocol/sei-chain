@@ -1,14 +1,17 @@
 package types
 
-// RecordKind is the namespace a stored record belongs to. Kinds partition the
-// number space, so a block numbered n and a QC numbered n are distinct records.
+import "fmt"
+
+// RecordKind identifies a primary record or secondary lookup namespace.
+// KindBlock and KindQC are lookup-only; QCs and blocks are written as groups.
 type RecordKind uint8
 
 const (
-	KindBlock RecordKind = iota
-	KindQC
+	KindBlock RecordKind = iota // block-number lookup only
+	KindQC                      // QC lookup only
 	KindAppProposal
 	KindAppQC
+	KindQCGroup
 )
 
 // String returns the kind's name.
@@ -16,6 +19,8 @@ func (k RecordKind) String() string {
 	switch k {
 	case KindBlock:
 		return "block"
+	case KindQCGroup:
+		return "qc_group"
 	case KindQC:
 		return "qc"
 	case KindAppProposal:
@@ -25,6 +30,14 @@ func (k RecordKind) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// ValidateStandalone checks that the kind can be written without a QC group.
+func (k RecordKind) ValidateStandalone() error {
+	if k != KindAppProposal && k != KindAppQC {
+		return fmt.Errorf("%s cannot be written as a standalone record", k)
+	}
+	return nil
 }
 
 // BlockRecord is an opaque encoded block and its header-hash lookup key.
@@ -48,7 +61,7 @@ type BlockRecord struct {
 //
 // # Durability
 //
-// Writes are two-phase: PutQC, PutRecord and PutBlock may return before the record is
+// Writes are two-phase: PutQC and PutRecord may return before the record is
 // on disk, and Flush blocks until every previously-returned write is durable.
 // Reads observe a write as soon as it returns, whether or not it is durable.
 //
@@ -74,38 +87,34 @@ type BlockRecord struct {
 // # Recovery
 //
 // The floor is not persisted. On open an implementation re-derives it as the
-// number of the oldest KindQC record it still holds, so a restart forgets every
+// number of the oldest KindQCGroup record it still holds, so a restart forgets every
 // SetPruneWatermark but never serves a record whose covering QC has already
-// been reclaimed. Opening a store that holds records but no KindQC record
+// been reclaimed. Opening a store that holds records but no KindQCGroup record
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
 	// PutQC atomically stores a QC and all its blocks. The QC is addressable at
 	// every number in [first, first+len(blocks)); blocks are in ascending number
 	// order and are addressable by number and hash. blocks must be non-empty.
-	// Scan presents the QC followed by its blocks as consecutive logical records.
+	// Scan presents the group as one KindQCGroup record containing the whole group.
 	PutQC(first uint64, qc []byte, blocks []BlockRecord) error
 
-	// PutRecord stores value once, addressable as kind at every number in the
-	// half-open range [first, next). Storing an already-stored number is not
+	// PutRecord stores a KindAppProposal or KindAppQC value, addressable at
+	// every number in [first, next). Storing an already-stored number is not
 	// supported and the result is undefined.
 	PutRecord(kind RecordKind, first, next uint64, value []byte) error
-
-	// PutBlock stores value as a KindBlock record at n, additionally
-	// addressable by hash through GetBlockByHash. hash must be unique.
-	PutBlock(n uint64, hash []byte, value []byte) error
 
 	// GetRecord returns the value filed under kind at n, and whether one is
 	// present.
 	GetRecord(kind RecordKind, n uint64) (value []byte, exists bool, err error)
 
-	// GetBlockByHash returns the block record stored under hash by PutBlock,
+	// GetBlockByHash returns the block record indexed under hash by PutQC,
 	// and whether one is present.
 	GetBlockByHash(hash []byte) (value []byte, exists bool, err error)
 
 	// Scan iterates the records in the order they were written, newest first
 	// when newestFirst is set and oldest first otherwise. It visits each
-	// logical record once at its first number, including each QC and block
-	// stored together by PutQC, and never repeats covered-number or hash aliases.
+	// primary record once at its first number. A PutQC group is returned whole
+	// as KindQCGroup; its blocks and lookup aliases are not visited separately.
 	// The iterator observes a snapshot of the records present when Scan is called,
 	// and must be closed.
 	Scan(newestFirst bool) (RecordIterator, error)

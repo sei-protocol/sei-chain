@@ -205,23 +205,13 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 		NextAppQC:       0,
 		NextAppProposal: 0,
 	}).First
-	for _, qc := range suffix.CommitQCs {
+	for _, group := range suffix.QCGroups {
+		qc := group.QC
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
 		for n := max(first, floor); n < next; n++ {
-			entries = append(entries, iterEntry{n: n, qc: qc})
+			entries = append(entries, iterEntry{n: n, qc: qc, blk: group.Blocks[n-first]})
 		}
-	}
-	for _, b := range suffix.Blocks {
-		found := false
-		for i := range entries {
-			if entries[i].n == b.Number {
-				entries[i].blk = b.Block
-				found = true
-				break
-			}
-		}
-		require.True(t, found, "block %d must be covered by a suffix QC", b.Number)
 	}
 	for _, appQC := range suffix.AppQCs {
 		gr := appQC.Proposal().GlobalRange()

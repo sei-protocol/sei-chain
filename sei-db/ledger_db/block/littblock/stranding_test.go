@@ -39,58 +39,30 @@ func physicallyPresent(t *testing.T, db blocktypes.BlockDB, kind blocktypes.Reco
 	return exists
 }
 
-// TestRecoveredWatermarkExcludesStrandedBlocks is the cross-segment stranding
-// regression. GC reclaims a contiguous prefix of segments in write order, and a
-// QC is always written before the blocks it covers, so a QC's covered range can
-// straddle a segment boundary and its segment can be reclaimed while a later
-// segment still holds some covered blocks — leaving those blocks on disk with no
-// covering QC. Because the watermark is in-memory only, a restart forgets it, and
-// a store that did not re-derive it would report a floor beneath the stranded
-// blocks and let the layer above serve them.
-//
-// With MaxSegmentKeyCount = 8 the QC put (5 keys) plus the first two block puts
-// (2 keys each, number and hash) fill segment 0 = {QC[0,5), b0, b1}; the
-// remaining covered blocks spill into segment 1 = {b2, b3, b4, QC[5,10)}. Pruning
-// to 5 makes segment 0 collectable (every key < 5) while segment 1 is pinned by
-// QC[5,10) (key 5), so QC[0,5) is reclaimed but blocks 2..4 survive, stranded.
-func TestRecoveredWatermarkExcludesStrandedBlocks(t *testing.T) {
+// TestRecoveredWatermarkTracksOldestGroup verifies that restart restores the
+// oldest retained group's floor after garbage collection.
+func TestRecoveredWatermarkTracksOldestGroup(t *testing.T) {
 	dir := t.TempDir()
-
-	db := openLitt(t, strandingConfig(t, dir, 8))
-	blocktest.WriteCohorts(t, db, 4, 5) // blocks 0..19; QCs [0,5),[5,10),[10,15),[15,20)
+	cfg := strandingConfig(t, dir, 8)
+	db := openLitt(t, cfg)
+	blocktest.WriteCohorts(t, db, 4, 5)
 	blocktest.WriteAppData(t, db, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
-
-	// Reopen so the segments seal, then raise the floor past the first QC and collect.
-	db2 := openLitt(t, strandingConfig(t, dir, 8))
-	db2.SetPruneWatermark(5)
-	require.NoError(t, littblock.ForceGC(db2))
-	require.NoError(t, db2.Flush())
-	require.NoError(t, db2.Close())
-
-	// Reopen with the in-memory watermark forgotten. This is where a store that
-	// did not re-derive it would report 0.
-	db3 := openLitt(t, strandingConfig(t, dir, 8))
-	defer func() { _ = db3.Close() }()
-
-	// The stranding really materialized on disk: block 2 is physically present but
-	// its covering QC's key is gone, reclaimed with segment 0. Blocks 0 and 1 were
-	// in that segment and are gone with it.
-	require.True(t, physicallyPresent(t, db3, blocktypes.KindBlock, 2), "block 2 must be physically stranded on disk")
-	require.False(t, physicallyPresent(t, db3, blocktypes.KindQC, 2), "covering QC key for block 2 must be reclaimed")
-	require.False(t, physicallyPresent(t, db3, blocktypes.KindBlock, 0), "block 0 must be physically reclaimed")
-	require.False(t, physicallyPresent(t, db3, blocktypes.KindBlock, 1), "block 1 must be physically reclaimed")
-
-	// The watermark is re-derived as the lowest surviving QC's first number, which
-	// puts every stranded block below the floor. Refusing to serve what sits below
-	// it is the layer above's job, and is covered by its own contract suite.
-	require.Equal(t, uint64(5), db3.GetPruneWatermark(), "recovered watermark must be the lowest surviving QC's first")
-
-	// Everything the surviving QCs cover is still on disk.
-	for n := uint64(5); n < 20; n++ {
-		require.True(t, physicallyPresent(t, db3, blocktypes.KindBlock, n), "block %d must survive", n)
-		require.True(t, physicallyPresent(t, db3, blocktypes.KindQC, n), "QC key %d must survive", n)
+	db = openLitt(t, cfg)
+	db.SetPruneWatermark(5)
+	require.NoError(t, littblock.ForceGC(db))
+	require.NoError(t, db.Close())
+	db = openLitt(t, cfg)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.Equal(t, uint64(5), db.GetPruneWatermark())
+	for n := uint64(0); n < 20; n++ {
+		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
+			require.Equal(t, n >= 5, physicallyPresent(t, db, kind, n))
+		}
+		_, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
+		require.NoError(t, err)
+		require.Equal(t, n >= 5, present)
 	}
 }
 
@@ -128,22 +100,8 @@ func TestReclaimsAcrossRestart(t *testing.T) {
 	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 15), "covering QC[15,20) must survive the capped prune")
 }
 
-// TestPruneIntoCohortRetainsTheWholeCohort pins cohort atomicity on disk. It is
-// why the layer above rounds a prune down to a cohort start: with the floor on
-// that boundary, and the QC written before the blocks it covers, pinning the QC's
-// segment pins every segment after it, so the whole covered range is retained
-// rather than split.
-//
-// The test is written so it would fail if the rule broke. It first asserts the
-// fully-below segment IS reclaimed: LittDB never collects the live mutable file,
-// so this is what proves GC ran with teeth on this data, without which the
-// retention assertions below would hold vacuously. The write, flush, close and
-// reopen dance seals the mutable file so GC can reach it.
-//
-// Layout with MaxSegmentKeyCount = 8: seg0 = {QC[0,5), b0, b1}, seg1 = {b2, b3,
-// b4, QC[5,10)}, seg2 = {b5, b6, b7, b8}, seg3 = {b9, ...}. With the floor at 5,
-// seg0 falls entirely below it and is reclaimed, while QC[5,10)'s key 5 pins seg1
-// and everything after it.
+// TestPruneIntoCohortRetainsTheWholeCohort verifies that a watermark inside a
+// group's range retains every QC and block lookup in that group.
 func TestPruneIntoCohortRetainsTheWholeCohort(t *testing.T) {
 	dir := t.TempDir()
 
@@ -156,17 +114,16 @@ func TestPruneIntoCohortRetainsTheWholeCohort(t *testing.T) {
 	db2 := openLitt(t, strandingConfig(t, dir, 8))
 	defer func() { _ = db2.Close() }()
 
-	db2.SetPruneWatermark(5)
+	db2.SetPruneWatermark(7)
 	require.NoError(t, littblock.ForceGC(db2))
 
-	// GC had teeth: the fully-below segment {QC[0,5), b0, b1} is gone.
+	// The first group is fully below the watermark and is reclaimed.
 	require.False(t, physicallyPresent(t, db2, blocktypes.KindBlock, 0), "block 0 is fully below the watermark")
 	require.False(t, physicallyPresent(t, db2, blocktypes.KindBlock, 1), "block 1 is fully below the watermark")
 	require.False(t, physicallyPresent(t, db2, blocktypes.KindQC, 0), "QC[0,5) is entirely below the watermark")
 
-	// The cohort's QC is at the watermark, so its segment is pinned — by its
-	// primary key and by every alias across its covered range.
-	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 5), "cohort QC[5,10) primary key must survive")
+	// The second group straddles the watermark and is retained whole.
+	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 5), "cohort QC[5,10) lookup must survive")
 	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 9), "cohort QC[5,10) alias must survive")
 
 	// Pinning the QC's segment retains the whole range it covers.
@@ -176,19 +133,14 @@ func TestPruneIntoCohortRetainsTheWholeCohort(t *testing.T) {
 	}
 }
 
-// TestRefusesToOpenWithStrandedBlocks verifies the corruption guard in watermark
-// recovery. The never-empty prune rule guarantees at least one cohort is always
-// retained, so a store holding records but no QC is corrupt — a QC file removed
-// out of band, say. Rather than serve records it can no longer place, the store
-// refuses to open.
-func TestRefusesToOpenWithStrandedBlocks(t *testing.T) {
+// TestRefusesToOpenWithoutQCGroup verifies that app records cannot supply a missing QC group.
+func TestRefusesToOpenWithoutQCGroup(t *testing.T) {
 	dir := t.TempDir()
-
 	db := openLitt(t, strandingConfig(t, dir, 8))
-	require.NoError(t, db.PutBlock(5, blocktest.BlockHash(5), blocktest.RecordValue(blocktypes.KindBlock, 5)))
+	blocktest.PutAppData(t, db, 5, 8)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
 	_, err := littblock.NewBlockDB(strandingConfig(t, dir, 8))
-	require.ErrorContains(t, err, "no QC in non-empty store")
+	require.Error(t, err)
 }
