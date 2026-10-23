@@ -86,6 +86,9 @@ func (app *Proxy) AwaitCommits() error {
 	return settler.AwaitCommits()
 }
 
+// prepareBlockTiming times PrepareBlock calls.
+var prepareBlockTiming = Global.MethodTimingAt("prepare_block", "sync")
+
 // blockPreparer is implemented by applications that can do the stateless part of
 // FinalizeBlock for a block before it is called.
 type blockPreparer interface {
@@ -95,7 +98,7 @@ type blockPreparer interface {
 // PrepareBlock lets the wrapped application decode a block ahead of its
 // FinalizeBlock. It is a no-op for an application that does not prepare blocks.
 func (app *Proxy) PrepareBlock(ctx context.Context, req *types.RequestFinalizeBlock) error {
-	defer addTimeSample(Global.MethodTimingAt("prepare_block", "sync"))()
+	defer addTimeSample(prepareBlockTiming)()
 	preparer, ok := app.app.(blockPreparer)
 	if !ok {
 		return nil

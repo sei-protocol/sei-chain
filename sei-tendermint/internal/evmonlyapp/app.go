@@ -33,7 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
@@ -853,7 +852,11 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 // decoded this block, and decodes it here otherwise.
 func (a *evmOnlyApplication) executeBlock(ctx context.Context, executor *evmonly.Executor, txs [][]byte, block finalizeRequest, blockCtx evmonly.BlockContext) (*evmonly.BlockResult, error) {
 	prepared, hit := a.takePrepared(block.height, block.blockHash)
-	a.preparedBlocks.Add(ctx, 1, otelmetric.WithAttributes(attribute.Bool("prepared", hit)))
+	if hit {
+		a.preparedBlocks.Add(ctx, 1, preparedBlockHit)
+	} else {
+		a.preparedBlocks.Add(ctx, 1, preparedBlockMiss)
+	}
 	a.finalizePhases.SetPhase(finalizePhaseTakeSenders)
 	if !hit {
 		return a.executeBlockPipelined(ctx, executor, evmonly.BlockRequest{

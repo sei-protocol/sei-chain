@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -24,6 +25,12 @@ const (
 	// maxPreparedBlocks bounds the prepared blocks held: the block about to execute
 	// and the one after it.
 	maxPreparedBlocks = 2
+)
+
+// The prepared-blocks counter's attribute sets, built once.
+var (
+	preparedBlockHit  = otelmetric.WithAttributes(attribute.Bool("prepared", true))
+	preparedBlockMiss = otelmetric.WithAttributes(attribute.Bool("prepared", false))
 )
 
 // preparedBlock is the stateless part of a FinalizeBlock request, computed before the
