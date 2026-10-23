@@ -5,10 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"runtime/debug"
-	"strconv"
-	"strings"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -259,34 +256,12 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 		return
 	}
 	debug.SetGCPercent(cfg.GCPercent)
-	limit := containerMemoryLimit() * 8 / 10
-	if limit <= 0 {
+	limit := containerMemoryLimit() / 10 * 8
+	// A limit the operator set through GOMEMLIMIT is only ever lowered, never raised.
+	if limit <= 0 || limit >= debug.SetMemoryLimit(-1) {
 		logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent)
 		return
 	}
 	debug.SetMemoryLimit(limit)
 	logger.Info("raised the Go GC target", "gc_percent", cfg.GCPercent, "memory_limit", limit)
-}
-
-// containerMemoryLimit returns the cgroup memory limit in bytes, or 0 when the process has none.
-func containerMemoryLimit() int64 {
-	for _, path := range []string{
-		"/sys/fs/cgroup/memory.max",
-		"/sys/fs/cgroup/memory/memory.limit_in_bytes",
-	} {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		text := strings.TrimSpace(string(raw))
-		if text == "" || text == "max" {
-			continue
-		}
-		n, err := strconv.ParseInt(text, 10, 64)
-		if err != nil || n <= 0 {
-			continue
-		}
-		return n
-	}
-	return 0
 }
