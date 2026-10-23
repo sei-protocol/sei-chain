@@ -1,8 +1,10 @@
 package mutation
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -11,9 +13,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// This file converts between changesets and mutations. A mutation's key is a FlatKV physical key (ktype) and its
-// values are FlatKV rows (vtype), the same bytes FlatKV stores and folds into its lattice hash. New values are
-// written in the current vtype serialization version.
+// This file converts mutations to and from changesets, and into state change sets. A mutation's key is a FlatKV
+// physical key (ktype) and its values are FlatKV rows (vtype), the same bytes FlatKV stores and folds into its lattice
+// hash. New values are written in the current vtype serialization version.
 
 // MutationsFromChangeSets converts one whole block's changesets into one mutation per physical key the block writes.
 // Account fields written separately in the changesets are merged onto the account's prior row into a single mutation.
@@ -293,4 +295,221 @@ func fixedFieldPair(key []byte, value []byte) *proto.KVPair {
 		}
 	}
 	return &proto.KVPair{Key: key, Delete: true}
+}
+
+// MutationsToStateChangeSet converts mutations into a StateChangeSet object.
+func MutationsToStateChangeSet(
+	// The mutations to convert.
+	mutations []Mutation,
+	// If set, a change whose new value equals its prior value is included. Otherwise it is omitted.
+	includeUnchangedValues bool,
+	// If set, mutations of keys of a kind a state change set does not support are skipped without being parsed.
+	// Otherwise the presence of a state change that doesn't fit into a StateChangeSet results in an error.
+	ignoreUnsupportedKeys bool,
+) (*gigatypes.StateChangeSet, error) {
+	changes := &gigatypes.StateChangeSet{}
+	for i := range mutations {
+		supported, err := mutations[i].appendStateChanges(changes, includeUnchangedValues)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert mutation %d: %w", i, err)
+		}
+		if !supported && !ignoreUnsupportedKeys {
+			return nil, fmt.Errorf("mutation %d writes key %x, which a state change set cannot hold",
+				i, mutations[i].Key)
+		}
+	}
+	return changes, nil
+}
+
+// appendStateChanges appends the changes the mutation makes to changes. Returns false, appending nothing, if the
+// mutation's key is of a kind a state change set does not hold.
+func (m *Mutation) appendStateChanges(
+	// The set to append to.
+	changes *gigatypes.StateChangeSet,
+	// If set, a change whose new value equals its prior value is appended.
+	includeUnchangedValues bool,
+) (bool, error) {
+	moduleName, key, err := ktype.StripModulePrefix(m.Key)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse key %x: %w", m.Key, err)
+	}
+	if moduleName == "" {
+		return false, fmt.Errorf("key %x has an empty module name", m.Key)
+	}
+	if moduleName != keys.EVMStoreKey {
+		return false, nil
+	}
+
+	// ParseEVMKey classifies a row key of the wrong length as misc, where it is rejected, so the stripped key of
+	// every row kind has exactly the length of an address, or of an address followed by a slot.
+	kind, strippedKey := keys.ParseEVMKey(key)
+	switch kind {
+	case keys.EVMKeyMisc:
+		if hasEVMRowPrefix(key) {
+			return false, fmt.Errorf("EVM row key %x has the wrong length", key)
+		}
+		return false, nil
+	case keys.EVMKeyEmpty:
+		return false, fmt.Errorf("empty EVM key")
+	case keys.EVMKeyCodeHash, keys.EVMKeyBalance:
+		return false, fmt.Errorf("account field key %x is not an account row key", key)
+	case ktype.EVMKeyAccount:
+		err = m.appendAccountChanges(changes, gigatypes.Address(strippedKey), includeUnchangedValues)
+	case keys.EVMKeyCode:
+		err = m.appendCodeChange(changes, gigatypes.Address(strippedKey), includeUnchangedValues)
+	case keys.EVMKeyStorage:
+		address := gigatypes.Address(strippedKey[:keys.AddressLen])
+		slot := gigatypes.Hash(strippedKey[keys.AddressLen:])
+		err = m.appendStorageChange(changes, address, slot, includeUnchangedValues)
+	default:
+		return false, fmt.Errorf("unknown EVM key kind %v", kind)
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to convert key %x: %w", m.Key, err)
+	}
+	return true, nil
+}
+
+// hasEVMRowPrefix reports whether key, a non-empty EVM key, starts with the prefix of a nonce, code hash, balance,
+// code or storage key.
+func hasEVMRowPrefix(key []byte) bool {
+	rowKinds := []keys.EVMKeyKind{
+		keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance, keys.EVMKeyCode, keys.EVMKeyStorage,
+	}
+	for _, kind := range rowKinds {
+		prefix, _ := keys.EVMKeyPrefixByte(kind)
+		if key[0] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// appendAccountChanges appends the balance and nonce changes an account row mutation makes.
+func (m *Mutation) appendAccountChanges(
+	// The set to append to.
+	changes *gigatypes.StateChangeSet,
+	// The account's address.
+	address gigatypes.Address,
+	// If set, a balance or nonce change is appended even when the field equals its prior value.
+	includeUnchangedValues bool,
+) error {
+	var newRow *vtype.AccountData
+	if m.NewValue != nil {
+		row, err := vtype.DeserializeAccountData(m.NewValue)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize new account row: %w", err)
+		}
+		newRow = row
+	}
+	var previousRow *vtype.AccountData
+	if m.PreviousValue != nil {
+		row, err := vtype.DeserializeAccountData(m.PreviousValue)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize previous account row: %w", err)
+		}
+		previousRow = row
+	}
+	balance := newRow.GetBalance()
+	priorBalance := previousRow.GetBalance()
+	if includeUnchangedValues || *balance != *priorBalance {
+		changes.Balances = append(changes.Balances, gigatypes.BalanceChange{
+			Address:      address,
+			Balance:      new(big.Int).SetBytes(balance[:]),
+			PriorBalance: new(big.Int).SetBytes(priorBalance[:]),
+		})
+	}
+	nonce := newRow.GetNonce()
+	priorNonce := previousRow.GetNonce()
+	if includeUnchangedValues || nonce != priorNonce {
+		changes.Nonces = append(changes.Nonces, gigatypes.NonceChange{
+			Address:    address,
+			Nonce:      nonce,
+			PriorNonce: priorNonce,
+		})
+	}
+	return nil
+}
+
+// appendCodeChange appends the code change a code row mutation makes.
+func (m *Mutation) appendCodeChange(
+	// The set to append to.
+	changes *gigatypes.StateChangeSet,
+	// The address the code belongs to.
+	address gigatypes.Address,
+	// If set, the change is appended even when the code equals its prior code.
+	includeUnchangedValues bool,
+) error {
+	var newRow *vtype.CodeData
+	if m.NewValue != nil {
+		row, err := vtype.DeserializeCodeData(m.NewValue)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize new code row: %w", err)
+		}
+		newRow = row
+	}
+	var previousRow *vtype.CodeData
+	if m.PreviousValue != nil {
+		row, err := vtype.DeserializeCodeData(m.PreviousValue)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize previous code row: %w", err)
+		}
+		previousRow = row
+	}
+	// A missing row reads as empty bytecode, so deleting absent code is unchanged.
+	if !includeUnchangedValues && bytes.Equal(newRow.GetBytecode(), previousRow.GetBytecode()) {
+		return nil
+	}
+	change := gigatypes.CodeChange{Address: address, Delete: newRow == nil}
+	if newRow != nil {
+		change.Code = newRow.GetBytecode()
+	}
+	if previousRow != nil {
+		change.PriorCode = previousRow.GetBytecode()
+	}
+	changes.Code = append(changes.Code, change)
+	return nil
+}
+
+// appendStorageChange appends the storage change a storage row mutation makes.
+func (m *Mutation) appendStorageChange(
+	// The set to append to.
+	changes *gigatypes.StateChangeSet,
+	// The address the storage belongs to.
+	address gigatypes.Address,
+	// The storage slot.
+	slot gigatypes.Hash,
+	// If set, the change is appended even when the value equals its prior value.
+	includeUnchangedValues bool,
+) error {
+	var newRow *vtype.StorageData
+	if m.NewValue != nil {
+		row, err := vtype.DeserializeStorageData(m.NewValue)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize new storage row: %w", err)
+		}
+		newRow = row
+	}
+	var previousRow *vtype.StorageData
+	if m.PreviousValue != nil {
+		row, err := vtype.DeserializeStorageData(m.PreviousValue)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize previous storage row: %w", err)
+		}
+		previousRow = row
+	}
+	// A missing row reads as zero, so deleting an absent slot is unchanged.
+	value := *newRow.GetValue()
+	priorValue := *previousRow.GetValue()
+	if !includeUnchangedValues && value == priorValue {
+		return nil
+	}
+	changes.Storage = append(changes.Storage, gigatypes.StorageChange{
+		Address:    address,
+		Key:        slot,
+		Delete:     newRow == nil,
+		Value:      value,
+		PriorValue: priorValue,
+	})
+	return nil
 }

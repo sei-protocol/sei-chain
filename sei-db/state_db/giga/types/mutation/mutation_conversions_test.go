@@ -3,6 +3,7 @@ package mutation
 import (
 	"bytes"
 	"encoding/binary"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -383,4 +384,290 @@ func TestMutationsRoundTripThroughChangeSets(t *testing.T) {
 	roundTripped, err := MutationsFromChangeSets(converted, 5, prior)
 	require.NoError(t, err)
 	require.ElementsMatch(t, mutations, roundTripped)
+}
+
+// bigBalance returns balance, a big-endian 32-byte balance, as a big.Int.
+func bigBalance(balance []byte) *big.Int {
+	return new(big.Int).SetBytes(balance)
+}
+
+func TestMutationsToStateChangeSetBuildsEachKind(t *testing.T) {
+	priorCode := []byte{0x60}
+	code := []byte{0x60, 0x80}
+	priorStorageValue := bytes.Repeat([]byte{0x55}, 32)
+	mutations := []Mutation{
+		{Key: testAccountPhysicalKey, NewValue: accountRow(t, 5, 7, testCodeHash, testBalance)},
+		{
+			Key:           testCodePhysicalKey,
+			PreviousValue: vtype.SerializeCode(3, priorCode),
+			NewValue:      vtype.SerializeCode(5, code),
+		},
+		{
+			Key:           testStoragePhysicalKey,
+			PreviousValue: storageRow(t, 3, priorStorageValue),
+			NewValue:      storageRow(t, 5, testCodeHash),
+		},
+	}
+
+	changes, err := MutationsToStateChangeSet(mutations, false, false)
+	require.NoError(t, err)
+
+	address := gigatypes.Address(testAddress)
+	expected := &gigatypes.StateChangeSet{
+		Balances: []gigatypes.BalanceChange{{
+			Address:      address,
+			Balance:      bigBalance(testBalance),
+			PriorBalance: bigBalance(make([]byte, vtype.BalanceLen)),
+		}},
+		Nonces: []gigatypes.NonceChange{{Address: address, Nonce: 7}},
+		Code:   []gigatypes.CodeChange{{Address: address, Code: code, PriorCode: priorCode}},
+		Storage: []gigatypes.StorageChange{{
+			Address:    address,
+			Key:        gigatypes.Hash(testSlot),
+			Value:      gigatypes.Hash(testCodeHash),
+			PriorValue: gigatypes.Hash(priorStorageValue),
+		}},
+	}
+	require.Equal(t, expected, changes)
+}
+
+func TestMutationsToStateChangeSetDeletes(t *testing.T) {
+	priorCode := []byte{0x60}
+	priorStorageValue := bytes.Repeat([]byte{0x55}, 32)
+	mutations := []Mutation{
+		{Key: testAccountPhysicalKey, PreviousValue: accountRow(t, 3, 7, testCodeHash, testBalance)},
+		{Key: testCodePhysicalKey, PreviousValue: vtype.SerializeCode(3, priorCode)},
+		{Key: testStoragePhysicalKey, PreviousValue: storageRow(t, 3, priorStorageValue)},
+	}
+
+	changes, err := MutationsToStateChangeSet(mutations, false, false)
+	require.NoError(t, err)
+
+	address := gigatypes.Address(testAddress)
+	expected := &gigatypes.StateChangeSet{
+		Balances: []gigatypes.BalanceChange{{
+			Address:      address,
+			Balance:      bigBalance(make([]byte, vtype.BalanceLen)),
+			PriorBalance: bigBalance(testBalance),
+		}},
+		Nonces: []gigatypes.NonceChange{{Address: address, PriorNonce: 7}},
+		Code:   []gigatypes.CodeChange{{Address: address, Delete: true, PriorCode: priorCode}},
+		Storage: []gigatypes.StorageChange{{
+			Address:    address,
+			Key:        gigatypes.Hash(testSlot),
+			Delete:     true,
+			PriorValue: gigatypes.Hash(priorStorageValue),
+		}},
+	}
+	require.Equal(t, expected, changes)
+}
+
+func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
+	address := gigatypes.Address(testAddress)
+	otherBalance := bytes.Repeat([]byte{0x01}, vtype.BalanceLen)
+	priorAccountRow := accountRow(t, 3, 7, testCodeHash, testBalance)
+	accountMutation := func(newRow []byte) Mutation {
+		return Mutation{Key: testAccountPhysicalKey, PreviousValue: priorAccountRow, NewValue: newRow}
+	}
+	balanceChange := gigatypes.BalanceChange{
+		Address:      address,
+		Balance:      bigBalance(otherBalance),
+		PriorBalance: bigBalance(testBalance),
+	}
+	unchangedBalance := gigatypes.BalanceChange{
+		Address:      address,
+		Balance:      bigBalance(testBalance),
+		PriorBalance: bigBalance(testBalance),
+	}
+	nonceChange := gigatypes.NonceChange{Address: address, Nonce: 8, PriorNonce: 7}
+	unchangedNonce := gigatypes.NonceChange{Address: address, Nonce: 7, PriorNonce: 7}
+	zeroCodeHash := make([]byte, vtype.CodeHashLen)
+	code := []byte{0x60, 0x80}
+	storageValue := bytes.Repeat([]byte{0x55}, 32)
+
+	tests := []struct {
+		name     string
+		mutation Mutation
+		// The expected set when unchanged values are omitted.
+		withoutUnchanged *gigatypes.StateChangeSet
+		// The expected set when unchanged values are included.
+		withUnchanged *gigatypes.StateChangeSet
+	}{
+		{
+			name:             "account balance only",
+			mutation:         accountMutation(accountRow(t, 5, 7, testCodeHash, otherBalance)),
+			withoutUnchanged: &gigatypes.StateChangeSet{Balances: []gigatypes.BalanceChange{balanceChange}},
+			withUnchanged: &gigatypes.StateChangeSet{
+				Balances: []gigatypes.BalanceChange{balanceChange},
+				Nonces:   []gigatypes.NonceChange{unchangedNonce},
+			},
+		},
+		{
+			name:             "account nonce only",
+			mutation:         accountMutation(accountRow(t, 5, 8, testCodeHash, testBalance)),
+			withoutUnchanged: &gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{nonceChange}},
+			withUnchanged: &gigatypes.StateChangeSet{
+				Balances: []gigatypes.BalanceChange{unchangedBalance},
+				Nonces:   []gigatypes.NonceChange{nonceChange},
+			},
+		},
+		{
+			name:     "account balance and nonce",
+			mutation: accountMutation(accountRow(t, 5, 8, testCodeHash, otherBalance)),
+			withoutUnchanged: &gigatypes.StateChangeSet{
+				Balances: []gigatypes.BalanceChange{balanceChange},
+				Nonces:   []gigatypes.NonceChange{nonceChange},
+			},
+			withUnchanged: &gigatypes.StateChangeSet{
+				Balances: []gigatypes.BalanceChange{balanceChange},
+				Nonces:   []gigatypes.NonceChange{nonceChange},
+			},
+		},
+		{
+			name:             "account code hash only",
+			mutation:         accountMutation(accountRow(t, 5, 7, zeroCodeHash, testBalance)),
+			withoutUnchanged: &gigatypes.StateChangeSet{},
+			withUnchanged: &gigatypes.StateChangeSet{
+				Balances: []gigatypes.BalanceChange{unchangedBalance},
+				Nonces:   []gigatypes.NonceChange{unchangedNonce},
+			},
+		},
+		{
+			name: "code rewritten with the same bytecode",
+			mutation: Mutation{
+				Key:           testCodePhysicalKey,
+				PreviousValue: vtype.SerializeCode(3, code),
+				NewValue:      vtype.SerializeCode(5, code),
+			},
+			withoutUnchanged: &gigatypes.StateChangeSet{},
+			withUnchanged: &gigatypes.StateChangeSet{
+				Code: []gigatypes.CodeChange{{Address: address, Code: code, PriorCode: code}},
+			},
+		},
+		{
+			name: "storage rewritten with the same value",
+			mutation: Mutation{
+				Key:           testStoragePhysicalKey,
+				PreviousValue: storageRow(t, 3, storageValue),
+				NewValue:      storageRow(t, 5, storageValue),
+			},
+			withoutUnchanged: &gigatypes.StateChangeSet{},
+			withUnchanged: &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{{
+				Address:    address,
+				Key:        gigatypes.Hash(testSlot),
+				Value:      gigatypes.Hash(storageValue),
+				PriorValue: gigatypes.Hash(storageValue),
+			}}},
+		},
+		{
+			name:             "storage deleted with no prior value",
+			mutation:         Mutation{Key: testStoragePhysicalKey},
+			withoutUnchanged: &gigatypes.StateChangeSet{},
+			withUnchanged: &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{{
+				Address: address,
+				Key:     gigatypes.Hash(testSlot),
+				Delete:  true,
+			}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mutations := []Mutation{tt.mutation}
+
+			changes, err := MutationsToStateChangeSet(mutations, false, false)
+			require.NoError(t, err)
+			require.Equal(t, tt.withoutUnchanged, changes)
+
+			changes, err = MutationsToStateChangeSet(mutations, true, false)
+			require.NoError(t, err)
+			require.Equal(t, tt.withUnchanged, changes)
+		})
+	}
+}
+
+func TestMutationsToStateChangeSetUnsupportedKeys(t *testing.T) {
+	storageMutation := Mutation{Key: testStoragePhysicalKey, NewValue: storageRow(t, 5, testCodeHash)}
+	tests := []struct {
+		name     string
+		mutation Mutation
+	}{
+		{
+			name:     "EVM misc key",
+			mutation: Mutation{Key: testMiscPhysicalKey, NewValue: vtype.SerializeMisc(5, []byte("misc"))},
+		},
+		{
+			name: "non-EVM module key",
+			mutation: Mutation{
+				Key:      ktype.BuildPhysicalKey("bank", []byte("supply")),
+				NewValue: vtype.SerializeMisc(5, []byte("100")),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mutations := []Mutation{storageMutation, tt.mutation}
+
+			_, err := MutationsToStateChangeSet(mutations, false, false)
+			require.Error(t, err)
+
+			changes, err := MutationsToStateChangeSet(mutations, false, true)
+			require.NoError(t, err)
+			expected := &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{{
+				Address: gigatypes.Address(testAddress),
+				Key:     gigatypes.Hash(testSlot),
+				Value:   gigatypes.Hash(testCodeHash),
+			}}}
+			require.Equal(t, expected, changes)
+		})
+	}
+}
+
+func TestMutationsToStateChangeSetRejectsMalformedMutations(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutation Mutation
+	}{
+		{name: "key without module prefix", mutation: Mutation{Key: []byte("no-prefix")}},
+		{name: "empty EVM key", mutation: Mutation{Key: []byte("evm/")}},
+		{
+			name:     "empty module name",
+			mutation: Mutation{Key: ktype.BuildPhysicalKey("", []byte("supply"))},
+		},
+		{
+			name:     "account field key",
+			mutation: Mutation{Key: ktype.BuildPhysicalKey(keys.EVMStoreKey, testBalanceKey)},
+		},
+		{
+			name:     "account key too short",
+			mutation: Mutation{Key: testAccountPhysicalKey[:len(testAccountPhysicalKey)-1]},
+		},
+		{
+			name:     "code key too long",
+			mutation: Mutation{Key: append(bytes.Clone(testCodePhysicalKey), 0x00)},
+		},
+		{
+			name:     "storage key too short",
+			mutation: Mutation{Key: testStoragePhysicalKey[:len(testStoragePhysicalKey)-1]},
+		},
+		{
+			name:     "corrupt new row",
+			mutation: Mutation{Key: testCodePhysicalKey, NewValue: []byte{0xff}},
+		},
+		{
+			name:     "corrupt previous row",
+			mutation: Mutation{Key: testAccountPhysicalKey, PreviousValue: []byte{0xff}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mutations := []Mutation{tt.mutation}
+			for _, ignoreUnsupportedKeys := range []bool{false, true} {
+				_, err := MutationsToStateChangeSet(mutations, false, ignoreUnsupportedKeys)
+				require.Error(t, err, "ignoreUnsupportedKeys=%v", ignoreUnsupportedKeys)
+			}
+		})
+	}
 }
