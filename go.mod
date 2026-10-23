@@ -20,9 +20,7 @@ require (
 	github.com/cosmos/btcutil v1.0.5
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/cosmos/ledger-cosmos-go v1.0.0
-	github.com/creachadair/atomicfile v0.4.0
 	github.com/creachadair/taskgroup v0.3.2
-	github.com/creachadair/tomledit v0.0.29
 	github.com/dvsekhvalnov/jose2go v1.7.0
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/fortytw2/leaktest v1.3.0
