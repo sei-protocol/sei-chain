@@ -29,8 +29,13 @@ func NewBlockDB() blocktypes.BlockDB {
 	}
 }
 func (s *blockDB) PutQC(qc blocktypes.QCGroupRecord) error {
-	if err := qc.Validate(); err != nil {
-		panic(err)
+	if len(qc.Blocks) == 0 {
+		panic("QC group requires blocks")
+	}
+	for _, block := range qc.Blocks {
+		if block.Number == math.MaxUint64 {
+			panic("block number has no exclusive upper bound")
+		}
 	}
 	qc.QC.Data = slices.Clone(qc.QC.Data)
 	qc.Blocks = slices.Clone(qc.Blocks)
@@ -49,9 +54,6 @@ func (s *blockDB) PutQC(qc blocktypes.QCGroupRecord) error {
 	return nil
 }
 func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
-	if uint64(len(qc.Data))+16 >= math.MaxUint32 {
-		panic("app record exceeds value size limit")
-	}
 	qc.Data = slices.Clone(qc.Data)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,9 +64,6 @@ func (s *blockDB) PutAppQC(qc blocktypes.AppQCRecord) error {
 	return nil
 }
 func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
-	if uint64(len(proposal.Data))+16 >= math.MaxUint32 {
-		panic("app record exceeds value size limit")
-	}
 	proposal.Data = slices.Clone(proposal.Data)
 	s.mu.Lock()
 	defer s.mu.Unlock()

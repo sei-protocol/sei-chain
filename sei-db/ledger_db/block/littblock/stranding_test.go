@@ -32,9 +32,9 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *littb
 // physicallyPresent reports whether a record is still on disk. Reads are not
 // gated on the watermark, so this distinguishes a record GC has reclaimed from
 // one that is merely below the floor.
-func physicallyPresent(t *testing.T, db blocktypes.BlockDB, kind blocktypes.RecordKind, n blocktypes.BlockNumber) bool {
+func physicallyPresent(t *testing.T, get func(blocktypes.BlockNumber) ([]byte, bool, error), n blocktypes.BlockNumber) bool {
 	t.Helper()
-	_, exists, err := blocktest.ReadFixture(db, kind, n)
+	_, exists, err := get(n)
 	require.NoError(t, err)
 	return exists
 }
@@ -57,8 +57,8 @@ func TestRecoveredWatermarkTracksOldestGroup(t *testing.T) {
 	defer func() { require.NoError(t, db.Close()) }()
 	require.Equal(t, blocktypes.BlockNumber(5), db.GetPruneWatermark())
 	for n := blocktypes.BlockNumber(0); n < 20; n++ {
-		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
-			require.Equal(t, n >= 5, physicallyPresent(t, db, kind, n))
+		for _, get := range []func(blocktypes.BlockNumber) ([]byte, bool, error){db.GetQC, db.GetBlock} {
+			require.Equal(t, n >= 5, physicallyPresent(t, get, n))
 		}
 		_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
 		require.NoError(t, err)
@@ -91,13 +91,13 @@ func TestReclaimsAcrossRestart(t *testing.T) {
 	require.NoError(t, littblock.ForceGC(db2))
 
 	for n := blocktypes.BlockNumber(0); n < 15; n++ {
-		require.False(t, physicallyPresent(t, db2, blocktypes.KindBlock, n), "block %d must be reclaimed", n)
-		require.False(t, physicallyPresent(t, db2, blocktypes.KindQC, n), "QC key %d must be reclaimed", n)
+		require.False(t, physicallyPresent(t, db2.GetBlock, n), "block %d must be reclaimed", n)
+		require.False(t, physicallyPresent(t, db2.GetQC, n), "QC key %d must be reclaimed", n)
 	}
 	for n := blocktypes.BlockNumber(15); n < 20; n++ {
-		require.True(t, physicallyPresent(t, db2, blocktypes.KindBlock, n), "block %d must survive the capped prune", n)
+		require.True(t, physicallyPresent(t, db2.GetBlock, n), "block %d must survive the capped prune", n)
 	}
-	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 15), "covering QC[15,20) must survive the capped prune")
+	require.True(t, physicallyPresent(t, db2.GetQC, 15), "covering QC[15,20) must survive the capped prune")
 }
 
 // TestPruneIntoCohortRetainsTheWholeCohort verifies that a watermark inside a
@@ -118,17 +118,17 @@ func TestPruneIntoCohortRetainsTheWholeCohort(t *testing.T) {
 	require.NoError(t, littblock.ForceGC(db2))
 
 	// The first group is fully below the watermark and is reclaimed.
-	require.False(t, physicallyPresent(t, db2, blocktypes.KindBlock, 0), "block 0 is fully below the watermark")
-	require.False(t, physicallyPresent(t, db2, blocktypes.KindBlock, 1), "block 1 is fully below the watermark")
-	require.False(t, physicallyPresent(t, db2, blocktypes.KindQC, 0), "QC[0,5) is entirely below the watermark")
+	require.False(t, physicallyPresent(t, db2.GetBlock, 0), "block 0 is fully below the watermark")
+	require.False(t, physicallyPresent(t, db2.GetBlock, 1), "block 1 is fully below the watermark")
+	require.False(t, physicallyPresent(t, db2.GetQC, 0), "QC[0,5) is entirely below the watermark")
 
 	// The second group straddles the watermark and is retained whole.
-	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 5), "cohort QC[5,10) lookup must survive")
-	require.True(t, physicallyPresent(t, db2, blocktypes.KindQC, 9), "cohort QC[5,10) alias must survive")
+	require.True(t, physicallyPresent(t, db2.GetQC, 5), "cohort QC[5,10) lookup must survive")
+	require.True(t, physicallyPresent(t, db2.GetQC, 9), "cohort QC[5,10) alias must survive")
 
 	// Pinning the QC's segment retains the whole range it covers.
 	for n := blocktypes.BlockNumber(5); n < 10; n++ {
-		require.True(t, physicallyPresent(t, db2, blocktypes.KindBlock, n),
+		require.True(t, physicallyPresent(t, db2.GetBlock, n),
 			"block %d in the cohort must be retained on disk", n)
 	}
 }

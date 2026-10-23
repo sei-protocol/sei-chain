@@ -45,7 +45,7 @@ func TestNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	// a single torn tail, rather than spilling across value boundaries, only while
 	// every stored value is larger than it.
 	const tornTailBytes = 16
-	require.Greater(t, len(blocktest.RecordValue(blocktypes.KindBlock, 0)), tornTailBytes,
+	require.Greater(t, len(blocktest.RecordValue("block", 0)), tornTailBytes,
 		"fixture values must exceed the torn tail, or the truncation model breaks")
 
 	valPath, metaPath := largestValueSegmentFiles(t, dir)
@@ -144,10 +144,10 @@ func requireEveryBlockHasItsQC(t *testing.T, db blocktypes.BlockDB) int {
 	for i, qc := range suffix.QCs {
 		blocks := suffix.Blocks[i*crashPerCohort : (i+1)*crashPerCohort]
 		first := blocks[0].Number
-		require.Equal(t, blocktest.RecordValue(blocktypes.KindQC, first), qc.Data)
+		require.Equal(t, blocktest.RecordValue("qc", first), qc.Data)
 		for j, block := range blocks {
 			require.Equal(t, first+blocktypes.BlockNumber(j), block.Number)
-			require.Equal(t, blocktest.RecordValue(blocktypes.KindBlock, block.Number), block.Value)
+			require.Equal(t, blocktest.RecordValue("block", block.Number), block.Value)
 		}
 	}
 	return len(suffix.Blocks)
@@ -245,16 +245,18 @@ func TestPackedQCRecoversAtomically(t *testing.T) {
 				db = openLitt(t, cfg)
 				for n := blocktypes.BlockNumber(0); n < blocktypes.BlockNumber(cohorts*crashPerCohort); n++ {
 					want := n < blocktypes.BlockNumber((cohorts-1)*crashPerCohort)
-					for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
-						value, present, err := blocktest.ReadFixture(db, kind, n)
+					for _, tc := range []struct {
+						get   func(blocktypes.BlockNumber) ([]byte, bool, error)
+						value []byte
+					}{
+						{db.GetQC, blocktest.RecordValue("qc", n-n%crashPerCohort)},
+						{db.GetBlock, blocktest.RecordValue("block", n)},
+					} {
+						value, present, err := tc.get(n)
 						require.NoError(t, err)
 						require.Equal(t, want, present)
 						if present {
-							first := n
-							if kind == blocktypes.KindQC {
-								first -= first % crashPerCohort
-							}
-							require.Equal(t, blocktest.RecordValue(kind, first), value)
+							require.Equal(t, tc.value, value)
 						}
 					}
 					_, _, present, err := db.GetBlockByHash(blocktest.BlockHash(n))
@@ -276,9 +278,9 @@ func putPackedCohorts(t *testing.T, db blocktypes.BlockDB, cohorts uint64) {
 		blocks := make([]blocktypes.BlockRecord, crashPerCohort)
 		for i := range blocks {
 			n := first + blocktypes.BlockNumber(i)
-			blocks[i] = blocktypes.BlockRecord{Number: n, Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue(blocktypes.KindBlock, n)}
+			blocks[i] = blocktypes.BlockRecord{Number: n, Hash: blocktest.BlockHash(n), Value: blocktest.RecordValue("block", n)}
 		}
-		require.NoError(t, db.PutQC(blocktypes.QCGroupRecord{QC: blocktypes.QCRecord{Data: blocktest.RecordValue(blocktypes.KindQC, first)}, Blocks: blocks}))
+		require.NoError(t, db.PutQC(blocktypes.QCGroupRecord{QC: blocktypes.QCRecord{Data: blocktest.RecordValue("qc", first)}, Blocks: blocks}))
 	}
 }
 
@@ -297,8 +299,8 @@ func TestPackedQCPruneRetainsWholeGroup(t *testing.T) {
 	require.NoError(t, littblock.ForceGC(db))
 	for n := blocktypes.BlockNumber(0); n < 15; n++ {
 		want := n >= 5
-		for _, kind := range []blocktypes.RecordKind{blocktypes.KindQC, blocktypes.KindBlock} {
-			_, present, err := blocktest.ReadFixture(db, kind, n)
+		for _, get := range []func(blocktypes.BlockNumber) ([]byte, bool, error){db.GetQC, db.GetBlock} {
+			_, present, err := get(n)
 			require.NoError(t, err)
 			require.Equal(t, want, present)
 		}

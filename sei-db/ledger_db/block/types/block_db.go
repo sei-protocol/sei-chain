@@ -1,35 +1,5 @@
 package types
 
-// RecordKind identifies a primary record or secondary lookup namespace.
-// KindBlock and KindQC are lookup-only; QCs and blocks are written as groups.
-type RecordKind uint64
-
-const (
-	KindBlock RecordKind = iota // block-number lookup only
-	KindQC                      // QC lookup only
-	KindAppProposal
-	KindAppQC
-	KindQCGroup
-)
-
-// String returns the kind's name.
-func (k RecordKind) String() string {
-	switch k {
-	case KindBlock:
-		return "block"
-	case KindQCGroup:
-		return "qc_group"
-	case KindQC:
-		return "qc"
-	case KindAppProposal:
-		return "app_proposal"
-	case KindAppQC:
-		return "app_qc"
-	default:
-		return "unknown"
-	}
-}
-
 // BlockNumber identifies a block in the ledger.
 type BlockNumber uint64
 
@@ -77,7 +47,7 @@ type Suffix struct {
 }
 
 // BlockDB is the storage substrate a consensus block store is built on. It
-// holds immutable opaque records addressed by (RecordKind, number), plus a
+// holds immutable opaque records addressed by block number, plus a
 // by-hash alias for block records, and it owns reclamation.
 //
 // Record payloads are opaque; contiguity and payload encoding belong to the
@@ -117,9 +87,9 @@ type Suffix struct {
 // # Recovery
 //
 // The floor is not persisted. On open an implementation re-derives it as the
-// number of the oldest KindQCGroup record it still holds, so a restart forgets every
+// number of the oldest QC group it still holds, so a restart forgets every
 // SetPruneWatermark but never serves a record whose covering QC has already
-// been reclaimed. Opening a store that holds records but no KindQCGroup record
+// been reclaimed. Opening a store that holds records but no QC group
 // fails: it has lost the records that bound what it may serve.
 type BlockDB interface {
 	// PutQC atomically stores qc and its blocks. QC lookups resolve at each block's
