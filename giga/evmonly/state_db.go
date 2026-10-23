@@ -38,6 +38,7 @@ type nativeStateDB struct {
 	finaliseAddrs            map[common.Address]struct{}
 	committedStorage         map[common.Address]map[common.Hash]storageValue
 	txStorageWrites          map[common.Address]map[common.Hash]struct{}
+	txStorageClears          map[common.Address]struct{}
 	commutativeBalanceDeltas map[common.Address]*uint256.Int
 	journal                  []nativeJournalEntry
 	snapshots                []nativeSnapshot
@@ -59,6 +60,7 @@ type nativeAccount struct {
 	Code           []byte // Immutable after assignment; SetCode replaces the slice.
 	CodeHash       common.Hash
 	Storage        map[common.Hash]storageValue
+	StorageCleared bool
 	SelfDestructed bool
 	Created        bool
 }
@@ -84,6 +86,7 @@ const (
 	nativeJournalTransientState
 	nativeJournalFinaliseAddr
 	nativeJournalTxStorageWrite
+	nativeJournalTxStorageClear
 	nativeJournalCommutativeBalanceDelta
 	nativeJournalPreimage
 	nativeJournalStorage
@@ -156,6 +159,7 @@ func (s *nativeStateDB) reset(source StateReader) {
 	if s.txStorageWrites == nil {
 		s.txStorageWrites = map[common.Address]map[common.Hash]struct{}{}
 	}
+	clearAddressSet(&s.txStorageClears)
 	clearUint256Map(&s.commutativeBalanceDeltas)
 	if s.journal != nil {
 		clear(s.journal)
@@ -196,6 +200,11 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 
 	for _, addr := range addresses {
 		acct := s.accounts[addr]
+		if acct.StorageCleared {
+			// Committing a replaced storage would mean deleting every stored slot of the account, which the
+			// changeset has no way to express.
+			panic("cannot produce a changeset after SetStorage replaced an account's storage")
+		}
 		base := s.baseAccount(addr)
 
 		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
@@ -245,10 +254,12 @@ func (s *nativeStateDB) CreateAccount(addr common.Address) {
 	s.recordStorageMap(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	balance := acct.Balance.Clone()
+	storageCleared := acct.StorageCleared
 	selfDestructed := acct.SelfDestructed
 	*acct = nativeAccount{
 		Balance:        balance,
 		Storage:        map[common.Hash]storageValue{},
+		StorageCleared: storageCleared,
 		SelfDestructed: selfDestructed,
 		Created:        true,
 	}
@@ -432,9 +443,20 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 	return prev
 }
 
-// SetStorage is not supported and panics.
-func (s *nativeStateDB) SetStorage(common.Address, map[common.Hash]common.Hash) {
-	panic("nativeStateDB does not support replacing an account's storage")
+// SetStorage replaces the account's storage with states for the life of this StateDB: slots absent from states
+// read as zero. A StateDB that has had its storage replaced cannot produce a changeset.
+func (s *nativeStateDB) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
+	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.recordStorageMap(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
+	s.markTxStorageClear(addr)
+	acct.Storage = map[common.Hash]storageValue{}
+	acct.StorageCleared = true
+	for key, value := range states {
+		acct.Storage[key] = storageValue{value: value}
+		s.markTxStorageWrite(addr, key)
+	}
 }
 
 func (s *nativeStateDB) GetStorageRoot(common.Address) common.Hash {
@@ -673,6 +695,7 @@ func (s *nativeStateDB) Copy() vm.StateDB {
 		finaliseAddrs:            cloneAddressSet(s.finaliseAddrs),
 		committedStorage:         cloneStorageValueMaps(s.committedStorage),
 		txStorageWrites:          cloneStorageWriteSet(s.txStorageWrites),
+		txStorageClears:          cloneAddressSet(s.txStorageClears),
 		commutativeBalanceDeltas: cloneUint256Map(s.commutativeBalanceDeltas),
 		journal:                  cloneJournal(s.journal),
 		snapshots:                cloneSnapshots(s.snapshots),
@@ -803,6 +826,8 @@ func (e nativeJournalEntry) revert(s *nativeStateDB) {
 				delete(s.txStorageWrites, e.address)
 			}
 		}
+	case nativeJournalTxStorageClear:
+		delete(s.txStorageClears, e.address)
 	case nativeJournalCommutativeBalanceDelta:
 		if e.hadValue {
 			if s.commutativeBalanceDeltas == nil {
@@ -920,6 +945,16 @@ func (s *nativeStateDB) recordTxStorageWrite(addr common.Address, key common.Has
 	})
 }
 
+func (s *nativeStateDB) recordTxStorageClear(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalTxStorageClear,
+		address: addr,
+	})
+}
+
 func (s *nativeStateDB) recordCommutativeBalanceDelta(addr common.Address) {
 	if len(s.snapshots) == 0 {
 		return
@@ -997,6 +1032,9 @@ func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
 			return
 		}
 	}
+	if acct.StorageCleared {
+		return
+	}
 	if value := s.baseState(addr, key); value != (common.Hash{}) {
 		acct.Storage[key] = storageValue{value: value}
 	}
@@ -1007,6 +1045,9 @@ func (s *nativeStateDB) committedState(addr common.Address, key common.Hash) com
 		if value, committed := slots[key]; committed {
 			return value.value
 		}
+	}
+	if acct, ok := s.accounts[addr]; ok && acct.StorageCleared {
+		return common.Hash{}
 	}
 	return s.baseState(addr, key)
 }
@@ -1047,9 +1088,23 @@ func (s *nativeStateDB) forgetStorage(addr common.Address) {
 	delete(s.committedStorage, addr)
 }
 
+func (s *nativeStateDB) markTxStorageClear(addr common.Address) {
+	if s.txStorageClears == nil {
+		s.txStorageClears = map[common.Address]struct{}{}
+	}
+	if _, ok := s.txStorageClears[addr]; ok {
+		return
+	}
+	s.recordTxStorageClear(addr)
+	s.txStorageClears[addr] = struct{}{}
+}
+
 func (s *nativeStateDB) finaliseTxStorage() {
 	if s.committedStorage == nil {
 		s.committedStorage = map[common.Address]map[common.Hash]storageValue{}
+	}
+	for addr := range s.txStorageClears {
+		s.committedStorage[addr] = map[common.Hash]storageValue{}
 	}
 	for addr, keys := range s.txStorageWrites {
 		if len(keys) == 0 {
@@ -1071,6 +1126,7 @@ func (s *nativeStateDB) finaliseTxStorage() {
 		}
 	}
 	clearNestedStorageWriteSets(s.txStorageWrites)
+	clear(s.txStorageClears)
 }
 
 // baseAccount is an account's balance, nonce and code as read from the state beneath a block.
@@ -1124,6 +1180,7 @@ func (a *nativeAccount) clone() *nativeAccount {
 		Code:           a.Code,
 		CodeHash:       a.CodeHash,
 		Storage:        map[common.Hash]storageValue{},
+		StorageCleared: a.StorageCleared,
 		SelfDestructed: a.SelfDestructed,
 		Created:        a.Created,
 	}

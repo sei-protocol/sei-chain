@@ -2108,13 +2108,37 @@ func TestStateDBCreatedAndDestroyedAccountKeepsStoredStorage(t *testing.T) {
 	require.Empty(t, stateDB.ChangeSet().Storage)
 }
 
+func TestStateDBSnapshotRevertsStorageMapReplacement(t *testing.T) {
+	addr := testAddress(0xeb)
+	key := testHash(0x01)
+	otherKey := testHash(0x02)
+	original := testHash(0x03)
+	replacement := testHash(0x04)
+
+	state := NewMemoryState()
+	state.SetState(addr, key, original)
+	stateDB := newNativeStateDB(state)
+	require.Equal(t, original, stateDB.GetState(addr, key))
+	snapshot := stateDB.Snapshot()
+
+	stateDB.SetStorage(addr, map[common.Hash]common.Hash{otherKey: replacement})
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
+	require.Equal(t, replacement, stateDB.GetState(addr, otherKey))
+
+	stateDB.RevertToSnapshot(snapshot)
+	require.Equal(t, original, stateDB.GetState(addr, key))
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, otherKey))
+	require.False(t, stateDB.account(addr).StorageCleared)
+}
+
 func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
 	addr := testAddress(0xec)
 	key := testHash(0x01)
 	otherKey := testHash(0x02)
 	original := testHash(0x03)
 	first := testHash(0x04)
-	second := testHash(0x05)
+	replacement := testHash(0x05)
+	second := testHash(0x06)
 
 	state := NewMemoryState()
 	state.SetState(addr, key, original)
@@ -2122,6 +2146,7 @@ func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
 	require.Equal(t, original, stateDB.GetState(addr, key))
 	snapshot := stateDB.Snapshot()
 	stateDB.SetState(addr, key, first)
+	stateDB.SetStorage(addr, map[common.Hash]common.Hash{otherKey: replacement})
 	stateDB.SetState(addr, otherKey, second)
 
 	copied := stateDB.Copy().(*nativeStateDB)
@@ -2129,8 +2154,17 @@ func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
 
 	require.Equal(t, original, copied.GetState(addr, key))
 	require.Equal(t, common.Hash{}, copied.GetState(addr, otherKey))
-	require.Equal(t, first, stateDB.GetState(addr, key))
+	require.False(t, copied.account(addr).StorageCleared)
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
 	require.Equal(t, second, stateDB.GetState(addr, otherKey))
+}
+
+func TestStateDBChangeSetPanicsAfterStorageReplacement(t *testing.T) {
+	addr := testAddress(0xed)
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.SetStorage(addr, map[common.Hash]common.Hash{testHash(0x01): testHash(0x02)})
+
+	require.Panics(t, func() { stateDB.ChangeSet() })
 }
 
 func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
