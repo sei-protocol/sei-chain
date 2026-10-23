@@ -190,7 +190,11 @@ func computeStoredHash(
 		return [32]byte{}, fmt.Errorf("block %d is not stored", blockNumber)
 	}
 	_, serialized := it.Entry()
-	return computePlaceholderHash(serialized), nil
+	hash, err := hashSerializedBlock(serialized)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to hash block %d: %w", blockNumber, err)
+	}
+	return hash, nil
 }
 
 // Write appends a block's mutations to the WAL as a single record.
@@ -444,18 +448,21 @@ func (w *stateWALImpl) run() {
 	}
 }
 
-// write sorts the block's mutations by key, appends their serialization to the WAL, and delivers the block's hash to
-// every listener, returning the first error.
+// write sorts the block's mutations by key, builds their BUD tree, appends their serialization to the WAL, and
+// delivers the block's BUD hash to every listener, returning the first error.
 func (w *stateWALImpl) write(request writeRequest) error {
 	slices.SortFunc(request.mutations, func(a mutation.Mutation, b mutation.Mutation) int {
 		return bytes.Compare(a.Key, b.Key)
 	})
-	serialized := serializeBlock(request.mutations)
-	if err := w.wal.Append(request.blockNumber, serialized); err != nil {
+	tree, err := budTreeFromMutations(request.mutations)
+	if err != nil {
+		return fmt.Errorf("failed to build the BUD tree of block %d: %w", request.blockNumber, err)
+	}
+	if err := w.wal.Append(request.blockNumber, serializeBlock(request.mutations)); err != nil {
 		return fmt.Errorf("failed to append block %d: %w", request.blockNumber, err)
 	}
 
-	hash := computePlaceholderHash(serialized)
+	hash := tree.BUDHash()
 	for _, listener := range w.listeners {
 		if err := listener(w.ctx, request.blockNumber, hash); err != nil {
 			return fmt.Errorf("a hash listener refused block %d: %w", request.blockNumber, err)

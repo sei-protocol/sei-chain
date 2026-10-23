@@ -108,10 +108,8 @@ type StateWAL interface {
 	Close() error
 }
 
-// A callback that receives the hash of the key-value pairs modified by executing the transactions in a block. Its
-// signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
-//
-// The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
+// A callback that receives the BUD hash of a block: a commitment to the key-value pairs modified by executing the
+// block's transactions. Its signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
 type HashListener func(
 	// Cancelled when the StateWAL stops. A listener blocked when it is cancelled must return.
 	ctx context.Context,
