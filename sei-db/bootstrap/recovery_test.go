@@ -17,11 +17,30 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+var _ gigatypes.StateView = emptyStateView{}
+
+// emptyStateView is a StateView holding no keys. Only the raw reads are supported.
+type emptyStateView struct {
+	// Left nil, so every read other than the raw reads panics.
+	gigatypes.StateView
+
+	// The block height the view reports.
+	height int64
+}
+
+func (v emptyStateView) GetBlockHeight() int64 { return v.height }
+
+func (v emptyStateView) BatchGetRaw([][]byte) map[string][]byte { return map[string][]byte{} }
+
+func (v emptyStateView) Close() {}
 
 func evmNonceKey(addr byte) []byte {
 	return append([]byte{0x0a}, append([]byte{addr}, make([]byte, 19)...)...)
@@ -72,9 +91,14 @@ func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 	}
 }
 
+// writeWALOnly writes block to the state WAL alone, converting changesets as though no key they write existed
+// before the block.
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
-	require.NoError(t, wal.Write(block, changesets))
+	//nolint:gosec // small test heights
+	mutations, err := mutation.MutationsFromChangeSets(changesets, block, emptyStateView{height: int64(block) - 1})
+	require.NoError(t, err)
+	require.NoError(t, wal.Write(block, mutations))
 	require.NoError(t, wal.Flush())
 }
 

@@ -54,7 +54,8 @@ var StreamAppQCs = rpc.Register[API](5, "stream_app_qcs",
 	rpc.Msg[*apb.AppQC]{MsgSize: 30 * kB, Window: 20},
 )
 var GetBlock = rpc.Register[API](8, "get_block",
-	rpc.Limit{Rate: 10, Concurrent: 10},
+	// TODO: bumped from 10 to unblock the giga testnet for now. Proper capacity planning later.
+	rpc.Limit{Rate: 200, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
 	rpc.Msg[*pb.GetBlockResp]{MsgSize: 2 * MB, Window: 1},
 )

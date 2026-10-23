@@ -1204,24 +1204,24 @@ func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) 
 	}
 }
 
-// TestComposite_MigrateBank_RollbackAcrossCompletionBoundary is the
+// TestComposite_MigrateCosmos_RollbackAcrossCompletionBoundary is the
 // memiavl-side mirror of TestComposite_MigrateEVM_RollbackAcrossActivationBoundary.
-// Once the bank migration completes (version 3) a store with memiavl still
+// Once MigrateCosmos completes (version 2) a store with memiavl still
 // open latches memiavlHashExcluded=true and drops memiavl's per-store infos
 // from the commit info (the flatkv_only shape). Rolling back below the
 // completion boundary must re-include memiavl, or the in-process
 // post-rollback AppHash diverges from the canonical value the chain
 // committed at that height (which still carries the memiavl stores).
-func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
+func TestComposite_MigrateCosmos_RollbackAcrossCompletionBoundary(t *testing.T) {
 	dir := t.TempDir()
 	workload := newMigrationWorkload(0xB0A7)
 	const batch = 8
 
 	cs := openAutoStore(t, dir, batch)
-	walkToMigrateBank(t, cs, workload)
-	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	walkToMigrateCosmos(t, cs, workload)
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 
-	// One migrate_bank block that does not complete the migration: memiavl
+	// One migrate_cosmos block that does not complete the migration: memiavl
 	// is still part of the AppHash here. Capture it as the rollback target.
 	require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 0, 2)))
 	_, err := cs.Commit(cs.Version() + 1)
@@ -1229,15 +1229,15 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	target := cs.Version()
 	canonicalTarget := cloneCommitInfo(cs.LastCommitInfo())
 	require.Greater(t, len(canonicalTarget.StoreInfos), 1,
-		"sanity: migrate_bank in-progress commit info must still include memiavl stores")
+		"sanity: migrate_cosmos in-progress commit info must still include memiavl stores")
 
-	// Drive to bank completion while staying in currentWriteMode
-	// MigrateBank (do NOT flip to FlatKVOnly), so the rollback exercises the
-	// latch reset rather than a mode change. Reaching version 3 latches
+	// Drive to completion while staying in currentWriteMode
+	// MigrateCosmos (do NOT flip to FlatKVOnly), so the rollback exercises the
+	// latch reset rather than a mode change. Reaching version 2 latches
 	// memiavlHashExcluded=true and drops memiavl from the commit info.
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
 	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
-		"once bank migration completes, memiavl infos are excluded (latches memiavlHashExcluded)")
+		"once MigrateCosmos completes, memiavl infos are excluded (latches memiavlHashExcluded)")
 
 	// Roll back across the completion boundary. Without resetting
 	// memiavlHashExcluded the post-rollback commit info would keep the
@@ -1245,7 +1245,7 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	require.NoError(t, cs.Rollback(target))
 	require.Equal(t, target, cs.Version())
 	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
-		"post-rollback commit info across the bank-completion boundary must re-include memiavl")
+		"post-rollback commit info across the MigrateCosmos-completion boundary must re-include memiavl")
 	require.NoError(t, cs.Close())
 
 	// Fresh restart re-derives from the rolled-back metadata and must agree.
@@ -1253,31 +1253,31 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 	require.Equal(t, target, cs.Version())
 	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
-		"post-restart commit info across the bank-completion boundary must re-include memiavl")
+		"post-restart commit info across the MigrateCosmos-completion boundary must re-include memiavl")
 }
 
-// TestComposite_Auto_RollbackAcrossBankCompletionAfterRestart rolls an Auto store that was reopened
-// after the bank migration completed, so its mode was derived as FlatKVOnly, back below completion. The
+// TestComposite_Auto_RollbackAcrossMigrateCosmosCompletionAfterRestart rolls an Auto store that was reopened
+// after MigrateCosmos completed, so its mode was derived as FlatKVOnly, back below completion. The
 // rolled-back store must report the canonical commit info and recommit the rolled-back blocks exactly,
 // both in the same process and after a restart.
-func TestComposite_Auto_RollbackAcrossBankCompletionAfterRestart(t *testing.T) {
+func TestComposite_Auto_RollbackAcrossMigrateCosmosCompletionAfterRestart(t *testing.T) {
 	dir := t.TempDir()
 	workload := newMigrationWorkload(0xB0A7)
 	const batch = 8
 
 	cs := openAutoStore(t, dir, batch)
-	walkToMigrateBank(t, cs, workload)
+	walkToMigrateCosmos(t, cs, workload)
 
 	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
 	require.Greater(t, len(target.info.StoreInfos), 1,
-		"sanity: an in-progress bank migration still carries memiavl's store infos")
-	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+		"sanity: an in-progress MigrateCosmos still carries memiavl's store infos")
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
 	require.NoError(t, cs.Close())
 
 	cs = openAutoStore(t, dir, batch)
 	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode(), "sanity: a reopened store derives FlatKVOnly")
 	require.NoError(t, cs.Rollback(target.info.Version))
-	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 	requireCommitInfoEqual(t, target.info, cs.LastCommitInfo(), "post-rollback commit info (same process)")
 	replayRecorded(t, cs, rolledBack, "replay after rollback (same process)")
 	require.NoError(t, cs.Close())
@@ -1287,7 +1287,7 @@ func TestComposite_Auto_RollbackAcrossBankCompletionAfterRestart(t *testing.T) {
 	require.NoError(t, cs.Close())
 	cs = openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
-	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 	requireCommitInfoEqual(t, target.info, cs.LastCommitInfo(), "post-rollback commit info (after restart)")
 	replayRecorded(t, cs, rolledBack, "replay after rollback (after restart)")
 }
@@ -1337,9 +1337,9 @@ func TestComposite_Auto_RollbackToActivationAfterEVMMigration(t *testing.T) {
 	replayRecorded(t, cs, rolledBack, "replay after rollback (after restart)")
 }
 
-// walkToMigrateBank bootstraps bank-heavy state under MemiavlOnly, so the bank migration spans several
-// blocks, then walks cs through the migration ladder and leaves it in MigrateBank.
-func walkToMigrateBank(t *testing.T, cs *CompositeCommitStore, workload *migrationWorkload) {
+// walkToMigrateCosmos bootstraps bank-heavy state under MemiavlOnly, so MigrateCosmos spans several
+// blocks, then walks cs through the migration ladder and leaves it in MigrateCosmos.
+func walkToMigrateCosmos(t *testing.T, cs *CompositeCommitStore, workload *migrationWorkload) {
 	t.Helper()
 	for i := 0; i < 12; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
@@ -1350,11 +1350,7 @@ func walkToMigrateBank(t *testing.T, cs *CompositeCommitStore, workload *migrati
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
 	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
 	runBlocks(t, cs, workload, 2)
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	runBlocks(t, cs, workload, 2)
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
 }
 
 // recordedBlock is a committed block's change sets and the commit info committing them produced.
@@ -1582,29 +1578,29 @@ func loadLatestError(t *testing.T, dir string, cfg config.StateCommitConfig) err
 	return err
 }
 
-// TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoBankMigration rolls a store pinned to FlatKVOnly back
-// below the bank migration's completion. The rollback and every later pinned open must fail, and reopening
+// TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoMigrateCosmos rolls a store pinned to FlatKVOnly back
+// below MigrateCosmos completion. The rollback and every later pinned open must fail, and reopening
 // in Auto must recover the canonical state at the target and reproduce the rolled-back blocks.
-func TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoBankMigration(t *testing.T) {
+func TestComposite_PinnedFlatKVOnly_RefusesRollbackIntoMigrateCosmos(t *testing.T) {
 	dir := t.TempDir()
 	workload := newMigrationWorkload(0xB0A7)
 	const batch = 8
 
 	cs := openAutoStore(t, dir, batch)
-	walkToMigrateBank(t, cs, workload)
+	walkToMigrateCosmos(t, cs, workload)
 	target := commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
-	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+	rolledBack := commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
 	require.NoError(t, cs.Close())
 
 	pinned := pinnedConfig(types.FlatKVOnly)
 	cs = openAutoStoreWithConfig(t, dir, pinned, batch)
-	require.ErrorContains(t, cs.Rollback(target.info.Version), `persisted migration state is "migrate_bank"`)
+	require.ErrorContains(t, cs.Rollback(target.info.Version), `persisted migration state is "migrate_cosmos"`)
 	require.NoError(t, cs.Close())
-	require.ErrorContains(t, loadLatestError(t, dir, pinned), `persisted migration state is "migrate_bank"`)
+	require.ErrorContains(t, loadLatestError(t, dir, pinned), `persisted migration state is "migrate_cosmos"`)
 
 	cs = openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
-	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 	requireCommitInfoEqual(t, target.info, cs.LastCommitInfo(), "commit info after reopening in Auto")
 	replayRecorded(t, cs, rolledBack, "replay after reopening in Auto")
 }
@@ -1623,7 +1619,7 @@ func TestComposite_PinnedSteadyStateModes_RefuseInFlightMigration(t *testing.T) 
 	commitRecorded(t, cs, workload.generateBlock(2, 2, 1, 0, 0))
 	require.NoError(t, cs.Close())
 
-	for _, mode := range []types.WriteMode{types.EVMMigrated, types.AllMigratedButBank, types.FlatKVOnly} {
+	for _, mode := range []types.WriteMode{types.EVMMigrated, types.FlatKVOnly} {
 		require.ErrorContains(t, loadLatestError(t, dir, pinnedConfig(mode)),
 			`persisted migration state is "migrate_evm"`, "pinned %s", mode)
 	}
@@ -1631,6 +1627,70 @@ func TestComposite_PinnedSteadyStateModes_RefuseInFlightMigration(t *testing.T) 
 	cs = openAutoStore(t, dir, 8)
 	defer func() { _ = cs.Close() }()
 	require.Equal(t, types.MigrateEVM, cs.loadWriteMode(), "sanity: the migration is still in flight")
+}
+
+// TestComposite_PinnedMigrationModes_MatchPersistedState opens stores at each persisted migration
+// state with each migration-mode pin. A pin refuses to load only when the persisted state lies past
+// its own completion; every earlier state loads, because a store pinned from genesis writes no
+// version marker until its first migration completes and so cannot be told apart from one.
+func TestComposite_PinnedMigrationModes_MatchPersistedState(t *testing.T) {
+	t.Run("evm_in_flight", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E1)
+		cs := openAutoStore(t, dir, 8)
+		for i := 0; i < 12; i++ {
+			commitRecorded(t, cs, workload.generateBlock(6, 0, 0, 4, 0))
+		}
+		require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+		commitRecorded(t, cs, workload.generateBlock(2, 2, 1, 0, 0))
+		require.NoError(t, cs.Close())
+
+		for _, mode := range []types.WriteMode{types.MigrateEVM, types.MigrateCosmos} {
+			require.NoError(t, loadLatestError(t, dir, pinnedConfig(mode)), "pinned %s", mode)
+		}
+	})
+
+	t.Run("evm_migrated", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E2)
+		cs := openAutoStore(t, dir, 8)
+		for i := 0; i < 12; i++ {
+			commitRecorded(t, cs, workload.generateBlock(6, 0, 0, 4, 0))
+		}
+		require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+		runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+		require.NoError(t, cs.Close())
+
+		for _, mode := range []types.WriteMode{types.MigrateEVM, types.MigrateCosmos} {
+			require.NoError(t, loadLatestError(t, dir, pinnedConfig(mode)), "pinned %s", mode)
+		}
+	})
+
+	t.Run("cosmos_in_flight", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E3)
+		cs := openAutoStore(t, dir, 8)
+		walkToMigrateCosmos(t, cs, workload)
+		commitRecorded(t, cs, workload.generateBlock(0, 2, 1, 0, 2))
+		require.NoError(t, cs.Close())
+
+		require.NoError(t, loadLatestError(t, dir, pinnedConfig(types.MigrateCosmos)))
+		require.ErrorContains(t, loadLatestError(t, dir, pinnedConfig(types.MigrateEVM)),
+			`persisted migration state is "migrate_cosmos"`)
+	})
+
+	t.Run("flatkv_only", func(t *testing.T) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(0x51E4)
+		cs := openAutoStore(t, dir, 8)
+		walkToMigrateCosmos(t, cs, workload)
+		commitUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 800)
+		require.NoError(t, cs.Close())
+
+		require.NoError(t, loadLatestError(t, dir, pinnedConfig(types.MigrateCosmos)))
+		require.ErrorContains(t, loadLatestError(t, dir, pinnedConfig(types.MigrateEVM)),
+			`persisted migration state is "flatkv_only"`)
+	})
 }
 
 // TestComposite_PinnedFlatKVOnly_GenesisStoreReopensAndRollsBack checks that a store pinned to FlatKVOnly

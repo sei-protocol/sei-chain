@@ -13,8 +13,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
@@ -32,16 +35,16 @@ type fakeStateWAL struct {
 	// Block numbers passed to Write, in call order.
 	writtenBlocks []uint64
 
-	// Changesets passed to Write, in call order.
-	writtenChangesets [][]*proto.NamedChangeSet
+	// Mutations passed to Write, in call order.
+	writtenMutations [][]mutation.Mutation
 
 	// The error Write returns.
 	writeErr error
 }
 
-func (w *fakeStateWAL) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
+func (w *fakeStateWAL) Write(blockNumber uint64, mutations []mutation.Mutation) error {
 	w.writtenBlocks = append(w.writtenBlocks, blockNumber)
-	w.writtenChangesets = append(w.writtenChangesets, cs)
+	w.writtenMutations = append(w.writtenMutations, mutations)
 	return w.writeErr
 }
 
@@ -82,8 +85,12 @@ func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {
 	require.NoError(t, stateDB.CommitStateChanges(1, cs))
 
 	require.Equal(t, []uint64{1}, wal.writtenBlocks, "the WAL must receive the block that was committed")
-	require.Equal(t, [][]*proto.NamedChangeSet{cs}, wal.writtenChangesets,
-		"the WAL must receive the changeset it was handed, unaltered")
+	written := mutation.Mutation{
+		Key:      ktype.BuildPhysicalKey(testModule, []byte("key")),
+		NewValue: vtype.SerializeMisc(1, []byte("value")),
+	}
+	require.Equal(t, [][]mutation.Mutation{{written}}, wal.writtenMutations,
+		"the WAL must receive the block's changeset as mutations")
 
 	require.Equal(t, int64(1), liveStateDB.Version(), "the live state DB must have committed the block")
 	value, found := liveStateDB.Get(testModule, []byte("key"))
@@ -132,16 +139,16 @@ func TestCommitStateChangesStopsWhenTheWALWriteFails(t *testing.T) {
 		"the live state DB must not commit once the WAL has refused the block")
 }
 
-// The live state DB refusing a block is not something the caller can be left to discover later. The
-// error has to reach them, and the refused block must not advance it.
-func TestCommitStateChangesReportsALiveStateDBFailure(t *testing.T) {
-	stateDB, _, liveStateDB := newTestStateDB(t)
+// A block that skips a height is not something the caller can be left to discover later. The error has
+// to reach them, and the refused block must not advance any layer.
+func TestCommitStateChangesRefusesASkippedHeight(t *testing.T) {
+	stateDB, wal, liveStateDB := newTestStateDB(t)
 	require.NoError(t, stateDB.CommitStateChanges(1, changeset("key", "value")))
 
-	// The live state DB numbers blocks contiguously, so a block that skips a height is one it refuses.
 	err := stateDB.CommitStateChanges(9, changeset("key", "later"))
 
-	require.ErrorContains(t, err, "commit block 9 to live state DB")
+	require.ErrorContains(t, err, "block 9")
+	require.Equal(t, []uint64{1}, wal.writtenBlocks, "a refused block must not reach the WAL")
 	require.Equal(t, int64(1), liveStateDB.Version(), "a refused block must not advance the live state DB")
 }
 

@@ -223,7 +223,7 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 		}
 		for _, pair := range cs.Changeset.Pairs {
 			if cs.Name != keys.EVMStoreKey {
-				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
+				physKey := string(ktype.BuildPhysicalKey(cs.Name, pair.Key))
 				misc[physKey] = pair.Value
 				deleted[physKey] = pair.Delete
 				continue
@@ -233,13 +233,13 @@ func (m *stateModel) apply(t *testing.T, blockHeight int64, changeSets []*proto.
 			require.NotEqual(t, keys.EVMKeyEmpty, kind, "model: empty EVM key in changeset")
 
 			if kind == keys.EVMKeyMisc {
-				physKey := string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
+				physKey := string(ktype.BuildPhysicalKey(keys.EVMStoreKey, pair.Key))
 				misc[physKey] = pair.Value
 				deleted[physKey] = pair.Delete
 				continue
 			}
 
-			physKey := string(ktype.EVMPhysicalKey(kind, stripped))
+			physKey := string(ktype.BuildPhysicalEVMKey(kind, stripped))
 			switch kind {
 			case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
 				edit := accountEdits[physKey]

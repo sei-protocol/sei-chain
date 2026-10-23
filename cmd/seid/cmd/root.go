@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
@@ -42,7 +41,6 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -100,15 +98,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			// SEI_CONFIG_MANAGER is read once per PersistentPreRunE invocation
-			// (a clean two-way door). When PR2 adds the `seid config ...` subtree
-			// (which skips PersistentPreRunE), it must own single-read discipline
-			// so one process cannot select two different managers.
-			mgr, err := configmanager.Select(os.Getenv)
-			if err != nil {
-				return err
-			}
-			return mgr.Apply(cmd, customAppTemplate, customAppConfig)
+			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
@@ -129,11 +119,6 @@ func initRootCmd(
 	// extend debug command
 	debugCmd := debug.Cmd()
 
-	// One namespace for configuration. The existing command reads and writes client.toml; check reads the
-	// node's sei.toml and writes nothing.
-	configCmd := config.Cmd()
-	configCmd.AddCommand(configmanager.CheckCmd())
-
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
 		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
@@ -149,8 +134,7 @@ func initRootCmd(
 		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
-		configCmd,
-		tools.ToolCmd(),
+		config.Cmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
 	)

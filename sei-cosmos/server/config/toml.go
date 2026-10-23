@@ -91,10 +91,10 @@ snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 ###                         Query Configuration                             ###
 ###############################################################################
 
-# Pagination limits on the ABCI and gRPC query path protect the node from expensive
-# store scans by untrusted callers (for example, public RPC clients). Operators tune
-# these values for their deployment, allowlist trusted indexers on Tendermint RPC or
-# Cosmos gRPC, or set disable-limits on nodes not exposed to untrusted callers.
+# Pagination limits on the ABCI query path protect the node from expensive store
+# scans by untrusted callers (for example, public RPC clients). Operators tune these
+# values for their deployment, allowlist trusted indexers on Tendermint RPC, or set
+# disable-limits on nodes not exposed to untrusted callers.
 [query]
 
 # DisableLimits turns off pagination limits for all query origins. Use only on nodes
@@ -102,12 +102,11 @@ snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 disable-limits = {{ .Query.DisableLimits }}
 
 # TrustedCIDRs lists caller CIDRs that bypass pagination limits. Matching uses the
-# direct TCP peer (Tendermint RPC RemoteAddr or Cosmos gRPC peer address), not
-# forwarded headers. It applies only to abci_query on the Tendermint RPC listener
-# and to queries on grpc.address; REST/LCD on api.address (including grpc-gateway
-# routes) relays queries in-process without caller origin, so trusted-cidrs has no
-# effect there. Trusted indexers using REST should use gRPC or Tendermint RPC, or
-# set disable-limits on nodes not exposed to untrusted callers.
+# direct TCP peer (Tendermint RPC RemoteAddr), not forwarded headers. It applies only
+# to abci_query on the Tendermint RPC listener; REST/LCD on api.address (including
+# grpc-gateway routes) relays queries in-process without caller origin, so
+# trusted-cidrs has no effect there. Trusted indexers using REST should use
+# Tendermint RPC, or set disable-limits on nodes not exposed to untrusted callers.
 # Behind a load balancer or reverse proxy every external client shares the proxy
 # address, so adding the proxy CIDR here bypasses limits for all traffic through
 # that ingress, not just internal indexers.
@@ -195,135 +194,6 @@ rpc-max-body-bytes = {{ .API.RPCMaxBodyBytes }}
 
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
 enabled-unsafe-cors = {{ .API.EnableUnsafeCORS }}
-
-###############################################################################
-###                     Rosetta Configuration (Auto-managed)                ###
-###############################################################################
-
-[rosetta]
-
-# Enable defines if the Rosetta API server should be enabled.
-enable = {{ .Rosetta.Enable }}
-
-# Address defines the Rosetta API server to listen on.
-address = "{{ .Rosetta.Address }}"
-
-# Network defines the name of the blockchain that will be returned by Rosetta.
-blockchain = "{{ .Rosetta.Blockchain }}"
-
-# Network defines the name of the network that will be returned by Rosetta.
-network = "{{ .Rosetta.Network }}"
-
-# Retries defines the number of retries when connecting to the node before failing.
-retries = {{ .Rosetta.Retries }}
-
-# Offline defines if Rosetta server should run in offline mode.
-offline = {{ .Rosetta.Offline }}
-
-###############################################################################
-###                       gRPC Configuration (Auto-managed)                 ###
-###############################################################################
-
-[grpc]
-
-# Enable defines if the gRPC server should be enabled.
-enable = {{ .GRPC.Enable }}
-
-# Address defines the gRPC server address to bind to.
-address = "{{ .GRPC.Address }}"
-
-# MaxRecvMsgSize defines the maximum message size in bytes the server can receive.
-# It bounds per-request memory allocation before the rate limiter fires. Default 4 MB.
-max-recv-msg-size = {{ .GRPC.MaxRecvMsgSize }}
-
-# MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
-max-open-connections = {{ .GRPC.MaxOpenConnections }}
-
-# max-connections-per-ip is the maximum number of simultaneous open connections one
-# client address may hold, bounding its share of max-open-connections. Addresses are
-# keyed the way rate-limit buckets are, so everything reaching the node over 127.0.0.1
-# shares one allowance, as does anything behind a single egress address. 0 means unlimited.
-max-connections-per-ip = {{ .GRPC.MaxConnectionsPerIP }}
-
-# MaxConnectionIdle is the duration after which an idle connection is closed (e.g. "5m"). 0 means infinity.
-max-connection-idle = "{{ .GRPC.MaxConnectionIdle }}"
-
-# MaxConnectionAge is the maximum duration a connection may exist before it is closed (e.g. "30m"). 0 means infinity.
-max-connection-age = "{{ .GRPC.MaxConnectionAge }}"
-
-# MaxConnectionAgeGrace is an additive period after max-connection-age during which the connection is forcibly closed. 0 means infinity.
-max-connection-age-grace = "{{ .GRPC.MaxConnectionAgeGrace }}"
-
-# KeepaliveTime is the interval after which, with no activity, the server pings the client to check liveness.
-keepalive-time = "{{ .GRPC.KeepaliveTime }}"
-
-# KeepaliveTimeout is the duration the server waits for a keepalive ping ack before closing the connection.
-keepalive-timeout = "{{ .GRPC.KeepaliveTimeout }}"
-
-# KeepaliveMinTime is the minimum interval a client must wait between keepalive pings; more frequent pings are penalized.
-keepalive-min-time = "{{ .GRPC.KeepaliveMinTime }}"
-
-# KeepalivePermitWithoutStream defines whether the server allows keepalive pings even when there are no active streams.
-keepalive-permit-without-stream = {{ .GRPC.KeepalivePermitWithoutStream }}
-
-# ip-rate-limit-rps is the per-IP sustained request rate in requests/second.
-# Buckets are keyed by client address alone, so all local clients reaching the
-# node over 127.0.0.1 share one bucket, as does anything behind a single egress
-# address not covered by trusted-proxy-cidrs.
-# Zero disables per-IP throttling; set rate-limiting-enabled = false for a full bypass.
-ip-rate-limit-rps = {{ .GRPC.IPRateLimitRPS }}
-
-# ip-rate-limit-burst is the maximum per-IP burst above the sustained rate.
-# Zero disables per-IP throttling (same effect as ip-rate-limit-rps = 0).
-ip-rate-limit-burst = {{ .GRPC.IPRateLimitBurst }}
-
-# max-in-flight-per-ip is the number of RPCs one client address may have in flight at
-# once. An RPC is in flight from the moment its headers arrive until it ends, so this
-# bounds concurrency where ip-rate-limit-rps bounds only arrival rate: without it a
-# client can spend its bucket on headers alone, withhold the request bodies, and release
-# them together. Excess requests are rejected with ResourceExhausted.
-# It shares the same per-address keying as the buckets, and applies only when
-# rate-limiting-enabled is true. Zero disables it.
-max-in-flight-per-ip = {{ .GRPC.MaxInFlightPerIP }}
-
-# rate-limiting-enabled is the master switch for gRPC rate-limit admission.
-# It governs gRPC-Web (:9091) as well as native gRPC (:9090), and both planes draw
-# from the same per-IP buckets.
-rate-limiting-enabled = {{ .GRPC.RateLimitingEnabled }}
-
-# trusted-proxy-cidrs lists CIDRs whose x-forwarded-for metadata is trusted when
-# resolving the client IP for rate limiting, on both :9090 and gRPC-Web (:9091).
-# Empty means trust no proxy.
-trusted-proxy-cidrs = [{{- range $i, $c := .GRPC.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
-
-# request-timeout is the deadline applied to a gRPC request that carries no shorter
-# client-supplied grpc-timeout. It applies to
-# gRPC-Web (:9091) as well as native gRPC (:9090). 
-# Zero disables the default deadline, leaving only whatever deadline the client itself supplied.
-request-timeout = "{{ .GRPC.RequestTimeout }}"
-
-###############################################################################
-###                        gRPC Web Configuration (Auto-managed)            ###
-###############################################################################
-
-[grpc-web]
-
-# GRPCWebEnable defines if the gRPC-web should be enabled.
-# NOTE: gRPC must also be enabled, otherwise, this configuration is a no-op.
-enable = {{ .GRPCWeb.Enable }}
-
-# Address defines the gRPC-web server address to bind to.
-address = "{{ .GRPCWeb.Address }}"
-
-# EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
-enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
-
-# MaxOpenConnections defines the number of maximum open connections. 0 means unlimited.
-max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
-
-# max-connections-per-ip is the maximum number of simultaneous open connections one
-# client address may hold, bounding its share of max-open-connections. 0 means unlimited.
-max-connections-per-ip = {{ .GRPCWeb.MaxConnectionsPerIP }}
 
 ###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###

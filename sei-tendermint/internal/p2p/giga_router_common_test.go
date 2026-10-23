@@ -173,16 +173,15 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	})
 	first := router.data.Registry().FirstBlock()
 
-	got, h, err := router.Validators(first)
+	got, err := router.Validators(first)
 	require.NoError(t, err)
-	require.Equal(t, first, h)
 	require.Len(t, got, 3)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
-	_, _, err = router.Validators(0)
+	_, err = router.Validators(0)
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 
-	_, _, err = router.Validators(first + 100)
+	_, err = router.Validators(first + 100)
 	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
 
 	weights := map[atypes.PublicKey]uint64{
@@ -193,15 +192,13 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, router.data.Registry().StageAndActivate(0, weights))
 	fakeNext := utils.NewAtomicSend(router.data.Registry().MustEpoch(2))
 	router.nextCommitEpoch = fakeNext.Subscribe()
-	got, h, err = router.Validators(first)
+	got, err = router.Validators(first)
 	require.NoError(t, err)
-	require.Equal(t, first, h)
 	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 
 	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), router.data.Registry().EpochFirstRoad(2))
-	got, h, err = router.Validators(n)
+	got, err = router.Validators(n)
 	require.NoError(t, err)
-	require.Equal(t, n, h)
 	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
 	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
 	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
@@ -210,7 +207,7 @@ func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
 	require.NoError(t, router.data.Registry().StageAndActivate(1, weights))
 	require.NoError(t, router.data.Registry().StageAndActivate(2, weights))
 	require.NoError(t, router.data.Registry().PruneBefore(4))
-	_, _, err = router.Validators(n)
+	_, err = router.Validators(n)
 	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 }
 
@@ -350,7 +347,7 @@ func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.
 	localKey := makeKey(rng)
 	peerKey := makeKey(rng)
 	selfAddr := NodeAddress{NodeID: peerKey.Public().NodeID(), Hostname: "validator.example", Port: 26656}
-	evmRPC := *utils.OrPanic1(url.Parse("http://validator.example:8545"))
+	evmRPC := *utils.OrPanic1(url.Parse("ws://validator.example:8546"))
 	dummy := atypes.GenSecretKey(rng)
 	epochs := newSettledEpochs(testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
 	genesis := map[atypes.PublicKey]GigaNodeAddr{dummy.Public(): {Key: makeKey(rng).Public()}}

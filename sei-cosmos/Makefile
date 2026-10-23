@@ -227,11 +227,6 @@ test-cover:
 	@export VERSION=$(VERSION); bash -x contrib/test_cover.sh
 .PHONY: test-cover
 
-test-rosetta:
-	docker build -t rosetta-ci:latest -f contrib/rosetta/node/Dockerfile .
-	docker-compose -f contrib/rosetta/docker-compose.yaml up --abort-on-container-exit --exit-code-from test_rosetta --build
-.PHONY: test-rosetta
-
 benchmark:
 	@go test -mod=readonly -bench=. ./...
 .PHONY: benchmark
@@ -418,15 +413,3 @@ localnet-debug: localnet-stop localnet-build-dlv localnet-build-nodes
 .PHONY: localnet-start localnet-stop localnet-debug localnet-build-env \
 localnet-build-dlv localnet-build-nodes
 
-###############################################################################
-###                                rosetta                                  ###
-###############################################################################
-
-rosetta-data:
-	-docker container rm data_dir_build
-	docker build -t rosetta-ci:latest -f contrib/rosetta/node/Dockerfile .
-	docker run --name data_dir_build -t rosetta-ci:latest sh /rosetta/data.sh
-	docker cp data_dir_build:/tmp/data.tar.gz "$(CURDIR)/contrib/rosetta/node/data.tar.gz"
-	docker container rm data_dir_build
-
-.PHONY: rosetta-data

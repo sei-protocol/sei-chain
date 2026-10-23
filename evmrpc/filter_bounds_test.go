@@ -4,24 +4,34 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
+)
+
+// Block tags as eth_newFilter decodes them into filters.FilterCriteria.
+var (
+	latestTag    = big.NewInt(rpc.LatestBlockNumber.Int64())
+	safeTag      = big.NewInt(rpc.SafeBlockNumber.Int64())
+	finalizedTag = big.NewInt(rpc.FinalizedBlockNumber.Int64())
+	pendingTag   = big.NewInt(rpc.PendingBlockNumber.Int64())
+	earliestTag  = big.NewInt(rpc.EarliestBlockNumber.Int64())
 )
 
 func TestComputeBlockBounds(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		latest       int64
-		earliest     int64
-		lastToHeight int64
-		fromBlock    *big.Int
-		toBlock      *big.Int
-		wantBegin    int64
-		wantEnd      int64
-		errContains  string
+		name        string
+		latest      int64
+		earliest    int64
+		fromBlock   *big.Int
+		toBlock     *big.Int
+		wantBegin   int64
+		wantEnd     int64
+		errContains string
 	}{
 		{
 			name:      "defaults when no bounds provided",
@@ -43,23 +53,6 @@ func TestComputeBlockBounds(t *testing.T) {
 			toBlock:   big.NewInt(90),
 			wantBegin: 90,
 			wantEnd:   90,
-		},
-		{
-			name:         "last height advances begin",
-			latest:       100,
-			lastToHeight: 60,
-			fromBlock:    big.NewInt(20),
-			wantBegin:    60,
-			wantEnd:      100,
-		},
-		{
-			name:         "last height surpasses end returns empty range",
-			latest:       100,
-			fromBlock:    big.NewInt(20),
-			toBlock:      big.NewInt(40),
-			lastToHeight: 60,
-			wantBegin:    60,
-			wantEnd:      40,
 		},
 		{
 			name:        "from before earliest fails",
@@ -91,14 +84,6 @@ func TestComputeBlockBounds(t *testing.T) {
 			errContains: "greater than toBlock",
 		},
 		{
-			name:         "last height below begin no change",
-			latest:       100,
-			fromBlock:    big.NewInt(80),
-			lastToHeight: 80,
-			wantBegin:    80,
-			wantEnd:      100,
-		},
-		{
 			name:      "nil from with to collapses to single block",
 			latest:    42,
 			toBlock:   big.NewInt(21),
@@ -120,7 +105,7 @@ func TestComputeBlockBounds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			crit := filters.FilterCriteria{FromBlock: tc.fromBlock, ToBlock: tc.toBlock}
-			gotBegin, gotEnd, err := ComputeBlockBounds(tc.latest, tc.earliest, tc.lastToHeight, crit)
+			gotBegin, gotEnd, err := ComputeBlockBounds(tc.latest, tc.earliest, crit)
 			if tc.errContains != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errContains)
@@ -129,6 +114,189 @@ func TestComputeBlockBounds(t *testing.T) {
 			require.NoError(t, err)
 			require.Equalf(t, tc.wantBegin, gotBegin, "begin mismatch")
 			require.Equalf(t, tc.wantEnd, gotEnd, "end mismatch")
+		})
+	}
+}
+
+// TestPollStart pins where a new log filter's polls start: a numeric fromBlock is kept, an
+// omitted or tag fromBlock starts after the head at creation, and a numeric fromBlock above 0
+// below the earliest block or a numeric toBlock below the start is rejected.
+func TestPollStart(t *testing.T) {
+	t.Parallel()
+
+	const (
+		earliest = int64(30)
+		head     = int64(100)
+	)
+	blockHash := common.HexToHash("0x01")
+	tests := []struct {
+		name        string
+		crit        filters.FilterCriteria
+		want        int64
+		errContains string
+	}{
+		{name: "omitted fromBlock starts after the head", want: head + 1},
+		{name: "latest fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: latestTag}, want: head + 1},
+		{name: "safe fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: safeTag}, want: head + 1},
+		{name: "finalized fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: finalizedTag}, want: head + 1},
+		{name: "pending fromBlock starts after the head", crit: filters.FilterCriteria{FromBlock: pendingTag}, want: head + 1},
+		{name: "tag toBlock leaves the start after the head", crit: filters.FilterCriteria{ToBlock: latestTag}, want: head + 1},
+		{name: "earliest fromBlock starts at block 0", crit: filters.FilterCriteria{FromBlock: earliestTag}, want: 0},
+		{name: "past fromBlock starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(40)}, want: 40},
+		{name: "fromBlock at the earliest block starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(earliest)}, want: earliest},
+		{
+			name:        "fromBlock below the earliest block is rejected",
+			crit:        filters.FilterCriteria{FromBlock: big.NewInt(earliest - 1)},
+			errContains: "requested fromBlock 29 is before earliest available block 30",
+		},
+		{
+			name:        "pruned fromBlock with a tag toBlock is rejected",
+			crit:        filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: latestTag},
+			errContains: "requested fromBlock 1 is before earliest available block 30",
+		},
+		{name: "fromBlock at the head starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(head)}, want: head},
+		{name: "future fromBlock starts there", crit: filters.FilterCriteria{FromBlock: big.NewInt(150)}, want: 150},
+		{name: "numeric fromBlock with tag toBlock starts at fromBlock", crit: filters.FilterCriteria{FromBlock: big.NewInt(40), ToBlock: latestTag}, want: 40},
+		{name: "omitted fromBlock with the next block as toBlock starts after the head", crit: filters.FilterCriteria{ToBlock: big.NewInt(head + 1)}, want: head + 1},
+		{name: "omitted fromBlock with a future toBlock starts after the head", crit: filters.FilterCriteria{ToBlock: big.NewInt(150)}, want: head + 1},
+		{
+			name:        "fromBlock above toBlock is rejected",
+			crit:        filters.FilterCriteria{FromBlock: big.NewInt(50), ToBlock: big.NewInt(40)},
+			errContains: "requested toBlock 40 is before the filter's start block 50",
+		},
+		{
+			name:        "omitted fromBlock with the head as toBlock is rejected",
+			crit:        filters.FilterCriteria{ToBlock: big.NewInt(head)},
+			errContains: "requested toBlock 100 is before the filter's start block 101",
+		},
+		{
+			name:        "tag fromBlock with a toBlock below the head is rejected",
+			crit:        filters.FilterCriteria{FromBlock: latestTag, ToBlock: big.NewInt(40)},
+			errContains: "requested toBlock 40 is before the filter's start block 101",
+		},
+		{name: "blockHash filter starts at zero", crit: filters.FilterCriteria{BlockHash: &blockHash}, want: 0},
+	}
+
+	fetcher := &LogFetcher{watermarks: newHeightTestWatermarks(newHeightTestClient(0, earliest, head), head)}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := fetcher.pollStart(t.Context(), tc.crit)
+			if tc.errContains != "" {
+				require.ErrorContains(t, err, tc.errContains)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestPollLogsReportsPrunedBlocks pins that a poll whose cursor pruning has passed fails with an
+// error naming the pruned blocks, up to a lower numeric toBlock, and moves the cursor to the
+// earliest block.
+func TestPollLogsReportsPrunedBlocks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		earliest = int64(30)
+		head     = int64(100)
+	)
+	tests := []struct {
+		name        string
+		crit        filters.FilterCriteria
+		errContains string
+	}{
+		{name: "open filter", errContains: "logs of blocks 10 to 29 were pruned before the filter read them"},
+		{name: "tag toBlock", crit: filters.FilterCriteria{ToBlock: latestTag}, errContains: "logs of blocks 10 to 29 were pruned"},
+		{name: "toBlock below the earliest block", crit: filters.FilterCriteria{ToBlock: big.NewInt(20)}, errContains: "logs of blocks 10 to 20 were pruned"},
+	}
+
+	fetcher := &LogFetcher{watermarks: newHeightTestWatermarks(newHeightTestClient(0, earliest, head), head)}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logs, cursor, err := fetcher.pollLogs(t.Context(), tc.crit, 10)
+			require.ErrorContains(t, err, tc.errContains)
+			require.Nil(t, logs)
+			require.Equal(t, earliest, cursor)
+		})
+	}
+}
+
+// TestPollWindow pins the blocks a log filter's poll scans: from its cursor to the head or a
+// lower numeric toBlock, with tags following the head, and at most maxBlock blocks.
+func TestPollWindow(t *testing.T) {
+	t.Parallel()
+
+	const head = int64(10)
+	tests := []struct {
+		name     string
+		toBlock  *big.Int
+		cursor   int64
+		maxBlock int64
+		wantFrom int64
+		wantTo   int64
+		wantOK   bool
+	}{
+		{name: "omitted toBlock scans from the cursor to the head", cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "latest toBlock follows the head", toBlock: latestTag, cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "safe toBlock follows the head", toBlock: safeTag, cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "finalized toBlock follows the head", toBlock: finalizedTag, cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "pending toBlock follows the head", toBlock: pendingTag, cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "toBlock below the head ends the range", toBlock: big.NewInt(7), cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: 7, wantOK: true},
+		{name: "toBlock above the head waits for the head", toBlock: big.NewInt(20), cursor: 5, maxBlock: 100, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "cursor at toBlock still scans toBlock", toBlock: big.NewInt(7), cursor: 7, maxBlock: 100, wantFrom: 7, wantTo: 7, wantOK: true},
+		{name: "cursor past toBlock scans nothing", toBlock: big.NewInt(7), cursor: 8, maxBlock: 100},
+		{name: "cursor at the head scans the head", cursor: head, maxBlock: 100, wantFrom: head, wantTo: head, wantOK: true},
+		{name: "cursor past the head scans nothing", cursor: head + 1, maxBlock: 100},
+		{name: "range wider than maxBlock is capped", cursor: 5, maxBlock: 3, wantFrom: 5, wantTo: 7, wantOK: true},
+		{name: "range of exactly maxBlock is not capped", cursor: 5, maxBlock: 6, wantFrom: 5, wantTo: head, wantOK: true},
+		{name: "unset maxBlock leaves the range uncapped", cursor: 5, wantFrom: 5, wantTo: head, wantOK: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			from, to, ok := pollWindow(tc.toBlock, tc.cursor, head, tc.maxBlock)
+			require.Equal(t, tc.wantOK, ok)
+			if !tc.wantOK {
+				return
+			}
+			require.Equal(t, tc.wantFrom, from, "from")
+			require.Equal(t, tc.wantTo, to, "to")
+		})
+	}
+}
+
+// TestLogsExhausted pins when a log filter can match no further logs: once its cursor passes a
+// numeric toBlock or its blockHash block has been polled, and never for a tag toBlock.
+func TestLogsExhausted(t *testing.T) {
+	t.Parallel()
+
+	const farCursor = int64(1) << 40
+	blockHash := common.HexToHash("0x01")
+	tests := []struct {
+		name   string
+		crit   filters.FilterCriteria
+		cursor int64
+		want   bool
+	}{
+		{name: "omitted toBlock is never exhausted", cursor: farCursor},
+		{name: "latest toBlock is never exhausted", crit: filters.FilterCriteria{ToBlock: latestTag}, cursor: farCursor},
+		{name: "safe toBlock is never exhausted", crit: filters.FilterCriteria{ToBlock: safeTag}, cursor: farCursor},
+		{name: "finalized toBlock is never exhausted", crit: filters.FilterCriteria{ToBlock: finalizedTag}, cursor: farCursor},
+		{name: "pending toBlock is never exhausted", crit: filters.FilterCriteria{ToBlock: pendingTag}, cursor: farCursor},
+		{name: "cursor at toBlock still has toBlock to scan", crit: filters.FilterCriteria{ToBlock: big.NewInt(7)}, cursor: 7},
+		{name: "cursor past toBlock is exhausted", crit: filters.FilterCriteria{ToBlock: big.NewInt(7)}, cursor: 8, want: true},
+		{name: "blockHash filter before its poll", crit: filters.FilterCriteria{BlockHash: &blockHash}, cursor: 0},
+		{name: "blockHash filter after its poll", crit: filters.FilterCriteria{BlockHash: &blockHash}, cursor: 1, want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, logsExhausted(tc.crit, tc.cursor))
 		})
 	}
 }
