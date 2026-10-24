@@ -209,7 +209,13 @@ type preparingTestApp struct {
 	holdUntil int64
 	// releaseFinalize, when set, blocks every FinalizeBlock until it is closed.
 	releaseFinalize <-chan struct{}
-	log             utils.Watch[*prepareLog]
+	// blockPrepareHeight, with blockPrepareReturn set, blocks that height's
+	// PrepareBlock before it records the block, until blockPrepareReturn receives.
+	blockPrepareHeight int64
+	blockPrepareReturn <-chan struct{}
+	// prepareEntered receives one value when the blocked PrepareBlock is entered.
+	prepareEntered chan struct{}
+	log            utils.Watch[*prepareLog]
 }
 
 type prepareLog struct {
@@ -226,7 +232,17 @@ func newPreparingTestApp(holdUntil int64) *preparingTestApp {
 	}
 }
 
-func (a *preparingTestApp) PrepareBlock(_ context.Context, req *abci.RequestFinalizeBlock) error {
+func (a *preparingTestApp) PrepareBlock(ctx context.Context, req *abci.RequestFinalizeBlock) error {
+	if a.blockPrepareReturn != nil && req.Header.Height == a.blockPrepareHeight {
+		if a.prepareEntered != nil {
+			if err := utils.Send(ctx, a.prepareEntered, struct{}{}); err != nil {
+				return err
+			}
+		}
+		if _, err := utils.Recv(ctx, a.blockPrepareReturn); err != nil {
+			return err
+		}
+	}
 	for log, ctrl := range a.log.Lock() {
 		log.prepared[req.Header.Height] = slices.Clone(req.Hash)
 		ctrl.Updated()

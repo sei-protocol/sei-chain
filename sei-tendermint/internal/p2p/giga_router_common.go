@@ -491,9 +491,12 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// The execute cursor opens the next prepareAheadBlocks heights. Each height
-		// is prepared when its own block is stored, including a gap-fill, and
-		// execution below still waits for the contiguous prefix.
+		// is prepared when its own block is stored, including a gap-fill.
+		// Execution below still waits for the contiguous prefix, and for this
+		// height's PrepareBlock to return: the prepared result is stored at the
+		// end of that call.
 		executedNext := utils.NewAtomicSend(next)
+		prepared := utils.NewWatch(map[atypes.GlobalBlockNumber]chan struct{}{})
 		s.Spawn(func() error {
 			started := next
 			cursor := executedNext.Subscribe()
@@ -506,6 +509,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 				}
 				for limit := tip + prepareAheadBlocks; started < limit; started++ {
 					h := started
+					done := make(chan struct{}, 1)
+					for slots, ctrl := range prepared.Lock() {
+						slots[h] = done
+						ctrl.Updated()
+					}
 					s.Spawn(func() error {
 						b, err := r.data.AvailableGlobalBlock(ctx, h)
 						if err != nil {
@@ -514,7 +522,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 						if err := app.PrepareBlock(ctx, r.finalizeRequest(b)); err != nil {
 							return fmt.Errorf("app.PrepareBlock(%v): %w", h, err)
 						}
-						return nil
+						return utils.Send(ctx, done, struct{}{})
 					})
 				}
 			}
@@ -524,6 +532,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			b, err := r.data.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+			}
+			if err := waitPrepared(ctx, &prepared, n); err != nil {
+				return err
 			}
 			gigametrics.SetPhase(gigametrics.PhaseExecution)
 			commitResp, err := r.executeBlock(ctx, b, hashVault)
@@ -554,6 +565,25 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			gigametrics.EndStoragePhase()
 		}
 	})
+}
+
+// waitPrepared waits until PrepareBlock for n has returned.
+// The prepare task publishes its signal before it starts, and signals after
+// PrepareBlock stores the result. FinalizeBlock of n runs only after that.
+func waitPrepared(ctx context.Context, prepared *utils.Watch[map[atypes.GlobalBlockNumber]chan struct{}], n atypes.GlobalBlockNumber) error {
+	var done chan struct{}
+	for slots, ctrl := range prepared.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			var ok bool
+			done, ok = slots[n]
+			return ok
+		}); err != nil {
+			return err
+		}
+		delete(slots, n)
+	}
+	_, err := utils.Recv(ctx, done)
+	return err
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
