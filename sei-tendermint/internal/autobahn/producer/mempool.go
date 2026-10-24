@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -41,6 +42,8 @@ type mempool struct {
 	inner utils.Watch[*mempoolInner]
 	// pendingInserts is the number of InsertTx calls blocked in the admission queue.
 	pendingInserts utils.AtomicSend[uint64]
+	// closed is the session's closed flag, readable without the lock.
+	closed *atomic.Bool
 }
 
 // insertTicket is one blocked InsertTx call in the admission queue, holding the checked tx it
@@ -79,15 +82,17 @@ func (t *insertTicket) wait(ctx context.Context) error {
 // mempoolInner is the lock-protected session state. The Watch value is fixed for
 // the session; closed ends the session without replacing that pointer.
 type mempoolInner struct {
-	closed    bool
-	capacity  uint64
-	lane      types.LaneID
-	first     types.BlockNumber
-	next      types.BlockNumber
-	blocks    map[types.BlockNumber]*blockSpec
-	nextBlock *blockSpec
-	evmNonces map[common.Address]uint64
-	evmTxs    map[common.Hash]tmtypes.Tx
+	closed bool
+	// closedFlag mirrors closed for readers that do not hold the lock.
+	closedFlag atomic.Bool
+	capacity   uint64
+	lane       types.LaneID
+	first      types.BlockNumber
+	next       types.BlockNumber
+	blocks     map[types.BlockNumber]*blockSpec
+	nextBlock  *blockSpec
+	evmNonces  map[common.Address]uint64
+	evmTxs     map[common.Hash]tmtypes.Tx
 	// waiters is the FIFO admission queue of blocked InsertTx calls. Whoever frees capacity
 	// appends queued txs in order until the mempool is full again.
 	waiters []*insertTicket
@@ -109,6 +114,7 @@ func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *m
 // close ends the session and fails every blocked InsertTx call with ErrNotProducing.
 func (m *mempoolInner) close(ctrl *utils.WatchCtrl) {
 	m.closed = true
+	m.closedFlag.Store(true)
 	for _, t := range m.waiters {
 		t.finish(ErrNotProducing)
 	}
@@ -311,6 +317,17 @@ func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[
 // now, and otherwise the error the admission loop would return, so such an insert skips CheckTx.
 // The admission loop rechecks after CheckTx.
 func (s *State) poolCanAdmit(mp *mempool, waitIfFull bool) error {
+	if waitIfFull {
+		// Read without the mempool lock: under overload every insert passes here, and contending
+		// for the lock starves the producer that frees capacity.
+		switch {
+		case mp.closed.Load():
+			return ErrNotProducing
+		case mp.pendingInserts.Load() >= s.cfg.maxPendingInserts():
+			return errPendingFull
+		}
+		return nil
+	}
 	for m := range mp.inner.Lock() {
 		switch {
 		case m.closed:

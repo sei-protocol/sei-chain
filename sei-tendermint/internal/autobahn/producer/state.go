@@ -92,7 +92,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
 	m := newMempoolInner(avail.LaneCapacity, lane, n)
-	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
+	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0), closed: &m.closedFlag}
 	s.mempool.Store(utils.Some(mp))
 	return mp, n
 }
