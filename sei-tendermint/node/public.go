@@ -13,6 +13,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -258,6 +259,9 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	if cfg.LaneCapacity > 0 {
 		avail.LaneCapacity = uint64(cfg.LaneCapacity)
+	}
+	if cfg.FlatKVViewShards > 0 {
+		flatkvconfig.StoreShardCount = cfg.FlatKVViewShards
 	}
 	if cfg.GCPercent <= 0 {
 		return
