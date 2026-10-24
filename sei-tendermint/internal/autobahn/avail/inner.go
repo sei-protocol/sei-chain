@@ -169,8 +169,8 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			continue
 		}
 		for _, b := range bs {
-			if q.Len() >= BlocksPerLane {
-				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), BlocksPerLane)
+			if uint64(q.Len()) >= LaneCapacity { //nolint:gosec // Len is non-negative.
+				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), LaneCapacity)
 			}
 			if b.Number < q.next {
 				// Certified. Restore localTip from the proposal at first-1 when present.
