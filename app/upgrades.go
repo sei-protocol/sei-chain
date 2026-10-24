@@ -33,6 +33,13 @@ var v68DeletedStores = append([]string{feegrantModuleName, retiredoracle.ModuleN
 // upgrade height. Their module version map entries go with them.
 var v69DeletedStores = []string{retiredauthz.ModuleName}
 
+// deletedStoresByUpgrade maps an upgrade name to the KV stores its store loader
+// deletes from the multistore and its handler requires to be gone.
+var deletedStoresByUpgrade = map[string][]string{
+	"v6.8": v68DeletedStores,
+	"v6.9": v69DeletedStores,
+}
+
 // tokenfactoryParamsPrefix is the params-store prefix of the tokenfactory
 // parameter subspace.
 var tokenfactoryParamsPrefix = []byte(retiredtokenfactory.ModuleName + "/")
@@ -112,6 +119,10 @@ func (app *App) RegisterUpgradeHandlers() {
 	overrideList()
 	for _, upgradeName := range upgradesList {
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+			if err := app.requireStoresDeleted(plan, deletedStoresByUpgrade[upgradeName]); err != nil {
+				return nil, err
+			}
+
 			// Set params to Distribution here when migrating
 			if upgradeName == "1.2.3beta" {
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
@@ -160,9 +171,6 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.8" {
-				if err := app.requireStoresDeleted(plan, v68DeletedStores); err != nil {
-					return nil, err
-				}
 				// Proposals must be readable before any module migration walks
 				// the gov store, so the retired IBC records are rewritten first.
 				app.rewriteRetiredIBCProposals(ctx)

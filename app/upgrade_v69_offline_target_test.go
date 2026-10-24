@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -55,14 +57,22 @@ func testV69OfflineUpgradeTargetFixture(t *testing.T) {
 
 	cleanRoot := filepath.Join(root, offlineUpgradeMigratedDir)
 	crashRoot := filepath.Join(root, "crash")
+	noUpgradeInfoRoot := filepath.Join(root, "no-upgrade-info")
 	copyOfflineUpgradeDatabase(t, root, cleanRoot)
 	copyOfflineUpgradeDatabase(t, root, crashRoot)
+	copyOfflineUpgradeDatabase(t, root, noUpgradeInfoRoot)
+
+	requireV69OfflineRefusesRetainedStore(t, noUpgradeInfoRoot, artifact)
 
 	cleanHash := applyV69OfflineUpgradeClean(t, cleanRoot, artifact)
 	crashHash := applyV69OfflineUpgradeCrashReplay(t, crashRoot, artifact)
 	require.Equalf(t, cleanHash, crashHash,
 		"crash-replay application hash diverged from the clean single-pass hash: clean=%x crash-replay=%x",
 		cleanHash, crashHash)
+	recoveredHash := applyV69OfflineUpgradeAfterRefusal(t, noUpgradeInfoRoot, artifact)
+	require.Equalf(t, cleanHash, recoveredHash,
+		"the upgrade after restoring upgrade-info.json diverged from the clean hash: clean=%x recovered=%x",
+		cleanHash, recoveredHash)
 
 	artifact.MigratedRoot = offlineUpgradeMigratedDir
 	artifact.UpgradeHash = offlineUpgradeHashString(cleanHash)
@@ -196,6 +206,52 @@ func finalizeV69OfflineUpgrade(t *testing.T, testApp *App, height int64) {
 		},
 	})
 	require.NoError(t, err)
+}
+
+// requireV69OfflineRefusesRetainedStore requires the v6.9 handler to halt a
+// node that reaches the upgrade height without upgrade-info.json, which leaves
+// the authz store undeleted.
+func requireV69OfflineRefusesRetainedStore(t *testing.T, root string, artifact offlineUpgradeArtifact) {
+	t.Helper()
+	require.NoError(t, os.Remove(filepath.Join(root, "home", "data", "upgrade-info.json")))
+	testApp := openOfflineUpgradeApp(t, root, false)
+	defer closeOfflineUpgradeApp(t, testApp)
+	require.True(t, testApp.rootStore.MayHoldStore(retiredauthz.ModuleName),
+		"%s was deleted without upgrade-info.json", retiredauthz.ModuleName)
+
+	var refusal string
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				refusal = fmt.Sprint(r)
+			}
+		}()
+		_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Hash: []byte("offline-upgrade"),
+			Header: &tmproto.Header{
+				ChainID: offlineUpgradeChainID, Height: artifact.UpgradeHeight, Time: v69OfflineUpgradeBlockTime,
+			},
+		})
+		if err != nil {
+			refusal = err.Error()
+		}
+	}()
+	require.Contains(t, refusal, fmt.Sprintf("store %q was not deleted before the v6.9 upgrade handler ran", retiredauthz.ModuleName))
+	require.Contains(t, refusal, v69OfflineUpgradeInfo(artifact.UpgradeHeight))
+}
+
+// applyV69OfflineUpgradeAfterRefusal writes upgrade-info.json as the refusal
+// tells the operator to, then applies v6.9 and returns the application hash.
+func applyV69OfflineUpgradeAfterRefusal(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
+	t.Helper()
+	target := filepath.Join(root, "home", "data", "upgrade-info.json")
+	require.NoError(t, os.WriteFile(target, []byte(v69OfflineUpgradeInfo(artifact.UpgradeHeight)), 0o600))
+	return applyV69OfflineUpgradeClean(t, root, artifact)
+}
+
+// v69OfflineUpgradeInfo is the upgrade-info.json content naming v6.9 at height.
+func v69OfflineUpgradeInfo(height int64) string {
+	return fmt.Sprintf(`{"name":%q,"height":%d}`, v69OfflineUpgradeName, height)
 }
 
 // requireV69OfflineVersionMap requires authz to be the only module version the
@@ -334,8 +390,15 @@ func testV69OfflineUpgradeTargetSnapshot(t *testing.T) {
 	t.Setenv("UPGRADE_VERSION_LIST", v69OfflineUpgradeName)
 	chainID := readOfflineUpgradeGenesisChainID(t, home)
 
+	// The store loader deletes the authz store only when upgrade-info.json
+	// names v6.9, as it does after the previous binary halts at the plan.
+	halted := openOfflineUpgradeSnapshotApp(t, home, chainID)
+	sourceHeight := halted.LastBlockHeight()
+	require.NoError(t, halted.UpgradeKeeper.DumpUpgradeInfoToDisk(sourceHeight+1, v69OfflineUpgradeName))
+	closeOfflineUpgradeApp(t, halted)
+
 	testApp := openOfflineUpgradeSnapshotApp(t, home, chainID)
-	sourceHeight := testApp.LastBlockHeight()
+	require.Equal(t, sourceHeight, testApp.LastBlockHeight())
 	beforeVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, beforeVersions, retiredauthz.ModuleName,
 		"%s is not a pre-v6.9 snapshot: module version map is missing authz", home)
