@@ -149,9 +149,6 @@ type evmOnlyApplication struct {
 	prepared utils.Mutex[*preparedQueue]
 	// preparedBlocks counts finalized blocks by whether prepared held them.
 	preparedBlocks otelmetric.Int64Counter
-	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
-	// called from the single block fetcher, so one timer serves the app.
-	preparePhases *seidbmetrics.PhaseTimer
 	// finalizePhases times FinalizeBlock's stages around the executor. It is a
 	// field so each application instance has its own last-phase clock.
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
@@ -202,7 +199,6 @@ func NewEVMOnlyApplication(
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 		prepared:         utils.NewMutex(new(preparedQueue)),
 		preparedBlocks:   newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
-		preparePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
