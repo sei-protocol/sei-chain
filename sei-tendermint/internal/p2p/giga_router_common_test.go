@@ -193,7 +193,10 @@ func TestGigaRouterCommon_RunExecutePreparesTheNextBlockAhead(t *testing.T) {
 
 	db, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	require.NoError(t, db.WriteQC(qc, blocks))
+	require.NoError(t, db.WriteQC(qc))
+	for i, b := range blocks {
+		require.NoError(t, db.WriteBlock(gr.First+atypes.GlobalBlockNumber(i), b))
+	}
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -264,7 +267,11 @@ func TestGigaRouterCommon_RunExecuteStopsAtThePrepareWindow(t *testing.T) {
 	for _, batch := range batches {
 		gr := batch.qc.QC().GlobalRange()
 		require.Equal(t, gr.Len(), uint64(len(batch.blocks)))
-		require.NoError(t, db.WriteQC(batch.qc, batch.blocks))
+		require.NoError(t, db.WriteQC(batch.qc))
+		first := batch.qc.QC().GlobalRange().First
+		for i, b := range batch.blocks {
+			require.NoError(t, db.WriteBlock(first+atypes.GlobalBlockNumber(i), b))
+		}
 	}
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -404,7 +411,10 @@ func TestGigaRouterCommon_RunExecuteWaitsForItsPrepare(t *testing.T) {
 
 		db, err := blockstore.New(memblock.NewBlockDB())
 		require.NoError(t, err)
-		require.NoError(t, db.WriteQC(qc, blocks))
+		require.NoError(t, db.WriteQC(qc))
+		for i, b := range blocks {
+			require.NoError(t, db.WriteBlock(gr.First+atypes.GlobalBlockNumber(i), b))
+		}
 		require.NoError(t, db.Flush())
 		t.Cleanup(func() { require.NoError(t, db.Close()) })
 

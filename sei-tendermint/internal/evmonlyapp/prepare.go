@@ -17,10 +17,6 @@ import (
 const (
 	// preparedBlocksMetricName counts finalized blocks by whether PrepareBlock had decoded them.
 	preparedBlocksMetricName = "evmonly_finalize_prepared_blocks_total"
-	prepareTimerName         = "evmonly_prepare"
-
-	preparePhaseParse = "parse"
-	preparePhaseWarm  = "warm_accounts"
 
 	// maxPreparedBlocks bounds the prepared global blocks held ahead of execution.
 	// At 100 blocks per second it holds one second of decoded transactions.
@@ -99,7 +95,6 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	}
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
-	a.preparePhases.SetPhase(preparePhaseParse)
 	txHashes := hashRawTxs(req.Txs)
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
@@ -114,12 +109,9 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		Senders: a.peekSenders(txHashes),
 	})
 	if err != nil {
-		a.preparePhases.Reset()
 		return ctx.Err()
 	}
-	a.preparePhases.SetPhase(preparePhaseWarm)
 	executor.WarmAccounts(ctx, prepared)
-	a.preparePhases.Reset()
 	next := a.LastBlockHeight() + 1
 	for queue := range a.prepared.Lock() {
 		queue.put(preparedBlock{
