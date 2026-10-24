@@ -28,6 +28,9 @@ var ErrLaneClosed = errors.New("lane closed")
 // locally.
 const BlocksPerLane = 30 * types.MaxLaneRangeInProposal
 
+// LaneCapacity is the number of unpruned blocks a lane may hold; it defaults to BlocksPerLane.
+var LaneCapacity uint64 = BlocksPerLane
+
 var (
 	meters     = metrics.Get()
 	consMeters = consmetrics.Get()
@@ -462,7 +465,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			if !ok {
 				return true
 			}
-			return n <= min(q.next, q.first+BlocksPerLane-1)
+			return n <= min(q.next, q.first+types.BlockNumber(LaneCapacity)-1)
 		}); err != nil {
 			return err
 		}
@@ -514,7 +517,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			if !ok {
 				return true
 			}
-			return n < q.first+BlocksPerLane
+			return n < q.first+types.BlockNumber(LaneCapacity)
 		}); err != nil {
 			return err
 		}
@@ -619,7 +622,7 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 			if !ok {
 				return true
 			}
-			return toProduce < q.first+BlocksPerLane
+			return toProduce < q.first+types.BlockNumber(LaneCapacity)
 		}
 		if !ready() {
 			meters.LaneCapacityInFlight.Add(1)
@@ -728,7 +731,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if !ok {
 			return nil, ErrLaneClosed
 		}
-		if n >= q.first+BlocksPerLane {
+		if n >= q.first+types.BlockNumber(LaneCapacity) {
 			return nil, fmt.Errorf("lane full")
 		}
 		if q.next != n {

@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -252,6 +253,9 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 // applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
 // the container limit, so a late collection is an ordinary GC rather than an OOM kill.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	if cfg.LaneCapacity > 0 {
+		avail.LaneCapacity = uint64(cfg.LaneCapacity)
+	}
 	if cfg.GCPercent <= 0 {
 		return
 	}
