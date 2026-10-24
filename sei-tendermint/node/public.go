@@ -80,7 +80,11 @@ func New(
 	if err := opts.giga.Validate(); err != nil {
 		return nil, fmt.Errorf("giga config: %w", err)
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga)
+	genDoc, err := genesisDocument(conf, gen)
+	if err != nil {
+		return nil, err
+	}
+	app, storageManager, err := prepareApplication(ctx, conf, app, opts.giga, genDoc)
 	if err != nil {
 		return nil, err
 	}
@@ -99,13 +103,7 @@ func New(
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
 	}
 
-	var genProvider genesisDocProvider
-	switch gen {
-	case nil:
-		genProvider = defaultGenesisDocProviderFunc(conf)
-	default:
-		genProvider = func() (*tmtypes.GenesisDoc, error) { return gen, nil }
-	}
+	genProvider := func() (*tmtypes.GenesisDoc, error) { return genDoc, nil }
 
 	switch conf.Mode {
 	case config.ModeFull, config.ModeValidator:
@@ -162,11 +160,28 @@ func validateNodeSetupConfig(conf *config.Config) error {
 	return nil
 }
 
+// genesisDocument returns the genesis document the node starts from. A nil
+// document is loaded from the config's genesis file. The result is validated.
+func genesisDocument(conf *config.Config, gen *tmtypes.GenesisDoc) (*tmtypes.GenesisDoc, error) {
+	if gen == nil {
+		loaded, err := defaultGenesisDocProviderFunc(conf)()
+		if err != nil {
+			return nil, fmt.Errorf("genesisDocProvider(): %w", err)
+		}
+		gen = loaded
+	}
+	if err := gen.ValidateAndComplete(); err != nil {
+		return nil, fmt.Errorf("error in genesis doc: %w", err)
+	}
+	return gen, nil
+}
+
 func prepareApplication(
 	ctx context.Context,
 	conf *config.Config,
 	app abci.Application,
 	giga gigaconfig.Config,
+	genDoc *tmtypes.GenesisDoc,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	storage := noStorage
@@ -176,7 +191,7 @@ func prepareApplication(
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
 		}
-		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage)
+		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, conf.Mode, fc, giga.Storage, genDoc)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
 		}

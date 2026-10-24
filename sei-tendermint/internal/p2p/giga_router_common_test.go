@@ -11,6 +11,7 @@ import (
 	"time"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/apphash"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -51,6 +52,17 @@ func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
 func (a *fixedHeightApp) Info() *abci.ResponseInfo {
 	return &abci.ResponseInfo{LastBlockHeight: a.height}
+}
+
+// newHashVault returns an empty durable Pebble vault rooted in a temp dir.
+func newHashVault(t *testing.T) hashvault.HashVault {
+	t.Helper()
+	cfg := hashvault.DefaultHashVaultConfig()
+	cfg.DataDir = t.TempDir()
+	v, err := hashvault.NewUnsafePebbleHashVault(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close(context.Background()) })
+	return v
 }
 
 // newSeededVault returns a durable Pebble vault rooted in a temp dir with hash committed at height.
@@ -113,6 +125,271 @@ func TestFinalizeBlockGasUsed(t *testing.T) {
 	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }
 
+// manualAppHashBuilder is an AppHashBuilder the test publishes through, so a
+// committed block's app hash reaches the router only when the test says so.
+// With publishOnReport set, ReportBlockHash publishes immediately, which is
+// what a router under test needs in order to propose the block it just ran.
+type manualAppHashBuilder struct {
+	state           utils.Watch[*manualAppHashBuilderState]
+	entries         []*apphash.AppHashData
+	publishOnReport bool
+}
+
+type manualAppHashBuilderState struct {
+	listener func(*apphash.AppHashData)
+}
+
+func newManualAppHashBuilder() *manualAppHashBuilder {
+	return &manualAppHashBuilder{state: utils.NewWatch(&manualAppHashBuilderState{})}
+}
+
+func newPublishingAppHashBuilder() *manualAppHashBuilder {
+	builder := newManualAppHashBuilder()
+	builder.publishOnReport = true
+	return builder
+}
+
+func (b *manualAppHashBuilder) ReportBlockHash(ctx context.Context, blockHeight uint64, blockHash [32]byte) error {
+	if !b.publishOnReport {
+		return nil
+	}
+	return b.publishHash(ctx, blockHeight, blockHash)
+}
+
+func (b *manualAppHashBuilder) ReportStateHash(context.Context, uint64, [32]byte, map[string][]byte) error {
+	return nil
+}
+
+func (b *manualAppHashBuilder) ReportBUDHash(context.Context, uint64, [32]byte) error { return nil }
+
+func (b *manualAppHashBuilder) ReportReceiptHash(context.Context, uint64, [32]byte) error {
+	return nil
+}
+
+func (b *manualAppHashBuilder) SetupComplete(context.Context, uint64) error { return nil }
+
+func (b *manualAppHashBuilder) RegisterListener(
+	_ context.Context,
+	listener func(*apphash.AppHashData),
+) (*apphash.AppHashData, error) {
+	for state, ctrl := range b.state.Lock() {
+		state.listener = listener
+		ctrl.Updated()
+	}
+	return nil, nil
+}
+
+func (b *manualAppHashBuilder) Iterator(context.Context, uint64) (apphash.AppHashIterator, error) {
+	return &sliceAppHashIterator{entries: b.entries}, nil
+}
+
+func (b *manualAppHashBuilder) Close() error { return nil }
+
+// publish hands the router the app hash of block n.
+func (b *manualAppHashBuilder) publish(ctx context.Context, n atypes.GlobalBlockNumber) error {
+	var blockHash [32]byte
+	blockHash[0] = byte(n)
+	return b.publishHash(ctx, uint64(n), blockHash)
+}
+
+func (b *manualAppHashBuilder) publishHash(ctx context.Context, blockHeight uint64, blockHash [32]byte) error {
+	var listener func(*apphash.AppHashData)
+	for state, ctrl := range b.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return state.listener != nil }); err != nil {
+			return err
+		}
+		listener = state.listener
+	}
+	listener(apphash.NewAppHashData(0, blockHeight, blockHash, [32]byte{}, apphash.BUDHash{}, [32]byte{}, [32]byte{}))
+	return nil
+}
+
+// sliceAppHashIterator walks a fixed list of app hashes.
+type sliceAppHashIterator struct {
+	entries []*apphash.AppHashData
+	next    int
+	current *apphash.AppHashData
+}
+
+func (it *sliceAppHashIterator) Next() (bool, error) {
+	if it.next >= len(it.entries) {
+		return false, nil
+	}
+	it.current = it.entries[it.next]
+	it.next++
+	return true, nil
+}
+
+func (it *sliceAppHashIterator) Entry() *apphash.AppHashData { return it.current }
+
+func (it *sliceAppHashIterator) Close() error { return nil }
+
+func testAppHashData(height atypes.GlobalBlockNumber) *apphash.AppHashData {
+	var blockHash [32]byte
+	blockHash[0] = byte(height)
+	sum := [32]byte{byte(height)}
+	return apphash.NewAppHashData(0, uint64(height), blockHash, sum, apphash.BUDHash{}, [32]byte{}, [32]byte{})
+}
+
+// newAppHashTestRouter returns a single-validator router over an in-memory
+// block store, with a test app and a hash store the caller publishes by hand.
+func newAppHashTestRouter(
+	t *testing.T,
+	rng utils.Rng,
+	key atypes.SecretKey,
+) (*testApp, *manualAppHashBuilder, *data.State, *gigaRouterCommon) {
+	t.Helper()
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "apphash-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		AppState:        testAppStateJSON(rng),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	app := newTestApp()
+	hashBuilder := newManualAppHashBuilder()
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+		AppHashBuilder:     hashBuilder,
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	return app, hashBuilder, state, &gigaRouterCommon{
+		cfg:      cfg,
+		data:     state,
+		app:      cfg.App,
+		executed: utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{})),
+	}
+}
+
+// TestExecuteWaitsForAppHashOfPreviousBlock pins the one-slot handshake: the
+// first block commits with nothing published, and the next does not until the
+// first block's app hash is recorded. The whole range then completes once the
+// remaining hashes arrive.
+//
+// The test feeds the whole CommitQC range in first, then publishes each app
+// hash by hand.
+func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	app, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	require.Equal(t, state.Registry().FirstBlock(), gr.First)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("state.PushQC(): %w", err)
+		}
+		next, lastBlock, err := router.openApp(ctx)
+		if err != nil {
+			return err
+		}
+		if lastBlock != nil {
+			return fmt.Errorf("fresh app returned last block %d", lastBlock.GlobalNumber)
+		}
+		appHashes, err := registerAppHashListener(ctx, hashBuilder)
+		if err != nil {
+			return err
+		}
+		committed := make(chan pendingExecution)
+		hashVault := hashvault.NewNoopHashVault()
+		s.SpawnBgNamed("appHashes", func() error {
+			return utils.IgnoreCancel(router.runAppHashes(ctx, hashVault, committed, appHashes, next))
+		})
+		s.SpawnBgNamed("execute", func() error {
+			defer close(committed)
+			return utils.IgnoreCancel(router.executeBlocks(ctx, committed, next))
+		})
+		if _, err := app.WaitForBlocks(ctx, 1); err != nil {
+			return err
+		}
+		// The second block must not commit while the first hash is unpublished.
+		hold, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		_, err = app.WaitForBlocks(hold, 2)
+		cancel()
+		if err == nil {
+			return fmt.Errorf("committed block 2 before block 1's app hash was recorded")
+		}
+		for n := gr.First; n < gr.Next; n++ {
+			if err := hashBuilder.publish(ctx, n); err != nil {
+				return fmt.Errorf("publish(%v): %w", n, err)
+			}
+		}
+		if _, err := app.WaitForBlocks(ctx, int(gr.Next-gr.First)); err != nil {
+			return err
+		}
+		return nil
+	}))
+}
+
+// TestBackfillAppHashesReadsTheBuilder pins the restart path: every block the
+// app committed but did not get proposed is recovered from the app hash
+// builder, oldest first, so execution can resume at the block after the app
+// tip. A height the builder does not hold is unrecoverable and must fail loudly.
+func TestBackfillAppHashesReadsTheBuilder(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	_, hashBuilder, state, router := newAppHashTestRouter(t, rng, key)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	last := gr.Next - 1
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("state.PushQC(): %w", err)
+		}
+
+		vault := newHashVault(t)
+		err := router.backfillAppHashes(ctx, vault, last)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "holds no app hash")
+
+		for n := state.NextAppProposal(); n <= last; n++ {
+			hashBuilder.entries = append(hashBuilder.entries, testAppHashData(n))
+		}
+		require.NoError(t, router.backfillAppHashes(ctx, vault, last))
+		require.Equal(t, gr.Next, state.NextAppProposal())
+		for n := state.Registry().FirstBlock(); n <= last; n++ {
+			sum := testAppHashData(n).AppHash()
+			// A conflicting write fails only when backfill already recorded sum.
+			// Writing sum first would succeed on an empty height and hide a missed record.
+			other := sum
+			other[0] ^= 0xff
+			if err := vault.CommitToHash(ctx, uint64(n), other[:]); !errors.Is(err, hashvault.ErrHashMismatch) {
+				return fmt.Errorf("block %d: CommitToHash(other) = %v, want ErrHashMismatch", n, err)
+			}
+			if err := vault.CommitToHash(ctx, uint64(n), sum[:]); err != nil {
+				return fmt.Errorf("block %d: CommitToHash(recorded hash): %w", n, err)
+			}
+		}
+		return nil
+	}))
+}
+
+func TestRecvAppHashAtLeastSkipsHeightsBelowFirst(t *testing.T) {
+	hashes := make(chan *apphash.AppHashData, 2)
+	hashes <- testAppHashData(0)
+	hashes <- testAppHashData(1)
+	got, err := recvAppHashAtLeast(t.Context(), hashes, 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), got.BlockHeight())
+}
+
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -148,6 +425,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
@@ -246,6 +524,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: 1}),
+		AppHashBuilder:     newPublishingAppHashBuilder(),
 	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{

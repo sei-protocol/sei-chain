@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
@@ -160,6 +161,10 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	if err != nil {
 		return fmt.Errorf("encode generated genesis state: %w", err)
 	}
+	genesisHash := scenarios.BlockContext(scenarioConfig(cfg), 1).BlockHash
+	if err := reportBlockHash(ctx, storage, 1, genesisHash); err != nil {
+		return err
+	}
 	if err := storage.StateDB().CommitStateChanges(1, genesisChanges); err != nil {
 		return fmt.Errorf("commit generated genesis state: %w", err)
 	}
@@ -201,7 +206,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	for workerID := 0; workerID < cfg.workers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
-			return executeBlocks(groupCtx, workerID, executor, preparedBlocks, metrics)
+			return executeBlocks(groupCtx, workerID, storage, executor, preparedBlocks, metrics)
 		})
 	}
 
@@ -562,9 +567,19 @@ func durationFromUint64Nanos(nanos uint64) time.Duration {
 	return time.Duration(nanos) //nolint:gosec // capped to max int64 duration above.
 }
 
+// reportBlockHash reports height's block hash to the app hash builder. The builder
+// publishes an app hash only once it has one for the committed height.
+func reportBlockHash(ctx context.Context, storage *bootstrap.GigaStorageManager, height uint64, hash common.Hash) error {
+	if err := storage.AppHashBuilder().ReportBlockHash(ctx, height, [32]byte(hash)); err != nil {
+		return fmt.Errorf("report the block hash of block %d: %w", height, err)
+	}
+	return nil
+}
+
 func executeBlocks(
 	ctx context.Context,
 	workerID int,
+	storage *bootstrap.GigaStorageManager,
 	executor *evmonly.Executor,
 	blocks <-chan preparedBlockEnvelope,
 	metrics *loadMetrics,
@@ -577,6 +592,9 @@ func executeBlocks(
 		case block, ok := <-blocks:
 			if !ok {
 				return nil
+			}
+			if err := reportBlockHash(ctx, storage, block.block.Context.Number, block.block.Context.BlockHash); err != nil {
+				return err
 			}
 			result, err := executor.ExecutePreparedBlock(ctx, block.block)
 			if err != nil {

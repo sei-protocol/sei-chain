@@ -497,6 +497,14 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
+// NextAppProposal returns the lowest block whose AppHash has not been pushed.
+func (s *State) NextAppProposal() types.GlobalBlockNumber {
+	for inner := range s.inner.Lock() {
+		return inner.nextAppProposal
+	}
+	panic("unreachable")
+}
+
 // NextAppQC returns the index of the next AppQC to be pushed.
 func (s *State) NextAppQC() types.GlobalBlockNumber {
 	for inner := range s.inner.Lock() {
@@ -746,7 +754,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
-		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockStore.
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}

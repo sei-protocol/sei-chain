@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -42,6 +43,10 @@ type GigaRouterCommonConfig struct {
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.
 	App *proxy.Proxy
+	// AppHashBuilder is the source of every Autobahn application hash. The
+	// storage manager owns it. The router reports each block hash to it before
+	// execution, and reads the app hashes it publishes.
+	AppHashBuilder builder.AppHashBuilder
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
