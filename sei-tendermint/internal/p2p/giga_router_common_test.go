@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -158,6 +159,294 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
 	require.NoError(t, err)
 	require.Equal(t, atypes.ExecutedBlock{Number: last}, router.ExecutedBlocks().Load().Latest())
+}
+
+// The execute loop hands every block to PrepareBlock before FinalizeBlock runs it,
+// and prepares the next block while the current one executes. Catching up from a
+// filled BlockStore, where each block is available at once, every block still
+// reaches FinalizeBlock prepared.
+func TestGigaRouterCommon_RunExecutePreparesTheNextBlockAhead(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	keys := []atypes.SecretKey{key}
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "prepare-ahead-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		AppState:        testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
+	require.NoError(t, err)
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	require.NoError(t, err)
+	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	require.Equal(t, atypes.GlobalBlockNumber(genDoc.InitialHeight), gr.First)
+	require.Greater(t, gr.Len(), 2)
+	total := len(blocks)
+
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	require.NoError(t, db.WriteQC(qc, blocks))
+	require.NoError(t, db.Flush())
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	app := newPreparingTestApp(int64(gr.Next) - 1) //nolint:gosec // test heights are small.
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+		for appState, ctrl := range app.state.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return len(appState.Blocks) == total })
+		}
+		panic("unreachable")
+	}))
+	hits, misses := app.PreparedCounts()
+	require.Equal(t, total, hits)
+	require.Equal(t, 0, misses)
+	snapshot := app.Snapshot()
+	require.NoError(t, snapshot.CheckBlocks())
+}
+
+// The prepare loop decodes the next prepareAheadBlocks global blocks and does
+// not start the one after that until execution takes a height back.
+func TestGigaRouterCommon_RunExecuteStopsAtThePrepareWindow(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	keys := []atypes.SecretKey{key}
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "prepare-window-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		AppState:        testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
+	require.NoError(t, err)
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	require.NoError(t, err)
+
+	var prev utils.Option[*atypes.CommitQC]
+	type preparedBatch struct {
+		qc     *atypes.FullCommitQC
+		blocks []*atypes.Block
+	}
+	var batches []preparedBatch
+	total := 0
+	for total <= prepareAheadBlocks {
+		qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, prev)
+		prev = utils.Some(qc.QC())
+		batches = append(batches, preparedBatch{qc: qc, blocks: blocks})
+		total += len(blocks)
+	}
+	require.Greater(t, total, prepareAheadBlocks)
+
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	for _, batch := range batches {
+		gr := batch.qc.QC().GlobalRange()
+		require.Equal(t, gr.Len(), uint64(len(batch.blocks)))
+		require.NoError(t, db.WriteQC(batch.qc, batch.blocks))
+	}
+	require.NoError(t, db.Flush())
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	release := make(chan struct{})
+	app := newPreparingTestApp(int64(genDoc.InitialHeight) + int64(total) - 1) //nolint:gosec // test heights are small.
+	app.releaseFinalize = release
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		// PushAppHash of a QC's last block waits until runPersist records it.
+		// A chain longer than one QC deadlocks without that loop.
+		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+		if err := app.WaitPrepared(ctx, prepareAheadBlocks); err != nil {
+			return err
+		}
+		if app.HasPrepared(int64(genDoc.InitialHeight) + prepareAheadBlocks) {
+			return fmt.Errorf("height %d prepared before a prepared block was executed", int64(genDoc.InitialHeight)+prepareAheadBlocks)
+		}
+		close(release)
+		for appState, ctrl := range app.state.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return len(appState.Blocks) == total })
+		}
+		panic("unreachable")
+	}))
+	hits, misses := app.PreparedCounts()
+	require.Equal(t, total, hits)
+	require.Equal(t, 0, misses)
+	snapshot := app.Snapshot()
+	require.NoError(t, snapshot.CheckBlocks())
+}
+
+// A gap-fill inside the prepare window is decoded before the missing lower height arrives.
+// Execution still consumes the heights in order.
+func TestGigaRouterCommon_RunExecutePreparesAGapFill(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	keys := []atypes.SecretKey{key}
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "prepare-gap-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+		AppState:        testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
+	require.NoError(t, err)
+	registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+	require.NoError(t, err)
+	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	require.Equal(t, gr.Len(), uint64(len(blocks)))
+	require.Greater(t, len(blocks), 1)
+
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	require.NoError(t, db.Flush())
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	app := newPreparingTestApp(int64(gr.Next) - 1) //nolint:gosec // test heights are small.
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+		// The blockstore stores a QC only with every block it covers, so the hole
+		// is opened in memory: every block except the first arrives with the QC.
+		if err := state.PushQC(ctx, qc, blocks[1:]); err != nil {
+			return err
+		}
+		gapHeight := int64(gr.First) + 1 //nolint:gosec // test heights are small.
+		if err := app.WaitPreparedHeight(ctx, gapHeight); err != nil {
+			return err
+		}
+		if app.HasPrepared(int64(gr.First)) { //nolint:gosec // test heights are small.
+			return fmt.Errorf("height %d prepared before its block was stored", gr.First)
+		}
+		if err := state.PushBlock(ctx, gr.First, blocks[0]); err != nil {
+			return err
+		}
+		for appState, ctrl := range app.state.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return len(appState.Blocks) == len(blocks) })
+		}
+		panic("unreachable")
+	}))
+	hits, misses := app.PreparedCounts()
+	require.Equal(t, len(blocks), hits)
+	require.Equal(t, 0, misses)
+}
+
+// Execution of a height waits until that height's PrepareBlock has returned.
+// Other heights in the window may already be prepared.
+func TestGigaRouterCommon_RunExecuteWaitsForItsPrepare(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		rng := utils.TestRng()
+		key := atypes.GenSecretKey(rng)
+		keys := []atypes.SecretKey{key}
+		genDoc := &tmtypes.GenesisDoc{
+			ChainID:         "prepare-join-test",
+			InitialHeight:   1,
+			GenesisTime:     time.Now(),
+			ConsensusParams: tmtypes.DefaultConsensusParams(),
+			AppState:        testAppStateJSON(rng),
+		}
+		require.NoError(t, genDoc.ValidateAndComplete())
+
+		committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
+		require.NoError(t, err)
+		registry, err := epoch.NewRegistry(committee, atypes.RoadIndex(genDoc.InitialHeight), atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
+		require.NoError(t, err)
+		qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
+		gr := qc.QC().GlobalRange()
+		require.Greater(t, len(blocks), 1)
+
+		db, err := blockstore.New(memblock.NewBlockDB())
+		require.NoError(t, err)
+		require.NoError(t, db.WriteQC(qc, blocks))
+		require.NoError(t, db.Flush())
+		t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+		release := make(chan struct{}, 1)
+		app := newPreparingTestApp(0)
+		app.blockPrepareHeight = int64(gr.First) //nolint:gosec // test heights are small.
+		app.blockPrepareReturn = release
+		app.prepareEntered = make(chan struct{}, 1)
+		cfg := &GigaRouterCommonConfig{
+			DialInterval:       time.Second,
+			ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+			PersistentStateDir: t.TempDir(),
+			GenDoc:             genDoc,
+			App:                proxy.New(app),
+		}
+		state, err := BuildDataState(cfg, db)
+		require.NoError(t, err)
+		router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+		require.NoError(t, err)
+
+		require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return utils.IgnoreCancel(router.runExecute(ctx)) })
+			if _, err := utils.Recv(ctx, app.prepareEntered); err != nil {
+				return err
+			}
+			// Every other goroutine is parked. Without the join, execution would
+			// already have finalized this height while its PrepareBlock was blocked.
+			synctest.Wait()
+			for appState := range app.state.Lock() {
+				if len(appState.Blocks) != 0 {
+					return fmt.Errorf("finalized %d blocks before PrepareBlock returned", len(appState.Blocks))
+				}
+			}
+			if err := utils.Send(ctx, release, struct{}{}); err != nil {
+				return err
+			}
+			for appState, ctrl := range app.state.Lock() {
+				return ctrl.WaitUntil(ctx, func() bool { return len(appState.Blocks) == len(blocks) })
+			}
+			panic("unreachable")
+		}))
+		hits, misses := app.PreparedCounts()
+		require.Equal(t, len(blocks), hits)
+		require.Equal(t, 0, misses)
+	})
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {

@@ -35,6 +35,11 @@ import (
 // you need more.
 const maxInboundFullnodePeers = 10000
 
+// prepareAheadBlocks is how many global blocks above the execute cursor may be
+// decoded. A height in that window is prepared as soon as its block is stored,
+// and the height just beyond it waits until one of these is executed.
+const prepareAheadBlocks = 100
+
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
 type gigaRouterCommon struct {
@@ -226,22 +231,11 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
-	app := r.app
+// finalizeRequest builds the FinalizeBlock request for a global block, except
+// for the header's ProposerAddress, which depends on the committed state.
+func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) *abci.RequestFinalizeBlock {
 	hash := b.Header.Hash()
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
-		// Deterministically select a proposer from the app's validator committee.
-		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		key, err := crypto.PubKeyFromProto(proposer.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-		}
-		proposerAddress = key.Address()
-	}
-
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	return &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -253,11 +247,39 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 			ChainID: r.cfg.GenDoc.ChainID,
 			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
 			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}
+}
+
+// proposerAddress returns the proposer of the next block, selected from the
+// app's current validator committee.
+func (r *gigaRouterCommon) proposerAddress() (types.Address, error) {
+	vals := r.app.GetValidators()
+	if len(vals) == 0 {
+		return nil, nil
+	}
+	// Deterministically select a proposer from the app's validator committee.
+	// We need it so that app does not emit error logs.
+	proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+	key, err := crypto.PubKeyFromProto(proposer.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+	}
+	return key.Address(), nil
+}
+
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+	app := r.app
+	req := r.finalizeRequest(b)
+	// Read from the app's state on the execute loop, after the previous block's Commit.
+	// WARNING: the reward distribution has corner cases where it forgets the proposer,
+	// because reward is distributed with a delay. This is not our problem here though.
+	proposer, err := r.proposerAddress()
+	if err != nil {
+		return nil, err
+	}
+	req.Header.ProposerAddress = proposer
+	resp, err := app.FinalizeBlock(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -467,39 +489,101 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
-	for n := next; ; n += 1 {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		b, err := r.data.GlobalBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
-		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
-		if err != nil {
-			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
-		}
-		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
-		if !ok {
-			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
-		}
-		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
-		if err := r.data.PruneBefore(pruneBefore); err != nil {
-			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
-		}
-		// Align the vault's retention with the data layer's prune boundary.
-		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
-		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			// A canceled context just means we're shutting down between a successful executeBlock
-			// and this prune; that's benign, not a prune failure, so don't alarm operators.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				logger.Info("hashvault prune aborted by context cancellation during shutdown",
-					"prune_before", pruneBefore, "err", err)
-			} else {
-				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// The execute cursor opens the next prepareAheadBlocks heights. Each height
+		// is prepared when its own block is stored, including a gap-fill.
+		// Execution below still waits for the contiguous prefix, and for this
+		// height's PrepareBlock to return: the prepared result is stored at the
+		// end of that call.
+		executedNext := utils.NewAtomicSend(next)
+		prepared := utils.NewWatch(map[atypes.GlobalBlockNumber]chan struct{}{})
+		s.Spawn(func() error {
+			started := next
+			cursor := executedNext.Subscribe()
+			for {
+				tip, err := cursor.Wait(ctx, func(n atypes.GlobalBlockNumber) bool {
+					return started < n+prepareAheadBlocks
+				})
+				if err != nil {
+					return err
+				}
+				for limit := tip + prepareAheadBlocks; started < limit; started++ {
+					h := started
+					done := make(chan struct{}, 1)
+					for slots, ctrl := range prepared.Lock() {
+						slots[h] = done
+						ctrl.Updated()
+					}
+					s.Spawn(func() error {
+						b, err := r.data.AvailableGlobalBlock(ctx, h)
+						if err != nil {
+							return err
+						}
+						if err := app.PrepareBlock(ctx, r.finalizeRequest(b)); err != nil {
+							return fmt.Errorf("app.PrepareBlock(%v): %w", h, err)
+						}
+						return utils.Send(ctx, done, struct{}{})
+					})
+				}
 			}
+		})
+		for n := next; ; n++ {
+			gigametrics.SetPhase(gigametrics.PhaseConsensus)
+			b, err := r.data.GlobalBlock(ctx, n)
+			if err != nil {
+				return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+			}
+			if err := waitPrepared(ctx, &prepared, n); err != nil {
+				return err
+			}
+			gigametrics.SetPhase(gigametrics.PhaseExecution)
+			commitResp, err := r.executeBlock(ctx, b, hashVault)
+			if err != nil {
+				return fmt.Errorf("r.executeBlock(%v): %w", n, err)
+			}
+			executedNext.Store(n + 1)
+			pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
+			if !ok {
+				return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+			}
+			gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
+			if err := r.data.PruneBefore(pruneBefore); err != nil {
+				return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+			}
+			// Align the vault's retention with the data layer's prune boundary.
+			gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
+			if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+				// A canceled context just means we're shutting down between a successful executeBlock
+				// and this prune; that's benign, not a prune failure, so don't alarm operators.
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					logger.Info("hashvault prune aborted by context cancellation during shutdown",
+						"prune_before", pruneBefore, "err", err)
+				} else {
+					logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+				}
+			}
+			gigametrics.EndStoragePhase()
 		}
-		gigametrics.EndStoragePhase()
+	})
+}
+
+// waitPrepared waits until PrepareBlock for n has returned.
+// The prepare task publishes its signal before it starts, and signals after
+// PrepareBlock stores the result. FinalizeBlock of n runs only after that.
+func waitPrepared(ctx context.Context, prepared *utils.Watch[map[atypes.GlobalBlockNumber]chan struct{}], n atypes.GlobalBlockNumber) error {
+	var done chan struct{}
+	for slots, ctrl := range prepared.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			var ok bool
+			done, ok = slots[n]
+			return ok
+		}); err != nil {
+			return err
+		}
+		delete(slots, n)
 	}
+	_, err := utils.Recv(ctx, done)
+	return err
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,14 +48,14 @@ func decodeEVMOnlyTestTx(t *testing.T, raw []byte) *ethtypes.Transaction {
 	return tx
 }
 
-func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, common.Address) {
+func signedEVMOnlyTestTx(t testing.TB, chainID uint64, nonce uint64) ([]byte, common.Address) {
 	t.Helper()
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	return signedEVMOnlyTestTxFrom(t, key, chainID, nonce), crypto.PubkeyToAddress(key.PublicKey)
 }
 
-func signedEVMOnlyTestTxFrom(t *testing.T, key *ecdsa.PrivateKey, chainID uint64, nonce uint64) []byte {
+func signedEVMOnlyTestTxFrom(t testing.TB, key *ecdsa.PrivateKey, chainID uint64, nonce uint64) []byte {
 	t.Helper()
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
@@ -82,7 +83,7 @@ func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
 	}
 }
 
-func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
+func finalizeAndCommitEVMOnlyTestBlock(t testing.TB, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
 	t.Helper()
 	response, err := app.FinalizeBlock(t.Context(), req)
 	require.NoError(t, err)
@@ -128,7 +129,7 @@ func evmOnlyTestInitChain() *abci.RequestInitChain {
 	}
 }
 
-func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
+func newInitializedEVMOnlyTestApp(t testing.TB) abci.Application {
 	t.Helper()
 	app := newEVMOnlyTestApp(t, nil)
 	_, err := app.InitChain(evmOnlyTestInitChain())
@@ -161,13 +162,13 @@ func newUndoLogEVMOnlyTestAppAt(t *testing.T, initialHeight int64) *evmOnlyAppli
 	return app
 }
 
-func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
+func newEVMOnlyTestApp(t testing.TB, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
 	return newEVMOnlyTestAppWithExecution(t, validators, gigaconfig.DefaultConfig.Execution)
 }
 
 func newEVMOnlyTestAppWithExecution(
-	t *testing.T,
+	t testing.TB,
 	validators []abci.ValidatorUpdate,
 	execution gigaconfig.ExecutionConfig,
 ) abci.Application {
@@ -178,7 +179,7 @@ func newEVMOnlyTestAppWithExecution(
 }
 
 func newEVMOnlyTestAppWithStorage(
-	t *testing.T,
+	t testing.TB,
 	validators []abci.ValidatorUpdate,
 	execution gigaconfig.ExecutionConfig,
 	storageConfig *seidbconfig.GigaStorageConfig,
@@ -200,7 +201,7 @@ func newEVMOnlyTestAppWithStorage(
 // openEVMOnlyTestStorage opens Giga storage that outlives the test body: the
 // last block's commit may still be landing when it ends, and it is settled from
 // a cleanup, which runs after t.Context() is cancelled.
-func openEVMOnlyTestStorage(t *testing.T, storageConfig *seidbconfig.GigaStorageConfig) *bootstrap.GigaStorageManager {
+func openEVMOnlyTestStorage(t testing.TB, storageConfig *seidbconfig.GigaStorageConfig) *bootstrap.GigaStorageManager {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -225,7 +226,7 @@ func openEVMOnlyTestStorageAt(t *testing.T, home string) *bootstrap.GigaStorageM
 // store is empty, so a reopen skips recovery, and the app hash builder resumes
 // at the state's height only when it holds the app hashes up to it. A node
 // lowers its recovery target to the app hashes it holds instead.
-func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
+func closeEVMOnlyTestApp(t testing.TB, app abci.Application, storage *bootstrap.GigaStorageManager) {
 	t.Helper()
 	settler, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
@@ -1086,6 +1087,267 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 	}
 }
 
+// preparedBlockCounts reads evmonly_finalize_prepared_blocks_total by its prepared label.
+func preparedBlockCounts(t *testing.T, reader *sdkmetric.ManualReader) map[bool]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	counts := map[bool]int64{}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "evmonly_finalize_prepared_blocks_total" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			require.True(t, ok)
+			for _, point := range sum.DataPoints {
+				prepared, ok := point.Attributes.Value("prepared")
+				require.True(t, ok)
+				counts[prepared.AsBool()] = point.Value
+			}
+		}
+	}
+	return counts
+}
+
+// A block decoded ahead of FinalizeBlock has to execute to the same result as one
+// decoded inside it, and a block nobody prepared still has to execute.
+func TestEVMOnlyApplicationExecutesAPreparedBlockLikeAnUnpreparedOne(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	first, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	second, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	for height, txs := range [][][]byte{{first}, {second}} {
+		block := evmOnlyTestBlock(int64(height)+1, txs...)
+		if height == 0 {
+			require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+		}
+		preparedResp, err := prepared.FinalizeBlock(t.Context(), block)
+		require.NoError(t, err)
+		unpreparedResp, err := unprepared.FinalizeBlock(t.Context(), block)
+		require.NoError(t, err)
+		require.Equal(t, unpreparedResp.AppHash, preparedResp.AppHash)
+		require.Equal(t, len(unpreparedResp.TxResults), len(preparedResp.TxResults))
+		for i := range preparedResp.TxResults {
+			require.Equal(t, unpreparedResp.TxResults[i].Code, preparedResp.TxResults[i].Code)
+			require.Equal(t, unpreparedResp.TxResults[i].GasUsed, preparedResp.TxResults[i].GasUsed)
+		}
+		_, err = prepared.Commit(t.Context())
+		require.NoError(t, err)
+		_, err = unprepared.Commit(t.Context())
+		require.NoError(t, err)
+	}
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(1), counts[true])
+	require.Equal(t, int64(1), counts[false])
+}
+
+// A prepared block is only used for the block it was prepared for: one with the
+// same height but another hash is decoded again, and the prepared one is kept
+// for its own block.
+func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherHash(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	other, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	otherBlock := evmOnlyTestBlock(1, other)
+	otherBlock.Hash = crypto.Keccak256([]byte("other-block"))
+	require.NoError(t, preparedApp.PrepareBlock(t.Context(), otherBlock))
+
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	block := evmOnlyTestBlock(1, raw)
+	preparedHash := finalizeAndCommitEVMOnlyTestBlock(t, prepared, block)
+	unpreparedHash := finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block)
+	require.Equal(t, unpreparedHash, preparedHash)
+	_, ok = preparedApp.takePrepared(1, common.BytesToHash(otherBlock.Hash))
+	require.True(t, ok)
+}
+
+// The same height and block hash with another transaction list is decoded again.
+func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherTransactionList(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	preparedTx, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	executedTx, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	preparedBlock := evmOnlyTestBlock(1, preparedTx)
+	executed := evmOnlyTestBlock(1, executedTx)
+	require.Equal(t, preparedBlock.Hash, executed.Hash)
+	require.NoError(t, preparedApp.PrepareBlock(t.Context(), preparedBlock))
+
+	preparedHash := finalizeAndCommitEVMOnlyTestBlock(t, prepared, executed)
+	unpreparedHash := finalizeAndCommitEVMOnlyTestBlock(t, unprepared, executed)
+	require.Equal(t, unpreparedHash, preparedHash)
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(0), counts[true])
+	require.Equal(t, int64(1), counts[false])
+}
+
+// A block PrepareBlock cannot decode is reported by FinalizeBlock, the same as
+// when nobody prepared it.
+func TestEVMOnlyApplicationReportsAnUndecodableBlockFromFinalizeBlock(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	block := evmOnlyTestBlock(1, []byte("not a transaction"))
+	require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+	_, preparedErr := prepared.FinalizeBlock(t.Context(), block)
+	require.Error(t, preparedErr)
+	_, unpreparedErr := unprepared.FinalizeBlock(t.Context(), block)
+	require.Error(t, unpreparedErr)
+}
+
+// Preparing before InitChain is a no-op rather than a failure.
+func TestEVMOnlyApplicationPrepareBlockBeforeInitChainIsANoOp(t *testing.T) {
+	app := newEVMOnlyTestApp(t, nil)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	require.NoError(t, evmOnlyApp.PrepareBlock(t.Context(), evmOnlyTestBlock(1, raw)))
+}
+
+// PrepareBlock for the next block runs while FinalizeBlock runs the current one,
+// and both blocks come out as if they had been finalized alone.
+func TestEVMOnlyApplicationPreparesTheNextBlockWhileFinalizingTheCurrentOne(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	var blocks []*abci.RequestFinalizeBlock
+	for height := range int64(4) {
+		var txs [][]byte
+		for i := range 8 {
+			txs = append(txs, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height)*8+uint64(i))) //nolint:gosec // G115: small test counters.
+		}
+		blocks = append(blocks, evmOnlyTestBlock(height+1, txs...))
+	}
+
+	hashes := make([][]byte, len(blocks))
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		for i, block := range blocks {
+			var next *abci.RequestFinalizeBlock
+			if i+1 < len(blocks) {
+				next = blocks[i+1]
+			}
+			resp, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*abci.ResponseFinalizeBlock, error) {
+				if next != nil {
+					s.Spawn(func() error { return preparedApp.PrepareBlock(ctx, next) })
+				}
+				return prepared.FinalizeBlock(ctx, block)
+			})
+			if err != nil {
+				return err
+			}
+			if _, err := prepared.Commit(ctx); err != nil {
+				return err
+			}
+			hashes[i] = resp.AppHash
+		}
+		return nil
+	}))
+	for i, block := range blocks {
+		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), hashes[i])
+	}
+}
+
+// A block prepared before FinalizeBlock reaches it survives the preparation of the
+// block after it, as when the fetcher runs ahead during catch-up, and both blocks
+// execute as if nobody had prepared them.
+func TestEVMOnlyApplicationKeepsAPreparedBlockWhileTheNextIsPrepared(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	preparedApp.preparedBlocks = newPreparedBlocksCounter(
+		sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName),
+	)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	blocks := []*abci.RequestFinalizeBlock{
+		evmOnlyTestBlock(1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)),
+		evmOnlyTestBlock(2, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)),
+	}
+	for _, block := range blocks {
+		require.NoError(t, preparedApp.PrepareBlock(t.Context(), block))
+	}
+	for _, block := range blocks {
+		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), finalizeAndCommitEVMOnlyTestBlock(t, prepared, block))
+	}
+	counts := preparedBlockCounts(t, reader)
+	require.Equal(t, int64(2), counts[true])
+	require.Equal(t, int64(0), counts[false])
+}
+
+// A prepared block that executes drops the senders CheckTx cached for its
+// transactions, as an unprepared one does.
+func TestEVMOnlyApplicationForgetsTheSendersOfAPreparedBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	require.Equal(t, abci.CodeTypeOK, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).Code)
+	hashes := hashRawTxs([][]byte{raw})
+	require.True(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+
+	block := evmOnlyTestBlock(1, raw)
+	require.NoError(t, evmOnlyApp.PrepareBlock(t.Context(), block))
+	require.True(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+	finalizeAndCommitEVMOnlyTestBlock(t, app, block)
+	require.False(t, evmOnlyApp.peekSenders(hashes)[0].IsPresent())
+}
+
+// The prepared queue keeps one block per height and at most maxPreparedBlocks of the
+// lowest heights, and drops the heights that can no longer execute.
+func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
+	block := func(height int64, hash byte) preparedBlock {
+		return preparedBlock{height: height, hash: common.Hash{hash}}
+	}
+	contents := func(q preparedQueue) []preparedBlock { return slices.Clone(q) }
+	var q preparedQueue
+
+	q.put(block(5, 1), 5)
+	q.put(block(7, 1), 5)
+	q.put(block(6, 1), 5)
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 1), block(7, 1)}, contents(q))
+
+	q.put(block(6, 2), 5)
+	require.Equal(t, []preparedBlock{block(5, 1), block(6, 2), block(7, 1)}, contents(q))
+
+	q.put(block(8, 1), 6)
+	require.Equal(t, []preparedBlock{block(6, 2), block(7, 1), block(8, 1)}, contents(q))
+
+	_, ok := q.take(6, common.Hash{1})
+	require.False(t, ok)
+	require.Equal(t, []preparedBlock{block(6, 2), block(7, 1), block(8, 1)}, contents(q))
+
+	got, ok := q.take(8, common.Hash{1})
+	require.True(t, ok)
+	require.Equal(t, block(8, 1), got)
+	require.Equal(t, []preparedBlock{}, contents(q))
+}
+
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
@@ -1232,4 +1494,179 @@ func TestEVMOnlyApplicationReadsRaceFinalizeBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, settler.AwaitCommits())
 	require.Equal(t, uint64(blocks), app.EvmNonce(sender))
+}
+
+func TestPreparedQueueReleasesAnEvictedBlock(t *testing.T) {
+	var q preparedQueue
+	for h := int64(1); h <= maxPreparedBlocks+1; h++ {
+		q.put(preparedBlock{height: h, txs: make([]evmonly.PreparedTx, 1)}, 1)
+	}
+	require.Len(t, q, maxPreparedBlocks)
+	for _, evicted := range q[len(q):cap(q)] {
+		require.Nil(t, evicted.txs, "an evicted block must not stay reachable through the queue's backing array")
+	}
+}
+
+// BenchmarkCatchUpSenderRecovery compares recovery while a validator catches up
+// five minutes at 100 blocks per second. Fetches deliver up to 200 blocks, ten
+// at a time, in a slightly out-of-order sequence. It models each ordered
+// execution phase as ten milliseconds rather than executing EVM transactions.
+// Run with -benchtime=1x so benchmark calibration does not change the fixed
+// catch-up range.
+func BenchmarkCatchUpSenderRecovery(b *testing.B) {
+	const (
+		blocks                   = 5 * 60 * 100
+		txsPerBlock              = 2_000
+		maxBlocksPerFetch        = 200
+		concurrentBlockFetches   = 10
+		prepareAheadBlockWindow  = 100
+		executionBlocksPerSecond = 100
+	)
+	key, err := crypto.GenerateKey()
+	require.NoError(b, err)
+	txs := make([][]byte, txsPerBlock)
+	for i := range txs {
+		txs[i] = signedEVMOnlyTestTxFrom(b, key, evmOnlyTestChainID, uint64(i)) //nolint:gosec // benchmark counters are non-negative.
+	}
+	requests := make([]*abci.RequestFinalizeBlock, blocks)
+	for height := range requests {
+		requests[height] = evmOnlyTestBlock(int64(height+1), txs...) //nolint:gosec // benchmark heights are small.
+	}
+	arrivalOrder := catchUpArrivalOrder(blocks, maxBlocksPerFetch, concurrentBlockFetches)
+
+	b.Run("synchronous", func(b *testing.B) {
+		for range b.N {
+			b.StopTimer()
+			app := newInitializedEVMOnlyTestApp(b)
+			b.StartTimer()
+			require.NoError(b, prepareCatchUpSynchronously(
+				b.Context(),
+				app.(*evmOnlyApplication),
+				requests,
+				arrivalOrder,
+				time.Second/executionBlocksPerSecond,
+			))
+			b.StopTimer()
+		}
+		b.ReportMetric(float64(blocks*txsPerBlock), "txs/catch-up")
+	})
+	b.Run("ahead_100", func(b *testing.B) {
+		for range b.N {
+			b.StopTimer()
+			app := newInitializedEVMOnlyTestApp(b)
+			b.StartTimer()
+			require.NoError(b, prepareCatchUpAhead(
+				b.Context(),
+				app.(*evmOnlyApplication),
+				requests,
+				arrivalOrder,
+				prepareAheadBlockWindow,
+				time.Second/executionBlocksPerSecond,
+			))
+			b.StopTimer()
+		}
+		b.ReportMetric(float64(blocks*txsPerBlock), "txs/catch-up")
+	})
+}
+
+// catchUpArrivalOrder models ten concurrent getBlock fetches. A fetch returns
+// consecutive blocks, while adjacent fetches complete in swapped order.
+func catchUpArrivalOrder(blocks, maxBlocksPerFetch, concurrentFetches int) []int {
+	order := make([]int, 0, blocks)
+	for groupStart := 0; groupStart < blocks; groupStart += maxBlocksPerFetch * concurrentFetches {
+		for fetch := 0; fetch < concurrentFetches; fetch += 2 {
+			for _, offset := range []int{fetch + 1, fetch} {
+				batchStart := groupStart + offset*maxBlocksPerFetch
+				batchEnd := min(batchStart+maxBlocksPerFetch, blocks)
+				if batchStart >= blocks {
+					continue
+				}
+				for height := batchStart; height < batchEnd; height++ {
+					order = append(order, height)
+				}
+			}
+		}
+	}
+	return order
+}
+
+func prepareCatchUpSynchronously(
+	ctx context.Context,
+	app *evmOnlyApplication,
+	requests []*abci.RequestFinalizeBlock,
+	arrivalOrder []int,
+	executionTime time.Duration,
+) error {
+	available := make([]bool, len(requests))
+	for _, height := range arrivalOrder {
+		available[height] = true
+	}
+	for height, req := range requests {
+		if !available[height] {
+			return fmt.Errorf("height %d did not arrive", height)
+		}
+		if err := app.PrepareBlock(ctx, req); err != nil {
+			return err
+		}
+		if err := waitForExecution(ctx, executionTime); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func prepareCatchUpAhead(
+	ctx context.Context,
+	app *evmOnlyApplication,
+	requests []*abci.RequestFinalizeBlock,
+	arrivalOrder []int,
+	window int,
+	executionTime time.Duration,
+) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		available := make([]bool, len(requests))
+		started := make([]bool, len(requests))
+		prepared := make([]bool, len(requests))
+		done := make(chan int, window)
+		nextExecute := 0
+
+		start := func(height int) {
+			if height >= len(requests) || started[height] || !available[height] || height >= nextExecute+window {
+				return
+			}
+			started[height] = true
+			s.Spawn(func() error {
+				if err := app.PrepareBlock(ctx, requests[height]); err != nil {
+					return err
+				}
+				return utils.Send(ctx, done, height)
+			})
+		}
+		for _, height := range arrivalOrder {
+			available[height] = true
+			start(height)
+		}
+		for nextExecute < len(requests) {
+			for !prepared[nextExecute] {
+				height, err := utils.Recv(ctx, done)
+				if err != nil {
+					return err
+				}
+				prepared[height] = true
+			}
+			if err := waitForExecution(ctx, executionTime); err != nil {
+				return err
+			}
+			nextExecute++
+			start(nextExecute + window - 1)
+		}
+		return nil
+	})
+}
+
+func waitForExecution(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	_, err := utils.Recv(ctx, timer.C)
+	return err
 }
