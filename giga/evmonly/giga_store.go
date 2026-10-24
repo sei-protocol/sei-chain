@@ -207,16 +207,6 @@ func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
 	return len(changes.StorageClears) > 0 || (e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore)
 }
 
-// AwaitCommits blocks until every block this executor has run is committed, and reports the first
-// commit that failed.
-//
-// A block's commit runs behind the block that follows it, so the state a block produced is not in
-// the store when ExecutePreparedBlock returns. A caller that reads the store directly — rather than
-// through the next block's execution, which sees it regardless — has to wait here first. A run has
-// to call it before reporting success, or a failed final commit goes unnoticed.
-//
-// A failure is remembered, so every later call reports it too, and it is safe to call from several
-// goroutines at once.
 // SettledNonce returns addr's nonce in the state every block this executor has run produced. It
 // reads an in-flight commit's nonces from that commit's changes instead of waiting for it to land.
 func (e *Executor) SettledNonce(addr common.Address) uint64 {
@@ -234,6 +224,16 @@ func (e *Executor) SettledNonce(addr common.Address) uint64 {
 	return view.GetNonce(addr)
 }
 
+// AwaitCommits blocks until every block this executor has run is committed, and reports the first
+// commit that failed.
+//
+// A block's commit runs behind the block that follows it, so the state a block produced is not in
+// the store when ExecutePreparedBlock returns. A caller that reads the store directly — rather than
+// through the next block's execution, which sees it regardless — has to wait here first. A run has
+// to call it before reporting success, or a failed final commit goes unnoticed.
+//
+// A failure is remembered, so every later call reports it too, and it is safe to call from several
+// goroutines at once.
 func (e *Executor) AwaitCommits() error {
 	if e == nil {
 		return nil
