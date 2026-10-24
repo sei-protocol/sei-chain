@@ -9,17 +9,10 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 )
-
-// WASMConfig defines configuration for the wasm module.
-type WASMConfig struct {
-	QueryGasLimit uint64 `mapstructure:"query_gas_limit"`
-	LruSize       uint64 `mapstructure:"lru_size"`
-}
 
 // CustomAppConfig extends the Cosmos SDK's Config with custom fields
 // This structure is used for generating app.toml with custom sections
@@ -29,7 +22,6 @@ type CustomAppConfig struct {
 	StateCommit     seidbconfig.StateCommitConfig  `mapstructure:"state-commit"`
 	StateStore      seidbconfig.StateStoreConfig   `mapstructure:"state-store"`
 	ReceiptStore    seidbconfig.ReceiptStoreConfig `mapstructure:"receipt-store"`
-	WASM            WASMConfig                     `mapstructure:"wasm"`
 	EVM             evmrpcconfig.Config            `mapstructure:"evm"`
 	GigaExecutor    gigaconfig.Config              `mapstructure:"giga_executor"`
 	Giga            giganodeconfig.Config          `mapstructure:"giga"`
@@ -44,14 +36,10 @@ type CustomAppConfig struct {
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
 func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Config) CustomAppConfig {
 	return CustomAppConfig{
-		Config:       *baseConfig,
-		StateCommit:  seidbconfig.DefaultStateCommitConfig(),
-		StateStore:   seidbconfig.DefaultStateStoreConfig(),
-		ReceiptStore: seidbconfig.DefaultReceiptStoreConfig(),
-		WASM: WASMConfig{
-			QueryGasLimit: wasm.GeneratedQueryGasLimit,
-			LruSize:       1,
-		},
+		Config:          *baseConfig,
+		StateCommit:     seidbconfig.DefaultStateCommitConfig(),
+		StateStore:      seidbconfig.DefaultStateStoreConfig(),
+		ReceiptStore:    seidbconfig.DefaultReceiptStoreConfig(),
 		EVM:             evmConfig,
 		GigaExecutor:    gigaconfig.DefaultConfig,
 		Giga:            giganodeconfig.DefaultConfig,
