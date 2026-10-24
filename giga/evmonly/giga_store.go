@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/sync/errgroup"
@@ -291,8 +292,16 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	// The commit outlives the block result, which returns to a pool and is reset.
-	pending := changes.Clone()
+	// The commit outlives the block result, which returns to a pool and is reset. A reset only drops
+	// the result's references, and every value a change holds was allocated for this block, so the
+	// commit needs its own slices but can share the values.
+	pending := &StateChangeSet{
+		Balances:      slices.Clone(changes.Balances),
+		Nonces:        slices.Clone(changes.Nonces),
+		Code:          slices.Clone(changes.Code),
+		StorageClears: slices.Clone(changes.StorageClears),
+		Storage:       slices.Clone(changes.Storage),
+	}
 	// Close sets closed before taking storeMu, which the caller holds, so a block that sees it
 	// unset is one Close waits for.
 	if e.closed.Load() {
