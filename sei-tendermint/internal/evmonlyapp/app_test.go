@@ -466,6 +466,19 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	require.Equal(t, uint64(1), checked.EvmNonce(sender))
 }
 
+// A transaction offered again after an earlier CheckTx reuses the sender that
+// CheckTx recovered, without recovering its signature again.
+func TestEVMOnlyApplicationRechecksATxByItsCheckedSender(t *testing.T) {
+	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	app, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	require.True(t, ok)
+	require.Equal(t, sender, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).EVMSenderAddress)
+
+	remembered := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	app.rememberSender(decodeEVMOnlyTestTx(t, raw).Hash(), remembered)
+	require.Equal(t, remembered, app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).EVMSenderAddress)
+}
+
 func TestSenderCacheKeepsRecentEntriesAcrossRollover(t *testing.T) {
 	hashOf := func(i int) common.Hash { return common.BigToHash(big.NewInt(int64(i))) }
 	addrOf := func(i int) common.Address { return common.BigToAddress(big.NewInt(int64(i))) }
