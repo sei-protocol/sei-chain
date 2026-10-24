@@ -217,6 +217,23 @@ func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
 //
 // A failure is remembered, so every later call reports it too, and it is safe to call from several
 // goroutines at once.
+// SettledNonce returns addr's nonce in the state every block this executor has run produced. It
+// reads an in-flight commit's nonces from that commit's changes instead of waiting for it to land.
+func (e *Executor) SettledNonce(addr common.Address) uint64 {
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	pending := e.pipelinePending()
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	if pending != nil {
+		for i := len(pending.Nonces) - 1; i >= 0; i-- {
+			if pending.Nonces[i].Address == addr {
+				return pending.Nonces[i].Nonce
+			}
+		}
+	}
+	return view.GetNonce(addr)
+}
+
 func (e *Executor) AwaitCommits() error {
 	if e == nil {
 		return nil

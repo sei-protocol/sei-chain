@@ -528,6 +528,9 @@ func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
 }
 
 func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
+	if executor, ok := a.settler.Load().Get(); ok {
+		return executor.SettledNonce(address)
+	}
 	snapshot := a.openSettledView()
 	defer snapshot.Close()
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
