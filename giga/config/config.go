@@ -79,6 +79,9 @@ type ExecutionConfig struct {
 	// GCPercent is the Go GC target. 0 leaves the process default. A value above 100 trades memory
 	// for fewer collections; the process then caps the heap from the container limit when it has one.
 	GCPercent int `mapstructure:"gc_percent"`
+	// PrepareAheadBlocks is how many global blocks may be decoded ahead of execution. 0 keeps the
+	// built-in window.
+	PrepareAheadBlocks int `mapstructure:"prepare_ahead_blocks"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -165,6 +168,7 @@ const (
 	FlagExecutionEvmRpcPort              = "giga.execution.evm_rpc_port"
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
+	FlagExecutionPrepareAheadBlocks      = "giga.execution.prepare_ahead_blocks"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -264,6 +268,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
 		}
 	}
+	if v := opts.Get(FlagExecutionPrepareAheadBlocks); v != nil {
+		if cfg.Execution.PrepareAheadBlocks, err = cast.ToIntE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionPrepareAheadBlocks, err)
+		}
+	}
 	if v := opts.Get(FlagRPCMaxSubscriptionsNewHead); v != nil {
 		if cfg.RPC.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxSubscriptionsNewHead, err)
@@ -344,6 +353,9 @@ func (c Config) Validate() error {
 	}
 	if c.Execution.GCPercent < 0 {
 		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionGCPercent, c.Execution.GCPercent)
+	}
+	if c.Execution.PrepareAheadBlocks < 0 {
+		return fmt.Errorf("%s: must be >= 0, got %d", FlagExecutionPrepareAheadBlocks, c.Execution.PrepareAheadBlocks)
 	}
 	if c.Execution.BlockResultPoolSize < 1 {
 		return fmt.Errorf("%s: must be >= 1, got %d", FlagExecutionBlockResultPoolSize,
@@ -451,6 +463,10 @@ evm_ws_port = {{ .Giga.Execution.EvmWsPort }}
 
 # gc_percent is the Go GC target. 0 leaves the process default.
 gc_percent = {{ .Giga.Execution.GCPercent }}
+
+# prepare_ahead_blocks is how many global blocks may be decoded ahead of execution. 0 keeps the
+# built-in window.
+prepare_ahead_blocks = {{ .Giga.Execution.PrepareAheadBlocks }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.

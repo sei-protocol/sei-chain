@@ -14,10 +14,12 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
@@ -255,6 +257,11 @@ func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpd
 // applyExecutionRuntime raises the GC target for a load test. The heap is then capped at 80% of
 // the container limit, so a late collection is an ordinary GC rather than an OOM kill.
 func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
+	if cfg.PrepareAheadBlocks > 0 {
+		p2p.PrepareAheadBlocks = atypes.GlobalBlockNumber(cfg.PrepareAheadBlocks)
+		evmonlyapp.MaxPreparedBlocks = cfg.PrepareAheadBlocks
+		logger.Info("set the prepare-ahead window", "blocks", cfg.PrepareAheadBlocks)
+	}
 	if cfg.GCPercent <= 0 {
 		return
 	}

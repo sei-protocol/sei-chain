@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -397,4 +398,18 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
+}
+
+// writeQCWithBlocks writes qc and then the blocks it covers, in order.
+func writeQCWithBlocks(db *blockstore.Store, qc *atypes.FullCommitQC, blocks []*atypes.Block) error {
+	if err := db.WriteQC(qc); err != nil {
+		return err
+	}
+	first := qc.QC().GlobalRange().First
+	for i, b := range blocks {
+		if err := db.WriteBlock(first+atypes.GlobalBlockNumber(i), b); err != nil { //nolint:gosec // test block counts are small.
+			return err
+		}
+	}
+	return nil
 }

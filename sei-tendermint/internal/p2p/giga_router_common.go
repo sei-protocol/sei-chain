@@ -40,6 +40,9 @@ const maxInboundFullnodePeers = 10000
 // and the height just beyond it waits until one of these is executed.
 const prepareAheadBlocks = 100
 
+// PrepareAheadBlocks is the prepare-ahead window runExecute uses; it defaults to prepareAheadBlocks.
+var PrepareAheadBlocks atypes.GlobalBlockNumber = prepareAheadBlocks
+
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
 type gigaRouterCommon struct {
@@ -509,12 +512,12 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			cursor := executedNext.Subscribe()
 			for {
 				tip, err := cursor.Wait(ctx, func(n atypes.GlobalBlockNumber) bool {
-					return started < n+prepareAheadBlocks
+					return started < n+PrepareAheadBlocks
 				})
 				if err != nil {
 					return err
 				}
-				for limit := tip + prepareAheadBlocks; started < limit; started++ {
+				for limit := tip + PrepareAheadBlocks; started < limit; started++ {
 					h := started
 					done := make(chan struct{}, 1)
 					for slots, ctrl := range prepared.Lock() {
