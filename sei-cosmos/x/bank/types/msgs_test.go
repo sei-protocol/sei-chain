@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	_ "github.com/sei-protocol/sei-chain/app/params" // installs the 20 or 32 byte address verifier the invalid address cases expect
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 

@@ -74,10 +74,10 @@
     ]
   },
   {
-    "_comment": "Suites: Gov & Oracle & Authz, Wasm Module. Gov runs first: it changes chain params (quorum, unbonding time, recheck_tx, NumKeysToMigratePerBlock) that the Wasm suite does not depend on; Wasm's undelegate/redelegate cases assert only tx code 0.",
-    "name": "Cosmos Modules (Gov & Oracle & Authz, Wasm)",
+    "_comment": "Suites: Gov & Oracle, Wasm Module. Gov runs first: it changes chain params (quorum, unbonding time, recheck_tx, NumKeysToMigratePerBlock) that the Wasm suite does not depend on; Wasm's undelegate/redelegate cases assert only tx code 0.",
+    "name": "Cosmos Modules (Gov & Oracle, Wasm)",
     "scripts": [
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\"",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule\"",
       "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleCore",
       "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",

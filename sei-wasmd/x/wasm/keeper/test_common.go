@@ -19,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -191,7 +190,7 @@ func createTestInput(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distributiontypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey,
-		evidencetypes.StoreKey, authzkeeper.StoreKey,
+		evidencetypes.StoreKey,
 		types.StoreKey,
 	)
 	ms := store.NewCommitMultiStore(db)

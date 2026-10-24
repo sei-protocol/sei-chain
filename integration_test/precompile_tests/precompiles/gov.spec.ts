@@ -11,7 +11,7 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, waitUntil } from '../utils/chainUtils';
-import { EvmAccount, associateViaTx, fundEvm } from '../utils/evmUtils';
+import { EvmAccount } from '../utils/evmUtils';
 import { cosmosQuery } from '../utils/cosmosUtils';
 import {
     PRECOMPILE_ADDRESSES,
@@ -28,8 +28,6 @@ const MIN_DEPOSIT_USEI = 10_000_000n;
 const VOTING_PERIOD = 2; // PROPOSAL_STATUS_VOTING_PERIOD
 const DEPOSIT_PERIOD = 1; // PROPOSAL_STATUS_DEPOSIT_PERIOD
 const EMPTY_PAGE_KEY = new Uint8Array();
-
-const authExpiration = (): bigint => BigInt(Math.floor(Date.now() / 1000) + 86400);
 
 /** Cosmjs Duration (`{seconds}`) or a "30s" string → seconds as bigint. */
 function durationSeconds(d: unknown): bigint {
@@ -250,92 +248,6 @@ describe('gov precompile (0x1006)', function () {
             }
             expect(found, 'proposals(0, zero, zero, empty) includes the new id').to.equal(true);
         });
-
-        it('grantVoteAuthorization lets the grantee vote as the admin; revoke then blocks them', async () => {
-            const [grantee] = claimPool(runtime, provider, 1, 'gov:vote-authz');
-            await associateViaTx(grantee);
-
-            const grantTx = await gov.grantVoteAuthorization(grantee.address, authExpiration(), {
-                gasLimit: 500_000,
-            });
-            expect((await grantTx.wait())!.status).to.equal(1);
-
-            const id = await submitProposal(textProposal('e2e authz vote'), MIN_DEPOSIT_WEI);
-            const govAsGrantee = gov.connect(grantee.wallet) as ethers.Contract;
-            const voteTx = await govAsGrantee.voteWithAuthorization(admin.address, id, 1, {
-                gasLimit: 500_000,
-            });
-            expect((await voteTx.wait())!.status).to.equal(1);
-
-            const recorded = await waitUntil(
-                async () => {
-                    try {
-                        const v = await gov.getVote(id, admin.address);
-                        return v.options?.length ? v : null;
-                    } catch {
-                        return null;
-                    }
-                },
-                { timeoutMs: 15_000, label: 'authorized vote visible via getVote' },
-            );
-            expect(recorded.voter).to.equal(adminSeiAddress);
-            expect(Number(recorded.options[0].option)).to.equal(1);
-
-            const revokeTx = await gov.revokeVoteAuthorization(grantee.address, {
-                gasLimit: 500_000,
-            });
-            expect((await revokeTx.wait())!.status).to.equal(1);
-
-            const id2 = await submitProposal(textProposal('e2e authz vote revoked'), MIN_DEPOSIT_WEI);
-            await expectVmError(
-                govAsGrantee.voteWithAuthorization(admin.address, id2, 1, {
-                    gasLimit: 500_000,
-                }),
-                'authorization not found',
-            );
-        });
-
-        it('grantProposalAuthorization lets the grantee submit on behalf of the admin', async () => {
-            const [grantee] = claimPool(runtime, provider, 1, 'gov:proposal-authz');
-            await associateViaTx(grantee);
-            await fundEvm(admin, grantee.address, MIN_DEPOSIT_WEI);
-
-            const grantTx = await gov.grantProposalAuthorization(grantee.address, authExpiration(), {
-                gasLimit: 500_000,
-            });
-            expect((await grantTx.wait())!.status).to.equal(1);
-
-            const govAsGrantee = gov.connect(grantee.wallet) as ethers.Contract;
-            const json = textProposal('e2e authz submit');
-            const id: bigint = await govAsGrantee.submitProposalWithAuthorization.staticCall(
-                admin.address,
-                json,
-                { value: MIN_DEPOSIT_WEI },
-            );
-            const tx = await govAsGrantee.submitProposalWithAuthorization(admin.address, json, {
-                value: MIN_DEPOSIT_WEI,
-                gasLimit: 1_000_000,
-            });
-            expect((await tx.wait())!.status).to.equal(1);
-
-            const prop = await waitUntil(
-                async () => {
-                    try {
-                        const p = await gov.proposal(id);
-                        return p.id === id ? p : null;
-                    } catch {
-                        return null;
-                    }
-                },
-                { timeoutMs: 15_000, label: 'authorized proposal visible' },
-            );
-            expect(prop.id).to.equal(id);
-
-            const revokeTx = await gov.revokeProposalAuthorization(grantee.address, {
-                gasLimit: 500_000,
-            });
-            expect((await revokeTx.wait())!.status).to.equal(1);
-        });
     });
 
     describe('error handling', () => {
@@ -401,21 +313,6 @@ describe('gov precompile (0x1006)', function () {
             await expectExecutionReverted(
                 gov.getVote(999_999n, admin.address),
                 'gov.getVote on an unknown proposal',
-            );
-        });
-
-        it('voteWithAuthorization without a grant reverts', async () => {
-            const [grantee] = claimPool(runtime, provider, 1, 'gov:no-vote-grant');
-            await associateViaTx(grantee);
-            const id = await submitProposal(textProposal('e2e no grant'), MIN_DEPOSIT_WEI);
-            await expectVmError(
-                (gov.connect(grantee.wallet) as ethers.Contract).voteWithAuthorization(
-                    admin.address,
-                    id,
-                    1,
-                    { gasLimit: 500_000 },
-                ),
-                'authorization not found',
             );
         });
     });

@@ -3,7 +3,6 @@ package ante
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -22,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
 	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -31,10 +29,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-const (
-	maxNestedMsgs    = 5
-	maxNestedPubKeys = 5
-)
+const maxNestedPubKeys = 5
 
 var (
 	_ GasTx = (*legacytx.StdTx)(nil) // assert StdTx implements GasTx
@@ -206,22 +201,6 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 		if !bytes.Equal(pk.Address(), signers[i]) {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey,
 				"pubKey does not match signer address %s with signer index: %d", signers[i], i)
-		}
-	}
-
-	for _, msg := range tx.GetMsgs() {
-		switch m := msg.(type) {
-		case *authz.MsgExec:
-			// find nested evm messages
-			containsEvm, err := CheckAuthzContainsEvm(m, 0)
-			if err != nil {
-				return err
-			}
-			if containsEvm {
-				return errors.New("permission denied, authz tx contains evm message")
-			}
-		default:
-			continue
 		}
 	}
 	return nil
@@ -564,33 +543,4 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 		}
 	}
 	return events, nil
-}
-
-func CheckAuthzContainsEvm(authzMsg *authz.MsgExec, nestedLvl int) (bool, error) {
-	if nestedLvl >= maxNestedMsgs {
-		return false, errors.New("permission denied, more nested msgs than permitted")
-	}
-	msgs, err := authzMsg.GetMessages()
-	if err != nil {
-		return false, err
-	}
-	for _, msg := range msgs {
-		// check if message type is authz exec or evm
-		switch m := msg.(type) {
-		case *evmtypes.MsgEVMTransaction:
-			return true, nil
-		case *authz.MsgExec:
-			// find nested to check for evm
-			valid, err := CheckAuthzContainsEvm(m, nestedLvl+1)
-			if err != nil {
-				return false, err
-			}
-			if valid {
-				return true, nil
-			}
-		default:
-			continue
-		}
-	}
-	return false, nil
 }

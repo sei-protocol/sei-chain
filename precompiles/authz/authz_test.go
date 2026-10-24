@@ -1,147 +1,90 @@
 package authz_test
 
 import (
-	"reflect"
 	"testing"
-	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/precompiles/authz"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
+	tmdb "github.com/tendermint/tm-db"
+
+	"github.com/sei-protocol/sei-chain/precompiles/authz"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
-func TestGrants(t *testing.T) {
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	k := &testApp.EvmKeeper
-	granterSeiAddr, granterEvmAddr := testkeeper.MockAddressPair()
-	granteeSeiAddr, granteeEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, granterSeiAddr, granterEvmAddr)
-	k.SetAddressMapping(ctx, granteeSeiAddr, granteeEvmAddr)
+func TestRetiredPrecompileRejectsCalls(t *testing.T) {
+	keepers := testKeepers{EVMKeeper: testEVMKeeper{}}
+	ctx := sdk.NewContext(store.NewCommitMultiStore(tmdb.NewMemDB()), tmproto.Header{}, false)
+	evm := vm.EVM{
+		StateDB: state.NewDBImpl(ctx, testStateKeeper{}, true),
+	}
 
-	expiration := time.Unix(1893456000, 0).UTC()
-	authorization := banktypes.NewSendAuthorization(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000))))
-	require.Nil(t, testApp.AuthzKeeper.SaveGrant(ctx, granteeSeiAddr, granterSeiAddr, authorization, expiration))
+	precompile, err := authz.NewPrecompile(keepers)
+	require.NoError(t, err)
 
-	p, err := authz.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{StateDB: statedb, TxContext: vm.TxContext{Origin: granterEvmAddr}}
-	executor := p.GetExecutor().(*authz.PrecompileExecutor)
+	granter := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	grantee := common.HexToAddress("0x0000000000000000000000000000000000000002")
+	tests := map[string][]interface{}{
+		"grants":        {granter, grantee, "/cosmos.bank.v1beta1.MsgSend", []byte{}},
+		"granterGrants": {granter, []byte{}},
+		"granteeGrants": {grantee, []byte{}},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			method := precompile.ABI.Methods[name]
+			inputs, packErr := method.Inputs.Pack(args...)
+			require.NoError(t, packErr)
 
-	method, err := p.ABI.MethodById(executor.GrantsID)
-	require.Nil(t, err)
-	args, err := method.Inputs.Pack(granterEvmAddr, granteeEvmAddr, "", []byte{})
-	require.Nil(t, err)
-	ret, _, err := p.RunAndCalculateGas(&evm, granterEvmAddr, granterEvmAddr, append(executor.GrantsID, args...), 1000000, nil, nil, true, false)
-	require.Nil(t, err)
-
-	outputs, err := method.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	require.Len(t, outputs, 1)
-
-	response := reflect.ValueOf(outputs[0])
-	grants := response.FieldByName("Grants")
-	require.Equal(t, 1, grants.Len())
-	grant := grants.Index(0)
-	authorizationJSON := string(grant.FieldByName("Authorization").Bytes())
-	require.Contains(t, authorizationJSON, "@type")
-	require.Contains(t, authorizationJSON, "SendAuthorization")
-	require.Equal(t, expiration.Unix(), grant.FieldByName("Expiration").Int())
-
-	// unassociated granter should error
-	_, unassociatedEvmAddr := testkeeper.MockAddressPair()
-	args, err = method.Inputs.Pack(unassociatedEvmAddr, granteeEvmAddr, "", []byte{})
-	require.Nil(t, err)
-	_, _, err = p.RunAndCalculateGas(&evm, granterEvmAddr, granterEvmAddr, append(executor.GrantsID, args...), 1000000, nil, nil, true, false)
-	require.NotNil(t, err)
+			ret, remainingGas, runErr := precompile.RunAndCalculateGas(
+				&evm,
+				common.Address{},
+				common.Address{},
+				append(method.ID, inputs...),
+				1_000_000,
+				nil,
+				nil,
+				true,
+				false,
+			)
+			require.ErrorIs(t, runErr, vm.ErrExecutionReverted)
+			require.Positive(t, remainingGas, "the retired precompile consumed every supplied unit of gas")
+			reason, unpackErr := abi.UnpackRevert(ret)
+			require.NoError(t, unpackErr)
+			require.Equal(t, authz.ErrAuthzPrecompileRetired.Error(), reason)
+		})
+	}
 }
 
-func TestGranterGrants(t *testing.T) {
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	k := &testApp.EvmKeeper
-	granterSeiAddr, granterEvmAddr := testkeeper.MockAddressPair()
-	granteeSeiAddr, granteeEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, granterSeiAddr, granterEvmAddr)
-	k.SetAddressMapping(ctx, granteeSeiAddr, granteeEvmAddr)
-
-	expiration := time.Unix(1893456000, 0).UTC()
-	authorization := banktypes.NewSendAuthorization(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2000))))
-	require.Nil(t, testApp.AuthzKeeper.SaveGrant(ctx, granteeSeiAddr, granterSeiAddr, authorization, expiration))
-
-	p, err := authz.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{StateDB: statedb, TxContext: vm.TxContext{Origin: granterEvmAddr}}
-	executor := p.GetExecutor().(*authz.PrecompileExecutor)
-
-	method, err := p.ABI.MethodById(executor.GranterGrantsID)
-	require.Nil(t, err)
-	args, err := method.Inputs.Pack(granterEvmAddr, []byte{})
-	require.Nil(t, err)
-	ret, _, err := p.RunAndCalculateGas(&evm, granterEvmAddr, granterEvmAddr, append(executor.GranterGrantsID, args...), 1000000, nil, nil, true, false)
-	require.Nil(t, err)
-
-	outputs, err := method.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	require.Len(t, outputs, 1)
-
-	response := reflect.ValueOf(outputs[0])
-	grants := response.FieldByName("Grants")
-	require.Equal(t, 1, grants.Len())
-	grant := grants.Index(0)
-	require.Equal(t, granterSeiAddr.String(), grant.FieldByName("Granter").String())
-	require.Equal(t, granteeSeiAddr.String(), grant.FieldByName("Grantee").String())
-	authorizationJSON := string(grant.FieldByName("Authorization").Bytes())
-	require.Contains(t, authorizationJSON, "@type")
-	require.Contains(t, authorizationJSON, "SendAuthorization")
-	require.Equal(t, expiration.Unix(), grant.FieldByName("Expiration").Int())
+type testKeepers struct {
+	utils.Keepers
+	EVMKeeper utils.EVMKeeper
 }
 
-func TestGranteeGrants(t *testing.T) {
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	k := &testApp.EvmKeeper
-	granterSeiAddr, granterEvmAddr := testkeeper.MockAddressPair()
-	granteeSeiAddr, granteeEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, granterSeiAddr, granterEvmAddr)
-	k.SetAddressMapping(ctx, granteeSeiAddr, granteeEvmAddr)
+func (k testKeepers) EVMK() utils.EVMKeeper {
+	return k.EVMKeeper
+}
 
-	expiration := time.Unix(1893456000, 0).UTC()
-	authorization := banktypes.NewSendAuthorization(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(3000))))
-	require.Nil(t, testApp.AuthzKeeper.SaveGrant(ctx, granteeSeiAddr, granterSeiAddr, authorization, expiration))
+type testEVMKeeper struct {
+	utils.EVMKeeper
+}
 
-	p, err := authz.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{StateDB: statedb, TxContext: vm.TxContext{Origin: granteeEvmAddr}}
-	executor := p.GetExecutor().(*authz.PrecompileExecutor)
+func (testEVMKeeper) GetCosmosGasLimitFromEVMGas(_ sdk.Context, evmGas uint64) uint64 {
+	return evmGas
+}
 
-	method, err := p.ABI.MethodById(executor.GranteeGrantsID)
-	require.Nil(t, err)
-	args, err := method.Inputs.Pack(granteeEvmAddr, []byte{})
-	require.Nil(t, err)
-	ret, _, err := p.RunAndCalculateGas(&evm, granteeEvmAddr, granteeEvmAddr, append(executor.GranteeGrantsID, args...), 1000000, nil, nil, true, false)
-	require.Nil(t, err)
+func (testEVMKeeper) GetEVMGasLimitFromCtx(_ sdk.Context) uint64 {
+	return 1_000_000
+}
 
-	outputs, err := method.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	require.Len(t, outputs, 1)
+type testStateKeeper struct {
+	state.EVMKeeper
+}
 
-	response := reflect.ValueOf(outputs[0])
-	grants := response.FieldByName("Grants")
-	require.Equal(t, 1, grants.Len())
-	grant := grants.Index(0)
-	require.Equal(t, granterSeiAddr.String(), grant.FieldByName("Granter").String())
-	require.Equal(t, granteeSeiAddr.String(), grant.FieldByName("Grantee").String())
-	authorizationJSON := string(grant.FieldByName("Authorization").Bytes())
-	require.Contains(t, authorizationJSON, "@type")
-	require.Contains(t, authorizationJSON, "SendAuthorization")
-	require.Equal(t, expiration.Unix(), grant.FieldByName("Expiration").Int())
+func (testStateKeeper) GetFeeCollectorAddress(sdk.Context) (common.Address, error) {
+	return common.Address{}, nil
 }
