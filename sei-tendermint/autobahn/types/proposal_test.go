@@ -8,13 +8,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// genFreshEpoch returns an epoch whose road range is OpenRoadRange (so road index 0
-// is always valid for a ViewSpec with no CommitQC) but whose epoch index and first
-// block are randomised to prevent tests from silently passing on zero-value defaults.
+// genFreshEpoch returns an epoch whose first road, first block, and epoch index
+// are randomized independently to prevent tests from silently passing on
+// zero-value defaults or coupling the two offsets.
 func genFreshEpoch(rng utils.Rng, committee *Committee) *Epoch {
+	first := RoadIndex(rng.Uint64()%1000000) + 1
 	return NewEpoch(
 		GenEpochIndex(rng),
-		OpenRoadRange(),
+		RoadRange{First: first, Next: utils.Max[RoadIndex]()},
 		time.Time{},
 		committee,
 		GlobalBlockNumber(rng.Uint64()%1000000)+1,
@@ -58,6 +59,16 @@ func makeCommitQCFromProposal(keys []SecretKey, fp *FullProposal) *CommitQC {
 		votes = append(votes, Sign(k, vote))
 	}
 	return NewCommitQC(votes)
+}
+
+func TestViewSpecIndependentGenesisOrigins(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _ := GenCommittee(rng, 4)
+	ep := NewEpoch(0, RoadRange{First: 7, Next: 108_000}, time.Time{}, committee, 11)
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+
+	require.Equal(t, RoadIndex(7), vs.Index())
+	require.Equal(t, GlobalBlockNumber(11), vs.NextGlobalBlock())
 }
 
 func TestProposalVerifyRejectsEmptyTipcut(t *testing.T) {
@@ -120,7 +131,6 @@ func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	firstBlock := ep.FirstBlock()
 	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposer0 := leaderKey(committee, keys, vs0.View())
 	lane := committee.Lane(proposer0.Public()).OrPanic("missing lane")
@@ -134,8 +144,8 @@ func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 	))
 	p0 := firstProposal.Proposal().Msg()
 	gr0 := p0.GlobalRange()
-	require.Equal(t, firstBlock, gr0.First)
-	require.Equal(t, firstBlock+3, gr0.Next)
+	require.Equal(t, ep.FirstBlock(), gr0.First)
+	require.Equal(t, ep.FirstBlock()+3, gr0.Next)
 	first0 := p0.BlockTimestamp(gr0.First).OrPanic("missing first block timestamp")
 	second0 := p0.BlockTimestamp(gr0.First + 1).OrPanic("missing second block timestamp")
 	third0 := p0.BlockTimestamp(gr0.First + 2).OrPanic("missing third block timestamp")
@@ -666,10 +676,11 @@ func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testi
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	lane := committee.Lane(leaderKey(committee, keys, View{}).Public()).OrPanic("missing lane")
+	view := View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex()}
+	lane := committee.Lane(leaderKey(committee, keys, view).Public()).OrPanic("missing lane")
 	// Bypass NewProposal's check by constructing the proposal directly.
 	oversized := newProposal(
-		View{},
+		view,
 		time.Now(),
 		[]*LaneRange{NewLaneRange(lane, 0, utils.Some(NewBlock(lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng), GenPayload(rng)).Header()))},
 		ep.FirstBlock(),
@@ -749,7 +760,7 @@ func TestProposalAtView(t *testing.T) {
 func TestProposalVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	// Build a proposal at view (0, 0) with one lane block so sum(lane.First) > 0.
+	// Build a proposal at the first road with one lane block so sum(lane.First) > 0.
 	// firstBlock > 0 ensures a reproposal bug that passes GlobalRange().First
 	// (= sum(lane.First)+firstBlock) instead of firstBlock would be caught.
 	ep := genFreshEpoch(rng, committee)
@@ -770,12 +781,12 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	// Timeout at view (0, 0) with the PrepareQC → forces reproposal at (0, 1).
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
 	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}, TimeoutQC: utils.Some(timeoutQC)}
-	require.Equal(t, View{Index: 0, Number: 1, EpochIndex: ep.EpochIndex()}, vs1.View())
+	require.Equal(t, View{Index: ep.RoadRange().First, Number: 1, EpochIndex: ep.EpochIndex()}, vs1.View())
 
 	leader1 := leaderKey(committee, keys, vs1.View())
 	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1)))
@@ -804,7 +815,7 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
@@ -843,7 +854,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 

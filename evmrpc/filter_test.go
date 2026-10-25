@@ -872,6 +872,51 @@ func TestFilterGetFilterChangesAfterFromBlockIsPruned(t *testing.T) {
 	require.Equal(t, want, filterChanges(t, filterID))
 }
 
+// TestFilterGetFilterChangesReportsPrunedBlocks asserts that eth_newFilter
+// rejects a numeric fromBlock above 0 below the earliest available block, that
+// a filter from block 0 polls from the earliest block, and that a filter whose
+// cursor pruning passes reports the pruned blocks once and then polls from the
+// earliest block.
+// This test is intentionally not parallel because it moves the latest and
+// earliest heights of the mock client shared by the package's HTTP server.
+func TestFilterGetFilterChangesReportsPrunedBlocks(t *testing.T) {
+	t.Cleanup(func() {
+		filterClient.latestOverride = 0
+		filterClient.earliestOverride = 0
+	})
+	filterClient.latestOverride = 1
+	lagging := newLogFilter(t, map[string]interface{}{"fromBlock": "0x1"})
+	require.Empty(t, filterChanges(t, lagging))
+
+	// Block 2 holds the mock chain's logs, so a filter that polls from the
+	// earliest block returns them.
+	filterClient.earliestOverride = 2
+	filterClient.latestOverride = 3
+	earliestTag := newLogFilter(t, map[string]interface{}{"fromBlock": "earliest"})
+	want := logsInRange(t, 2, 3)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, filterChanges(t, earliestTag))
+	for _, crit := range []map[string]interface{}{
+		{"fromBlock": "0x1"},
+		{"fromBlock": "0x1", "toBlock": "latest"},
+		{"fromBlock": "0x1", "toBlock": "0x1"},
+	} {
+		resObj := sendRequestGood(t, evmrpc.NewFilterMethod, crit)
+		errObj, ok := resObj["error"].(map[string]interface{})
+		require.True(t, ok, "newFilter %v should fail, got: %v", crit, resObj)
+		require.Equal(t, "requested fromBlock 1 is before earliest available block 2", errObj["message"])
+	}
+
+	// Pruning passes the cursor of the filter last polled at head 1.
+	filterClient.earliestOverride = 4
+	filterClient.latestOverride = MockHeight8
+	resObj := sendRequestGood(t, evmrpc.GetFilterChangesMethod, lagging)
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected an error object, got: %v", resObj)
+	require.Equal(t, "logs of blocks 2 to 3 were pruned before the filter read them", errObj["message"])
+	require.Equal(t, logsInRange(t, 4, MockHeight8), filterChanges(t, lagging))
+}
+
 // TestFilterGetFilterChangesMovesPastAnOversizedBlock asserts that a poll
 // failing on a block whose logs alone exceed the log caps moves the filter past
 // that block, so the next poll does not fail on it again.

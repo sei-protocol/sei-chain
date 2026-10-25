@@ -683,16 +683,14 @@ type blockSTMState struct {
 
 // blockSTMShard holds the accepted writes for the addresses of one shard.
 type blockSTMShard struct {
-	balances      map[common.Address]*big.Int
-	nonces        map[common.Address]uint64
-	code          map[common.Address][]byte
-	storageClears map[common.Address]struct{}
-	storage       map[storageChangeKey]common.Hash
+	balances map[common.Address]*big.Int
+	nonces   map[common.Address]uint64
+	code     map[common.Address][]byte
+	storage  map[storageChangeKey]common.Hash
 
 	// The prior maps hold, for each key the accepted prefix wrote, the value it had before the block:
 	// the prior the first accepted write to it carried. No transaction ahead of that writer wrote the
-	// key, so what it read was the pre-block value. Later writers read an earlier writer's value. A
-	// slot of a cleared address is the exception, since its writers read through the clear.
+	// key, so what it read was the pre-block value. Later writers read an earlier writer's value.
 	priorBalances map[common.Address]*big.Int
 	priorNonces   map[common.Address]uint64
 	priorCode     map[common.Address][]byte
@@ -709,7 +707,6 @@ func newBlockSTMState(source StateReader) *blockSTMState {
 			balances:      map[common.Address]*big.Int{},
 			nonces:        map[common.Address]uint64{},
 			code:          map[common.Address][]byte{},
-			storageClears: map[common.Address]struct{}{},
 			storage:       map[storageChangeKey]common.Hash{},
 			priorBalances: map[common.Address]*big.Int{},
 			priorNonces:   map[common.Address]uint64{},
@@ -749,9 +746,6 @@ func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Ha
 	shard := s.shard(addr)
 	if value, ok := shard.storage[storageChangeKey{address: addr, key: key}]; ok {
 		return value
-	}
-	if _, ok := shard.storageClears[addr]; ok {
-		return common.Hash{}
 	}
 	return s.source.GetState(addr, key)
 }
@@ -800,15 +794,6 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 			shard.code[change.Address] = cloneBytes(change.Code)
 		}
 	}
-	for addr := range ownedChanges(owns, result.changeSet.StorageClears, sameAddress) {
-		shard := s.shard(addr)
-		shard.storageClears[addr] = struct{}{}
-		for key := range shard.storage {
-			if key.address == addr {
-				delete(shard.storage, key)
-			}
-		}
-	}
 	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {
 		shard := s.shard(change.Address)
 		key := storageChangeKey{address: change.Address, key: change.Key}
@@ -823,7 +808,6 @@ func balanceChangeAddr(c BalanceChange) common.Address { return c.Address }
 func nonceChangeAddr(c NonceChange) common.Address     { return c.Address }
 func codeChangeAddr(c CodeChange) common.Address       { return c.Address }
 func storageChangeAddr(c StorageChange) common.Address { return c.Address }
-func sameAddress(a common.Address) common.Address      { return a }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
 	var changes StateChangeSet
@@ -835,14 +819,14 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 	changes.Reset()
 	for i := range s.shards {
-		s.shards[i].changeSetInto(s.source, changes)
+		s.shards[i].changeSetInto(changes)
 	}
 }
 
 // changeSetInto appends the shard's net changes, in canonical order, to changes. Shards partition
 // the address space in canonical order, so appending shard by shard yields a canonically ordered
 // changeset.
-func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSet) {
+func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
 	for _, addr := range sortedAddresses(h.balances) {
 		balance, prior := h.balances[addr], h.priorBalances[addr]
 		if prior == nil {
@@ -867,8 +851,6 @@ func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSe
 		}
 		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: cloneBytes(prior)})
 	}
-	changes.StorageClears = append(changes.StorageClears, sortedAddresses(h.storageClears)...)
-
 	storageKeys := make([]storageChangeKey, 0, len(h.storage))
 	for key := range h.storage {
 		storageKeys = append(storageKeys, key)
@@ -881,14 +863,7 @@ func (h *blockSTMShard) changeSetInto(source StateReader, changes *StateChangeSe
 	})
 	for _, key := range storageKeys {
 		value, prior := h.storage[key], h.priorStorage[key]
-		if _, cleared := h.storageClears[key.address]; cleared {
-			// A clear empties the slot in the store, so the write is measured against zero. Its writers
-			// read through the clear, so the prior is read from the state before the block.
-			if value == (common.Hash{}) {
-				continue
-			}
-			prior = source.GetState(key.address, key.key)
-		} else if value == prior {
+		if value == prior {
 			continue
 		}
 		changes.Storage = append(changes.Storage, StorageChange{

@@ -174,9 +174,6 @@ prometheus-retention-time = {{ .Telemetry.PrometheusRetentionTime }}
 # Enable defines if the API server should be enabled.
 enable = {{ .API.Enable }}
 
-# Swagger defines if swagger documentation should automatically be registered.
-swagger = {{ .API.Swagger }}
-
 # Address defines the API server to listen on.
 address = "{{ .API.Address }}"
 

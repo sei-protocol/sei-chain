@@ -10,19 +10,26 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-var _ abci.Application = (*MockApp)(nil)
+var _ proxy.EVMApplication = (*MockApp)(nil)
 
 var (
 	errMockAppProcessProposal = errors.New("mock app does not support ProcessProposal")
+	errMockAppNoExecution     = errors.New("mock app does not execute EVM calls")
 	errMockAppMissingHeader   = errors.New("mock app FinalizeBlock requires header")
 	baseBalance               = *uint256.MustFromBig(new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000)))
 )
@@ -62,13 +69,17 @@ type mockAppState struct {
 type MockApp struct {
 	abci.BaseApplication
 
-	app   abci.Application
-	state utils.RWMutex[*mockAppState]
+	app         abci.Application
+	chainConfig *params.ChainConfig
+	state       utils.RWMutex[*mockAppState]
 }
 
 func NewMockApp(app abci.Application) *MockApp {
+	chainConfig := *params.AllDevChainProtocolChanges
+	chainConfig.ChainID = new(big.Int).SetUint64(config.AutobahnEVMOnlyChainID)
 	return &MockApp{
-		app: app,
+		app:         app,
+		chainConfig: &chainConfig,
 		state: utils.NewRWMutex(&mockAppState{
 			nextNonce:      map[common.Address]uint64{},
 			nextTransition: mockAppTransitionInitialize,
@@ -146,8 +157,44 @@ func (app *MockApp) EvmNonce(addr common.Address) uint64 {
 
 func (app *MockApp) EvmBalance(common.Address, []byte) uint256.Int { return baseBalance }
 
-func (app *MockApp) EvmChainID() uint64 {
-	return app.app.EvmChainID()
+// EvmChainID returns the chain ID of the Autobahn EVM-only executor this app
+// stands in for.
+func (app *MockApp) EvmChainID() uint64 { return config.AutobahnEVMOnlyChainID }
+
+// EvmChainConfig returns the dev chain configuration with the Autobahn EVM-only
+// chain ID.
+func (app *MockApp) EvmChainConfig() *params.ChainConfig { return app.chainConfig }
+
+// EvmCall always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmCall(context.Context, *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	return nil, errMockAppNoExecution
+}
+
+// EvmEstimateGas always errors: the mock app keeps no EVM state to execute against.
+func (app *MockApp) EvmEstimateGas(context.Context, *ethcore.Message, uint64) (uint64, []byte, error) {
+	return 0, nil, errMockAppNoExecution
+}
+
+func (app *MockApp) EvmBaseFee() *big.Int { return new(big.Int) }
+
+// EvmGasLimit returns 0: the mock app does not meter block gas.
+func (app *MockApp) EvmGasLimit() uint64 { return 0 }
+
+func (app *MockApp) EvmMinGasPrice() *big.Int { return new(big.Int) }
+
+// EvmBlockContext always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
+	return vm.BlockContext{}, errMockAppNoExecution
+}
+
+// EvmStateAt always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
+	return nil, nil, errMockAppNoExecution
+}
+
+// EvmStateBeforeTx always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmStateBeforeTx(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error) {
+	return nil, nil, errMockAppNoExecution
 }
 
 func (app *MockApp) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {

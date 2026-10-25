@@ -82,12 +82,7 @@ func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
 func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
-		gr := qc.QC().GlobalRange()
-		utils.OrPanic(store.WriteQC(qc))
-		for j, n := 0, gr.First; n < gr.Next; n++ {
-			utils.OrPanic(store.WriteBlock(n, blockss[i][j]))
-			j++
-		}
+		utils.OrPanic(store.WriteQC(qc, blockss[i]))
 	}
 	utils.OrPanic(store.Flush())
 }
@@ -167,14 +162,14 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	ep1 := registry.MustEpoch(1)
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
-	qcMid, blocksMid := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), ep1.FirstBlock())
+	qcMid, blocksMid := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1), ep1.FirstBlock())
 	require.NoError(t, state.PushQC(ctx, qcMid, blocksMid))
 	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch next road is still in epoch 1")
 	grMid := qcMid.QC().GlobalRange()
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grMid.First, grMid.Next))
 	require.Equal(t, ep1, state.NextCommitEpoch().Load())
 
-	qcLast, blocksLast := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), grMid.Next)
+	qcLast, blocksLast := commitQCAtRoad(ep1, keys, registry.LastRoad(1), grMid.Next)
 	require.NoError(t, state.PushQC(ctx, qcLast, blocksLast))
 	require.Equal(t, ep2, state.NextCommitEpoch().Load(), "next road is in epoch 2, already filled from end(0)")
 }
@@ -189,7 +184,7 @@ func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+		qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0), ep0.FirstBlock())
 		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
 			return err
 		}
@@ -201,7 +196,7 @@ func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
 			return fmt.Errorf("after LastRoad(0) QC: NextCommitEpoch = %v, want epoch 1", got.EpochIndex())
 		}
 
-		qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), qc0.QC().GlobalRange().Next)
+		qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.LastRoad(1), qc0.QC().GlobalRange().Next)
 		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
 			return err
 		}
@@ -548,7 +543,7 @@ func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
 		if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
 			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
 		}
 		if got, ok := registry.Pending().Get(); ok {
@@ -567,7 +562,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 	ep := registry.MustEpoch(0)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+		qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0), ep.FirstBlock())
 		if err := state.PushQC(ctx, qc, blocks); err != nil {
 			return err
 		}
@@ -575,7 +570,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
 			return err
 		}
-		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+		if _, err := registry.EpochAt(registry.EpochFirstRoad(2)); err == nil {
 			return errors.New("epoch 2 must stay staged until an AppQC finalizes end(0)")
 		}
 		if want := utils.Some(types.EpochIndex(2)); registry.Pending() != want {
@@ -585,7 +580,7 @@ func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
 			return err
 		}
-		filled, err := registry.EpochAt(epoch.FirstRoad(2))
+		filled, err := registry.EpochAt(registry.EpochFirstRoad(2))
 		if err != nil {
 			return fmt.Errorf("epoch 2 after AppQC: %w", err)
 		}
@@ -609,7 +604,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 	keeper := keys[0].Public()
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+	qc, blocks := commitQCAtRoad(ep, keys, registry.LastRoad(0), ep.FirstBlock())
 	n := qc.QC().GlobalRange().Next - 1
 
 	// Stop Run before the divergent AppQC: persisting one kills the node.
@@ -623,7 +618,7 @@ func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
 
 	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
-	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	_, err := registry.EpochAt(registry.EpochFirstRoad(2))
 	require.Error(t, err, "epoch 2 must stay staged after divergence")
 	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
 }
@@ -636,9 +631,9 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
-	qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+	qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0), ep0.FirstBlock())
 	gr0 := qc0.QC().GlobalRange()
-	qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), gr0.Next)
+	qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1), gr0.Next)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -660,7 +655,7 @@ func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing
 	require.NoError(t, err)
 	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, vote1.Proposal())))
 
-	_, err = registry.EpochAt(epoch.FirstRoad(2))
+	_, err = registry.EpochAt(registry.EpochFirstRoad(2))
 	require.Error(t, err, "epoch 2 must stay staged when LastRoad(0) diverged")
 	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
 }
@@ -672,7 +667,7 @@ func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
 	store := newTestBlockStore(t, t.TempDir())
 	state := newTestState(t, &Config{Registry: registry}, store)
 	ep := registry.MustEpoch(0)
-	qc, blocks := commitQCAtRoad(ep, keys, epoch.FirstRoad(0), ep.FirstBlock())
+	qc, blocks := commitQCAtRoad(ep, keys, ep.RoadRange().First, ep.FirstBlock())
 	n := qc.QC().GlobalRange().Next - 1
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -793,6 +788,48 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 		require.NoError(t, err, "block %d", n)
 		require.NotNil(t, got)
 	}
+}
+
+// TestRunPersistWaitsForCompleteQC verifies that a pending QC's partial blocks
+// stay out of storage until its final block arrives.
+func TestRunPersistWaitsForCompleteQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
+	store := newTestBlockStore(t, t.TempDir())
+	state := newTestState(t, &Config{Registry: registry}, store)
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state.PushQC(ctx, qc2, blocks2[:len(blocks2)-1]))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		for inner, ctrl := range state.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc1.QC().GlobalRange().Next }); err != nil {
+				return err
+			}
+		}
+		if got := store.Status().OrPanic("persisted QC"); got.NextQC != qc1.QC().GlobalRange().Next {
+			return fmt.Errorf("incomplete QC was persisted: %v", got)
+		}
+		for _, block := range blocks2 {
+			got, err := store.ReadBlockByHash(block.Header().Hash())
+			if err != nil {
+				return err
+			}
+			if got.IsPresent() {
+				return fmt.Errorf("partial QC block was persisted")
+			}
+		}
+		if err := state.PushBlock(ctx, qc2.QC().GlobalRange().Next-1, blocks2[len(blocks2)-1]); err != nil {
+			return err
+		}
+		for inner, ctrl := range state.inner.Lock() {
+			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc2.QC().GlobalRange().Next })
+		}
+		panic("unreachable")
+	}))
+	require.Equal(t, qc2.QC().GlobalRange().Next, store.Status().OrPanic("complete QCs").NextQC)
 }
 
 // TestEvictionWaitsForAppQC checks that setPersisted does not drop

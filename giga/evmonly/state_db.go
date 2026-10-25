@@ -200,6 +200,11 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 
 	for _, addr := range addresses {
 		acct := s.accounts[addr]
+		if acct.StorageCleared {
+			// Committing a replaced storage would mean deleting every stored slot of the account, which the
+			// changeset has no way to express.
+			panic("cannot produce a changeset after SetStorage replaced an account's storage")
+		}
 		base := s.baseAccount(addr)
 
 		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
@@ -229,14 +234,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		for _, key := range storageKeys {
 			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
-			if acct.StorageCleared {
-				// A clear empties the slot in the store, so after one the write is measured against zero.
-				// The cleared account never read the slot, so its prior is read now.
-				if newValue == (common.Hash{}) {
-					continue
-				}
-				priorValue = s.baseState(addr, key)
-			} else if priorValue == newValue {
+			if priorValue == newValue {
 				continue
 			}
 			changes.Storage = append(changes.Storage, StorageChange{
@@ -246,9 +244,6 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Delete:     newValue == (common.Hash{}),
 				PriorValue: priorValue,
 			})
-		}
-		if acct.StorageCleared {
-			changes.StorageClears = append(changes.StorageClears, addr)
 		}
 	}
 }
@@ -448,6 +443,8 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 	return prev
 }
 
+// SetStorage replaces the account's storage with states for the life of this StateDB: slots absent from states
+// read as zero. A StateDB that has had its storage replaced cannot produce a changeset.
 func (s *nativeStateDB) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
 	acct := s.account(addr)
 	s.recordAccount(addr)
@@ -650,11 +647,11 @@ func (s *nativeStateDB) Finalise(bool) {
 			s.recordStorageMap(addr)
 			acct.Code = nil
 			acct.CodeHash = common.Hash{}
-			acct.Storage = map[common.Hash]storageValue{}
-			acct.StorageCleared = true
 			acct.Nonce = 0
 			acct.SelfDestructed = false
-			s.markTxStorageClear(addr)
+			// Only an account created in this transaction self-destructs, so none of its storage writes
+			// belong in the changeset, and later reads see what the state beneath the block holds.
+			s.forgetStorage(addr)
 		}
 		if acct.Created {
 			s.recordAccount(addr)
@@ -1087,6 +1084,14 @@ func (s *nativeStateDB) markTxStorageWrite(addr common.Address, key common.Hash)
 	}
 	s.recordTxStorageWrite(addr, key)
 	slots[key] = struct{}{}
+}
+
+// forgetStorage discards every value held in memory for the account's storage, so later reads return
+// what the state beneath the block holds and the changeset carries no storage change for it.
+func (s *nativeStateDB) forgetStorage(addr common.Address) {
+	s.account(addr).Storage = map[common.Hash]storageValue{}
+	s.baseAccount(addr).Storage = map[common.Hash]storageValue{}
+	delete(s.committedStorage, addr)
 }
 
 func (s *nativeStateDB) markTxStorageClear(addr common.Address) {

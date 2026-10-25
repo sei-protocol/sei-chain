@@ -516,38 +516,17 @@ func newClassifiedChanges(sizeHints [keys.EVMKeyKindCount]int) classifiedChanges
 func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
 	keyBuf := make([]byte, 0, physKeyBufLen)
 	arena := newKeyArena(unitKeyFootprint(unit))
-
-	if unit.moduleName == keys.EVMStoreKey {
-		for _, pair := range unit.pairs {
-			kind, keyBytes := keys.ParseEVMKey(pair.Key)
-			if kind == keys.EVMKeyEmpty {
-				return fmt.Errorf("flatkv: empty key in changeset")
-			}
-
-			if kind == keys.EVMKeyMisc {
-				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
-			} else {
-				keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
-			}
-			into[kind] = append(into[kind], newClassifiedChange(arena.intern(keyBuf), pair))
-		}
-		return nil
-	}
-
-	// An empty module name would fold into "/"+key here and later
-	// persist as the per-module meta key "_meta/x:/hash", which
-	// ParseModuleLtHashKey rejects on reload — a store that ever
-	// commits one becomes permanently unopenable (sum-to-root check
-	// fails forever). Reject it up front instead; module names are
-	// never empty in normal operation (Cosmos SDK's NewKVStoreKey
-	// panics on an empty name), so this only guards malformed input.
-	if unit.moduleName == "" {
-		return fmt.Errorf("flatkv: empty module name in changeset")
-	}
-	miscBucket := &into[keys.EVMKeyMisc]
 	for _, pair := range unit.pairs {
-		keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], unit.moduleName, pair.Key)
-		*miscBucket = append(*miscBucket, newClassifiedChange(arena.intern(keyBuf), pair))
+		kind, strippedKey, err := ktype.ParseLogicalKey(unit.moduleName, pair.Key)
+		if err != nil {
+			return fmt.Errorf("flatkv: %w", err)
+		}
+		if kind == keys.EVMKeyMisc {
+			keyBuf = ktype.WritePhysicalKeyToBuffer(keyBuf, unit.moduleName, pair.Key)
+		} else {
+			keyBuf = ktype.WritePhysicalEVMKeyToBuffer(keyBuf, kind, strippedKey)
+		}
+		into[kind] = append(into[kind], newClassifiedChange(arena.intern(keyBuf), pair))
 	}
 	return nil
 }
@@ -690,45 +669,23 @@ func mergeAccountUpdates(
 	updates := make(map[string]vtype.PendingAccountWrite,
 		len(nonceChanges)+len(codeHashChanges)+len(balanceChanges))
 
-	for _, change := range nonceChanges {
-		// Deletion is equivalent to setting the nonce to 0
-		var nonce uint64
-		if change.value != nil {
-			parsed, err := vtype.ParseNonce(change.value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid nonce value: %w", err)
-			}
-			nonce = parsed
-		}
-		pending := updates[change.key]
-		pending.SetNonce(nonce)
-		updates[change.key] = pending
+	fields := []struct {
+		kind    keys.EVMKeyKind
+		changes []classifiedChange
+	}{
+		{keys.EVMKeyNonce, nonceChanges},
+		{keys.EVMKeyCodeHash, codeHashChanges},
+		{keys.EVMKeyBalance, balanceChanges},
 	}
-
-	for _, change := range codeHashChanges {
-		pending := updates[change.key]
-		if change.value == nil {
-			// Deletion is equivalent to setting the code hash to a zero hash
-			pending.SetCodeHash(nil)
-		} else if err := pending.SetCodeHashBytes(change.value); err != nil {
-			return nil, fmt.Errorf("invalid codehash value: %w", err)
-		}
-		updates[change.key] = pending
-	}
-
-	for _, change := range balanceChanges {
-		// Deletion is equivalent to setting the balance to a zero balance
-		var balance *vtype.Balance
-		if change.value != nil {
-			parsed, err := vtype.ParseBalance(change.value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid balance value: %w", err)
+	for _, field := range fields {
+		for _, change := range field.changes {
+			pending := updates[change.key]
+			// A nil value is a deletion; see nonNilValue.
+			if err := pending.SetField(field.kind, change.value, change.value == nil); err != nil {
+				return nil, fmt.Errorf("failed to set account field: %w", err)
 			}
-			balance = parsed
+			updates[change.key] = pending
 		}
-		pending := updates[change.key]
-		pending.SetBalance(balance)
-		updates[change.key] = pending
 	}
 	return updates, nil
 }

@@ -11,12 +11,7 @@ import (
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// blockStoreWriter persists blocks to the block ledger in the order the store's contract requires: the
-// QC covering a range of blocks is written before any block in it, so a crash can only ever leave a QC
-// without its blocks and never a block without its QC.
-//
-// The QCs are synthetic: the store verifies no signatures on the write path, so a QC only has to carry
-// the range it covers.
+// blockStoreWriter persists one block and its synthetic QC atomically per write.
 type blockStoreWriter struct {
 	store  *blockstore.Store
 	config *GigasimConfig
@@ -33,10 +28,6 @@ type blockStoreWriter struct {
 	// The lane-local number of the next block, which advances with the global number because there is
 	// only one lane.
 	laneBlockNumber autobahn.BlockNumber
-
-	// The exclusive end of the range the newest QC covers. A block at or above this needs a new QC
-	// written before it.
-	qcNext autobahn.GlobalBlockNumber
 
 	// Breaks the block store write into the records it writes. Owned by the generator, which closes it
 	// once the flush behind them is done, so the phases subdivide its whole write_block phase.
@@ -62,7 +53,6 @@ func newBlockStoreWriter(
 		metrics: gigasimMetrics,
 	}
 	if status, ok := store.Status().Get(); ok {
-		w.qcNext = status.NextQC
 		w.laneBlockNumber = autobahn.BlockNumber(status.NextBlock)
 	}
 	return w
@@ -78,21 +68,13 @@ func (w *blockStoreWriter) nextBlockNumber() (int64, bool) {
 	return int64(status.NextBlock), true //nolint:gosec // block heights are bounded well below the conversion limit
 }
 
-// writeBlock persists one block, first writing the QC that covers it when the previous QC's range has
-// run out.
+// writeBlock persists a block with its QC after finalizing prior blocks.
 func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	//nolint:gosec // G115 - block heights are non-negative and bounded by the run's length
 	globalNumber := autobahn.GlobalBlockNumber(number)
 
-	if globalNumber >= w.qcNext {
-		// Every block the open QC range covers is written by now, which is what the app-level records
-		// require, so they are written before the next range opens.
-		if err := w.finalizeBlocksBelow(globalNumber); err != nil {
-			return err
-		}
-		if err := w.writeCoveringQC(globalNumber); err != nil {
-			return err
-		}
+	if err := w.finalizeBlocksBelow(globalNumber); err != nil {
+		return err
 	}
 
 	w.phases.SetPhase("encode_block")
@@ -102,7 +84,7 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	}
 
 	w.phases.SetPhase("write_block")
-	if err := w.store.WriteBlock(globalNumber, block); err != nil {
+	if err := w.writeCoveringQC(globalNumber, block); err != nil {
 		return fmt.Errorf("failed to write block %d to the block store: %w", number, err)
 	}
 	w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(payload))
@@ -171,14 +153,15 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) 
 }
 
 // writeCoveringQC writes the QC finalizing the single lane block at first.
-func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) error {
+func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber, block *autobahn.Block) error {
 	next := first + 1
 
 	w.phases.SetPhase("write_qc")
-	if err := w.store.WriteQC(autobahn.GenFullCommitQCRange(w.rng, first, next)); err != nil {
+	qc := autobahn.GenFullCommitQCRange(w.rng, first, next)
+	qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
+	if err := w.store.WriteQC(qc, []*autobahn.Block{block}); err != nil {
 		return fmt.Errorf("failed to write the QC covering [%d, %d): %w", first, next, err)
 	}
-	w.qcNext = next
 	w.metrics.ReportQCWritten()
 	return nil
 }

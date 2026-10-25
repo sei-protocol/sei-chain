@@ -57,16 +57,18 @@ func (app *App) BeginBlock(
 	}
 }
 
-// applyMigrationBatchSize paces the SC store's background data migration at the network-agreed rate.
-// The NumKeysToMigratePerBlock gov param is read from chain state so every node
-// applies the same value each block; a per-node rate would diverge the
-// AppHash. 0 (the default until a gov proposal raises it) leaves the migration
-// paused; it is the sole source of the rate (there is no node-local fallback).
+// applyMigrationBatchSize paces the SC store's background data migrations at
+// the network-agreed rate. The NumKeysToMigratePerBlock gov param is read from
+// chain state so every node applies the same value each block; a per-node rate
+// would diverge the AppHash. 0 (the default until a gov proposal raises it)
+// leaves the current migration paused; it is the sole source of the rate (there
+// is no node-local fallback).
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if app.rootStore == nil {
 		return
 	}
 	numKeys := migration.DefaultNumKeysToMigratePerBlock
+	allowMigrateCosmos := false
 	if subspace, ok := app.ParamsKeeper.GetSubspace(migration.SubspaceName); ok {
 		// The migration subspace has no owning module to seed it in InitGenesis,
 		// so lazily persist the default the first time we see it unset. This is
@@ -77,6 +79,7 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.DefaultNumKeysToMigratePerBlock)
 		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
+		subspace.GetIfExists(ctx, migration.KeyMigrateCosmosEnabled, &allowMigrateCosmos)
 	}
 	// Defense-in-depth: gov validation already rejects values above
 	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value
@@ -86,7 +89,7 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if numKeys > migration.MaxNumKeysToMigratePerBlock {
 		numKeys = migration.MaxNumKeysToMigratePerBlock
 	}
-	if err := app.rootStore.SetMigrationBatchSize(int(numKeys)); err != nil {
+	if err := app.rootStore.SetMigrationBatchSize(int(numKeys), allowMigrateCosmos); err != nil {
 		// Never panic on the migration-rate update: log and continue. AppHash
 		// verification is the safety net. If the rate/mode update fails on only
 		// some nodes, those nodes' AppHash diverges and the normal AppHash
@@ -97,6 +100,16 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 		// halt the whole chain in that all-fail case.
 		logger.Error("failed to set SC migration batch size; continuing", "err", err)
 	}
+}
+
+// enableMigrateCosmos records in chain state that the SC store may start the
+// MigrateCosmos migration once its EVM migration is complete.
+func (app *App) enableMigrateCosmos(ctx sdk.Context) {
+	subspace, ok := app.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	if !ok {
+		panic("migration parameter subspace is not registered")
+	}
+	subspace.Set(ctx, migration.KeyMigrateCosmosEnabled, true)
 }
 
 func (app *App) MidBlock(ctx sdk.Context, height int64) []abci.Event {
@@ -186,11 +199,6 @@ func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) uint256.Int
 		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
 	return bigIntToUint256(mempoolBalanceFloor(balance))
-}
-
-// EvmChainID returns the EVM chain ID configured for this network.
-func (app *App) EvmChainID() uint64 {
-	return app.EvmKeeper.ChainID(app.GetCheckCtx()).Uint64()
 }
 
 func bigIntToUint256(x *big.Int) uint256.Int {

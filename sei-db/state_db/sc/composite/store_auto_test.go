@@ -165,7 +165,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 		"completion flip must be rejected while the migration is in flight")
 	require.Error(t, cs.SetWriteMode(types.MemiavlOnly),
 		"backward transition must be rejected")
-	require.Error(t, cs.SetWriteMode(types.MigrateAllButBank),
+	require.Error(t, cs.SetWriteMode(types.MigrateCosmos),
 		"skipping ahead must be rejected")
 
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 200)
@@ -173,23 +173,16 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 
 	// Completion flip is now legal; skipping straight to the next
 	// migration is still not.
-	require.Error(t, cs.SetWriteMode(types.MigrateAllButBank))
+	require.Error(t, cs.SetWriteMode(types.MigrateCosmos))
 	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
 	require.Equal(t, types.EVMMigrated, cs.loadWriteMode())
 	runBlocks(t, cs, workload, 2)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 
-	// Walk the rest of the chain. The workload only writes bank/ and
-	// evm/, so MigrateAllButBank has nothing to copy and completes on its
-	// first block.
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 200)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	runBlocks(t, cs, workload, 2)
-	requireOracleMatches(t, cs, workload.snapshotOracle())
-
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 200)
+	// Walk the rest of the chain. The workload only writes bank/ and evm/, so
+	// MigrateCosmos drains the bank store and lands directly in version 2.
+	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 200)
 	require.NoError(t, cs.SetWriteMode(types.FlatKVOnly))
 	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode())
 
@@ -215,9 +208,7 @@ func TestComposite_Auto_IllegalTransitionsFromFresh(t *testing.T) {
 
 	for _, target := range []types.WriteMode{
 		types.EVMMigrated,        // skip
-		types.MigrateAllButBank,  // skip
-		types.AllMigratedButBank, // skip
-		types.MigrateBank,        // skip
+		types.MigrateCosmos,      // skip
 		types.FlatKVOnly,         // skip
 		types.Auto,               // never a target
 		types.TestOnlyDualWrite,  // never a target
@@ -513,8 +504,8 @@ func TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly(t *testing.T) {
 
 // TestComposite_Auto_MemiavlLeavesHashAtVersion3 pins the memiavl side of
 // the commit-info gate: memiavl's StoreInfos drop out of the commit info
-// at the commit that persists migration version 3 (bank migration
-// complete) — while the effective mode is still MigrateBank, before any
+// at the commit that persists migration version 2 (MigrateCosmos
+// complete) — while the effective mode is still MigrateCosmos, before any
 // FlatKVOnly transition — and the exclusion is restart-independent (a
 // reopened store derives FlatKVOnly and reports the identical commit
 // info). Keying this on the mode instead of the persisted version would
@@ -526,53 +517,48 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	const batch = 25
 
 	cs := openAutoStore(t, dir, batch)
-	// Seed enough bank keys that the eventual bank migration takes
-	// several blocks at this batch size, leaving observable mid-flight
-	// commits.
+	// Seed enough bank keys that the eventual full migration takes several
+	// blocks at this batch size, leaving observable mid-flight commits.
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
 		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
-	// Walk the chain to MigrateBank.
+	// Walk the chain to MigrateCosmos.
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 200)
 	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 200)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
 
 	// Drive to completion one block at a time: on every commit where
-	// version 3 is not yet persisted, memiavl (which still carries
-	// unmigrated bank state) must stay in the hash. The exclusion must
-	// kick in exactly at the version-3 commit, while the mode is still
-	// MigrateBank.
+	// version 2 is not yet persisted, memiavl (which still carries
+	// unmigrated state) must stay in the hash. The exclusion must kick in
+	// exactly at the version-2 commit, while the mode is still MigrateCosmos.
 	sawMidFlight := false
 	for i := 0; i < 200; i++ {
-		done, err := migration.IsAtVersion(flatKVReaderFor(cs), migration.Version3_FlatKVOnly)
+		done, err := migration.IsAtVersion(flatKVReaderFor(cs), migration.Version2_FlatKVOnly)
 		require.NoError(t, err)
 		if done {
 			break
 		}
 		require.Contains(t, storeInfoNames(cs), keys.BankStoreKey,
-			"memiavl StoreInfos must stay in the commit info while the bank migration is in flight")
+			"memiavl StoreInfos must stay in the commit info while MigrateCosmos is in flight")
 		sawMidFlight = true
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
 		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.True(t, sawMidFlight,
-		"test must observe at least one mid-flight MigrateBank commit; lower the batch size")
-	require.Equal(t, types.MigrateBank, cs.loadWriteMode())
+		"test must observe at least one mid-flight MigrateCosmos commit; lower the batch size")
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
-		"memiavl StoreInfos must leave the commit info at the version-3 commit, before the mode flips")
+		"memiavl StoreInfos must leave the commit info at the version-2 commit, before the mode flips")
 	preRestart := cs.LastCommitInfo()
 	require.NoError(t, cs.Close())
 
 	// Restart: derivation auto-advances to FlatKVOnly; the commit info
-	// must be byte-identical to what the live MigrateBank node reported.
+	// must be byte-identical to what the live MigrateCosmos node reported.
 	cs = openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
 	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode())

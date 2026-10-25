@@ -177,27 +177,10 @@ func TestFlushWaitsForHashListeners(t *testing.T) {
 	require.Len(t, recorder.blocks(), 20)
 }
 
-// Close returns while a listener is blocked, because the listener's ctx is cancelled.
-func TestCloseCancelsBlockedHashListener(t *testing.T) {
-	w := openWAL(t, testConfig(t.TempDir()))
-
-	entered := make(chan struct{})
-	_, _, _, err := w.RegisterHashListener(func(ctx context.Context, _ uint64, _ [32]byte) error {
-		close(entered)
-		<-ctx.Done()
-		return ctx.Err()
-	})
-	require.NoError(t, err)
-
-	writeBlock(t, w, 1)
-	<-entered
-	require.NoError(t, w.Close())
-}
-
-// A full hasher channel blocks Write until the listener catches up.
-func TestWriteBlocksWhileHasherBufferIsFull(t *testing.T) {
+// Once the request channel is full behind a blocked listener, Write blocks until the listener catches up.
+func TestWriteBlocksWhileRequestBufferIsFull(t *testing.T) {
 	cfg := testConfig(t.TempDir())
-	cfg.HasherBufferSize = 1
+	cfg.RequestBufferSize = 0
 	w := openWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
 
@@ -214,17 +197,17 @@ func TestWriteBlocksWhileHasherBufferIsFull(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	writeBlock(t, w, 1) // taken by the hasher, which blocks in the listener
+	writeBlock(t, w, 1) // taken by the writer, which blocks in the listener
 	<-entered
-	writeBlock(t, w, 2) // fills the buffer
 
 	written := make(chan error, 1)
 	go func() {
-		written <- w.Write(3, nil)
+		written <- w.Write(2, nil)
 	}()
 	select {
 	case err := <-written:
-		t.Fatalf("Write returned while the hasher buffer was full: %v", err)
+		close(release)
+		t.Fatalf("Write returned while the request buffer was full: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 

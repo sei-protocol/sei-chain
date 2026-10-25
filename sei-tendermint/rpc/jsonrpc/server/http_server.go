@@ -205,8 +205,51 @@ func writeJSONRPCErrorWithStatus(w http.ResponseWriter, reqBody []byte, httpStat
 	if len(reqBody) > 0 {
 		_ = json.Unmarshal(reqBody, &req)
 	}
-	resp := req.MakeErrorf(code, format, args...)
-	body, err := json.Marshal(resp)
+	writeJSONWithStatus(w, httpStatus, req.MakeErrorf(code, format, args...))
+}
+
+// tooManyRequestsMsg is the JSON-RPC error message of an HTTP 429 reply.
+const tooManyRequestsMsg = "too many requests"
+
+// writeJSONRPCTooManyRequests writes a single JSON-RPC error object as the
+// HTTP 429 reply to a rate-limited POST / request.
+func writeJSONRPCTooManyRequests(w http.ResponseWriter, reqBody []byte) {
+	writeJSONRPCErrorWithStatus(w, reqBody, http.StatusTooManyRequests, rpctypes.CodeInternalError, tooManyRequestsMsg)
+}
+
+// writeJSONRPCBatchTooManyRequests writes the HTTP 429 reply to a rate-limited
+// POST / request whose body holds batchLen requests, as reported by the gate.
+// A batch within RequestBatchSizeLimit gets an array with one error response
+// per non-notification request; any other body gets a single error object.
+func writeJSONRPCBatchTooManyRequests(w http.ResponseWriter, reqBody []byte, batchLen int) {
+	if batchLen == 0 || batchLen > rpctypes.RequestBatchSizeLimit {
+		writeJSONRPCTooManyRequests(w, reqBody)
+		return
+	}
+	var reqs []rpctypes.RPCRequest
+	if err := json.Unmarshal(reqBody, &reqs); err != nil {
+		writeJSONRPCTooManyRequests(w, reqBody)
+		return
+	}
+
+	var resps []rpctypes.RPCResponse
+	for _, req := range reqs {
+		if req.IsNotification() {
+			continue
+		}
+		resps = append(resps, req.MakeErrorf(rpctypes.CodeInternalError, tooManyRequestsMsg))
+	}
+	// A batch of only notifications gets no response body, as when it is served.
+	if len(resps) == 0 {
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	writeJSONWithStatus(w, http.StatusTooManyRequests, resps)
+}
+
+// writeJSONWithStatus writes v as a JSON body with the given HTTP status.
+func writeJSONWithStatus(w http.ResponseWriter, httpStatus int, v any) {
+	body, err := json.Marshal(v)
 	if err != nil {
 		logger.Error("Error encoding RPC response", "err", err)
 		writeError(w, http.StatusInternalServerError, err)
