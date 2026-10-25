@@ -23,6 +23,11 @@ type blockGatherer struct {
 	// Once a block has been gathered, it is put onto this channel for the combiner, in block order.
 	combineJobChan chan any
 
+	// inOrder holds one slot per message in the order the messages were scheduled. A slot receives the
+	// message for the combiner once it is ready. A block's gather reads only its own view and its
+	// predecessor's, so blocks are gathered side by side, up to the slots' capacity.
+	inOrder chan chan any
+
 	// Cancelled when the engine is stopping, to release a send that the combiner is no longer reading.
 	ctx context.Context
 
@@ -33,7 +38,7 @@ type blockGatherer struct {
 	// brick latches a failure on the engine, which reports it from Close().
 	brick func(error)
 
-	// wg tracks run(), so that the engine can wait for it to return.
+	// wg tracks run(), forwardInOrder() and every gather in flight, so that the engine can wait for them.
 	wg sync.WaitGroup
 }
 
@@ -51,11 +56,13 @@ func newBlockGatherer(
 		hasher:             hasher,
 		scheduledBlockChan: make(chan any, cfg.ScheduleQueueSize),
 		combineJobChan:     make(chan any, cfg.CombineQueueSize),
+		inOrder:            make(chan chan any, cfg.GatherParallelism),
 		ctx:                ctx,
 		cancel:             cancel,
 		brick:              brick,
 	}
 	g.wg.Go(g.run)
+	g.wg.Go(g.forwardInOrder)
 	return g
 }
 
@@ -71,13 +78,17 @@ func (g *blockGatherer) run() {
 	for {
 		select {
 		case message := <-g.scheduledBlockChan:
+			slot := make(chan any, 1)
 			switch request := message.(type) {
 			case *hashRequest:
-				if !g.gather(request) {
+				if !g.reserveSlot(slot) {
+					request.discard(g.brick)
 					return
 				}
+				g.wg.Go(func() { slot <- g.gather(request) })
 			case *flushRequest:
-				if !g.forward(request) {
+				slot <- request
+				if !g.reserveSlot(slot) {
 					return
 				}
 			default:
@@ -90,10 +101,38 @@ func (g *blockGatherer) run() {
 	}
 }
 
-// Drain the queue without hashing it and stop the combiner.
+// Drain the queue without hashing it and stop forwarding.
 func (g *blockGatherer) teardown() {
-	defer close(g.combineJobChan)
+	defer close(g.inOrder)
 	g.discardQueued()
+}
+
+// reserveSlot queues slot behind every message scheduled before it, blocking while GatherParallelism
+// messages are ahead of the combiner. It reports false when the engine is stopping.
+func (g *blockGatherer) reserveSlot(slot chan any) bool {
+	select {
+	case g.inOrder <- slot:
+		return true
+	case <-g.ctx.Done():
+		return false
+	}
+}
+
+// forwardInOrder hands each message to the combiner once it is ready, in the order it was scheduled, and
+// stops the combiner on the way out.
+func (g *blockGatherer) forwardInOrder() {
+	defer close(g.combineJobChan)
+	for slot := range g.inOrder {
+		var message any
+		select {
+		case message = <-slot:
+		case <-g.ctx.Done():
+			return
+		}
+		if !g.forward(message) {
+			return
+		}
+	}
 }
 
 // discardQueued empties the queue without hashing it, releasing each block's reservation. It runs when
@@ -102,12 +141,8 @@ func (g *blockGatherer) discardQueued() {
 	for {
 		select {
 		case message := <-g.scheduledBlockChan:
-			request, ok := message.(*hashRequest)
-			if !ok {
-				continue
-			}
-			if err := request.release(); err != nil {
-				g.brick(fmt.Errorf("release block %d while stopping: %w", request.blockNumber, err))
+			if request, ok := message.(*hashRequest); ok {
+				request.discard(g.brick)
 			}
 		default:
 			return
@@ -115,8 +150,8 @@ func (g *blockGatherer) discardQueued() {
 	}
 }
 
-// Deal with one block from the gatherer's queue, reporting whether the gatherer may carry on.
-func (g *blockGatherer) gather(request *hashRequest) bool {
+// gather reads one block's changes and submits its leaf hashing, returning the block for the combiner.
+func (g *blockGatherer) gather(request *hashRequest) *gatheredBlock {
 	changed, err := gatherChangesFromAllStores(request.current, request.previous)
 
 	// Released even when the read failed: a reservation left held stalls its database's flushes
@@ -134,11 +169,11 @@ func (g *blockGatherer) gather(request *hashRequest) bool {
 		err = fmt.Errorf("gather block %d: %w", request.blockNumber, err)
 	}
 
-	return g.forward(&gatheredBlock{
+	return &gatheredBlock{
 		blockNumber: request.blockNumber,
 		hashes:      hashes,
 		err:         err,
-	})
+	}
 }
 
 // forward hands one message to the combiner

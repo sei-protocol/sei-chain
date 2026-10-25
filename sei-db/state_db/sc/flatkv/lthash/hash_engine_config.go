@@ -9,6 +9,10 @@ type Config struct {
 	// what bounds the memory the engine costs.
 	ScheduleQueueSize uint32
 
+	// GatherParallelism is how many blocks may be gathered at once. Each holds its reservations until its
+	// read is done, so this also bounds how many blocks keep their databases from flushing.
+	GatherParallelism uint32
+
 	// CombineQueueSize is how many blocks may be part way through hashing at once. Their views have been
 	// released, so each costs the memory of its changed values rather than of a pinned database.
 	CombineQueueSize uint32
@@ -27,6 +31,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		ScheduleQueueSize: 64,
+		GatherParallelism: 8,
 		CombineQueueSize:  8,
 		HashChanSize:      1024,
 		ChunkSize:         128,
@@ -37,6 +42,9 @@ func DefaultConfig() *Config {
 func (c *Config) Validate() error {
 	if c.ScheduleQueueSize == 0 {
 		return fmt.Errorf("schedule queue size must be greater than 0")
+	}
+	if c.GatherParallelism == 0 {
+		return fmt.Errorf("gather parallelism must be greater than 0")
 	}
 	if c.CombineQueueSize == 0 {
 		return fmt.Errorf("combine queue size must be greater than 0")
