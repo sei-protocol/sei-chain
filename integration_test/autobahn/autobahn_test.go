@@ -1485,12 +1485,12 @@ func assertEVMOnlyTraces(t *testing.T, ctx context.Context, clients []*ethrpc.Cl
 	}
 
 	var structLog struct {
-		Gas        hexutil.Uint64    `json:"gas"`
+		Gas        uint64            `json:"gas"`
 		Failed     bool              `json:"failed"`
 		StructLogs []json.RawMessage `json:"structLogs"`
 	}
 	decodeFullnodeTrace(t, "debug_traceTransaction", fullnodeTrace(t, "debug_traceTransaction", deploy.TransactionHash), &structLog)
-	if structLog.Failed || structLog.Gas != deploy.GasUsed || len(structLog.StructLogs) == 0 {
+	if structLog.Failed || structLog.Gas != uint64(deploy.GasUsed) || len(structLog.StructLogs) == 0 {
 		t.Fatalf("%s struct log of the deploy: failed %t, gas %d, %d steps; want a successful run of %d gas with steps",
 			fullnodeContainer, structLog.Failed, structLog.Gas, len(structLog.StructLogs), deploy.GasUsed)
 	}
