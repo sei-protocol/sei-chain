@@ -791,9 +791,9 @@ func (s *littReceiptStore) startPruning() {
 	go func() {
 		defer s.backgroundWg.Done()
 		for {
-			// Keep exactly keepRecent blocks, [latest-keepRecent+1, latest]; the
+			// Keep exactly keepRecent durable blocks, [latest-keepRecent+1, latest]; the
 			// +1 matches the pebble backend (which retains keepRecent, not +1).
-			pruneBefore := s.latestVersion.Load() - s.keepRecent + 1
+			pruneBefore := s.latestDurableVersion.Load() - s.keepRecent + 1
 			if pruneBefore > 0 {
 				if err := s.pruneBlocksBelow(uint64(pruneBefore)); err != nil {
 					logger.Error("failed to prune littdb receipt store",
