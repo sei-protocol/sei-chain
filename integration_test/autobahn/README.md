@@ -450,8 +450,10 @@ subscription other than `newHeads`:
 
 `make autobahn-integration-test` starts a local four-validator cluster and,
 after a 4,000-transfer load and one contract deploy, checks every method above
-except the `debug_trace*` methods on all four validators, including that they return the same blocks and
-receipts.
+except the `debug_trace*` methods on all four validators, including that they
+return the same blocks and receipts. It traces the deploy and its block on the
+RPC node, which keeps the state history a past transaction replays on, and a
+call to the contract on every node.
 
 ### Request and WebSocket limits
 
