@@ -1,0 +1,198 @@
+// Package bootstrap opens and owns the set of databases a Giga node runs on.
+package bootstrap
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
+	"github.com/sei-protocol/sei-chain/giga/apphash/builder"
+	"github.com/sei-protocol/sei-chain/giga/apphash/vault"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
+	"github.com/sei-protocol/seilog"
+)
+
+var logger = seilog.NewLogger("db", "giga")
+
+// GigaStorageManager owns every database a Giga node reads and writes, plus the
+// checkpoint schedule and prune cycle that run above them.
+type GigaStorageManager struct {
+	cfg *config.GigaStorageConfig
+
+	// blockStore.Close closes the block database it was built over.
+	blockStore *blockstore.Store
+
+	// receiptDB is nil when ReceiptDBConfig.Enable is false.
+	receiptDB receipt.ReceiptStore
+
+	// stateDB owns the state commit store, the EVM state store and the state WAL they share, along
+	// with the checkpoint schedule those stores run on.
+	stateDB *giga.StateDB
+
+	// gc is nil until startGarbageCollector succeeds.
+	gc *controller.StorageGarbageCollector
+
+	// appHashBuilder is nil until openAppHashBuilder opens it.
+	appHashBuilder builder.AppHashBuilder
+
+	// appHashVault holds the app hashes appHashBuilder stores. It is nil until openAppHashBuilder opens it.
+	appHashVault vault.HashVault
+}
+
+// NewGigaStorageManager runs the steps that bring storage up:
+//  1. Perform a config validation.
+//  2. Construct and open all DBs with the config.
+//  3. OpenDBWithRecovery: bring every store onto one height, then open the app hash builder at that height.
+//  4. Start the garbage collector.
+func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (*GigaStorageManager, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("cannot open storage with invalid configs: %w", err)
+	}
+	m := &GigaStorageManager{cfg: cfg}
+	err := m.OpenDBWithRecovery(ctx)
+	if err != nil {
+		if closeErr := m.Close(); closeErr != nil {
+			logger.Error("failed to close a partially started storage manager", "err", closeErr)
+		}
+		return nil, err
+	}
+	if err := m.startGarbageCollector(ctx, cfg.PruningConfig); err != nil {
+		if closeErr := m.Close(); closeErr != nil {
+			logger.Error("failed to close a partially started storage manager", "err", closeErr)
+		}
+		return nil, err
+	}
+	return m, nil
+}
+
+// startGarbageCollector runs the prune cycle over the opened stores.
+func (m *GigaStorageManager) startGarbageCollector(ctx context.Context, pruningConfig *config.StorageGarbageCollectorConfig) error {
+	gc, err := controller.NewStorageGarbageCollector(ctx, pruningConfig, m.prunableStores())
+	if err != nil {
+		return fmt.Errorf("start storage garbage collector: %w", err)
+	}
+	m.gc = gc
+	return nil
+}
+
+// prunableStores returns the opened stores that can join the shared prune cycle. The state stores come
+// from the StateDB that owns them.
+func (m *GigaStorageManager) prunableStores() []controllertypes.PrunableStore {
+	stores := make([]controllertypes.PrunableStore, 0, 6)
+	if m.stateDB != nil {
+		stores = append(stores, m.stateDB.PrunableStores()...)
+	}
+	if m.receiptDB != nil {
+		stores = append(stores, m.receiptDB)
+	}
+	if m.blockStore != nil {
+		stores = append(stores, m.blockStore)
+	}
+	if m.appHashVault != nil {
+		stores = append(stores, m.appHashVault)
+	}
+	return stores
+}
+
+// BlockStore returns the block ledger consensus reads and writes.
+func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStore }
+
+// ReceiptDB returns the receipt store, or nil when receipts are disabled.
+func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receiptDB }
+
+// StateDB returns the Giga state DB over the state WAL, the state commit store and the EVM state
+// store, or nil when the open did not reach it.
+func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
+
+// StateWAL returns the state WAL that StateDB writes, or nil before the StateDB is open.
+func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
+	if m.stateDB == nil {
+		return nil
+	}
+	return m.stateDB.WAL()
+}
+
+// AppHashBuilder returns the app hash builder.
+func (m *GigaStorageManager) AppHashBuilder() builder.AppHashBuilder { return m.appHashBuilder }
+
+// AppHashVault returns the hash vault the app hash builder stores app hashes in.
+func (m *GigaStorageManager) AppHashVault() vault.HashVault { return m.appHashVault }
+
+// SC returns the state commit store, or nil before the StateDB is open.
+func (m *GigaStorageManager) SC() *flatkv.CommitStore {
+	if m.stateDB == nil {
+		return nil
+	}
+	return m.stateDB.SC()
+}
+
+// SS returns the EVM state store, or nil when it is disabled or the StateDB is not open.
+func (m *GigaStorageManager) SS() *evm.EVMStateStore {
+	if m.stateDB == nil {
+		return nil
+	}
+	return m.stateDB.SS()
+}
+
+// Close shuts down the collector and then every store, reporting every failure rather than
+// stopping at the first. It tolerates a manager whose open did not finish, and may be called on
+// one that was never opened.
+//
+// How long each store took is logged. Closing drains the write queues the stores buffer behind and
+// waits for the compactions those writes scheduled, so a shutdown that takes minutes is one store's
+// backlog rather than the shutdown itself, and the breakdown is what names it.
+func (m *GigaStorageManager) Close() error {
+	var errs error
+	var timer utils.CloseTimer
+	if m.gc != nil {
+		if err := timer.Close("gc", m.gc.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close storage garbage collector: %w", err))
+		}
+	}
+	if m.blockStore != nil {
+		// blockStore.Close closes the block database it was built over, so closing that here as well
+		// would be a double close.
+		if err := timer.Close("block_store", m.blockStore.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close block store: %w", err))
+		}
+	}
+	if m.receiptDB != nil {
+		if err := timer.Close("receipt_store", m.receiptDB.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close receipt store: %w", err))
+		}
+	}
+	errs = errors.Join(errs, timer.Close("state_db", m.closeState))
+	// After the state DB, whose hash listeners report into the builder until they stop.
+	if m.appHashBuilder != nil {
+		if err := timer.Close("app_hash_builder", m.appHashBuilder.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close app hash builder: %w", err))
+		}
+	}
+	// After the builder, which stores into it until it stops.
+	if m.appHashVault != nil {
+		if err := timer.Close("app_hash_vault", m.appHashVault.Close); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("close app hash vault: %w", err))
+		}
+	}
+	logger.Info("Closed storage", timer.Fields()...)
+	return errs
+}
+
+// closeState closes the stores the StateDB owns. The StateDB is nil when the open failed before
+// reaching it, and closes whatever it had opened when it failed partway.
+func (m *GigaStorageManager) closeState() error {
+	if m.stateDB == nil {
+		return nil
+	}
+	return m.stateDB.Close()
+}

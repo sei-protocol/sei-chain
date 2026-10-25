@@ -82,7 +82,7 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit
-	version, err := cs.Commit()
+	version, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 
@@ -140,7 +140,7 @@ func TestApplyUpgrades(t *testing.T) {
 	}
 	err = cs.ApplyUpgrades(moreUpgrades)
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	entry := mustReadLastChangelogEntry(t, cs)
 	// 4 upgrades total: initial store "test" + newstore1, newstore2, newstore3
@@ -188,7 +188,7 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -218,7 +218,7 @@ func TestCommitInfo(t *testing.T) {
 	}()
 
 	// WorkingCommitInfo before any commit
-	workingInfo := cs.WorkingCommitInfo()
+	workingInfo := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, workingInfo)
 
 	// Apply and commit
@@ -233,7 +233,7 @@ func TestCommitInfo(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// LastCommitInfo after commit
@@ -342,7 +342,7 @@ func TestCommitStoreRollback(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -382,7 +382,7 @@ func TestMultipleCommits(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		version, err := cs.Commit()
+		version, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), version)
 	}
@@ -422,7 +422,7 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit
-	version, err := cs.Commit()
+	version, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 	entry := mustReadLastChangelogEntry(t, cs)
@@ -469,7 +469,7 @@ func TestGetVersions(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.Close())
@@ -520,7 +520,7 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Write more data
@@ -535,7 +535,7 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	require.Equal(t, int64(2), cs.Version())
@@ -577,7 +577,7 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Create multiple read-only copies
@@ -624,7 +624,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// More commits
@@ -639,7 +639,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	require.Equal(t, int64(2), cs.Version())
@@ -683,7 +683,7 @@ func TestRollbackWithWAL(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -733,7 +733,7 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Close to clear WAL
@@ -789,7 +789,7 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Second load (non-copy) should close and recreate WAL
@@ -825,7 +825,7 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Load read-only copy
@@ -839,7 +839,7 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 
 	// Attempting to commit on read-only copy should fail
 	// (this would fail at the memiavl.DB level)
-	_, err = roCS.Commit()
+	_, err = roCS.Commit(roCS.Version() + 1)
 	require.Error(t, err)
 
 	require.NoError(t, roCS.Close())
@@ -874,7 +874,7 @@ func TestWALTruncationOnCommit(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -936,7 +936,7 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 
 	// Commit should succeed even though no snapshots exist
 	// (tryTruncateWAL should handle this gracefully)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// WAL should still have entries
@@ -972,7 +972,7 @@ func setupCS(t *testing.T) *CommitStore {
 		}}},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	return cs
 }
@@ -1180,7 +1180,7 @@ func TestCommitStoreIteratorStoreIsolation(t *testing.T) {
 		}}},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	iter, err := cs.Iterator("s1", []byte{0x00}, []byte{0xff}, true)
@@ -1263,7 +1263,7 @@ func TestWALTruncationDelta(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 

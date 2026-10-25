@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
 NODE_ID=${ID:-0}
+VALIDATOR=${VALIDATOR:-true}
 # Defaults mirror the app's DefaultConfig (giga+OCC on): unset runs what an
 # unconfigured seid would; only an explicit false selects V2.
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
@@ -31,8 +32,16 @@ cp build/generated/genesis.json ~/.sei/config/genesis.json
 cp "$APP_CONFIG_FILE" ~/.sei/config/app.toml
 cp "$TENDERMINT_CONFIG_FILE" ~/.sei/config/config.toml
 
+if [ "$VALIDATOR" != "true" ]; then
+  sed -i 's/^mode = "validator"/mode = "full"/' ~/.sei/config/config.toml
+fi
+
 # Override up persistent peers
-NODE_IP=$(hostname -i | awk '{print $1}')
+if [ -n "$ADVERTISE_IP" ]; then
+  NODE_IP="$ADVERTISE_IP"
+else
+  NODE_IP=$(hostname -i | awk '{print $1}')
+fi
 PEERS=$(cat build/generated/persistent_peers.txt |grep -v "$NODE_IP" | paste -sd "," -)
 sed -i'' -e 's/persistent-peers = ""/persistent-peers = "'$PEERS'"/g' ~/.sei/config/config.toml
 
@@ -137,6 +146,20 @@ else
   echo "occ_enabled = $GIGA_OCC_VALUE" >> ~/.sei/config/app.toml
 fi
 
+# EVM_IP_RATE_LIMIT_RPS and EVM_IP_RATE_LIMIT_BURST override the EVM RPC per-IP
+# rate limit. CI sets them because the integration suites drive node0 from a
+# single IP; when unset the app.toml defaults apply.
+set_evm_rate_limit() {
+  key=$1
+  value=$2
+  [ -n "$value" ] || return 0
+  echo "Setting EVM RPC $key to $value for node $NODE_ID..."
+  sed -i "/^\[evm\]/,/^\[/{/^$key[[:space:]]*=/d;}" ~/.sei/config/app.toml
+  sed -i "/^\[evm\]/a $key = $value" ~/.sei/config/app.toml
+}
+set_evm_rate_limit ip_rate_limit_rps "${EVM_IP_RATE_LIMIT_RPS:-}"
+set_evm_rate_limit ip_rate_limit_burst "${EVM_IP_RATE_LIMIT_BURST:-}"
+
 # Override receipt store backend if requested
 RECEIPT_BACKEND=${RECEIPT_BACKEND:-}
 if [ -n "$RECEIPT_BACKEND" ]; then
@@ -163,8 +186,12 @@ if [ "$AUTOBAHN" = "true" ]; then
     NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
   done
 
-  # Generate autobahn config using seid
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+  # Autobahn serves the EVM JSON-RPC only: clear the Tendermint RPC and Cosmos
+  # query surfaces it does not serve.
+  sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
+  sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+  echo "Enabled Autobahn for node $NODE_ID (EVM JSON-RPC only)"
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

@@ -2,7 +2,6 @@ package evmrpc_test
 
 import (
 	"context"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -40,8 +39,8 @@ func (*freshChainClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*freshChainClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*freshChainClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (*freshChainClient) Status(context.Context) (*coretypes.ResultStatus, error) {

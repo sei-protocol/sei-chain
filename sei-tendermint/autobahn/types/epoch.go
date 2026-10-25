@@ -9,18 +9,24 @@ import (
 // EpochIndex is the epoch number.
 type EpochIndex uint64
 
-// RoadRange is an inclusive range of RoadIndex values [First, Last].
+// RoadRange is a half-open road range [First, Next).
 type RoadRange struct {
 	First RoadIndex
-	Last  RoadIndex
+	Next  RoadIndex
+}
+
+// EpochRange is a half-open epoch-index range [First, Next).
+type EpochRange struct {
+	First EpochIndex
+	Next  EpochIndex
 }
 
 // OpenRoadRange returns a RoadRange covering all road indices from 0.
-// Use in tests and genesis epochs where no upper bound is known yet.
-func OpenRoadRange() RoadRange { return RoadRange{First: 0, Last: utils.Max[RoadIndex]()} }
+func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
-// Has reports whether idx falls within this range (inclusive on both ends).
-func (r RoadRange) Has(idx RoadIndex) bool { return idx >= r.First && idx <= r.Last }
+func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
+
+func (r EpochRange) Has(idx EpochIndex) bool { return r.First <= idx && idx < r.Next }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.
@@ -49,3 +55,10 @@ func (e *Epoch) RoadRange() RoadRange          { return e.roads }
 func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
 func (e *Epoch) Committee() *Committee         { return e.committee }
 func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }
+
+// IsClosed reports whether the lane's previous membership period has ended in
+// this epoch: Joined is strictly before this epoch and the lane is absent from
+// this committee.
+func (e *Epoch) IsClosed(lane LaneID) bool {
+	return lane.Joined < e.epochIndex && !e.committee.HasLane(lane)
+}

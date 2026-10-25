@@ -122,6 +122,6 @@ func (sk *PrivKey) Unmarshal(bz []byte, curve elliptic.Curve, expectedSize int) 
 
 	sk.Curve = curve
 	sk.D = new(big.Int).SetBytes(bz)
-	sk.X, sk.Y = curve.ScalarBaseMult(bz)
+	sk.X, sk.Y = curve.ScalarBaseMult(bz) //nolint:staticcheck // SA1019: deprecated ScalarBaseMult keeps the legacy key decoding.
 	return nil
 }

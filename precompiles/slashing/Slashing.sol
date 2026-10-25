@@ -11,6 +11,22 @@ interface ISlashing {
     // Sei address.
     function unjail() external returns (bool success);
 
+    // Authorizes a grantee to unjail the caller's validator before expiration.
+    function grantUnjailAuthorization(
+        address grantee,
+        int64 expiration
+    ) external returns (bool success);
+
+    // Unjails a validator using an authorization granted by its operator.
+    function unjailWithAuthorization(
+        address validatorOperator
+    ) external returns (bool success);
+
+    // Revokes a grantee's permission to unjail the caller's validator.
+    function revokeUnjailAuthorization(
+        address grantee
+    ) external returns (bool success);
+
     // Queries
     function params() external view returns (SlashingParams memory params);
 

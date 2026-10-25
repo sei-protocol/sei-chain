@@ -2,11 +2,13 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
@@ -50,10 +52,10 @@ func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, es []index
 	}
 }
 
-// Handler returns the http.Handler configured for use with an Inspector server. Handler
-// registers the routes on the http.Handler and also registers the websocket handler
-// and the CORS handler if specified by the configuration options.
-func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
+// Handler returns the Inspector HTTP handler with routes, websocket, CORS, and
+// the rate-limit gate when enabled. It returns an error if the rate limiter
+// cannot be constructed.
+func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	var eventBus eventBusUnsubscriber
@@ -70,11 +72,31 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
 	mux.HandleFunc("/websocket", wm.WebsocketHandler)
 
 	server.RegisterRPCFuncs(mux, routes)
-	var rootHandler http.Handler = mux
-	if rpcConfig.IsCorsEnabled() {
-		rootHandler = addCORSHandler(rpcConfig, mux)
+	var rateLimitGate *server.RateLimitGate
+	if rpcConfig.RateLimitingEnabled {
+		rateLimitRegistry, err := ratelimiter.New(rpcConfig.RateLimiterConfig())
+		if err != nil {
+			return nil, fmt.Errorf("rpc rate limiter: %w", err)
+		}
+		rateLimitGate = server.NewRateLimitGate(
+			rateLimitRegistry,
+			rpcConfig.MaxBodyBytes,
+		)
+		if rpcConfig.IPRateLimitRPS <= 0 || rpcConfig.IPRateLimitBurst <= 0 {
+			logger.Info(
+				"RPC rate-limit admission is enabled but the token bucket is disabled "+
+					"(ip-rate-limit-rps and/or ip-rate-limit-burst <= 0); HTTP 429 throttling will not occur",
+				"module", "rpc-server",
+				"ip-rate-limit-rps", rpcConfig.IPRateLimitRPS,
+				"ip-rate-limit-burst", rpcConfig.IPRateLimitBurst,
+			)
+		}
 	}
-	return rootHandler
+	rootHandler := server.NewRateLimitMiddleware(mux, rateLimitGate)
+	if rpcConfig.IsCorsEnabled() {
+		rootHandler = addCORSHandler(rpcConfig, rootHandler)
+	}
+	return rootHandler, nil
 }
 
 func addCORSHandler(rpcConfig *config.RPCConfig, h http.Handler) http.Handler {

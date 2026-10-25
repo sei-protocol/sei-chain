@@ -46,6 +46,34 @@ func TestOverrideList(t *testing.T) {
 	}
 }
 
+// UPGRADE_VERSION_LIST replaces upgradesList in place and nothing puts it back,
+// so a test that pins the handler set leaves the global holding its value for
+// every test after it. ReleaseUpgrades has to stay the answer to what this build
+// ships regardless, because that is what upgradetest derives the boundary being
+// shipped from, and a boundary that moved with the override would let a test set
+// select itself.
+func TestReleaseUpgradesIgnoresTheOverride(t *testing.T) {
+	shipped := ReleaseUpgrades()
+	assert.Equal(t, shipped[len(shipped)-1], LatestUpgrade)
+
+	defaultList := upgradesList
+	t.Cleanup(func() { upgradesList = defaultList })
+
+	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
+	overrideList()
+
+	assert.Equal(t, []string{"v6.7"}, upgradesList)
+	assert.Equal(t, shipped, ReleaseUpgrades(), "the override moved which upgrades this build ships")
+}
+
+// ReleaseUpgrades hands out a copy, so a caller that sorts or truncates what it
+// gets back cannot change what the next caller sees.
+func TestReleaseUpgradesCopies(t *testing.T) {
+	shipped := ReleaseUpgrades()
+	shipped[0] = "clobbered"
+	assert.NotEqual(t, "clobbered", ReleaseUpgrades()[0])
+}
+
 func TestParseUpgradesList(t *testing.T) {
 	tests := []struct {
 		name     string

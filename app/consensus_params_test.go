@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -56,6 +57,7 @@ func TestGetFinalizeBlockResponsePropagatesFullConsensusParams(t *testing.T) {
 
 	app := &App{}
 	resp := app.getFinalizeBlockResponse(
+		context.Background(),
 		[]byte("hash"),
 		nil,
 		nil,

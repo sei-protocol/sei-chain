@@ -12,6 +12,9 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.latency,
+		Global.nextBlock,
+		Global.gasUsed,
+		Global.txSize,
 	)
 }
 
@@ -24,9 +27,39 @@ func newMetrics() *metrics {
 			Help:      "latency of resource processing up from production to the given stage",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
 		}, []string{"resource", "stage"}),
+		nextBlock: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "next_block",
+			Help:      "Next block to process in the given stage.",
+		}, []string{"stage"}),
+		gasUsed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "gas_used",
+			Help:      "gas used by executed blocks",
+		}, nil),
+		txSize: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "tx_size",
+			Help:      "size of executed transactions in bytes",
+		}, nil),
 	}
 }
 
 func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogram {
 	return m.latency.WithLabelValues(resource, stage)
+}
+
+func (m *metrics) nextBlockAt(stage string) *tmprometheus.GaugeInt {
+	return m.nextBlock.WithLabelValues(stage)
+}
+
+func (m *metrics) gasUsedAt() *tmprometheus.CounterInt {
+	return m.gasUsed.WithLabelValues()
+}
+
+func (m *metrics) txSizeAt() *tmprometheus.Histogram {
+	return m.txSize.WithLabelValues()
 }

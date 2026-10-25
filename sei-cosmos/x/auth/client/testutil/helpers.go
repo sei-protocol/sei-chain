@@ -15,13 +15,14 @@ import (
 )
 
 func TxSignExec(clientCtx client.Context, from fmt.Stringer, filename string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
+	args := make([]string, 0, 5+len(extraArgs))
+	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		fmt.Sprintf("--from=%s", from.String()),
 		fmt.Sprintf("--%s=%s", flags.FlagHome, strings.Replace(clientCtx.HomeDir, "simd", "simcli", 1)),
 		fmt.Sprintf("--%s=%s", flags.FlagChainID, clientCtx.ChainID),
 		filename,
-	}
+	)
 
 	cmd := cli.GetSignCommand()
 	tmcli.PrepareBaseCmd(cmd, "", "")
@@ -30,18 +31,18 @@ func TxSignExec(clientCtx client.Context, from fmt.Stringer, filename string, ex
 }
 
 func TxBroadcastExec(clientCtx client.Context, filename string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
-		filename,
-	}
+	args := make([]string, 0, 1+len(extraArgs))
+	args = append(args, filename)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetBroadcastCommand(), append(args, extraArgs...))
 }
 
 func TxEncodeExec(clientCtx client.Context, filename string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
+	args := make([]string, 0, 2+len(extraArgs))
+	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		filename,
-	}
+	)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetEncodeCommand(), append(args, extraArgs...))
 }
@@ -57,37 +58,41 @@ func TxValidateSignaturesExec(clientCtx client.Context, filename string) (testut
 }
 
 func TxMultiSignExec(clientCtx client.Context, from string, filename string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
+	args := make([]string, 0, 4+len(extraArgs))
+	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		fmt.Sprintf("--%s=%s", flags.FlagChainID, clientCtx.ChainID),
 		filename,
 		from,
-	}
+	)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetMultiSignCommand(), append(args, extraArgs...))
 }
 
 func TxSignBatchExec(clientCtx client.Context, from fmt.Stringer, filename string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
+	args := make([]string, 0, 3+len(extraArgs))
+	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		fmt.Sprintf("--from=%s", from.String()),
 		filename,
-	}
+	)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetSignBatchCommand(), append(args, extraArgs...))
 }
 
 func TxDecodeExec(clientCtx client.Context, encodedTx string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
+	args := make([]string, 0, 2+len(extraArgs))
+	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		encodedTx,
-	}
+	)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetDecodeCommand(), append(args, extraArgs...))
 }
 
 func QueryAccountExec(clientCtx client.Context, address fmt.Stringer, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{address.String(), fmt.Sprintf("--%s=json", tmcli.OutputFlag)}
+	args := make([]string, 0, 2+len(extraArgs))
+	args = append(args, address.String(), fmt.Sprintf("--%s=json", tmcli.OutputFlag))
 
 	return clitestutil.ExecTestCLICmd(clientCtx, cli.GetAccountCmd(), append(args, extraArgs...))
 }

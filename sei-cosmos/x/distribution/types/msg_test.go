@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -75,6 +76,7 @@ func TestMsgWithdrawValidatorCommission(t *testing.T) {
 
 // test ValidateBasic for MsgDepositIntoCommunityPool
 func TestMsgDepositIntoCommunityPool(t *testing.T) {
+	maxAmt := sdk.NewIntFromBigInt(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)))
 	tests := []struct {
 		amount     sdk.Coins
 		depositor  sdk.AccAddress
@@ -83,6 +85,7 @@ func TestMsgDepositIntoCommunityPool(t *testing.T) {
 		{sdk.NewCoins(sdk.NewInt64Coin("uatom", 10000)), sdk.AccAddress{}, false},
 		{sdk.Coins{sdk.NewInt64Coin("uatom", 10), sdk.NewInt64Coin("uatom", 10)}, delAddr1, false},
 		{sdk.NewCoins(sdk.NewInt64Coin("uatom", 1000)), delAddr1, true},
+		{sdk.NewCoins(sdk.NewCoin("uatom", maxAmt)), delAddr1, false},
 	}
 	for i, tc := range tests {
 		msg := NewMsgFundCommunityPool(tc.amount, tc.depositor)

@@ -3,8 +3,9 @@
 //
 // # MethodParser fail-closed contract
 //
-// MethodParser.Parse must be used on the entire request body, bounded by
-// MaxProbeBytes (see DefaultMaxProbeBytes). Callers must reject the request on
+// MethodParser.Parse must be used on the entire request body. When MaxProbeBytes
+// is positive the body must fit within that limit (see DefaultMaxProbeBytes for
+// a typical cap); non-positive means no parser-imposed limit. Callers must reject on
 // every returned error — including ErrProbeLimit — with no fallback decode and
 // no default method bucket. Mapping any error to "admit anyway" defeats method
 // extraction and allows rate-limit bypass (for example duplicate "method" keys

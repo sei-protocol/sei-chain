@@ -121,6 +121,8 @@
     # Get the current tally params
     - cmd: seid q bank total --denom usei --output json | jq -r .amount
       env: TOTAL_SUPPLY_BEFORE_BURN
+    - cmd: seid q mint minter --output json | jq -r '(.total_mint_amount|tonumber) - (.remaining_mint_amount|tonumber)'
+      env: MINTED_BEFORE
     # Make a new expedited proposal
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_gov_proposal admin "Gov Param Change Expedited" gov submit-proposal param-change ./integration_test/gov_module/proposal/expedited_proposal.json --fees 2000usei
       env: PROPOSAL_ID
@@ -135,15 +137,12 @@
     # the expedited proposal auto-converts to regular; drive progress until it reaches a terminal status
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_REJECTED admin
       env: PROPOSAL_STATUS
-    # Get the tally params again after proposal is passed
-    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
-      env: NEW_PARAM
-    # Get the current tally params
     - cmd: seid q bank total --denom usei --output json | jq -r .amount
       env: TOTAL_SUPPLY_AFTER_BURN
+    - cmd: seid q mint minter --output json | jq -r '(.total_mint_amount|tonumber) - (.remaining_mint_amount|tonumber)'
+      env: MINTED_AFTER
   verifiers:
-    # Check if the total supply is reduced or not to verify token burns
+    # The rejected proposal burns both deposits (10000000usei initial + 10000000usei top-up);
+    # a daily mint landing during the proposal is netted out
     - type: eval
-      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000333333333333
-    - type: eval
-      expr: TOTAL_SUPPLY_AFTER_BURN == 5000000000333313333333
+      expr: TOTAL_SUPPLY_BEFORE_BURN + MINTED_AFTER - MINTED_BEFORE - TOTAL_SUPPLY_AFTER_BURN == 20000000

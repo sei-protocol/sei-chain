@@ -1,12 +1,14 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -34,7 +36,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 
 	// Test max retries exceeded first
 	nonExistentHash := common.Hash{1}
-	_, err := k.GetReceiptWithRetry(ctx, nonExistentHash, 2)
+	_, err := k.GetReceiptWithRetry(t.Context(), ctx, nonExistentHash, 2)
 	require.NotNil(t, err)
 	require.Equal(t, "receipt not found", err.Error())
 
@@ -44,9 +46,25 @@ func TestGetReceiptWithRetry(t *testing.T) {
 		k.MockReceipt(ctx, txHash, &types.Receipt{TxHashHex: txHash.Hex()})
 	}()
 
-	r, err := k.GetReceiptWithRetry(ctx, txHash, 3)
+	r, err := k.GetReceiptWithRetry(t.Context(), ctx, txHash, 3)
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
+}
+
+func TestGetReceiptWithRetryCancelledContext(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	nonExistentHash := common.Hash{2}
+
+	goCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	start := time.Now()
+	_, err := k.GetReceiptWithRetry(goCtx, ctx, nonExistentHash, 3)
+	elapsed := time.Since(start)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, elapsed, 100*time.Millisecond, "cancellation should abort the wait immediately instead of sleeping out the retry backoff")
 }
 
 func TestFlushTransientReceipts(t *testing.T) {
@@ -84,6 +102,28 @@ func TestFlushTransientReceipts(t *testing.T) {
 	// Flushing with no receipts should not error
 	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
+}
+
+// TestFlushTransientReceiptsWithoutStore pins that a node with receipt-store.rs-enable = false
+// flushes without error. The flush runs from the pre-commit handler, which panics on a returned
+// error, so an absent store reporting a failure here would take the node down every block.
+func TestFlushTransientReceiptsWithoutStore(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+
+	restore := k.ReceiptStore()
+	k.SetReceiptStoreForTesting(nil)
+	t.Cleanup(func() { k.SetReceiptStoreForTesting(restore) })
+
+	// A receipt the block produced, so the flush has something it would otherwise write.
+	txHash := common.HexToHash("0x00000000000000000000000000000000000000000000000000000000deadbeef")
+	require.NoError(t, k.SetTransientReceipt(ctx, txHash, &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}))
+
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+
+	// And the read paths still refuse rather than reporting the receipt absent.
+	_, err := k.GetReceipt(ctx, txHash)
+	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 }
 
 func TestDeleteTransientReceipt(t *testing.T) {

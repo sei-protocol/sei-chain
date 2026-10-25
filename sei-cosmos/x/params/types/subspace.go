@@ -155,7 +155,7 @@ func (s Subspace) checkType(key []byte, value interface{}) {
 
 	ty := attr.ty
 	pty := reflect.TypeOf(value)
-	if pty.Kind() == reflect.Ptr {
+	if pty.Kind() == reflect.Pointer {
 		pty = pty.Elem()
 	}
 

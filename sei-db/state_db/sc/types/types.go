@@ -24,10 +24,17 @@ type Committer interface {
 	// Rejects store names not in keys.MemIAVLStoreKeys.
 	Initialize(initialStores []string) error
 
-	// Commit persists the current working state and returns the version
-	// number assigned to the new commit. After a successful Commit the
-	// working state advances to the next height.
-	Commit() (int64, error)
+	// Commit persists the current working state and returns the version number assigned to the new
+	// commit. After a successful Commit the working state advances to the next height.
+	//
+	// version is the height being committed. A backend that would land on any other height is a panic,
+	// except on a store that has never committed: one seeded to start its history above height 1
+	// legitimately disagrees with a caller counting from the beginning.
+	//
+	// The height is passed rather than derived because a backend that seals a block in order to hash it
+	// has already advanced past the height the caller is building, so a self-derived "next" version
+	// lands one block too far.
+	Commit(version int64) (int64, error)
 
 	// Version returns the version of the currently loaded in-memory state,
 	// i.e. the height of the most recent successful Commit (or LoadVersion).
@@ -84,9 +91,10 @@ type Committer interface {
 	// state are skipped. Passing an empty slice is a no-op.
 	ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error
 
-	// WorkingCommitInfo returns the CommitInfo describing the uncommitted
-	// working state, suitable for computing the app hash before Commit.
-	WorkingCommitInfo() *proto.CommitInfo
+	// WorkingCommitInfo returns the CommitInfo describing the uncommitted working state, suitable for
+	// computing the app hash before Commit. version is the height being built; a backend on any other
+	// height is a panic.
+	WorkingCommitInfo(version int64) *proto.CommitInfo
 
 	// LastCommitInfo returns the CommitInfo of the most recent persisted
 	// commit. The returned value reflects on-disk state and is unaffected
@@ -122,6 +130,11 @@ type Committer interface {
 	// routable. The returned store shares state with the Committer and
 	// must not be used after Close.
 	GetChildStoreByName(name string) CommitKVStore
+
+	// MayHoldStore reports whether the working state may hold data for the
+	// named store, whether or not any store is mounted for it. False is exact;
+	// true may be conservative for a backend that cannot answer precisely.
+	MayHoldStore(name string) bool
 
 	// Copy returns an in-memory snapshot of the current committer state.
 	// O(1) for memiavl. Returns nil when the backend can't produce one
@@ -166,6 +179,12 @@ type Committer interface {
 	// batch, on the consensus goroutine.
 	SetMigrationBatchSize(batchSize int) error
 
+	// Flush blocks until every version committed so far has been written to the
+	// backing store's log. It does not fsync; the writes survive process exit,
+	// not power loss. Backends that write synchronously in Commit return
+	// immediately.
+	Flush() error
+
 	// Closer releases all backing resources (open files, background
 	// goroutines, locks). After Close the Committer must not be used.
 	io.Closer
@@ -207,7 +226,13 @@ type CommitKVStore interface {
 type Importer interface {
 	AddModule(name string) error
 
-	AddNode(node *SnapshotNode)
+	// AddNode queues node for import. A non-nil error means node was not accepted and the import cannot
+	// complete.
+	AddNode(node *SnapshotNode) error
+
+	// Abort discards the import in place of Close, publishing none of it. The returned error may be
+	// reason itself, or another error that already ended the import.
+	Abort(reason error) error
 
 	io.Closer
 }

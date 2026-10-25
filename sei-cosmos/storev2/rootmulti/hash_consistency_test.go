@@ -22,7 +22,7 @@ func TestCommitAndHistoricalQueryHashConsistency(t *testing.T) {
 	// goroutine races the cleanup ("directory not empty" on data/hash.log).
 	defer func() { _ = store.Close() }()
 
-	keys := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
+	keys := []string{"acc", "bank", "distribution", "staking", "evm", "upgrade"}
 	storeKeys := make(map[string]*types.KVStoreKey)
 	for _, name := range keys {
 		sk := types.NewKVStoreKey(name)
@@ -111,7 +111,7 @@ func TestCommitAndHistoricalQueryWithDoubleFlush(t *testing.T) {
 	// goroutine races the cleanup ("directory not empty" on data/hash.log).
 	defer func() { _ = store.Close() }()
 
-	keys := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
+	keys := []string{"acc", "bank", "distribution", "staking", "evm", "upgrade"}
 	storeKeys := make(map[string]*types.KVStoreKey)
 	for _, name := range keys {
 		sk := types.NewKVStoreKey(name)

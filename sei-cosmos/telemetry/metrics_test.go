@@ -44,6 +44,18 @@ func TestMetrics_InMem(t *testing.T) {
 	require.Equal(t, 10, jsonMetrics.Counters[0].Count)
 }
 
+func TestMetrics_PromDisabledByDefaultRetention(t *testing.T) {
+	m, err := New(Config{
+		Enabled:                 true,
+		EnableHostname:          false,
+		ServiceName:             "test",
+		PrometheusRetentionTime: 0,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	require.False(t, m.prometheusEnabled)
+}
+
 func TestMetrics_Prom(t *testing.T) {
 	m, err := New(Config{
 		Enabled:                 true,

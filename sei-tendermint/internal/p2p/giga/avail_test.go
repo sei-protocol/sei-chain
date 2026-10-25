@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -19,7 +20,7 @@ func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	committee := registry.LatestEpoch().Committee()
+	committee := registry.MustEpoch(0).Committee()
 	env := newTestEnv(registry)
 	var nodes []*testNode
 	activeKeys := keys[:3] // keys are sorted by weight, so that's ok.
@@ -51,12 +52,13 @@ func TestAvailClientServer(t *testing.T) {
 		// After an honest tip, corrupt PushBlocks are stale or parent-mismatch drops.
 		t.Log("Spawn task sending corrupted data of node 0 to node 2.")
 		corrupt := newTestNode(registry, &consensus.Config{
-			Key:         activeKeys[0],
-			ViewTimeout: defaultViewTimeout,
+			Key:             activeKeys[0],
+			ViewTimeout:     defaultViewTimeout,
+			ProposalTimeout: time.Hour,
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()
-		lane0 := activeKeys[0].Public()
+		lane0 := types.LaneID{Validator: activeKeys[0].Public(), Joined: 0}
 		corruptRng := rng.Split()
 		s.SpawnBg(func() error {
 			if _, err := a2.Block(ctx, lane0, 0); err != nil && !errors.Is(err, types.ErrPruned) {
@@ -66,7 +68,7 @@ func TestAvailClientServer(t *testing.T) {
 			// ProduceLocalBlock will fail loudly if this bound is raised past it.
 			for range avail.BlocksPerLane {
 				n := corruptAvail.NextBlock(lane0)
-				b, err := corruptAvail.ProduceLocalBlock(n, types.GenPayload(corruptRng))
+				b, err := corruptAvail.ProduceLocalBlock(lane0, n, types.GenPayload(corruptRng))
 				if err != nil {
 					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
@@ -83,13 +85,13 @@ func TestAvailClientServer(t *testing.T) {
 			rng := rng.Split()
 			s.Spawn(func() error {
 				a := node.consensus.Avail()
-				lane := a.PublicKey()
+				lane := a.LocalLane().OrPanic("local")
 				for range totalBlocks {
 					n := a.NextBlock(lane)
-					if err := a.WaitForLocalCapacity(ctx, n); err != nil {
+					if err := a.WaitForCapacity(ctx, lane, n); err != nil {
 						return fmt.Errorf("waitForLocalCapacity(): %w", err)
 					}
-					if _, err := a.ProduceLocalBlock(n, types.GenPayload(rng)); err != nil {
+					if _, err := a.ProduceLocalBlock(lane, n, types.GenPayload(rng)); err != nil {
 						return fmt.Errorf("produceLocalBlock(): %w", err)
 					}
 				}
@@ -112,7 +114,7 @@ func TestAvailClientServer(t *testing.T) {
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
-				if err := node.data.PushAppHash(ctx, n, h); err != nil {
+				if err := node.data.PushAppHash(ctx, n, h, nil); err != nil {
 					return fmt.Errorf("node.data.PushAppHash(): %w", err)
 				}
 			}

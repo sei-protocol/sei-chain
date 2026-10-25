@@ -1013,7 +1013,6 @@ func (suite *AnteTestSuite) TestCustomSignatureVerificationGasConsumer() {
 		ante.HandlerOptions{
 			AccountKeeper:   suite.app.AccountKeeper,
 			BankKeeper:      suite.app.BankKeeper,
-			FeegrantKeeper:  suite.app.FeeGrantKeeper,
 			ParamsKeeper:    suite.app.ParamsKeeper,
 			SignModeHandler: suite.clientCtx.TxConfig.SignModeHandler(),
 			SigGasConsumer: func(meter sdk.GasMeter, sig signing.SignatureV2, params types.Params) error {

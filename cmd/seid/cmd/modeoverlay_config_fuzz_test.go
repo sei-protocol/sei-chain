@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -25,8 +26,8 @@ import (
 // retaining history, prunes state at the default KeepRecent instead of keeping all of it.
 //
 // It fails partially rather than wholly, which is worth knowing before reading a failure here.
-// Shadowing only reaches the fields CustomAppConfig redeclares, so MinRetainBlocks and API.Enable and
-// GRPCWeb.Enable sit on the embedded struct and do take effect. Archive mode works for those and not
+// Shadowing only reaches the fields CustomAppConfig redeclares, so MinRetainBlocks and API.Enable sit
+// on the embedded struct and do take effect. Archive mode works for those and not
 // for its state store.
 //
 // The blast radius is narrow, and worth stating precisely, because it sets what a repair costs.
@@ -201,7 +202,7 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 	if got.StateCommit != seidbconfig.DefaultStateCommitConfig() {
 		t.Error("the state-commit section is no longer the sei-db default")
 	}
-	if got.ReceiptStore != seidbconfig.DefaultReceiptStoreConfig() {
+	if !reflect.DeepEqual(got.ReceiptStore, seidbconfig.DefaultReceiptStoreConfig()) {
 		t.Error("the receipt-store section is no longer the sei-db default")
 	}
 }

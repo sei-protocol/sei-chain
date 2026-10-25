@@ -3,10 +3,8 @@ package staking
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -16,21 +14,33 @@ func BeginBlocker(ctx sdk.Context, k keeper.Keeper) {
 	beginBlockerStart := time.Now()
 	defer func() {
 		stakingMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
-		// TODO(PLT-414): remove once staking_begin_blocker_duration verified
-		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
 	}()
 
 	k.TrackHistoricalInfo(ctx)
 }
 
-// Called every block, update validator set
+// backfillDelegationByValIndex indexes the next batch of delegations while the
+// delegation-by-validator index is backfilled. It runs after every transaction in the
+// block, so no transaction iterates the staking store while the batch's writes are
+// pending in it. A delegation that cannot be decoded halts the chain, as it would at
+// any other read.
+func backfillDelegationByValIndex(ctx sdk.Context, k keeper.Keeper) {
+	// The batch is block-level work, so it is not charged to any gas meter.
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	if _, err := k.BackfillDelegationByValIndex(ctx, keeper.DelegationByValIndexBackfillBatchSize); err != nil {
+		panic(err)
+	}
+}
+
+// Called every block, update validator set. It also advances the
+// delegation-by-validator index backfill while one is in progress.
 func EndBlocker(ctx sdk.Context, k keeper.Keeper) []abci.ValidatorUpdate {
 	endBlockerStart := time.Now()
 	defer func() {
 		stakingMetrics.endBlockerDuration.Record(ctx.Context(), time.Since(endBlockerStart).Seconds())
-		// TODO(PLT-414): remove once staking_end_blocker_duration verified
-		telemetry.ModuleMeasureSince(types.ModuleName, endBlockerStart, telemetry.MetricKeyEndBlocker)
 	}()
 
-	return k.BlockValidatorUpdates(ctx)
+	updates := k.BlockValidatorUpdates(ctx)
+	backfillDelegationByValIndex(ctx, k)
+	return updates
 }

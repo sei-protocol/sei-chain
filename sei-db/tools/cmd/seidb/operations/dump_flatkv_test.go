@@ -2,17 +2,13 @@ package operations
 
 import (
 	"bufio"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
@@ -52,7 +48,7 @@ func TestDumpFlatKVFromStoreAllBuckets(t *testing.T) {
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
-	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "", true, false, true, 0))
+	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "", true, false, 0))
 
 	type expect struct {
 		lines int
@@ -116,7 +112,7 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
-	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "storage", true, false, true, 0))
+	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "storage", true, false, 0))
 
 	// Only storage file should exist; the others must not be created.
 	for _, name := range flatkvBucketOrder {
@@ -140,105 +136,37 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
 	// More than one batch so the incremental MixIn path is exercised.
 	n := lthashBatchCap*2 + 17
-	all := make([]lthash.KVPairWithLastValue, 0, n)
+	all := make([]lthash.KeyMutation, 0, n)
 	hashers := map[string]*bucketLtHasher{
-		flatkvBucketAccount: newBucketLtHasher(),
-		flatkvBucketStorage: newBucketLtHasher(),
+		FlatKVBucketAccount: newBucketLtHasher(),
+		FlatKVBucketStorage: newBucketLtHasher(),
 	}
-	bucketPairs := map[string][]lthash.KVPairWithLastValue{}
+	bucketPairs := map[string][]lthash.KeyMutation{}
 
 	for i := 0; i < n; i++ {
-		bucket := flatkvBucketAccount
+		bucket := FlatKVBucketAccount
 		if i%2 == 0 {
-			bucket = flatkvBucketStorage
+			bucket = FlatKVBucketStorage
 		}
 		key := []byte{byte(bucket[0]), byte(i), byte(i >> 8), byte(i >> 16)}
 		val := []byte{byte(i), 0xAB, byte(i >> 8)}
 		hashers[bucket].add(key, val)
-		bucketPairs[bucket] = append(bucketPairs[bucket], lthash.KVPairWithLastValue{Key: key, Value: val})
-		all = append(all, lthash.KVPairWithLastValue{Key: key, Value: val})
+		bucketPairs[bucket] = append(bucketPairs[bucket], lthash.KeyMutation{Key: key, Value: val})
+		all = append(all, lthash.KeyMutation{Key: key, Value: val})
 	}
 
 	total := lthash.New()
 	for bucket, h := range hashers {
 		h.flush()
-		single, _ := lthash.ComputeLtHash(nil, bucketPairs[bucket])
+		single := lthash.ComputeLtHash(nil, bucketPairs[bucket])
 		require.Equal(t, single.Checksum(), h.acc.Checksum(),
 			"batched bucket hash for %s must equal single-shot ComputeLtHash", bucket)
 		total.MixIn(h.acc)
 	}
 
-	unionSingle, _ := lthash.ComputeLtHash(nil, all)
+	unionSingle := lthash.ComputeLtHash(nil, all)
 	require.Equal(t, unionSingle.Checksum(), total.Checksum(),
 		"MixIn of per-bucket hashes must equal the LtHash over the union of all pairs")
-}
-
-// TestSnapshotMetadataMakesCommittedHashFullState pins the decision that
-// drives whether dump-flatkv --lthash verifies or skips: a snapshot at version
-// 0 is always full-state; a snapshot at version > 0 is full-state iff it
-// carried the LtHash metadata key. Presence matters, not the hash value,
-// because a legitimate LtHash watermark can be all-zero.
-func TestSnapshotMetadataMakesCommittedHashFullState(t *testing.T) {
-	require.True(t, snapshotMetadataMakesCommittedHashFullState(0, false),
-		"version 0 baseline is always full-state")
-	require.True(t, snapshotMetadataMakesCommittedHashFullState(0, true),
-		"version 0 baseline is full-state regardless of metadata presence")
-	require.False(t, snapshotMetadataMakesCommittedHashFullState(100, false),
-		"version>0 without the LtHash metadata key predates LtHash metadata: not full-state")
-	require.True(t, snapshotMetadataMakesCommittedHashFullState(100, true),
-		"version>0 with the LtHash metadata key present is full-state")
-}
-
-func TestSelectedSnapshotHasLtHashMetadata(t *testing.T) {
-	dbDir := t.TempDir()
-	snapshotName := flatkvSnapshotPrefix + "00000000000000000100"
-
-	hasMetadata, err := selectedSnapshotHasLtHashMetadata(dbDir, snapshotName)
-	require.NoError(t, err)
-	require.False(t, hasMetadata, "missing metadata dir means the snapshot has no LtHash metadata")
-
-	metaDir := filepath.Join(dbDir, snapshotName, flatkvMetadataDir)
-	require.NoError(t, os.MkdirAll(metaDir, 0o750))
-	cfg := pebbledb.DefaultConfig()
-	cfg.DataDir = metaDir
-	cfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &cfg)
-	require.NoError(t, err)
-
-	hasMetadata, err = selectedSnapshotHasLtHashMetadata(dbDir, snapshotName)
-	require.NoError(t, err)
-	require.False(t, hasMetadata, "metadata dir without MetaLtHashKey is still pre-LtHash")
-
-	zeroHash := lthash.New()
-	require.NoError(t, db.Set(ktype.MetaLtHashKey, zeroHash.Marshal(), dbtypes.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
-
-	hasMetadata, err = selectedSnapshotHasLtHashMetadata(dbDir, snapshotName)
-	require.NoError(t, err)
-	require.True(t, hasMetadata, "MetaLtHashKey presence matters even when the stored watermark is all-zero")
-}
-
-// TestDumpFlatKVFromStoreSkipsVerifyWhenNotFullState confirms that passing
-// committedIsFullState=false skips LtHash verification (returns nil) rather
-// than comparing a full re-scan against a partial committed hash.
-func TestDumpFlatKVFromStoreSkipsVerifyWhenNotFullState(t *testing.T) {
-	store := newTestFlatKVStore(t)
-	defer func() { require.NoError(t, store.Close()) }()
-
-	addrA := addrN(0x11)
-	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
-		Name: keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			storagePair(addrA, slotN(0x01), 0xAA),
-		}},
-	}}))
-	_, err := store.Commit(store.Version() + 1)
-	require.NoError(t, err)
-
-	outDir := t.TempDir()
-	// committedIsFullState=false -> verification is skipped, so the dump
-	// succeeds even though we are not cross-checking the committed hash.
-	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "", true, false, false, 0))
 }
 
 func TestDumpFlatKVFromStoreLtHashOnlyWritesNoBucketFiles(t *testing.T) {
@@ -258,16 +186,15 @@ func TestDumpFlatKVFromStoreLtHashOnlyWritesNoBucketFiles(t *testing.T) {
 	require.NoError(t, err)
 
 	outDir := filepath.Join(t.TempDir(), "must-not-be-created")
-	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "", true, true, true, 0))
+	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "", true, true, 0))
 	_, statErr := os.Stat(outDir)
 	require.True(t, os.IsNotExist(statErr), "lthash-only mode must not create output dir or bucket files")
 }
 
 func TestIsFlatKVBucket(t *testing.T) {
 	for _, b := range flatkvBucketOrder {
-		require.True(t, isFlatKVBucket(b), "%s should be accepted", b)
+		require.True(t, IsFlatKVBucket(b), "%s should be accepted", b)
 	}
-	require.False(t, isFlatKVBucket(""), "empty should not validate")
-	require.False(t, isFlatKVBucket("metadata"), "metadata is intentionally excluded from dump-flatkv")
-	require.False(t, isFlatKVBucket("evm"), "evm is a module, not a bucket")
+	require.False(t, IsFlatKVBucket(""), "empty should not validate")
+	require.False(t, IsFlatKVBucket("evm"), "evm is a module, not a bucket")
 }

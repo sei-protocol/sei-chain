@@ -46,12 +46,3 @@ func (msg *MsgAssociate) ValidateBasic() error {
 
 	return nil
 }
-
-func IsTxMsgAssociate(tx sdk.Tx) bool {
-	msgs := tx.GetMsgs()
-	if len(msgs) != 1 {
-		return false
-	}
-	_, ok := msgs[0].(*MsgAssociate)
-	return ok
-}

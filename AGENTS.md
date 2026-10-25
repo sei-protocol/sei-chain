@@ -1,7 +1,7 @@
 # Sei Chain
 
 `github.com/sei-protocol/sei-chain` is a Cosmos SDK / Tendermint blockchain with
-a native EVM. It targets **Go 1.25.6**.
+a native EVM. It targets **Go 1.27.3**.
 
 ## Nested guides
 
@@ -11,10 +11,15 @@ changes. These contain domain-specific architecture decisions, conventions, and
 constraints that supplement this top-level guide. Context increases
 progressively the deeper you go. Existing package guides include:
 
-- `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `sei2_*`, `debug_*`) semantics
+- `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
-- `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
+- `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
+
+## Changelogs
+
+Do not modify any `CHANGELOG.md` file in this repository. Changelogs are maintained
+separately as part of the release process.
 
 ## Configuration reads
 
@@ -24,9 +29,24 @@ how a value is cast will fail that suite. **Adding** a key does not always: the 
 check compares struct fields, so a second key landing in a field some row already
 claims is uncaught and the row has to be written by hand. Where there is a failure it
 is the review prompt: record the new behavior so the old and new value land in a diff,
-rather than skipping the row or widening the assertion until it passes. Read
-[`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
-configuration read, and before adding one.
+rather than skipping the row or widening the assertion until it passes.
+
+## Upgrade names
+
+Appending a name to `app/tags` moves the upgrade boundary this build ships, and
+`upgradetest` derives from that list which test set CI runs. The move fails
+`TestCurrentBoundaryHasATestFile` until a file for the new boundary exists, and
+that failure is the review prompt: state what the upgrade changes and what it may
+not, rather than carrying the previous release's cases forward or deleting them.
+Read [`upgradetest/AGENTS.md`](upgradetest/AGENTS.md) before adding an upgrade
+name, and before changing an upgrade handler.
+
+Create the v6.7 definition with
+`make new-upgrade-test FROM=v6.6 TO=v6.7`; do not hand-name its build tag.
+Exercise its persisted Go boundary with
+`make upgrade-test-offline FROM_REF=release/v6.6 TO_REF=release/v6.7`, and its
+real node boundary with
+`make upgrade-test-cross-version FROM_REF=release/v6.6 TO_REF=release/v6.7`.
 
 ## Code style
 
@@ -44,12 +64,17 @@ goimports -w <file>...   # groups/orders imports; catches the goimports linter
 the stdlib import group from third-party imports, so a `gofmt`-clean file can
 still fail the `goimports` linter.
 
-Verify the whole tree (each prints nothing when everything is clean):
+Verify the whole tree with the check CI gates on, which prints nothing when
+everything is clean:
 
 ```bash
-gofmt -s -l .
-goimports -l .
+make fmtcheck   # golangci-lint fmt --diff
 ```
+
+Prefer it over a bare `goimports -l .`, which also reports generated files that
+the formatters are configured to skip. Note that `golangci-lint run` will **not**
+catch a misformatted test file: it honours `run.tests`, which is false, so its
+formatters never see one. `fmtcheck` is a separate invocation for that reason.
 
 ### Godoc
 
@@ -120,12 +145,13 @@ run.
 ## Lint, build & test
 
 Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
-(golangci-lint v2.8.0; enabled linters include `errcheck`, `gosec`, `govet`,
-`staticcheck`, `ineffassign`, `goconst`, `prealloc`, `unconvert`, `misspell`,
+(golangci-lint v2.14.0; enabled linters include `errcheck`, `gosec`, `govet`,
+`staticcheck`, `ineffassign`, `prealloc`, `unconvert`, `misspell`,
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
 ```bash
-make lint     # golangci-lint run + go fmt ./... + go vet ./... + go mod tidy + go mod verify
+make lint     # golangci-lint run + golangci-lint fmt + go vet ./... + go mod tidy + go mod verify
+make fmtcheck # report what the formatters would rewrite, without rewriting it (CI gates on this)
 make dblint   # same checks scoped to ./sei-db/... (faster when iterating there)
 make build    # build the seid binary into ./build/seid
 make install  # install seid into $GOBIN
@@ -135,14 +161,60 @@ Tests run with the race detector and coverage. CI shards them into groups; while
 iterating, run a single package directly:
 
 ```bash
-make test-group-0       # one CI test shard (race + coverage)
-go test ./<pkg>/...     # run a single package
+make test-group-0               # one CI test shard (race + coverage)
+scripts/ramtest.sh ./<pkg>/...  # any package that opens stores — see below
+go test ./<pkg>/...             # only for packages that touch no on-disk resources
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
-v2.8.0 and `.github/workflows/go-test.yml` runs `go test -race` on Go 1.25.6.
+v2.14.0 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
+runs `go test -race` on Go 1.27.3.
+
+### Running tests on a RAM disk
+
+Always run tests that use on-disk resources on a RAM disk rather than reaching for a
+bare `go test`. That covers everything under `sei-db/`, plus any package that opens a
+store. Other tests may or may not benefit depending on disk utilization, and tests
+that use no on-disk resources will not.
+
+`scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
+filesystem. Arguments that are not its own flags pass through to `go test`, so
+package patterns, `-run`, `-count`, `-parallel` and `-v` work as usual, and relative
+patterns resolve from the directory you run it in. `--help` lists the flags. Works on
+macOS and Linux; on Linux it prefers `/dev/shm`, falls back to a sudo-mounted tmpfs
+where that is too small, and warns and runs unaccelerated when neither is available.
+
+```bash
+scripts/ramtest.sh ./sei-db/...
+scripts/ramtest.sh ./sei-db/state_db/sc/flatkv/... -run TestSnapshot -v
+scripts/ramtest.sh                         # whole repo (./...)
+scripts/ramtest.sh --keep ./sei-db/...     # leave the volume up for the next run
+scripts/ramtest.sh --down                  # release the RAM disk, not needed for clean run
+```
+
+**Memory.** A full `./sei-db/...` run needs ~9 GiB free: ~5.5 GiB of test data plus
+~3 GiB of concurrent test binaries. Run subtrees on a smaller host. `--size N` (GiB)
+overrides the default `clamp(RAM/2, 4, 32)`, but it is a ceiling rather than a
+reservation, so raising it neither costs nor relieves memory. On the Linux `/dev/shm`
+path the request is clamped down to what that tmpfs actually has free, with a warning.
+Size from the peak each run reports.
+
+- Exit 3 means the RAM disk filled, not a test failure. Retry with a larger `--size`.
+- Exit 4 means the volume could not be released and its memory is still reserved. The
+  message names the command that frees it.
+- `peak use: 0` means nothing reached the RAM disk: either the run wrote nothing, or the
+  redirect did not take effect and the run was not accelerated.
+- `--keep` is sticky: a run only tears down a volume it created, so once you keep one
+  you own the teardown. `--down` releases it from any later shell.
+- macOS volumes are case-sensitive (HFSX) unlike the APFS root. A new path-case
+  failure is a real bug, not a script problem.
+- Not CI parity: `-race` is off by default, and `--ci-tags` is needed for the ledger
+  tests. A green run here is not a green CI run.
+- Each worktree gets its own volume, so parallel agents do not collide. Within one
+  worktree only one run at a time: a second is refused, because both would share the
+  volume and wipe each other's scratch directories.
 
 ## Benchmarking
 
-See [`benchmark/CLAUDE.md`](benchmark/CLAUDE.md) for benchmark usage, environment
+See [`benchmark/AGENTS.md`](benchmark/AGENTS.md) for benchmark usage, environment
 variables, and comparison workflows.

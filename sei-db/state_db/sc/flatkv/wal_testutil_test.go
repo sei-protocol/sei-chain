@@ -5,16 +5,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
 )
 
 // newCommitStoreWithWAL constructs a CommitStore with a real state WAL opened from cfg's changelog
-// directory — the test-suite equivalent of how the composite wires production stores. It stands in for the
-// former 2-arg NewCommitStore calls now that the state WAL is an injected constructor argument; the suite's
-// call sites were mechanically rewritten to use it.
+// directory — the test-suite equivalent of how the composite wires production stores. The WAL is an
+// injected constructor argument, so every test that needs a committable store goes through here.
 func newCommitStoreWithWAL(ctx context.Context, cfg *config.Config) (*CommitStore, error) {
 	stateWAL, err := OpenStateWAL(cfg)
 	if err != nil {
@@ -31,7 +29,7 @@ func newCommitStoreWithWAL(ctx context.Context, cfg *config.Config) (*CommitStor
 // restore) has its changelog directory removed out of band while the node is stopped.
 func resetWALForTest(t *testing.T, s *CommitStore) {
 	t.Helper()
-	cfg := stateWALConfig(&s.config)
+	cfg := StateWALConfig(s.config.DataDir)
 	require.NoError(t, s.wal.Close())
 	require.NoError(t, os.RemoveAll(cfg.Path))
 	w, err := statewal.New(cfg)
@@ -62,24 +60,4 @@ func walBlockNumbers(t *testing.T, s *CommitStore) []uint64 {
 		blocks = append(blocks, block)
 	}
 	return blocks
-}
-
-// singleWALBlockChangesets returns the changesets of the sole block stored in the store's WAL, asserting
-// there is exactly one. Test-only.
-func singleWALBlockChangesets(t *testing.T, s *CommitStore) []*proto.NamedChangeSet {
-	t.Helper()
-	ok, first, last, err := s.wal.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok, "expected a WAL block")
-	require.Equal(t, first, last, "expected exactly one WAL block")
-
-	it, err := s.wal.Iterator(first, last)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
-
-	hasNext, err := it.Next()
-	require.NoError(t, err)
-	require.True(t, hasNext)
-	_, changesets := it.Entry()
-	return changesets
 }

@@ -3,8 +3,10 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -28,12 +30,12 @@ type PhysicalKVPair struct {
 // pairs ready for FlatKV bulk import.
 //
 // It applies the same translation logic that CommitStore.ApplyChangeSets uses
-// (classifyAndPrefix + processStorageChanges + processCodeChanges +
-// processMiscChanges + mergeAccountUpdates), but assumes the import target
+// (classifyAndPrefix + toStorageValues + toCodeValues +
+// toMiscValues + mergeAccountUpdates), but assumes the import target
 // is empty so it does not merge with prior DB values.
 //
 // Storage / code / misc / non-EVM pairs are emitted directly from each
-// Translate call. Account-related entries (nonce, codehash) are buffered
+// Translate call. Account-related entries (nonce, codehash, balance) are buffered
 // across all Translate calls so that each address is written exactly once
 // with its fully-merged AccountData; flush them by calling Finalize.
 //
@@ -43,7 +45,7 @@ type PhysicalKVPair struct {
 // ImportTranslator is not safe for concurrent use.
 type ImportTranslator struct {
 	blockHeight  int64
-	pendingAccts map[string]*vtype.PendingAccountWrite
+	pendingAccts map[string]vtype.PendingAccountWrite
 }
 
 // NewImportTranslator creates a translator that stamps blockHeight onto every
@@ -52,12 +54,12 @@ type ImportTranslator struct {
 func NewImportTranslator(blockHeight int64) *ImportTranslator {
 	return &ImportTranslator{
 		blockHeight:  blockHeight,
-		pendingAccts: make(map[string]*vtype.PendingAccountWrite),
+		pendingAccts: make(map[string]vtype.PendingAccountWrite),
 	}
 }
 
 // Translate returns the storage / code / misc / non-EVM physical pairs
-// encoded from cs. Account fragments (nonce, codehash) are buffered
+// encoded from cs. Account fragments (nonce, codehash, balance) are buffered
 // internally; flush them via Finalize after all changesets have been fed in.
 //
 // nil or empty changesets return (nil, nil).
@@ -87,47 +89,48 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		Changeset: proto.ChangeSet{Pairs: filteredPairs},
 	}
 
-	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS})
+	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, [keys.EVMKeyKindCount]int{}, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	out := make([]PhysicalKVPair, 0, len(filteredPairs))
 
-	storageChanges, err := processStorageChanges(changesByType[keys.EVMKeyStorage], t.blockHeight)
+	storageChanges, err := toStorageValues(changesByType[keys.EVMKeyStorage], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process storage changes: %w", err)
 	}
-	out = appendNonDeletes(out, storageChanges)
+	out = appendWrites(out, storageChanges)
 
-	codeChanges, err := processCodeChanges(changesByType[keys.EVMKeyCode], t.blockHeight)
+	codeChanges, err := toCodeValues(changesByType[keys.EVMKeyCode], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process code changes: %w", err)
 	}
-	out = appendNonDeletes(out, codeChanges)
+	out = appendWrites(out, codeChanges)
 
-	miscChanges, err := processMiscChanges(changesByType[keys.EVMKeyMisc], t.blockHeight)
+	miscChanges, err := toMiscValues(changesByType[keys.EVMKeyMisc], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process misc changes: %w", err)
 	}
-	out = appendNonDeletes(out, miscChanges)
+	out = appendWrites(out, miscChanges)
 
-	// Accumulate nonce + codeHash entries from this batch into the
-	// translator-level pending account map. Multiple Translate calls
-	// naturally fold updates for the same address together: the SetXxx
-	// methods on PendingAccountWrite mutate the pointer in place when the
-	// receiver is non-nil.
+	// Accumulate nonce + codeHash + balance entries from this batch into the
+	// translator-level pending account map, so that several Translate calls
+	// fold their updates for one address together.
 	batchAccts, err := mergeAccountUpdates(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
-		nil, // TODO: balance, when balance key kind is introduced
+		changesByType[keys.EVMKeyBalance],
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge account changes: %w", err)
 	}
-	for addr, batchUpdate := range batchAccts {
+	for arenaAddr, batchUpdate := range batchAccts {
+		// arenaAddr is carved from a key arena and this map outlives the call, so storing it as a key
+		// would pin the arena for the rest of the import. Every map write stores its key.
+		addr := strings.Clone(arenaAddr)
 		existing, ok := t.pendingAccts[addr]
-		if !ok || existing == nil {
+		if !ok {
 			t.pendingAccts[addr] = batchUpdate
 			continue
 		}
@@ -140,6 +143,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		if batchUpdate.IsBalanceSet() {
 			existing.SetBalance(batchUpdate.GetBalance())
 		}
+		t.pendingAccts[addr] = existing
 	}
 
 	return out, nil
@@ -160,12 +164,20 @@ func (t *ImportTranslator) Finalize() []PhysicalKVPair {
 	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
 }
 
-// appendNonDeletes serializes every non-delete entry in m and appends the
-// resulting (physical_key, serialized_value) pair to out. Hoisted out of
-// the three processStorage/Code/Misc branches in Translate (and reused
-// by Finalize) so that the "drop tombstones, serialize to PhysicalKVPair"
-// contract lives in one place; mirrors gatherPairs's generic use
-// of vtype.VType in store_apply.go.
+// appendWrites appends every write that is not a deletion to out. A nil Value is the store's
+// tombstone, and an import target starts empty, so there is nothing for one to delete.
+func appendWrites(out []PhysicalKVPair, writes []view.Write) []PhysicalKVPair {
+	for _, w := range writes {
+		if w.Value == nil {
+			continue
+		}
+		out = append(out, PhysicalKVPair{Key: []byte(w.Key), Value: w.Value})
+	}
+	return out
+}
+
+// appendNonDeletes serializes every non-delete entry in m and appends the resulting
+// (physical_key, serialized_value) pair to out.
 func appendNonDeletes[T vtype.VType](out []PhysicalKVPair, m map[string]T) []PhysicalKVPair {
 	for k, v := range m {
 		if v.IsDelete() {

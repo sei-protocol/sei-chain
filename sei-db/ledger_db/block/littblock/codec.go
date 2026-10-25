@@ -3,142 +3,252 @@ package littblock
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
-// This file is the single home for translating between the in-memory consensus
-// types and the byte representations LittDB stores (both keys and values).
+// record contains the encoded data passed to LittDB.
+type record struct {
+	Key     ledgerKey
+	Value   []byte
+	Aliases []*litttypes.SecondaryKey
+}
 
-// Blocks and QCs share one LittDB table. Each key carries a 1-byte kind prefix
-// so the block-number key space and the QC-number key space never collide:
-//
-//   - kindBlock     'b' + 8-byte big-endian GlobalBlockNumber (block primary key)
-//   - kindBlockHash 'h' + 32-byte header hash               (block hash alias)
-//   - kindQC        'q' + 8-byte big-endian GlobalBlockNumber (QC primary + covered aliases)
+// encodeQCGroup encodes a QC and its numbered blocks as one record with lookup aliases.
+// It panics for an empty group, an unrepresentable block range, or an oversized value.
+func encodeQCGroup(group blocktypes.QCGroupRecord) record {
+	if len(group.Blocks) == 0 {
+		panic("QC group requires blocks")
+	}
+	size := uint64(4) + uint64(len(group.QC.Data))
+	for _, block := range group.Blocks {
+		if block.Number == math.MaxUint64 {
+			panic("block number has no exclusive upper bound")
+		}
+		size += 12 + uint64(len(block.Value))
+	}
+	if size >= math.MaxUint32 {
+		panic("QC group exceeds value size limit")
+	}
+	key := kindQCGroup.key(group.Blocks[0].Number)
+	r := record{Key: key}
+	r.Value, _, _ = appendValue(r.Value, group.QC.Data)
+	qcLength := uint32(len(r.Value)) //nolint:gosec // the encoder bounds the value size
+	for _, block := range group.Blocks {
+		value := binary.BigEndian.AppendUint64(nil, uint64(block.Number))
+		value = append(value, block.Value...)
+		var offset, length uint32
+		r.Value, offset, length = appendValue(r.Value, value)
+		key := kindBlock.key(block.Number)
+		qcKey := kindQC.key(block.Number)
+		r.Aliases = append(r.Aliases,
+			&litttypes.SecondaryKey{Key: qcKey, Length: qcLength},
+			&litttypes.SecondaryKey{Key: key, Offset: offset, Length: length},
+			&litttypes.SecondaryKey{Key: blockHashKey(block.Hash), Offset: offset, Length: length})
+	}
+	return r
+}
+
+// appendValue appends a uint32-length-prefixed value and returns its payload offset and length.
+// The caller must ensure the resulting buffer fits within the uint32 size limit.
+func appendValue(dst, value []byte) ([]byte, uint32, uint32) {
+	length := uint32(len(value)) //nolint:gosec // validated before encoding
+	dst = binary.BigEndian.AppendUint32(dst, length)
+	offset := uint32(len(dst)) //nolint:gosec // validated before encoding
+	return append(dst, value...), offset, length
+}
+
+// encodeAppQC encodes an application QC and its covered-number aliases.
+func encodeAppQC(qc blocktypes.AppQCRecord) record {
+	return encodeApp(kindAppQC, qc.First, qc.Next, qc.Data)
+}
+
+// encodeAppProposal encodes an application proposal and its covered-number aliases.
+func encodeAppProposal(proposal blocktypes.AppProposalRecord) record {
+	return encodeApp(kindAppProp, proposal.First, proposal.Next, proposal.Data)
+}
+
+// encodeApp encodes the block range and opaque payload with aliases covering [first, next).
+// It panics if the encoded value exceeds the uint32 size limit.
+func encodeApp(kind recordKind, first, next blocktypes.BlockNumber, data []byte) record {
+	if uint64(len(data))+16 >= math.MaxUint32 {
+		panic("app record exceeds value size limit")
+	}
+	key := kind.key(first)
+	r := record{Key: key}
+	r.Value = binary.BigEndian.AppendUint64(r.Value, uint64(first))
+	r.Value = binary.BigEndian.AppendUint64(r.Value, uint64(next))
+	r.Value = append(r.Value, data...)
+	for n := first + 1; n < next; n++ {
+		key := kind.key(n)
+		r.Aliases = append(r.Aliases, &litttypes.SecondaryKey{Key: key, Length: uint32(len(r.Value))}) //nolint:gosec // checked above
+	}
+	return r
+}
+
+// consumeValue returns the next length-prefixed payload and the remaining input.
+// It returns an error if the length prefix or payload is truncated.
+func consumeValue(value []byte) ([]byte, []byte, error) {
+	if len(value) < 4 {
+		return nil, nil, fmt.Errorf("truncated value length")
+	}
+	length := uint64(binary.BigEndian.Uint32(value))
+	value = value[4:]
+	if length > uint64(len(value)) {
+		return nil, nil, fmt.Errorf("truncated value")
+	}
+	return value[:length], value[length:], nil
+}
+
+// decodeQCGroup reads a QC and its numbered blocks in encoded order, rejecting empty groups.
+// QC and block payloads remain opaque.
+func decodeQCGroup(value []byte) (blocktypes.QCGroupRecord, error) {
+	var group blocktypes.QCGroupRecord
+	var err error
+	group.QC.Data, value, err = consumeValue(value)
+	if err != nil {
+		return blocktypes.QCGroupRecord{}, err
+	}
+	for len(value) > 0 {
+		var encoded []byte
+		encoded, value, err = consumeValue(value)
+		if err != nil {
+			return blocktypes.QCGroupRecord{}, err
+		}
+		block, err := decodeBlock(encoded)
+		if err != nil {
+			return blocktypes.QCGroupRecord{}, err
+		}
+		group.Blocks = append(group.Blocks, block)
+	}
+	if len(group.Blocks) == 0 {
+		return blocktypes.QCGroupRecord{}, fmt.Errorf("QC group requires blocks")
+	}
+	return group, nil
+}
+
+// decodeBlock reads the block number and opaque payload from a block entry.
+// Hash is unset because it is stored only in the secondary lookup key.
+func decodeBlock(value []byte) (blocktypes.BlockRecord, error) {
+	if len(value) < 8 {
+		return blocktypes.BlockRecord{}, fmt.Errorf("truncated block number")
+	}
+	return blocktypes.BlockRecord{
+		Number: blocktypes.BlockNumber(binary.BigEndian.Uint64(value)),
+		Value:  value[8:],
+	}, nil
+}
+
+// decodeApp reads the first and next block numbers and the opaque application payload.
+func decodeApp(value []byte) (blocktypes.BlockNumber, blocktypes.BlockNumber, []byte, error) {
+	if len(value) < 16 {
+		return 0, 0, nil, fmt.Errorf("truncated app record")
+	}
+	return blocktypes.BlockNumber(binary.BigEndian.Uint64(value[:8])), blocktypes.BlockNumber(binary.BigEndian.Uint64(value[8:16])), value[16:], nil
+}
+
+// decodeAppQC reads an application QC record without decoding its opaque payload.
+func decodeAppQC(value []byte) (blocktypes.AppQCRecord, error) {
+	first, next, data, err := decodeApp(value)
+	return blocktypes.AppQCRecord{First: first, Next: next, Data: data}, err
+}
+
+// decodeAppProposal reads an application proposal record without decoding its opaque payload.
+func decodeAppProposal(value []byte) (blocktypes.AppProposalRecord, error) {
+	first, next, data, err := decodeApp(value)
+	return blocktypes.AppProposalRecord{First: first, Next: next, Data: data}, err
+}
+
+// decodePayload returns a numbered lookup's opaque payload after validating its framing.
+func decodePayload(kind recordKind, value []byte) ([]byte, error) {
+	switch kind {
+	case kindQC:
+		data, _, err := consumeValue(value)
+		return data, err
+	case kindBlock:
+		if len(value) < 8 {
+			return nil, fmt.Errorf("truncated block number")
+		}
+		return value[8:], nil
+	case kindAppQC, kindAppProp:
+		if len(value) < 16 {
+			return nil, fmt.Errorf("truncated app record")
+		}
+		return value[16:], nil
+	default:
+		panic(fmt.Errorf("invalid lookup record kind %d", kind))
+	}
+}
+
+// recordKind identifies a primary record or secondary lookup namespace.
+type recordKind uint64
+
 const (
-	kindBlock     byte = 'b'
-	kindBlockHash byte = 'h'
-	kindQC        byte = 'q'
+	kindQCGroup recordKind = iota + 1
+	kindAppQC
+	kindBlock
+	kindBlockHash
+	kindAppProp
+	kindQC
 )
 
-// encodeKey encodes a GlobalBlockNumber as an 8-byte big-endian value. Big-endian
+// ledgerKey is a varint kind followed by a block number or block hash.
+type ledgerKey []byte
+
+// key returns the numbered lookup key for kind.
+func (kind recordKind) key(n blocktypes.BlockNumber) ledgerKey {
+	return numberKey(kind, n)
+}
+
+// primaryKind identifies primary record keys; secondary or unknown kinds return false.
+func (k ledgerKey) primaryKind() (recordKind, bool) {
+	kind := keyKind(k)
+	switch kind {
+	case kindQCGroup, kindAppProp, kindAppQC:
+		return kind, true
+	default:
+		return 0, false
+	}
+}
+
+// number returns the block number from a numbered key.
+func (k ledgerKey) number() blocktypes.BlockNumber { return decodeNumberKey(k) }
+
+// encodeKey encodes a record number as an 8-byte big-endian value. Big-endian
 // is deliberate: it makes lexicographic byte order match numeric order. This is
 // the inner codec shared by the prefixed key builders below.
-func encodeKey(n types.GlobalBlockNumber) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(n))
-	return b
-}
+func encodeKey(n blocktypes.BlockNumber) []byte { return binary.BigEndian.AppendUint64(nil, uint64(n)) }
 
 // decodeKey decodes an 8-byte value produced by encodeKey.
-func decodeKey(b []byte) types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b))
+func decodeKey(b [8]byte) blocktypes.BlockNumber {
+	return blocktypes.BlockNumber(binary.BigEndian.Uint64(b[:]))
 }
 
-// blockKey returns the primary key under which a block at number n is stored.
-func blockKey(n types.GlobalBlockNumber) []byte {
-	return append([]byte{kindBlock}, encodeKey(n)...)
+// numberKey returns the key under which a record of the given kind prefix is
+// stored at number n — used both for a record's primary key and for each
+// covered-number alias.
+func numberKey(kind recordKind, n blocktypes.BlockNumber) ledgerKey {
+	return append(binary.AppendUvarint(nil, uint64(kind)), encodeKey(n)...)
 }
 
-// blockHashKey returns the secondary (alias) key under which a block is reachable
-// by its header hash.
-func blockHashKey(hash types.BlockHeaderHash) []byte {
-	return append([]byte{kindBlockHash}, hash.Bytes()...)
+// blockHashKey returns the secondary key under which a block is reachable by its header hash.
+func blockHashKey(hash blocktypes.BlockHash) ledgerKey {
+	return append(binary.AppendUvarint(nil, uint64(kindBlockHash)), hash...)
 }
 
-// qcKey returns the key for QC number n — used both for a QC's primary key (its
-// lowerBound) and for each covered-number alias.
-func qcKey(n types.GlobalBlockNumber) []byte {
-	return append([]byte{kindQC}, encodeKey(n)...)
-}
-
-// keyKind returns the kind prefix byte of a stored key.
-func keyKind(key []byte) byte {
-	return key[0]
-}
-
-// decodeNumberKey decodes the GlobalBlockNumber from a kindBlock or kindQC key
-// (i.e. a key whose prefix is followed by an 8-byte big-endian number).
-func decodeNumberKey(key []byte) types.GlobalBlockNumber {
-	return decodeKey(key[1:])
-}
-
-// Serialization version for blocks.
-const blockSerializationVersion byte = 1
-
-// Serialization version for QCs.
-const qcSerializationVersion byte = 1
-
-// blockValuePrefixLen is the fixed header preceding a block's proto bytes: one
-// version byte followed by the 8-byte big-endian GlobalBlockNumber.
-const blockValuePrefixLen = 1 + 8
-
-// encodeBlock marshals a block to the bytes stored as its table value. The value
-// is framed as [version:1][GlobalBlockNumber:8 big-endian][proto(Block)]. The
-// number is embedded so a by-hash lookup — which reaches this same shared value
-// through a secondary key that carries only the hash — can still recover it.
-func encodeBlock(n types.GlobalBlockNumber, blk *types.Block) []byte {
-	proto := types.BlockConv.Marshal(blk)
-	value := make([]byte, 0, blockValuePrefixLen+len(proto))
-	value = append(value, blockSerializationVersion)
-	value = binary.BigEndian.AppendUint64(value, uint64(n))
-	value = append(value, proto...)
-	return value
-}
-
-// decodeBlock unmarshals a block and its embedded GlobalBlockNumber from the
-// value produced by encodeBlock.
-func decodeBlock(value []byte) (types.GlobalBlockNumber, *types.Block, error) {
-	if len(value) < blockValuePrefixLen {
-		return 0, nil, fmt.Errorf("block value too short: %d bytes", len(value))
+// keyKind returns the unsigned varint kind, or MaxUint64 for a malformed prefix.
+func keyKind(k []byte) recordKind {
+	kind, n := binary.Uvarint(k)
+	if n <= 0 {
+		return recordKind(math.MaxUint64)
 	}
-	if value[0] != blockSerializationVersion {
-		return 0, nil, fmt.Errorf("unsupported block serialization version %d", value[0])
-	}
-	n := types.GlobalBlockNumber(binary.BigEndian.Uint64(value[1:blockValuePrefixLen]))
-	blk, err := types.BlockConv.Unmarshal(value[blockValuePrefixLen:])
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to unmarshal block: %w", err)
-	}
-	return n, blk, nil
+	return recordKind(kind)
 }
 
-// encodeQC marshals a FullCommitQC to the bytes stored as its table value,
-// framed as [version:1][proto(FullCommitQC)].
-func encodeQC(qc *types.FullCommitQC) []byte {
-	proto := types.FullCommitQCConv.Marshal(qc)
-	value := make([]byte, 0, 1+len(proto))
-	value = append(value, qcSerializationVersion)
-	value = append(value, proto...)
-	return value
-}
-
-// coveredRange returns the half-open global block number range the QC covers,
-// as specified by types.BlockDB.WriteQC: [First, First+len(Headers())).
-//
-// The upper bound is derived from the header count rather than read from
-// GlobalRange().Next — the two are equal by FullCommitQC's own invariant, but
-// First and Headers are the only two fields the wire format carries explicitly.
-// GlobalRange().Next is recomputed from the proposal's lane ranges on decode,
-// so deriving from the encoded fields is what makes a QC's range identical
-// before and after a round trip through the table.
-func coveredRange(qc *types.FullCommitQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
-	first := qc.QC().GlobalRange().First
-	return first, first + types.GlobalBlockNumber(len(qc.Headers()))
-}
-
-// decodeQC unmarshals a FullCommitQC from the value produced by encodeQC.
-func decodeQC(value []byte) (*types.FullCommitQC, error) {
-	if len(value) < 1 {
-		return nil, fmt.Errorf("qc value too short: %d bytes", len(value))
-	}
-	if value[0] != qcSerializationVersion {
-		return nil, fmt.Errorf("unsupported qc serialization version %d", value[0])
-	}
-	qc, err := types.FullCommitQCConv.Unmarshal(value[1:])
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal qc: %w", err)
-	}
-	return qc, nil
+// decodeNumberKey decodes a key's block number after its varint kind.
+func decodeNumberKey(k []byte) blocktypes.BlockNumber {
+	_, n := binary.Uvarint(k)
+	return decodeKey([8]byte(k[n:]))
 }

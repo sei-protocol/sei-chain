@@ -2,17 +2,21 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
+
+var meters = metrics.Get()
 
 // ViewTimeoutFunc is a function that specifies the timeout for the given view.
 // - constant for production
@@ -23,6 +27,9 @@ type ViewTimeoutFunc = func(types.View) time.Duration
 type Config struct {
 	Key         types.SecretKey
 	ViewTimeout ViewTimeoutFunc
+	// ProposalTimeout bounds proposal timestamps and must be greater than 0.
+	// The accepted width is ProposalTimeout * (view number + 1).
+	ProposalTimeout time.Duration
 	// PersistentStateDir is the directory where the consensus state is persisted.
 	// If None, persistence is disabled - DANGEROUS, may lead to SLASHING on restart.
 	PersistentStateDir utils.Option[string]
@@ -52,8 +59,8 @@ type State struct {
 
 	myView        utils.AtomicSend[types.ViewSpec]
 	myProposal    utils.AtomicSend[utils.Option[*types.FullProposal]]
-	myPrepareVote utils.AtomicSend[utils.Option[*types.ConsensusReqPrepareVote]]
-	myCommitVote  utils.AtomicSend[utils.Option[*types.ConsensusReqCommitVote]]
+	myPrepareVote utils.AtomicSend[utils.Option[*types.ConsensusMsgPrepareVote]]
+	myCommitVote  utils.AtomicSend[utils.Option[*types.ConsensusMsgCommitVote]]
 	myTimeoutVote utils.AtomicSend[utils.Option[*types.FullTimeoutVote]]
 	myTimeoutQC   utils.AtomicSend[utils.Option[*types.TimeoutQC]]
 }
@@ -62,10 +69,10 @@ type State struct {
 func (s *State) SubscribeProposal() utils.AtomicRecv[utils.Option[*types.FullProposal]] {
 	return s.myProposal.Subscribe()
 }
-func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqPrepareVote]] {
+func (s *State) SubscribePrepareVote() utils.AtomicRecv[utils.Option[*types.ConsensusMsgPrepareVote]] {
 	return s.myPrepareVote.Subscribe()
 }
-func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusReqCommitVote]] {
+func (s *State) SubscribeCommitVote() utils.AtomicRecv[utils.Option[*types.ConsensusMsgCommitVote]] {
 	return s.myCommitVote.Subscribe()
 }
 func (s *State) SubscribeTimeoutVote() utils.AtomicRecv[utils.Option[*types.FullTimeoutVote]] {
@@ -100,14 +107,18 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
-	initialInner, err := newInner(persistedData, data.Registry())
-	if err != nil {
-		return nil, fmt.Errorf("newInner: %w", err)
+	if cfg.ProposalTimeout <= 0 {
+		return nil, fmt.Errorf("ProposalTimeout must be greater than 0, got %v", cfg.ProposalTimeout)
 	}
-
 	availState, err := avail.NewState(cfg.Key, data, cfg.PersistentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("avail.NewState: %w", err)
+	}
+
+	initialInner, err := newInner(persistedData, availState.SubscribeConsensusSpec().Load(), cfg.Key.Public())
+	if err != nil {
+		_ = availState.Close()
+		return nil, fmt.Errorf("newInner: %w", err)
 	}
 
 	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
@@ -123,15 +134,20 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{Epoch: initialInner.epoch}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{ConsensusSpec: initialInner.spec, TimeoutQC: initialInner.TimeoutQC}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
-		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
-		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
+		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusMsgPrepareVote]()),
+		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusMsgCommitVote]()),
 		myTimeoutVote: utils.NewAtomicSend(utils.None[*types.FullTimeoutVote]()),
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
+	view := s.myView.Load()
+	meters.ViewNumber.Set(int64(view.View().Number)) // nolint: gosec
 	return s, nil
 }
+
+// ErrAvailBehindConsensus means the consensus WAL view is ahead of ConsensusSpec.
+var ErrAvailBehindConsensus = errors.New("consensus WAL view ahead of ConsensusSpec")
 
 // Close releases the availability state's WALs, and with them the exclusive lock each holds on its
 // directory.
@@ -174,43 +190,103 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	return s.pushTimeoutQC(ctx, qc)
 }
 
-// TODO: scope prepareVotes, commitVotes, and timeoutVotes to a single epoch
-// so stale votes from a previous epoch are automatically dropped on transition.
-
-// PushPrepareVote processes an unverified Prepare vote message.
-func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
-	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.VerifySig(committee); err != nil {
-		return fmt.Errorf("vote.VerifySig(): %w", err)
+// verifyVoteEpoch checks that view belongs to ep and key is on ep's committee.
+func verifyVoteEpoch(ep *types.Epoch, key types.PublicKey, view types.View) error {
+	if err := view.Verify(ep); err != nil {
+		return fmt.Errorf("view: %w", err)
 	}
-	for pv := range s.prepareVotes.Lock() {
-		pv.pushVote(committee, vote)
+	if !ep.Committee().HasReplica(key) {
+		return fmt.Errorf("%q is not a replica", key)
 	}
 	return nil
 }
 
-// PushCommitVote processes an unverified CommitVote message.
-func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
-	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.VerifySig(committee); err != nil {
-		return fmt.Errorf("vote.VerifySig(): %w", err)
+// adoptVoteEpoch drops prepare, commit, and timeout votes collected for any other epoch.
+func (s *State) adoptVoteEpoch(epoch types.EpochIndex) {
+	for pv := range s.prepareVotes.Lock() {
+		pv.adoptEpoch(epoch)
 	}
 	for cv := range s.commitVotes.Lock() {
-		cv.pushVote(committee, vote)
+		cv.adoptEpoch(epoch)
+	}
+	for tv := range s.timeoutVotes.Lock() {
+		tv.adoptEpoch(epoch)
+	}
+}
+
+// pushPhaseVote counts vote once myView has reached voteEpoch.
+// A vote from an earlier epoch is ignored. A later view in voteEpoch is counted immediately.
+func pushPhaseVote[V any, B comparable, QC any](
+	ctx context.Context,
+	s *State,
+	voteEpoch types.EpochIndex,
+	votes *utils.Mutex[*phaseVotes[V, B, QC]],
+	verify func(*types.Epoch) error,
+	vote V,
+) error {
+	vs, err := s.waitForEpoch(ctx, voteEpoch)
+	if err != nil {
+		return err
+	}
+	if vs.Epoch.EpochIndex() != voteEpoch {
+		return nil
+	}
+	if err := verify(vs.Epoch); err != nil {
+		return err
+	}
+	for pv := range votes.Lock() {
+		if s.myView.Load().Epoch.EpochIndex() != voteEpoch {
+			return nil
+		}
+		// myView.Store wakes this waiter before adoptVoteEpoch. Adopt under this
+		// lock so the previous epoch's votes are dropped before the insert.
+		pv.adoptEpoch(voteEpoch)
+		pv.pushVerifiedVote(vs.Epoch.Committee(), vote)
 	}
 	return nil
 }
 
-// PushTimeoutVote processes an unverified FullTimeoutVote message.
-func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
-	ep := s.myView.Load().Epoch
-	if err := vote.Verify(ep); err != nil {
-		return fmt.Errorf("vote.Verify(): %w", err)
-	}
-	for tv := range s.timeoutVotes.Lock() {
-		tv.pushVote(ep.Committee(), vote)
-	}
-	return nil
+// PushPrepareVote verifies a Prepare vote and counts it once myView has reached the vote's epoch.
+// A vote from an earlier epoch is ignored.
+// The Prepare vote contains only a proposal; Proposal.Verify runs when the QC is formed.
+func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.PrepareVote]) error {
+	view := vote.Msg().Proposal().View()
+	return pushPhaseVote(ctx, s, view.EpochIndex, &s.prepareVotes, func(ep *types.Epoch) error {
+		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
+			return err
+		}
+		if err := vote.VerifySig(); err != nil {
+			return fmt.Errorf("vote.VerifySig(): %w", err)
+		}
+		return nil
+	}, vote)
+}
+
+// PushCommitVote verifies a Commit vote and counts it once myView has reached the vote's epoch.
+// A vote from an earlier epoch is ignored.
+// The Commit vote contains only a proposal; Proposal.Verify runs when the QC is formed.
+func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.CommitVote]) error {
+	view := vote.Msg().Proposal().View()
+	return pushPhaseVote(ctx, s, view.EpochIndex, &s.commitVotes, func(ep *types.Epoch) error {
+		if err := verifyVoteEpoch(ep, vote.Key(), view); err != nil {
+			return err
+		}
+		if err := vote.VerifySig(); err != nil {
+			return fmt.Errorf("vote.VerifySig(): %w", err)
+		}
+		return nil
+	}, vote)
+}
+
+// PushTimeoutVote verifies a timeout vote and counts it once myView has reached the vote's epoch.
+// A vote from an earlier epoch is ignored.
+func (s *State) PushTimeoutVote(ctx context.Context, vote *types.FullTimeoutVote) error {
+	return pushPhaseVote(ctx, s, vote.View().EpochIndex, &s.timeoutVotes, func(ep *types.Epoch) error {
+		if err := vote.Verify(ep); err != nil {
+			return fmt.Errorf("vote.Verify(): %w", err)
+		}
+		return nil
+	}, vote)
 }
 
 // Data is the underlying data state.
@@ -237,9 +313,8 @@ func (s *State) runPropose(ctx context.Context) error {
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
 			vs,
-			time.Now(),
+			vs.ClampTimestamp(time.Now(), s.cfg.ProposalTimeout),
 			laneQCsMap,
-			s.avail.LastAppQC(),
 		)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForProposal(): %w", err)
@@ -249,7 +324,7 @@ func (s *State) runPropose(ctx context.Context) error {
 	})
 }
 
-func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v T) {
+func updateOutput[T types.ConsensusMsg](w *utils.AtomicSend[utils.Option[T]], v T) {
 	old := w.Load()
 	if !v.View().Less(types.NextViewOpt(old)) {
 		w.Store(utils.Some(v))
@@ -260,13 +335,18 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // Persists state to disk before broadcasting votes to ensure votes are durable
 // before dissemination (prevents double-voting on crash).
 // myView update is safe before persist — it only triggers proposing and timeout
-// timers, neither of which constitutes a vote.
+// timers, neither of which constitutes a vote. An epoch change adopts that
+// epoch on the vote maps.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.epoch}
+		vs := types.ViewSpec{ConsensusSpec: i.spec, TimeoutQC: i.TimeoutQC}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
+			meters.ViewNumber.Set(int64(vs.View().Number)) // nolint: gosec
+			if old.Epoch.EpochIndex() != vs.Epoch.EpochIndex() {
+				s.adoptVoteEpoch(vs.Epoch.EpochIndex())
+			}
 		}
 		// Persist to disk before broadcasting votes to the network.
 		if p, ok := s.persister.Get(); ok {
@@ -275,10 +355,10 @@ func (s *State) runOutputs(ctx context.Context) error {
 			}
 		}
 		if v, ok := i.PrepareVote.Get(); ok {
-			updateOutput(&s.myPrepareVote, &types.ConsensusReqPrepareVote{Signed: v})
+			updateOutput(&s.myPrepareVote, &types.ConsensusMsgPrepareVote{Signed: v})
 		}
 		if v, ok := i.CommitVote.Get(); ok {
-			updateOutput(&s.myCommitVote, &types.ConsensusReqCommitVote{Signed: v})
+			updateOutput(&s.myCommitVote, &types.ConsensusMsgCommitVote{Signed: v})
 		}
 		if v, ok := i.TimeoutVote.Get(); ok {
 			updateOutput(&s.myTimeoutVote, v)
@@ -307,15 +387,12 @@ func (s *State) Run(ctx context.Context) error {
 				return nil
 			})
 		})
-		scope.SpawnNamed("pushCommitQC", func() error {
-			// We pull the CommitQC back from "avail" for dissemination. This ensures
-			// that we only push CommitQCs that have been successfully "logged" and
-			// sequenced by the availability layer.
-			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
-				if qc, ok := last.Get(); ok {
-					return s.pushCommitQC(qc)
-				}
-				return nil
+		scope.SpawnNamed("pushSpec", func() error {
+			// We pull the tip back from "avail" for dissemination. This ensures we
+			// only advance on CommitQCs that avail has verified, persisted, and paired
+			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
+			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
+				return s.pushSpec(spec)
 			})
 		})
 		scope.SpawnNamed("pushPrepareQC", func() error {

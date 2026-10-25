@@ -7,7 +7,7 @@ import (
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 )
 
-// BlockDBConfig configures a LittDB-backed types.BlockDB.
+// BlockDBConfig configures a LittDB-backed blocktypes.BlockDB.
 type BlockDBConfig struct {
 	// Litt is the underlying LittDB configuration, including the data directory
 	// paths. The block store builds its single table (see tableName, which holds
@@ -21,7 +21,7 @@ type BlockDBConfig struct {
 	// watermark to advance past the record. Must be positive.
 	//
 	// It is an age floor, not a retention policy: how much history this store keeps
-	// is the RollbackWindow and LookbackWindow on gc.StorageGarbageCollectorConfig.
+	// is the RollbackWindow and LookbackWindow on config.StorageGarbageCollectorConfig.
 	//
 	// Default: 1h.
 	RetentionTime time.Duration

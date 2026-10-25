@@ -44,6 +44,8 @@ type nativeStateDB struct {
 	snapshots                []nativeSnapshot
 	readSet                  map[stateAccessKey]struct{}
 	writeSet                 map[stateAccessKey]struct{}
+	lastReadSetSize          int
+	lastWriteSetSize         int
 
 	txHash      common.Hash
 	txIndex     int
@@ -187,7 +189,7 @@ func (s *nativeStateDB) ChangeSet() StateChangeSet {
 }
 
 func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
-	changes.resetForReuse()
+	changes.Reset()
 	addresses := make([]common.Address, 0, len(s.accounts))
 	for addr := range s.accounts {
 		addresses = append(addresses, addr)
@@ -198,47 +200,50 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 
 	for _, addr := range addresses {
 		acct := s.accounts[addr]
+		if acct.StorageCleared {
+			// Committing a replaced storage would mean deleting every stored slot of the account, which the
+			// changeset has no way to express.
+			panic("cannot produce a changeset after SetStorage replaced an account's storage")
+		}
 		base := s.baseAccount(addr)
 
 		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
 		if !acct.Balance.Eq(base.Balance) || hasCommutativeDelta {
 			changes.Balances = append(changes.Balances, BalanceChange{
-				Address: addr,
-				Balance: acct.Balance.ToBig(),
+				Address:      addr,
+				Balance:      acct.Balance.ToBig(),
+				PriorBalance: base.Balance.ToBig(),
 			})
 		}
 		if acct.Nonce != base.Nonce {
 			changes.Nonces = append(changes.Nonces, NonceChange{
-				Address: addr,
-				Nonce:   acct.Nonce,
+				Address:    addr,
+				Nonce:      acct.Nonce,
+				PriorNonce: base.Nonce,
 			})
 		}
 		if !bytes.Equal(acct.Code, base.Code) {
 			changes.Code = append(changes.Code, CodeChange{
-				Address: addr,
-				Code:    cloneBytes(acct.Code),
-				Delete:  len(acct.Code) == 0,
+				Address:   addr,
+				Code:      cloneBytes(acct.Code),
+				Delete:    len(acct.Code) == 0,
+				PriorCode: cloneBytes(base.Code),
 			})
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
 		for _, key := range storageKeys {
-			oldValue := storageHash(base.Storage, key)
+			priorValue := storageHash(base.Storage, key)
 			newValue := storageHash(acct.Storage, key)
-			if acct.StorageCleared {
-				oldValue = common.Hash{}
-			}
-			if oldValue == newValue {
+			if priorValue == newValue {
 				continue
 			}
 			changes.Storage = append(changes.Storage, StorageChange{
-				Address: addr,
-				Key:     key,
-				Value:   newValue,
-				Delete:  newValue == (common.Hash{}),
+				Address:    addr,
+				Key:        key,
+				Value:      newValue,
+				Delete:     newValue == (common.Hash{}),
+				PriorValue: priorValue,
 			})
-		}
-		if acct.StorageCleared {
-			changes.StorageClears = append(changes.StorageClears, addr)
 		}
 	}
 }
@@ -438,6 +443,8 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 	return prev
 }
 
+// SetStorage replaces the account's storage with states for the life of this StateDB: slots absent from states
+// read as zero. A StateDB that has had its storage replaced cannot produce a changeset.
 func (s *nativeStateDB) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
 	acct := s.account(addr)
 	s.recordAccount(addr)
@@ -589,11 +596,10 @@ func (s *nativeStateDB) PointCache() *ethutils.PointCache {
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
-		journalLen:     len(s.journal),
-		refund:         s.refund,
-		logsLen:        len(s.logs),
-		journaledAddrs: map[common.Address]struct{}{},
-		err:            s.err,
+		journalLen: len(s.journal),
+		refund:     s.refund,
+		logsLen:    len(s.logs),
+		err:        s.err,
 	})
 	return id
 }
@@ -641,11 +647,11 @@ func (s *nativeStateDB) Finalise(bool) {
 			s.recordStorageMap(addr)
 			acct.Code = nil
 			acct.CodeHash = common.Hash{}
-			acct.Storage = map[common.Hash]storageValue{}
-			acct.StorageCleared = true
 			acct.Nonce = 0
 			acct.SelfDestructed = false
-			s.markTxStorageClear(addr)
+			// Only an account created in this transaction self-destructs, so none of its storage writes
+			// belong in the changeset, and later reads see what the state beneath the block holds.
+			s.forgetStorage(addr)
 		}
 		if acct.Created {
 			s.recordAccount(addr)
@@ -730,19 +736,24 @@ func (s *nativeStateDB) SetEVM(evm *vm.EVM) {
 
 func (s *nativeStateDB) enableAccessTracking() {
 	if s.readSet == nil {
-		s.readSet = map[stateAccessKey]struct{}{}
+		s.readSet = make(map[stateAccessKey]struct{}, s.lastReadSetSize)
 	} else {
 		clear(s.readSet)
 	}
 	if s.writeSet == nil {
-		s.writeSet = map[stateAccessKey]struct{}{}
+		s.writeSet = make(map[stateAccessKey]struct{}, s.lastWriteSetSize)
 	} else {
 		clear(s.writeSet)
 	}
 }
 
-func (s *nativeStateDB) accessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
-	return cloneAccessSet(s.readSet), cloneAccessSet(s.writeSet)
+// takeAccessSets hands the read and write sets to the caller and stops tracking;
+// enableAccessTracking must be called again before further accesses are recorded.
+func (s *nativeStateDB) takeAccessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
+	readSet, writeSet := s.readSet, s.writeSet
+	s.lastReadSetSize, s.lastWriteSetSize = len(readSet), len(writeSet)
+	s.readSet, s.writeSet = nil, nil
+	return readSet, writeSet
 }
 
 func (s *nativeStateDB) markRead(key stateAccessKey) {
@@ -764,6 +775,9 @@ func (s *nativeStateDB) recordAccount(addr common.Address) {
 	snapshot := &s.snapshots[len(s.snapshots)-1]
 	if _, ok := snapshot.journaledAddrs[addr]; ok {
 		return
+	}
+	if snapshot.journaledAddrs == nil {
+		snapshot.journaledAddrs = make(map[common.Address]struct{})
 	}
 	snapshot.journaledAddrs[addr] = struct{}{}
 	s.journal = append(s.journal, nativeJournalEntry{
@@ -1008,7 +1022,6 @@ func (s *nativeStateDB) baseAccount(addr common.Address) *nativeAccount {
 }
 
 func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
-	base := s.baseAccount(addr)
 	acct := s.account(addr)
 	if _, ok := acct.Storage[key]; ok {
 		return
@@ -1022,12 +1035,7 @@ func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
 	if acct.StorageCleared {
 		return
 	}
-	if _, ok := base.Storage[key]; !ok {
-		if value := s.source.GetState(addr, key); value != (common.Hash{}) {
-			base.Storage[key] = storageValue{value: value}
-		}
-	}
-	if value := storageHash(base.Storage, key); value != (common.Hash{}) {
+	if value := s.baseState(addr, key); value != (common.Hash{}) {
 		acct.Storage[key] = storageValue{value: value}
 	}
 }
@@ -1041,6 +1049,12 @@ func (s *nativeStateDB) committedState(addr common.Address, key common.Hash) com
 	if acct, ok := s.accounts[addr]; ok && acct.StorageCleared {
 		return common.Hash{}
 	}
+	return s.baseState(addr, key)
+}
+
+// baseState returns the slot's value before the block. A non-zero value is kept in base, so the
+// source is read for it once.
+func (s *nativeStateDB) baseState(addr common.Address, key common.Hash) common.Hash {
 	base := s.baseAccount(addr)
 	if _, ok := base.Storage[key]; !ok {
 		if value := s.source.GetState(addr, key); value != (common.Hash{}) {
@@ -1064,6 +1078,14 @@ func (s *nativeStateDB) markTxStorageWrite(addr common.Address, key common.Hash)
 	}
 	s.recordTxStorageWrite(addr, key)
 	slots[key] = struct{}{}
+}
+
+// forgetStorage discards every value held in memory for the account's storage, so later reads return
+// what the state beneath the block holds and the changeset carries no storage change for it.
+func (s *nativeStateDB) forgetStorage(addr common.Address) {
+	s.account(addr).Storage = map[common.Hash]storageValue{}
+	s.baseAccount(addr).Storage = map[common.Hash]storageValue{}
+	delete(s.committedStorage, addr)
 }
 
 func (s *nativeStateDB) markTxStorageClear(addr common.Address) {
@@ -1107,7 +1129,34 @@ func (s *nativeStateDB) finaliseTxStorage() {
 	clear(s.txStorageClears)
 }
 
+// baseAccount is an account's balance, nonce and code as read from the state beneath a block.
+type baseAccount struct {
+	Balance *big.Int
+	Nonce   uint64
+	Code    []byte
+}
+
+// baseAccountReader is an optional StateReader capability that reads an account's fields in one
+// lookup. ReadAccount returns false when the caller must fall back to the per-field accessors.
+type baseAccountReader interface {
+	ReadAccount(common.Address) (baseAccount, bool)
+}
+
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
+	if reader, ok := s.source.(baseAccountReader); ok {
+		if account, served := reader.ReadAccount(addr); served {
+			balance, err := uint256FromBig(account.Balance)
+			if err != nil && s.err == nil {
+				s.err = err
+			}
+			return &nativeAccount{
+				Balance: balance,
+				Nonce:   account.Nonce,
+				Code:    account.Code,
+				Storage: map[common.Hash]storageValue{},
+			}
+		}
+	}
 	balance, err := uint256FromBig(s.source.GetBalance(addr))
 	if err != nil && s.err == nil {
 		s.err = err

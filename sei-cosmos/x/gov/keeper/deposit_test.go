@@ -1,9 +1,11 @@
 package keeper_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -11,6 +13,7 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 )
 
 func TestDeposits(t *testing.T) {
@@ -130,4 +133,112 @@ func TestDeposits(t *testing.T) {
 		deposits = app.GovKeeper.GetDeposits(ctx, proposalID)
 		require.Len(t, deposits, 0)
 	}
+}
+
+func TestAddDepositRejectsBlocksAfterVotingEnd(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(time.Unix(100, 0))
+	depositor := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(100))[0]
+	depositAmount := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 1))
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+	app.GovKeeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+
+	atVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime)
+	_, err = app.GovKeeper.AddDeposit(atVotingEnd, proposal.ProposalId, depositor, depositAmount)
+	require.NoError(t, err)
+
+	proposalAtVotingEnd, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	depositorBalanceAtVotingEnd := app.BankKeeper.GetAllBalances(ctx, depositor)
+	moduleBalanceAtVotingEnd := app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName))
+	app.GovKeeper.CaptureExactTallyBoundary(atVotingEnd)
+	_, err = app.GovKeeper.AddDeposit(atVotingEnd, proposal.ProposalId, depositor, depositAmount)
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	afterVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime.Add(time.Second))
+	_, err = app.GovKeeper.AddDeposit(afterVotingEnd, proposal.ProposalId, depositor, depositAmount)
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	proposalAfterVotingEnd, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, proposalAtVotingEnd.TotalDeposit, proposalAfterVotingEnd.TotalDeposit)
+	require.Equal(t, depositorBalanceAtVotingEnd, app.BankKeeper.GetAllBalances(ctx, depositor))
+	require.Equal(t, moduleBalanceAtVotingEnd, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
+
+	store := afterVotingEnd.KVStore(app.GetKey(types.StoreKey))
+	store.Delete(types.IncrementalTallyEnabledKey)
+	legacyCtx := afterVotingEnd.WithIsTracing(true).WithClosestUpgradeName("v6.7")
+	_, err = app.GovKeeper.AddDeposit(legacyCtx, proposal.ProposalId, depositor, depositAmount)
+	require.NoError(t, err)
+}
+
+func TestRefundDepositsLeavesInvalidRecipientPending(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	validDepositor := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(100))[0]
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+
+	evmAddr := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	castDepositor := sdk.AccAddress(evmAddr[:])
+	app.EvmKeeper.SetAddressMapping(ctx, castDepositor, evmAddr)
+	require.NoError(t, app.BankKeeper.AddCoins(ctx, castDepositor, sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 100)), true))
+
+	castDeposit := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 40))
+	validDeposit := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 30))
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, castDepositor, castDeposit)
+	require.NoError(t, err)
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, validDepositor, validDeposit)
+	require.NoError(t, err)
+
+	app.EvmKeeper.SetAddressMapping(ctx, sdk.AccAddress(bytes.Repeat([]byte{2}, common.AddressLength)), evmAddr)
+	require.False(t, app.BankKeeper.CanSendTo(ctx, castDepositor))
+
+	app.GovKeeper.RefundDeposits(ctx, proposal.ProposalId)
+
+	deposit, found := app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, castDepositor)
+	require.True(t, found)
+	require.Equal(t, castDeposit, deposit.Amount)
+	_, found = app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, validDepositor)
+	require.False(t, found)
+	require.Equal(t, sdk.NewInt(100), app.BankKeeper.GetBalance(ctx, validDepositor, sdk.DefaultBondDenom).Amount)
+	require.Equal(t, castDeposit, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
+}
+
+func TestRefundDepositsLeavesBlockedRecipientPending(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+
+	blockedDepositor := sdk.AccAddress(append(append([]byte{}, bankkeeper.CoinbaseAddressPrefix...), make([]byte, 8)...))
+	require.True(t, app.BankKeeper.CanSendTo(ctx, blockedDepositor))
+	require.True(t, app.BankKeeper.BlockedAddr(blockedDepositor))
+
+	initialBalance := sdk.NewInt(100)
+	depositAmount := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 40))
+	require.NoError(t, app.BankKeeper.AddCoins(
+		ctx,
+		blockedDepositor,
+		sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initialBalance)),
+		true,
+	))
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, blockedDepositor, depositAmount)
+	require.NoError(t, err)
+
+	app.GovKeeper.RefundDeposits(ctx, proposal.ProposalId)
+
+	deposit, found := app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, blockedDepositor)
+	require.True(t, found)
+	require.Equal(t, depositAmount, deposit.Amount)
+	expectedBalance := initialBalance.Sub(depositAmount.AmountOf(sdk.DefaultBondDenom))
+	require.Equal(t, expectedBalance, app.BankKeeper.GetBalance(ctx, blockedDepositor, sdk.DefaultBondDenom).Amount)
+	require.Equal(t, depositAmount, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
 }

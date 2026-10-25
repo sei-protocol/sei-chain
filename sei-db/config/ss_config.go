@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // DBBackend defines the SS DB backend.
 type DBBackend string
 
@@ -10,6 +12,7 @@ const (
 	DefaultSSAsyncBuffer   = 100
 	PebbleDBBackend        = "pebbledb"
 	RocksDBBackend         = "rocksdb"
+	PebbleDBUndoBackend    = "undolog"
 	DefaultSSBackend       = PebbleDBBackend
 )
 
@@ -35,6 +38,14 @@ type StateStoreConfig struct {
 	// Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
 	// defaults to 100
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
+
+	// DisableInternalWAL stops the backend from keeping a changelog WAL of its own, so a commit is
+	// not held up by a log write. It is for an owner that already logs every block and replays that
+	// log into this store, as giga's StateDB does with its state WAL.
+	//
+	// Like ExternalPruning it is set by the code wiring the store into its owner rather than read
+	// from app.toml. Rollback through ss/composite replays the changelog, so that path must keep it.
+	DisableInternalWAL bool `mapstructure:"-"`
 
 	// KeepRecent defines the number of versions to keep in state store (shared by Cosmos and EVM).
 	// Setting it to 0 means keep everything.
@@ -62,6 +73,53 @@ type StateStoreConfig struct {
 	// that were created with MVCCComparer - only use this for NEW databases.
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
+
+	// SnapshotEnable controls whether the state store takes periodic online
+	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so the
+	// backend must be pebbledb and each SS database must be able to hardlink into
+	// its own snapshot root. Startup fails on either rather than running without
+	// snapshots.
+	//
+	// Taking a snapshot occupies each backend's SS apply goroutine for the WAL
+	// flush, the filesystem sync, and the checkpoint. No data is copied up
+	// front, but a queue that fills during that window applies write
+	// backpressure.
+	//
+	// Each retained snapshot pins the SSTs it references and prevents compaction
+	// from reclaiming them. Steady-state disk overhead is therefore the
+	// compaction churn accumulated over SnapshotInterval blocks, per retained
+	// snapshot — significant on a multi-TB state store. Managed snapshots are
+	// rollback restore points, not an archive format. They have no lease in this
+	// release, so node-external tools must not resolve a snapshot path and open it
+	// later without first adding a hold mechanism.
+	//
+	// The changelog grows with them. A rollback replays it forward from a
+	// snapshot, so retention holds every entry above the oldest retained one:
+	// roughly SnapshotInterval entries per retained snapshot, against a floor of
+	// 1000 entries when snapshots are off. Size disk for the count-based ceiling
+	// rather than that steady state — 40,000 entries at the shipped cadence. Every
+	// snapshot-enabled node pays it whether or not it ever rolls back, and the
+	// snapshot-anchored prune that brings the log back below it is best-effort
+	// and only runs when a retention pass drops a snapshot, so a node can sit at
+	// the ceiling indefinitely with nothing else degraded. Attempts, skips, outcomes,
+	// duration, in-flight state, per-store height, retained count, apparent bytes,
+	// and newest common height are exported as ss_snapshot_* metrics.
+	// defaults to false
+	SnapshotEnable bool `mapstructure:"snapshot-enable"`
+
+	// SnapshotInterval, SnapshotKeepRecent, and SnapshotMinTimeInterval are
+	// mirrored from the state-commit snapshot settings at runtime by
+	// AlignSSSnapshotWithSC. They are intentionally not exposed in app.toml;
+	// SnapshotEnable is the only SS-side knob.
+	SnapshotInterval        int64         `mapstructure:"-"`
+	SnapshotKeepRecent      int           `mapstructure:"-"`
+	SnapshotMinTimeInterval time.Duration `mapstructure:"-"`
+
+	// ExternalPruning hands SS history and snapshot retention to the
+	// StorageGarbageCollector. Internal pruning stands down when set.
+	// This field is set by the code wiring SS into a collector, not app.toml.
+	// defaults to false
+	ExternalPruning bool `mapstructure:"-"`
 
 	// --- EVM optimization fields ---
 
@@ -93,7 +151,25 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
+		SnapshotEnable:       false,
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
 	}
+}
+
+// AlignSSSnapshotWithSC mirrors the state-commit interval, minimum time
+// interval, and retention settings onto the state store. SC and SS apply their
+// in-flight gates independently, so this does not promise identical retained
+// heights. When SS snapshots are disabled the cadence is zeroed.
+func AlignSSSnapshotWithSC(scConfig StateCommitConfig, ssConfig *StateStoreConfig) {
+	if !ssConfig.SnapshotEnable {
+		ssConfig.SnapshotInterval = 0
+		ssConfig.SnapshotKeepRecent = 0
+		ssConfig.SnapshotMinTimeInterval = 0
+		return
+	}
+	interval, keepRecent := EffectiveMemIAVLSnapshotCadence(scConfig.MemIAVLConfig)
+	ssConfig.SnapshotInterval = int64(interval)
+	ssConfig.SnapshotKeepRecent = int(keepRecent)
+	ssConfig.SnapshotMinTimeInterval = EffectiveMemIAVLSnapshotMinTimeInterval(scConfig.MemIAVLConfig)
 }

@@ -10,8 +10,11 @@ import (
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 )
+
+var logger = seilog.NewLogger("evmrpc", "config")
 
 const (
 	// WorkerBatchSize is the number of blocks processed in each batch.
@@ -125,6 +128,12 @@ type Config struct {
 	// timeout for filters
 	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
 
+	// maximum number of active eth_newFilter and eth_newBlockFilter filters
+	MaxFilters uint64 `mapstructure:"max_filters"`
+
+	// maximum number of unpolled hashes retained by an eth_newBlockFilter filter
+	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
+
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 
@@ -133,6 +142,9 @@ type Config struct {
 
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
+
+	// Enable simulation before broadcasting EVM RPC sendRawTransaction.
+	EnableSimulation bool `mapstructure:"enable_simulation"`
 
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
@@ -217,7 +229,7 @@ type Config struct {
 	// Set to 0 to use default: 1000
 	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 
-	// EnabledLegacySeiApis lists which gated sei_* and sei2_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
+	// EnabledLegacySeiApis lists which gated sei_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
 	// Set in app.toml [evm] as enabled_legacy_sei_apis (see ReadConfig and ConfigTemplate defaults).
 	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
 
@@ -308,9 +320,30 @@ type Config struct {
 	// (HTTP and WS each get their own budget). Excess connections block in the
 	// accept queue until an active connection closes. Zero disables the limit.
 	MaxOpenConnections int `mapstructure:"max_open_connections"`
+
+	// RPCDefaultTimeout is the deadline applied to an RPC method (HTTP and WS)
+	// that has no existing Sei-specific timeout, such as eth_getBalance or
+	// eth_getBlockByNumber. Zero disables the default (no deadline applied).
+	RPCDefaultTimeout time.Duration `mapstructure:"rpc_default_timeout"`
+
+	// RPCMethodTimeouts overrides RPCDefaultTimeout for individual RPC methods
+	// (both HTTP and WS), taking precedence over it. A method with no matching
+	// entry here falls back to RPCDefaultTimeout. Each entry is a
+	// "method=duration" string (for example "eth_call=60s"). A method name
+	// ending in "*" (for example "debug_trace*=0") matches every method with
+	// that prefix instead of one exact name; the longest matching prefix wins
+	// when more than one could apply.
+	//
+	// A wildcard entry cannot change the timeout for eth_call,
+	// eth_estimateGas, eth_createAccessList, eth_sendRawTransaction,
+	// eth_sendTransaction, eth_getTransactionCount, or any debug_trace*
+	// method: each already has its own exact or prefix entry that takes
+	// precedence. To change one of these, name it exactly, for example
+	// "eth_call=1s".
+	RPCMethodTimeouts []string `mapstructure:"rpc_method_timeouts"`
 }
 
-const defaultBatchRequestLimit = 1000
+const defaultBatchRequestLimit = 100
 
 var DefaultConfig = Config{
 	HTTPEnabled:                  true,
@@ -326,9 +359,12 @@ var DefaultConfig = Config{
 	CORSOrigins:                  "*",
 	WSOrigins:                    "*",
 	FilterTimeout:                120 * time.Second,
+	MaxFilters:                   1000,
+	MaxBlockFilterHashes:         1000,
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
+	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
@@ -363,8 +399,8 @@ var DefaultConfig = Config{
 	TraceBakeUseSnapshot:      false,
 	TraceBakeSnapshotWindow:   64,
 	IPRateLimitRPS:            200,
-	IPRateLimitBurst:          defaultBatchRequestLimit,
-	RateLimitingEnabled:       false,
+	IPRateLimitBurst:          200,
+	RateLimitingEnabled:       true,
 	TrustedProxyCIDRs:         nil,
 	BatchRequestLimit:         defaultBatchRequestLimit,
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
@@ -373,6 +409,10 @@ var DefaultConfig = Config{
 	WSAdmissionTimeout:        30 * time.Second,  // matches go-ethereum rpc defaultWSAdmissionTimeout
 	MaxOpenConnections:        2000,
 	BodyReadIdleTimeout:       10 * time.Second,
+	RPCDefaultTimeout:         30 * time.Second,
+	RPCMethodTimeouts: []string{
+		"eth_estimateGasAfterCalls=5m",
+	},
 }
 
 const (
@@ -389,9 +429,12 @@ const (
 	flagCORSOrigins                  = "evm.cors_origins"
 	flagWSOrigins                    = "evm.ws_origins"
 	flagFilterTimeout                = "evm.filter_timeout"
+	flagMaxFilters                   = "evm.max_filters"
+	flagMaxBlockFilterHashes         = "evm.max_block_filter_hashes"
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
+	flagEnableSimulation             = "evm.enable_simulation"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxLogBytes                  = "evm.max_log_bytes"
@@ -432,6 +475,8 @@ const (
 	flagWSAdmissionTimeout           = "evm.ws_admission_timeout"
 	flagMaxOpenConnections           = "evm.max_open_connections"
 	flagBodyReadIdleTimeout          = "evm.body_read_idle_timeout"
+	flagRPCDefaultTimeout            = "evm.rpc_default_timeout"
+	flagRPCMethodTimeouts            = "evm.rpc_method_timeouts"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -502,6 +547,22 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxFilters); v != nil {
+		if cfg.MaxFilters, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxFilters == 0 {
+			return cfg, fmt.Errorf("%s must be greater than zero", flagMaxFilters)
+		}
+	}
+	if v := opts.Get(flagMaxBlockFilterHashes); v != nil {
+		if cfg.MaxBlockFilterHashes, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxBlockFilterHashes == 0 {
+			return cfg, fmt.Errorf("%s must be greater than zero", flagMaxBlockFilterHashes)
+		}
+	}
 	if v := opts.Get(flagCheckTxTimeout); v != nil {
 		if cfg.CheckTxTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
@@ -514,6 +575,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableSimulation); v != nil {
+		if cfg.EnableSimulation, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -681,8 +747,9 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagRateLimitingEnabled); v != nil {
-		if cfg.RateLimitingEnabled, err = cast.ToBoolE(v); err != nil {
+	rateLimitingSwitch := opts.Get(flagRateLimitingEnabled)
+	if rateLimitingSwitch != nil {
+		if cfg.RateLimitingEnabled, err = cast.ToBoolE(rateLimitingSwitch); err != nil {
 			return cfg, err
 		}
 	}
@@ -732,8 +799,34 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the idle guard), got %s", flagBodyReadIdleTimeout, cfg.BodyReadIdleTimeout)
 		}
 	}
-	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
-		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
+	if v := opts.Get(flagRPCDefaultTimeout); v != nil {
+		if cfg.RPCDefaultTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagRPCMethodTimeouts); v != nil {
+		if cfg.RPCMethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if _, err = cfg.DeadlineEnforcerConfig(); err != nil {
+		return cfg, err
+	}
+	burstBelowBatchLimit := cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
+		cfg.IPRateLimitBurst < cfg.BatchRequestLimit
+	// Files written before rate_limiting_enabled existed set ip_rate_limit_burst
+	// with no burst-vs-batch check to satisfy. When the switch is inherited
+	// rather than set, raise the burst so those nodes still start.
+	if burstBelowBatchLimit && rateLimitingSwitch == nil {
+		logger.Warn("raising EVM per-IP rate-limit burst to the batch request limit",
+			"configured", cfg.IPRateLimitBurst,
+			"effective", cfg.BatchRequestLimit,
+			"hint", "set "+flagIPRateLimitBurst+" >= "+flagBatchRequestLimit+" or set "+flagRateLimitingEnabled+" explicitly",
+		)
+		cfg.IPRateLimitBurst = cfg.BatchRequestLimit
+		burstBelowBatchLimit = false
+	}
+	if burstBelowBatchLimit {
 		return cfg, fmt.Errorf(
 			"%s (%d) must be >= %s (%d): the rate limiter charges one token per batch element, "+
 				"so a lower burst would permanently reject any full-size batch",
@@ -763,6 +856,42 @@ func normalizeNativeTracerNames(flagName string, names []string) ([]string, erro
 	return out, nil
 }
 
+// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries (for
+// example "eth_call=60s") into an exact-match map and a prefix-match map. An
+// entry whose method name ends in "*" (for example "debug_trace*=0") matches
+// every method starting with the text before "*", instead of one exact name,
+// and is returned in prefixes rather than exact. Returns an error naming the
+// malformed entry.
+func ParseMethodTimeouts(entries []string) (exact map[string]time.Duration, prefixes map[string]time.Duration, err error) {
+	exact = make(map[string]time.Duration, len(entries))
+	prefixes = make(map[string]time.Duration)
+	for _, entry := range entries {
+		method, raw, ok := strings.Cut(entry, "=")
+		if !ok || method == "" {
+			return nil, nil, fmt.Errorf("%q must be formatted as method=duration, for example eth_estimateGasAfterCalls=5m", entry)
+		}
+		d, err := cast.ToDurationE(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%q: %w", entry, err)
+		}
+		if d < 0 {
+			return nil, nil, fmt.Errorf("%q duration must be >= 0 (0 disables the method deadline), got %s", entry, d)
+		}
+		if prefix, isWildcard := strings.CutSuffix(method, "*"); isWildcard {
+			if prefix == "" || strings.Contains(prefix, "*") {
+				return nil, nil, fmt.Errorf("%q: wildcard entry must have a single non-empty prefix before a trailing \"*\", for example debug_trace*", entry)
+			}
+			prefixes[prefix] = d
+			continue
+		}
+		if strings.Contains(method, "*") {
+			return nil, nil, fmt.Errorf("%q: \"*\" is only supported as a trailing wildcard, for example debug_trace*", entry)
+		}
+		exact[method] = d
+	}
+	return exact, prefixes, nil
+}
+
 // RateLimiterConfig builds the ratelimiter.Config used by EVM JSON-RPC admission.
 func (c Config) RateLimiterConfig() ratelimiter.Config {
 	return ratelimiter.Config{
@@ -770,6 +899,52 @@ func (c Config) RateLimiterConfig() ratelimiter.Config {
 		Burst:             c.IPRateLimitBurst,
 		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
 	}
+}
+
+// DeadlineEnforcerConfig builds the ratelimiter.DeadlineConfig used by every
+// method dispatched through the EVM JSON-RPC server (see evmrpc.withDeadline,
+// wired via rpc.Server.SetDeadlineHook), including methods that already carry
+// their own deadline applied inside the handler: eth_sendRawTransaction,
+// eth_sendTransaction, eth_getTransactionCount (methodTimeout) and debug_trace*
+// (TraceTimeout).
+func (c Config) DeadlineEnforcerConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.RPCDefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s must be >= 0 (0 disables the default deadline), got %s", flagRPCDefaultTimeout, c.RPCDefaultTimeout)
+	}
+	configuredExact, configuredPrefixes, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", flagRPCMethodTimeouts, err)
+	}
+
+	// Simulation handlers already use SimulationEVMTimeout internally. Keep
+	// the dispatch deadline aligned with that setting unless the operator
+	// explicitly overrides a method through RPCMethodTimeouts.
+	exact := map[string]time.Duration{
+		"eth_call":             c.SimulationEVMTimeout,
+		"eth_estimateGas":      c.SimulationEVMTimeout,
+		"eth_createAccessList": c.SimulationEVMTimeout,
+
+		// These handlers already apply methodTimeout themselves. Exempt them
+		// here so replacing RPCMethodTimeouts cannot silently shorten them.
+		"eth_sendRawTransaction":  0,
+		"eth_sendTransaction":     0,
+		"eth_getTransactionCount": 0,
+	}
+	prefixes := map[string]time.Duration{
+		// Trace handlers already apply TraceTimeout themselves.
+		"debug_trace": 0,
+	}
+	for method, timeout := range configuredExact {
+		exact[method] = timeout
+	}
+	for prefix, timeout := range configuredPrefixes {
+		prefixes[prefix] = timeout
+	}
+	return ratelimiter.DeadlineConfig{
+		Default:         c.RPCDefaultTimeout,
+		Overrides:       exact,
+		PrefixOverrides: prefixes,
+	}, nil
 }
 
 // ConfigTemplate defines the TOML configuration template for EVM RPC
@@ -830,64 +1005,39 @@ ws_origins = "{{ .EVM.WSOrigins }}"
 # timeout for filters
 filter_timeout = "{{ .EVM.FilterTimeout }}"
 
+# maximum number of active eth_newFilter and eth_newBlockFilter filters
+# filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
+max_filters = {{ .EVM.MaxFilters }}
+
+# maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
+# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
+max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
+
 # checkTx timeout for sig verify
 checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
 
+# Enables simulation before broadcasting EVM RPC sendRawTransaction.
+enable_simulation = {{ .EVM.EnableSimulation }}
+
 # Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
 
-# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
+# Legacy sei_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
 #
-# DEPRECATION: The sei_* and sei2_* JSON-RPC surfaces are deprecated and scheduled for removal. Do not
+# DEPRECATION: The sei_* JSON-RPC surface is deprecated and scheduled for removal. Do not
 # build new integrations on them; use eth_* / debug_* and documented replacements. HTTP 200;
 # gate errors use standard JSON-RPC error encoding (see evmrpc/AGENTS.md). Successful allowlisted
 # responses are unchanged; nodes may set HTTP header Sei-Legacy-RPC-Deprecation (see AGENTS.md).
 #
-# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable the three
-# address/Cosmos helpers; uncomment optional lines below to enable more legacy methods (include
-# sei2_* block methods at the end of the list if you need them).
+# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable all three
+# remaining address/Cosmos helpers.
 enabled_legacy_sei_apis = [
 {{- range .EVM.EnabledLegacySeiApis }}
   "{{ . }}",
 {{- end }}
-
-  # Optional legacy methods - uncomment to enable (same deprecation applies):
-  # "sei_associate",
-  # "sei_getBlockByHash",
-  # "sei_getBlockByHashExcludeTraceFail",
-  # "sei_getBlockByNumber",
-  # "sei_getBlockByNumberExcludeTraceFail",
-  # "sei_getBlockReceipts",
-  # "sei_getBlockTransactionCountByHash",
-  # "sei_getBlockTransactionCountByNumber",
-  # "sei_getEvmTx",
-  # "sei_getFilterChanges",
-  # "sei_getFilterLogs",
-  # "sei_getLogs",
-  # "sei_getTransactionByBlockHashAndIndex",
-  # "sei_getTransactionByBlockNumberAndIndex",
-  # "sei_getTransactionByHash",
-  # "sei_getTransactionCount",
-  # "sei_getTransactionErrorByHash",
-  # "sei_getTransactionReceipt",
-  # "sei_getTransactionReceiptExcludeTraceFail",
-  # "sei_getVMError",
-  # "sei_newBlockFilter",
-  # "sei_newFilter",
-  # "sei_sign",
-  # "sei_uninstallFilter",
-  #
-  # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
-  # "sei2_getBlockByHash",
-  # "sei2_getBlockByHashExcludeTraceFail",
-  # "sei2_getBlockByNumber",
-  # "sei2_getBlockByNumberExcludeTraceFail",
-  # "sei2_getBlockReceipts",
-  # "sei2_getBlockTransactionCountByHash",
-  # "sei2_getBlockTransactionCountByNumber",
 ]
 
 # max number of logs a single eth_getLogs query may match before it errors,
@@ -1058,5 +1208,24 @@ body_read_idle_timeout = "{{ .EVM.BodyReadIdleTimeout }}"
 # max_open_connections caps the number of simultaneously accepted connections on
 # the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.
 max_open_connections = {{ .EVM.MaxOpenConnections }}
+
+# rpc_default_timeout is the deadline applied (on both HTTP and WebSocket) to an
+# RPC method with no entry in rpc_method_timeouts, such as eth_getBalance or
+# eth_getBlockByNumber. Set to 0 to disable. HTTP requests are also bounded by
+# write_timeout; raise it to permit a longer method timeout over HTTP.
+rpc_default_timeout = "{{ .EVM.RPCDefaultTimeout }}"
+
+# rpc_method_timeouts overrides rpc_default_timeout for individual RPC methods
+# (both HTTP and WebSocket). A method with no matching entry here falls back
+# to rpc_default_timeout. Each entry is "method=duration", e.g. "eth_call=60s".
+# A method name ending in "*" (e.g. "debug_trace*=0") matches every method
+# with that prefix; the longest matching prefix wins. A duration of 0 means no
+# deadline is applied by this mechanism.
+#
+# A wildcard here cannot change the timeout for eth_call, eth_estimateGas,
+# eth_createAccessList, eth_sendRawTransaction, eth_sendTransaction,
+# eth_getTransactionCount, or debug_trace* methods - each already has its own
+# entry that wins. To change one of these, name it exactly, e.g. "eth_call=1s".
+rpc_method_timeouts = [{{- range $i, $e := .EVM.RPCMethodTimeouts }}{{- if $i }}, {{ end }}"{{ $e }}"{{- end }}]
 
 `

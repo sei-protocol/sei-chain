@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 
@@ -22,19 +23,23 @@ import (
 )
 
 const (
-	SetWithdrawAddressMethod                = "setWithdrawAddress"
-	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
-	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
-	WithdrawValidatorCommissionMethod       = "withdrawValidatorCommission"
-	RewardsMethod                           = "rewards"
-	ParamsMethod                            = "params"
-	ValidatorOutstandingRewardsMethod       = "validatorOutstandingRewards"
-	ValidatorCommissionMethod               = "validatorCommission"
-	ValidatorSlashesMethod                  = "validatorSlashes"
-	DelegationRewardsMethod                 = "delegationRewards"
-	DelegatorValidatorsMethod               = "delegatorValidators"
-	DelegatorWithdrawAddressMethod          = "delegatorWithdrawAddress"
-	CommunityPoolMethod                     = "communityPool"
+	SetWithdrawAddressMethod                   = "setWithdrawAddress"
+	WithdrawDelegationRewardsMethod            = "withdrawDelegationRewards"
+	WithdrawMultipleDelegationRewardsMethod    = "withdrawMultipleDelegationRewards"
+	WithdrawValidatorCommissionMethod          = "withdrawValidatorCommission"
+	GrantWithdrawMethod                        = "grantWithdrawAuthorization"
+	WithdrawDelegationRewardsWithAuthzMethod   = "withdrawDelegationRewardsWithAuthorization"
+	WithdrawValidatorCommissionWithAuthzMethod = "withdrawValidatorCommissionWithAuthorization"
+	RevokeWithdrawMethod                       = "revokeWithdrawAuthorization"
+	RewardsMethod                              = "rewards"
+	ParamsMethod                               = "params"
+	ValidatorOutstandingRewardsMethod          = "validatorOutstandingRewards"
+	ValidatorCommissionMethod                  = "validatorCommission"
+	ValidatorSlashesMethod                     = "validatorSlashes"
+	DelegationRewardsMethod                    = "delegationRewards"
+	DelegatorValidatorsMethod                  = "delegatorValidators"
+	DelegatorWithdrawAddressMethod             = "delegatorWithdrawAddress"
+	CommunityPoolMethod                        = "communityPool"
 
 	SetWithdrawAddressEvent        = "WithdrawAddressSet"
 	DelegationRewardsEvent         = "DelegationRewardsWithdrawn"
@@ -61,22 +66,28 @@ var f embed.FS
 type PrecompileExecutor struct {
 	distrKeeper         utils.DistributionKeeper
 	distributionQuerier utils.DistributionQuerier
+	authzMsgServer      utils.AuthzMsgServer
+	bankKeeper          utils.BankKeeper
 	evmKeeper           utils.EVMKeeper
 	address             common.Address
 
-	SetWithdrawAddrID                   []byte
-	WithdrawDelegationRewardsID         []byte
-	WithdrawMultipleDelegationRewardsID []byte
-	WithdrawValidatorCommissionID       []byte
-	RewardsID                           []byte
-	ParamsID                            []byte
-	ValidatorOutstandingRewardsID       []byte
-	ValidatorCommissionID               []byte
-	ValidatorSlashesID                  []byte
-	DelegationRewardsID                 []byte
-	DelegatorValidatorsID               []byte
-	DelegatorWithdrawAddressID          []byte
-	CommunityPoolID                     []byte
+	SetWithdrawAddrID                      []byte
+	WithdrawDelegationRewardsID            []byte
+	WithdrawMultipleDelegationRewardsID    []byte
+	WithdrawValidatorCommissionID          []byte
+	GrantWithdrawID                        []byte
+	WithdrawDelegationRewardsWithAuthzID   []byte
+	WithdrawValidatorCommissionWithAuthzID []byte
+	RevokeWithdrawID                       []byte
+	RewardsID                              []byte
+	ParamsID                               []byte
+	ValidatorOutstandingRewardsID          []byte
+	ValidatorCommissionID                  []byte
+	ValidatorSlashesID                     []byte
+	DelegationRewardsID                    []byte
+	DelegatorValidatorsID                  []byte
+	DelegatorWithdrawAddressID             []byte
+	CommunityPoolID                        []byte
 
 	abi abi.ABI
 }
@@ -87,6 +98,8 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 	p := &PrecompileExecutor{
 		distrKeeper:         keepers.DistributionK(),
 		distributionQuerier: keepers.DistributionQ(),
+		authzMsgServer:      keepers.AuthzMS(),
+		bankKeeper:          keepers.BankK(),
 		evmKeeper:           keepers.EVMK(),
 		address:             common.HexToAddress(DistrAddress),
 		abi:                 newAbi,
@@ -102,6 +115,14 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.WithdrawMultipleDelegationRewardsID = m.ID
 		case WithdrawValidatorCommissionMethod:
 			p.WithdrawValidatorCommissionID = m.ID
+		case GrantWithdrawMethod:
+			p.GrantWithdrawID = m.ID
+		case WithdrawDelegationRewardsWithAuthzMethod:
+			p.WithdrawDelegationRewardsWithAuthzID = m.ID
+		case WithdrawValidatorCommissionWithAuthzMethod:
+			p.WithdrawValidatorCommissionWithAuthzID = m.ID
+		case RevokeWithdrawMethod:
+			p.RevokeWithdrawID = m.ID
 		case RewardsMethod:
 			p.RewardsID = m.ID
 		case ParamsMethod:
@@ -160,6 +181,26 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
 		return p.withdrawValidatorCommission(ctx, method, caller, evm)
+	case GrantWithdrawMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
+		return p.grantWithdrawAuthorization(ctx, method, caller, args, value)
+	case WithdrawDelegationRewardsWithAuthzMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
+		return p.withdrawDelegationRewardsWithAuthorization(ctx, method, caller, args, value, evm)
+	case WithdrawValidatorCommissionWithAuthzMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
+		return p.withdrawValidatorCommissionWithAuthorization(ctx, method, caller, args, value, evm)
+	case RevokeWithdrawMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
+		return p.revokeWithdrawAuthorization(ctx, method, caller, args, value)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
 	case ParamsMethod:
@@ -190,7 +231,8 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 // distribution methods are views.
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case SetWithdrawAddressMethod, WithdrawDelegationRewardsMethod, WithdrawMultipleDelegationRewardsMethod, WithdrawValidatorCommissionMethod:
+	case SetWithdrawAddressMethod, WithdrawDelegationRewardsMethod, WithdrawMultipleDelegationRewardsMethod, WithdrawValidatorCommissionMethod,
+		GrantWithdrawMethod, WithdrawDelegationRewardsWithAuthzMethod, WithdrawValidatorCommissionWithAuthzMethod, RevokeWithdrawMethod:
 		return true
 	default:
 		return false
@@ -248,39 +290,148 @@ func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Meth
 	return
 }
 
+type withdrawExecutor func() (sdk.Int, error)
+
+func (p PrecompileExecutor) grantWithdrawAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := p.validateInput(value, args, 2); err != nil {
+		return nil, 0, err
+	}
+
+	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	expiration := time.Unix(args[1].(int64), 0).UTC()
+	if err := pcommon.GrantGenericAuthorizations(
+		ctx,
+		p.authzMsgServer,
+		granter,
+		grantee,
+		expiration,
+		&distrtypes.MsgWithdrawDelegatorReward{},
+		&distrtypes.MsgWithdrawValidatorCommission{},
+	); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) revokeWithdrawAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := p.validateInput(value, args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.RevokeAuthorizations(
+		ctx,
+		p.authzMsgServer,
+		granter,
+		grantee,
+		&distrtypes.MsgWithdrawDelegatorReward{},
+		&distrtypes.MsgWithdrawValidatorCommission{},
+	); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
 func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+	if err := p.validateInput(value, args, 1); err != nil {
+		return nil, 0, err
+	}
+	delegator, err := p.getDelegator(ctx, caller)
+	if err != nil {
+		return nil, 0, err
+	}
+	validatorAddress := args[0].(string)
+	execute := func() (sdk.Int, error) {
+		amts, err := p.withdraw(ctx, delegator, validatorAddress)
+		return amts.AmountOf(sdk.DefaultBondDenom), err
+	}
+	return p.withdrawDelegationRewardsFor(ctx, method, caller, validatorAddress, evm, execute)
+}
+
+func (p PrecompileExecutor) withdrawDelegationRewardsWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, uint64, error) {
+	if err := p.validateInput(value, args, 2); err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	validatorAddress := args[1].(string)
+	validator, err := sdk.ValAddressFromBech32(validatorAddress)
+	if err != nil {
+		return nil, 0, err
+	}
+	execute := func() (sdk.Int, error) {
+		withdrawAddress := p.distrKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
+		balanceBefore := p.bankBalance(ctx, withdrawAddress)
+		msg := distrtypes.NewMsgWithdrawDelegatorReward(delegator, validator)
+		if err := msg.ValidateBasic(); err != nil {
+			return sdk.Int{}, err
+		}
+		if _, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg); err != nil {
+			return sdk.Int{}, err
+		}
+		return p.bankBalance(ctx, withdrawAddress).Sub(balanceBefore), nil
+	}
+	return p.withdrawDelegationRewardsFor(ctx, method, args[0].(common.Address), validatorAddress, evm, execute)
+}
+
+// withdrawDelegationRewardsFor keeps direct and authorized withdrawals on the
+// same event and output path while allowing each entry point to enforce its
+// own native Cosmos execution mechanism.
+func (p PrecompileExecutor) withdrawDelegationRewardsFor(ctx sdk.Context, method *abi.Method, delegatorEVM common.Address, validatorAddress string, evm *vm.EVM, execute withdrawExecutor) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
 			remainingGas = 0
 			rerr = fmt.Errorf("%s", err)
-			return
 		}
 	}()
-	err := p.validateInput(value, args, 1)
-	if err != nil {
-		rerr = err
-		return
-	}
 
-	delegator, err := p.getDelegator(ctx, caller)
+	amount, err := execute()
 	if err != nil {
-		rerr = err
-		return
+		return nil, 0, err
 	}
-	amts, err := p.withdraw(ctx, delegator, args[0].(string))
+	ret, err = method.Outputs.Pack(true)
 	if err != nil {
-		rerr = err
-		return
+		return nil, 0, err
 	}
-	ret, rerr = method.Outputs.Pack(true)
-	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	if err := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, delegatorEVM, validatorAddress, amount.BigInt()); err != nil {
+		return nil, 0, err
+	}
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
 
-	if err := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, args[0].(string), amts.AmountOf(sdk.DefaultBondDenom).BigInt()); err != nil {
-		rerr = err
-		return
-	}
-	return
+func (p PrecompileExecutor) bankBalance(ctx sdk.Context, address sdk.AccAddress) sdk.Int {
+	return p.bankKeeper.GetBalance(ctx, address, sdk.DefaultBondDenom).Amount
 }
 
 func (p PrecompileExecutor) validateInput(value *big.Int, args []interface{}, expectedArgsLength int) error {
@@ -757,51 +908,71 @@ func (p PrecompileExecutor) communityPool(ctx sdk.Context, method *abi.Method, a
 	return
 }
 
-func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address, evm *vm.EVM) ([]byte, uint64, error) {
+	validator, err := p.getDelegator(ctx, caller)
+	if err != nil {
+		return nil, 0, err
+	}
+	execute := func() (sdk.Int, error) {
+		amts, err := p.distrKeeper.WithdrawValidatorCommission(ctx, sdk.ValAddress(validator))
+		return amts.AmountOf(sdk.DefaultBondDenom), err
+	}
+	return p.withdrawValidatorCommissionFor(ctx, method, validator, evm, execute)
+}
+
+func (p PrecompileExecutor) withdrawValidatorCommissionWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, uint64, error) {
+	if err := p.validateInput(value, args, 1); err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	validator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	execute := func() (sdk.Int, error) {
+		withdrawAddress := p.distrKeeper.GetDelegatorWithdrawAddr(ctx, validator)
+		balanceBefore := p.bankBalance(ctx, withdrawAddress)
+		msg := distrtypes.NewMsgWithdrawValidatorCommission(sdk.ValAddress(validator))
+		if err := msg.ValidateBasic(); err != nil {
+			return sdk.Int{}, err
+		}
+		if _, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg); err != nil {
+			return sdk.Int{}, err
+		}
+		return p.bankBalance(ctx, withdrawAddress).Sub(balanceBefore), nil
+	}
+	return p.withdrawValidatorCommissionFor(ctx, method, validator, evm, execute)
+}
+
+func (p PrecompileExecutor) withdrawValidatorCommissionFor(ctx sdk.Context, method *abi.Method, validator sdk.AccAddress, evm *vm.EVM, execute withdrawExecutor) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
 			remainingGas = 0
 			rerr = fmt.Errorf("%s", err)
-			return
 		}
 	}()
 
-	validatorSeiAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		rerr = types.NewAssociationMissingErr(caller.Hex())
-		return
-	}
-
-	validatorAddr := sdk.ValAddress(validatorSeiAddr)
-
-	validator, err := sdk.ValAddressFromBech32(validatorAddr.String())
+	amount, err := execute()
 	if err != nil {
-		rerr = err
-		return
+		return nil, 0, err
 	}
-
-	// Call the distribution keeper to withdraw validator commission
-	amts, err := p.distrKeeper.WithdrawValidatorCommission(ctx, validator)
+	ret, err = method.Outputs.Pack(true)
 	if err != nil {
-		rerr = err
-		return
+		return nil, 0, err
 	}
-
-	ret, rerr = method.Outputs.Pack(true)
-	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-
-	logData, err := p.abi.Events[ValidatorCommissionEvent].Inputs.NonIndexed().Pack(amts.AmountOf(sdk.DefaultBondDenom).BigInt())
+	logData, err := p.abi.Events[ValidatorCommissionEvent].Inputs.NonIndexed().Pack(amount.BigInt())
 	if err != nil {
-		rerr = err
-		return
+		return nil, 0, err
 	}
 	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
 		ValidatorCommissionEventSig,
-		crypto.Keccak256Hash([]byte(validator.String())),
+		crypto.Keccak256Hash([]byte(sdk.ValAddress(validator).String())),
 	}, logData); err != nil {
-		rerr = err
-		return
+		return nil, 0, err
 	}
-	return
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }

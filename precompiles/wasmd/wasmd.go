@@ -30,7 +30,10 @@ const (
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
 const PrecompileName = "wasmd"
 
-var Address = common.HexToAddress(WasmdAddress)
+var (
+	Address                 = common.HexToAddress(WasmdAddress)
+	ErrExecuteBatchDisabled = errors.New("wasmd execute_batch is disabled")
+)
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -96,7 +99,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	case ExecuteMethod:
 		return p.execute(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case ExecuteBatchMethod:
-		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
+		return nil, pcommon.GetRemainingGas(ctx, p.evmKeeper), ErrExecuteBatchDisabled
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -196,137 +199,6 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 		return
 	}
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
-	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-	return
-}
-
-func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
-	defer func() {
-		if err := recover(); err != nil {
-			ret = nil
-			remainingGas = 0
-			rerr = fmt.Errorf("%s", err)
-			return
-		}
-	}()
-	if readOnly {
-		rerr = errors.New("cannot call execute from staticcall")
-		return
-	}
-
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		rerr = err
-		return
-	}
-
-	executeMsgs := args[0].([]struct {
-		ContractAddress string `json:"contractAddress"`
-		Msg             []byte `json:"msg"`
-		Coins           []byte `json:"coins"`
-	})
-
-	responses := make([][]byte, 0, len(executeMsgs))
-
-	// validate coins add up to value
-	validateValue := big.NewInt(0)
-	for i := 0; i < len(executeMsgs); i++ {
-		executeMsg := ExecuteMsg(executeMsgs[i])
-		coinsBz := executeMsg.Coins
-		coins := sdk.NewCoins()
-		if err := json.Unmarshal(coinsBz, &coins); err != nil {
-			rerr = err
-			return
-		}
-		messageAmount := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		validateValue.Add(validateValue, messageAmount)
-	}
-	// if validateValue is greater than zero, then value must be provided, and they must be equal
-	if (value == nil && validateValue.Sign() == 1) || (value != nil && validateValue.Cmp(value) != 0) {
-		rerr = errors.New("sum of coin amounts must equal value specified")
-		return
-	}
-	// Copy to avoid modifying the original value
-	var valueCopy *big.Int
-	if value != nil {
-		valueCopy = new(big.Int).Set(value)
-	} else {
-		valueCopy = value
-	}
-	for i := 0; i < len(executeMsgs); i++ {
-		executeMsg := ExecuteMsg(executeMsgs[i])
-
-		// type assertion will always succeed because it's already validated in p.Prepare call in Run()
-		contractAddrStr := executeMsg.ContractAddress
-		if ctx.EVMPrecompileCalledFromDelegateCall() {
-			erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
-			erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
-			erc1155pointer, _, erc1155exists := p.evmKeeper.GetERC1155CW1155Pointer(ctx, contractAddrStr)
-			if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) && (!erc1155exists || erc1155pointer.Cmp(callingContract) != 0) {
-				return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
-			}
-		}
-
-		contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
-		if err != nil {
-			rerr = err
-			return
-		}
-		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
-		if !senderAssociated {
-			rerr = types.NewAssociationMissingErr(caller.Hex())
-			return
-		}
-		msg := executeMsg.Msg
-		coinsBz := executeMsg.Coins
-		coins := sdk.NewCoins()
-		if err := json.Unmarshal(coinsBz, &coins); err != nil {
-			rerr = err
-			return
-		}
-		useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
-		if valueCopy != nil && !useiAmt.IsZero() {
-			// process coin amount from the value provided
-			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
-			if err != nil {
-				rerr = err
-				return
-			}
-			valueCopy.Sub(valueCopy, useiAmtAsWei)
-			if valueCopy.Sign() == -1 {
-				rerr = errors.New("insufficient value provided for payment")
-				return
-			}
-			// sanity check coin amounts match
-			if !coin.Amount.Equal(useiAmt) {
-				rerr = errors.New("mismatch between coins and payment value")
-				return
-			}
-		}
-		// Run basic validation, can also just expose validateLabel and validate validateWasmCode in sei-wasmd
-		msgExecute := wasmtypes.MsgExecuteContract{
-			Sender:   senderAddr.String(),
-			Contract: contractAddr.String(),
-			Msg:      msg,
-			Funds:    coins,
-		}
-		if err := msgExecute.ValidateBasic(); err != nil {
-			rerr = err
-			return
-		}
-
-		res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
-		if err != nil {
-			rerr = err
-			return
-		}
-		responses = append(responses, res)
-	}
-	if valueCopy != nil && valueCopy.Sign() != 0 {
-		rerr = errors.New("value remaining after execution, must match provided amounts exactly")
-		return
-	}
-	ret, rerr = method.Outputs.Pack(responses)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }

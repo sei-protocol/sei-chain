@@ -23,7 +23,9 @@ func collectPhaseAttrs(t *testing.T, staticAttrs ...attribute.KeyValue) map[stri
 
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	timer := NewPhaseTimer(provider.Meter("test"), "test_timer", staticAttrs...)
+	// Latencies are opted into, because what this checks is that attributes reach both instruments.
+	timer := NewPhaseTimerFactory(provider.Meter("test"), "test_timer", staticAttrs...).
+		RecordLatencies().Build()
 
 	// The first SetPhase only opens a phase; the second closes it and records. Reset closes the
 	// second phase, so both phases produce measurements.
@@ -65,6 +67,31 @@ func phases(t *testing.T, sets []attribute.Set) []string {
 		found = append(found, value.AsString())
 	}
 	return found
+}
+
+// TestPhaseTimerOmitsLatenciesUntilAskedFor pins that the histogram costs nothing unless a caller
+// wants it. It is a series per bucket per phase, so a timer read only as the share-of-time counter
+// would otherwise publish several times the data anything reads.
+func TestPhaseTimerOmitsLatenciesUntilAskedFor(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	timer := NewPhaseTimer(provider.Meter("test"), "test_timer")
+
+	timer.SetPhase("first")
+	timer.SetPhase("second")
+	timer.Reset()
+
+	var collected metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &collected))
+
+	published := make([]string, 0, 1)
+	for _, scope := range collected.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			published = append(published, m.Name)
+		}
+	}
+	require.Equal(t, []string{"test_timer_phase_duration_seconds_total"}, published,
+		"a timer that was not asked for latencies must publish the counter alone")
 }
 
 func TestPhaseTimerRecordsPhaseAttributeOnly(t *testing.T) {

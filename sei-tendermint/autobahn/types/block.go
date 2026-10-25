@@ -15,9 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// LaneID represents a lane identifier (currently it is the same as NodeID,
-// since the producer uniquely identifies the lane).
-type LaneID = PublicKey
+// ExecutedBlocksWindow is the number of committed blocks ExecutedBlocks retains.
+const ExecutedBlocksWindow = 128
 
 // NodeID represents a unique identifier for a node in the network.
 type NodeID string
@@ -27,6 +26,57 @@ type BlockNumber uint64
 
 // GlobalBlockNumber is the number of a block in the global chain.
 type GlobalBlockNumber uint64
+
+// ExecutedBlock is a block committed to the app together with the gas its
+// transactions used.
+type ExecutedBlock struct {
+	Number  GlobalBlockNumber
+	GasUsed uint64
+}
+
+// ExecutedBlocks is an immutable window of the most recently committed blocks,
+// consecutive by number and newest last. The zero value holds no blocks.
+type ExecutedBlocks struct {
+	blocks []ExecutedBlock
+}
+
+// NewExecutedBlocks returns a window holding only b.
+func NewExecutedBlocks(b ExecutedBlock) ExecutedBlocks {
+	return ExecutedBlocks{blocks: []ExecutedBlock{b}}
+}
+
+// Push returns a copy of w with b appended, dropping the oldest block once the
+// window exceeds ExecutedBlocksWindow.
+func (w ExecutedBlocks) Push(b ExecutedBlock) ExecutedBlocks {
+	start := 0
+	if len(w.blocks) >= ExecutedBlocksWindow {
+		start = len(w.blocks) - ExecutedBlocksWindow + 1
+	}
+	blocks := make([]ExecutedBlock, 0, len(w.blocks)-start+1)
+	blocks = append(blocks, w.blocks[start:]...)
+	return ExecutedBlocks{blocks: append(blocks, b)}
+}
+
+// Latest returns the newest block in the window, or the zero ExecutedBlock if
+// the window is empty.
+func (w ExecutedBlocks) Latest() ExecutedBlock {
+	if len(w.blocks) == 0 {
+		return ExecutedBlock{}
+	}
+	return w.blocks[len(w.blocks)-1]
+}
+
+// Get returns the block numbered n if the window still holds it.
+func (w ExecutedBlocks) Get(n GlobalBlockNumber) (ExecutedBlock, bool) {
+	if len(w.blocks) == 0 {
+		return ExecutedBlock{}, false
+	}
+	first := w.blocks[0].Number
+	if n < first || n > w.Latest().Number {
+		return ExecutedBlock{}, false
+	}
+	return w.blocks[n-first], true
+}
 
 // BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
 // payload of the utils.Option returned by ReadBlockByHash so that the block
@@ -117,8 +167,6 @@ type GlobalBlock struct {
 	Timestamp    time.Time
 	GlobalNumber GlobalBlockNumber
 	Payload      *Payload
-	// Highest known finalized state.
-	FinalAppState utils.Option[*AppProposal]
 }
 
 // NewBlock creates a new Block.
@@ -145,12 +193,9 @@ func (b *Block) Header() *BlockHeader { return b.header }
 // Payload .
 func (b *Block) Payload() *Payload { return b.payload }
 
-// Verify validates the Block.
-func (b *Block) Verify(c *Committee) error {
-	if err := b.Header().Verify(c); err != nil {
-		return fmt.Errorf("header.Verify(): %w", err)
-	}
-	if got, want := b.Payload().Hash(), b.Header().PayloadHash(); got != want {
+// Verify checks the block's internal integrity.
+func (b *Block) Verify() error {
+	if got, want := b.payload.Hash(), b.header.payloadHash; got != want {
 		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
 	}
 	return nil
@@ -223,7 +268,7 @@ func (p *Payload) Hash() PayloadHash {
 var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 	Encode: func(h *BlockHeader) *pb.BlockHeader {
 		return &pb.BlockHeader{
-			Lane:        PublicKeyConv.Encode(h.lane),
+			LaneId:      LaneIDConv.Encode(h.lane),
 			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
@@ -238,7 +283,7 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		if err != nil {
 			return nil, fmt.Errorf("ParentHash: %w", err)
 		}
-		lane, err := PublicKeyConv.DecodeReq(h.Lane)
+		lane, err := LaneIDConv.DecodeReq(h.LaneId)
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}

@@ -212,7 +212,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 					wg.Add(1)
 					go func(nonce int) {
 						defer wg.Done()
-						key := tmtypes.TxHash(rand.NewRand().Bytes(32))
+						key := tmtypes.TxHash(common.BigToHash(big.NewInt(int64(nonce))))
 						// call this just to exercise locks
 						k.CalculateNextNonce(ctx, address1, true)
 						k.AddPendingNonce(key, address1, uint64(nonce), 0)

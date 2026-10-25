@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/evidence"
-	"github.com/sei-protocol/sei-chain/precompiles/feegrant"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
@@ -48,33 +47,38 @@ type IPrecompile interface {
 	Address() ecommon.Address
 }
 
-func GetCustomPrecompiles(
-	latestUpgrade string,
-	keepers utils.Keepers,
-) map[ecommon.Address]utils.VersionedPrecompiles {
-	return map[ecommon.Address]utils.VersionedPrecompiles{
-		ecommon.HexToAddress(bank.BankAddress):               bank.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(wasmd.WasmdAddress):             wasmd.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(json.JSONAddress):               json.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(addr.AddrAddress):               addr.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(staking.StakingAddress):         staking.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(gov.GovAddress):                 gov.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(distribution.DistrAddress):      distribution.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(oracle.OracleAddress):           oracle.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(ibc.IBCAddress):                 ibc.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(pointer.PointerAddress):         pointer.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerview.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(p256.P256VerifyAddress):         p256.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(solo.SoloAddress):               solo.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(auth.AuthAddress):               auth.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(authz.AuthzAddress):             authz.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(evidence.EvidenceAddress):       evidence.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(feegrant.FeegrantAddress):       feegrant.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(mint.MintAddress):               mint.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(params.ParamsAddress):           params.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(slashing.SlashingAddress):       slashing.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(upgrade.UpgradeAddress):         upgrade.GetVersioned(latestUpgrade, keepers),
+// GetCustomPrecompiles returns every Sei custom precompile keyed by its address. It panics
+// if any precompile fails to construct.
+func GetCustomPrecompiles(keepers utils.Keepers) map[ecommon.Address]vm.PrecompiledContract {
+	return map[ecommon.Address]vm.PrecompiledContract{
+		ecommon.HexToAddress(bank.BankAddress):               check(bank.NewPrecompile(keepers)),
+		ecommon.HexToAddress(wasmd.WasmdAddress):             check(wasmd.NewPrecompile(keepers)),
+		ecommon.HexToAddress(json.JSONAddress):               check(json.NewPrecompile(keepers)),
+		ecommon.HexToAddress(addr.AddrAddress):               check(addr.NewPrecompile(keepers)),
+		ecommon.HexToAddress(staking.StakingAddress):         check(staking.NewPrecompile(keepers)),
+		ecommon.HexToAddress(gov.GovAddress):                 check(gov.NewPrecompile(keepers)),
+		ecommon.HexToAddress(distribution.DistrAddress):      check(distribution.NewPrecompile(keepers)),
+		ecommon.HexToAddress(oracle.OracleAddress):           check(oracle.NewPrecompile(keepers)),
+		ecommon.HexToAddress(ibc.IBCAddress):                 check(ibc.NewPrecompile(keepers)),
+		ecommon.HexToAddress(pointer.PointerAddress):         check(pointer.NewPrecompile(keepers)),
+		ecommon.HexToAddress(pointerview.PointerViewAddress): check(pointerview.NewPrecompile(keepers)),
+		ecommon.HexToAddress(p256.P256VerifyAddress):         check(p256.NewPrecompile(keepers)),
+		ecommon.HexToAddress(solo.SoloAddress):               check(solo.NewPrecompile(keepers)),
+		ecommon.HexToAddress(auth.AuthAddress):               check(auth.NewPrecompile(keepers)),
+		ecommon.HexToAddress(authz.AuthzAddress):             check(authz.NewPrecompile(keepers)),
+		ecommon.HexToAddress(evidence.EvidenceAddress):       check(evidence.NewPrecompile(keepers)),
+		ecommon.HexToAddress(mint.MintAddress):               check(mint.NewPrecompile(keepers)),
+		ecommon.HexToAddress(params.ParamsAddress):           check(params.NewPrecompile(keepers)),
+		ecommon.HexToAddress(slashing.SlashingAddress):       check(slashing.NewPrecompile(keepers)),
+		ecommon.HexToAddress(upgrade.UpgradeAddress):         check(upgrade.NewPrecompile(keepers)),
 	}
+}
+
+func check(p vm.PrecompiledContract, err error) vm.PrecompiledContract {
+	if err != nil {
+		panic(err)
+	}
+	return p
 }
 
 func InitializePrecompiles(
@@ -193,8 +197,4 @@ func addPrecompileToVM(p IPrecompile) {
 	vm.PrecompiledAddressesIstanbul = append(vm.PrecompiledAddressesIstanbul, p.Address())
 	vm.PrecompiledAddressesBerlin = append(vm.PrecompiledAddressesBerlin, p.Address())
 	vm.PrecompiledAddressesCancun = append(vm.PrecompiledAddressesCancun, p.Address())
-}
-
-var PrecompileLastUpgrade = map[string]int64{
-	bank.BankAddress: 1,
 }

@@ -35,8 +35,6 @@ var (
 	DefaultParams      = types.DefaultParams
 
 	InitGenesis            = keeper.InitGenesis
-	ExportGenesis          = keeper.ExportGenesis
-	ExportGenesisStream    = keeper.ExportGenesisStream
 	NewKeeper              = keeper.NewKeeper
 	CreateTestInput        = keeper.CreateTestInput
 	NewWasmProposalHandler = keeper.NewWasmProposalHandler
@@ -83,3 +81,6 @@ type (
 	QueryPlugins                   = keeper.QueryPlugins
 	Option                         = keeper.Option
 )
+
+// GeneratedQueryGasLimit is the smart-query gas limit a generated app.toml carries.
+const GeneratedQueryGasLimit uint64 = 300_000

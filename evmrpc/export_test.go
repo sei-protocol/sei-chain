@@ -2,15 +2,39 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
+	"math/big"
 	"sync"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	cosmoclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+// HoldSimulationSlotsForTest occupies simulation request slots until the returned function is called.
+func (s *SimulationAPI) HoldSimulationSlotsForTest(ctx context.Context, slots int64) (func(), error) {
+	if s.requestLimiter == nil {
+		return nil, errors.New("simulation request limiter is disabled")
+	}
+	if slots <= 0 {
+		return nil, errors.New("simulation slot count must be positive")
+	}
+	if err := s.requestLimiter.Acquire(ctx, slots); err != nil {
+		return nil, err
+	}
+
+	return func() { s.requestLimiter.Release(slots) }, nil
+}
 
 // RangeQueryWindowBlocksForTest exposes rangeQueryWindowBlocks so integration
 // tests can assert tryFilterLogsRange's window boundaries without hardcoding
@@ -85,14 +109,22 @@ func NewLogFetcherForTest(deps LogFetcherTestDeps) *LogFetcher {
 	}
 }
 
-// GetLogsByFiltersWithBackoffForTest exposes the polling-path overflow-backoff
-// wrapper for integration tests.
-func (f *LogFetcher) GetLogsByFiltersWithBackoffForTest(
+// PollLogsForTest exposes the log-filter poll step for integration tests.
+func (f *LogFetcher) PollLogsForTest(
 	ctx context.Context,
 	crit filters.FilterCriteria,
-	lastToHeight int64,
+	cursor int64,
 ) ([]*ethtypes.Log, int64, error) {
-	return f.getLogsByFiltersWithBackoff(ctx, crit, lastToHeight)
+	return f.pollLogs(ctx, crit, cursor)
+}
+
+// NewLogsSubscriptionAPIForTest returns a SubscriptionAPI that serves eth_subscribe("logs") from
+// logFetcher, admitting up to logLimit concurrent logs subscriptions.
+func NewLogsSubscriptionAPIForTest(logFetcher *LogFetcher, logLimit uint64) *SubscriptionAPI {
+	return &SubscriptionAPI{
+		logFetcher:        logFetcher,
+		subscriptonConfig: &SubscriptionConfig{logLimit: logLimit},
+	}
 }
 
 // TryFilterLogsRangeForTest exposes the litt range-query path for integration tests.
@@ -108,4 +140,46 @@ func (f *LogFetcher) TryFilterLogsRangeForTest(
 // MatchesCriteriaForTest re-exports log criteria matching for fake receipt stores in tests.
 func MatchesCriteriaForTest(log *ethtypes.Log, crit filters.FilterCriteria) bool {
 	return MatchesCriteria(log, crit)
+}
+
+func ProfiledTraceBlockParallelForTest(
+	api *DebugAPI,
+	ctx context.Context,
+	block *ethtypes.Block,
+	metadata []tracersutils.TraceBlockMetadata,
+	config *tracers.TraceConfig,
+	statedb vm.StateDB,
+	signer ethtypes.Signer,
+	blockHash gethcommon.Hash,
+	results []*tracers.TxTraceResult,
+	threads int,
+) ([]*tracers.TxTraceResult, error) {
+	return api.profiledTraceBlockParallel(ctx, block, metadata, config, statedb, signer, blockHash, results, threads)
+}
+
+func NewTraceBackendForTest(keeper *keeper.Keeper, ctxProvider func(int64) sdk.Context) *Backend {
+	return &Backend{
+		keeper:      keeper,
+		ctxProvider: ctxProvider,
+	}
+}
+
+func NewDebugAPIForTest(backend *Backend) *DebugAPI {
+	return &DebugAPI{backend: backend}
+}
+
+// GasPriceHelperForTest exposes gasPriceHelper for integration tests in evmrpc_test.
+func (i *InfoAPI) GasPriceHelperForTest(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
+	return i.gasPriceHelper(ctx, baseFee, totalGasUsedPrevBlock, medianRewardPrevBlock)
+}
+
+// CalculateGasUsedRatioForTest exposes calculateGasUsedRatio for integration tests in evmrpc_test.
+func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight int64) (float64, error) {
+	return i.calculateGasUsedRatio(ctx, blockHeight)
+}
+
+// EncodeReceiptForTest exposes encodeReceipt, the eth_getTransactionReceipt encoder, so tests can
+// compare eth_getBlockReceipts bodies against it.
+func EncodeReceiptForTest(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) cosmoclient.TxConfig, receipt *evmtypes.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) (map[string]any, error) {
+	return encodeReceipt(ctxProvider, txConfigProvider, receipt, k, block, false, globalBlockCache, cacheCreationMutex)
 }

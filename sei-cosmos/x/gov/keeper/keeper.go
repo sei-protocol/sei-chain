@@ -95,15 +95,31 @@ func (keeper Keeper) GetGovernanceAccount(ctx sdk.Context) authtypes.ModuleAccou
 
 // InsertActiveProposalQueue inserts a ProposalID into the active proposal queue at endTime
 func (keeper Keeper) InsertActiveProposalQueue(ctx sdk.Context, proposalID uint64, endTime time.Time) {
-	store := ctx.KVStore(keeper.storeKey)
-	bz := types.GetProposalIDBytes(proposalID)
-	store.Set(types.ActiveProposalQueueKey(proposalID, endTime), bz)
+	keeper.insertActiveProposalQueue(ctx, proposalID, endTime)
+	keeper.addProposalDeadline(ctx, proposalID, endTime)
+}
+
+// InsertActiveProposalQueueForModernTallyRound inserts a converted legacy proposal's regular voting round.
+func (keeper Keeper) InsertActiveProposalQueueForModernTallyRound(ctx sdk.Context, proposalID uint64, endTime time.Time) {
+	if !keeper.isLegacyProposal(ctx, proposalID) {
+		keeper.InsertActiveProposalQueue(ctx, proposalID, endTime)
+		return
+	}
+	keeper.insertActiveProposalQueue(ctx, proposalID, endTime)
+	keeper.SetModernTallyRound(ctx, proposalID)
+	keeper.addModernProposalDeadline(ctx, proposalID, endTime)
+}
+
+func (keeper Keeper) insertActiveProposalQueue(ctx sdk.Context, proposalID uint64, endTime time.Time) {
+	ctx.KVStore(keeper.storeKey).Set(types.ActiveProposalQueueKey(proposalID, endTime), types.GetProposalIDBytes(proposalID))
 }
 
 // RemoveFromActiveProposalQueue removes a proposalID from the Active Proposal Queue
 func (keeper Keeper) RemoveFromActiveProposalQueue(ctx sdk.Context, proposalID uint64, endTime time.Time) {
 	store := ctx.KVStore(keeper.storeKey)
 	store.Delete(types.ActiveProposalQueueKey(proposalID, endTime))
+	keeper.removeProposalDeadline(ctx, proposalID, endTime)
+	store.Delete(types.ModernTallyRoundKey(proposalID))
 }
 
 // InsertInactiveProposalQueue Inserts a ProposalID into the inactive proposal queue at endTime

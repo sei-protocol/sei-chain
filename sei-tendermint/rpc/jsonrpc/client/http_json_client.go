@@ -353,7 +353,7 @@ func (b *RequestBatch) Call(_ context.Context, method string, params, result int
 
 //-------------------------------------------------------------
 
-func makeHTTPDialer(remoteAddr string) (func(string, string) (net.Conn, error), error) {
+func makeHTTPDialer(remoteAddr string) (func(context.Context, string, string) (net.Conn, error), error) {
 	u, err := newParsedURL(remoteAddr)
 	if err != nil {
 		return nil, err
@@ -368,14 +368,14 @@ func makeHTTPDialer(remoteAddr string) (func(string, string) (net.Conn, error), 
 		protocol = protoTCP
 	}
 
-	dialFn := func(proto, addr string) (net.Conn, error) {
-		var timeout = 10 * time.Second
+	dialFn := func(ctx context.Context, proto, addr string) (net.Conn, error) {
+		dialer := &net.Dialer{Timeout: 10 * time.Second}
 		if !u.isUnixSocket && strings.LastIndex(u.Host, ":") == -1 {
 			u.Host = fmt.Sprintf("%s:%s", u.Host, padding)
-			return net.DialTimeout(protocol, u.GetDialAddress(), timeout)
+			return dialer.DialContext(ctx, protocol, u.GetDialAddress())
 		}
 
-		return net.DialTimeout(protocol, u.GetDialAddress(), timeout)
+		return dialer.DialContext(ctx, protocol, u.GetDialAddress())
 	}
 
 	return dialFn, nil
@@ -395,7 +395,7 @@ func DefaultHTTPClient(remoteAddr string) (*http.Client, error) {
 		Transport: &http.Transport{
 			// Set to true to prevent GZIP-bomb DoS attacks
 			DisableCompression: true,
-			Dial:               dialFn,
+			DialContext:        dialFn,
 		},
 	}
 

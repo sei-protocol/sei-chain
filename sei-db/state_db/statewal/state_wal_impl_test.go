@@ -3,11 +3,14 @@ package statewal
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 func testConfig(dir string) *Config {
@@ -21,12 +24,11 @@ func openWAL(t *testing.T, cfg *Config) StateWAL {
 	return w
 }
 
-// writeBlock writes a single changeset for the block and signals end of block.
+// writeBlock writes a single mutation for the block.
 func writeBlock(t *testing.T, w StateWAL, block uint64) {
 	t.Helper()
-	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
-	require.NoError(t, w.Write(block, cs))
-	require.NoError(t, w.SignalEndOfBlock())
+	mutations := []mutation.Mutation{makeMutation("bank", []byte{byte(block)}, []byte{byte(block)})}
+	require.NoError(t, w.Write(block, mutations))
 }
 
 // collectBlocks iterates the inclusive range [start, end] and returns the block number of each entry,
@@ -84,46 +86,12 @@ func TestWriteFlushReopenGetRange(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectBlocks(t, w2, 1, 5))
 }
 
-// TestWriteRejectsNilChangeset verifies that a nil changeset entry is rejected synchronously at the Write call
-// site rather than surfacing later from the serialization goroutine, and that the rejection neither bricks the
-// WAL nor advances the block-ordering state.
-func TestWriteRejectsNilChangeset(t *testing.T) {
-	w := openWAL(t, testConfig(t.TempDir()))
-	defer func() { require.NoError(t, w.Close()) }()
-
-	valid := makeChangeSet("evm", []byte("k"), []byte("v"))
-
-	// A nil entry is rejected synchronously at the call site, before SignalEndOfBlock/Flush is ever reached.
-	err := w.Write(5, []*proto.NamedChangeSet{valid, nil})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nil")
-
-	// The rejected write is a no-op: it neither bricked the WAL nor advanced the block-ordering state. Were the
-	// state advanced to block 5, this write to the lower block 3 would be rejected as decreasing.
-	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{valid}))
-	require.NoError(t, w.SignalEndOfBlock())
-	require.NoError(t, w.Flush())
-
-	ok, start, end, err := w.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(3), start)
-	require.Equal(t, uint64(3), end)
-}
-
 func TestContractViolations(t *testing.T) {
 	t.Run("block numbers may not decrease", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
 		defer func() { require.NoError(t, w.Close()) }()
 		writeBlock(t, w, 5)
 		require.Error(t, w.Write(4, nil))
-	})
-
-	t.Run("cannot advance block without ending the previous one", func(t *testing.T) {
-		w := openWAL(t, testConfig(t.TempDir()))
-		defer func() { require.NoError(t, w.Close()) }()
-		require.NoError(t, w.Write(1, nil))
-		require.Error(t, w.Write(2, nil))
 	})
 
 	t.Run("cannot skip a block", func(t *testing.T) {
@@ -134,59 +102,12 @@ func TestContractViolations(t *testing.T) {
 		require.NoError(t, w.Write(2, nil))
 	})
 
-	t.Run("cannot write to an ended block", func(t *testing.T) {
+	t.Run("cannot write the same block twice", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
 		defer func() { require.NoError(t, w.Close()) }()
 		require.NoError(t, w.Write(1, nil))
-		require.NoError(t, w.SignalEndOfBlock())
 		require.Error(t, w.Write(1, nil))
 	})
-
-	t.Run("end of block with no block in progress is an error", func(t *testing.T) {
-		w := openWAL(t, testConfig(t.TempDir()))
-		defer func() { require.NoError(t, w.Close()) }()
-		require.Error(t, w.SignalEndOfBlock())
-	})
-
-	t.Run("multiple writes to the same block are allowed before end of block", func(t *testing.T) {
-		w := openWAL(t, testConfig(t.TempDir()))
-		defer func() { require.NoError(t, w.Close()) }()
-		require.NoError(t, w.Write(1, []*proto.NamedChangeSet{makeChangeSet("a", []byte("k1"), []byte("v1"))}))
-		require.NoError(t, w.Write(1, []*proto.NamedChangeSet{makeChangeSet("b", []byte("k2"), []byte("v2"))}))
-		require.NoError(t, w.SignalEndOfBlock())
-	})
-}
-
-func TestIncompleteBlockDiscardedOnReopen(t *testing.T) {
-	dir := t.TempDir()
-	cfg := testConfig(dir)
-
-	w := openWAL(t, cfg)
-	for block := uint64(1); block <= 3; block++ {
-		writeBlock(t, w, block)
-	}
-	// Block 4 is written but never ended (a crash mid-block): it was never appended as a record.
-	require.NoError(t, w.Write(4, []*proto.NamedChangeSet{makeChangeSet("evm", []byte{0x04}, []byte{0x04})}))
-	require.NoError(t, w.Flush())
-	require.NoError(t, w.Close())
-
-	w2 := openWAL(t, cfg)
-	defer func() { require.NoError(t, w2.Close()) }()
-
-	ok, start, end, err := w2.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(1), start)
-	require.Equal(t, uint64(3), end)
-	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w2, 1, 3))
-
-	// Block 4 may now be re-executed cleanly.
-	writeBlock(t, w2, 4)
-	require.NoError(t, w2.Flush())
-	ok, _, end, err = w2.GetStoredRange()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(4), end)
 }
 
 func TestGetStoredRangeEmpty(t *testing.T) {
@@ -202,9 +123,8 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	// A block with an empty changeset that is properly ended is a real, stored block.
-	require.NoError(t, w.Write(1, []*proto.NamedChangeSet{}))
-	require.NoError(t, w.SignalEndOfBlock())
+	// A block with no mutations is still a real, stored block.
+	require.NoError(t, w.Write(1, []mutation.Mutation{}))
 	require.NoError(t, w.Flush())
 
 	ok, start, end, err := w.GetStoredRange()
@@ -346,4 +266,50 @@ func TestVerifyIntegrity(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
 	require.Error(t, VerifyIntegrity(cfg))
+}
+
+// TestWriteStoresMutationsInKeyOrder writes the same mutations in two orders to two WALs, and requires both to read
+// back the same block, in key order, with the same hash.
+func TestWriteStoresMutationsInKeyOrder(t *testing.T) {
+	keys := [][]byte{[]byte("c"), []byte("a"), []byte("d"), []byte("b")}
+	inOrder := func(reverse bool) []mutation.Mutation {
+		mutations := make([]mutation.Mutation, 0, len(keys))
+		for _, key := range keys {
+			mutations = append(mutations, makeMutation("bank", key, key))
+		}
+		if reverse {
+			slices.Reverse(mutations)
+		}
+		return mutations
+	}
+
+	readBack := func(mutations []mutation.Mutation) ([]*proto.NamedChangeSet, [32]byte) {
+		w := openWAL(t, testConfig(t.TempDir()))
+		defer func() { require.NoError(t, w.Close()) }()
+		require.NoError(t, w.Write(1, mutations))
+		require.NoError(t, w.Flush())
+
+		it, err := w.Iterator(1, 1)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, it.Close()) }()
+		ok, err := it.Next()
+		require.NoError(t, err)
+		require.True(t, ok)
+		_, changeSets := it.Entry()
+		hash, err := it.GetHash()
+		require.NoError(t, err)
+		return changeSets, hash
+	}
+
+	forwardChangeSets, forwardHash := readBack(inOrder(false))
+	reverseChangeSets, reverseHash := readBack(inOrder(true))
+	require.Equal(t, forwardChangeSets, reverseChangeSets)
+	require.Equal(t, forwardHash, reverseHash)
+
+	require.Len(t, forwardChangeSets, 1)
+	var storedKeys []string
+	for _, pair := range forwardChangeSets[0].Changeset.Pairs {
+		storedKeys = append(storedKeys, string(pair.Key))
+	}
+	require.Equal(t, []string{"a", "b", "c", "d"}, storedKeys)
 }

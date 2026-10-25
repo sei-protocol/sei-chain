@@ -3,10 +3,13 @@ package receipt
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
+
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -30,6 +33,9 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
+	// ErrBlockStatsNotSupported is returned by GetBlockStats when the backend never recorded
+	// block stats for that block; the caller falls back to summing its receipts.
+	ErrBlockStatsNotSupported = errors.New("block stats not supported")
 	// ErrTooManyLogs is returned by FilterLogs when a query matches more logs
 	// than the caller-supplied limit. It lets callers cap peak memory by
 	// aborting a query instead of materializing an unbounded result set.
@@ -48,34 +54,113 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
+	controllertypes.PrunableStore
+
+	// LatestVersion is the highest block whose receipts are queryable. A write may land after
+	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
 	LatestVersion() int64
+
 	EarliestVersion() int64
-	SetLatestVersion(version int64) error
-	SetEarliestVersion(version int64) error
+
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+
 	GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+
+	// SetReceipts writes the block's receipts, carrying the version markers with them. An
+	// implementation may apply the write in the background; LatestVersion reports when it lands.
+	//
+	// Every block must be written, one that produced no receipts included; an implementation may
+	// refuse a write that skips a block.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
+
+	// GetBlockStats returns the aggregate stats recorded when the block's receipts were written.
+	// See ErrNotFound and ErrBlockStatsNotSupported.
+	GetBlockStats(ctx sdk.Context, blockNumber uint64) (BlockStats, error)
+
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
 	// budget is charged per matched log via Reserve and aborts once either
 	// configured ceiling is exceeded; nil disables all caps. Callers on the
 	// eth range path typically pass a byte-only budget (maxLog=0) here and
 	// enforce the matched-log count on the normalized result separately.
-	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error)
+	//
+	// A store that cannot answer a range query returns ErrRangeQueryNotSupported.
+	FilterLogs(
+		ctx sdk.Context,
+		fromBlock uint64,
+		toBlock uint64,
+		crit filters.FilterCriteria,
+		budget *LogBudget,
+	) ([]*ethtypes.Log, error)
+
+	// IterateReceipts walks every receipt stored at or above startBlock, in ascending block
+	// order and by transaction index within a block. A startBlock below the oldest receipt the
+	// store holds begins at the oldest receipt it holds.
+	//
+	// A backend that cannot walk its receipts returns
+	// ErrRangeQueryNotSupported.
+	IterateReceipts(startBlock uint64) (ReceiptIterator, error)
+
 	Close() error
+}
+
+// ReceiptIterator walks stored receipts. It is not safe for concurrent use.
+type ReceiptIterator interface {
+	// Next advances to the next receipt, reporting false once the walk is complete. After it
+	// returns false or an error, only Close may be called.
+	Next() (bool, error)
+
+	// BlockNumber returns the block holding the current receipt. Valid only after Next
+	// returned true.
+	BlockNumber() uint64
+
+	// TxHash returns the hash of the current receipt's transaction. Valid only after Next
+	// returned true.
+	TxHash() common.Hash
+
+	// Receipt decodes the current receipt. Valid only after Next returned true.
+	Receipt() (*types.Receipt, error)
+
+	// Close releases the iterator's resources. It MUST be called; failing to do so pins
+	// segment files on disk.
+	Close() error
+}
+
+// VersionPinner is implemented by receipt stores whose version markers can be written directly. It
+// is for a caller that put receipts in place by other means and has to state the window they cover.
+type VersionPinner interface {
+	SetLatestVersion(version int64) error
+	SetEarliestVersion(version int64) error
+}
+
+// PinVersions widens store's queryable window to [earliest, latest], reporting a store that cannot
+// be pinned rather than leaving the window unset.
+func PinVersions(store ReceiptStore, earliest, latest int64) error {
+	pinner, ok := store.(VersionPinner)
+	if !ok {
+		return fmt.Errorf("receipt store %T cannot pin versions", store)
+	}
+	if err := pinner.SetLatestVersion(latest); err != nil {
+		return err
+	}
+	return pinner.SetEarliestVersion(earliest)
 }
 
 type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
-	// TxOffset and TxLength locate the raw transaction within its block's stored
-	// value in the block store (the sub-range holding this tx). They are written
-	// into the receipt value's metadata prefix so a receipt lookup can find the
-	// transaction bytes. Only meaningful when block compression is off; zero when
-	// unknown.
+	// KeepExisting makes this record an insert-only write for its transaction hash: it
+	// yields to a stored receipt and to an unconditional record for the same hash.
+	KeepExisting bool
+	// TxOffset and TxLength locate the transaction within its block's marshalled
+	// proto(Block) body, excluding the block store's value framing. TxLength is 0
+	// when the location is unknown.
 	TxOffset uint32
 	TxLength uint32
+	// Reward is this tx's priority fee (EffectiveGasPrice - base fee), or nil to exclude it from
+	// the block's reward aggregates.
+	Reward *big.Int
 }
 
 // ReceiptReadMetrics records cache hits, misses, and timing for cached receipt
@@ -89,7 +174,10 @@ type ReceiptReadMetrics interface {
 	RecordCacheGetDuration(seconds float64)
 }
 
+var _ ReceiptStore = (*receiptStore)(nil)
+
 type receiptStore struct {
+	writeMu     sync.Mutex
 	db          seidbtypes.StateStore
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
@@ -132,8 +220,6 @@ func BackendTypeName(store ReceiptStore) string {
 	switch store.(type) {
 	case *receiptStore:
 		return receiptBackendPebble
-	case *littReceiptStore:
-		return receiptBackendLittIdx
 	default:
 		return "unknown"
 	}
@@ -145,44 +231,49 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	}
 
 	backend := normalizeReceiptBackend(config.Backend)
-	switch backend {
-	case receiptBackendLittIdx:
-		return newLittReceiptStore(config, storeKey)
-	case receiptBackendPebble:
-		// This backend is not a gc.PrunableStore, so honoring ExternalPruning would stop its own
-		// pruner and put nothing in its place.
-		if config.ExternalPruning {
-			return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q", receiptBackendPebble, receiptBackendLittIdx)
-		}
-		ssConfig := dbconfig.DefaultStateStoreConfig()
-		ssConfig.DBDirectory = config.DBDirectory
-		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
-		ssConfig.KeepRecent = config.KeepRecent
-		ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
-		if config.PruneIntervalSeconds > 0 {
-			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
-		}
-		ssConfig.KeepLastVersion = false
-		ssConfig.Backend = "pebbledb"
-
-		db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
-		if err != nil {
-			return nil, err
-		}
-		if err := recoverReceiptStore(dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
-		rs := &receiptStore{
-			db:          db,
-			storeKey:    storeKey,
-			stopPruning: make(chan struct{}),
-		}
-		startReceiptPruning(db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
-		return rs, nil
-	default:
-		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
+	if err := requireSupportedBackend(backend); err != nil {
+		return nil, err
 	}
+	if config.ExternalPruning {
+		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
+		// pruner with nothing in its place.
+		return nil, fmt.Errorf("receipt store backend %q does not support external pruning",
+			receiptBackendPebble)
+	}
+
+	// Runs after every config rejection above, and before the backend touches the directory: a config
+	// that is about to be rejected must not leave a recorded type behind that then refuses the corrected
+	// one.
+	if err := recordBackendType(config.DBDirectory, backend); err != nil {
+		return nil, err
+	}
+
+	ssConfig := dbconfig.DefaultStateStoreConfig()
+	ssConfig.DBDirectory = config.DBDirectory
+	ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
+	ssConfig.KeepRecent = config.KeepRecent
+	ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
+	if config.PruneIntervalSeconds > 0 {
+		ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
+	}
+	ssConfig.KeepLastVersion = false
+	ssConfig.Backend = "pebbledb"
+
+	db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := recoverReceiptStore(dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	rs := &receiptStore{
+		db:          db,
+		storeKey:    storeKey,
+		stopPruning: make(chan struct{}),
+	}
+	startReceiptPruning(db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
+	return rs, nil
 }
 
 func (s *receiptStore) LatestVersion() int64 {
@@ -210,14 +301,8 @@ func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.R
 	if err != nil {
 		return nil, err
 	}
-
 	if bz == nil {
-		// try legacy store for older receipts
-		store := ctx.KVStore(s.storeKey)
-		bz = store.Get(types.ReceiptKey(txHash))
-		if bz == nil {
-			return nil, ErrNotFound
-		}
+		return legacyReceiptFromKVStore(ctx, s.storeKey, txHash)
 	}
 
 	var r types.Receipt
@@ -249,6 +334,24 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 }
 
 func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var err error
+	drained := false
+	receipts, err = FilterExistingReceipts(receipts, func(hash common.Hash) (bool, error) {
+		// A conditional read must see every previously queued write.
+		if !drained {
+			if waiter, ok := s.db.(seidbtypes.PendingWriteWaiter); ok {
+				waiter.WaitForPendingWrites()
+			}
+			drained = true
+		}
+		value, err := s.db.Get(types.ReceiptStoreKey, s.db.GetLatestVersion(), types.ReceiptKey(hash))
+		return value != nil, err
+	})
+	if err != nil {
+		return err
+	}
 	pairs := make([]*proto.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {
@@ -273,7 +376,15 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 		Name:      types.ReceiptStoreKey,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
+	if err := s.applyChangeset(ctx, ncs); err != nil {
+		return err
+	}
+	RecordReceiptsWritten(ctx.Context(), receipts)
+	return nil
+}
 
+// applyChangeset hands a block's receipt changeset to the state store.
+func (s *receiptStore) applyChangeset(ctx sdk.Context, ncs *proto.NamedChangeSet) error {
 	// Genesis and some unit tests execute at block height 0. Async writes
 	// rely on a positive version to avoid regressions in the underlying
 	// state store metadata, so fall back to a synchronous apply in that case.
@@ -296,6 +407,18 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 // are indexed by tx hash, not by block number. Returns ErrRangeQueryNotSupported.
 // Callers should fall back to fetching receipts individually via GetReceipt.
 func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria, _ *LogBudget) ([]*ethtypes.Log, error) {
+	return nil, ErrRangeQueryNotSupported
+}
+
+// GetBlockStats always reports unsupported: this backend indexes receipts by tx hash only, with
+// no per-block grouping to aggregate at write time. Callers fall back to summing receipts.
+func (s *receiptStore) GetBlockStats(_ sdk.Context, _ uint64) (BlockStats, error) {
+	return BlockStats{}, ErrBlockStatsNotSupported
+}
+
+// IterateReceipts is not supported by the pebble backend: receipts are keyed by tx hash, so
+// there is no block-ordered walk to offer. Returns ErrRangeQueryNotSupported.
+func (s *receiptStore) IterateReceipts(_ uint64) (ReceiptIterator, error) {
 	return nil, ErrRangeQueryNotSupported
 }
 
@@ -406,7 +529,26 @@ func startReceiptPruning(db seidbtypes.StateStore, keepRecent int64, pruneInterv
 	}()
 }
 
-func getLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
+// legacyReceiptFromKVStore looks up a receipt in the legacy KV store for
+// receipts that predate this store. Returns ErrNotFound when unavailable.
+func legacyReceiptFromKVStore(ctx sdk.Context, storeKey sdk.StoreKey, txHash common.Hash) (*types.Receipt, error) {
+	if storeKey == nil {
+		return nil, ErrNotFound
+	}
+	bz := ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash))
+	if bz == nil {
+		return nil, ErrNotFound
+	}
+	var r types.Receipt
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// LogsForTx converts a stored receipt's logs to go-ethereum logs, offsetting
+// each Index by logStartIndex. BlockHash is left zero.
+func LogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt, logStartIndex) })
 }
 

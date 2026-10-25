@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"sync/atomic"
-	"testing"
 )
 
 // Arbitrary nontrivial transformation to make sure that
@@ -48,13 +49,13 @@ func runServer(ctx context.Context, rng utils.Rng, mux *Mux) error {
 						for {
 							msg, err := stream.Recv(ctx, true)
 							if err != nil {
-								if errors.Is(err, errRemoteClosed) || errors.Is(err, context.Canceled) {
+								if errors.Is(err, ErrRemoteClosed) || errors.Is(err, context.Canceled) {
 									return nil
 								}
 								return fmt.Errorf("stream.Recv(): %w", err)
 							}
 							if err := stream.Send(ctx, transform(msg)); err != nil {
-								if errors.Is(err, errRemoteClosed) {
+								if errors.Is(err, ErrRemoteClosed) {
 									return nil
 								}
 								return fmt.Errorf("stream.Send(): %w", err)
@@ -344,8 +345,8 @@ func TestClosedStream(t *testing.T) {
 				}
 			}
 			// Try to receive with empty window - should block until remote closes stream.
-			if _, err := stream.Recv(ctx, true); !errors.Is(err, errRemoteClosed) {
-				return fmt.Errorf("stream.Recv(): %v, want %v", err, errRemoteClosed)
+			if _, err := stream.Recv(ctx, true); !errors.Is(err, ErrRemoteClosed) {
+				return fmt.Errorf("stream.Recv(): %v, want %v", err, ErrRemoteClosed)
 			}
 			return nil
 		})
@@ -362,13 +363,13 @@ func TestClosedStream(t *testing.T) {
 			}
 		}
 		// Try to send after window is full.
-		if err := stream.Send(ctx, msg); !errors.Is(err, errRemoteClosed) {
-			return fmt.Errorf("stream.Send(): %v, want %v", err, errRemoteClosed)
+		if err := stream.Send(ctx, msg); !errors.Is(err, ErrRemoteClosed) {
+			return fmt.Errorf("stream.Send(): %v, want %v", err, ErrRemoteClosed)
 		}
 		// Try to send after local close.
 		stream.Close()
 		if err := stream.Send(ctx, msg); !errors.Is(err, errClosed) {
-			return fmt.Errorf("stream.Send(): %v, want %v", err, errRemoteClosed)
+			return fmt.Errorf("stream.Send(): %v, want %v", err, errClosed)
 		}
 		return nil
 	})

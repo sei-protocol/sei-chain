@@ -10,18 +10,19 @@
 # Pro's `prebuilt` builder would do, but on the OSS distribution. Wired via `builds[].tool`
 # in .goreleaser.yaml.
 #
-# The prebuilt binary path can be overridden with $PREBUILT_SEID (defaults to build/seid).
+# The prebuilt binary for each architecture is build/seid-<goarch>, as produced by
+# scripts/build-static.sh. Override with $PREBUILT_SEID_AMD64 / $PREBUILT_SEID_ARM64.
 set -euo pipefail
 
-PREBUILT="${PREBUILT_SEID:-build/seid}"
-
 if [ "${1:-}" = "build" ]; then
-  # The prebuilt binary is linux/amd64 only. If goreleaser ever requests another arch
-  # (e.g. once arm64 lands, PLT-757), fail loudly rather than mislabel the amd64 binary.
-  if [ -n "${GOARCH:-}" ] && [ "$GOARCH" != "amd64" ]; then
-    echo "goreleaser-shim: only linux/amd64 is prebuilt; refusing to package for GOARCH=$GOARCH." >&2
-    exit 1
-  fi
+  # Resolve the prebuilt binary for the architecture goreleaser asked for. Anything else
+  # fails loudly rather than mislabelling one architecture's binary as another's.
+  case "${GOARCH:-}" in
+    amd64) PREBUILT="${PREBUILT_SEID_AMD64:-build/seid-amd64}" ;;
+    arm64) PREBUILT="${PREBUILT_SEID_ARM64:-build/seid-arm64}" ;;
+    *) echo "goreleaser-shim: no prebuilt binary for GOARCH=${GOARCH:-unset}; refusing to package." >&2
+       exit 1 ;;
+  esac
 
   # Extract the output path GoReleaser asked us to write the binary to. Handle both
   # `-o <path>` (what goreleaser emits) and `-o=<path>`, so the shim is robust either way.
@@ -39,6 +40,14 @@ if [ "${1:-}" = "build" ]; then
     echo "                 Run scripts/build-static.sh (the goreleaser before: hook) first." >&2
     exit 1
   fi
+
+  # A mislabelled archive is worse than a failed release, so check the ELF machine of the
+  # resolved binary rather than trusting its filename.
+  info="$(file -b "$PREBUILT")"
+  case "$GOARCH:$info" in
+    amd64:*x86-64*|arm64:*aarch64*) ;;
+    *) echo "goreleaser-shim: $PREBUILT is not a $GOARCH binary ($info)." >&2; exit 1 ;;
+  esac
 
   mkdir -p "$(dirname "$out")"
   cp "$PREBUILT" "$out"

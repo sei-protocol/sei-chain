@@ -20,7 +20,6 @@ import (
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -28,12 +27,10 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
-	IsPanicCacheSize = 5000
-	IsPanicCacheTTL  = 1 * time.Minute
-
 	callTracerName     = evmrpcconfig.TraceTracerCall
 	prestateTracerName = evmrpcconfig.TraceTracerPrestate
 	flatCallTracerName = evmrpcconfig.TraceTracerFlatCall
@@ -51,7 +48,6 @@ type DebugAPI struct {
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
 	connectionType     ConnectionType
-	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
 	backend            *Backend
 	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
@@ -101,11 +97,26 @@ func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, 
 	}, nil
 }
 
-func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
-	if api.keeper == nil {
-		return nil
+// resultUnlessExpired reports the deadline instead of a synthesized error
+// trace. geth recovers a panic from a cancelled SS skip as a fake trace
+// result; that must not be returned or written to the trace cache.
+func resultUnlessExpired(ctx context.Context, result interface{}, err error) (interface{}, error) {
+	if expired := ctx.Err(); expired != nil {
+		return nil, expired
 	}
-	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	return result, err
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if err := requireReceiptStore(api.keeper); err != nil {
+		return err
+	}
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, api.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return api.keeper.GetReceipt(sdkCtx, hash)
+	})
+	if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil || receipt == nil {
 		return nil
 	}
@@ -121,14 +132,65 @@ func (api *DebugAPI) guardHistoricalDebugTraceByNumber(ctx context.Context, endp
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	height, found, err := api.debugTraceBlockHeightByHash(ctx, hash)
+	if err != nil || !found {
+		return nil
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
+}
+
+// debugTraceBlockHeightByHash returns the height of the block with the given hash. It reports false
+// when the block does not exist or is above the safe latest height.
+func (api *DebugAPI) debugTraceBlockHeightByHash(ctx context.Context, hash common.Hash) (int64, bool, error) {
 	if api.backend == nil || api.tmClient == nil {
+		return 0, false, nil
+	}
+	block, err := blockByHashOrNullForJSONRPC(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
+	if err != nil {
+		return 0, false, err
+	}
+	if block == nil || block.Block == nil {
+		return 0, false, nil
+	}
+	return block.Block.Height, true, nil
+}
+
+// guardDebugTraceBlockByNumber rejects a block number beyond the trace lookback window or below the
+// receipt floor.
+func (api *DebugAPI) guardDebugTraceBlockByNumber(ctx context.Context, number rpc.BlockNumber) error {
+	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
+	if err != nil {
+		return err
+	}
+	if err := api.guardHistoricalDebugTraceHeight(ctx, "debug_traceBlockByNumber", height); err != nil {
+		return err
+	}
+	return api.guardReceiptFloorHeight(height)
+}
+
+// guardDebugTraceBlockByHash rejects a block hash whose block is beyond the trace lookback window or
+// below the receipt floor. A hash with no available block passes, and the tracer reports it.
+func (api *DebugAPI) guardDebugTraceBlockByHash(ctx context.Context, hash common.Hash) error {
+	height, found, err := api.debugTraceBlockHeightByHash(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if !found {
 		return nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
-	if err != nil || block == nil || block.Block == nil {
+	if err := api.guardHistoricalDebugTraceHeight(ctx, "debug_traceBlockByHash", height); err != nil {
+		return err
+	}
+	return api.guardReceiptFloorHeight(height)
+}
+
+// guardReceiptFloorHeight returns an error wrapping ErrReceiptsPruned when blockHeight is below the
+// earliest version the receipt store retains.
+func (api *DebugAPI) guardReceiptFloorHeight(blockHeight int64) error {
+	if api.backend == nil || api.backend.watermarks == nil {
 		return nil
 	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, block.Block.Height)
+	return api.backend.watermarks.EnsureReceiptHeightAvailable(blockHeight)
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
@@ -192,8 +254,6 @@ func NewDebugAPI(
 ) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
-	evictCallback := func(key common.Hash, value bool) {}
-	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
 
 	var sem chan struct{}
 	if debugCfg.MaxConcurrentTraceCalls > 0 {
@@ -207,7 +267,6 @@ func NewDebugAPI(
 		ctxProvider:        ctxProvider,
 		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
-		isPanicCache:       isPanicCache,
 		backend:            backend,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
@@ -335,7 +394,9 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		return nil, returnErr
 	}
 
-	if cached, ok := api.tryTraceCache(hash, config); ok {
+	if cached, ok, err := api.tryTraceCache(ctx, hash, config); err != nil {
+		return nil, err
+	} else if ok {
 		return cached, nil
 	}
 
@@ -349,27 +410,36 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		config = &tracers.TraceConfig{}
 	}
 	api.clampDefaultStructLogLimit(config)
-	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+	traced, err := api.tracersAPI.TraceTransaction(ctx, hash, config)
+	return resultUnlessExpired(ctx, traced, err)
 }
 
-func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
+func (api *DebugAPI) tryTraceCache(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, bool, error) {
 	cache := api.keeper.TraceDB()
 	if cache == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	name := bakeableTracerName(config)
 	if name == "" {
-		return nil, false
+		return nil, false, nil
 	}
-	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, api.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return api.keeper.GetReceipt(sdkCtx, hash)
+	})
+	if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+		return nil, false, ctxErr
+	}
 	if err != nil || receipt == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	bz, ok, err := cache.Get(int64(receipt.BlockNumber), name, hash) //nolint:gosec
-	if err != nil || !ok {
-		return nil, false
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, false, ctxErr
 	}
-	return bz, true
+	if err != nil || !ok {
+		return nil, false, nil
+	}
+	return bz, true, nil
 }
 
 // blockTraceCacheGet assembles a per-tx hit; returns (nil, false) if any miss.
@@ -480,61 +550,6 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 	}
 }
 
-// isPanicOrSyntheticTx returns true if the tx isn't traceable. Legacy sei
-// block and receipt *ExcludeTraceFail endpoints use it to filter out txs
-// whose trace would be empty or meaningless.
-//
-// Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
-// is txs "included in blocks but not executed" — pre-state-check failures
-// (nonce mismatch, insufficient funds, etc.), chain-generated synthetic
-// txs, and state-transition failures that return before Create/Call (e.g.
-// EIP-7623 floor data gas). Reverts, OOG, and other in-VM failures all ran
-// and produced traces; they stay in.
-//
-// Discriminator: receipts are written in two paths. WriteReceipt
-// (x/evm/keeper/receipt.go) covers executed txs and sets EffectiveGasPrice
-// from msg.GasPrice (>0 on chains with positive min gas price) and GasUsed
-// > 0 (intrinsic gas at minimum). The ante-deferred stub path
-// (x/evm/keeper/abci.go) writes EffectiveGasPrice=0 and GasUsed=0 for any
-// nonce-bumping ante failure — regardless of which check failed (insufficient
-// funds, fee, mempool admission, etc.). Both fields zero is the signal that
-// the tx never reached the VM. WriteReceipt may also set PreExecutionFailure
-// when Execute returned before Create/Call with non-zero gas/price.
-//
-// (This does NOT use filterTransactions's isReceiptFromAnteError. That
-// helper's post-v5.8.0 branch is intentionally narrow — PR #2343's
-// TestAnteFailureOthers explicitly requires insufficient-funds receipts to
-// be *included* in regular eth_getBlockBy* responses. *ExcludeTraceFail has
-// the opposite semantic per the README, so it needs its own check.)
-//
-//   - GetReceipt error                          → no receipt yet           → exclude
-//   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - EffectiveGasPrice==0 && GasUsed==0        → ante-deferred stub        → exclude
-//   - PreExecutionFailure                       → no Create/Call            → exclude
-//   - anything else (success / revert / OOG)    → executed, has a trace    → include
-func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
-	if api.isPanicCache != nil {
-		if cached, ok := api.isPanicCache.Get(hash); ok {
-			return cached, nil
-		}
-	}
-
-	sdkctx := api.ctxProvider(LatestCtxHeight)
-	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
-	if rerr != nil {
-		// No receipt: treat as panic/synthetic. Not cached — the receipt
-		// store can lag the RPC for a freshly committed tx, so this answer
-		// may flip to "include" once the write lands.
-		return true, nil
-	}
-
-	exclude := isReceiptUntraceable(receipt)
-	if api.isPanicCache != nil {
-		api.isPanicCache.Add(hash, exclude)
-	}
-	return exclude, nil
-}
-
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
@@ -544,7 +559,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardHistoricalDebugTraceByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
+	if returnErr = api.guardDebugTraceBlockByNumber(ctx, number); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -567,6 +582,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	}
+	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
 
@@ -586,7 +602,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+	if returnErr = api.guardDebugTraceBlockByHash(ctx, hash); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -603,6 +619,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	}
+	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
 
@@ -634,6 +651,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	}
 	api.clampDefaultStructLogLimit(&config.TraceConfig)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
 

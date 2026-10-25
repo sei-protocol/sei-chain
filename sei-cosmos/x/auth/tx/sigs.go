@@ -6,6 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
@@ -70,6 +71,11 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 		if err != nil {
 			return nil, err
 		}
+		// ModeInfos and nested signatures are 1:1 (see SignatureDataToModeInfoAndSig).
+		if len(multi.ModeInfos) != len(sigs) {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrTxDecode,
+				"invalid multisig: %d mode infos, %d signatures", len(multi.ModeInfos), len(sigs))
+		}
 
 		sigv2s := make([]signing.SignatureData, len(sigs))
 		for i, mi := range multi.ModeInfos {
@@ -85,7 +91,7 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 		}, nil
 
 	default:
-		panic(fmt.Errorf("unexpected ModeInfo data type %T", modeInfo))
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrTxDecode, "unexpected ModeInfo data type %T", modeInfo)
 	}
 }
 

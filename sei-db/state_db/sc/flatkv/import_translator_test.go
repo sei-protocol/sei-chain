@@ -69,7 +69,7 @@ func TestImportTranslator_CodeEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pairs, 1)
 
-	expectedKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:])
+	expectedKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:])
 	require.Equal(t, expectedKey, pairs[0].Key)
 
 	got, err := vtype.DeserializeCodeData(pairs[0].Value)
@@ -96,7 +96,7 @@ func TestImportTranslator_MiscEntryWithinEVMModule(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pairs, 1)
 
-	expectedKey := ktype.ModulePhysicalKey(keys.EVMStoreKey, rawKey)
+	expectedKey := ktype.BuildPhysicalKey(keys.EVMStoreKey, rawKey)
 	require.Equal(t, expectedKey, pairs[0].Key)
 
 	got, err := vtype.DeserializeMiscData(pairs[0].Value)
@@ -123,7 +123,7 @@ func TestImportTranslator_NonEVMModuleRoutesToMisc(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pairs, 1)
 
-	expectedKey := ktype.ModulePhysicalKey("bank", rawKey)
+	expectedKey := ktype.BuildPhysicalKey("bank", rawKey)
 	require.Equal(t, expectedKey, pairs[0].Key)
 
 	got, err := vtype.DeserializeMiscData(pairs[0].Value)
@@ -213,6 +213,51 @@ func TestImportTranslator_NonceAndCodeHashCrossCallMerge(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(9), got.GetNonce())
 	require.Equal(t, ch, *got.GetCodeHash())
+}
+
+func TestImportTranslator_BalanceOnlyAccountEmittedByFinalize(t *testing.T) {
+	addr := addrN(0x42)
+	bal := balanceN(0x5F)
+
+	tr := NewImportTranslator(importBlockHeight)
+	pairs, err := tr.Translate(namedCS(balancePair(addr, bal)))
+	require.NoError(t, err)
+	require.Empty(t, pairs, "account fragments are buffered until Finalize")
+
+	finalized := tr.Finalize()
+	require.Len(t, finalized, 1)
+	require.Equal(t, accountPhysKey(addr), finalized[0].Key)
+
+	got, err := vtype.DeserializeAccountData(finalized[0].Value)
+	require.NoError(t, err)
+	require.Equal(t, importBlockHeight, got.GetBlockHeight())
+	require.Equal(t, bal, *got.GetBalance())
+	require.Zero(t, got.GetNonce())
+}
+
+func TestImportTranslator_AllAccountFieldsCrossCallMerge(t *testing.T) {
+	addr := addrN(0x42)
+	ch := codeHashN(0xAB)
+	bal := balanceN(0x11)
+
+	tr := NewImportTranslator(importBlockHeight)
+	_, err := tr.Translate(namedCS(noncePair(addr, 9)))
+	require.NoError(t, err)
+
+	_, err = tr.Translate(namedCS(codeHashPair(addr, ch)))
+	require.NoError(t, err)
+
+	_, err = tr.Translate(namedCS(balancePair(addr, bal)))
+	require.NoError(t, err)
+
+	finalized := tr.Finalize()
+	require.Len(t, finalized, 1, "fragments split across calls must merge into one account")
+
+	got, err := vtype.DeserializeAccountData(finalized[0].Value)
+	require.NoError(t, err)
+	require.Equal(t, uint64(9), got.GetNonce())
+	require.Equal(t, ch, *got.GetCodeHash())
+	require.Equal(t, bal, *got.GetBalance())
 }
 
 func TestImportTranslator_DropsDeletes(t *testing.T) {

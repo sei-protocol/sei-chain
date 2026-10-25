@@ -33,6 +33,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -312,6 +314,11 @@ func (b *Backend) isV67ActiveAtHeight(height int64) bool {
 	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.7", height)
 }
 
+func (b *Backend) isV68ActiveAtHeight(height int64) bool {
+	ctx := b.ctxProvider(LatestCtxHeight).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.8", height)
+}
+
 func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 	if provider != nil {
 		b.traceCtxProvider = provider
@@ -330,7 +337,8 @@ func (b *Backend) isLatest(ctx context.Context, x rpc.BlockNumberOrHash) (bool, 
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	ctxProvider := withRequestContext(ctx, b.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	zeroExcessBlobGas := uint64(0)
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
@@ -352,7 +360,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
-		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
+		sdkCtx = ctxProvider(tmBlock.Block.Height)
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 				return nil, nil, err
@@ -368,8 +376,12 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
-	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
+	receipt, err := readStoreAtHeight(ctx, LatestCtxHeight, b.ctxProvider, func(sdkCtx sdk.Context) (*types.Receipt, error) {
+		return b.keeper.GetReceipt(sdkCtx, txHash)
+	})
+	if errors.Is(err, receiptpkg.ErrNotFound) {
+		return false, nil, common.Hash{}, 0, 0, nil
+	}
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
@@ -410,34 +422,24 @@ func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
 }
 
-func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
-	blockNum := bn.Int64()
-	switch blockNum {
-	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
-		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
-	case rpc.EarliestBlockNumber.Int64():
-		genesisRes, err := b.tmClient.Genesis(context.Background())
-		if err != nil {
-			panic("could not get genesis info from tendermint")
-		}
-		blockNum = genesisRes.Genesis.InitialHeight
-	case rpc.PendingBlockNumber.Int64():
-		panic("tracing on pending block is not supported")
-	}
-	return blockNum
-}
-
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum := b.ConvertBlockNumber(bn)
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	heightPtr, err := getBlockNumber(ctx, b.tmClient, bn)
 	if err != nil {
 		return nil, nil, err
 	}
-	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, heightPtr, 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctxProvider := withRequestContext(ctx, b.ctxProvider)
+	sdkCtx := ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	traceTxConfigProvider := traceCompatTxConfigProvider(b.txConfigProvider, b.isV65ActiveAtHeight, b.isV67ActiveAtHeight)
-	msgs := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, false, b.cacheCreationMutex, b.globalBlockCache)
+	msgs, err := filterTransactions(b.keeper, ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	if err != nil {
+		return nil, nil, err
+	}
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
@@ -501,6 +503,9 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		Txs:     txs,
 	}
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
+	}
 	return block, metadata, nil
 }
 
@@ -669,6 +674,9 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		}
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, emptyRelease, err
+	}
 	success = true
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
 }
@@ -683,13 +691,14 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 	return statedb, release, nil
 }
 
-func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdk.Context, *coretypes.ResultBlock, tracers.StateReleaseFunc, error) {
+func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdkCtx sdk.Context, tmBlock *coretypes.ResultBlock, release tracers.StateReleaseFunc, err error) {
 	emptyRelease := func() {}
+	release = emptyRelease
 	// get the parent block using block.parentHash
 	prevBlockHeight := max(block.Number().Int64()-1, 0)
 
 	blockNumber := block.Number().Int64()
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
+	tmBlock, err = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
@@ -701,17 +710,74 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
-	sdkCtx := baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
-	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
-	nextCtx, nextRelease := ctxProvider(sdkCtx.BlockHeight())
+	var nextRelease func()
+	var released bool
+	release = func() {
+		if released {
+			return
+		}
+		released = true
+		if nextRelease != nil {
+			nextRelease()
+		}
+		baseRelease()
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = releaseOnContextPanic(release, r)
+			release = emptyRelease
+			sdkCtx = sdk.Context{}
+			tmBlock = nil
+		}
+	}()
+	sdkCtx = baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	if ctx != nil {
+		// The RPC/trace deadline must be on the SDK context so KVStore
+		// iteration can pass it into the SS MVCC skip loops.
+		sdkCtx = sdkCtx.WithContext(ctx)
+	}
+	if err := b.activateIncrementalTallyForTrace(sdkCtx, blockNumber); err != nil {
+		release()
+		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("activate incremental governance tally: %w", err)
+	}
+	runTraceBeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
+	var nextCtx sdk.Context
+	nextCtx, nextRelease = ctxProvider(sdkCtx.BlockHeight())
 	sdkCtx = sdkCtx.WithNextMs(
 		nextCtx.MultiStore(),
-		[]string{"oracle", "oracle_mem"},
+		nil,
 	)
-	return sdkCtx, tmBlock, func() {
-		nextRelease()
-		baseRelease()
-	}, nil
+	return sdkCtx, tmBlock, release, nil
+}
+
+func (b *Backend) activateIncrementalTallyForTrace(ctx sdk.Context, height int64) error {
+	if b.keeper == nil || b.beginBlockKeepers.GovKeeper == nil {
+		return nil
+	}
+	govKeeper := *b.beginBlockKeepers.GovKeeper
+	if govKeeper.IncrementalTallyEnabled(ctx) ||
+		!b.isV68ActiveAtHeight(height) ||
+		b.isV68ActiveAtHeight(height-1) {
+		return nil
+	}
+	return govkeeper.NewMigrator(govKeeper).Migrate3to4(ctx)
+}
+
+// runTraceBeginBlock is the BeginBlock used when reconstructing historical
+// state for traces.
+var runTraceBeginBlock = legacyabci.BeginBlock
+
+// releaseOnContextPanic releases leased snapshots and returns a cancel or
+// deadline panic as an error. Other panics are re-raised after release.
+func releaseOnContextPanic(release func(), recovered any) error {
+	if release != nil {
+		release()
+	}
+	err, ok := recovered.(error)
+	if ok && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return err
+	}
+	panic(recovered)
 }
 
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
@@ -721,7 +787,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
+	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles())
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -808,8 +874,8 @@ func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.PrecompiledContract {
-	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
+	return b.keeper.CustomPrecompiles()
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {

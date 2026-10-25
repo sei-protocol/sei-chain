@@ -15,15 +15,12 @@ func TestConv(t *testing.T) {
 			LaneVoteConv.Test(types.GenSigned(rng, types.GenLaneVote(rng))),
 			LaneProposalConv.Test(types.GenSigned(rng, types.GenLaneProposal(rng))),
 			AppVoteConv.Test(types.GenSigned(rng, types.GenAppVote(rng))),
-			StreamLaneProposalsReqConv.Test(&StreamLaneProposalsReq{FirstBlockNumber: types.GenBlockNumber(rng)}),
-			StreamAppQCsRespConv.Test(&StreamAppQCsResp{
-				AppQC:    types.GenAppQC(rng),
-				CommitQC: types.GenCommitQC(rng),
-			}),
+			StreamLaneProposalsReqConv.Test(&StreamLaneProposalsReq{LaneID: types.GenLaneID(rng), FirstBlockNumber: types.GenBlockNumber(rng)}),
 			GetBlockReqConv.Test(&GetBlockReq{GlobalNumber: types.GenGlobalBlockNumber(rng)}),
 			GetBlockRespConv.Test(utils.None[*types.Block]()),
 			GetBlockRespConv.Test(utils.Some(types.GenBlock(rng))),
 			StreamFullCommitQCsReqConv.Test(&StreamFullCommitQCsReq{NextBlock: types.GenGlobalBlockNumber(rng)}),
+			StreamAppQCsReqConv.Test(&StreamAppQCsReq{NextBlock: types.GenGlobalBlockNumber(rng)}),
 		))
 	}
 }

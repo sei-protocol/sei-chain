@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -26,7 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -153,7 +154,7 @@ func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, heig
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for height %d", height)
+		return nil, fmt.Errorf("could not find block for height %s", stringifyInt64Ptr(height))
 	}
 	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err
@@ -200,23 +201,45 @@ type indexedMsg struct {
 	index int
 }
 
+// requireReceiptStore returns ErrNotConfigured unless k holds a receipt store, which a node
+// started with rs-enable = false does not. Callers that would otherwise treat a missing receipt
+// as "skip this tx" must fail here, or they answer with empty data.
+func requireReceiptStore(k *keeper.Keeper) error {
+	if k == nil || k.ReceiptStore() == nil {
+		return receipt.ErrNotConfigured
+	}
+	return nil
+}
+
+// filterTransactions returns, in block order, the block's EVM transaction messages that executed in
+// it, plus its CosmWasm execute messages when includeSyntheticTxs is set. A message whose receipt
+// cannot be read is omitted, so callers answering for a block identifier must reject heights below
+// the receipt floor before calling it.
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
-	includeBankTransfers bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
-) []indexedMsg {
+) ([]indexedMsg, error) {
+	if err := requireReceiptStore(k); err != nil {
+		return nil, err
+	}
 	txs := []indexedMsg{}
 	txCounts := make(map[string]uint64)
 	startOfBlockNonce := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
-	ctx := ctxProvider(block.Block.Height)
-	prevCtx := ctxProvider(block.Block.Height - 1)
+	ctx, err := ctxAtHeight(ctxProvider, block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	prevCtx, err := ctxAtHeight(ctxProvider, block.Block.Height-1)
+	if err != nil {
+		return nil, err
+	}
 	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -231,8 +254,14 @@ func filterTransactions(
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
-				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
-				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
+				receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+				if err != nil {
+					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
+						return nil, goCtx.Err()
+					}
+					continue
+				}
+				if receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
 				txCount := txCounts[sender.Hex()]
@@ -255,20 +284,18 @@ func filterTransactions(
 					continue
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
-				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
-				if !found {
-					continue
-				}
-				txs = append(txs, indexedMsg{index: i, msg: msg})
-			case *banktypes.MsgSend:
-				if !includeBankTransfers {
+				_, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
+				if err != nil {
+					if goCtx := latestCtx.Context(); goCtx != nil && goCtx.Err() != nil {
+						return nil, goCtx.Err()
+					}
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
 			}
 		}
 	}
-	return txs
+	return txs, nil
 }
 
 func recordMetrics(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time) {
@@ -284,9 +311,6 @@ func recordMetricsWithError(ctx context.Context, apiMethod string, connectionTyp
 	}
 
 	recordRPCLatency(ctx, apiMethod, string(connectionType), success, err, panicValue != nil, startTime)
-	// TODO(PLT-326): remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.requestLatencySeconds histogram instead.
-	utilmetrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	utilmetrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {
@@ -313,10 +337,10 @@ func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
 }
 
 func shouldIncludeSynthetic(namespace string) bool {
-	if namespace != "eth" && namespace != "sei" {
+	if namespace != EthNamespace && namespace != SeiNamespace {
 		panic(fmt.Sprintf("unknown namespace %s", namespace))
 	}
-	return namespace == "sei"
+	return namespace == SeiNamespace
 }
 
 type typedTxHash struct {
@@ -332,9 +356,18 @@ func getTxHashesFromBlock(
 	shouldIncludeSynthetic bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
-) []typedTxHash {
+) ([]typedTxHash, error) {
+	txs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
+	return typedTxHashesOf(block, txs), nil
+}
+
+// typedTxHashesOf returns the hash of each message in txs, in order.
+func typedTxHashesOf(block *coretypes.ResultBlock, txs []indexedMsg) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache) {
+	for _, tx := range txs {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
@@ -355,32 +388,6 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
 }
 
-// isReceiptUntraceable returns true if the receipt represents a tx whose
-// trace would be empty or meaningless. Shared discriminator used by the
-// legacy sei tx and block *ExcludeTraceFail endpoints so they filter the same set.
-//
-//   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
-//     execution. app/receipt.go writes these for wasm txs to surface CW20
-//     events on the EVM side; they have no trace.
-//   - EffectiveGasPrice == 0 && GasUsed == 0: ante-deferred stub receipt
-//     from x/evm/keeper/abci.go — the tx bumped its nonce in ante but
-//     never reached the VM. WriteReceipt for any executed tx sets both
-//     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
-//     a chain with positive min fee), so reverts and OOG pass through.
-//   - PreExecutionFailure: state-transition returned before Create/Call
-//     (e.g. EIP-7623 floor data gas). Those receipts still get WriteReceipt
-//     with GasUsed/EffectiveGasPrice set; the flag is set at write time.
-//
-// This is intentionally narrower than isReceiptFromAnteError's
-// post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
-// receipts visible to the regular eth_getBlockBy* endpoints (per
-// PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
-func isReceiptUntraceable(receipt *types.Receipt) bool {
-	return receipt.TxType == types.ShellEVMTxType ||
-		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0) ||
-		receipt.PreExecutionFailure
-}
-
 type ParallelRunner struct {
 	Done  sync.WaitGroup
 	Queue chan func()
@@ -388,6 +395,7 @@ type ParallelRunner struct {
 
 var panicHook atomic.Value
 
+// SetPanicHook sets a handler that replaces default recovered-panic logging.
 func SetPanicHook(h func(interface{})) {
 	panicHook.Store(h)
 }
@@ -417,14 +425,32 @@ func runWithRecovery(f func()) {
 
 func recoverAndLog() {
 	if e := recover(); e != nil {
-		fmt.Printf("Panic recovered: %s\n", e)
-		debug.PrintStack()
 		if v := panicHook.Load(); v != nil {
 			if hook, ok := v.(func(interface{})); ok && hook != nil {
 				hook(e)
+				return
 			}
 		}
+		fmt.Printf("Panic recovered: %s\n", e)
+		debug.PrintStack()
 	}
+}
+
+// ctxAtHeight returns the context ctxProvider builds for height, or the error it
+// panics with when it cannot, e.g. historical state the node does not retain.
+// Non-error panics and runtime errors are re-raised.
+func ctxAtHeight(ctxProvider func(int64) sdk.Context, height int64) (ctx sdk.Context, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			e, ok := r.(error)
+			var runtimeErr runtime.Error
+			if !ok || errors.As(e, &runtimeErr) {
+				panic(r)
+			}
+			err = fmt.Errorf("state at height %d is unavailable: %w", height, e)
+		}
+	}()
+	return ctxProvider(height), nil
 }
 
 func must[V any](v V, err error) V {

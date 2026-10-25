@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,11 +53,14 @@ func TestMaxOpenConnections(t *testing.T) {
 	attempts := max * 2
 	var wg sync.WaitGroup
 	var failed int32
+	c := http.Client{
+		Timeout:   3 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
 	for i := 0; i < attempts; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c := http.Client{Timeout: 3 * time.Second}
 			r, err := c.Get("http://" + l.Addr().String())
 			if err != nil {
 				atomic.AddInt32(&failed, 1)
@@ -72,6 +76,18 @@ func TestMaxOpenConnections(t *testing.T) {
 	if int(failed) >= attempts/2 {
 		t.Errorf("%d requests failed within %d attempts", failed, attempts)
 	}
+}
+
+func TestListenAdoptsReservedAddr(t *testing.T) {
+	addr := tcp.TestReserveAddr()
+	l, err := Listen("tcp://"+addr.String(), 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+	require.Equal(t, addr.String(), l.Addr().String())
+
+	conn, err := net.Dial("tcp", addr.String())
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
 }
 
 func TestServeTLS(t *testing.T) {

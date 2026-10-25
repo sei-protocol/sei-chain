@@ -1,9 +1,14 @@
 package rootmulti
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -44,7 +49,7 @@ func TestRootMultiSetWriteMode_StaleViewsRouteCorrectly(t *testing.T) {
 
 	// Raising the batch size above 0 is the migration trigger: it advances
 	// the auto store memiavl_only -> migrate_evm.
-	require.NoError(t, store.SetMigrationBatchSize(100))
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
 
 	// Drive cosmos-only blocks: migration modes forward every flush, so
 	// the batch=100 migration drains the handful of evm keys and deletes
@@ -95,7 +100,7 @@ func TestRootMultiAutoKickoff_LiveCacheStoreNotOrphaned(t *testing.T) {
 	cms := store.CacheMultiStore()
 
 	// BeginBlock kick-off: batch>0 flips memiavl_only -> migrate_evm.
-	require.NoError(t, store.SetMigrationBatchSize(2))
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
 
 	// DeliverTx-equivalent write through the pre-created cms.
 	cms.GetKVStore(storeKeys["bank"]).Set([]byte("supply"), []byte{0x42})
@@ -127,7 +132,7 @@ func TestRootMultiAutoKickoff_FixedMemiavlOnlySkips(t *testing.T) {
 
 	// A positive batch size must be a no-op for the fixed config (besides the
 	// skip log): no error surfaces and the mode stays memiavl_only.
-	require.NoError(t, store.SetMigrationBatchSize(100))
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
 	mode, ok := store.GetWriteMode()
 	require.True(t, ok)
 	require.Equal(t, sctypes.MemiavlOnly, mode,
@@ -137,6 +142,43 @@ func TestRootMultiAutoKickoff_FixedMemiavlOnlySkips(t *testing.T) {
 	simulateBlock(t, store, storeKeys, 2, addr)
 	mode, _ = store.GetWriteMode()
 	require.Equal(t, sctypes.MemiavlOnly, mode)
+}
+
+type countingHandler struct{ records *atomic.Int64 }
+
+func (h countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h countingHandler) Handle(context.Context, slog.Record) error {
+	h.records.Add(1)
+	return nil
+}
+func (h countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h countingHandler) WithGroup(string) slog.Handler      { return h }
+
+// TestRootMultiAutoKickoff_FixedMemiavlOnlySkipLoggedOncePerBatchSize proves a
+// pinned node logs the skipped kick-off once per batch size rather than on
+// every block, and logs again when governance changes the batch size.
+func TestRootMultiAutoKickoff_FixedMemiavlOnlySkipLoggedOncePerBatchSize(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var records atomic.Int64
+	prev := logger
+	logger = slog.New(countingHandler{records: &records})
+	defer func() { logger = prev }()
+
+	for range 3 {
+		require.NoError(t, store.SetMigrationBatchSize(100, false))
+	}
+	require.Equal(t, int64(1), records.Load(), "repeated batch size must log once")
+
+	require.NoError(t, store.SetMigrationBatchSize(200, false))
+	require.NoError(t, store.SetMigrationBatchSize(200, false))
+	require.Equal(t, int64(2), records.Load(), "a new batch size must log again")
+
+	require.NoError(t, store.SetMigrationBatchSize(0, false))
+	require.NoError(t, store.SetMigrationBatchSize(200, false))
+	require.Equal(t, int64(3), records.Load(), "re-raising after 0 must log again")
 }
 
 // TestRootMultiAutoKickoff_RestartResumesMigrateEVM proves the crash/restart
@@ -164,7 +206,7 @@ func TestRootMultiAutoKickoff_RestartResumesMigrateEVM(t *testing.T) {
 	require.Equal(t, sctypes.MemiavlOnly, mode, "still memiavl_only before any batch size is set")
 
 	// Kick off: batch > 0 advances memiavl_only -> migrate_evm.
-	require.NoError(t, store.SetMigrationBatchSize(2))
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
 	mode, _ = store.GetWriteMode()
 	require.Equal(t, sctypes.MigrateEVM, mode, "batch>0 must kick off migrate_evm")
 
@@ -184,7 +226,7 @@ func TestRootMultiAutoKickoff_RestartResumesMigrateEVM(t *testing.T) {
 	// Resume draining to completion. The app re-applies the gov batch size
 	// every BeginBlock; re-applying it here is a no-op for the mode (already
 	// migrate_evm) and simply sets the rate.
-	require.NoError(t, store.SetMigrationBatchSize(100))
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
 	for i := 3; i <= 6; i++ {
 		simulateBlock(t, store, storeKeys, i, addrBase)
 	}
@@ -201,6 +243,251 @@ func TestRootMultiAutoKickoff_RestartResumesMigrateEVM(t *testing.T) {
 	mode, _ = store.GetWriteMode()
 	require.Equal(t, sctypes.EVMMigrated, mode,
 		"after completion a restart must derive evm_migrated")
+}
+
+// migrationComplete reports whether the SC store reports the migration for
+// mode as complete.
+func migrationComplete(t *testing.T, store *Store, mode sctypes.WriteMode) bool {
+	t.Helper()
+	reporter, ok := store.scStore.(writeModeCompletionReporter)
+	require.True(t, ok)
+	complete, err := reporter.IsWriteModeComplete(mode)
+	require.NoError(t, err)
+	return complete
+}
+
+// requireEVMMigrationComplete asserts that the SC store reports its EVM
+// migration as complete.
+func requireEVMMigrationComplete(t *testing.T, store *Store) {
+	t.Helper()
+	require.True(t, migrationComplete(t, store, sctypes.MigrateEVM), "the EVM migration must be complete")
+}
+
+func TestRootMultiMigrateCosmosGateClosedAfterEVMComplete(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	addr := newEVMTestData(0xA1)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	requireEVMMigrationComplete(t, store)
+
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateEVM, mode,
+		"gate closed must not reuse the positive batch size to start MigrateCosmos")
+}
+
+func TestRootMultiMigrateCosmosGateOpenStartsFromLiveAndRestartedState(t *testing.T) {
+	for _, restartAfterEVM := range []bool{false, true} {
+		t.Run(fmt.Sprintf("restart_after_evm_%v", restartAfterEVM), func(t *testing.T) {
+			dir := t.TempDir()
+			store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+			addr := newEVMTestData(0xA2)
+			simulateBlock(t, store, storeKeys, 1, addr)
+			require.NoError(t, store.SetMigrationBatchSize(100, false))
+			for i := 2; i <= 4; i++ {
+				simulateBlock(t, store, storeKeys, i, addr)
+			}
+
+			if restartAfterEVM {
+				store, storeKeys = restartRootMultiWithConfig(t, store, dir, autoModeConfig())
+				mode, ok := store.GetWriteMode()
+				require.True(t, ok)
+				require.Equal(t, sctypes.EVMMigrated, mode)
+			}
+			defer func() { require.NoError(t, store.Close()) }()
+
+			require.NoError(t, store.SetMigrationBatchSize(2, true))
+			mode, ok := store.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, mode)
+
+			simulateBlock(t, store, storeKeys, 5, addr)
+			got, ok := store.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, got)
+		})
+	}
+}
+
+// TestRootMultiMigrateCosmosGateOpenRestartBeforeFirstCommitReKicks proves a
+// MigrateCosmos start that no commit has persisted is derived again as
+// evm_migrated after a restart, and the next open-gate call starts it again.
+func TestRootMultiMigrateCosmosGateOpenRestartBeforeFirstCommitReKicks(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA3)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	require.NoError(t, store.SetMigrationBatchSize(2, true))
+	mode, _ := store.GetWriteMode()
+	require.Equal(t, sctypes.MigrateCosmos, mode)
+
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.EVMMigrated, mode,
+		"a MigrateCosmos start not yet persisted must derive evm_migrated after restart")
+
+	require.NoError(t, store.SetMigrationBatchSize(2, true))
+	mode, _ = store.GetWriteMode()
+	require.Equal(t, sctypes.MigrateCosmos, mode, "the open gate must start MigrateCosmos again")
+	simulateBlock(t, store, storeKeys, 5, addr)
+}
+
+// TestRootMultiMigrateCosmosGateOpenPinnedEVMMigratedSkips proves a store
+// pinned to evm_migrated is not advanced by an open gate, and logs the skip.
+func TestRootMultiMigrateCosmosGateOpenPinnedEVMMigratedSkips(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA4)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, evmMigratedConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var records atomic.Int64
+	prev := logger
+	logger = slog.New(countingHandler{records: &records})
+	defer func() { logger = prev }()
+
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.EVMMigrated, mode, "a pinned evm_migrated store must not advance")
+	require.Equal(t, int64(1), records.Load(), "the pinned skip must be logged")
+	simulateBlock(t, store, storeKeys, 5, addr)
+}
+
+// TestRootMultiMigrateCosmosGateOpenPinnedMigrateEVMInFlightIsQuiet proves a
+// store pinned to migrate_evm whose EVM migration is still in flight does not
+// log a skip, because the network has no migration to start yet either.
+func TestRootMultiMigrateCosmosGateOpenPinnedMigrateEVMInFlightIsQuiet(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA5)
+	storageKeys := storageMemIAVLKeys(0xA5, 12)
+	simulateBlockManyStorage(t, store, storeKeys, 1, storageKeys, addr)
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
+	simulateBlock(t, store, storeKeys, 2, addr)
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var records atomic.Int64
+	prev := logger
+	logger = slog.New(countingHandler{records: &records})
+	defer func() { logger = prev }()
+
+	require.NoError(t, store.SetMigrationBatchSize(2, true))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateEVM, mode)
+	require.Zero(t, records.Load(), "an in-flight EVM migration must not log a pinned skip")
+	simulateBlock(t, store, storeKeys, 3, addr)
+}
+
+// TestRootMultiMigrateCosmosCompleteAdvancesToFlatKVOnly proves that once
+// MigrateCosmos has persisted version 2, the next positive batch size moves a
+// live auto store to flatkv_only without a restart and whatever the gate says,
+// and that a restarted store derives the same mode.
+func TestRootMultiMigrateCosmosCompleteAdvancesToFlatKVOnly(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA6)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateCosmos, mode)
+
+	block := 5
+	for ; block <= 20 && !migrationComplete(t, store, sctypes.MigrateCosmos); block++ {
+		simulateBlock(t, store, storeKeys, block, addr)
+	}
+	require.True(t, migrationComplete(t, store, sctypes.MigrateCosmos), "MigrateCosmos did not complete")
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateCosmos, mode, "completion alone must not change the live mode")
+
+	// The gate controls only the start of MigrateCosmos; the completion
+	// flip ignores it.
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode, "a completed MigrateCosmos must advance to flatkv_only")
+	simulateBlock(t, store, storeKeys, block, addr)
+	block++
+
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode, "a restarted store must derive flatkv_only")
+
+	// The end of the chain: a positive batch size changes nothing.
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok = store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.FlatKVOnly, mode)
+	simulateBlock(t, store, storeKeys, block, addr)
+}
+
+// TestRootMultiMigrateCosmosCompletePinnedIsQuiet proves a store pinned to
+// migrate_cosmos whose migration is complete stays in migrate_cosmos and logs
+// nothing, because its commit info matches peers that advance to flatkv_only.
+func TestRootMultiMigrateCosmosCompletePinnedIsQuiet(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+
+	addr := newEVMTestData(0xA7)
+	simulateBlock(t, store, storeKeys, 1, addr)
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 2; i <= 4; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	block := 5
+	for ; block <= 20 && !migrationComplete(t, store, sctypes.MigrateCosmos); block++ {
+		simulateBlock(t, store, storeKeys, block, addr)
+	}
+	require.True(t, migrationComplete(t, store, sctypes.MigrateCosmos), "MigrateCosmos did not complete")
+
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateCosmosConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var records atomic.Int64
+	prev := logger
+	logger = slog.New(countingHandler{records: &records})
+	defer func() { logger = prev }()
+
+	require.NoError(t, store.SetMigrationBatchSize(100, true))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateCosmos, mode, "a pinned migrate_cosmos store must not advance")
+	require.Zero(t, records.Load(), "a completed MigrateCosmos must not log a pinned skip")
+	simulateBlock(t, store, storeKeys, block, addr)
 }
 
 // TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks proves the
@@ -221,7 +508,7 @@ func TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks(t *testing.T) {
 	// Kick off but DO NOT run a migrating block: the boundary is never
 	// persisted (the flip lives only in memory; the freshly materialized
 	// flatkv carries no in-flight boundary yet).
-	require.NoError(t, store.SetMigrationBatchSize(2))
+	require.NoError(t, store.SetMigrationBatchSize(2, false))
 	mode, _ := store.GetWriteMode()
 	require.Equal(t, sctypes.MigrateEVM, mode)
 
@@ -237,10 +524,38 @@ func TestRootMultiAutoKickoff_RestartBeforeFirstCommitReKicks(t *testing.T) {
 	// The gov batch size, replayed by the app every BeginBlock, re-fires the
 	// kick-off and the node converges to migrate_evm; the migration then runs
 	// to completion normally.
-	require.NoError(t, store.SetMigrationBatchSize(100))
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
 	mode, _ = store.GetWriteMode()
 	require.Equal(t, sctypes.MigrateEVM, mode, "re-applying batch>0 re-fires the kick-off")
 	for i := 2; i <= 5; i++ {
 		simulateBlock(t, store, storeKeys, i, addrBase)
 	}
+}
+
+// TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff pins the wasm snapshot extension
+// path: a state-sync snapshot of a pre-kickoff height opens its export view after kickoff has created
+// FlatKV, which can't reach that height.
+func TestRootMultiCacheMultiStoreForExport_PreKickoffHeightAfterKickoff(t *testing.T) {
+	store, storeKeys := newTestRootMulti(t, t.TempDir(), autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	addr := newEVMTestData(0xD2)
+	for i := 1; i <= 3; i++ {
+		simulateBlock(t, store, storeKeys, i, addr)
+	}
+	const pre = int64(2)
+
+	require.NoError(t, store.SetMigrationBatchSize(100, false))
+	for i := 4; i <= 6; i++ {
+		simulateCosmosOnlyBlock(t, store, storeKeys, i)
+	}
+
+	_, err := store.scStore.LoadVersion(pre, true)
+	require.ErrorIs(t, err, gigatypes.ErrVersionUnreachable)
+
+	cms, err := store.CacheMultiStoreForExport(pre)
+	require.NoError(t, err)
+	defer cms.(interface{ Close() }).Close()
+	require.Equal(t, []byte{2, 2}, cms.GetKVStore(storeKeys["bank"]).Get([]byte("supply")))
+	require.Equal(t, makeSlot(2, 0xAA), cms.GetKVStore(storeKeys["evm"]).Get(addr.storKey))
 }

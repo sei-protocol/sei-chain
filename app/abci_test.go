@@ -2,15 +2,33 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+
 	"github.com/sei-protocol/sei-chain/app/migration"
+	"github.com/sei-protocol/sei-chain/app/upgrades/migrationpause"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIBCModuleIsNotWired(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+	_, basicWired := ModuleBasics["ibc"]
+	_, moduleWired := testApp.mm.Modules["ibc"]
+	require.False(t, basicWired)
+	require.False(t, moduleWired)
+	require.NotContains(t, testApp.mm.OrderInitGenesis, "ibc")
+	for _, typeURL := range testApp.interfaceRegistry.ListImplementations("cosmos.base.v1beta1.Msg") {
+		require.Falsef(t, strings.HasPrefix(typeURL, "/ibc."), "IBC message type remains registered: %s", typeURL)
+	}
+}
 
 // TestMigrationSubspaceRegistered verifies the generic "migration" params
 // subspace is wired with its key table so governance can edit
@@ -58,6 +76,40 @@ func TestApplyMigrationBatchSize(t *testing.T) {
 	require.Equal(t, int(migration.MaxNumKeysToMigratePerBlock), got)
 }
 
+func TestMigrationPauseHardForkPreservesInFlightMode(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := a.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now()})
+
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(500))
+	a.applyMigrationBatchSize(ctx)
+
+	modeBeforePause, ok := a.rootStore.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MigrateEVM, modeBeforePause)
+
+	const recoveryHeight = int64(2)
+	a.HardForkManager.RegisterHandler(
+		migrationpause.NewHardForkHandler(recoveryHeight, ctx.ChainID(), a.ParamsKeeper),
+	)
+	ctx = ctx.WithBlockHeight(recoveryHeight)
+	require.NotPanics(t, func() {
+		a.BeginBlock(ctx, recoveryHeight, nil, nil, false)
+	})
+
+	var storedRate uint64
+	subspace.Get(ctx, migration.KeyNumKeysToMigratePerBlock, &storedRate)
+	require.Zero(t, storedRate)
+	effectiveRate, ok := a.rootStore.GetMigrationBatchSize()
+	require.True(t, ok)
+	require.Zero(t, effectiveRate)
+
+	modeAfterPause, ok := a.rootStore.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, modeBeforePause, modeAfterPause)
+}
+
 // TestBeginBlockAppliesMigrationBatchSize exercises the full BeginBlock path
 // (not the helper in isolation): it mimics a governance ParameterChangeProposal
 // having set NumKeysToMigratePerBlock, then runs app.BeginBlock and asserts the
@@ -85,41 +137,160 @@ func TestBeginBlockAppliesMigrationBatchSize(t *testing.T) {
 	require.Equal(t, 321, after, "BeginBlock should push the gov param into the SC store")
 }
 
-// TestMigrationBatchSizeTakesEffectNextBlock is the full end-to-end timing
-// check: a governance proposal committed in block N (written into the block's
-// deliver state, then Commit) only changes the SC store's migration rate when
-// block N+1's BeginBlock runs and reads it from committed state.
+// TestMigrationBatchSizeTakesEffectNextBlock pins when a param change reaches the SC store: BeginBlock
+// applies whatever the param says at the moment it runs, so a proposal that lands later in a block cannot
+// change the rate that block is already migrating at — only the next block's BeginBlock picks it up.
+//
+// The BeginBlock step is driven directly rather than through FinalizeBlock/Commit because the sequence
+// this pins has no legal block-level spelling: getting the param written after BeginBlock but committed at
+// the same height means writing between FinalizeBlock and Commit, which changes committed state for a
+// height whose app hash was already announced to Tendermint. See TestMigrationBatchSizeAppliedAtBlockStart
+// for the same path through a real block.
 func TestMigrationBatchSizeTakesEffectNextBlock(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := a.GetContextForDeliverTx([]byte{})
+
+	// A block begins with the param unset, so the lazily-persisted default leaves migration paused.
+	a.applyMigrationBatchSize(ctx)
+	got, ok := a.rootStore.GetMigrationBatchSize()
+	require.True(t, ok)
+	require.Equal(t, 0, got, "the default param must leave migration paused")
+
+	// A gov proposal raises the rate part-way through that same block.
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(640))
+
+	got, ok = a.rootStore.GetMigrationBatchSize()
+	require.True(t, ok)
+	require.Equal(t, 0, got, "a param write must not change the rate the current block is migrating at")
+
+	// The next block's BeginBlock reads the param and applies it.
+	a.applyMigrationBatchSize(ctx)
+	got, ok = a.rootStore.GetMigrationBatchSize()
+	require.True(t, ok)
+	require.Equal(t, 640, got, "the next BeginBlock must apply the new rate")
+}
+
+// TestMigrationBatchSizeAppliedAtBlockStart covers the same path through a real block: a param already in
+// state when the block starts is applied by that block's BeginBlock and survives the commit.
+func TestMigrationBatchSizeAppliedAtBlockStart(t *testing.T) {
 	a := Setup(t, false, false, false)
 	bg := context.Background()
 
-	// Block 1: BeginBlock runs first (param still unset), then the gov
-	// proposal lands by writing into this block's deliver state, then Commit
-	// persists it to the committed multistore.
-	_, err := a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header{ChainID: "sei-test", Height: 1, Time: time.Now()},
-	})
-	require.NoError(t, err)
-
+	// Written into the genesis deliver state, before any block's app hash has been taken.
 	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
 	require.True(t, ok)
 	subspace.Set(a.GetContextForDeliverTx([]byte{}), migration.KeyNumKeysToMigratePerBlock, uint64(640))
 
+	_, err := a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{ChainID: "sei-test", Height: 1, Time: time.Now()},
+	})
+	require.NoError(t, err)
 	_, err = a.Commit(bg)
 	require.NoError(t, err)
 
-	// The param was committed in block 1, but BeginBlock(1) ran before it
-	// existed, so the rate is still paused at this point.
 	got, ok := a.rootStore.GetMigrationBatchSize()
 	require.True(t, ok)
-	require.Equal(t, 0, got, "param committed in block 1 must not take effect within block 1")
+	require.Equal(t, 640, got, "BeginBlock must apply a param already in state when the block starts")
+}
 
-	// Block 2: BeginBlock reads the now-committed param and applies it.
-	_, err = a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header{ChainID: "sei-test", Height: 2, Time: time.Now().Add(time.Second)},
-	})
+// TestMigrateCosmosEnabledAtGenesis pins that a chain started from genesis on
+// this binary may start MigrateCosmos without a v6.8 upgrade record.
+func TestMigrateCosmosEnabledAtGenesis(t *testing.T) {
+	a := Setup(t, false, false, false)
+	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+	require.True(t, ok)
+
+	var enabled bool
+	subspace.GetIfExists(a.GetContextForDeliverTx([]byte{}), migration.KeyMigrateCosmosEnabled, &enabled)
+	require.True(t, enabled, "InitChainer must enable MigrateCosmos")
+}
+
+// TestMigrateCosmosGate drives real blocks at the maximum rate and checks that
+// the store advances past the EVM migration only when MigrateCosmosEnabled is
+// set. With the gate open the store walks the whole chain: MigrateCosmos
+// completes within a block at this rate, and the next block's BeginBlock then
+// lands it in flatkv_only.
+func TestMigrateCosmosGate(t *testing.T) {
+	for _, tc := range []struct {
+		enabled  bool
+		wantMode sctypes.WriteMode
+	}{
+		{enabled: false, wantMode: sctypes.MigrateEVM},
+		{enabled: true, wantMode: sctypes.FlatKVOnly},
+	} {
+		t.Run(fmt.Sprintf("enabled=%v", tc.enabled), func(t *testing.T) {
+			a := Setup(t, false, false, false)
+			bg := context.Background()
+
+			subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
+			require.True(t, ok)
+			ctx := a.GetContextForDeliverTx([]byte{})
+			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.MaxNumKeysToMigratePerBlock)
+			subspace.Set(ctx, migration.KeyMigrateCosmosEnabled, tc.enabled)
+
+			runBlock := func(height int64) {
+				_, err := a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
+					Header: &tmproto.Header{ChainID: "sei-test", Height: height, Time: time.Now()},
+				})
+				require.NoError(t, err)
+				_, err = a.Commit(bg)
+				require.NoError(t, err)
+			}
+			for height := int64(1); height <= 5; height++ {
+				runBlock(height)
+			}
+
+			mode, ok := a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, tc.wantMode, mode)
+			if tc.enabled {
+				return
+			}
+
+			// Opening the gate must start MigrateCosmos on the first block that
+			// reads it, which shows the EVM migration was already complete and
+			// only the closed gate held the store in migrate_evm. The write
+			// lands with block 6's commit, so block 7 is that first block.
+			subspace.Set(a.NewUncachedContext(false, tmproto.Header{}), migration.KeyMigrateCosmosEnabled, true)
+			runBlock(6)
+			runBlock(7)
+			mode, ok = a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.MigrateCosmos, mode)
+
+			// Block 7 completes MigrateCosmos; block 8's BeginBlock observes
+			// the persisted version and leaves the migration router.
+			runBlock(8)
+			mode, ok = a.rootStore.GetWriteMode()
+			require.True(t, ok)
+			require.Equal(t, sctypes.FlatKVOnly, mode)
+		})
+	}
+}
+
+func TestIBCStoreQueriesAreUnavailable(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+
+	for _, path := range []string{
+		"/store/ibc/key",
+		"/store/ibc/subspace",
+		"/store/transfer/key",
+		"/store/transfer/subspace",
+		"/store/capability/key",
+		"/store/capability/subspace",
+	} {
+		t.Run(path, func(t *testing.T) {
+			response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: path})
+			require.NoError(t, err)
+			require.True(t, response.IsErr())
+			require.Equal(t, sdkerrors.ErrUnknownRequest.Codespace(), response.Codespace)
+			require.Equal(t, sdkerrors.ErrUnknownRequest.ABCICode(), response.Code)
+		})
+	}
+
+	response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/bank/key"})
 	require.NoError(t, err)
-
-	got, _ = a.rootStore.GetMigrationBatchSize()
-	require.Equal(t, 640, got, "migration rate must take effect on the block after the param is committed")
+	require.False(t, response.IsErr())
 }

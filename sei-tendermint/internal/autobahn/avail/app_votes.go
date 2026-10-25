@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -14,40 +15,48 @@ type voteSet[V any] struct {
 	votes  []V
 }
 
-type appVotes struct {
-	byKey  map[types.PublicKey]*types.Signed[*types.AppVote]
-	byHash map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]
+type road struct {
+	epoch     *types.Epoch
+	commitQC  *types.CommitQC
+	appByKey  map[types.PublicKey]struct{}
+	appByHash map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]
+	appQC     utils.Option[*types.AppQC]
 }
 
-func newAppVotes() appVotes {
-	return appVotes{
-		byKey:  map[types.PublicKey]*types.Signed[*types.AppVote]{},
-		byHash: map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]{},
+func newRoad(commitQC *types.CommitQC, epoch *types.Epoch) *road {
+	return &road{
+		epoch:     epoch,
+		commitQC:  commitQC,
+		appByKey:  map[types.PublicKey]struct{}{},
+		appByHash: map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]{},
 	}
 }
 
 // Returns qc if a new qc has been reached.
-func (av appVotes) pushVote(c *types.Committee, vote *types.Signed[*types.AppVote]) (*types.AppQC, bool) {
-	k := vote.Key()
-	if _, ok := av.byKey[k]; ok {
-		return nil, false
+func (r *road) pushAppVote(vote *types.Signed[*types.AppVote]) bool {
+	if r.appQC.IsPresent() {
+		return false
 	}
-	av.byKey[k] = vote
-	byHash, ok := av.byHash[vote.Hash()]
+	k := vote.Key()
+	if _, ok := r.appByKey[k]; ok {
+		return false
+	}
+	r.appByKey[k] = struct{}{}
+	byHash, ok := r.appByHash[vote.Hash()]
 	if !ok {
-		if len(av.byHash) == 1 {
-			logger.Error("appHash mismatch", slog.Uint64("n", uint64(vote.Msg().Proposal().GlobalNumber())))
+		if len(r.appByHash) == 1 {
+			// Log an error just at the first conflicting hash.
+			logger.Error("appHash mismatch", slog.Uint64("n", uint64(vote.Msg().Proposal().RoadIndex())))
 		}
 		byHash = &voteSet[*types.Signed[*types.AppVote]]{}
-		av.byHash[vote.Hash()] = byHash
+		r.appByHash[vote.Hash()] = byHash
 	}
-	if byHash.weight >= c.AppQuorum() {
-		return nil, false
-	}
+	c := r.epoch.Committee()
 	byHash.weight += c.Weight(k)
 	byHash.votes = append(byHash.votes, vote)
 	if byHash.weight >= c.AppQuorum() {
-		return types.NewAppQC(byHash.votes), true
+		r.appQC = utils.Some(types.NewAppQC(byHash.votes))
+		return true
 	}
-	return nil, false
+	return false
 }

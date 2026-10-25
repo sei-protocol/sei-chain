@@ -15,6 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
+const jsonRPCVersion = "2.0"
+
 // ErrorCode is the type of JSON-RPC error codes.
 type ErrorCode int
 
@@ -34,6 +36,9 @@ const (
 	CodeInternalError  ErrorCode = -32603 // Internal JSON-RPC error
 	CodeLagIsHighError ErrorCode = -32604 // Lag is too high error
 )
+
+// RequestBatchSizeLimit is the maximum number of JSON-RPC requests allowed in one batch.
+const RequestBatchSizeLimit = 10
 
 var errorCodeString = map[ErrorCode]string{
 	CodeParseError:     "Parse error",
@@ -66,7 +71,7 @@ func (req RPCRequest) ID() string { return string(req.id) }
 func (req RPCRequest) IsNotification() bool { return len(req.id) == 0 }
 
 type rpcRequestJSON struct {
-	V  string          `json:"jsonrpc"` // must be "2.0"
+	V  string          `json:"jsonrpc"` // must be jsonRPCVersion
 	ID json.RawMessage `json:"id,omitempty"`
 	M  string          `json:"method"`
 	P  json.RawMessage `json:"params"`
@@ -86,7 +91,7 @@ func (req *RPCRequest) UnmarshalJSON(data []byte) error {
 	var wrapper rpcRequestJSON
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return err
-	} else if wrapper.V != "" && wrapper.V != "2.0" {
+	} else if wrapper.V != "" && wrapper.V != jsonRPCVersion {
 		return fmt.Errorf("invalid version: %q", wrapper.V)
 	}
 
@@ -104,7 +109,7 @@ func (req *RPCRequest) UnmarshalJSON(data []byte) error {
 // MarshalJSON marshals a request with the appropriate version tag.
 func (req RPCRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rpcRequestJSON{
-		V:  "2.0",
+		V:  jsonRPCVersion,
 		ID: req.id,
 		M:  req.Method,
 		P:  req.Params,
@@ -215,7 +220,7 @@ type RPCResponse struct {
 func (resp RPCResponse) ID() string { return string(resp.id) }
 
 type rpcResponseJSON struct {
-	V  string          `json:"jsonrpc"` // must be "2.0"
+	V  string          `json:"jsonrpc"` // must be jsonRPCVersion
 	ID json.RawMessage `json:"id,omitempty"`
 	R  json.RawMessage `json:"result,omitempty"`
 	E  *RPCError       `json:"error,omitempty"`
@@ -226,7 +231,7 @@ func (resp *RPCResponse) UnmarshalJSON(data []byte) error {
 	var wrapper rpcResponseJSON
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return err
-	} else if wrapper.V != "" && wrapper.V != "2.0" {
+	} else if wrapper.V != "" && wrapper.V != jsonRPCVersion {
 		return fmt.Errorf("invalid version: %q", wrapper.V)
 	}
 
@@ -244,7 +249,7 @@ func (resp *RPCResponse) UnmarshalJSON(data []byte) error {
 // MarshalJSON marshals a response with the appropriate version tag.
 func (resp RPCResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rpcResponseJSON{
-		V:  "2.0",
+		V:  jsonRPCVersion,
 		ID: resp.id,
 		R:  resp.Result,
 		E:  resp.Error,

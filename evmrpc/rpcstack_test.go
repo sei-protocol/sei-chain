@@ -368,11 +368,11 @@ func TestJWT(t *testing.T) {
 	expFail := []func() string{
 		// future
 		func() string {
-			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Unix() + int64(evmrpc.JwtExpiryTimeout.Seconds()) + 1}))
+			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Add(2 * evmrpc.JwtExpiryTimeout).Unix()}))
 		},
 		// stale
 		func() string {
-			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Unix() - int64(evmrpc.JwtExpiryTimeout.Seconds()) - 1}))
+			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Add(-2 * evmrpc.JwtExpiryTimeout).Unix()}))
 		},
 		// wrong algo
 		func() string {

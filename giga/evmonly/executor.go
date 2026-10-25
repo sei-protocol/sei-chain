@@ -15,28 +15,45 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// Executor runs raw EVM transactions against an EVM-native state backend.
+// Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
-	cfg         Config
-	state       StateReader
-	resultSink  ResultSink
-	occPool     *occWorkerPool
-	resultPool  *blockResultPool
-	stateDBPool sync.Pool
-	closed      atomic.Bool
+	cfg              Config
+	resultSink       ResultSink
+	occPool          *occWorkerPool
+	resultPool       *blockResultPool
+	stateDBPool      sync.Pool
+	storeMu          sync.Mutex
+	stateStore       gigatypes.StateDB
+	receiptStore     receipt.ReceiptStore
+	changeSetEncoder NamedChangeSetEncoder
+	// Optional: nil commits only the state encoder's changesets.
+	blockChangeSetEncoder BlockChangeSetEncoder
+	// blockEncoderReadsStore is false only for an encoder registered as
+	// store-independent, which lets encoding overlap the previous commit.
+	blockEncoderReadsStore bool
+	missingState           StateReader
+	closed                 atomic.Bool
+
+	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
+	// serves the executor.
+	blockPhases *seidbmetrics.PhaseTimer
+
+	// The commit running behind the current block, and what it will write. A block reads the latter
+	// through an overlay so it need not wait for the former.
+	pipelineMu      sync.Mutex
+	pipelineDone    chan struct{}
+	pipelineErr     error
+	pipelineChanges *StateChangeSet
+	// The first commit that failed, kept so no caller can miss it.
+	pipelineFailure error
 }
 
 type Option func(*Executor)
-
-func WithState(state StateReader) Option {
-	return func(e *Executor) {
-		if state != nil {
-			e.state = state
-		}
-	}
-}
 
 func WithResultSink(sink ResultSink) Option {
 	return func(e *Executor) {
@@ -44,13 +61,40 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
+// WithMissingAccountState supplies state for accounts absent from the
+// persistent state snapshot.
+func WithMissingAccountState(state StateReader) Option {
+	return func(e *Executor) {
+		e.missingState = state
+	}
+}
+
+// WithStoreIndependentBlockChangeSetEncoder registers an encoder that reads only
+// the block context and result. Encoding then overlaps the previous block's
+// commit. An encoder that touches the store must use WithBlockChangeSetEncoder.
+func WithStoreIndependentBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
+	return func(e *Executor) {
+		e.blockChangeSetEncoder = encoder
+		e.blockEncoderReadsStore = false
+	}
+}
+
+// WithBlockChangeSetEncoder commits the encoder's changesets alongside every
+// block's state changes.
+func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
+	return func(e *Executor) {
+		e.blockChangeSetEncoder = encoder
+		e.blockEncoderReadsStore = true
+	}
+}
+
 // NewExecutor constructs an EVM-only executor. Call Close to disable future OCC
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:        cfg.WithDefaults(),
-		state:      NewMemoryState(),
-		resultPool: newBlockResultPool(cfg.BlockResultPoolSize),
+		cfg:         cfg.WithDefaults(),
+		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases: newBlockPhases(),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -61,11 +105,18 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	return e
 }
 
+// Close disables OCC for later blocks and returns once any block in flight and its state commit
+// have landed. Blocks executed after Close commit synchronously.
 func (e *Executor) Close() {
 	if e == nil {
 		return
 	}
 	e.closed.Store(true)
+	// A block holding storeMu may still start a background commit, so wait it out before awaiting.
+	// A commit failure is kept for the next AwaitCommits rather than reported here.
+	e.storeMu.Lock()
+	_ = e.awaitPipelineCommit()
+	e.storeMu.Unlock()
 	if e.occPool != nil {
 		e.occPool.Close()
 	}
@@ -82,12 +133,41 @@ func (e *Executor) ResultPoolStats() BlockResultPoolStats {
 	return e.resultPool.stats()
 }
 
+// MarkWaitingForBlock records that the caller's loop is about to block waiting for a block to
+// arrive. The next ExecutePreparedBlock ends the phase.
+//
+// Without it the phase totals only cover time inside a block, and so describe a share of the work
+// rather than a share of the clock.
+//
+// An executor keeps one phase timer, and that timer is not safe for concurrent use: calling this
+// from any goroutine other than the one that drives ExecutePreparedBlock is a data race, not just
+// a muddled measurement.
+func (e *Executor) MarkWaitingForBlock() {
+	if e == nil {
+		return
+	}
+	e.blockPhases.SetPhase(phaseWaitingForBlock)
+}
+
+// ExecuteBlock prepares and executes a block, and returns once its state is committed.
+//
+// It is the synchronous entry point. A caller feeding blocks continuously should prepare and
+// execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
+// the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
 	prepared, err := e.PrepareBlock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return e.ExecutePreparedBlock(ctx, prepared)
+	result, err := e.ExecutePreparedBlock(ctx, prepared)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.AwaitCommits(); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
@@ -96,7 +176,10 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers)
+	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
+		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	}
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
@@ -110,10 +193,12 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
 	}
-	result, err := e.executePreparedBlock(ctx, req)
+	result, err := e.executePreparedBlockWithStore(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
+	recordTxExecutionStats(ctx, result.Txs)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err
@@ -121,14 +206,14 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	return result, nil
 }
 
-func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
 	if e.useOCC(len(req.Txs)) {
-		return e.executeBlockOCC(ctx, req)
+		return e.executeBlockOCC(ctx, req, source)
 	}
-	return e.executeBlockSequential(ctx, req)
+	return e.executeBlockSequential(ctx, req, source)
 }
 
 func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*BlockResult, error) {
@@ -182,10 +267,10 @@ func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
 	e.stateDBPool.Put(stateDB)
 }
 
-func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 
-	stateDB := e.acquireStateDB(e.state)
+	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := buildBlockContext(req.Context)
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
@@ -246,7 +331,7 @@ func (e *Executor) executeTx(
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		// MinGasPrice is block-validity policy; unlike EVM call failures, it
 		// does not produce a receipt for an otherwise invalid block.
-		if effectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
+		if EffectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: errInsufficientGasPrice},
 				nil,
 				errInsufficientGasPrice
@@ -258,13 +343,24 @@ func (e *Executor) executeTx(
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
+	snapshot := stateDB.Snapshot()
+	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
+	poolGas := gasPool.Gas()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
+	// Read before any revert: RevertToSnapshot restores the recorded error too.
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if !e.cfg.RejectUnappliableTxs {
+			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		}
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.SetGas(poolGas)
+		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+		return txResult, receipt, nil
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
@@ -287,7 +383,7 @@ func (e *Executor) executeTx(
 		Logs:              txLogs,
 		TxHash:            tx.Hash(),
 		GasUsed:           execResult.UsedGas,
-		EffectiveGasPrice: effectiveGasPrice(tx, baseFee),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
 		BlockHash:         block.BlockHash,
 		BlockNumber:       new(big.Int).SetUint64(block.Number),
 		TransactionIndex:  txIndexUint,
@@ -315,6 +411,37 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// rejectedTx builds the failed, zero-gas receipt and result for a transaction the
+// executor did not run.
+func rejectedTx(
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	cause error,
+) (TxResult, *ethtypes.Receipt) {
+	tx := p.Tx
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		TxHash:            tx.Hash(),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
+		BlockHash:         block.BlockHash,
+		BlockNumber:       new(big.Int).SetUint64(block.Number),
+		TransactionIndex:  txIndexUint,
+	}
+	receipt.Bloom = ethtypes.CreateBloom(receipt)
+	return TxResult{
+		Hash:              tx.Hash(),
+		Sender:            p.Sender,
+		To:                tx.To(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		EffectiveGasPrice: new(big.Int).Set(receipt.EffectiveGasPrice),
+		Err:               cause,
+		Rejected:          true,
+	}, receipt
 }
 
 func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {
@@ -422,19 +549,23 @@ func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) err
 	if ctx.GasLimit == 0 {
 		return errInvalidBlockGasLimit
 	}
-	if chainConfig != nil {
-		blockNumber := new(big.Int).SetUint64(ctx.Number)
-		if chainConfig.IsLondon(blockNumber) && ctx.BaseFee == nil {
-			return errMissingBaseFee
-		}
-		if chainConfig.IsCancun(blockNumber, ctx.Time) && ctx.BlobBaseFee == nil {
-			return errMissingBlobBaseFee
-		}
+	if !chainConfig.IsCancun(new(big.Int).SetUint64(ctx.Number), ctx.Time) {
+		return errPreCancunBlock
+	}
+	if ctx.BaseFee == nil {
+		return errMissingBaseFee
+	}
+	if ctx.BlobBaseFee == nil {
+		return errMissingBlobBaseFee
 	}
 	return nil
 }
 
-func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
+// EffectiveGasPrice is what a transaction actually pays per gas at this base
+// fee. Exported because admission has to price on the same quantity block
+// validity does; comparing tx.GasPrice() instead admits a dynamic-fee tx on its
+// fee cap, and the executor then refuses it fatally.
+func EffectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return tx.GasPrice()
 	}
@@ -447,7 +578,8 @@ func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 var (
 	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
 	errInvalidBlockGasLimit = fmt.Errorf("block gas limit must be non-zero")
-	errMissingBaseFee       = fmt.Errorf("missing base fee for post-London block")
-	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee for post-Cancun block")
+	errPreCancunBlock       = fmt.Errorf("pre-Cancun blocks are not supported")
+	errMissingBaseFee       = fmt.Errorf("missing base fee")
+	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee")
 	errUnsupportedBlobTx    = fmt.Errorf("blob transactions require block-level blob gas accounting")
 )

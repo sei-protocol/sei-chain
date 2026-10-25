@@ -16,6 +16,17 @@ var Marshaler = codec.NewProtoCodec(InterfaceReg)
 var TxConfig = tx.NewTxConfig(Marshaler, tx.DefaultSignModes)
 
 func (a *App) Sign(account sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsigning.Tx {
+	return a.sign(account, nil, fee, msgs...)
+}
+
+// SignWithFeeGranter signs a transaction that nominates feeGranter to pay its
+// fee. Passing a feeGranter other than account produces the wire shape a
+// feegrant-using client sent before the module was removed.
+func (a *App) SignWithFeeGranter(account, feeGranter sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsigning.Tx {
+	return a.sign(account, feeGranter, fee, msgs...)
+}
+
+func (a *App) sign(account, feeGranter sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsigning.Tx {
 	txBuilder := TxConfig.NewTxBuilder()
 	if err := txBuilder.SetMsgs(msgs...); err != nil {
 		panic(err)
@@ -24,6 +35,9 @@ func (a *App) Sign(account sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsign
 	txBuilder.SetFeeAmount([]sdk.Coin{
 		sdk.NewCoin("usei", sdk.NewInt(fee)),
 	})
+	if feeGranter != nil {
+		txBuilder.SetFeeGranter(feeGranter)
+	}
 
 	acc := a.AccountKeeper.GetAccount(a.Ctx(), account)
 	seqNum := acc.GetSequence()

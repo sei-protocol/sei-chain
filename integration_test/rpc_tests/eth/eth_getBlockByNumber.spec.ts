@@ -10,6 +10,7 @@ import {
     sendRevertingTx,
     signBelowIntrinsicTx,
     assertCanonicalHeader,
+    assertSeiMilliTimestamp,
     assertCanonicalTx,
     assertTxTypeSchema,
     assertGasAccounting,
@@ -81,6 +82,19 @@ describe('eth_getBlockByNumber', function () {
             ]);
             expect(block.parentHash).to.equal(parent.hash);
             expect(BigInt(block.timestamp) >= BigInt(parent.timestamp)).to.equal(true);
+        });
+
+        it('carries the BEP-520-compatible millisecond timestamp', async () => {
+            const [block, parent] = await Promise.all([
+                getBlock(sei, richSei.number, false),
+                getBlock(sei, richSei.number - 1, false),
+            ]);
+            assertSeiMilliTimestamp(block);
+            assertSeiMilliTimestamp(parent);
+            expect(
+                BigInt(block.milliTimestamp!) >= BigInt(parent.milliTimestamp!),
+                'milliTimestamp is non-decreasing along the chain',
+            ).to.equal(true);
         });
     });
 
@@ -222,7 +236,7 @@ describe('eth_getBlockByNumber', function () {
     describe('gas + fees reconcile against the block (multiple users)', () => {
         it('block.gasUsed equals Σ receipt gasUsed and cumulativeGasUsed is consistent', async () => {
             const block = await getBlock(sei, richSei.number, true);
-            await assertGasAccounting(sei, block, richSei.cosmosShellGas);
+            await assertGasAccounting(sei, block);
         });
 
         it('every reported transaction re-encodes to its hash and block.size covers the bytes', async () => {

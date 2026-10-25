@@ -15,18 +15,11 @@ var (
 
 	legacyAbciMetrics = struct {
 		totalBeginBlockDuration metric.Float64Histogram
-		ibcBeginBlockerDuration metric.Float64Histogram
 		txDuration              metric.Float64Histogram
 	}{
 		totalBeginBlockDuration: must(meter.Float64Histogram(
 			"begin_blocker_duration",
 			metric.WithDescription("Total duration of begin-block execution in seconds"),
-			finerGrainedBuckets,
-			metric.WithUnit("s"),
-		)),
-		ibcBeginBlockerDuration: must(meter.Float64Histogram(
-			"ibc_begin_blocker_duration",
-			metric.WithDescription("Duration of IBC begin-blocker execution in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),
 		)),

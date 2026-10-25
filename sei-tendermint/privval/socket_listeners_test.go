@@ -92,10 +92,11 @@ func TestListenerTimeoutReadWrite(t *testing.T) {
 	const (
 		// This needs to be long enough s.t. the Accept will definitely succeed:
 		timeoutAccept = time.Second
-		// This can be really short but in the TCP case, the accept can
-		// also trigger a timeoutReadWrite. Hence, we need to give it some time.
+		// In the TCP case this also bounds the secret connection handshake
+		// performed inside Accept, so it must be long enough for the handshake
+		// to finish on a loaded machine.
 		// Note: this controls how long this test actually runs.
-		timeoutReadWrite = 10 * time.Millisecond
+		timeoutReadWrite = time.Second
 	)
 	for _, tc := range listenerTestCases(t, timeoutAccept, timeoutReadWrite) {
 		go func(dialer SocketDialer) {

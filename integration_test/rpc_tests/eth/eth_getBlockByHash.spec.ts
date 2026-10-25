@@ -10,6 +10,7 @@ import {
     sendRevertingTx,
     signBelowIntrinsicTx,
     assertCanonicalHeader,
+    assertSeiMilliTimestamp,
     assertCanonicalTx,
     assertGasAccounting,
     assertActualBytesAndSize,
@@ -72,6 +73,7 @@ describe('eth_getBlockByHash', function () {
         it('returns every canonical header field and echoes the requested hash', async () => {
             const block = await byHash(sei, richSei.hash, false);
             assertCanonicalHeader(block, { hasTxs: true });
+            assertSeiMilliTimestamp(block);
             expect(block.hash).to.equal(richSei.hash);
             expect(BigInt(block.number)).to.equal(BigInt(richSei.number));
         });
@@ -196,7 +198,7 @@ describe('eth_getBlockByHash', function () {
     describe('gas + fees reconcile against the block (multiple users)', () => {
         it('block.gasUsed equals Σ receipt gasUsed and cumulativeGasUsed is consistent', async () => {
             const block = await byHash(sei, richSei.hash, true);
-            await assertGasAccounting(sei, block, richSei.cosmosShellGas);
+            await assertGasAccounting(sei, block);
         });
 
         it('every reported transaction re-encodes to its hash and block.size covers the bytes', async () => {

@@ -251,6 +251,31 @@ type KVStore interface {
 	GetAllKeyStrsInRange(start, end []byte) []string
 }
 
+// ContextIterator is implemented by KVStores whose Iterator/Next may block in
+// the historical SS MVCC skip loops. A deadline on ctx is observed inside those
+// loops; stores that do not implement this are iterated via Iterator as today.
+type ContextIterator interface {
+	IteratorWithContext(ctx context.Context, start, end []byte) Iterator
+	ReverseIteratorWithContext(ctx context.Context, start, end []byte) Iterator
+}
+
+// IteratorOn iterates store, using ctx when store implements ContextIterator
+// and ctx can be cancelled.
+func IteratorOn(store KVStore, ctx context.Context, start, end []byte, ascending bool) Iterator {
+	if ctx != nil && ctx.Done() != nil {
+		if ci, ok := store.(ContextIterator); ok {
+			if ascending {
+				return ci.IteratorWithContext(ctx, start, end)
+			}
+			return ci.ReverseIteratorWithContext(ctx, start, end)
+		}
+	}
+	if ascending {
+		return store.Iterator(start, end)
+	}
+	return store.ReverseIterator(start, end)
+}
+
 // Iterator is an alias db's Iterator for convenience.
 type Iterator = dbm.Iterator
 

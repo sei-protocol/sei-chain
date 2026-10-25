@@ -21,7 +21,7 @@ import (
 var logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
 // ErrTxInCache is returned to the client if we saw tx earlier.
-var ErrTxInCache = errors.New("tx already exists in cache")
+var ErrTxInCache = types.ErrTxInCache
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
 var ErrTxTooLarge = errors.New("tx too large")
@@ -53,8 +53,8 @@ type Config struct {
 	// valid again in the future.
 	KeepInvalidTxsInCache bool
 
-	// Maximum size of a single transaction
-	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+	// Maximum size of a single transaction.
+	// XXX: Unused. Admission uses the protocol gossip limit. A different value logs a warning.
 	MaxTxBytes int
 
 	// time after which transaction is removed from mempool.
@@ -129,7 +129,7 @@ func DefaultConfig() *Config {
 		MaxTxsBytes:               1024 * 1024 * 1024, // 1GB
 		CacheSize:                 10000,
 		DuplicateTxsCacheSize:     100000,
-		MaxTxBytes:                1024 * 1024,                 // 1MB
+		MaxTxBytes:                types.MaxGossipTxBytes,
 		TTLDuration:               utils.Some(5 * time.Second), // prevent stale txs from filling mempool
 		TTLNumBlocks:              utils.Some(int64(10)),       // remove txs after 10 blocks
 		TxNotifyThreshold:         0,
@@ -209,6 +209,11 @@ func NewTxMempool(
 	app *proxy.Proxy,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
+	if cfg.MaxTxBytes != types.MaxGossipTxBytes {
+		logger.Warn("mempool max-tx-bytes differs from the protocol gossip limit; admission uses the protocol limit",
+			"max-tx-bytes", cfg.MaxTxBytes,
+			"protocol", types.MaxGossipTxBytes)
+	}
 	txmp := &TxMempool{
 		config:               cfg,
 		app:                  app,
@@ -291,15 +296,15 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	defer txmp.mtx.RUnlock()
 
 	// Early exit if tx is too large.
-	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
+	if txSize := len(tx); txSize > types.MaxGossipTxBytes {
+		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, types.MaxGossipTxBytes, txSize)
 	}
 	hTx := newHashedTx(tx)
 
 	// Avoid processing same transaction in parallel.
 	if !txmp.txLocks.Lock(hTx.Hash()) {
-		// ErrTxInCache is returned for backward compatibility.
-		return nil, ErrTxInCache
+		// ErrTxInMempool wraps ErrTxInCache for backward compatibility.
+		return nil, types.ErrTxInMempool
 	}
 	defer txmp.txLocks.Unlock(hTx.Hash())
 
@@ -332,8 +337,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 
 	// Check if the tx is known to be bad.
-	if txmp.txStore.ShouldReject(hTx.Hash()) {
-		return nil, ErrTxInCache
+	if err := txmp.txStore.Rejection(hTx.Hash()); err != nil {
+		return nil, err
 	}
 
 	if c, ok := txmp.duplicateTxsCache.Get(); ok {

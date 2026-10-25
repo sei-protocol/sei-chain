@@ -29,7 +29,7 @@ func TestHTTPClientMakeHTTPDialer(t *testing.T) {
 		dialFn, err := makeHTTPDialer(testURL)
 		require.NoError(t, err)
 
-		addr, err := dialFn(u.Scheme, u.GetHostWithPath())
+		addr, err := dialFn(t.Context(), u.Scheme, u.GetHostWithPath())
 		require.NoError(t, err)
 		require.NotNil(t, addr)
 	}
@@ -94,7 +94,7 @@ func TestMakeHTTPDialerURL(t *testing.T) {
 		dialFn, err := makeHTTPDialer(remote)
 		require.NoError(t, err)
 
-		addr, err := dialFn(u.Scheme, u.GetHostWithPath())
+		addr, err := dialFn(t.Context(), u.Scheme, u.GetHostWithPath())
 
 		require.NoError(t, err)
 		require.NotNil(t, addr)
@@ -108,7 +108,7 @@ func TestMakeHTTPDialerURL(t *testing.T) {
 		dialFn, err := makeHTTPDialer(errorURL)
 		require.NoError(t, err)
 
-		addr, err := dialFn(u.Scheme, u.GetHostWithPath())
+		addr, err := dialFn(t.Context(), u.Scheme, u.GetHostWithPath())
 		require.Error(t, err)
 		require.Nil(t, addr)
 	}

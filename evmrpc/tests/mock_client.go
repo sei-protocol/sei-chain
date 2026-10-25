@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -50,8 +50,8 @@ func (*MockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (c *MockClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (c *MockClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
@@ -231,7 +231,7 @@ func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.Res
 }
 
 func mockHash(height int64, prefix int64) tmbytes.HexBytes {
-	heightBz, prefixBz := make([]byte, 8), make([]byte, 8)
+	heightBz, prefixBz := make([]byte, 8), make([]byte, 8, 16)
 	binary.BigEndian.PutUint64(heightBz, uint64(height)) //nolint:gosec
 	binary.BigEndian.PutUint64(prefixBz, uint64(prefix)) //nolint:gosec
 	return tmbytes.HexBytes(append(prefixBz, heightBz...))

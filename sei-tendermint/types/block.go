@@ -89,12 +89,9 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 	}
 
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
-		// Fall back to legacy hash calculation pre-6.4.
-		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
-			if err := policy.HandleError(fmt.Errorf(
-				"wrong Header.LastCommitHash: expected %X, got %X: %w", w, g, ErrLastCommitHash)); err != nil {
-				return err
-			}
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Header.LastCommitHash: expected %X, got %X: %w", w, g, ErrLastCommitHash)); err != nil {
+			return err
 		}
 	}
 
@@ -781,6 +778,9 @@ func (cs *CommitSig) ToProto() *tmproto.CommitSig {
 // FromProto sets a protobuf CommitSig to the given pointer.
 // It returns an error if the CommitSig is invalid.
 func (cs *CommitSig) FromProto(csp tmproto.CommitSig) error {
+	if csp.BlockIdFlag < tmproto.BlockIDFlagAbsent || csp.BlockIdFlag > tmproto.BlockIDFlagNil {
+		return fmt.Errorf("invalid block ID flag: %d", csp.BlockIdFlag)
+	}
 	cs.BlockIDFlag = BlockIDFlag(csp.BlockIdFlag)
 	cs.ValidatorAddress = csp.ValidatorAddress
 	cs.Timestamp = csp.Timestamp
@@ -1069,25 +1069,6 @@ func (ec *Commit) GetByIndex(valIdx int32) (*Vote, bool) {
 // Implements VoteSetReader.
 func (ec *Commit) IsCommit() bool {
 	return len(ec.Signatures) != 0
-}
-
-// legacyHash computes the commit hash using the pre-v6.4 algorithm, which
-// only includes signatures (not Height, Round, or BlockID). This is needed
-// to validate blocks that were created before the CommitHash change.
-func (commit *Commit) legacyHash() tmbytes.HexBytes {
-	if commit == nil {
-		return nil
-	}
-	bs := make([][]byte, len(commit.Signatures))
-	for i, commitSig := range commit.Signatures {
-		pbcs := commitSig.ToProto()
-		bz, err := pbcs.Marshal()
-		if err != nil {
-			panic(err)
-		}
-		bs[i] = bz
-	}
-	return merkle.HashFromByteSlices(bs)
 }
 
 //-------------------------------------

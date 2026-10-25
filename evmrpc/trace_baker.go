@@ -191,7 +191,7 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) bool {
 
 	tracerName := tracer
 	results, err := b.tracersAPI.TraceBlockByNumber(ctx, rpc.BlockNumber(height), &gethtracers.TraceConfig{Tracer: &tracerName})
-	if err != nil {
+	if _, err = resultUnlessExpired(ctx, results, err); err != nil {
 		atomic.AddUint64(&b.failed, 1)
 		bakerLogger.Debug("trace baker block trace failed", "height", height, "tracer", tracer, "err", err)
 		return false

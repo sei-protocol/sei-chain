@@ -2,7 +2,10 @@ package pebbledb
 
 import (
 	"fmt"
+	"runtime"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
 
 // Configuration for the PebbleDB database.
@@ -15,13 +18,54 @@ type PebbleDBConfig struct {
 	EnableReadWriteMetrics bool
 	// How often to scrape pebble-internal metrics.
 	MetricsScrapeInterval time.Duration
+
+	// Size, in bytes, of pebble's block cache for this database.
+	//
+	// The block cache holds decompressed sstable blocks, so it absorbs the reads that miss the layers
+	// above it. It is allocated outside the Go heap, which makes it the cheapest place to spend spare
+	// memory on a dedicated machine: unlike an in-heap cache it adds no work for the garbage collector.
+	BlockCacheSize int64 `mapstructure:"block-cache-size"`
+
+	// Upper bound on how many compactions pebble may run concurrently.
+	//
+	// Pebble's own default is 1, which cannot keep up with a sustained write load: L0 accumulates
+	// sublevels faster than a single compaction drains them, and every point lookup then pays to
+	// search all of them. This bound also gates pebble's debt-based escalation, which grants extra
+	// compaction slots as compaction debt builds but never exceeds this value, so a bound of 1
+	// disables that mechanism entirely.
+	MaxConcurrentCompactions int `mapstructure:"max-concurrent-compactions"`
+
+	// Size, in bytes, of a memtable for this database.
+	//
+	// Larger is preferable: a memtable is flushed to an L0 file, so halving this doubles the number of
+	// L0 files compaction has to absorb, and that cost is paid on cores the rest of the system wants.
+	// The counterweight is that every write is a skiplist insert whose cost grows with how many entries
+	// the memtable holds, but that is only true of writes arriving in random order — the flush path
+	// sorts each version's keys, so inserts descend from a cached splice rather than from the top.
+	//
+	// Keep this above twice the view manager's TargetBytesPerFlush. Pebble diverts a batch larger than
+	// half a memtable onto its flushable-batch slow path, which hurts read amplification and compaction
+	// shape.
+	MemTableSize uint64 `mapstructure:"mem-table-size"`
+
+	// How many memtables may exist before writes block waiting for one to be flushed.
+	//
+	// Multiplied by MemTableSize this is the memory a database's memtables may occupy, and it is the
+	// slack that lets a burst of writes proceed while earlier memtables are still being flushed. Set it
+	// too low and writers stall on flush latency rather than on any real limit, which is charged to the
+	// memtable_write_stall phase of pebble_commit_phase_duration.
+	MemTableStopWritesThreshold int `mapstructure:"mem-table-stop-writes-threshold"`
 }
 
 // Default configuration for the PebbleDB database.
 func DefaultConfig() PebbleDBConfig {
 	return PebbleDBConfig{
-		EnableMetrics:         true,
-		MetricsScrapeInterval: 10 * time.Second,
+		EnableMetrics:               true,
+		MetricsScrapeInterval:       10 * time.Second,
+		BlockCacheSize:              int64(512 * unit.MB),
+		MaxConcurrentCompactions:    max(4, runtime.NumCPU()/4),
+		MemTableSize:                uint64(64 * unit.MB),
+		MemTableStopWritesThreshold: 16,
 	}
 }
 
@@ -32,6 +76,19 @@ func (c *PebbleDBConfig) Validate() error {
 	}
 	if c.EnableMetrics && c.MetricsScrapeInterval <= 0 {
 		return fmt.Errorf("metrics scrape interval must be positive when metrics are enabled")
+	}
+	if c.BlockCacheSize <= 0 {
+		return fmt.Errorf("block cache size must be positive, got %d", c.BlockCacheSize)
+	}
+	if c.MaxConcurrentCompactions < 1 {
+		return fmt.Errorf("max concurrent compactions must be at least 1, got %d", c.MaxConcurrentCompactions)
+	}
+	if c.MemTableSize == 0 {
+		return fmt.Errorf("mem table size must be positive")
+	}
+	if c.MemTableStopWritesThreshold < 2 {
+		return fmt.Errorf("mem table stop writes threshold must be at least 2, got %d",
+			c.MemTableStopWritesThreshold)
 	}
 	return nil
 }

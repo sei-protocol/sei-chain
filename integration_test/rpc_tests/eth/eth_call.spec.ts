@@ -239,7 +239,7 @@ describe('eth_call Tests', function () {
                 rawSei('eth_call', [{ to: '0x123', data }, 'latest']),
                 rawGeth('eth_call', [{ to: '0x123', data }, 'latest']),
             ]);
-            expectJsonRpcError(s, -32602, /unmarshal hex string of odd length .*TransactionArgs\.to/);
+            expectJsonRpcError(s, -32602, /unmarshal hex string of odd length .*common\.Address/);
             expectSameError(s, g);
         });
 
@@ -248,7 +248,7 @@ describe('eth_call Tests', function () {
                 rawSei('eth_call', [{ to: erc20Sei, data: 'notHex' }, 'latest']),
                 rawGeth('eth_call', [{ to: erc20Geth, data: 'notHex' }, 'latest']),
             ]);
-            expectJsonRpcError(s, -32602, /without 0x prefix .*TransactionArgs\.data of type hexutil\.Bytes/);
+            expectJsonRpcError(s, -32602, /without 0x prefix .*hexutil\.Bytes/);
             expectSameError(s, g);
         });
 
@@ -257,7 +257,7 @@ describe('eth_call Tests', function () {
                 rawSei('eth_call', [{ to: erc20Sei, data: '0x123' }, 'latest']),
                 rawGeth('eth_call', [{ to: erc20Geth, data: '0x123' }, 'latest']),
             ]);
-            expectJsonRpcError(s, -32602, /odd length .*TransactionArgs\.data of type hexutil\.Bytes/);
+            expectJsonRpcError(s, -32602, /odd length .*hexutil\.Bytes/);
             expectSameError(s, g);
         });
 
@@ -267,7 +267,7 @@ describe('eth_call Tests', function () {
                 rawSei('eth_call', [{ to: erc20Sei, data, gas: '-0x1' }, 'latest']),
                 rawGeth('eth_call', [{ to: erc20Geth, data, gas: '-0x1' }, 'latest']),
             ]);
-            expectJsonRpcError(s, -32602, /TransactionArgs\.gas of type hexutil\.Uint64/);
+            expectJsonRpcError(s, -32602, /hexutil\.Uint64/);
             expectSameError(s, g);
         });
 

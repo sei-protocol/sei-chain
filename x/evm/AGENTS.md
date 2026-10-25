@@ -101,28 +101,40 @@ Fee "surplus" — the difference between what the user paid and what the protoco
 
 ## Pointer Contracts (CW ↔ ERC Interoperability)
 
-Pointer contracts enable tokens on one VM to be accessed from the other VM. This is the primary interoperability mechanism between CosmWasm and EVM.
+Pointer contracts let tokens on one VM be accessed from the other. **Both directions are
+retired: no pointer of any kind can be created.** Pointers registered before the
+retirement remain live and readable, and everything below describes that surviving
+surface.
 
-**EVM pointers for CW/native tokens:**
-- Native Cosmos denoms get an ERC20 representation.
-- CW20 tokens get an ERC20 pointer.
-- CW721 NFTs get an ERC721 pointer.
-- CW1155 multi-tokens get an ERC1155 pointer.
+**EVM pointers for CW/native tokens** — an ERC20 for a native Cosmos denom, an ERC20 for
+a CW20, an ERC721 for a CW721, an ERC1155 for a CW1155. The pointer precompile at
+`0x…100b` stays registered with its ABI so its four `add*` selectors still decode, but
+every call reverts with `ErrPointerPrecompileRetired`; unregistering the address would
+instead let the call succeed against empty code. `AddERCNativePointerProposalV2`, the last
+governance route that could create one, is retired with the other seven pointer proposals
+(see below).
 
-**CW wrappers for ERC tokens:**
-- ERC20 tokens get a CW20 wrapper.
-- ERC721 NFTs get a CW721 wrapper.
-- ERC1155 multi-tokens get a CW1155 wrapper.
+**CW wrappers for ERC tokens** — a CosmWasm wrapper for an ERC20/721/1155, once created
+through `MsgRegisterPointer`. That handler now returns `ErrRegisterPointerDeprecated` and
+the wrapper wasm is no longer shipped. `AssociateContractAddress` still gives a wrapper an
+EVM address.
 
-Pointers are versioned and can be upgraded. A reverse registry allows looking up the original token from its pointer address.
+**Pointer governance proposals** are decode-only. The eight `Add*Pointer*Proposal` types
+stay registered in the interface registry and keep the `evm` gov route, because gov never
+prunes a proposal after its vote ends: dropping the registration would fail the `Any`
+unpack inside `MustUnmarshalProposal`, and dropping the route would panic a proposal
+still in the voting queue. Submission and execution both refuse with
+`ErrPointerProposalDeprecated`.
 
-Pre-compiled bytecode for all pointer contracts is embedded in the binary under `artifacts/`.
+Pointers are versioned, and a reverse registry looks up the original token from its
+pointer address. Both still work; the version can no longer be advanced, since doing so
+required redeploying the pointer.
 
 ---
 
 ## Precompiled Contracts
 
-The module supports custom precompiled contracts (e.g., Bank, Staking, Gov, Wasmd) that expose Cosmos SDK functionality to EVM callers. Precompiles are versioned by block height, allowing tracer functionality at historical heights.
+The module supports custom precompiled contracts (e.g., Bank, Staking, Gov, Wasmd) that expose Cosmos SDK functionality to EVM callers. Each address has exactly one implementation, the one this binary ships, and it is used at every height. A `seid` process only serves the block range its own version executed; historical ranges are served by frozen nodes running the release that executed them (see `cmd/frozen-rpc-router`), so no archived precompile copies are kept for tracing.
 
 Payable precompiles suppress transfer events to avoid double-counting when value is forwarded through them.
 
@@ -135,11 +147,10 @@ Payable precompiles suppress transfer events to avoid double-counting when value
 
 ### EndBlock
 1. Cleans up old transaction hashes.
-2. Migrates legacy receipts (if any remain).
-3. Prunes zero-value storage slots (resumable, batched).
-4. Adjusts the dynamic base fee for the next block.
-5. Sweeps coinbase surplus to the fee collector.
-6. Aggregates deferred info: surplus, failed receipts, block bloom.
+2. Prunes zero-value storage slots (resumable, batched).
+3. Adjusts the dynamic base fee for the next block.
+4. Sweeps coinbase surplus to the fee collector.
+5. Aggregates deferred info: surplus, failed receipts, block bloom.
 
 ---
 

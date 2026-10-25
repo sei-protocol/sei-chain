@@ -106,9 +106,6 @@ global-labels = []
 # Enable defines if the API server should be enabled.
 enable = true
 
-# Swagger defines if swagger documentation should automatically be registered.
-swagger = false
-
 # Address defines the API server to listen on.
 address = "tcp://0.0.0.0:1317"
 
@@ -126,58 +123,6 @@ rpc-max-body-bytes = 1000000
 
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
 enabled-unsafe-cors = true
-
-###############################################################################
-###                           Rosetta Configuration                         ###
-###############################################################################
-
-[rosetta]
-
-# Enable defines if the Rosetta API server should be enabled.
-enable = false
-
-# Address defines the Rosetta API server to listen on.
-address = ":8080"
-
-# Network defines the name of the blockchain that will be returned by Rosetta.
-blockchain = "app"
-
-# Network defines the name of the network that will be returned by Rosetta.
-network = "network"
-
-# Retries defines the number of retries when connecting to the node before failing.
-retries = 3
-
-# Offline defines if Rosetta server should run in offline mode.
-offline = false
-
-###############################################################################
-###                           gRPC Configuration                            ###
-###############################################################################
-
-[grpc]
-
-# Enable defines if the gRPC server should be enabled.
-enable = true
-
-# Address defines the gRPC server address to bind to.
-address = "0.0.0.0:9090"
-
-###############################################################################
-###                        gRPC Web Configuration                           ###
-###############################################################################
-
-[grpc-web]
-
-# GRPCWebEnable defines if the gRPC-web should be enabled.
-# NOTE: gRPC must also be enabled, otherwise, this configuration is a no-op.
-enable = true
-
-# Address defines the gRPC-web server address to bind to.
-address = "0.0.0.0:9091"
-
-# EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
-enable-unsafe-cors = true
 
 ###############################################################################
 ###                        State Sync Configuration                         ###
@@ -215,7 +160,7 @@ sc-enable = true
 sc-async-commit-buffer = 100
 
 # SnapshotKeepRecent defines how many state-commit snapshots (besides the latest one) to keep
-# defaults to 1 to make sure ibc relayers work.
+# defaults to 1 so clients can still prove state against the previous commit.
 sc-keep-recent = 1
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
@@ -270,43 +215,12 @@ max_concurrent_simulation_calls = 0
 trace_allowed_tracers = ["callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"]
 trace_allow_js_tracers = false
 
-# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only).
-# DEPRECATION: All sei_* and sei2_* methods are deprecated and scheduled for removal - no new integrations.
+# Legacy sei_* JSON-RPC (EVM HTTP only).
+# DEPRECATION: All sei_* methods are deprecated and scheduled for removal - no new integrations.
 # HTTP 200; gate errors: JSON-RPC error (data legacy_sei_deprecated). Success: unchanged body; optional header Sei-Legacy-RPC-Deprecation.
-# Same allowlist as docker/localnode (all gated methods except sei_sign for integration coverage).
+# Same allowlist as docker/localnode (all remaining gated methods).
 enabled_legacy_sei_apis = [
-#  "sei_sign"
-  "sei_associate",
-  "sei_getBlockByHash",
-  "sei_getBlockByHashExcludeTraceFail",
-  "sei_getBlockByNumber",
-  "sei_getBlockByNumberExcludeTraceFail",
-  "sei_getBlockReceipts",
-  "sei_getBlockTransactionCountByHash",
-  "sei_getBlockTransactionCountByNumber",
   "sei_getCosmosTx",
   "sei_getEVMAddress",
-  "sei_getEvmTx",
-  "sei_getFilterChanges",
-  "sei_getFilterLogs",
-  "sei_getLogs",
   "sei_getSeiAddress",
-  "sei_getTransactionByBlockHashAndIndex",
-  "sei_getTransactionByBlockNumberAndIndex",
-  "sei_getTransactionByHash",
-  "sei_getTransactionCount",
-  "sei_getTransactionErrorByHash",
-  "sei_getTransactionReceipt",
-  "sei_getTransactionReceiptExcludeTraceFail",
-  "sei_getVMError",
-  "sei_newBlockFilter",
-  "sei_newFilter",
-  "sei_uninstallFilter",
-  "sei2_getBlockByHash",
-  "sei2_getBlockByHashExcludeTraceFail",
-  "sei2_getBlockByNumber",
-  "sei2_getBlockByNumberExcludeTraceFail",
-  "sei2_getBlockReceipts",
-  "sei2_getBlockTransactionCountByHash",
-  "sei2_getBlockTransactionCountByNumber",
 ]

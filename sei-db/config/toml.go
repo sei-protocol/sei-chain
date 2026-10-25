@@ -22,6 +22,18 @@ sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
 # Historical proof query burst size
 sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
+# Enable deprecated ABCI /store state proofs. Disabled by default; this option will be removed with the proof code in a later release.
+sc-enable-state-proof = {{ .StateCommit.EnableStateProof }}
+
+# Max concurrent /subspace queries; served only with SS enabled (<=0 resolves to default 2)
+sc-subspace-query-max-inflight = {{ .StateCommit.SubspaceQueryMaxInFlight }}
+
+# Max pairs a /subspace scan may return (<=0 resolves to default 1000; no unlimited setting)
+sc-subspace-max-pairs = {{ .StateCommit.SubspaceMaxPairs }}
+
+# Max key+value bytes a /subspace scan may accumulate (<=0 resolves to default 4 MiB; no unlimited setting)
+sc-subspace-max-bytes = {{ .StateCommit.SubspaceMaxBytes }}
+
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
@@ -54,8 +66,8 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 # advanced, unrendered state-commit.sc-write-mode-enable-auto defaults to true,
 # which forces the node to run in auto regardless of this value. In auto the
 # effective mode is derived from the on-disk migration state and advanced by the
-# NumKeysToMigratePerBlock gov param, so the node follows a governance-driven EVM
-# migration with no edits here.
+# NumKeysToMigratePerBlock gov param, so the node follows governance-driven
+# storage migrations with no edits here.
 #
 # To pin an explicit mode (memiavl_only, flatkv_only, evm_migrated,
 # test_only_dual_write, ...) you MUST also set
@@ -65,8 +77,8 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 # on a flatkv_only-style node would either fail every commit with a
 # version-mismatch error or silently serve reads from an empty memiavl).
 #
-# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
-# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
+# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_cosmos,
+# flatkv_only, test_only_dual_write, auto.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
 # HashLogger records a per-block CSV of named hashes (memIAVL module/root hashes, flatKV DB/root
@@ -140,8 +152,22 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # Applies when ss-backend = "pebbledb". Default: false.
 ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 
+# SnapshotEnable turns on periodic online state-store snapshots. The cadence is
+# not configurable here: it mirrors the state-commit snapshot settings.
+# Two configurations fail startup rather than run without snapshots: an
+# ss-backend other than "pebbledb", and any SS database that cannot hardlink into
+# its own snapshot root.
+# Each retained snapshot pins the SST files it references against compaction, so
+# budget the write churn of one snapshot interval per retained snapshot. This is
+# substantial on a multi-TB state store.
+# Snapshot directories are rollback restore points, not an archive format.
+# They have no lease, so do not build tools that resolve one and open it later.
+# Cost and progress are exported as ss_snapshot_* metrics. Default: false.
+ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
+
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
-# If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
+# If unset, defaults to <home>/data/state_store/evm/{backend}. Nodes that
+# already have <home>/data/evm_ss keep using that path.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
 # EVMSplit controls whether EVM data is routed to a dedicated SS backend.
@@ -163,6 +189,13 @@ const ReceiptStoreConfigTemplate = `
 ###############################################################################
 
 [receipt-store]
+# Enable defines whether the receipt store should be enabled.
+# A node with this set to false keeps no receipt history, and its EVM RPC listeners
+# refuse to start, since most eth_* methods read a block's transactions or receipts.
+# Turning it off requires evm.http_enabled and evm.ws_enabled to both be false.
+# defaults to true
+rs-enable = {{ .ReceiptStore.Enable }}
+
 # Backend defines the receipt store backend.
 # Supported backends: pebble (aka pebbledb)
 # defaults to pebbledb
@@ -182,16 +215,17 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 
-# EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed
-# receipt storage.
-# Default: false.
-enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
-
 # LogFilterParallelism bounds how many blocks a single eth_getLogs query scans
 # concurrently. Applies only when rs-backend = "littidx".
 # Set <= 0 to use the default.
 # defaults to 16
 log-filter-parallelism = {{ .ReceiptStore.LogFilterParallelism }}
+
+# RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles computed and
+# stored per block. Applies only when rs-backend = "littidx".
+# Each entry must be in [0, 100], with no duplicates.
+# An empty list ([]) defaults to [0, 10, 20, 25, 30, 50, 75, 90, 100].
+rs-reward-percentiles = {{ .ReceiptStore.RewardPercentilesTOML }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

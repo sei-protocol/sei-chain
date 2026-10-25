@@ -11,7 +11,7 @@ linters:
     - bodyclose
     - dogsled
     - errcheck
-    - goconst
+    # goconst is deliberately not enabled: it is more noise than it is worth.
     - gosec
     - govet
     - ineffassign
@@ -19,7 +19,6 @@ linters:
     - prealloc
     - staticcheck
     - unconvert
-    - misspell
   exclusions:
     paths:
       - ".*\\.pb\\.go$"
@@ -27,6 +26,11 @@ linters:
       - linters:
           - gosec
         text: "Use of weak random number generator"
+      # The P-256 verifier deliberately uses the deprecated elliptic/ecdsa coordinate API.
+      - linters:
+          - staticcheck
+        path: "^precompiles/p256/verifier\\.go$"
+        text: "SA1019"
 
 formatters:
   enable:

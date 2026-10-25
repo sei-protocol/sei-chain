@@ -137,7 +137,7 @@ func TestParseIOFile_BareLTLTEmptyExpected(t *testing.T) {
 }
 
 func TestParseIOFile_ExpectResponseHeader(t *testing.T) {
-	content := `>> {"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["latest",false]}
+	content := `>> {"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":[]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ expect_response_header Sei-Legacy-RPC-Deprecation
 `

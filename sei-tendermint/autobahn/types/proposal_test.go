@@ -8,13 +8,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// genFreshEpoch returns an epoch whose road range is OpenRoadRange (so road index 0
-// is always valid for a ViewSpec with no CommitQC) but whose epoch index and first
-// block are randomised to prevent tests from silently passing on zero-value defaults.
+// genFreshEpoch returns an epoch whose first road, first block, and epoch index
+// are randomized independently to prevent tests from silently passing on
+// zero-value defaults or coupling the two offsets.
 func genFreshEpoch(rng utils.Rng, committee *Committee) *Epoch {
+	first := RoadIndex(rng.Uint64()%1000000) + 1
 	return NewEpoch(
 		GenEpochIndex(rng),
-		OpenRoadRange(),
+		RoadRange{First: first, Next: utils.Max[RoadIndex]()},
 		time.Time{},
 		committee,
 		GlobalBlockNumber(rng.Uint64()%1000000)+1,
@@ -60,27 +61,26 @@ func makeCommitQCFromProposal(keys []SecretKey, fp *FullProposal) *CommitQC {
 	return NewCommitQC(votes)
 }
 
-// makeAppQCFor creates an AppQC for the given parameters, signed by all keys.
-func makeAppQCFor(keys []SecretKey, globalNum GlobalBlockNumber, roadIdx RoadIndex, appHash AppHash, epochIdx EpochIndex) *AppQC {
-	appProposal := NewAppProposal(globalNum, roadIdx, appHash, epochIdx)
-	vote := NewAppVote(appProposal)
-	var votes []*Signed[*AppVote]
-	for _, k := range keys {
-		votes = append(votes, Sign(k, vote))
-	}
-	return NewAppQC(votes)
+func TestViewSpecIndependentGenesisOrigins(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _ := GenCommittee(rng, 4)
+	ep := NewEpoch(0, RoadRange{First: 7, Next: 108_000}, time.Time{}, committee, 11)
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+
+	require.Equal(t, RoadIndex(7), vs.Index())
+	require.Equal(t, GlobalBlockNumber(11), vs.NextGlobalBlock())
 }
 
 func TestProposalVerifyRejectsEmptyTipcut(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 
 	// Direct Proposal.Verify rejects empty tipcuts (no LaneQCs / zero GlobalRange).
 	// Local propose waits via WaitForLaneQCs; verification must refuse empty tipcuts
 	// from peers as well.
-	empty := newProposal(vs.View(), time.Now(), nil, utils.None[*AppProposal](), vs.NextGlobalBlock())
+	empty := newProposal(vs.View(), time.Now(), nil, vs.NextGlobalBlock())
 	require.Equal(t, uint64(0), empty.GlobalRange().Len())
 	require.Error(t, empty.Verify(ep))
 }
@@ -97,25 +97,25 @@ func TestProposalVerifyFreshWithBlocks(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
 	// Produce a LaneQC for the proposer's lane.
-	lane := proposerKey.Public()
+	lane := committee.Lane(proposerKey.Public()).OrPanic("missing lane")
 	laneQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
-		map[LaneID]*LaneQC{lane: laneQC}, utils.None[*AppQC]()))
-	require.NoError(t, fp.Verify(vs))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(),
+		map[LaneID]*LaneQC{lane: laneQC}))
+	require.NoError(t, fp.Verify(vs, testViewTimeout))
 }
 
 func TestNewProposalRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
-	lane := proposerKey.Public()
+	lane := committee.Lane(proposerKey.Public()).OrPanic("missing lane")
 
 	laneQC := makeLaneQC(rng, committee, keys, lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng))
 	_, err := NewProposal(
@@ -123,7 +123,6 @@ func TestNewProposalRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testing.
 		vs,
 		time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC},
-		utils.None[*AppQC](),
 	)
 	require.Error(t, err)
 }
@@ -132,10 +131,9 @@ func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	firstBlock := ep.FirstBlock()
-	vs0 := ViewSpec{Epoch: ep}
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposer0 := leaderKey(committee, keys, vs0.View())
-	lane := proposer0.Public()
+	lane := committee.Lane(proposer0.Public()).OrPanic("missing lane")
 
 	firstProposal := utils.OrPanic1(NewProposal(
 		proposer0,
@@ -143,12 +141,11 @@ func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 		map[LaneID]*LaneQC{
 			lane: makeLaneQC(rng, committee, keys, lane, 2, GenBlockHeaderHash(rng)),
 		},
-		utils.None[*AppQC](),
 	))
 	p0 := firstProposal.Proposal().Msg()
 	gr0 := p0.GlobalRange()
-	require.Equal(t, firstBlock, gr0.First)
-	require.Equal(t, firstBlock+3, gr0.Next)
+	require.Equal(t, ep.FirstBlock(), gr0.First)
+	require.Equal(t, ep.FirstBlock()+3, gr0.Next)
 	first0 := p0.BlockTimestamp(gr0.First).OrPanic("missing first block timestamp")
 	second0 := p0.BlockTimestamp(gr0.First + 1).OrPanic("missing second block timestamp")
 	third0 := p0.BlockTimestamp(gr0.First + 2).OrPanic("missing third block timestamp")
@@ -156,16 +153,15 @@ func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 	require.True(t, second0.Before(third0), "block timestamps within one proposal must be strictly increasing")
 
 	commitQC0 := makeCommitQCFromProposal(keys, firstProposal)
-	vs1 := ViewSpec{CommitQC: utils.Some(commitQC0), Epoch: ep}
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(commitQC0), Epoch: ep}}
 	proposer1 := leaderKey(committee, keys, vs1.View())
 
 	secondProposal := utils.OrPanic1(NewProposal(
 		proposer1,
-		vs1, time.Now(),
+		vs1, vs1.ClampTimestamp(time.Now(), testViewTimeout),
 		map[LaneID]*LaneQC{
 			lane: makeLaneQC(rng, committee, keys, lane, 3, GenBlockHeaderHash(rng)),
 		},
-		utils.None[*AppQC](),
 	))
 	p1 := secondProposal.Proposal().Msg()
 	gr1 := p1.GlobalRange()
@@ -181,52 +177,101 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 		committee, keys := GenCommittee(rng, 4)
 		genesisTimestamp := time.Now()
 		ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), genesisTimestamp, committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
-		vs := ViewSpec{Epoch: ep}
+		vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 		k := leaderKey(committee, keys, vs.View())
-		fp := utils.OrPanic1(NewProposal(k, vs, genesisTimestamp, oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
-		require.NoError(t, fp.Verify(vs))
+		fp := utils.OrPanic1(NewProposal(k, vs, genesisTimestamp, oneLaneQCMap(rng, committee, keys, vs)))
+		require.NoError(t, fp.Verify(vs, testViewTimeout))
 
 		vsLater := vs
 		vsLater.Epoch = NewEpoch(ep.EpochIndex(), ep.RoadRange(), fp.Proposal().Msg().Timestamp().Add(time.Nanosecond), committee, ep.FirstBlock())
-		require.Error(t, fp.Verify(vsLater))
+		require.Error(t, fp.Verify(vsLater, testViewTimeout))
 	})
 
 	t.Run("wrt previous proposal", func(t *testing.T) {
 		rng := utils.TestRng()
 		committee, keys := GenCommittee(rng, 4)
 		ep := genFreshEpoch(rng, committee)
-		vs0 := ViewSpec{Epoch: ep}
+		vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 		proposer0 := leaderKey(committee, keys, vs0.View())
-		lane := proposer0.Public()
+		lane := committee.Lane(proposer0.Public()).OrPanic("missing lane")
 		lQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
 		fp0a := utils.OrPanic1(NewProposal(
 			proposer0,
 			vs0, time.Now(),
 			map[LaneID]*LaneQC{lane: lQC},
-			utils.None[*AppQC](),
 		))
 		fp0b := utils.OrPanic1(NewProposal(
 			proposer0,
 			vs0, fp0a.Proposal().Msg().NextTimestamp().Add(time.Hour),
 			map[LaneID]*LaneQC{lane: lQC},
-			utils.None[*AppQC](),
 		))
 
-		vs1a := ViewSpec{CommitQC: utils.Some(makeCommitQCFromProposal(keys, fp0a)), Epoch: ep}
-		vs1b := ViewSpec{CommitQC: utils.Some(makeCommitQCFromProposal(keys, fp0b)), Epoch: ep}
+		vs1a := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(makeCommitQCFromProposal(keys, fp0a)), Epoch: ep}}
+		vs1b := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(makeCommitQCFromProposal(keys, fp0b)), Epoch: ep}}
 		proposer1 := leaderKey(committee, keys, vs1a.View())
 
 		fp1a := utils.OrPanic1(NewProposal(
 			proposer1,
 			vs1a, fp0a.Proposal().Msg().NextTimestamp(),
 			oneLaneQCMap(rng, committee, keys, vs1a),
-			utils.None[*AppQC](),
 		))
 
-		require.NoError(t, fp1a.Verify(vs1a))
-		require.Error(t, fp1a.Verify(vs1b))
+		require.NoError(t, fp1a.Verify(vs1a, testViewTimeout))
+		require.Error(t, fp1a.Verify(vs1b, testViewTimeout))
 	})
+}
+
+func viewSpecAtNumber(ep *Epoch, keys []SecretKey, n ViewNumber) ViewSpec {
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+	if n == 0 {
+		return vs
+	}
+	var votes []*FullTimeoutVote
+	timedOut := View{Index: vs.Index(), Number: n - 1, EpochIndex: ep.EpochIndex()}
+	for _, k := range keys {
+		votes = append(votes, NewFullTimeoutVote(k, timedOut, utils.None[*PrepareQC]()))
+	}
+	vs.TimeoutQC = utils.Some(NewTimeoutQC(votes))
+	return vs
+}
+
+func TestTimestampRange(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+
+	width := func(n ViewNumber) time.Duration {
+		vs := viewSpecAtNumber(ep, keys, n)
+		earliest, latest := vs.TimestampRange(testViewTimeout)
+		return latest.Sub(earliest)
+	}
+	require.Equal(t, 1*testViewTimeout, width(0))
+	require.Equal(t, 2*testViewTimeout, width(1))
+	require.Equal(t, 6*testViewTimeout, width(5))
+	require.Equal(t, 7*testViewTimeout, width(6))
+
+	vs := viewSpecAtNumber(ep, keys, 0)
+	leader := leaderKey(committee, keys, vs.View())
+	earliest, latest := vs.TimestampRange(testViewTimeout)
+	require.True(t, vs.ClampTimestamp(earliest.Add(-time.Hour), testViewTimeout).Equal(earliest))
+	ts := vs.ClampTimestamp(latest.Add(time.Hour), testViewTimeout)
+	require.True(t, ts.Equal(latest))
+	fp := utils.OrPanic1(NewProposal(leader, vs, ts, oneLaneQCMap(rng, committee, keys, vs)))
+	require.True(t, fp.Proposal().Msg().Timestamp().Equal(ts))
+	require.NoError(t, fp.Verify(vs, testViewTimeout))
+
+	p := fp.Proposal().Msg()
+	var ranges []*LaneRange
+	for _, r := range p.laneRanges {
+		ranges = append(ranges, r)
+	}
+	late := &FullProposal{
+		proposal:  Sign(leader, newProposal(p.View(), latest.Add(time.Nanosecond), ranges, p.GlobalRange().First)),
+		laneQCs:   fp.laneQCs,
+		timeoutQC: fp.timeoutQC,
+	}
+	require.Error(t, late.Verify(vs, testViewTimeout))
 }
 
 func TestProposalVerifyRejectsViewMismatch(t *testing.T) {
@@ -235,14 +280,15 @@ func TestProposalVerifyRejectsViewMismatch(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 
 	// Build a valid proposal at genesis view (0, 0).
-	vs0 := ViewSpec{Epoch: ep}
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp := utils.OrPanic1(NewProposal(leader0, vs0, time.Now(), oneLaneQCMap(rng, committee, keys, vs0), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(leader0, vs0, vs0.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs0)))
+	require.NoError(t, fp.Verify(vs0, testViewTimeout))
 
 	// Verify it against a different ViewSpec (view 1, 0).
 	commitQC := makeCommitQCFromProposal(keys, fp)
-	vs1 := ViewSpec{CommitQC: utils.Some(commitQC), Epoch: ep}
-	err := fp.Verify(vs1)
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(commitQC), Epoch: ep}}
+	err := fp.Verify(vs1, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -250,16 +296,16 @@ func TestProposalVerifyRejectsForgedSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	// Build two valid proposals with different timestamps.
-	fp1 := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
-	fp2 := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now().Add(time.Hour), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	// Both timestamps sit inside [NextTimestamp(), NextTimestamp() + testViewTimeout].
+	fp1 := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
+	fp2 := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp().Add(time.Millisecond), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Graft fp1's signature onto fp2 (different content).
 	fp2.proposal.sig = fp1.proposal.sig
-	err := fp2.Verify(vs)
+	err := fp2.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -267,10 +313,10 @@ func TestProposalVerifyRejectsWrongProposer(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	correctLeader := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(correctLeader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(correctLeader, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Re-sign the same proposal with a different (non-leader) key.
 	var wrongKey SecretKey
@@ -283,10 +329,9 @@ func TestProposalVerifyRejectsWrongProposer(t *testing.T) {
 	tamperedFP := &FullProposal{
 		proposal:  Sign(wrongKey, fp.Proposal().Msg()),
 		laneQCs:   fp.laneQCs,
-		appQC:     fp.appQC,
 		timeoutQC: fp.timeoutQC,
 	}
-	err := tamperedFP.Verify(vs)
+	err := tamperedFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -294,10 +339,10 @@ func TestProposalVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep} // no timeoutQC
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}} // no timeoutQC
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Attach a timeoutQC that the ViewSpec doesn't expect.
 	var timeoutVotes []*FullTimeoutVote
@@ -309,10 +354,9 @@ func TestProposalVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	tamperedFP := &FullProposal{
 		proposal:  fp.proposal,
 		laneQCs:   fp.laneQCs,
-		appQC:     fp.appQC,
 		timeoutQC: utils.Some(tQC),
 	}
-	err := tamperedFP.Verify(vs)
+	err := tamperedFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -320,14 +364,14 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Keep the non-empty committee tipcut and add a non-committee lane.
 	// LaneRange.Verify rejects X because it's not a committee lane.
-	extraLane := GenSecretKey(rng).Public()
+	extraLane := LaneID{Validator: GenSecretKey(rng).Public(), Joined: GenEpochIndex(rng)}
 	require.False(t, committee.HasLane(extraLane))
 
 	origProposal := fp.Proposal().Msg()
@@ -337,14 +381,13 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	}
 	tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.app, origProposal.GlobalRange().First)
+	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.GlobalRange().First)
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
-		appQC:     fp.appQC,
 		timeoutQC: fp.timeoutQC,
 	}
-	err := maliciousFP.Verify(vs)
+	err := maliciousFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -352,10 +395,10 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Drop one empty lane — the omitted lane gets an implicit [0, 0) range,
 	// which matches the expected first=0 at genesis. Keep the non-empty range
@@ -372,22 +415,22 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 	}
 	require.True(t, droppedEmpty)
 
-	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app, origP.GlobalRange().First)
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.GlobalRange().First)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 		laneQCs:  fp.laneQCs,
 	}
-	require.NoError(t, shortFP.Verify(vs))
+	require.NoError(t, shortFP.Verify(vs, testViewTimeout))
 }
 
 func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Drop every other empty lane (keep the non-empty range and its LaneQC).
 	origP := fp.Proposal().Msg()
@@ -404,22 +447,114 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app, origP.GlobalRange().First)
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.GlobalRange().First)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 		laneQCs:  fp.laneQCs,
 	}
-	require.NoError(t, shortFP.Verify(vs))
+	require.NoError(t, shortFP.Verify(vs, testViewTimeout))
+}
+
+func TestLaneRangeVerifyRejectsHashAtHeightZero(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _ := GenCommittee(rng, 4)
+	lane := committee.Lanes().At(0)
+
+	require.Error(t, (&LaneRange{lane: lane, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)}).Verify(committee))
+	require.NoError(t, (&LaneRange{lane: lane, first: 0, next: 0}).Verify(committee))
+	// Past height 0 an empty range may carry a tip. FullProposal.Verify checks that it matches.
+	require.NoError(t, (&LaneRange{
+		lane: lane, first: 1, next: 1, lastHash: GenBlockHeaderHash(rng),
+	}).Verify(committee))
+}
+
+func TestProposalEmptyLaneAtHeightZeroHasNoHash(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+	proposerKey := leaderKey(committee, keys, vs.View())
+
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
+	require.NoError(t, fp.Verify(vs, testViewTimeout))
+	var idle LaneID
+	for lane := range committee.Lanes().All() {
+		r := fp.Proposal().Msg().LaneRange(lane)
+		if r.Len() == 0 {
+			require.Equal(t, BlockNumber(0), r.Next())
+			require.Equal(t, BlockHeaderHash{}, r.LastHash())
+			idle = lane
+		}
+	}
+	require.NotEqual(t, LaneID{}, idle)
+
+	// A lane that has not started must not name a tip. There is no previous
+	// CommitQC to copy.
+	var ranges []*LaneRange
+	for _, r := range fp.Proposal().Msg().laneRanges {
+		if r.Lane() == idle {
+			ranges = append(ranges, &LaneRange{lane: idle, first: 0, next: 0, lastHash: GenBlockHeaderHash(rng)})
+			continue
+		}
+		ranges = append(ranges, r)
+	}
+	invented := &FullProposal{
+		proposal: Sign(proposerKey, newProposal(
+			fp.Proposal().Msg().view, fp.Proposal().Msg().timestamp, ranges, fp.Proposal().Msg().GlobalRange().First)),
+		laneQCs: fp.laneQCs,
+	}
+	require.Error(t, invented.Verify(vs, testViewTimeout))
+}
+
+func TestProposalCopiesEmptyLaneLastHash(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
+	lane0 := committee.Lanes().At(0)
+	lane1 := committee.Lanes().At(1)
+
+	fp0 := utils.OrPanic1(NewProposal(
+		leaderKey(committee, keys, vs0.View()), vs0, vs0.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs0)))
+	require.NoError(t, fp0.Verify(vs0, testViewTimeout))
+	tip := fp0.Proposal().Msg().LaneRange(lane0).LastHash()
+	require.NotEqual(t, BlockHeaderHash{}, tip)
+
+	cqc := makeCommitQCFromProposal(keys, fp0)
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(cqc), Epoch: ep}}
+	// Extend a different lane so lane0's range is empty and must carry tip.
+	qc1 := makeLaneQC(rng, committee, keys, lane1, 0, BlockHeaderHash{})
+	fp1 := utils.OrPanic1(NewProposal(
+		leaderKey(committee, keys, vs1.View()), vs1, vs1.NextTimestamp(), map[LaneID]*LaneQC{lane1: qc1}))
+	require.NoError(t, fp1.Verify(vs1, testViewTimeout))
+	empty := fp1.Proposal().Msg().LaneRange(lane0)
+	require.Equal(t, uint64(0), empty.Len())
+	require.Equal(t, tip, empty.LastHash())
+
+	var ranges []*LaneRange
+	for _, r := range fp1.Proposal().Msg().laneRanges {
+		if r.Lane() == lane0 {
+			ranges = append(ranges, &LaneRange{lane: lane0, first: r.First(), next: r.First(), lastHash: BlockHeaderHash{}})
+			continue
+		}
+		ranges = append(ranges, r)
+	}
+	stripped := &FullProposal{
+		proposal: Sign(leaderKey(committee, keys, vs1.View()), newProposal(
+			fp1.Proposal().Msg().view, fp1.Proposal().Msg().timestamp, ranges, fp1.Proposal().Msg().GlobalRange().First)),
+		laneQCs: fp1.laneQCs,
+	}
+	require.Error(t, stripped.Verify(vs1, testViewTimeout))
 }
 
 func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
 	// Tamper the non-empty lane's First (genesis expects 0) while keeping a
 	// non-empty range and a matching LaneQC so Verify reaches the first-mismatch check.
@@ -441,12 +576,12 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.app, origP.GlobalRange().First)
+	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.GlobalRange().First)
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 		laneQCs:  map[LaneID]*LaneQC{target: badQC},
 	}
-	err := tamperedFP.Verify(vs)
+	err := tamperedFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -454,21 +589,21 @@ func TestProposalVerifyRejectsMissingLaneQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 	laneQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
 	// Build a valid proposal with a block, then strip the laneQC.
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
-		map[LaneID]*LaneQC{lane: laneQC}, utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(),
+		map[LaneID]*LaneQC{lane: laneQC}))
 
 	tamperedFP := &FullProposal{
 		proposal: fp.proposal,
 		laneQCs:  map[LaneID]*LaneQC{},
 	}
-	err := tamperedFP.Verify(vs)
+	err := tamperedFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -476,15 +611,15 @@ func TestProposalVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 
 	// Build a valid proposal with a QC certifying block 1 (range [0, 2)).
 	goodQC := makeLaneQC(rng, committee, keys, lane, 1, GenBlockHeaderHash(rng))
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
-		map[LaneID]*LaneQC{lane: goodQC}, utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(),
+		map[LaneID]*LaneQC{lane: goodQC}))
 
 	// Swap in a QC certifying block 0 — range expects block 1.
 	wrongQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
@@ -492,7 +627,7 @@ func TestProposalVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 		proposal: fp.proposal,
 		laneQCs:  map[LaneID]*LaneQC{lane: wrongQC},
 	}
-	err := tamperedFP.Verify(vs)
+	err := tamperedFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -500,10 +635,10 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 	block := NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng))
 	header := block.Header()
 
@@ -518,10 +653,10 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	}
 	badLaneQC := NewLaneQC(badVotes)
 
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
-		map[LaneID]*LaneQC{lane: badLaneQC}, utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(),
+		map[LaneID]*LaneQC{lane: badLaneQC}))
 
-	err := fp.Verify(vs)
+	err := fp.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -541,13 +676,13 @@ func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testi
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	lane := leaderKey(committee, keys, View{}).Public()
+	view := View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex()}
+	lane := committee.Lane(leaderKey(committee, keys, view).Public()).OrPanic("missing lane")
 	// Bypass NewProposal's check by constructing the proposal directly.
 	oversized := newProposal(
-		View{},
+		view,
 		time.Now(),
 		[]*LaneRange{NewLaneRange(lane, 0, utils.Some(NewBlock(lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng), GenPayload(rng)).Header()))},
-		utils.None[*AppProposal](),
 		ep.FirstBlock(),
 	)
 	require.Error(t, oversized.Verify(ep))
@@ -561,12 +696,11 @@ func makeFullProposal(
 	appQC utils.Option[*AppQC],
 ) *FullProposal {
 	committee := ep.Committee()
-	vs := ViewSpec{CommitQC: prev, Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: prev, Epoch: ep}}
 	return utils.OrPanic1(NewProposal(
 		leaderKey(committee, keys, vs.View()),
 		vs, time.Now(),
 		laneQCs,
-		appQC,
 	))
 }
 
@@ -579,157 +713,19 @@ func makeCommitQC(keys []SecretKey, fullProposal *FullProposal) *CommitQC {
 	return NewCommitQC(votes)
 }
 
-func TestProposalVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	ep := genFreshEpoch(rng, committee)
-
-	// Construct commitQC for index 1 with AppProposal
-	// and Proposal for index 2 without any app proposal.
-	// Such a proposal should fail validation, because app proposals need to be monotone.
-	l := keys[0].Public()
-	lQCs := map[LaneID]*LaneQC{l: makeLaneQC(rng, committee, keys, l, 0, GenBlockHeaderHash(rng))}
-	commitQC0 := makeCommitQC(keys, makeFullProposal(ep, keys, utils.None[*CommitQC](), lQCs, utils.None[*AppQC]()))
-	appQC0 := makeAppQCFor(keys, commitQC0.GlobalRange().First, 0, GenAppHash(rng), ep.EpochIndex())
-	vs1 := ViewSpec{CommitQC: utils.Some(commitQC0), Epoch: ep}
-	commitQC1a := makeCommitQC(keys, makeFullProposal(ep, keys, utils.Some(commitQC0), oneLaneQCMap(rng, committee, keys, vs1), utils.Some(appQC0)))
-	commitQC1b := makeCommitQC(keys, makeFullProposal(ep, keys, utils.Some(commitQC0), oneLaneQCMap(rng, committee, keys, vs1), utils.None[*AppQC]()))
-	vs := ViewSpec{CommitQC: utils.Some(commitQC1a), Epoch: ep}
-	fp2a := makeFullProposal(ep, keys, utils.Some(commitQC1a), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]())
-	fp2b := makeFullProposal(ep, keys, utils.Some(commitQC1b), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]())
-
-	// We construct the invalid proposal by constructing 2 alternative futures: one with appQC, one without.
-	require.NoError(t, fp2a.Verify(vs))
-	require.Error(t, fp2b.Verify(vs))
-}
-
-func TestProposalVerifyRejectsUnnecessaryAppQC(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep} // no previous commitQC, so app starts at None
-
-	leader := leaderKey(committee, keys, vs.View())
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
-
-	// Attach an unrequested AppQC.
-	appQC := makeAppQCFor(keys, ep.FirstBlock(), 0, GenAppHash(rng), ep.EpochIndex())
-	tamperedFP := &FullProposal{
-		proposal:  fp.proposal,
-		laneQCs:   fp.laneQCs,
-		appQC:     utils.Some(appQC),
-		timeoutQC: fp.timeoutQC,
-	}
-	err := tamperedFP.Verify(vs)
-	require.Error(t, err)
-}
-
-func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	ep := genFreshEpoch(rng, committee) // firstBlock >= 1, so firstBlock-1 is valid
-	vs := ViewSpec{Epoch: ep}           // no previous commitQC
-	leader := leaderKey(committee, keys, vs.View())
-
-	// Build a valid proposal with an AppQC, then strip it.
-	goodAppQC := makeAppQCFor(keys, ep.FirstBlock()-1, 0, GenAppHash(rng), ep.EpochIndex())
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
-
-	tamperedFP := &FullProposal{
-		proposal: fp.proposal,
-		laneQCs:  fp.laneQCs,
-	}
-	err := tamperedFP.Verify(vs)
-	require.Error(t, err)
-}
-
-func TestProposalVerifyRejectsAppQCMismatch(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
-	leader := leaderKey(committee, keys, vs.View())
-
-	// Build a valid proposal with an AppQC, then swap in a different one.
-	goodAppQC := makeAppQCFor(keys, ep.FirstBlock(), 0, GenAppHash(rng), ep.EpochIndex())
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
-
-	differentAppQC := makeAppQCFor(keys, ep.FirstBlock(), 0, GenAppHash(rng), ep.EpochIndex())
-	tamperedFP := &FullProposal{
-		proposal: fp.proposal,
-		laneQCs:  fp.laneQCs,
-		appQC:    utils.Some(differentAppQC),
-	}
-	err := tamperedFP.Verify(vs)
-	require.Error(t, err)
-}
-
-func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-
-	// firstBlock=1 so NextGlobalBlock()=1 and globalNumber=0 is a valid app target.
-	vs := ViewSpec{Epoch: NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 1)}
-	leader := leaderKey(committee, keys, vs.View())
-
-	makeAppQCWithEpoch := func(epochIdx EpochIndex) *AppQC {
-		p := NewAppProposal(0, 0, GenAppHash(rng), epochIdx)
-		v := NewAppVote(p)
-		var votes []*Signed[*AppVote]
-		for _, k := range keys {
-			votes = append(votes, Sign(k, v))
-		}
-		return NewAppQC(votes)
-	}
-
-	// app epoch matches proposal epoch — accepted.
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(0))))
-	require.NoError(t, fp.Verify(vs))
-
-	// app epoch differs from proposal epoch — rejected.
-	fpWrong := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(1))))
-	require.Error(t, fpWrong.Verify(vs))
-}
-
-func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
-	leader := leaderKey(committee, keys, vs.View())
-
-	appHash := GenAppHash(rng)
-	goodAppQC := makeAppQCFor(keys, ep.FirstBlock(), 0, appHash, ep.EpochIndex())
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
-
-	// Swap in an AppQC signed by NON-committee keys (same hash).
-	otherKeys := make([]SecretKey, len(keys))
-	for i := range otherKeys {
-		otherKeys[i] = GenSecretKey(rng)
-	}
-	badAppQC := makeAppQCFor(otherKeys, ep.FirstBlock(), 0, appHash, ep.EpochIndex())
-	tamperedFP := &FullProposal{
-		proposal: fp.proposal,
-		laneQCs:  fp.laneQCs,
-		appQC:    utils.Some(badAppQC),
-	}
-	err := tamperedFP.Verify(vs)
-	require.Error(t, err)
-}
-
 func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	vs := ViewSpec{Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := proposerKey.Public()
+	lane := committee.Lane(proposerKey.Public()).OrPanic("missing lane")
 
 	// Build a valid proposal with a QC for block 0.
 	realQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
-	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
-		map[LaneID]*LaneQC{lane: realQC}, utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, vs.NextTimestamp(),
+		map[LaneID]*LaneQC{lane: realQC}))
 
 	// Swap in a different QC for block 0 (different payload → different hash).
 	differentQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
@@ -739,23 +735,41 @@ func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 		proposal: fp.proposal,
 		laneQCs:  map[LaneID]*LaneQC{lane: differentQC},
 	}
-	err := tamperedFP.Verify(vs)
+	err := tamperedFP.Verify(vs, testViewTimeout)
 	require.Error(t, err)
+}
+
+func TestProposalAtView(t *testing.T) {
+	rng := utils.TestRng()
+	view := GenView(rng)
+	timestamp := utils.GenTimestamp(rng)
+	laneRanges := utils.GenSlice(rng, GenLaneRange)
+	globalFirst := GlobalBlockNumber(rng.Uint64())
+	p := newProposal(view, timestamp, laneRanges, globalFirst)
+
+	next := GenView(rng)
+	got := p.atView(next)
+	if err := utils.TestDiff(newProposal(next, timestamp, laneRanges, globalFirst), got); err != nil {
+		t.Fatal(err)
+	}
+	if err := utils.TestDiff(newProposal(view, timestamp, laneRanges, globalFirst), p); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestProposalVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	// Build a proposal at view (0, 0) with one lane block so sum(lane.First) > 0.
+	// Build a proposal at the first road with one lane block so sum(lane.First) > 0.
 	// firstBlock > 0 ensures a reproposal bug that passes GlobalRange().First
 	// (= sum(lane.First)+firstBlock) instead of firstBlock would be caught.
 	ep := genFreshEpoch(rng, committee)
-	vs0 := ViewSpec{Epoch: ep}
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	lane := committee.Leader(vs0.View())
+	lane := committee.Lane(committee.Leader(vs0.View())).OrPanic("missing lane")
 	laneQC0 := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
-	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, time.Now(),
-		map[LaneID]*LaneQC{lane: laneQC0}, utils.None[*AppQC]()))
+	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, vs0.NextTimestamp(),
+		map[LaneID]*LaneQC{lane: laneQC0}))
 
 	// Build a PrepareQC for the proposal at (0, 0).
 	var prepareVotes []*Signed[*PrepareVote]
@@ -767,19 +781,20 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	// Timeout at view (0, 0) with the PrepareQC → forces reproposal at (0, 1).
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
-	vs1 := ViewSpec{TimeoutQC: utils.Some(timeoutQC), Epoch: ep}
-	require.Equal(t, View{Index: 0, Number: 1, EpochIndex: ep.EpochIndex()}, vs1.View())
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}, TimeoutQC: utils.Some(timeoutQC)}
+	require.Equal(t, View{Index: ep.RoadRange().First, Number: 1, EpochIndex: ep.EpochIndex()}, vs1.View())
 
 	leader1 := leaderKey(committee, keys, vs1.View())
-	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1), utils.None[*AppQC]()))
+	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1)))
 
-	// Reproposal must carry the same GlobalRange as the original.
+	// Reproposal keeps the locked proposal's timestamp and global range.
 	require.Equal(t, fp0.Proposal().Msg().GlobalRange(), reproposal.Proposal().Msg().GlobalRange())
-	require.NoError(t, reproposal.Verify(vs1))
+	require.True(t, fp0.Proposal().Msg().Timestamp().Equal(reproposal.Proposal().Msg().Timestamp()))
+	require.NoError(t, reproposal.Verify(vs1, testViewTimeout))
 }
 
 func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
@@ -788,9 +803,9 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 
 	// Build a PrepareQC at (0, 0).
-	vs0 := ViewSpec{Epoch: ep}
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, time.Now(), oneLaneQCMap(rng, committee, keys, vs0), utils.None[*AppQC]()))
+	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, vs0.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs0)))
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -800,24 +815,24 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
-	vs1 := ViewSpec{TimeoutQC: utils.Some(timeoutQC), Epoch: ep}
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}, TimeoutQC: utils.Some(timeoutQC)}
 	leader1 := leaderKey(committee, keys, vs1.View())
 
 	// Create a valid reproposal, then tamper it with unnecessary laneQCs.
-	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1), utils.None[*AppQC]()))
+	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1)))
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 	laneQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 	tamperedFP := &FullProposal{
 		proposal:  reproposal.proposal,
 		laneQCs:   map[LaneID]*LaneQC{lane: laneQC},
 		timeoutQC: reproposal.timeoutQC,
 	}
-	err := tamperedFP.Verify(vs1)
+	err := tamperedFP.Verify(vs1, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -827,9 +842,9 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 
 	// Build a PrepareQC at (0, 0).
-	vs0 := ViewSpec{Epoch: ep}
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, time.Now(), oneLaneQCMap(rng, committee, keys, vs0), utils.None[*AppQC]()))
+	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, vs0.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs0)))
 
 	var prepareVotes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -839,27 +854,27 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: ep.RoadRange().First, Number: 0, EpochIndex: ep.EpochIndex()}, utils.Some(prepareQC)))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
-	vs1 := ViewSpec{TimeoutQC: utils.Some(timeoutQC), Epoch: ep}
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}, TimeoutQC: utils.Some(timeoutQC)}
 	leader1 := leaderKey(committee, keys, vs1.View())
 
 	// Build the valid reproposal, then tamper its timestamp to get a different hash.
-	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1), utils.None[*AppQC]()))
+	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1)))
 
 	origP := reproposal.Proposal().Msg()
 	var ranges []*LaneRange
 	for _, r := range origP.laneRanges {
 		ranges = append(ranges, r)
 	}
-	wrongP := newProposal(origP.view, time.Now().Add(time.Hour), ranges, origP.app, origP.GlobalRange().First)
+	wrongP := newProposal(origP.view, origP.timestamp.Add(time.Millisecond), ranges, origP.GlobalRange().First)
 	wrongFP := &FullProposal{
 		proposal:  Sign(leader1, wrongP),
 		timeoutQC: reproposal.timeoutQC,
 	}
-	err := wrongFP.Verify(vs1)
+	err := wrongFP.Verify(vs1, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -879,12 +894,12 @@ func TestProposalVerifyRejectsInvalidTimeoutQCSignature(t *testing.T) {
 	}
 	badTimeoutQC := NewTimeoutQC(timeoutVotes)
 
-	vs := ViewSpec{TimeoutQC: utils.Some(badTimeoutQC), Epoch: ep}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}, TimeoutQC: utils.Some(badTimeoutQC)}
 	leader := leaderKey(committee, keys, vs.View())
 
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+	fp := utils.OrPanic1(NewProposal(leader, vs, vs.NextTimestamp(), oneLaneQCMap(rng, committee, keys, vs)))
 
-	err := fp.Verify(vs)
+	err := fp.Verify(vs, testViewTimeout)
 	require.Error(t, err)
 }
 
@@ -895,7 +910,7 @@ func TestViewSpecViewStampsEpochIndex(t *testing.T) {
 	ep := NewEpoch(epochIdx, OpenRoadRange(), time.Time{}, committee, 0)
 
 	// Without TimeoutQC: epoch index must come from vs.Epoch.
-	vs0 := ViewSpec{Epoch: ep}
+	vs0 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 	if got := vs0.View().EpochIndex; got != epochIdx {
 		t.Fatalf("no-TimeoutQC path: EpochIndex = %d, want %d", got, epochIdx)
 	}
@@ -904,7 +919,7 @@ func TestViewSpecViewStampsEpochIndex(t *testing.T) {
 	tqc := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], View{EpochIndex: 0}, utils.None[*PrepareQC]()),
 	})
-	vs1 := ViewSpec{TimeoutQC: utils.Some(tqc), Epoch: ep}
+	vs1 := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}, TimeoutQC: utils.Some(tqc)}
 	if got := vs1.View().EpochIndex; got != epochIdx {
 		t.Fatalf("TimeoutQC path: EpochIndex = %d, want %d", got, epochIdx)
 	}

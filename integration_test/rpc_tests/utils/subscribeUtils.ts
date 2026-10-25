@@ -109,6 +109,7 @@ export const NEW_HEAD_FIELDS = [
     'sha3Uncles',
     'stateRoot',
     'timestamp',
+    'milliTimestamp',
     'transactionsRoot',
     'withdrawalsRoot',
 ] as const;
@@ -118,6 +119,7 @@ const HEAD_QUANTITY_FIELDS = [
     'gasLimit',
     'gasUsed',
     'timestamp',
+    'milliTimestamp',
     'difficulty',
     'baseFeePerGas',
     'blobGasUsed',
@@ -171,6 +173,9 @@ export function assertNewHeadMatchesBlock(head: any, block: any): void {
     );
     expect(BigInt(head.timestamp), 'timestamp matches the canonical block').to.equal(
         BigInt(block.timestamp),
+    );
+    expect(BigInt(head.milliTimestamp), 'milliTimestamp matches the canonical block').to.equal(
+        BigInt(block.milliTimestamp),
     );
     expect(BigInt(head.gasLimit), 'gasLimit matches the canonical block').to.equal(
         BigInt(block.gasLimit),

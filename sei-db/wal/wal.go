@@ -21,6 +21,10 @@ const defaultBufferSize = 1024
 // The size of write batches if the provided write batch size is less than 1.
 const defaultWriteBatchSize = 64
 
+// ErrCorrupt reports that the log ends mid-record. An open returns it only under
+// Config.NoRepairOnOpen; otherwise the tail is truncated and the open succeeds.
+var ErrCorrupt = wal.ErrCorrupt
+
 // WAL is a generic write-ahead log implementation.
 type WAL[T any] struct {
 	ctx    context.Context
@@ -94,6 +98,12 @@ type Config struct {
 	// AllowEmpty permits removing all entries via TruncateAll.
 	// When false (default), at least one entry must remain after truncation.
 	AllowEmpty bool
+
+	// NoRepairOnOpen returns wal.ErrCorrupt from the open instead of truncating a
+	// corrupted tail to recover the log. A reader that must leave the log as it
+	// found it sets it. It does not cover the segment cleanup the open performs for
+	// an interrupted TruncateFront, which reports no error to gate on.
+	NoRepairOnOpen bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -120,7 +130,7 @@ func NewWAL[T any](
 		NoSync:     !config.FsyncEnabled,
 		NoCopy:     !config.DeepCopyEnabled,
 		AllowEmpty: config.AllowEmpty,
-	})
+	}, config.NoRepairOnOpen)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +147,7 @@ func NewWAL[T any](
 		writeBatchSize = defaultWriteBatchSize
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx) //nolint:gosec // cancel is retained by WAL and invoked by Close.
 
 	w := &WAL[T]{
 		ctx:            ctx,
@@ -329,8 +339,9 @@ func (walLog *WAL[T]) TruncateAfter(index uint64) error {
 	return walLog.sendTruncate(false, index)
 }
 
-// TruncateBefore will remove all entries that are before the provided `index`.
-// In other words the entry at `index` becomes the first entry in the log.
+// TruncateBefore removes every entry below `index`, so the entry at `index`
+// becomes the first entry in the log. An `index` at or below the current first
+// entry is a no-op.
 func (walLog *WAL[T]) TruncateBefore(index uint64) error {
 	backgroundErr := walLog.asyncError.Load()
 	if backgroundErr != nil {
@@ -389,6 +400,11 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 func (walLog *WAL[T]) handleTruncate(req *truncateRequest) {
 	var err error
 	if req.before {
+		// Entries below the first index are already gone, e.g. removed by pruning.
+		if first, ferr := walLog.log.FirstIndex(); ferr == nil && req.index < first {
+			req.errChan <- nil
+			return
+		}
 		err = walLog.log.TruncateFront(req.index)
 	} else {
 		err = walLog.log.TruncateBack(req.index)
@@ -542,13 +558,18 @@ func (walLog *WAL[T]) Close() error {
 	return nil
 }
 
-// open opens the replay log, try to truncate the corrupted tail if there's any
-func open(dir string, opts *wal.Options) (*wal.Log, error) {
+// open opens the replay log, truncating a corrupted tail to recover the log.
+// When noRepair is set it returns wal.ErrCorrupt instead, leaving the tail in
+// place.
+func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 	if opts == nil {
 		opts = wal.DefaultOptions
 	}
 	rlog, err := wal.Open(dir, opts)
 	if errors.Is(err, wal.ErrCorrupt) {
+		if noRepair {
+			return nil, err
+		}
 		// try to truncate corrupted tail
 		var fis []os.DirEntry
 		fis, err = os.ReadDir(dir)

@@ -21,7 +21,6 @@ type PrecompileKeepers struct {
 	putils.AuthQuerier
 	putils.AuthzMsgServer
 	putils.AuthzQuerier
-	putils.OracleKeeper
 	putils.WasmdKeeper
 	putils.WasmdViewKeeper
 	putils.StakingKeeper
@@ -32,16 +31,11 @@ type PrecompileKeepers struct {
 	putils.DistributionKeeper
 	putils.DistributionQuerier
 	putils.EvidenceQuerier
-	putils.FeegrantQuerier
 	putils.MintQuerier
 	putils.ParamsQuerier
 	putils.SlashingMsgServer
 	putils.SlashingQuerier
 	putils.UpgradeQuerier
-	putils.TransferKeeper
-	putils.ClientKeeper
-	putils.ConnectionKeeper
-	putils.ChannelKeeper
 	txConf client.TxConfig
 	cdc    codec.Codec
 }
@@ -56,7 +50,6 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		AuthQuerier:         a.AccountKeeper,
 		AuthzMsgServer:      a.AuthzKeeper,
 		AuthzQuerier:        a.AuthzKeeper,
-		OracleKeeper:        a.OracleKeeper,
 		WasmdKeeper:         wasmkeeper.NewDefaultPermissionKeeper(a.WasmKeeper),
 		WasmdViewKeeper:     a.WasmKeeper,
 		StakingKeeper:       stakingkeeper.NewMsgServerImpl(a.StakingKeeper),
@@ -67,16 +60,11 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		DistributionKeeper:  a.DistrKeeper,
 		DistributionQuerier: a.DistrKeeper,
 		EvidenceQuerier:     a.EvidenceKeeper,
-		FeegrantQuerier:     a.FeeGrantKeeper,
 		MintQuerier:         mintkeeper.NewQuerier(a.MintKeeper),
 		ParamsQuerier:       a.ParamsKeeper,
 		SlashingMsgServer:   slashingkeeper.NewMsgServerImpl(a.SlashingKeeper),
 		SlashingQuerier:     a.SlashingKeeper,
 		UpgradeQuerier:      a.UpgradeKeeper,
-		TransferKeeper:      a.TransferKeeper,
-		ClientKeeper:        a.IBCKeeper.ClientKeeper,
-		ConnectionKeeper:    a.IBCKeeper.ConnectionKeeper,
-		ChannelKeeper:       a.IBCKeeper.ChannelKeeper,
 		txConf:              a.GetTxConfig(),
 		cdc:                 a.appCodec,
 	}
@@ -90,7 +78,6 @@ func (pk *PrecompileKeepers) AccountK() putils.AccountKeeper           { return 
 func (pk *PrecompileKeepers) AuthQ() putils.AuthQuerier                { return pk.AuthQuerier }
 func (pk *PrecompileKeepers) AuthzMS() putils.AuthzMsgServer           { return pk.AuthzMsgServer }
 func (pk *PrecompileKeepers) AuthzQ() putils.AuthzQuerier              { return pk.AuthzQuerier }
-func (pk *PrecompileKeepers) OracleK() putils.OracleKeeper             { return pk.OracleKeeper }
 func (pk *PrecompileKeepers) WasmdK() putils.WasmdKeeper               { return pk.WasmdKeeper }
 func (pk *PrecompileKeepers) WasmdVK() putils.WasmdViewKeeper          { return pk.WasmdViewKeeper }
 func (pk *PrecompileKeepers) StakingK() putils.StakingKeeper           { return pk.StakingKeeper }
@@ -103,15 +90,10 @@ func (pk *PrecompileKeepers) DistributionQ() putils.DistributionQuerier {
 	return pk.DistributionQuerier
 }
 func (pk *PrecompileKeepers) EvidenceQ() putils.EvidenceQuerier    { return pk.EvidenceQuerier }
-func (pk *PrecompileKeepers) FeegrantQ() putils.FeegrantQuerier    { return pk.FeegrantQuerier }
 func (pk *PrecompileKeepers) MintQ() putils.MintQuerier            { return pk.MintQuerier }
 func (pk *PrecompileKeepers) ParamsQ() putils.ParamsQuerier        { return pk.ParamsQuerier }
 func (pk *PrecompileKeepers) SlashingMS() putils.SlashingMsgServer { return pk.SlashingMsgServer }
 func (pk *PrecompileKeepers) SlashingQ() putils.SlashingQuerier    { return pk.SlashingQuerier }
 func (pk *PrecompileKeepers) UpgradeQ() putils.UpgradeQuerier      { return pk.UpgradeQuerier }
-func (pk *PrecompileKeepers) TransferK() putils.TransferKeeper     { return pk.TransferKeeper }
-func (pk *PrecompileKeepers) ClientK() putils.ClientKeeper         { return pk.ClientKeeper }
-func (pk *PrecompileKeepers) ConnectionK() putils.ConnectionKeeper { return pk.ConnectionKeeper }
-func (pk *PrecompileKeepers) ChannelK() putils.ChannelKeeper       { return pk.ChannelKeeper }
 func (pk *PrecompileKeepers) TxConfig() client.TxConfig            { return pk.txConf }
 func (pk *PrecompileKeepers) Codec() codec.Codec                   { return pk.cdc }

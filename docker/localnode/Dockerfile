@@ -1,4 +1,4 @@
-FROM golang:1.25.6-bookworm AS go-dist
+FROM golang:1.27.3-bookworm AS go-dist
 
 FROM ubuntu:24.04
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
@@ -41,7 +41,7 @@ SHELL ["/bin/bash", "-c"]
 
 WORKDIR /sei-protocol/sei-chain
 
-EXPOSE 26656 26657 26658 9090 9091 7171
+EXPOSE 26656 26657 26658 7171
 
 CMD ["/usr/bin/deploy.sh"]
 

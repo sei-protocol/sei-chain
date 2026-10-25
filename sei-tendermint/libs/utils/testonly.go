@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
-	"reflect"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -14,24 +13,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"google.golang.org/protobuf/testing/protocmp"
 )
-
-// ReadOnly - if a struct embeds ReadOnly,
-// its private fields will be compared by TestEqual.
-type ReadOnly struct{}
-
-// isReadOnly returns true if t embeds ReadOnly.
-func isReadOnly(t reflect.Type) bool {
-	want := reflect.TypeFor[ReadOnly]()
-	if t.Kind() != reflect.Struct {
-		return false
-	}
-	for i := range t.NumField() {
-		if f := t.Field(i); f.Anonymous || f.Type == want {
-			return true
-		}
-	}
-	return false
-}
 
 func cmpComparer[T any, PT interface {
 	Cmp(b *T) int

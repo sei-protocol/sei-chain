@@ -16,6 +16,8 @@ type TransferWorkload struct {
 	scenario             loadoffline.Scenario
 	conflictParticipants int
 	accountCursor        atomic.Uint64
+	poolSeeded           atomic.Bool
+	pool                 []common.Address
 }
 
 func NewTransferWorkload(cfg Config, state State) (*TransferWorkload, error) {
@@ -36,15 +38,16 @@ func NewTransferWorkload(cfg Config, state State) (*TransferWorkload, error) {
 
 func (w *TransferWorkload) BuildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
 	txs := make([][]byte, w.cfg.TxsPerBlock)
+	base := senderRangeBase(w.cfg, number, &w.accountCursor)
 	for i := 0; i < w.cfg.TxsPerBlock; i++ {
 		select {
 		case <-ctx.Done():
 			return evmonly.BlockRequest{}, ctx.Err()
 		default:
 		}
-		accountIndex := w.accountCursor.Add(1)
-		senderIndex := accountIndex
-		nonce := uint64(0)
+		accountIndex := base + uint64(i) //nolint:gosec // i is bounded by txsPerBlock.
+		slot := w.cfg.senderFor(accountIndex)
+		senderIndex, nonce := slot.account, slot.nonce
 		if w.cfg.SameSender {
 			senderIndex = number
 			nonce = uint64(i) //nolint:gosec // i is bounded by txsPerBlock.
@@ -54,7 +57,9 @@ func (w *TransferWorkload) BuildBlock(ctx context.Context, number uint64) (evmon
 		if err != nil {
 			return evmonly.BlockRequest{}, err
 		}
-		w.scenario.SeedSender(w.state, sender)
+		if !w.poolSeeded.Load() {
+			w.scenario.SeedSender(w.state, sender)
+		}
 		txs[i] = raw
 	}
 	return evmonly.BlockRequest{
@@ -81,7 +86,7 @@ func (w *TransferWorkload) buildTransferTx(accountIndex, nonce uint64, recipient
 }
 
 func (w *TransferWorkload) Recipient(blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
-	return workloadRecipient(w.cfg, w.conflictParticipants, "sei-evmonly-loadtest-recipient", "sei-evmonly-loadtest-conflict-recipient", blockNumber, txIndex, accountIndex)
+	return workloadRecipient(w.cfg, w.pool, w.conflictParticipants, "sei-evmonly-loadtest-recipient", "sei-evmonly-loadtest-conflict-recipient", blockNumber, txIndex, accountIndex)
 }
 
 func offlineConfig(cfg Config) loadoffline.Config {
@@ -93,4 +98,17 @@ func offlineConfig(cfg Config) loadoffline.Config {
 		GasLimit:      cfg.TxGasLimit,
 		ERC20Contract: cfg.ERC20Contract,
 	}
+}
+
+// SeedAccountPool satisfies PoolSeeder.
+func (w *TransferWorkload) SeedAccountPool(ctx context.Context) error {
+	pool, err := seedAccountPool(ctx, w.cfg, func(addr common.Address) { w.scenario.SeedSender(w.state, addr) })
+	if err != nil {
+		return err
+	}
+	w.pool = pool
+	// Blocks are built after genesis is committed, and the state refuses writes by then. Every sender
+	// they draw is already in it, so the per-transaction seed has nothing left to add.
+	w.poolSeeded.Store(true)
+	return nil
 }

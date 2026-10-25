@@ -9,12 +9,12 @@ import (
 // two big-endian int64s (KeyCount || Bytes).
 const moduleStatsEncodedLen = 16
 
-// ModuleStats is auxiliary per-(DB, module) metadata accumulated alongside the
+// ModuleStats is auxiliary per-(DB, module) metadata combined alongside the
 // lattice hash: the number of live keys and their total serialized footprint
 // (physical key bytes + serialized value bytes) for that module within a DB.
 //
 // Both are net running totals maintained with the same key-membership rule the
-// lattice hash uses (see foldChunk): an add increments KeyCount and adds
+// lattice hash uses (see hashChunk): an add increments KeyCount and adds
 // key+value bytes; an update leaves KeyCount unchanged and adjusts Bytes by the
 // value-size delta; a delete decrements KeyCount and subtracts the old
 // key+value bytes. They are consensus-irrelevant (not folded into the AppHash)

@@ -1,0 +1,82 @@
+package blockstore
+
+import (
+	"fmt"
+
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+)
+
+// The prune policy lives here rather than in the block database because both
+// facts it turns on are encoded in the values, which the database holds as
+// opaque bytes: where the QC covering a block begins, and how far the
+// application has committed. A database that had to answer either would have to
+// index the whole store and rebuild that index on every open.
+
+// A block store is what the storage garbage collector prunes.
+var _ controllertypes.PrunableStore = (*Store)(nil)
+
+// Name identifies the store in the garbage collector's logs and errors.
+func (s *Store) Name() string {
+	return "BlockDB"
+}
+
+// ExternalPruning is unconditionally true: this store has no pruner of its own.
+func (s *Store) ExternalPruning() bool {
+	return true
+}
+
+// PruneHistory advances the retention watermark to blockNumber, capping it at the newest retained
+// (block, QC) pair. Reclaiming the data happens later, on the block database's own schedule.
+func (s *Store) PruneHistory(blockNumber uint64) error {
+	return s.PruneBefore(types.GlobalBlockNumber(blockNumber))
+}
+
+// PruneSnapshots does nothing: the block store keeps no snapshots.
+func (s *Store) PruneSnapshots(uint64) error {
+	return nil
+}
+
+// GetRollbackFloor returns head - rollbackWindow, measured against this store's own head. It returns
+// 0 — nothing here is eligible for pruning — when the window is deeper than the whole history, which
+// includes the empty store, or when the head cannot be read.
+func (s *Store) GetRollbackFloor(rollbackWindow uint64) uint64 {
+	head, err := s.GetLatestBlock()
+	if err != nil || head <= rollbackWindow {
+		return 0
+	}
+	return head - rollbackWindow
+}
+
+// GetLatestBlock returns the newest crash-recoverable block number, or 0 when none has been.
+//
+// Global block numbers start at genesis block 0, so a store holding only that block is
+// indistinguishable from an empty one.
+func (s *Store) GetLatestBlock() (uint64, error) {
+	for status := range s.durableStatus.Lock() {
+		if current, ok := status.Get(); ok && types.GlobalBlockNumber(s.db.GetPruneWatermark()) < current.NextBlock {
+			return uint64(current.NextBlock - 1), nil
+		}
+		return 0, nil
+	}
+	panic("unreachable")
+}
+
+// clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
+// (which can happen if you prune the same n twice).
+func (s *Store) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.GlobalBlockNumber, error) {
+	value, exists, err := s.db.GetQC(blocktypes.BlockNumber(blockHeight))
+	if err != nil {
+		return 0, fmt.Errorf("failed to read covering QC for %d: %w", blockHeight, err)
+	}
+	if !exists {
+		return blockHeight, nil
+	}
+	qc, err := decodeQC(value)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode covering QC for %d: %w", blockHeight, err)
+	}
+	return qc.QC().GlobalRange().First, nil
+}

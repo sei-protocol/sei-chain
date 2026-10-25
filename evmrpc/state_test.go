@@ -1,7 +1,6 @@
 package evmrpc_test
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,12 +10,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -206,80 +200,11 @@ func TestGetStorageAt(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
-func TestGetProof(t *testing.T) {
-	testApp := app.Setup(t, false, false, false)
+func TestGetProofNotSupported(t *testing.T) {
 	_, evmAddr := testkeeper.MockAddressPair()
-	key, val := []byte("test"), []byte("abc")
-	testApp.EvmKeeper.SetState(testApp.GetContextForDeliverTx([]byte{}), evmAddr, common.BytesToHash(key), common.BytesToHash(val))
-	for i := 0; i < MockHeight8; i++ {
-		_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: testApp.ChainID, Height: int64(i + 1)}})
-		require.NoError(t, err)
-		testApp.SetDeliverStateToCommit()
-		_, err = testApp.Commit(context.Background())
-		require.NoError(t, err)
-	}
-	if store := testApp.EvmKeeper.ReceiptStore(); store != nil {
-		require.NoError(t, store.SetLatestVersion(MockHeight8))
-		require.NoError(t, store.SetEarliestVersion(1))
-		require.Equal(t, int64(1), store.EarliestVersion())
-	}
-	client := &MockClient{}
-	ctxProvider := func(height int64) sdk.Context {
-		ctx := testApp.GetCheckCtx()
-		switch {
-		case height == evmrpc.LatestCtxHeight || height <= 0:
-			return ctx.WithBlockHeight(MockHeight8)
-		default:
-			return ctx.WithBlockHeight(height)
-		}
-	}
-	watermarks := evmrpc.NewWatermarkManager(client, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
-	// hex-encode the storage slot as eth_getProof requires
-	hexKey := common.BytesToHash(key).Hex()
-	tests := []struct {
-		key         string
-		blockNr     rpc.BlockNumber
-		expectedVal []byte
-	}{
-		{
-			key:         hexKey,
-			blockNr:     rpc.BlockNumber(-2),
-			expectedVal: val,
-		},
-		{
-			key:         hexKey,
-			blockNr:     rpc.BlockNumber(8),
-			expectedVal: val,
-		},
-		{
-			// valid hex slot that has no state set
-			key:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-			blockNr:     rpc.BlockNumber(-2),
-			expectedVal: []byte{},
-		},
-	}
-	for _, test := range tests {
-		bptr := &rpc.BlockNumberOrHash{BlockNumber: &test.blockNr}
-		res, err := stateAPI.GetProof(t.Context(), evmAddr, []string{test.key}, *bptr)
-		require.Nil(t, err)
-		vals := res.HexValues
-		require.Equal(t, common.BytesToHash(test.expectedVal), common.HexToHash(vals[0]))
-		proofs := res.StorageProof
-		require.Equal(t, "ics23:iavl", proofs[0].Ops[0].Type)
-	}
-
-	// malformed key must be rejected
-	bptr := &rpc.BlockNumberOrHash{BlockNumber: func() *rpc.BlockNumber { n := rpc.BlockNumber(-2); return &n }()}
-	_, err := stateAPI.GetProof(t.Context(), evmAddr, []string{"not-hex"}, *bptr)
-	require.Error(t, err)
-
-	// too many keys must be rejected
-	tooManyKeys := make([]string, evmrpc.MaxStorageKeysPerProof+1)
-	for i := range tooManyKeys {
-		tooManyKeys[i] = hexKey
-	}
-	_, err = stateAPI.GetProof(t.Context(), evmAddr, tooManyKeys, *bptr)
-	require.Error(t, err)
+	resObj := sendRequestGood(t, "getProof", evmAddr.Hex(), []string{}, "latest")
+	require.Contains(t, resObj, "error")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+	require.Contains(t, errObj["message"].(string), "eth_getProof is not supported yet")
 }

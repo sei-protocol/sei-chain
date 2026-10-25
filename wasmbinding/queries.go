@@ -14,63 +14,20 @@ import (
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmbindings "github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
-	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
-	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
-	tokenfactorybindings "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 type QueryPlugin struct {
-	oracleHandler       oraclewasm.OracleWasmQueryHandler
-	epochHandler        epochwasm.EpochWasmQueryHandler
-	tokenfactoryHandler tokenfactorywasm.TokenFactoryWasmQueryHandler
-	evmHandler          evmwasm.EVMQueryHandler
-	stakingKeeper       stakingkeeper.Keeper
+	epochHandler  epochwasm.EpochWasmQueryHandler
+	evmHandler    evmwasm.EVMQueryHandler
+	stakingKeeper stakingkeeper.Keeper
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
-func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler, evmh *evmwasm.EVMQueryHandler, sk stakingkeeper.Keeper) *QueryPlugin {
+func NewQueryPlugin(eh *epochwasm.EpochWasmQueryHandler, evmh *evmwasm.EVMQueryHandler, sk stakingkeeper.Keeper) *QueryPlugin {
 	return &QueryPlugin{
-		oracleHandler:       *oh,
-		epochHandler:        *eh,
-		tokenfactoryHandler: *th,
-		evmHandler:          *evmh,
-		stakingKeeper:       sk,
-	}
-}
-
-func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
-	var parsedQuery oraclebindings.SeiOracleQuery
-	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
-		return nil, oracletypes.ErrParsingOracleQuery
-	}
-	switch {
-	case parsedQuery.ExchangeRates != nil:
-		res, err := qp.oracleHandler.GetExchangeRates(ctx)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, oracletypes.ErrEncodingExchangeRates
-		}
-
-		return bz, nil
-	case parsedQuery.OracleTwaps != nil:
-		res, err := qp.oracleHandler.GetOracleTwaps(ctx, parsedQuery.OracleTwaps)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, oracletypes.ErrEncodingOracleTwaps
-		}
-
-		return bz, nil
-	default:
-		return nil, oracletypes.ErrUnknownSeiOracleQuery
+		epochHandler:  *eh,
+		evmHandler:    *evmh,
+		stakingKeeper: sk,
 	}
 }
 
@@ -93,39 +50,6 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 		return bz, nil
 	default:
 		return nil, epochtypes.ErrUnknownSeiEpochQuery
-	}
-}
-
-func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
-	var parsedQuery tokenfactorybindings.SeiTokenFactoryQuery
-	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
-		return nil, tokenfactorytypes.ErrParsingSeiTokenFactoryQuery
-	}
-	switch {
-	case parsedQuery.DenomAuthorityMetadata != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomAuthorityMetadata(ctx, parsedQuery.DenomAuthorityMetadata)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, tokenfactorytypes.ErrEncodingDenomAuthorityMetadata
-		}
-
-		return bz, nil
-	case parsedQuery.DenomsFromCreator != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomsFromCreator(ctx, parsedQuery.DenomsFromCreator)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, tokenfactorytypes.ErrEncodingDenomsFromCreator
-		}
-
-		return bz, nil
-	default:
-		return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
 	}
 }
 

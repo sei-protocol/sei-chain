@@ -20,6 +20,26 @@ https://docs.docker.com/compose/install/other/
 
 Detailed instruction: see the `Makefile` in the root of [the repo](https://github.com/sei-protocol/sei-chain/blob/main/Makefile)
 
+### Frozen RPC router cluster
+
+The frozen-router topology runs two live validators, archival full nodes frozen
+before heights 10 and 20, and `frozen-rpc-router` on host port 8553:
+
+```sh
+DOCKER_DETACH=true make docker-frozen-rpc-cluster-start
+go test -tags frozen_rpc_integration -v -count=1 -timeout 5m ./integration_test/frozen_rpc_router/...
+make docker-frozen-rpc-cluster-stop
+```
+
+Run the complete start-test-stop flow with:
+
+```sh
+make frozen-rpc-router-integration-test
+```
+
+The direct EVM RPC ports are 8547 for the height-10 frozen node, 8549 for the
+height-20 frozen node, and 8545 for the live node.
+
 **To start a single local node (Not Recommended)**
 
 ```sh

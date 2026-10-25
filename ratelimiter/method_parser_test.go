@@ -268,9 +268,18 @@ func TestParse_BodyOneByteOverLimitRejected(t *testing.T) {
 }
 
 func TestParse_DefaultProbeLimitApplied(t *testing.T) {
-	require.Equal(t, int64(DefaultMaxProbeBytes), NewMethodParser(0).maxProbeBytes)
-	require.Equal(t, int64(DefaultMaxProbeBytes), NewMethodParser(-5).maxProbeBytes)
+	require.Equal(t, int64(0), NewMethodParser(0).maxProbeBytes)
+	require.Equal(t, int64(0), NewMethodParser(-5).maxProbeBytes)
 	require.Equal(t, int64(256), NewMethodParser(256).maxProbeBytes)
+}
+
+func TestParse_UnlimitedProbeAcceptsLargeBody(t *testing.T) {
+	big := strings.Repeat("a", DefaultMaxProbeBytes)
+	body := `{"jsonrpc":"2.0","id":1,"params":["0x` + big + `"],"method":"broadcast_tx_sync"}`
+	methods, batch, err := NewMethodParser(0).Parse(strings.NewReader(body))
+	require.NoError(t, err)
+	require.False(t, batch)
+	require.Equal(t, []string{"broadcast_tx_sync"}, methods)
 }
 
 func TestParse_MaxInt64ProbeLimitClamped(t *testing.T) {

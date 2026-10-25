@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -504,7 +503,7 @@ func (m *WorkerPoolMetrics) categorizeError(err error) {
 		m.ErrBackpressure.Add(1)
 	case contains(errStr, "I/O saturated") || contains(errStr, "semaphore"):
 		m.ErrIOSaturated.Add(1)
-	case contains(errStr, "block not found") || contains(errStr, "height is not available") || contains(errStr, "pruned blocks"):
+	case contains(errStr, "block not found") || contains(errStr, "height is not available") || contains(errStr, "pruned"):
 		m.ErrBlockNotFound.Add(1)
 	case contains(errStr, "queue is full") || contains(errStr, "system overloaded"):
 		m.ErrQueueFull.Add(1)
@@ -555,8 +554,6 @@ func (m *WorkerPoolMetrics) RecordSubscriptionEnd() {
 func (m *WorkerPoolMetrics) RecordSubscriptionError() {
 	m.SubscriptionErrors.Add(1)
 	otelMetrics.subscriptionErrorsTotal.Add(context.Background(), 1)
-	// TODO(PLT-326): remove once evmrpc_subscriptions_errors_total verified
-	telemetry.IncrCounter(1, "sei", "evm", "subscriptions", "errors")
 }
 
 // GetTPS calculates the current TPS based on time window

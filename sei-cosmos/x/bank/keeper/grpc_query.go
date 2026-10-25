@@ -59,7 +59,7 @@ func (k BaseKeeper) AllBalances(ctx context.Context, req *types.QueryAllBalances
 	balances := sdk.NewCoins()
 	accountStore := k.getAccountStore(sdkCtx, addr)
 
-	pageRes, err := query.Paginate(accountStore, req.Pagination, func(_, value []byte) error {
+	pageRes, err := query.Paginate(sdkCtx, accountStore, req.Pagination, func(_, value []byte) error {
 		var result sdk.Coin
 		err := k.cdc.Unmarshal(value, &result)
 		if err != nil {
@@ -70,7 +70,7 @@ func (k BaseKeeper) AllBalances(ctx context.Context, req *types.QueryAllBalances
 	})
 
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "paginate: %v", err)
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryAllBalancesResponse{Balances: balances, Pagination: pageRes}, nil
@@ -94,12 +94,12 @@ func (k BaseKeeper) SpendableBalances(ctx context.Context, req *types.QuerySpend
 	accountStore := k.getAccountStore(sdkCtx, addr)
 	zeroAmt := sdk.ZeroInt()
 
-	pageRes, err := query.Paginate(accountStore, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(sdkCtx, accountStore, req.Pagination, func(key, value []byte) error {
 		balances = append(balances, sdk.NewCoin(string(key), zeroAmt))
 		return nil
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "paginate: %v", err)
+		return nil, query.WrapGRPCError(err)
 	}
 
 	result := sdk.NewCoins()
@@ -117,7 +117,7 @@ func (k BaseKeeper) TotalSupply(ctx context.Context, req *types.QueryTotalSupply
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	totalSupply, pageRes, err := k.GetPaginatedTotalSupply(sdkCtx, req.Pagination)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryTotalSupplyResponse{Supply: totalSupply, Pagination: pageRes}, nil
@@ -161,7 +161,7 @@ func (k BaseKeeper) DenomsMetadata(c context.Context, req *types.QueryDenomsMeta
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.DenomMetadataPrefix)
 
 	metadatas := []types.Metadata{}
-	pageRes, err := query.Paginate(store, req.Pagination, func(_, value []byte) error {
+	pageRes, err := query.Paginate(ctx, store, req.Pagination, func(_, value []byte) error {
 		var metadata types.Metadata
 		k.cdc.MustUnmarshal(value, &metadata)
 
@@ -170,7 +170,7 @@ func (k BaseKeeper) DenomsMetadata(c context.Context, req *types.QueryDenomsMeta
 	})
 
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryDenomsMetadataResponse{

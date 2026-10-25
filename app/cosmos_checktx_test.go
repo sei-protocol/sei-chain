@@ -218,7 +218,7 @@ func TestCosmosStatelessChecksRejectsInvalidNestedMultisigKey(t *testing.T) {
 			ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
 			signedTx, _ := buildNestedMultisigTx(t, ctx, tc.malformedChild)
 
-			_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+			err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "invalid secp256k1 public key")
 		})
@@ -235,7 +235,7 @@ func TestCosmosStatelessChecksRejectsOversizedMultisigBeforePubKeyValidation(t *
 	}
 	signedTx, _ := buildNestedMultisigTx(t, ctx, malformedChildren...)
 
-	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
 	require.Error(t, err)
 	require.ErrorIs(t, err, sdkerrors.ErrTooManySignatures)
 	require.NotContains(t, err.Error(), "invalid secp256k1 public key")
@@ -274,7 +274,7 @@ func TestCosmosStatelessChecksDoesNotAggregateTxSigLimitAcrossProvidedPubKeys(t 
 		},
 	))
 
-	_, err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
 	require.NoError(t, err)
 }
 
@@ -289,7 +289,7 @@ func TestCosmosStatelessChecksRejectsDeepNestedMultisig(t *testing.T) {
 	}
 	signedTx, _ := buildNestedMultisigTx(t, ctx, nestedPubKey)
 
-	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "multisig public key nesting exceeds limit")
 }

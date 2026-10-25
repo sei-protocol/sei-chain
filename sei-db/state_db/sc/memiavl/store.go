@@ -132,8 +132,21 @@ func (cs *CommitStore) ReleaseSnapshotRefs() error {
 	return err
 }
 
-func (cs *CommitStore) Commit() (int64, error) {
-	return cs.db.Commit()
+// Commit persists the working state at version. memiavl derives the height it commits from its own
+// last committed block, so version is a cross-check rather than an instruction.
+func (cs *CommitStore) Commit(version int64) (int64, error) {
+	neverCommitted := cs.db.Version() == 0
+	committed, err := cs.db.Commit()
+	if err != nil {
+		return committed, err
+	}
+	if !neverCommitted && committed != version {
+		// A store that has never committed is exempt: one seeded to start above height 1 legitimately
+		// disagrees with a caller counting from the beginning.
+		panic(fmt.Sprintf("memiavl: committed block %d but the caller is building block %d",
+			committed, version))
+	}
+	return committed, nil
 }
 
 func (cs *CommitStore) Version() int64 {
@@ -173,8 +186,18 @@ func (cs *CommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	return cs.db.ApplyUpgrades(upgrades)
 }
 
-func (cs *CommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	return cs.db.WorkingCommitInfo()
+func (cs *CommitStore) WorkingCommitInfo(version int64) *proto.CommitInfo {
+	ci := cs.db.WorkingCommitInfo()
+	if cs.db.Version() == 0 {
+		// A store that has never committed may start its history above height 1, so memiavl and the
+		// caller can disagree here without either being wrong.
+		return ci
+	}
+	if ci.Version != version {
+		panic(fmt.Sprintf("memiavl: working commit info is for block %d but the caller is building block %d",
+			ci.Version, version))
+	}
+	return ci
 }
 
 func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
@@ -198,6 +221,11 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 	return tree
 }
 
+// MayHoldStore reports whether the working state holds a tree named name.
+func (cs *CommitStore) MayHoldStore(name string) bool {
+	return cs.GetChildStoreByName(name) != nil
+}
+
 // IsLoaded reports whether the underlying memiavl DB has been opened. It is
 // safe to call on a nil receiver. Callers built on top of CommitStore use this
 // to distinguish "store has no committed data yet" (during state-sync, before
@@ -218,6 +246,13 @@ func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
 	return NewMultiTreeImporter(cs.opts.Dir, uint64(version))
+}
+
+func (cs *CommitStore) Flush() error {
+	if cs.db == nil {
+		return nil
+	}
+	return cs.db.Flush()
 }
 
 func (cs *CommitStore) Close() error {

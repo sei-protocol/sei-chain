@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -261,7 +262,7 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 	defer m.mtx.Unlock()
 
 	// check multistore supported format preemptive
-	if snapshot.Format != types.CurrentFormat {
+	if !slices.Contains(types.SupportedFormats(), snapshot.Format) {
 		return sdkerrors.Wrapf(types.ErrUnknownFormat, "snapshot format %v", snapshot.Format)
 	}
 	if snapshot.Height == 0 {

@@ -11,4 +11,7 @@ runs:
     # the Go cache to '/'; relocating it to /mnt here would force a cold vet.
     - name: Reclaim runner disk
       shell: bash
+      env:
+        # go vet over the full tree runs on '/' alongside the Go cache.
+        CI_FREE_DISK_MIN_GIB: 60
       run: bash ./.github/scripts/ci-free-disk.sh

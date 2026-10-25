@@ -42,6 +42,9 @@ var (
 	RedelegationKey                  = []byte{0x34} // key for a redelegation
 	RedelegationByValSrcIndexKey     = []byte{0x35} // prefix for each key for an redelegation, by source validator operator
 	RedelegationByValDstIndexKey     = []byte{0x36} // prefix for each key for an redelegation, by destination validator operator
+	DelegationByValIndexKey          = []byte{0x37} // prefix for each key for a delegation, by validator operator
+	DelegationByValIndexReadyKey     = []byte{0x38} // marker: the delegation-by-validator index is populated
+	DelegationByValIndexCursorKey    = []byte{0x39} // last delegation key indexed while the delegation-by-validator index is backfilled
 
 	UnbondingQueueKey    = []byte{0x41} // prefix for the timestamps in unbonding queue
 	RedelegationQueueKey = []byte{0x42} // prefix for the timestamps in redelegations queue
@@ -60,12 +63,6 @@ func GetValidatorKey(operatorAddr sdk.ValAddress) []byte {
 // VALUE: validator operator address ([]byte)
 func GetValidatorByConsAddrKey(addr sdk.ConsAddress) []byte {
 	return append(ValidatorsByConsAddrKey, address.MustLengthPrefix(addr)...)
-}
-
-// AddressFromValidatorsKey creates the validator operator address from ValidatorsKey
-func AddressFromValidatorsKey(key []byte) []byte {
-	kv.AssertKeyAtLeastLength(key, 3)
-	return key[2:] // remove prefix bytes and address length
 }
 
 // AddressFromLastValidatorPowerKey creates the validator operator address from LastValidatorPowerKey
@@ -198,6 +195,31 @@ func GetDelegationsKey(delAddr sdk.AccAddress) []byte {
 	return append(DelegationKey, address.MustLengthPrefix(delAddr)...)
 }
 
+// GetDelegationByValIndexKey creates the index-key for a delegation, stored by validator-index.
+// VALUE: none (key rearrangement used)
+func GetDelegationByValIndexKey(delAddr sdk.AccAddress, valAddr sdk.ValAddress) []byte {
+	return append(GetDelegationsByValIndexKey(valAddr), address.MustLengthPrefix(delAddr)...)
+}
+
+// GetDelegationKeyFromValIndexKey rearranges the ValIndexKey to get the DelegationKey.
+func GetDelegationKeyFromValIndexKey(indexKey []byte) []byte {
+	kv.AssertKeyAtLeastLength(indexKey, 2)
+	addrs := indexKey[1:] // remove prefix bytes
+
+	valAddrLen := addrs[0]
+	kv.AssertKeyAtLeastLength(addrs, 2+int(valAddrLen))
+	valAddr := addrs[1 : 1+valAddrLen]
+	kv.AssertKeyAtLeastLength(addrs, 3+int(valAddrLen))
+	delAddr := addrs[valAddrLen+2:]
+
+	return GetDelegationKey(delAddr, valAddr)
+}
+
+// GetDelegationsByValIndexKey creates the prefix keyspace for delegation indexes by validator.
+func GetDelegationsByValIndexKey(valAddr sdk.ValAddress) []byte {
+	return append(DelegationByValIndexKey, address.MustLengthPrefix(valAddr)...)
+}
+
 // GetUBDKey creates the key for an unbonding delegation by delegator and validator addr
 // VALUE: staking/UnbondingDelegation
 func GetUBDKey(delAddr sdk.AccAddress, valAddr sdk.ValAddress) []byte {
@@ -247,9 +269,9 @@ func GetREDKey(delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.ValAddress) []
 	key := make([]byte, 1+3+len(delAddr)+len(valSrcAddr)+len(valDstAddr))
 
 	copy(key[0:2+len(delAddr)], GetREDsKey(delAddr.Bytes()))
-	key[2+len(delAddr)] = byte(len(valSrcAddr))
+	key[2+len(delAddr)] = byte(len(valSrcAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[3+len(delAddr):3+len(delAddr)+len(valSrcAddr)], valSrcAddr.Bytes())
-	key[3+len(delAddr)+len(valSrcAddr)] = byte(len(valDstAddr))
+	key[3+len(delAddr)+len(valSrcAddr)] = byte(len(valDstAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[4+len(delAddr)+len(valSrcAddr):], valDstAddr.Bytes())
 
 	return key
@@ -264,9 +286,9 @@ func GetREDByValSrcIndexKey(delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.V
 	// key is of the form REDSFromValsSrcKey || delAddrLen (1 byte) || delAddr || valDstAddrLen (1 byte) || valDstAddr
 	key := make([]byte, offset+2+len(delAddr)+len(valDstAddr))
 	copy(key[0:offset], REDSFromValsSrcKey)
-	key[offset] = byte(len(delAddr))
+	key[offset] = byte(len(delAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+1:offset+1+len(delAddr)], delAddr.Bytes())
-	key[offset+1+len(delAddr)] = byte(len(valDstAddr))
+	key[offset+1+len(delAddr)] = byte(len(valDstAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+2+len(delAddr):], valDstAddr.Bytes())
 
 	return key
@@ -281,9 +303,9 @@ func GetREDByValDstIndexKey(delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.V
 	// key is of the form REDSToValsDstKey || delAddrLen (1 byte) || delAddr || valSrcAddrLen (1 byte) || valSrcAddr
 	key := make([]byte, offset+2+len(delAddr)+len(valSrcAddr))
 	copy(key[0:offset], REDSToValsDstKey)
-	key[offset] = byte(len(delAddr))
+	key[offset] = byte(len(delAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+1:offset+1+len(delAddr)], delAddr.Bytes())
-	key[offset+1+len(delAddr)] = byte(len(valSrcAddr))
+	key[offset+1+len(delAddr)] = byte(len(valSrcAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+2+len(delAddr):], valSrcAddr.Bytes())
 
 	return key

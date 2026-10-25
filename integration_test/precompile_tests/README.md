@@ -45,7 +45,7 @@ balances, associations, …) over RPC/REST. For every precompile, the spec file 
 ABIs are loaded from the repo's own `precompiles/<name>/abi.json` (the files the
 chain binary embeds), so specs can never drift from the deployed interface.
 
-### Current coverage (phases 1–2, wasm-free)
+### Current coverage (phases 1–3, wasm-free)
 
 | Precompile | Spec |
 |---|---|
@@ -57,13 +57,21 @@ chain binary embeds), so specs can never drift from the deployed interface.
 | distribution (0x…1007) | `precompiles/distribution.spec.ts` |
 | oracle (0x…1008) | `precompiles/oracle.spec.ts` (retirement assertion) |
 | pointerview (0x…100A) | `precompiles/pointerview.spec.ts` |
-| pointer (0x…100b) | `precompiles/pointer.spec.ts` (`addNativePointer`; CW methods are wasm-gated) |
+| pointer (0x…100b) | `precompiles/pointer.spec.ts` (retirement assertion) |
+| auth (0x…100D) | `precompiles/auth.spec.ts` |
+| authz (0x…100E) | `precompiles/authz.spec.ts` |
+| evidence (0x…100F) | `precompiles/evidence.spec.ts` |
 | p256 (0x…1011) | `precompiles/p256.spec.ts` |
+| mint (0x…1012) | `precompiles/mint.spec.ts` |
+| params (0x…1013) | `precompiles/params.spec.ts` |
+| slashing (0x…1014) | `precompiles/slashing.spec.ts` |
+| upgrade (0x…1015) | `precompiles/upgrade.spec.ts` |
 
-Planned next: wasm-gated flows (wasmd, pointer `addCW*`, solo CW claims) in a
-separate `wasm/` spec dir behind a live `isWasmEnabled()` check, since wasm
-deployments are blocked on production chains. The ibc precompile is out of
-scope.
+Phase 3 (PLT-372) covers the v6.7 non-wasm precompiles and the post-phase-2
+methods on bank/staking/gov/distribution (query surface + scoped authz).
+Wasm-gated flows (wasmd, solo CW claims) stay in a later `wasm/` spec dir
+behind a live `isWasmEnabled()` check. The ibc precompile and the
+unregistered feegrant precompile (0x…1010) are out of scope.
 
 Hard-won facts encoded in these specs (read before writing a new one):
 
@@ -75,8 +83,8 @@ Hard-won facts encoded in these specs (read before writing a new one):
 - **Mining a tx auto-associates its sender**, so "unassociated caller" errors
   can only be exercised via `eth_call`/`staticCall`, never a real tx.
 - **Guard tables differ per precompile** — e.g. json and pointerview accept
-  DELEGATECALL, staking/gov/distribution/pointer reject it precompile-wide,
-  and `distribution.rewards` accepts value (no non-payable check). Don't
+  DELEGATECALL, staking/gov/distribution reject it precompile-wide, and
+  `distribution.rewards` accepts value (no non-payable check). Don't
   generalize dispatch tests; copy the per-method guards from the Go source.
 - **Staking `delegate`/`createValidator` and gov `deposit`/`submitProposal`
   take whole-usei values**: `msg.value` must be a multiple of 10^12 wei or the
@@ -122,7 +130,8 @@ npm run precompile:ci              # == bash scripts/run-ci.sh
 ```
 
 `scripts/run-ci.sh` is the single orchestrator, used both locally and by the
-`EVM Precompiles` matrix entry in `.github/workflows/integration-test.yml`. It
+`EVM Module (Precompile & Endpoints) & Precompiles` matrix row in
+`.github/workflows/integration-test-matrix.json`. It
 assumes a Sei EVM RPC is already reachable (the workflow boots the 4-node
 cluster; locally you start it yourself), then end to end:
 
@@ -173,7 +182,6 @@ accounts.
 | --- | --- |
 | `SEI_EVM_RPC` | `http://localhost:8545` |
 | `SEI_COSMOS_RPC` | `http://localhost:26657` |
-| `SEI_REST` | `http://localhost:1317` |
 | `SEI_ADMIN_MNEMONIC` | unset (a random admin is minted and funded via the docker devnet) |
 | `PRECOMPILE_TESTS_RUNTIME_STATE` | `runtime/runtime.json` |
 | `PRECOMPILE_POLLING_INTERVAL_MS` | `100` (Sei blocks are ~400ms; ethers default 4s is too slow) |

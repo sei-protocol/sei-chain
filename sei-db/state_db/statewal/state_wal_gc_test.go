@@ -3,23 +3,24 @@ package statewal
 import (
 	"testing"
 
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 // openWALForGC opens a WAL and returns it as the collector sees it, closing it on cleanup.
-func openWALForGC(t *testing.T, cfg *Config) (StateWAL, gc.PrunableStore) {
+func openWALForGC(t *testing.T, cfg *Config) (StateWAL, controllertypes.PrunableStore) {
 	t.Helper()
 	w := openWAL(t, cfg)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
-	store, ok := w.(gc.PrunableStore)
+	store, ok := w.(controllertypes.PrunableStore)
 	require.True(t, ok, "a state WAL must satisfy gc.PrunableStore")
 	return w, store
 }
 
-// The head is the last crash-recoverable block. SignalEndOfBlock only queues a record, so counting
+// The head is the last crash-recoverable block. Write only queues a record, so counting
 // it before Flush would let the collector prune durable history against a volatile suffix. A process
 // crash could then lose that suffix and leave less than the configured rollback window.
 func TestGCLatestBlockCountsOnlyFlushedBlocks(t *testing.T) {
@@ -40,16 +41,10 @@ func TestGCLatestBlockCountsOnlyFlushedBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), latest)
 
-	// Block 3 is written but not ended, so it is not yet in the WAL.
-	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{makeChangeSet("evm", []byte{3}, []byte{3})}))
+	require.NoError(t, w.Write(3, []mutation.Mutation{makeMutation("bank", []byte{3}, []byte{3})}))
 	latest, err = store.GetLatestBlock()
 	require.NoError(t, err)
-	require.Equal(t, uint64(2), latest, "a block in progress must not count as the head")
-
-	require.NoError(t, w.SignalEndOfBlock())
-	latest, err = store.GetLatestBlock()
-	require.NoError(t, err)
-	require.Equal(t, uint64(2), latest, "ending a block does not make it crash recoverable")
+	require.Equal(t, uint64(2), latest, "a queued write does not make a block crash recoverable")
 
 	require.NoError(t, w.Flush())
 	latest, err = store.GetLatestBlock()
@@ -205,11 +200,8 @@ func TestGCConcurrentWithWriter(t *testing.T) {
 		defer close(done)
 		for block := uint64(1); block <= blocks; block++ {
 			// Assertions are not allowed off the main test goroutine; fail loudly instead.
-			cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
-			if err := w.Write(block, cs); err != nil {
-				panic(err)
-			}
-			if err := w.SignalEndOfBlock(); err != nil {
+			mutations := []mutation.Mutation{makeMutation("bank", []byte{byte(block)}, []byte{byte(block)})}
+			if err := w.Write(block, mutations); err != nil {
 				panic(err)
 			}
 			if err := w.Flush(); err != nil {
@@ -247,7 +239,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 		writeBlock(t, w, block)
 	}
 	require.NoError(t, w.Flush())
-	require.NoError(t, w.(gc.PrunableStore).PruneHistory(4))
+	require.NoError(t, w.(controllertypes.PrunableStore).PruneHistory(4))
 	require.NoError(t, w.Close())
 
 	w2, store := openWALForGC(t, cfg)
@@ -263,8 +255,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 }
 
 // The collector can still be mid-cycle when the node shuts down, so a prune arriving after the close
-// must be reported rather than panic, and must not brick the WAL on the way out — PruneHistory declines
-// to write fatalErr precisely because the writer reads it unsynchronized.
+// must be reported rather than panic, and must not brick the WAL on the way out.
 func TestGCPruneHistoryAfterClose(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1
@@ -273,7 +264,7 @@ func TestGCPruneHistoryAfterClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	store, ok := w.(gc.PrunableStore)
+	store, ok := w.(controllertypes.PrunableStore)
 	require.True(t, ok)
 	require.NoError(t, w.Close())
 

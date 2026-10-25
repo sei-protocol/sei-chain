@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/evidence"
-	"github.com/sei-protocol/sei-chain/precompiles/feegrant"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
@@ -46,7 +45,6 @@ var FailFastPrecompileAddresses = []common.Address{
 	common.HexToAddress(auth.AuthAddress),
 	common.HexToAddress(authz.AuthzAddress),
 	common.HexToAddress(evidence.EvidenceAddress),
-	common.HexToAddress(feegrant.FeegrantAddress),
 	common.HexToAddress(mint.MintAddress),
 	common.HexToAddress(params.ParamsAddress),
 	common.HexToAddress(slashing.SlashingAddress),

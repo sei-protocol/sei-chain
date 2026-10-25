@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -296,15 +297,17 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 			"txCount", len(fBlockRes.TxResults),
 		)
 		// Log per-tx deterministic fields (Code, Data, GasWanted, GasUsed) for debugging
-		for i, txRes := range fBlockRes.TxResults {
-			logger.Debug("TxResult for LastResultsHash",
-				"height", block.Height,
-				"txIndex", i,
-				"code", txRes.Code,
-				"gasWanted", txRes.GasWanted,
-				"gasUsed", txRes.GasUsed,
-				"dataLen", len(txRes.Data),
-			)
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			for i, txRes := range fBlockRes.TxResults {
+				logger.Debug("TxResult for LastResultsHash",
+					"height", block.Height,
+					"txIndex", i,
+					"code", txRes.Code,
+					"gasWanted", txRes.GasWanted,
+					"gasUsed", txRes.GasUsed,
+					"dataLen", len(txRes.Data),
+				)
+			}
 		}
 	}
 
@@ -367,6 +370,11 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	retainHeight, err := blockExec.Commit(ctx, state, block, fBlockRes.TxResults)
 	if err != nil {
 		return state, fmt.Errorf("commit failed for application: %w", err)
+	}
+	retainHeight, err = blockExec.prunableHeight(state, retainHeight)
+	if err != nil {
+		logger.Error("failed to calculate prune height", "err", err)
+		retainHeight = 0
 	}
 	if commitSpan != nil {
 		commitSpan.End()
@@ -781,4 +789,60 @@ func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) 
 		return 0, fmt.Errorf("failed to prune state store: %w", err)
 	}
 	return pruned, nil
+}
+
+// prunableHeight returns the height pruning may be applied at: the requested height,
+// capped by EvidenceParams.MaxAgeNumBlocks and MaxAgeDuration. It returns 0 and an
+// error when those bounds cannot be resolved.
+func (blockExec *BlockExecutor) prunableHeight(state State, requested int64) (int64, error) {
+	if requested <= 0 {
+		return 0, nil
+	}
+
+	evidence := state.ConsensusParams.Evidence
+	base := blockExec.blockStore.Base()
+	heightBound := state.LastBlockHeight - evidence.MaxAgeNumBlocks
+	if heightBound <= base {
+		return min(requested, base), nil
+	}
+	timeBound := state.LastBlockTime.Add(-evidence.MaxAgeDuration)
+
+	// The time cutoff is normally base or base+1.
+	low := base
+	for range 2 {
+		if low >= heightBound {
+			return min(requested, heightBound), nil
+		}
+		meta, err := blockExec.blockMeta(low)
+		if err != nil {
+			return 0, err
+		}
+		if !meta.Header.Time.Before(timeBound) {
+			return min(requested, low), nil
+		}
+		low++
+	}
+
+	high := heightBound
+	for low < high {
+		height := low + (high-low)/2
+		meta, err := blockExec.blockMeta(height)
+		if err != nil {
+			return 0, err
+		}
+		if meta.Header.Time.Before(timeBound) {
+			low = height + 1
+		} else {
+			high = height
+		}
+	}
+	return min(requested, low), nil
+}
+
+func (blockExec *BlockExecutor) blockMeta(height int64) (*types.BlockMeta, error) {
+	meta := blockExec.blockStore.LoadBlockMeta(height)
+	if meta == nil {
+		return nil, fmt.Errorf("missing block metadata at height %d", height)
+	}
+	return meta, nil
 }

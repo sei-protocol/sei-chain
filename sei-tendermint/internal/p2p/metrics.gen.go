@@ -12,6 +12,7 @@ var Global = NewMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.peers,
+		Global.knownAddresses,
 		Global.peerReceiveBytesTotal,
 		Global.newConnections,
 		Global.routerPeerQueueRecv,
@@ -30,12 +31,18 @@ func NewMetrics() *Metrics {
 			Name:      "peers",
 			Help:      "Number of peers.",
 		}, nil),
+		knownAddresses: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "known_addresses",
+			Help:      "Number of distinct peers with a known address: connected peers plus those learned via PEX.",
+		}, nil),
 		peerReceiveBytesTotal: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
-			Help:      "Number of bytes per channel received from a given peer.",
-		}, []string{"peer_id", "chID", "message_type"}),
+			Help:      "Number of bytes per channel received.",
+		}, []string{"chID", "message_type"}),
 		newConnections: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -80,8 +87,12 @@ func (m *Metrics) peersAt() *tmprometheus.GaugeInt {
 	return m.peers.WithLabelValues()
 }
 
-func (m *Metrics) peerReceiveBytesTotalAt(peer_id string, chID string, message_type string) *tmprometheus.CounterInt {
-	return m.peerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
+func (m *Metrics) knownAddressesAt() *tmprometheus.GaugeInt {
+	return m.knownAddresses.WithLabelValues()
+}
+
+func (m *Metrics) peerReceiveBytesTotalAt(chID string, message_type string) *tmprometheus.CounterInt {
+	return m.peerReceiveBytesTotal.WithLabelValues(chID, message_type)
 }
 
 func (m *Metrics) newConnectionsAt(direction string, success string) *tmprometheus.CounterInt {

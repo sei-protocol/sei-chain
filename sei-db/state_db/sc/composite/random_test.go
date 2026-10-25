@@ -58,7 +58,7 @@ func runSteadyStateScenario(t *testing.T, mode types.WriteMode) {
 	verifyCommitInfo(t, cs, hasFlatKV)
 	verifyProofRouting(t, cs, oracle, placement)
 	if hasFlatKV {
-		require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+		require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()),
 			"steady-state flatkv must pass full-scan LtHash verification")
 	}
 
@@ -116,7 +116,7 @@ func runSteadyStateScenario(t *testing.T, mode types.WriteMode) {
 	verifyKeyCounts(t, clone, oracle, placement)
 	verifyFlatKVRows(t, clone, oracle, placement)
 	if hasFlatKV {
-		require.NoError(t, flatkv.VerifyLtHash(clone.flatKV),
+		require.NoError(t, flatkv.VerifyLtHash(clone.loadFlatKV()),
 			"state-sync clone flatkv must pass full-scan LtHash verification")
 	}
 
@@ -174,10 +174,6 @@ func TestRandomSteadyState_FlatKVOnly(t *testing.T) {
 
 func TestRandomSteadyState_EVMMigrated(t *testing.T) {
 	runSteadyStateScenario(t, types.EVMMigrated)
-}
-
-func TestRandomSteadyState_AllMigratedButBank(t *testing.T) {
-	runSteadyStateScenario(t, types.AllMigratedButBank)
 }
 
 func TestRandomSteadyState_TestOnlyDualWrite(t *testing.T) {
@@ -318,7 +314,7 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	verifyFlatKVRows(t, cs, oracle, succPlacement)
 	assertFlatKVMapsExercised(t, oracle, succPlacement)
 	verifyMigrationMetadata(t, cs, true, false)
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()),
 		"post-migration flatkv must pass full-scan LtHash verification")
 
 	// --- Phase 4: flip to the successor steady-state mode and re-verify. ---
@@ -439,22 +435,12 @@ func TestRandomMigration_MigrateEVM(t *testing.T) {
 	})
 }
 
-func TestRandomMigration_MigrateAllButBank(t *testing.T) {
+func TestRandomMigration_MigrateCosmos(t *testing.T) {
 	runMigrationScenario(t, migrationScenario{
 		predecessorMode: types.EVMMigrated,
-		migrationMode:   types.MigrateAllButBank,
-		successorMode:   types.AllMigratedButBank,
-		targetVersion:   uint64(migration.Version2_MigrateAllButBank),
-		migratingStores: []string{keys.StakingStoreKey},
-	})
-}
-
-func TestRandomMigration_MigrateBank(t *testing.T) {
-	runMigrationScenario(t, migrationScenario{
-		predecessorMode: types.AllMigratedButBank,
-		migrationMode:   types.MigrateBank,
+		migrationMode:   types.MigrateCosmos,
 		successorMode:   types.FlatKVOnly,
-		targetVersion:   uint64(migration.Version3_FlatKVOnly),
-		migratingStores: []string{keys.BankStoreKey},
+		targetVersion:   uint64(migration.Version2_FlatKVOnly),
+		migratingStores: []string{keys.BankStoreKey, keys.StakingStoreKey},
 	})
 }

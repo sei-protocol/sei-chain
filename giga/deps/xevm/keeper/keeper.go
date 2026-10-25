@@ -10,7 +10,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
@@ -25,7 +24,6 @@ import (
 	bankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
@@ -33,7 +31,6 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -55,7 +52,6 @@ type Keeper struct {
 	bankKeeper     bankkeeper.Keeper
 	accountKeeper  *authkeeper.AccountKeeper
 	stakingKeeper  *stakingkeeper.Keeper
-	transferKeeper ibctransferkeeper.Keeper
 	wasmKeeper     *wasmkeeper.PermissionedKeeper
 	wasmViewKeeper *wasmkeeper.Keeper
 	upgradeKeeper  *upgradekeeper.Keeper
@@ -78,13 +74,6 @@ type Keeper struct {
 	ReplayBlock *ethtypes.Block
 
 	receiptStore receipt.ReceiptStore
-
-	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
-	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
-	latestUpgrade           string
-
-	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
-	EvmoneVM *evmc.VM
 
 	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
 	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.
@@ -128,7 +117,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 func NewKeeper(
 	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore receipt.ReceiptStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
+	wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
@@ -140,7 +129,6 @@ func NewKeeper(
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
-		transferKeeper:               transferKeeper,
 		wasmKeeper:                   wasmKeeper,
 		wasmViewKeeper:               wasmViewKeeper,
 		upgradeKeeper:                upgradeKeeper,
@@ -152,54 +140,6 @@ func NewKeeper(
 		receiptStore:                 receiptStateStore,
 	}
 	return k
-}
-
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
-	k.customPrecompiles = cp
-	k.latestUpgrade = latestUpgrade
-	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
-	for addr, versioned := range cp {
-		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
-	}
-}
-
-func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract {
-	if !ctx.IsTracing() {
-		return k.latestCustomPrecompiles
-	}
-	versions := k.GetCustomPrecompilesVersions(ctx)
-	cp := make(map[common.Address]vm.PrecompiledContract, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		cp[addr] = versioned[versions[addr]]
-	}
-	return cp
-}
-
-func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
-	height := ctx.BlockHeight()
-	cp := make(map[common.Address]string, len(k.customPrecompiles))
-	for addr, versioned := range k.customPrecompiles {
-		mostRecentUpgradeHeight := int64(0)
-		noForkHistory := true
-		for upgrade := range versioned {
-			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
-			if upgradeHeight != 0 {
-				noForkHistory = false
-			}
-			if height < upgradeHeight {
-				// requested height hasn't seen this upgrade version yet.
-				continue
-			}
-			if upgradeHeight > mostRecentUpgradeHeight {
-				mostRecentUpgradeHeight = upgradeHeight
-				cp[addr] = upgrade
-			}
-		}
-		if noForkHistory {
-			cp[addr] = k.latestUpgrade
-		}
-	}
-	return cp
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {

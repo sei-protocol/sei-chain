@@ -14,6 +14,17 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+)
+
+const occMaxTxIncarnations = 10
+
+const (
+	occFallbackReasonConflict         = "conflict"
+	occFallbackReasonGasLimit         = "gas_limit"
+	occFallbackReasonGasOverflow      = "gas_overflow"
+	occFallbackReasonMaxIncarnation   = "max_incarnation"
+	occFallbackReasonWorkerPoolClosed = "worker_pool_closed"
 )
 
 type occTxExecution struct {
@@ -25,6 +36,7 @@ type occTxExecution struct {
 	gasUsed                  uint64
 	gasLimit                 uint64
 	commutativeBalanceDeltas map[common.Address]*big.Int
+	shards                   occShardSet
 	incarnation              int
 	sourcePrefix             int
 	err                      error
@@ -56,21 +68,23 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 	}
 }
 
-func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	runner := newOCCSpeculativeRunner(e, req)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
 	chunkSize := occChunkSize(len(req.Txs), workers)
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), e.state, runner.blockGasLimit, results); err != nil {
+	e.blockPhases.SetPhase(phaseOCCSpeculate)
+	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
-			return e.executeBlockOCCSequentialFallback(ctx, req, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
+			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
 		}
 		return nil, err
 	}
 
-	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, results)
+	e.blockPhases.SetPhase(phaseOCCValidate)
+	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, source, results)
 	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
 		reason := validation.fallbackReason
 		switch {
@@ -79,12 +93,16 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		case errors.Is(err, errOCCMaxIncarnation) && reason == "":
 			reason = occFallbackReasonMaxIncarnation
 		}
-		return e.executeBlockOCCSequentialFallback(ctx, req, validation, reason)
+		return e.executeBlockOCCSequentialFallback(ctx, req, source, validation, reason)
 	}
 	if err != nil {
 		return nil, err
 	}
+	e.blockPhases.SetPhase(phaseOCCMerge)
 	result, err := e.mergeOCCResults(ctx, results, finalState)
+	if errors.Is(err, errOCCWorkerPoolClosed) {
+		return e.executeBlockOCCSequentialFallback(ctx, req, source, validation, occFallbackReasonWorkerPoolClosed)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +110,11 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	return result, nil
 }
 
-func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, validation occValidationResult, reason string) (*BlockResult, error) {
+func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
 	if reason != "" {
 		validation.fallbackReason = reason
 	}
-	result, err := e.executeBlockSequential(ctx, req)
+	result, err := e.executeBlockSequential(ctx, req, source)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +209,7 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecu
 	}
 	result.incarnation = task.incarnation
 	result.sourcePrefix = task.sourcePrefix
+	result.shards = result.touchedShards()
 	results[task.txIndex] = result
 	return nil
 }
@@ -227,7 +246,7 @@ func (e *Executor) executeTxSpeculative(
 	chainConfig *params.ChainConfig,
 	blockCtx vm.BlockContext,
 	baseFee *big.Int,
-	gasLimit uint64,
+	blockGasLimit uint64,
 ) (occTxExecution, error) {
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
@@ -238,7 +257,7 @@ func (e *Executor) executeTxSpeculative(
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
-	gasPool := new(core.GasPool).AddGas(gasLimit)
+	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
 		evm,
 		stateDB,
@@ -249,14 +268,19 @@ func (e *Executor) executeTxSpeculative(
 		txIndexUint,
 		baseFee,
 	)
-	readSet, writeSet := stateDB.accessSets()
+	readSet, writeSet := stateDB.takeAccessSets()
+	gasLimit := p.Tx.Gas()
+	if txResult.Rejected {
+		// A rejected transaction occupies no block gas, so validation must not charge its declared limit.
+		gasLimit = 0
+	}
 	result := occTxExecution{
 		txResult:                 txResult,
 		receipt:                  receipt,
 		readSet:                  readSet,
 		writeSet:                 writeSet,
 		gasUsed:                  txResult.GasUsed,
-		gasLimit:                 p.Tx.Gas(),
+		gasLimit:                 gasLimit,
 		commutativeBalanceDeltas: stateDB.commutativeBalanceDeltasBig(),
 	}
 	if err != nil {
@@ -271,12 +295,17 @@ type blockSTMValidationState struct {
 	writes            *stateAccessIndex
 	cumulativeGasUsed uint64
 	nextToValidate    int
+	// passLookahead is how many results the next parallel pass looks ahead over.
+	passLookahead int
+	// passCumulative is the parallel passes' cumulative-gas buffer, reused across the block.
+	passCumulative []uint64
 }
 
 func newBlockSTMValidationState(source StateReader) *blockSTMValidationState {
 	return &blockSTMValidationState{
-		prefix: newBlockSTMState(source),
-		writes: newStateAccessIndex(),
+		prefix:        newBlockSTMState(source),
+		writes:        newStateAccessIndex(),
+		passLookahead: occMinPassLookahead,
 	}
 }
 
@@ -284,12 +313,28 @@ func (e *Executor) validateBlockSTM(
 	ctx context.Context,
 	runner occSpeculativeRunner,
 	pool *occWorkerPool,
+	source StateReader,
 	results []occTxExecution,
 ) ([]occTxExecution, *blockSTMState, occValidationResult, error) {
-	state := newBlockSTMValidationState(e.state)
+	state := newBlockSTMValidationState(source)
 	validation := occValidationResult{}
+	if err := state.writes.indexResults(ctx, pool, results); err != nil {
+		return nil, nil, validation, err
+	}
+	var backoff serialBackoff
 	for state.nextToValidate < len(results) {
-		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation)
+		if backoff.parallelPassDue(state.nextToValidate) {
+			accepted, err := e.acceptValidatedPrefix(ctx, runner, pool, results, state, &validation)
+			if err != nil {
+				return nil, nil, validation, err
+			}
+			if state.nextToValidate == len(results) {
+				break
+			}
+			backoff.record(state.nextToValidate, accepted)
+		}
+		end := backoff.serialEnd(state.nextToValidate, len(results))
+		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation, end)
 		if err != nil {
 			return nil, nil, validation, err
 		}
@@ -299,18 +344,58 @@ func (e *Executor) validateBlockSTM(
 		if err := runner.runTasks(ctx, pool, []occExecutionTask{*rerun}, results); err != nil {
 			return nil, nil, validation, err
 		}
+		// The rerun's writes join the index; the previous incarnation's stay, which can only cost a
+		// later transaction a rerun it did not need, never miss a conflict.
+		state.writes.addAllAt(rerun.txIndex, results[rerun.txIndex].writeSet)
+		state.writes.addCommutativeBalanceDeltasAt(rerun.txIndex, results[rerun.txIndex].commutativeBalanceDeltas)
 	}
 	return results, state.prefix, validation, nil
 }
 
+// serialBackoff decides how far the serial frontier runs before the next parallel pass.
+//
+// The frontier alternates between a parallel pass, which accepts every result up to the first one
+// that needs attention, and the serial frontier, which handles that one. A block whose transactions
+// depend on each other one after another makes every parallel pass accept nothing, so after a pass
+// that accepts too little to pay for itself the serial frontier keeps going for a stretch that
+// doubles each time it happens again, and resets once a pass accepts enough.
+type serialBackoff struct {
+	until   int
+	stretch int
+}
+
+// parallelPassDue reports whether the frontier at nextToValidate has left the serial stretch.
+func (b *serialBackoff) parallelPassDue(nextToValidate int) bool {
+	return nextToValidate >= b.until
+}
+
+// record sets the serial stretch that follows a parallel pass which accepted accepted results.
+func (b *serialBackoff) record(nextToValidate int, accepted int) {
+	if accepted >= occMinParallelValidation {
+		b.stretch = 0
+		return
+	}
+	b.stretch = max(2*b.stretch, occMinParallelValidation)
+	b.until = nextToValidate + b.stretch
+}
+
+// serialEnd returns the index the serial frontier runs up to, at least one past nextToValidate and
+// never past n.
+func (b *serialBackoff) serialEnd(nextToValidate int, n int) int {
+	return min(n, max(b.until, nextToValidate+1))
+}
+
+// validateBlockSTMFrontier accepts results in block order on the calling goroutine until it reaches
+// end or a result that has to be rerun, which it returns as a task.
 func validateBlockSTMFrontier(
 	ctx context.Context,
 	runner occSpeculativeRunner,
 	results []occTxExecution,
 	state *blockSTMValidationState,
 	validation *occValidationResult,
+	end int,
 ) (*occExecutionTask, error) {
-	for state.nextToValidate < len(results) {
+	for state.nextToValidate < end {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -351,8 +436,6 @@ func validateBlockSTMFrontier(
 		}
 		state.cumulativeGasUsed += result.gasUsed
 		state.prefix.apply(result)
-		state.writes.addAllAt(txIndex, result.writeSet)
-		state.writes.addCommutativeBalanceDeltasAt(txIndex, result.commutativeBalanceDeltas)
 		state.nextToValidate++
 	}
 	return nil, nil
@@ -380,7 +463,7 @@ func needsSTMRerun(
 		}
 		return nextToValidate > sourcePrefix, nil
 	}
-	return !validateSTMResultAgainstPrefix(validation, writes, result, cumulativeGasUsed, gasLimit, sourcePrefix), nil
+	return !validateSTMResultAgainstPrefix(validation, writes, result, cumulativeGasUsed, gasLimit, sourcePrefix, txIndex), nil
 }
 
 func newSTMRerunTask(
@@ -397,6 +480,7 @@ func newSTMRerunTask(
 		return occExecutionTask{}, errOCCMaxIncarnation
 	}
 	validation.rerunCount++
+	validation.maxIncarnation = max(validation.maxIncarnation, utils.Clamp[uint64](nextIncarnation))
 	return occExecutionTask{
 		txIndex:      txIndex,
 		txIndexUint:  txIndexUint,
@@ -414,8 +498,6 @@ func availableGas(gasLimit uint64, cumulativeGasUsed uint64) uint64 {
 	return gasLimit - cumulativeGasUsed
 }
 
-const occMaxTxIncarnations = 10
-
 var errOCCMaxIncarnation = errors.New("occ max incarnation reached")
 
 type occExecutionTask struct {
@@ -430,6 +512,7 @@ type occExecutionTask struct {
 type occValidationResult struct {
 	fallbackReason  string
 	rerunCount      uint64
+	maxIncarnation  uint64
 	conflictCount   uint64
 	validationCount uint64
 	conflicts       map[occConflictAggregationKey]uint64
@@ -442,14 +525,9 @@ type occConflictAggregationKey struct {
 	slot    common.Hash
 }
 
-const (
-	occFallbackReasonConflict         = "conflict"
-	occFallbackReasonGasLimit         = "gas_limit"
-	occFallbackReasonGasOverflow      = "gas_overflow"
-	occFallbackReasonMaxIncarnation   = "max_incarnation"
-	occFallbackReasonWorkerPoolClosed = "worker_pool_closed"
-)
-
+// validateSTMResultAgainstPrefix reports whether the result at txIndex, executed against the prefix
+// [0, sourcePrefix), still holds once the writes at [sourcePrefix, txIndex) are accepted, recording
+// every conflict it finds.
 func validateSTMResultAgainstPrefix(
 	validation *occValidationResult,
 	writes *stateAccessIndex,
@@ -457,13 +535,14 @@ func validateSTMResultAgainstPrefix(
 	cumulativeGasUsed uint64,
 	gasLimit uint64,
 	sourcePrefix int,
+	txIndex int,
 ) bool {
 	if err := stmGasValidationError(validation, result, cumulativeGasUsed, gasLimit); err != nil {
 		return false
 	}
 	conflictsBefore := validation.conflictCount
-	validation.addConflicts("read", writes, result.readSet, sourcePrefix)
-	validation.addConflicts("write", writes, result.writeSet, sourcePrefix)
+	validation.addConflicts("read", writes, result.readSet, sourcePrefix, txIndex)
+	validation.addConflicts("write", writes, result.writeSet, sourcePrefix, txIndex)
 	if validation.conflictCount == conflictsBefore {
 		return true
 	}
@@ -472,20 +551,28 @@ func validateSTMResultAgainstPrefix(
 }
 
 func stmGasValidationError(validation *occValidationResult, result occTxExecution, cumulativeGasUsed uint64, gasLimit uint64) error {
-	if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
-		validation.fallbackReason = occFallbackReasonGasOverflow
-		return errors.New(occFallbackReasonGasOverflow)
+	reason, err := stmGasFailure(result, cumulativeGasUsed, gasLimit)
+	if err != nil {
+		validation.fallbackReason = reason
 	}
-	if cumulativeGasUsed > gasLimit || result.gasLimit > gasLimit-cumulativeGasUsed {
-		validation.fallbackReason = occFallbackReasonGasLimit
-		return core.ErrGasLimitReached
-	}
-	return nil
+	return err
 }
 
-func (r *occValidationResult) addConflicts(access string, writes *stateAccessIndex, set map[stateAccessKey]struct{}, sourcePrefix int) {
+// stmGasFailure returns the fallback reason and error for a result that does not fit the block gas
+// accounting after cumulativeGasUsed, or an empty reason and nil error when it does.
+func stmGasFailure(result occTxExecution, cumulativeGasUsed uint64, gasLimit uint64) (string, error) {
+	if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
+		return occFallbackReasonGasOverflow, errors.New(occFallbackReasonGasOverflow)
+	}
+	if cumulativeGasUsed > gasLimit || result.gasLimit > gasLimit-cumulativeGasUsed {
+		return occFallbackReasonGasLimit, core.ErrGasLimitReached
+	}
+	return "", nil
+}
+
+func (r *occValidationResult) addConflicts(access string, writes *stateAccessIndex, set map[stateAccessKey]struct{}, sourcePrefix int, txIndex int) {
 	for key := range set {
-		if !writes.conflictsWithAfter(key, sourcePrefix) {
+		if !writes.conflictsWithin(key, sourcePrefix, txIndex) {
 			continue
 		}
 		if r.conflicts == nil {
@@ -506,6 +593,7 @@ func (r occValidationResult) stats(fallback bool) OCCStats {
 		Attempted:       true,
 		Fallback:        fallback,
 		RerunCount:      r.rerunCount,
+		MaxIncarnation:  r.maxIncarnation,
 		ConflictCount:   r.conflictCount,
 		ValidationCount: r.validationCount,
 	}
@@ -579,98 +667,147 @@ func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution
 		blockResult.Txs[i] = result.txResult
 		blockResult.Receipts[i] = result.receipt
 	}
-	finalState.ChangeSetInto(&blockResult.ChangeSet)
+	if err := finalState.changeSetIntoParallel(ctx, e.occPool, &blockResult.ChangeSet); err != nil {
+		blockResult.Release()
+		return nil, err
+	}
 	return blockResult, nil
 }
 
+// blockSTMState is the accepted prefix of a block's state, split into address shards so that
+// applying results and emitting the changeset can proceed shard by shard on different workers.
 type blockSTMState struct {
-	source        StateReader
-	balances      map[common.Address]*big.Int
-	nonces        map[common.Address]uint64
-	code          map[common.Address][]byte
-	storageClears map[common.Address]struct{}
-	storage       map[storageChangeKey]common.Hash
+	source StateReader
+	shards [occStateShards]blockSTMShard
+}
+
+// blockSTMShard holds the accepted writes for the addresses of one shard.
+type blockSTMShard struct {
+	balances map[common.Address]*big.Int
+	nonces   map[common.Address]uint64
+	code     map[common.Address][]byte
+	storage  map[storageChangeKey]common.Hash
+
+	// The prior maps hold, for each key the accepted prefix wrote, the value it had before the block:
+	// the prior the first accepted write to it carried. No transaction ahead of that writer wrote the
+	// key, so what it read was the pre-block value. Later writers read an earlier writer's value.
+	priorBalances map[common.Address]*big.Int
+	priorNonces   map[common.Address]uint64
+	priorCode     map[common.Address][]byte
+	priorStorage  map[storageChangeKey]common.Hash
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
 	if source == nil {
 		source = NewMemoryState()
 	}
-	return &blockSTMState{
-		source:        source,
-		balances:      map[common.Address]*big.Int{},
-		nonces:        map[common.Address]uint64{},
-		code:          map[common.Address][]byte{},
-		storageClears: map[common.Address]struct{}{},
-		storage:       map[storageChangeKey]common.Hash{},
+	state := &blockSTMState{source: source}
+	for i := range state.shards {
+		state.shards[i] = blockSTMShard{
+			balances:      map[common.Address]*big.Int{},
+			nonces:        map[common.Address]uint64{},
+			code:          map[common.Address][]byte{},
+			storage:       map[storageChangeKey]common.Hash{},
+			priorBalances: map[common.Address]*big.Int{},
+			priorNonces:   map[common.Address]uint64{},
+			priorCode:     map[common.Address][]byte{},
+			priorStorage:  map[storageChangeKey]common.Hash{},
+		}
 	}
+	return state
+}
+
+func (s *blockSTMState) shard(addr common.Address) *blockSTMShard {
+	return &s.shards[occShardOf(addr)]
 }
 
 func (s *blockSTMState) GetBalance(addr common.Address) *big.Int {
-	if balance, ok := s.balances[addr]; ok {
+	if balance, ok := s.shard(addr).balances[addr]; ok {
 		return cloneBig(balance)
 	}
 	return s.source.GetBalance(addr)
 }
 
 func (s *blockSTMState) GetNonce(addr common.Address) uint64 {
-	if nonce, ok := s.nonces[addr]; ok {
+	if nonce, ok := s.shard(addr).nonces[addr]; ok {
 		return nonce
 	}
 	return s.source.GetNonce(addr)
 }
 
 func (s *blockSTMState) GetCode(addr common.Address) []byte {
-	if code, ok := s.code[addr]; ok {
+	if code, ok := s.shard(addr).code[addr]; ok {
 		return cloneBytes(code)
 	}
 	return s.source.GetCode(addr)
 }
 
 func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Hash {
-	if value, ok := s.storage[storageChangeKey{address: addr, key: key}]; ok {
+	shard := s.shard(addr)
+	if value, ok := shard.storage[storageChangeKey{address: addr, key: key}]; ok {
 		return value
-	}
-	if _, ok := s.storageClears[addr]; ok {
-		return common.Hash{}
 	}
 	return s.source.GetState(addr, key)
 }
 
+// apply folds one accepted result into the prefix.
 func (s *blockSTMState) apply(result occTxExecution) {
-	for _, change := range result.changeSet.Balances {
+	s.applyOwned(result, occAllShards)
+}
+
+// applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
+// reports true for. Two callers with disjoint ownership can run concurrently.
+//
+// Results must be applied in block order, each once, for the prior maps to keep the first writer's
+// prior.
+func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
+	for change := range ownedChanges(owns, result.changeSet.Balances, balanceChangeAddr) {
+		shard := s.shard(change.Address)
+		if _, ok := shard.priorBalances[change.Address]; !ok {
+			shard.priorBalances[change.Address] = change.PriorBalance
+		}
 		delta := result.commutativeBalanceDeltas[change.Address]
 		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
 		if delta != nil && !normalWrite {
 			balance := cloneBig(s.GetBalance(change.Address))
 			balance.Add(balance, delta)
-			s.balances[change.Address] = balance
+			shard.balances[change.Address] = balance
 			continue
 		}
-		s.balances[change.Address] = cloneBig(change.Balance)
+		shard.balances[change.Address] = cloneBig(change.Balance)
 	}
-	for _, change := range result.changeSet.Nonces {
-		s.nonces[change.Address] = change.Nonce
+	for change := range ownedChanges(owns, result.changeSet.Nonces, nonceChangeAddr) {
+		shard := s.shard(change.Address)
+		if _, ok := shard.priorNonces[change.Address]; !ok {
+			shard.priorNonces[change.Address] = change.PriorNonce
+		}
+		shard.nonces[change.Address] = change.Nonce
 	}
-	for _, change := range result.changeSet.Code {
+	for change := range ownedChanges(owns, result.changeSet.Code, codeChangeAddr) {
+		shard := s.shard(change.Address)
+		if _, ok := shard.priorCode[change.Address]; !ok {
+			shard.priorCode[change.Address] = cloneBytes(change.PriorCode)
+		}
 		if change.Delete {
-			s.code[change.Address] = nil
+			shard.code[change.Address] = nil
 		} else {
-			s.code[change.Address] = cloneBytes(change.Code)
+			shard.code[change.Address] = cloneBytes(change.Code)
 		}
 	}
-	for _, addr := range result.changeSet.StorageClears {
-		s.storageClears[addr] = struct{}{}
-		for key := range s.storage {
-			if key.address == addr {
-				delete(s.storage, key)
-			}
+	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {
+		shard := s.shard(change.Address)
+		key := storageChangeKey{address: change.Address, key: change.Key}
+		if _, ok := shard.priorStorage[key]; !ok {
+			shard.priorStorage[key] = change.PriorValue
 		}
-	}
-	for _, change := range result.changeSet.Storage {
-		s.storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
+		shard.storage[key] = change.Value
 	}
 }
+
+func balanceChangeAddr(c BalanceChange) common.Address { return c.Address }
+func nonceChangeAddr(c NonceChange) common.Address     { return c.Address }
+func codeChangeAddr(c CodeChange) common.Address       { return c.Address }
+func storageChangeAddr(c StorageChange) common.Address { return c.Address }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
 	var changes StateChangeSet
@@ -678,36 +815,44 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 	return changes
 }
 
+// ChangeSetInto writes the block's net state changes, in canonical order, on the calling goroutine.
 func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
-	changes.resetForReuse()
-	balanceAddrs := sortedAddressesFromBigMap(s.balances)
-	for _, addr := range balanceAddrs {
-		balance := cloneBig(s.balances[addr])
-		if balance.Cmp(s.source.GetBalance(addr)) == 0 {
-			continue
-		}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: balance})
+	changes.Reset()
+	for i := range s.shards {
+		s.shards[i].changeSetInto(changes)
 	}
-	nonceAddrs := sortedAddressesFromUint64Map(s.nonces)
-	for _, addr := range nonceAddrs {
-		if s.nonces[addr] == s.source.GetNonce(addr) {
-			continue
-		}
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: s.nonces[addr]})
-	}
-	codeAddrs := sortedAddressesFromBytesMap(s.code)
-	for _, addr := range codeAddrs {
-		code := cloneBytes(s.code[addr])
-		if bytes.Equal(code, s.source.GetCode(addr)) {
-			continue
-		}
-		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: code, Delete: len(code) == 0})
-	}
-	storageClearAddrs := sortedAddressesFromSet(s.storageClears)
-	changes.StorageClears = append(changes.StorageClears, storageClearAddrs...)
+}
 
-	storageKeys := make([]storageChangeKey, 0, len(s.storage))
-	for key := range s.storage {
+// changeSetInto appends the shard's net changes, in canonical order, to changes. Shards partition
+// the address space in canonical order, so appending shard by shard yields a canonically ordered
+// changeset.
+func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
+	for _, addr := range sortedAddresses(h.balances) {
+		balance, prior := h.balances[addr], h.priorBalances[addr]
+		if prior == nil {
+			prior = new(big.Int)
+		}
+		if balance.Cmp(prior) == 0 {
+			continue
+		}
+		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: cloneBig(balance), PriorBalance: prior})
+	}
+	for _, addr := range sortedAddresses(h.nonces) {
+		nonce, prior := h.nonces[addr], h.priorNonces[addr]
+		if nonce == prior {
+			continue
+		}
+		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: nonce, PriorNonce: prior})
+	}
+	for _, addr := range sortedAddresses(h.code) {
+		code, prior := h.code[addr], h.priorCode[addr]
+		if bytes.Equal(code, prior) {
+			continue
+		}
+		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: cloneBytes(prior)})
+	}
+	storageKeys := make([]storageChangeKey, 0, len(h.storage))
+	for key := range h.storage {
 		storageKeys = append(storageKeys, key)
 	}
 	sort.Slice(storageKeys, func(i, j int) bool {
@@ -717,48 +862,72 @@ func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 		return bytes.Compare(storageKeys[i].key[:], storageKeys[j].key[:]) < 0
 	})
 	for _, key := range storageKeys {
-		value := s.storage[key]
-		baseValue := s.source.GetState(key.address, key.key)
-		if _, cleared := s.storageClears[key.address]; cleared {
-			baseValue = common.Hash{}
-		}
-		if value == baseValue {
+		value, prior := h.storage[key], h.priorStorage[key]
+		if value == prior {
 			continue
 		}
 		changes.Storage = append(changes.Storage, StorageChange{
-			Address: key.address,
-			Key:     key.key,
-			Value:   value,
-			Delete:  value == (common.Hash{}),
+			Address:    key.address,
+			Key:        key.key,
+			Value:      value,
+			Delete:     value == (common.Hash{}),
+			PriorValue: prior,
 		})
 	}
 }
 
+// stateAccessIndex records, per state key and per address, the range of transaction indexes that
+// wrote it. It is split into address shards so that disjoint shards can be filled concurrently.
 type stateAccessIndex struct {
-	exact              map[stateAccessKey]int
-	account            map[common.Address]int
-	touched            map[common.Address]int
-	commutativeBalance map[common.Address]int
+	shards [occStateShards]stateAccessShard
+}
+
+// stateAccessShard indexes the writes to the addresses of one shard.
+type stateAccessShard struct {
+	exact              map[stateAccessKey]txIndexSpan
+	account            map[common.Address]txIndexSpan
+	touched            map[common.Address]txIndexSpan
+	commutativeBalance map[common.Address]txIndexSpan
+}
+
+// txIndexSpan is the lowest and highest transaction index recorded for one key.
+type txIndexSpan struct {
+	first int
+	last  int
 }
 
 func newStateAccessIndex() *stateAccessIndex {
-	return &stateAccessIndex{
-		exact:              map[stateAccessKey]int{},
-		account:            map[common.Address]int{},
-		touched:            map[common.Address]int{},
-		commutativeBalance: map[common.Address]int{},
+	index := &stateAccessIndex{}
+	for i := range index.shards {
+		index.shards[i] = stateAccessShard{
+			exact:              map[stateAccessKey]txIndexSpan{},
+			account:            map[common.Address]txIndexSpan{},
+			touched:            map[common.Address]txIndexSpan{},
+			commutativeBalance: map[common.Address]txIndexSpan{},
+		}
 	}
+	return index
 }
 
-func (i *stateAccessIndex) conflictsWithAfter(key stateAccessKey, sourcePrefix int) bool {
-	if i.hasWriteAtOrAfter(i.exact, key, sourcePrefix) {
+func (i *stateAccessIndex) shard(addr common.Address) *stateAccessShard {
+	return &i.shards[occShardOf(addr)]
+}
+
+// conflictsWithin reports whether a write recorded for key would invalidate a read or write of it
+// by a transaction that executed against the prefix [0, lo) and sits at index hi, i.e. whether the
+// key was written at an index in [lo, hi). Only the first and last write of a key are recorded, so
+// the answer can be a false positive when both fall outside the range with a gap across it; it is
+// never a false negative, and a false positive costs one rerun, not correctness.
+func (i *stateAccessIndex) conflictsWithin(key stateAccessKey, lo int, hi int) bool {
+	shard := i.shard(key.address)
+	if writtenWithin(shard.exact, key, lo, hi) {
 		return true
 	}
-	if i.hasAddressWriteAtOrAfter(i.account, key.address, sourcePrefix) {
+	if writtenWithin(shard.account, key.address, lo, hi) {
 		return true
 	}
 	if key.kind == stateAccessAccount {
-		if i.hasAddressWriteAtOrAfter(i.touched, key.address, sourcePrefix) {
+		if writtenWithin(shard.touched, key.address, lo, hi) {
 			return true
 		}
 	}
@@ -768,57 +937,64 @@ func (i *stateAccessIndex) conflictsWithAfter(key stateAccessKey, sourcePrefix i
 	if key.kind != stateAccessAccount && key.kind != stateAccessBalance {
 		return false
 	}
-	return i.hasAddressWriteAtOrAfter(i.commutativeBalance, key.address, sourcePrefix)
+	return writtenWithin(shard.commutativeBalance, key.address, lo, hi)
 }
 
+// writtenWithin reports whether the span recorded for key may contain an index in [lo, hi).
+func writtenWithin[K comparable](writes map[K]txIndexSpan, key K, lo int, hi int) bool {
+	span, ok := writes[key]
+	return ok && lo < hi && span.last >= lo && span.first < hi
+}
+
+// addAll records the set as written by transactions at every index.
 func (i *stateAccessIndex) addAll(set map[stateAccessKey]struct{}) {
-	i.addAllAt(math.MaxInt, set)
+	i.addSpan(txIndexSpan{first: 0, last: math.MaxInt}, set, occAllShards)
 }
 
+// addAllAt records the set as written by the transaction at txIndex.
 func (i *stateAccessIndex) addAllAt(txIndex int, set map[stateAccessKey]struct{}) {
-	for key := range set {
-		i.recordWrite(i.exact, key, txIndex)
-		// Exist/Empty account reads depend on account metadata, not storage slots.
-		if key.kind != stateAccessStorage {
-			i.recordAddressWrite(i.touched, key.address, txIndex)
-		}
-		if key.kind == stateAccessAccount {
-			i.recordAddressWrite(i.account, key.address, txIndex)
-		}
-	}
+	i.addSpan(txIndexSpan{first: txIndex, last: txIndex}, set, occAllShards)
 }
 
-func (i *stateAccessIndex) addCommutativeBalanceDeltasAt(txIndex int, deltas map[common.Address]*big.Int) {
-	for addr, delta := range deltas {
-		if delta == nil || delta.Sign() == 0 {
+func (i *stateAccessIndex) addSpan(span txIndexSpan, set map[stateAccessKey]struct{}, owns occShardSet) {
+	for key := range set {
+		if !owns.has(occShardOf(key.address)) {
 			continue
 		}
-		i.recordAddressWrite(i.commutativeBalance, addr, txIndex)
+		shard := i.shard(key.address)
+		recordSpan(shard.exact, key, span)
+		// Exist/Empty account reads depend on account metadata, not storage slots.
+		if key.kind != stateAccessStorage {
+			recordSpan(shard.touched, key.address, span)
+		}
+		if key.kind == stateAccessAccount {
+			recordSpan(shard.account, key.address, span)
+		}
 	}
 }
 
-func (i *stateAccessIndex) hasWriteAtOrAfter(writes map[stateAccessKey]int, key stateAccessKey, sourcePrefix int) bool {
-	txIndex, ok := writes[key]
-	return ok && txIndex >= sourcePrefix
+// addCommutativeBalanceDeltasAt records the non-zero deltas as balance credits by the transaction
+// at txIndex.
+func (i *stateAccessIndex) addCommutativeBalanceDeltasAt(txIndex int, deltas map[common.Address]*big.Int) {
+	i.addCommutativeBalanceDeltas(txIndex, deltas, occAllShards)
 }
 
-func (i *stateAccessIndex) hasAddressWriteAtOrAfter(writes map[common.Address]int, addr common.Address, sourcePrefix int) bool {
-	txIndex, ok := writes[addr]
-	return ok && txIndex >= sourcePrefix
-}
-
-func (i *stateAccessIndex) recordWrite(writes map[stateAccessKey]int, key stateAccessKey, txIndex int) {
-	if existing, ok := writes[key]; ok && existing >= txIndex {
-		return
+func (i *stateAccessIndex) addCommutativeBalanceDeltas(txIndex int, deltas map[common.Address]*big.Int, owns occShardSet) {
+	for addr, delta := range deltas {
+		if delta == nil || delta.Sign() == 0 || !owns.has(occShardOf(addr)) {
+			continue
+		}
+		recordSpan(i.shard(addr).commutativeBalance, addr, txIndexSpan{first: txIndex, last: txIndex})
 	}
-	writes[key] = txIndex
 }
 
-func (i *stateAccessIndex) recordAddressWrite(writes map[common.Address]int, addr common.Address, txIndex int) {
-	if existing, ok := writes[addr]; ok && existing >= txIndex {
-		return
+// recordSpan widens the span recorded for key to include span.
+func recordSpan[K comparable](writes map[K]txIndexSpan, key K, span txIndexSpan) {
+	if existing, ok := writes[key]; ok {
+		span.first = min(span.first, existing.first)
+		span.last = max(span.last, existing.last)
 	}
-	writes[addr] = txIndex
+	writes[key] = span
 }
 
 type storageChangeKey struct {
@@ -826,40 +1002,8 @@ type storageChangeKey struct {
 	key     common.Hash
 }
 
-func sortedAddressesFromBigMap(values map[common.Address]*big.Int) []common.Address {
-	addrs := make([]common.Address, 0, len(values))
-	for addr := range values {
-		addrs = append(addrs, addr)
-	}
-	sort.Slice(addrs, func(i, j int) bool {
-		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
-	})
-	return addrs
-}
-
-func sortedAddressesFromUint64Map(values map[common.Address]uint64) []common.Address {
-	addrs := make([]common.Address, 0, len(values))
-	for addr := range values {
-		addrs = append(addrs, addr)
-	}
-	sort.Slice(addrs, func(i, j int) bool {
-		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
-	})
-	return addrs
-}
-
-func sortedAddressesFromBytesMap(values map[common.Address][]byte) []common.Address {
-	addrs := make([]common.Address, 0, len(values))
-	for addr := range values {
-		addrs = append(addrs, addr)
-	}
-	sort.Slice(addrs, func(i, j int) bool {
-		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
-	})
-	return addrs
-}
-
-func sortedAddressesFromSet(values map[common.Address]struct{}) []common.Address {
+// sortedAddresses returns the keys of values in canonical order.
+func sortedAddresses[V any](values map[common.Address]V) []common.Address {
 	addrs := make([]common.Address, 0, len(values))
 	for addr := range values {
 		addrs = append(addrs, addr)

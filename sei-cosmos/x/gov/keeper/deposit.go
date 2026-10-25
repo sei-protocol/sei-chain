@@ -116,6 +116,11 @@ func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAdd
 	if (proposal.Status != types.StatusDepositPeriod) && (proposal.Status != types.StatusVotingPeriod) {
 		return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
+	if keeper.IncrementalTallyEnabled(ctx) && proposal.Status == types.StatusVotingPeriod {
+		if proposal.VotingEndTime.Before(ctx.BlockTime()) || keeper.voteDelegationSnapshotFrozen(ctx, proposal) {
+			return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+		}
+	}
 
 	// update the governance module's account coins pool
 	err := keeper.bankKeeper.SendCoinsFromAccountToModule(ctx, depositorAddr, types.ModuleName, depositAmount)
@@ -161,12 +166,20 @@ func (keeper Keeper) AddDeposit(ctx sdk.Context, proposalID uint64, depositorAdd
 	return activatedVotingPeriod, nil
 }
 
-// RefundDeposits refunds and deletes all the deposits on a specific proposal
+// RefundDeposits refunds deposits whose recipients can receive funds and deletes
+// their records. Deposits for unpayable recipients remain recorded and backed by
+// the governance module balance.
 func (keeper Keeper) RefundDeposits(ctx sdk.Context, proposalID uint64) {
 	store := ctx.KVStore(keeper.storeKey)
 
 	keeper.IterateDeposits(ctx, proposalID, func(deposit types.Deposit) bool {
 		depositor := sdk.MustAccAddressFromBech32(deposit.Depositor)
+		if keeper.bankKeeper.BlockedAddr(depositor) || !keeper.bankKeeper.CanSendTo(ctx, depositor) {
+			// Retain the deposit so its record continues to account for the backing
+			// module balance. Recovering a permanently unreceivable deposit requires
+			// a migration.
+			return false
+		}
 
 		err := keeper.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, depositor, deposit.Amount)
 		if err != nil {

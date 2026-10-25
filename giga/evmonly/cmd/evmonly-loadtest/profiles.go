@@ -53,7 +53,7 @@ func startProfiles(cfg config) (*profileSession, error) {
 }
 
 func createProfileFile(path string) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:gosec // profile output is an explicit local CLI path.
 		return nil, fmt.Errorf("create profile dir for %s: %w", path, err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600) //nolint:gosec // profile output path is an explicit CLI argument.

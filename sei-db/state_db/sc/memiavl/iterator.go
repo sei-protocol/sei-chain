@@ -15,6 +15,10 @@ type Iterator struct {
 	ascending  bool
 	zeroCopy   bool
 
+	// snapshot is the snapshot backing the nodes this iterator walks, held for the
+	// iterator's lifetime and released by Close. nil when no snapshot backs them.
+	snapshot *Snapshot
+
 	// cache the next key-value pair
 	key, value []byte
 
@@ -23,13 +27,24 @@ type Iterator struct {
 	stack []Node
 }
 
-func NewIterator(start, end []byte, ascending bool, root Node, zeroCopy bool) *Iterator {
+// NewIterator returns an iterator over the tree rooted at root, backed by
+// snapshot, which is nil when no snapshot backs those nodes. The iterator holds a
+// reference on snapshot until Close.
+func NewIterator(start, end []byte, ascending bool, root Node, zeroCopy bool, snapshot *Snapshot) *Iterator {
+	// A persisted node's key and value are slices into this mmap, and both Key and
+	// Value read them after the tree's read lock is gone, so the reference is what
+	// stops a concurrent rewrite unmapping the region mid-iteration. That unmap
+	// surfaces as a fatal fault in runtime.memmove, which no caller can recover.
+	if snapshot != nil {
+		snapshot.Acquire()
+	}
 	iter := &Iterator{
 		start:     start,
 		end:       end,
 		ascending: ascending,
 		valid:     true,
 		zeroCopy:  zeroCopy,
+		snapshot:  snapshot,
 	}
 
 	if root != nil {
@@ -117,5 +132,16 @@ func (iter *Iterator) Next() {
 func (iter *Iterator) Close() error {
 	iter.valid = false
 	iter.stack = nil
-	return nil
+	// Under zeroCopy these still point into the mapping the release below may
+	// unmap, so drop them with the reference rather than leaving a caller able to
+	// reach freed pages through a closed iterator.
+	iter.key = nil
+	iter.value = nil
+
+	snapshot := iter.snapshot
+	iter.snapshot = nil
+	if snapshot == nil {
+		return nil
+	}
+	return snapshot.Close()
 }

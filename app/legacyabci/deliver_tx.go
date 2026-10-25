@@ -4,35 +4,29 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type DeliverTxKeepers struct {
-	AccountKeeper  authkeeper.AccountKeeper
-	BankKeeper     bankkeeper.Keeper
-	FeeGrantKeeper *feegrantkeeper.Keeper
-	OracleKeeper   oraclekeeper.Keeper
-	EvmKeeper      *evmkeeper.Keeper
-	ParamsKeeper   paramskeeper.Keeper
-	UpgradeKeeper  *upgradekeeper.Keeper
+	AccountKeeper authkeeper.AccountKeeper
+	BankKeeper    bankkeeper.Keeper
+	EvmKeeper     *evmkeeper.Keeper
+	ParamsKeeper  paramskeeper.Keeper
+	UpgradeKeeper *upgradekeeper.Keeper
 }
 
 func DeliverTx(
@@ -55,14 +49,6 @@ func DeliverTx(
 	txStart := time.Now()
 	defer func() {
 		legacyAbciMetrics.txDuration.Record(ctx.Context(), time.Since(txStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", "deliver")))
-		// TODO(PLT-343): remove once tx_duration verified
-		telemetry.MeasureThroughputSinceWithLabels(
-			telemetry.TxCount,
-			[]metrics.Label{
-				telemetry.NewLabel("mode", "deliver"),
-			},
-			txStart,
-		)
 	}()
 	// check for existing parent tracer, and if applicable, use it
 	spanCtx, span := tracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
@@ -108,7 +94,7 @@ func DeliverTx(
 			}
 		}()
 	} else {
-		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper)
+		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper)
 	}
 	if !newCtx.IsZero() {
 		ctx = newCtx.WithMultiStore(ms)

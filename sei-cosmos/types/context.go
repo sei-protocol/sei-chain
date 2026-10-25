@@ -12,6 +12,7 @@ import (
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/ctxkv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv"
 	stypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
@@ -42,6 +43,7 @@ type Context struct {
 	checkTx            bool
 	recheckTx          bool // if recheckTx == true, then checkTx must also be true
 	abciQuery          bool // true only for BaseApp.Query; never transaction/block execution
+	paginationLimits   PaginationLimits
 	isGenesis          bool
 	minGasPrice        DecCoins
 	consParams         *tmproto.ConsensusParams
@@ -136,6 +138,10 @@ func (c Context) IsReCheckTx() bool {
 
 func (c Context) IsABCIQuery() bool {
 	return c.abciQuery
+}
+
+func (c Context) PaginationLimits() PaginationLimits {
+	return c.paginationLimits
 }
 
 func (c Context) IsGenesis() bool {
@@ -394,6 +400,11 @@ func (c Context) WithIsABCIQuery(isABCIQuery bool) Context {
 	return c
 }
 
+func (c Context) WithPaginationLimits(limits PaginationLimits) Context {
+	c.paginationLimits = limits
+	return c
+}
+
 func (c Context) WithIsGenesis(isGenesis bool) Context {
 	c.isGenesis = isGenesis
 	return c
@@ -565,10 +576,10 @@ func (c Context) Value(key interface{}) interface{} {
 func (c Context) KVStore(key StoreKey) KVStore {
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+			return gaskv.NewStore(ctxkv.Wrap(c.nextMs.GetKVStore(key), c.ctx), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+	return gaskv.NewStore(ctxkv.Wrap(c.MultiStore().GetKVStore(key), c.ctx), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 }
 
 func (c Context) GigaKVStore(key StoreKey) KVStore {
@@ -579,10 +590,10 @@ func (c Context) GigaKVStore(key StoreKey) KVStore {
 func (c Context) TransientStore(key StoreKey) KVStore {
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+			return gaskv.NewStore(ctxkv.Wrap(c.nextMs.GetKVStore(key), c.ctx), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+	return gaskv.NewStore(ctxkv.Wrap(c.MultiStore().GetKVStore(key), c.ctx), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 }
 
 // CacheContext returns a new Context with the multi-store cached and a new

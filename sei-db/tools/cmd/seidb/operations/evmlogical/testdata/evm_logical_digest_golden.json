@@ -1,0 +1,5109 @@
+{
+  "digest/composite-changelog-h3": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "composite",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 11,
+      "digest": "408264437EFB2821A19FC6E9628829F9A257FC032EB75C909CA1B54BCBB72B31"
+    },
+    "marker_adjustments": [
+      "migration/migration-boundary"
+    ],
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "8A534B0A10A07DEF8B7E6CE1754F398923612E0C55EDAE4756F46286CC933A9F"
+    },
+    "version": 3
+  },
+  "digest/composite-changelog-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "composite",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 11,
+      "digest": "528B36BE40ECA77625F44867989AE24D4C515896EB7D55B7606AB2260253251A"
+    },
+    "marker_adjustments": [
+      "migration/migration-boundary"
+    ],
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "3A4858FA35D885AC5525080E60D72BA4BE5EF8C45AD5890BE37EC138303B72B1"
+    },
+    "version": 4
+  },
+  "digest/composite-replay-h3": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "composite",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 11,
+      "digest": "408264437EFB2821A19FC6E9628829F9A257FC032EB75C909CA1B54BCBB72B31"
+    },
+    "marker_adjustments": [
+      "migration/migration-boundary"
+    ],
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "8A534B0A10A07DEF8B7E6CE1754F398923612E0C55EDAE4756F46286CC933A9F"
+    },
+    "version": 3
+  },
+  "digest/composite-replay-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "composite",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 11,
+      "digest": "528B36BE40ECA77625F44867989AE24D4C515896EB7D55B7606AB2260253251A"
+    },
+    "marker_adjustments": [
+      "migration/migration-boundary"
+    ],
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "3A4858FA35D885AC5525080E60D72BA4BE5EF8C45AD5890BE37EC138303B72B1"
+    },
+    "version": 4
+  },
+  "digest/composite-snapshot-h2": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "composite",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 9,
+      "digest": "3B16D05831145280528D42977C8EF64AA8332D7E1B942970113E7B6812B2C6A7"
+    },
+    "marker_adjustments": [
+      "migration/migration-boundary"
+    ],
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 4,
+      "digest": "34884BAFA742FC4301103733B762FEC20FF972F825C2AE2A886FDC1F864AA7A3"
+    },
+    "version": 2
+  },
+  "digest/flatkv-h2": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "flatkv",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 10,
+      "digest": "48F1B0C97095C294C23D819E9E92A9DF666F80FB5BA87A30ED3CA19F16211541"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "386191CE5E74527A0DB860A5228F5DB5511731FB93064F063272A614738FB679"
+    },
+    "version": 2
+  },
+  "digest/flatkv-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "flatkv",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4
+  },
+  "digest/memiavl-semantic-changelog-h2": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 10,
+      "digest": "48F1B0C97095C294C23D819E9E92A9DF666F80FB5BA87A30ED3CA19F16211541"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "386191CE5E74527A0DB860A5228F5DB5511731FB93064F063272A614738FB679"
+    },
+    "version": 2,
+    "zero_census": {
+      "empty_code_values": 0,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 1,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 0
+    }
+  },
+  "digest/memiavl-semantic-changelog-h3": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "F823C2011E053EBC9F085EB9C6E9FCF7DA22F4314508D1F20A1CF8BCB6BA88E6"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "89B14AC10F8B35B30ACF1FBBAA4A26C0DED7DE7FD8E7BD3F8CC4D6C7428274DF"
+    },
+    "version": 3,
+    "zero_census": {
+      "empty_code_values": 1,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 2,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 1
+    }
+  },
+  "digest/memiavl-semantic-changelog-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4,
+    "zero_census": {
+      "empty_code_values": 1,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 2,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 1
+    }
+  },
+  "digest/memiavl-semantic-changelog-tip": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4,
+    "zero_census": {
+      "empty_code_values": 1,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 2,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 1
+    }
+  },
+  "digest/memiavl-semantic-replay-h2": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 10,
+      "digest": "48F1B0C97095C294C23D819E9E92A9DF666F80FB5BA87A30ED3CA19F16211541"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "386191CE5E74527A0DB860A5228F5DB5511731FB93064F063272A614738FB679"
+    },
+    "version": 2,
+    "zero_census": {
+      "empty_code_values": 0,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 1,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 0
+    }
+  },
+  "digest/memiavl-semantic-replay-h3": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "F823C2011E053EBC9F085EB9C6E9FCF7DA22F4314508D1F20A1CF8BCB6BA88E6"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "89B14AC10F8B35B30ACF1FBBAA4A26C0DED7DE7FD8E7BD3F8CC4D6C7428274DF"
+    },
+    "version": 3,
+    "zero_census": {
+      "empty_code_values": 1,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 2,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 1
+    }
+  },
+  "digest/memiavl-semantic-replay-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4,
+    "zero_census": {
+      "empty_code_values": 1,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 2,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 1
+    }
+  },
+  "digest/memiavl-semantic-replay-tip": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4,
+    "zero_census": {
+      "empty_code_values": 1,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 2,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 1
+    }
+  },
+  "digest/memiavl-semantic-snapshot-current": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 10,
+      "digest": "48F1B0C97095C294C23D819E9E92A9DF666F80FB5BA87A30ED3CA19F16211541"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "386191CE5E74527A0DB860A5228F5DB5511731FB93064F063272A614738FB679"
+    },
+    "version": 2,
+    "zero_census": {
+      "empty_code_values": 0,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 1,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 0
+    }
+  },
+  "digest/memiavl-semantic-snapshot-h2": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 10,
+      "digest": "48F1B0C97095C294C23D819E9E92A9DF666F80FB5BA87A30ED3CA19F16211541"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "386191CE5E74527A0DB860A5228F5DB5511731FB93064F063272A614738FB679"
+    },
+    "version": 2,
+    "zero_census": {
+      "empty_code_values": 0,
+      "live_accounts_with_zero_codehash_row": 0,
+      "live_accounts_without_codehash_row": 1,
+      "zero_accounts": 1,
+      "zero_codehash_rows": 1,
+      "zero_storage_slots": 0
+    }
+  },
+  "digest/memiavl-translator-changelog-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "translator-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4
+  },
+  "digest/memiavl-translator-replay-h4": {
+    "account": {
+      "count": 4,
+      "digest": "34EF7176E2CED97D07EC3202613BBE156CDF710ABDBAE8D61508B81FA9A83267"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 12,
+      "digest": "0E498CE335C91F52C6C6A8842C552A9E51CA4BDEFBF2C4E8554046FEE0E6E367"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 2,
+      "digest": "4AEAEC3FAA31B09D0CC0F53B3F3ECD7D9C91C4F668D6F2CEF09A829321214D8C"
+    },
+    "mode": "translator-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "39AA59312AF3CDF0D4947B54BFD234ED43E808B7D7DF9A73394E7579BE2A3CF1"
+    },
+    "version": 4
+  },
+  "digest/memiavl-translator-snapshot-h2": {
+    "account": {
+      "count": 3,
+      "digest": "8E3B06AEFDCA208E744FFDF9C7EAF64D6E04BDD66CDC5BE94039E103E9E0BBB8"
+    },
+    "backend": "memiavl",
+    "code": {
+      "count": 1,
+      "digest": "E8B41CBAB9B0E99EF3A90F444045460AE3709E403ADA39CA6EB44C5B51B7EE51"
+    },
+    "db_dir": "\u003cdescriptive\u003e",
+    "final": {
+      "count": 10,
+      "digest": "48F1B0C97095C294C23D819E9E92A9DF666F80FB5BA87A30ED3CA19F16211541"
+    },
+    "marker_adjustments": [],
+    "misc": {
+      "count": 1,
+      "digest": "3FBC23497263AE9D5B5570F3D8DFDFE1C8CC316D03A219CF5992EA92F9335438"
+    },
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "source": "\u003cdescriptive\u003e",
+    "storage": {
+      "count": 5,
+      "digest": "386191CE5E74527A0DB860A5228F5DB5511731FB93064F063272A614738FB679"
+    },
+    "version": 2
+  },
+  "inspect/composite-changelog-h3/list-account": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/list-account-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/list-account-prefix": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/list-code": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/list-misc": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "6D6967726174696F6E2F6D6967726174696F6E2D626F756E64617279",
+        "logical": "010000000365766D0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/list-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000036"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000037"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/list-storage-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h3/shard-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "00948EDA15C75FAF8CD1FCB231665636CECA6858FAEBB9BE97CA7A6AFA908369",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "C9760D0F450193E92F6830C323C8F3A66DC38D3E90D3CE4BA57BB29C8F000526",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "33474F1DFB62A21A8DA235DD1AF060C1361D252B12A1EFC74AA690618EBC676E",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      },
+      {
+        "count": 1,
+        "digest": "CE517385B0194DEC652E8ACABF8C8EC4E85486AE775E255DCDCAAC69FCFD4F87",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-changelog-h4/list-account": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/list-account-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/list-account-prefix": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/list-code": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/list-misc": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "6D6967726174696F6E2F6D6967726174696F6E2D626F756E64617279",
+        "logical": "010000000365766D0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/list-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/list-storage-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-changelog-h4/shard-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "00948EDA15C75FAF8CD1FCB231665636CECA6858FAEBB9BE97CA7A6AFA908369",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "C9760D0F450193E92F6830C323C8F3A66DC38D3E90D3CE4BA57BB29C8F000526",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h3/list-account": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/list-account-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/list-account-prefix": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/list-code": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/list-misc": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "6D6967726174696F6E2F6D6967726174696F6E2D626F756E64617279",
+        "logical": "010000000365766D0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/list-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000036"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000037"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/list-storage-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h3/shard-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "memiavl_version_in_normalization": "3",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "00948EDA15C75FAF8CD1FCB231665636CECA6858FAEBB9BE97CA7A6AFA908369",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "C9760D0F450193E92F6830C323C8F3A66DC38D3E90D3CE4BA57BB29C8F000526",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "33474F1DFB62A21A8DA235DD1AF060C1361D252B12A1EFC74AA690618EBC676E",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      },
+      {
+        "count": 1,
+        "digest": "CE517385B0194DEC652E8ACABF8C8EC4E85486AE775E255DCDCAAC69FCFD4F87",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/composite-replay-h4/list-account": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/list-account-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/list-account-prefix": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/list-code": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/list-misc": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "6D6967726174696F6E2F6D6967726174696F6E2D626F756E64617279",
+        "logical": "010000000365766D0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/list-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/list-storage-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-replay-h4/shard-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "memiavl_version_in_normalization": "4",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "00948EDA15C75FAF8CD1FCB231665636CECA6858FAEBB9BE97CA7A6AFA908369",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "C9760D0F450193E92F6830C323C8F3A66DC38D3E90D3CE4BA57BB29C8F000526",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/composite-snapshot-h2/list-account": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/list-account-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/list-account-prefix": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/list-code": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/list-misc": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "6D6967726174696F6E2F6D6967726174696F6E2D626F756E64617279",
+        "logical": "010000000365766D0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/list-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/list-storage-limit2": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000F2"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/composite-snapshot-h2/shard-storage": {
+    "backend": "composite",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 4,
+    "memiavl_version_in_normalization": "2",
+    "migration_boundary": "MigrationBoundary{status=in_progress, module=evm, key=0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003}",
+    "mode": "migrate_evm",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "00948EDA15C75FAF8CD1FCB231665636CECA6858FAEBB9BE97CA7A6AFA908369",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "C9760D0F450193E92F6830C323C8F3A66DC38D3E90D3CE4BA57BB29C8F000526",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-account": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-account-limit2": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-account-prefix": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-code": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-misc": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-storage": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/list-storage-limit2": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h2/shard-storage": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F024A9BF9F9A98EDE4C54A5E066424131EBE2ECB269C81BED73E65291F62E47D",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "0730F9E2A31E05281C338BE0507929D0980632AB0599163F736D071D7B472006",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/flatkv-h4/list-account": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-account-limit2": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-account-prefix": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-code": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-misc": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-storage": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-storage-details": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021",
+        "meta": "block_height=2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032",
+        "meta": "block_height=3"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044",
+        "meta": "block_height=4"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015",
+        "meta": "block_height=1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046",
+        "meta": "block_height=4"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/list-storage-limit2": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/flatkv-h4/shard-storage": {
+    "backend": "flatkv",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "native",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h2/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F024A9BF9F9A98EDE4C54A5E066424131EBE2ECB269C81BED73E65291F62E47D",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "0730F9E2A31E05281C338BE0507929D0980632AB0599163F736D071D7B472006",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000036"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000037"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h3/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "33474F1DFB62A21A8DA235DD1AF060C1361D252B12A1EFC74AA690618EBC676E",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      },
+      {
+        "count": 1,
+        "digest": "CE517385B0194DEC652E8ACABF8C8EC4E85486AE775E255DCDCAAC69FCFD4F87",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-h4/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-changelog-tip/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h2/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h2/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F024A9BF9F9A98EDE4C54A5E066424131EBE2ECB269C81BED73E65291F62E47D",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "0730F9E2A31E05281C338BE0507929D0980632AB0599163F736D071D7B472006",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-replay-h3/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000036"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000037"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h3/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 3,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "33474F1DFB62A21A8DA235DD1AF060C1361D252B12A1EFC74AA690618EBC676E",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      },
+      {
+        "count": 1,
+        "digest": "CE517385B0194DEC652E8ACABF8C8EC4E85486AE775E255DCDCAAC69FCFD4F87",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000007"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 3
+  },
+  "inspect/memiavl-semantic-replay-h4/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-h4/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 4,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      },
+      {
+        "key": "65766D2F0AFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 4,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 4,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F016666666666666666666666666666666666666666",
+        "logical": "02"
+      },
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 2,
+    "matched": 2,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000044"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000046"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000032"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-replay-tip/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic-replay",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F81F8BF7DA997BA075EFE5721CF5B1FD25E0AF1018CB65D5C47EAC7E1FF19BE1",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "7A65B5515FBF31B73D944A2E9942DA86396EF574FB3530112DF066E9A922C640",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      },
+      {
+        "count": 1,
+        "digest": "37689A3931BC26020B4391D629A626AE7A18803991F2DDC71F16F95F27CBA687",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000006"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 4
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-current/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 0,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F024A9BF9F9A98EDE4C54A5E066424131EBE2ECB269C81BED73E65291F62E47D",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "0730F9E2A31E05281C338BE0507929D0980632AB0599163F736D071D7B472006",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-storage-details": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021",
+        "meta": "leaf_version=2"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012",
+        "meta": "leaf_version=1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013",
+        "meta": "leaf_version=1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014",
+        "meta": "leaf_version=1"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015",
+        "meta": "leaf_version=1"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-semantic-snapshot-h2/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "semantic",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F024A9BF9F9A98EDE4C54A5E066424131EBE2ECB269C81BED73E65291F62E47D",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "0730F9E2A31E05281C338BE0507929D0980632AB0599163F736D071D7B472006",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-account": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "key": "65766D2F0A4444444444444444444444444444444444444444",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000000000000000000000C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 3,
+    "matched": 3,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-account-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      },
+      {
+        "key": "65766D2F0A2222222222222222222222222222222222222222",
+        "logical": "000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 3,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-account-prefix": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0A1111111111111111111111111111111111111111",
+        "logical": "00000000000000000000000000000000000000000000000000000000000000640000000000000002A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1"
+      }
+    ],
+    "inspect_bucket": "account",
+    "key_offset": 4,
+    "key_prefix": "0A11",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-code": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F074444444444444444444444444444444444444444",
+        "logical": "6001"
+      }
+    ],
+    "inspect_bucket": "code",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-misc": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F094444444444444444444444444444444444444444",
+        "logical": "01"
+      }
+    ],
+    "inspect_bucket": "misc",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 1,
+    "matched": 1,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000013"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000014"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000015"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "listed": 5,
+    "matched": 5,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/list-storage-limit2": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "entries": [
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000021"
+      },
+      {
+        "key": "65766D2F0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002",
+        "logical": "0000000000000000000000000000000000000000000000000000000000000012"
+      }
+    ],
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "",
+    "list": true,
+    "list_limit": 2,
+    "listed": 2,
+    "matched": 5,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 0,
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  },
+  "inspect/memiavl-translator-snapshot-h2/shard-storage": {
+    "backend": "memiavl",
+    "db_dir": "\u003cdescriptive\u003e",
+    "inspect_bucket": "storage",
+    "key_offset": 4,
+    "key_prefix": "034444444444444444444444444444444444444444",
+    "list": false,
+    "list_limit": 1000,
+    "matched": 5,
+    "mode": "translator",
+    "normalization": "\u003cdescriptive\u003e",
+    "requested_height": 2,
+    "shard_next_bytes": 32,
+    "shards": [
+      {
+        "count": 1,
+        "digest": "321F09E99574FFBA57E75A59D15E0B247B5FBA05FFF901582CFFD0C9E47053EE",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "count": 1,
+        "digest": "F024A9BF9F9A98EDE4C54A5E066424131EBE2ECB269C81BED73E65291F62E47D",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "count": 1,
+        "digest": "0730F9E2A31E05281C338BE0507929D0980632AB0599163F736D071D7B472006",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000003"
+      },
+      {
+        "count": 1,
+        "digest": "43CD3C3DFC996E5A62E2E4C56751294EF2D1FF7115D0CAF759F782913898B5D5",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000004"
+      },
+      {
+        "count": 1,
+        "digest": "BEA7F4470B1D5E5FC04B1F87C29D721C5E2168EF5A2A1328E3299678CB429439",
+        "shard": "0344444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000005"
+      }
+    ],
+    "source": "\u003cdescriptive\u003e",
+    "version": 2
+  }
+}

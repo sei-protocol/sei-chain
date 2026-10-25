@@ -42,6 +42,38 @@ interface IDistr {
     /// @return success True if commission was withdrawn successfully
     function withdrawValidatorCommission() external returns (bool success);
 
+    /// @notice Authorizes a grantee to withdraw delegation rewards and validator commission for the caller
+    /// @param grantee The account receiving the withdrawal authorization
+    /// @param expiration Unix timestamp after which the authorization is invalid
+    /// @return success True if the authorization was granted successfully
+    function grantWithdrawAuthorization(
+        address grantee,
+        int64 expiration
+    ) external returns (bool success);
+
+    /// @notice Withdraws delegation rewards using an authorization granted by delegator
+    /// @param delegator The account whose delegation rewards are withdrawn
+    /// @param validator The validator's Sei address (e.g., "seivaloper1...")
+    /// @return success True if rewards were withdrawn successfully
+    function withdrawDelegationRewardsWithAuthorization(
+        address delegator,
+        string memory validator
+    ) external returns (bool success);
+
+    /// @notice Withdraws validator commission using an authorization granted by validatorOperator
+    /// @param validatorOperator The validator operator whose commission is withdrawn
+    /// @return success True if commission was withdrawn successfully
+    function withdrawValidatorCommissionWithAuthorization(
+        address validatorOperator
+    ) external returns (bool success);
+
+    /// @notice Revokes a grantee's delegation reward and validator commission withdrawal authorization
+    /// @param grantee The account whose withdrawal authorization is revoked
+    /// @return success True if the authorization was revoked successfully
+    function revokeWithdrawAuthorization(
+        address grantee
+    ) external returns (bool success);
+
     // Queries
     
     /// @notice Gets all pending rewards for a delegator

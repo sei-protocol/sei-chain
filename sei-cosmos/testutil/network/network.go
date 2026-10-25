@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,7 +20,6 @@ import (
 	tmservice "github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -86,7 +84,6 @@ type Config struct {
 	EnableLogging    bool                       // enable Tendermint logging to STDOUT
 	CleanupDir       bool                       // remove base temporary directory during cleanup
 	SigningAlgo      string                     // signing algorithm for keys
-	EnableGRPCWeb    bool                       // enable gRPC-Web server (off by default)
 
 	KeyringOptions []keyring.Option
 }
@@ -115,7 +112,6 @@ func DefaultConfig(t *testing.T) Config {
 		PruningStrategy:   storetypes.PruningOptionNothing,
 		CleanupDir:        true,
 		SigningAlgo:       string(hd.Secp256k1Type),
-		EnableGRPCWeb:     false,
 		KeyringOptions:    []keyring.Option{},
 	}
 }
@@ -161,8 +157,6 @@ type (
 
 		tmNode   tmservice.Service
 		api      *api.Server
-		grpc     *grpc.Server
-		grpcWeb  *http.Server
 		cancelFn context.CancelFunc
 	}
 )
@@ -216,21 +210,17 @@ func New(t *testing.T, cfg Config) *Network {
 		appCfg.Pruning = cfg.PruningStrategy
 		appCfg.MinGasPrices = cfg.MinGasPrices
 		appCfg.API.Enable = true
-		appCfg.API.Swagger = false
 		appCfg.Telemetry.Enabled = false
 
 		ctx := server.NewDefaultContext()
 		tmCfg := ctx.Config
 		tmCfg.Mode = config.ModeValidator
-		tmCfg.Consensus.UnsafeCommitTimeoutOverride = cfg.TimeoutCommit
 		tmCfg.TxIndex = config.TestTxIndexConfig()
 
-		// Only allow the first validator to expose an RPC, API and gRPC
+		// Only allow the first validator to expose an RPC and API
 		// server/client due to Tendermint in-process constraints.
 		apiAddr := ""
 		tmCfg.RPC.ListenAddress = ""
-		appCfg.GRPC.Enable = false
-		appCfg.GRPCWeb.Enable = false
 		if i == 0 {
 			apiListenAddr, _, err := server.FreeTCPAddr()
 			require.NoError(t, err)
@@ -249,17 +239,6 @@ func New(t *testing.T, cfg Config) *Network {
 			require.NoError(t, err)
 			tmCfg.RPC.ListenAddress = rpcAddr
 
-			_, grpcPort, err := server.FreeTCPAddr()
-			require.NoError(t, err)
-			appCfg.GRPC.Address = fmt.Sprintf("127.0.0.1:%s", grpcPort)
-			appCfg.GRPC.Enable = true
-
-			if cfg.EnableGRPCWeb {
-				_, grpcWebPort, err := server.FreeTCPAddr()
-				require.NoError(t, err)
-				appCfg.GRPCWeb.Address = fmt.Sprintf("127.0.0.1:%s", grpcWebPort)
-				appCfg.GRPCWeb.Enable = true
-			}
 		}
 
 		nodeDirName := fmt.Sprintf("node%d", i)
@@ -494,13 +473,6 @@ func (n *Network) Cleanup() {
 
 		if v.api != nil {
 			_ = v.api.Close()
-		}
-
-		if v.grpc != nil {
-			v.grpc.Stop()
-			if v.grpcWeb != nil {
-				_ = v.grpcWeb.Close()
-			}
 		}
 	}
 

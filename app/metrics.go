@@ -25,18 +25,17 @@ var (
 		0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25, 0.5, 1, 10,
 	)
 
-	// blockGasWantedBuckets covers the 0–50 M gas range (current MaxGasWanted cap) with
-	// 1 M steps up to 10 M and 5 M steps thereafter so both lightly- and heavily-loaded
-	// blocks get useful quantiles.
+	// blockGasWantedBuckets covers the 0–50 M gas range (current MaxGasWanted cap)
 	blockGasWantedBuckets = metric.WithExplicitBucketBoundaries(
-		1e6, 2e6, 3e6, 4e6, 5e6, 6e6, 7e6, 8e6, 9e6, 10e6,
-		15e6, 20e6, 25e6, 30e6, 35e6, 40e6, 45e6, 50e6,
+		10e3, 25e3, 50e3, 100e3, 250e3, 500e3,
+		1e6, 2.5e6, 5e6, 10e6, 12.5e6, 25e6, 50e6,
 	)
 
 	// blockGasWantedRatioBuckets covers the 0.0–1.0 utilisation range so we can see
 	// how close blocks are to the MaxGasWanted cap.
 	blockGasWantedRatioBuckets = metric.WithExplicitBucketBoundaries(
-		0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0,
+		0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02,
+		0.05, 0.1, 0.2, 0.25, 0.5, 0.9, 0.95, 1.0,
 	)
 
 	appMetrics = struct {
@@ -201,7 +200,6 @@ var (
 		)),
 
 		// The callback fires on every Prometheus scrape; no per-block call site is needed.
-		// TODO(PLT-327): remove metrics.GaugeSeidVersionAndCommit call in abci.go once app_build_info verified
 		versionInfo: must(meter.Int64ObservableGauge(
 			"app_build_info",
 			metric.WithDescription("Running binary build info; value is always 1"),

@@ -7,6 +7,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -25,7 +28,11 @@ type PreparedBlockExecutor interface {
 
 // ResultSink persists executor-produced block outputs. The sink can retain the
 // complete BlockResult without forcing the executor to copy changesets or
-// receipts before handing them to an async sink.
+// receipts before handing them to an async sink. The sink is invoked once the
+// block's state commit has been started, not once it has landed: that commit
+// runs behind the next block, and a later AwaitCommits reports it failing. A
+// sink therefore has to tolerate being handed a block whose commit fails after
+// the fact, and a sink error does not roll back the state commit.
 // The sink must invoke release exactly once after it no longer references
 // result. If StoreBlockResult returns an error, the executor releases that sink
 // reference.
@@ -34,10 +41,15 @@ type ResultSink interface {
 }
 
 // BlockRequest contains all consensus/runtime inputs needed to execute a block.
-// Txs must be raw Ethereum transaction RLP bytes.
+// Txs must be raw Ethereum transaction RLP bytes. Senders, when non-empty, is
+// aligned with Txs and holds the sender of every transaction whose signature
+// the caller has already verified against the executor's chain ID; PrepareBlock
+// uses those instead of recovering them. Transactions whose slot is None are
+// recovered as usual.
 type BlockRequest struct {
 	Context BlockContext
 	Txs     [][]byte
+	Senders []utils.Option[common.Address]
 }
 
 // PreparedBlock contains decoded transactions with recovered senders. It is a
@@ -102,10 +114,14 @@ func (r *BlockResult) Release() {
 
 // OCCStats reports optimistic concurrency control behavior for a block.
 type OCCStats struct {
-	Attempted       bool
-	Fallback        bool
-	FallbackReason  string
-	RerunCount      uint64
+	Attempted      bool
+	Fallback       bool
+	FallbackReason string
+	RerunCount     uint64
+	// MaxIncarnation is the deepest incarnation any transaction in the block
+	// reached. 0 means no transaction was rerun; RerunCount counts reruns across
+	// the whole block, where this counts them for the worst single transaction.
+	MaxIncarnation  uint64
 	ConflictCount   uint64
 	ValidationCount uint64
 	ConflictSamples []OCCConflictCount
@@ -129,38 +145,14 @@ type BlockResultPoolStats struct {
 	OverflowAllocations uint64
 }
 
-// StateChangeSet is the deterministic EVM-native state output for a block.
-// Values are post-block values, not deltas.
-type StateChangeSet struct {
-	Balances      []BalanceChange
-	Nonces        []NonceChange
-	Code          []CodeChange
-	StorageClears []common.Address
-	Storage       []StorageChange
-}
-
-type BalanceChange struct {
-	Address common.Address
-	Balance *big.Int
-}
-
-type NonceChange struct {
-	Address common.Address
-	Nonce   uint64
-}
-
-type CodeChange struct {
-	Address common.Address
-	Code    []byte
-	Delete  bool
-}
-
-type StorageChange struct {
-	Address common.Address
-	Key     common.Hash
-	Value   common.Hash
-	Delete  bool
-}
+// StateChangeSet and its entry types are shared with the state store.
+type (
+	StateChangeSet = gigatypes.StateChangeSet
+	BalanceChange  = gigatypes.BalanceChange
+	NonceChange    = gigatypes.NonceChange
+	CodeChange     = gigatypes.CodeChange
+	StorageChange  = gigatypes.StorageChange
+)
 
 // TxResult is the minimum per-transaction output needed for receipts, RPC, and
 // runtime result reporting.
@@ -175,4 +167,6 @@ type TxResult struct {
 	EffectiveGasPrice *big.Int
 	Logs              []*ethtypes.Log
 	Err               error
+	// Rejected reports that the transaction never ran: it consumed no gas and changed no state.
+	Rejected bool
 }

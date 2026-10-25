@@ -29,7 +29,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	)
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 
-	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
+	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.ParamsKeeper, nil)
 	antehandler := sdk.ChainAnteDecorators(mfd)
 
 	// keys and addresses
@@ -110,7 +110,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
-	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
+	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.ParamsKeeper, nil)
 	antehandler := sdk.ChainAnteDecorators(dfd)
 
 	_, err = antehandler(suite.ctx, tx, false)
@@ -125,6 +125,39 @@ func (suite *AnteTestSuite) TestDeductFees() {
 	_, err = antehandler(suite.ctx, tx, false)
 
 	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
+}
+
+func (suite *AnteTestSuite) TestRejectsDistinctFeeGranter() {
+	suite.SetupTest(false)
+	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+
+	priv, _, payer := testdata.KeyTestPubAddr()
+	_, _, granter := testdata.KeyTestPubAddr()
+
+	suite.Require().NoError(suite.txBuilder.SetMsgs(testdata.NewTestMsg(payer)))
+	suite.txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+	suite.txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+	suite.txBuilder.SetFeeGranter(granter)
+
+	tx, err := suite.CreateTestTx(
+		[]cryptotypes.PrivKey{priv},
+		[]uint64{0},
+		[]uint64{0},
+		suite.ctx.ChainID(),
+	)
+	suite.Require().NoError(err)
+
+	suite.Require().ErrorContains(tx.ValidateBasic(), "fee grants are not enabled")
+
+	suite.txBuilder.SetFeeGranter(payer)
+	tx, err = suite.CreateTestTx(
+		[]cryptotypes.PrivKey{priv},
+		[]uint64{0},
+		[]uint64{0},
+		suite.ctx.ChainID(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().NoError(tx.ValidateBasic())
 }
 
 func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
@@ -155,7 +188,7 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	feeCollectorAcc := suite.app.AccountKeeper.GetModuleAccount(suite.ctx, types.FeeCollectorName)
 	expectedFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "usei")
 
-	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
+	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.ParamsKeeper, nil)
 	antehandler := sdk.ChainAnteDecorators(dfd)
 
 	// Set account with sufficient funds
@@ -200,7 +233,7 @@ func (suite *AnteTestSuite) TestGlobalMinimumFees() {
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, paramstypes.DefaultGenesis().GetFeesParams())
 
-	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
+	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.ParamsKeeper, nil)
 	antehandler := sdk.ChainAnteDecorators(mfd)
 
 	// keys and addresses
@@ -282,7 +315,7 @@ func (suite *AnteTestSuite) TestMultipleGlobalMinimumFees() {
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, paramstypes.DefaultGenesis().GetFeesParams())
 
-	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
+	mfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.ParamsKeeper, nil)
 	antehandler := sdk.ChainAnteDecorators(mfd)
 
 	// keys and addresses

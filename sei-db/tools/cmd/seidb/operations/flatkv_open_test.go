@@ -11,8 +11,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
 )
@@ -148,7 +151,7 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 // so it shares the source snapshots' mounted filesystem even when dbDir is a
 // dedicated mount point.
 func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
-	store, dbDir := newDiskBackedFlatKVStore(t)
+	store, dbDir := newDiskBackedFlatKVStore(t, 1)
 	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -157,7 +160,7 @@ func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 	}}))
 	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
-	require.NoError(t, store.WriteSnapshot(""))
+	require.NoError(t, store.FlushSnapshots())
 	require.NoError(t, store.Close())
 
 	cloneDir, err := prepareFlatKVToolingClone(dbDir, 0)
@@ -177,19 +180,11 @@ func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 // The cloned WAL would skip versions during catchup; the clone path must
 // detect the gap and surface it as a retryable errSourceChurning.
 func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
-	store, dbDir := newDiskBackedFlatKVStore(t)
+	// Interval 5 lands exactly one snapshot, at v5: the next boundary is v10, which this test never
+	// reaches. The selected snapshot is therefore v5 for the whole test.
+	store, dbDir := newDiskBackedFlatKVStore(t, 5)
 
-	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
-		Name: keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			noncePair(addrN(0xA1), 1),
-		}},
-	}}))
-	_, err := store.Commit(store.Version() + 1)
-	require.NoError(t, err)
-	require.NoError(t, store.WriteSnapshot(""))
-
-	for i := byte(2); i <= 5; i++ {
+	for i := byte(1); i <= 5; i++ {
 		require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 			Name: keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -199,23 +194,26 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 		_, err := store.Commit(store.Version() + 1)
 		require.NoError(t, err)
 	}
+	require.NoError(t, store.FlushSnapshots())
 	require.NoError(t, store.Close())
 
-	// Simulate tryTruncateWAL having dropped v1..v3 from the WAL after a newer snapshot rolled — i.e. the
-	// WAL now starts at v4 while the selected snapshot is still v1. Rebuild the source changelog as a fresh
-	// state WAL that starts at v4 (the state WAL permits any first block number), which is the exact shape a
-	// front-truncation past the snapshot leaves behind.
+	// Simulate tryTruncateWAL having dropped everything up to v6 from the WAL after a newer snapshot
+	// rolled — i.e. the WAL now starts at v7 while the selected snapshot is still v5. Rebuild the source
+	// changelog as a fresh state WAL that starts at v7 (the state WAL permits any first block number),
+	// which is the exact shape a front-truncation past the snapshot leaves behind.
 	walDir := filepath.Join(dbDir, "changelog")
 	walCfg := statewal.DefaultConfig(walDir, "flatkv")
 	require.NoError(t, os.RemoveAll(walDir)) // the store is closed above, so nothing holds the directory
 	w, err := statewal.New(walCfg)
 	require.NoError(t, err)
-	for v := uint64(4); v <= 5; v++ {
-		require.NoError(t, w.Write(v, []*proto.NamedChangeSet{{
-			Name:      keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(byte(v)), v)}},
+	for v := uint64(7); v <= 8; v++ {
+		addr := addrN(byte(v))
+		//nolint:gosec // small test heights
+		account := vtype.NewAccountData().SetNonce(v).SetBlockHeight(int64(v))
+		require.NoError(t, w.Write(v, []mutation.Mutation{{
+			Key:      ktype.BuildPhysicalEVMKey(ktype.EVMKeyAccount, addr[:]),
+			NewValue: account.Serialize(),
 		}}))
-		require.NoError(t, w.SignalEndOfBlock())
 	}
 	require.NoError(t, w.Flush())
 	require.NoError(t, w.Close())
@@ -227,7 +225,9 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 }
 
 func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
-	store, dbDir := newDiskBackedFlatKVStore(t)
+	// Interval 1 snapshots both blocks, which is what opening at height 1 needs: a snapshot sitting on
+	// that height rather than one below it.
+	store, dbDir := newDiskBackedFlatKVStore(t, 1)
 	addrA := addrN(0xA1)
 	addrB := addrN(0xB2)
 
@@ -239,7 +239,7 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	}}))
 	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
-	require.NoError(t, store.WriteSnapshot(""))
+	require.NoError(t, store.FlushSnapshots())
 
 	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
@@ -249,7 +249,7 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	}}))
 	_, err = store.Commit(store.Version() + 1)
 	require.NoError(t, err)
-	require.NoError(t, store.WriteSnapshot(""))
+	require.NoError(t, store.FlushSnapshots())
 	require.NoError(t, store.Close())
 
 	latest, err := openFlatKVReadOnly(dbDir, 0)
@@ -270,7 +270,8 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 }
 
 func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
-	store, dbDir := newDiskBackedFlatKVStore(t)
+	// No cadence snapshots: SetInitialVersion writes the one this test relies on.
+	store, dbDir := newDiskBackedFlatKVStore(t, 0)
 	addr := addrN(0xC3)
 
 	require.NoError(t, store.SetInitialVersion(100))
@@ -293,10 +294,18 @@ func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
 	require.NoError(t, latest.Close())
 }
 
-func newDiskBackedFlatKVStore(t *testing.T) (*flatkv.CommitStore, string) {
+// newDiskBackedFlatKVStore opens a store whose snapshot cadence the caller chooses, so a test can place
+// snapshots at the heights it needs by committing to a boundary and waiting with FlushSnapshots. An
+// interval of 0 disables them.
+//
+// Retention is set well above anything these tests commit: they assert against specific snapshot
+// heights, and count-based pruning would otherwise delete the one under test.
+func newDiskBackedFlatKVStore(t *testing.T, snapshotInterval uint32) (*flatkv.CommitStore, string) {
 	t.Helper()
 
 	cfg := flatkvconfig.DefaultTestConfig(t)
+	cfg.SnapshotInterval = snapshotInterval
+	cfg.SnapshotKeepRecent = 100
 	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	require.NoError(t, err)
 	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)

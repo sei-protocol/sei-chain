@@ -1,6 +1,9 @@
 package composite
 
 import (
+	"bytes"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -62,7 +65,7 @@ func runBlocks(t *testing.T, cs *CompositeCommitStore, workload *migrationWorklo
 	t.Helper()
 	for i := 0; i < n; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 }
@@ -79,7 +82,7 @@ func runUntilAtMigrationVersion(
 	t.Helper()
 	for i := 0; i < maxBlocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 		done, err := migration.IsAtVersion(flatKVReaderFor(cs), version)
 		require.NoError(t, err)
@@ -125,15 +128,15 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 
 	// Fresh store derives MemiavlOnly. flatkv is lazy: no instance and no
 	// directory on disk until a MigrateEVM transition materializes it.
-	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
+	require.Equal(t, types.MemiavlOnly, cs.loadWriteMode())
 	require.NotNil(t, cs.memIAVL, "Auto must open memiavl")
-	require.Nil(t, cs.flatKV, "Auto must not open flatkv before the first migration")
+	require.Nil(t, cs.loadFlatKV(), "Auto must not open flatkv before the first migration")
 	require.NoDirExists(t, utils.GetFlatKVPath(dir),
 		"Auto must not create the flatkv directory before the first migration")
 
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.False(t, hasLatticeHash(cs),
@@ -142,12 +145,12 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 
 	// Same-mode call is a no-op.
 	require.NoError(t, cs.SetWriteMode(types.MemiavlOnly))
-	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
+	require.Equal(t, types.MemiavlOnly, cs.loadWriteMode())
 
 	// Start the EVM migration. The transition materializes flatkv.
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	require.Equal(t, types.MigrateEVM, cs.currentWriteMode)
-	require.NotNil(t, cs.flatKV, "MigrateEVM transition must materialize flatkv")
+	require.Equal(t, types.MigrateEVM, cs.loadWriteMode())
+	require.NotNil(t, cs.loadFlatKV(), "MigrateEVM transition must materialize flatkv")
 	require.DirExists(t, utils.GetFlatKVPath(dir))
 
 	// Pre-first-commit the boundary is NotStarted: the lattice gate must
@@ -162,7 +165,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 		"completion flip must be rejected while the migration is in flight")
 	require.Error(t, cs.SetWriteMode(types.MemiavlOnly),
 		"backward transition must be rejected")
-	require.Error(t, cs.SetWriteMode(types.MigrateAllButBank),
+	require.Error(t, cs.SetWriteMode(types.MigrateCosmos),
 		"skipping ahead must be rejected")
 
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 200)
@@ -170,29 +173,22 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 
 	// Completion flip is now legal; skipping straight to the next
 	// migration is still not.
-	require.Error(t, cs.SetWriteMode(types.MigrateAllButBank))
+	require.Error(t, cs.SetWriteMode(types.MigrateCosmos))
 	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
-	require.Equal(t, types.EVMMigrated, cs.currentWriteMode)
+	require.Equal(t, types.EVMMigrated, cs.loadWriteMode())
 	runBlocks(t, cs, workload, 2)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 
-	// Walk the rest of the chain. The workload only writes bank/ and
-	// evm/, so MigrateAllButBank has nothing to copy and completes on its
-	// first block.
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 200)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	runBlocks(t, cs, workload, 2)
-	requireOracleMatches(t, cs, workload.snapshotOracle())
-
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 200)
+	// Walk the rest of the chain. The workload only writes bank/ and evm/, so
+	// MigrateCosmos drains the bank store and lands directly in version 2.
+	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_FlatKVOnly, 200)
 	require.NoError(t, cs.SetWriteMode(types.FlatKVOnly))
-	require.Equal(t, types.FlatKVOnly, cs.currentWriteMode)
+	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode())
 
 	runBlocks(t, cs, workload, 2)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	require.NoError(t, flatkv.VerifyLtHash(cs.loadFlatKV()))
 
 	// Terminal state: the commit info must be shaped exactly like a
 	// configured flatkv_only node's (no memiavl StoreInfos, only the
@@ -208,20 +204,18 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 func TestComposite_Auto_IllegalTransitionsFromFresh(t *testing.T) {
 	cs := openAutoStore(t, t.TempDir(), 10)
 	defer func() { _ = cs.Close() }()
-	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
+	require.Equal(t, types.MemiavlOnly, cs.loadWriteMode())
 
 	for _, target := range []types.WriteMode{
 		types.EVMMigrated,        // skip
-		types.MigrateAllButBank,  // skip
-		types.AllMigratedButBank, // skip
-		types.MigrateBank,        // skip
+		types.MigrateCosmos,      // skip
 		types.FlatKVOnly,         // skip
 		types.Auto,               // never a target
 		types.TestOnlyDualWrite,  // never a target
 		types.WriteMode("bogus"), // unknown
 	} {
 		require.Error(t, cs.SetWriteMode(target), "transition to %q must be rejected", target)
-		require.Equal(t, types.MemiavlOnly, cs.currentWriteMode,
+		require.Equal(t, types.MemiavlOnly, cs.loadWriteMode(),
 			"failed transition must leave the effective mode untouched")
 	}
 }
@@ -246,6 +240,7 @@ func TestComposite_SetWriteModeRequiresAutoConfig(t *testing.T) {
 func TestComposite_SetWriteModeBeforeLoadVersion(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
 }
 
@@ -266,7 +261,7 @@ func TestComposite_Auto_RestartResume(t *testing.T) {
 	cs := openAutoStore(t, dir, batch)
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -278,17 +273,17 @@ func TestComposite_Auto_RestartResume(t *testing.T) {
 
 	// Reopen mid-migration: Auto must derive MigrateEVM and resume.
 	cs = openAutoStore(t, dir, batch)
-	require.Equal(t, types.MigrateEVM, cs.currentWriteMode)
+	require.Equal(t, types.MigrateEVM, cs.loadWriteMode())
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 500)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 	// Still in MigrateEVM until restarted or explicitly flipped.
-	require.Equal(t, types.MigrateEVM, cs.currentWriteMode)
+	require.Equal(t, types.MigrateEVM, cs.loadWriteMode())
 	require.NoError(t, cs.Close())
 
 	// Reopen after completion: derivation auto-advances to EVMMigrated.
 	cs = openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
-	require.Equal(t, types.EVMMigrated, cs.currentWriteMode)
+	require.Equal(t, types.EVMMigrated, cs.loadWriteMode())
 	runBlocks(t, cs, workload, 2)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 }
@@ -349,7 +344,7 @@ func TestComposite_Auto_ExportExcludesFlatKVUntilMigrationStarts(t *testing.T) {
 	require.NotContains(t, moduleNamesOf(preItems), keys.FlatKVStoreKey)
 
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	require.NotNil(t, cs.flatKV)
+	require.NotNil(t, cs.loadFlatKV())
 
 	exp, err = cs.Exporter(h)
 	require.NoError(t, err)
@@ -365,6 +360,66 @@ func TestComposite_Auto_ExportExcludesFlatKVUntilMigrationStarts(t *testing.T) {
 	postItems := drainCompositeExporter(t, exp)
 	require.NoError(t, exp.Close())
 	require.Contains(t, moduleNamesOf(postItems), keys.FlatKVStoreKey)
+}
+
+// TestComposite_Auto_ExportBeforeKickoffAfterMigrationStarts pins that a
+// height before kickoff stays exportable once the migration is running.
+// FlatKV is created at kickoff and can't reach that height, but the
+// migration had not started there, so the export is memiavl-only and
+// matches the one taken before kickoff.
+func TestComposite_Auto_ExportBeforeKickoffAfterMigrationStarts(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA078)
+
+	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
+	defer func() { _ = cs.Close() }()
+	runBlocks(t, cs, workload, 3)
+	pre := cs.Version() - 1
+
+	exp, err := cs.Exporter(pre)
+	require.NoError(t, err)
+	preItems := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 3)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(pre), flatkv.ErrVersionUnreachable)
+
+	exp, err = cs.Exporter(pre)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Equal(t, preItems, items)
+}
+
+// TestComposite_Auto_ReadOnlyForExportBeforeKickoffAfterMigrationStarts pins the state-sync extension
+// path: a snapshot of a pre-kickoff height opens a read-only view at that height after kickoff, when
+// FlatKV exists but can't reach it. The generic read-only load still refuses that height.
+func TestComposite_Auto_ReadOnlyForExportBeforeKickoffAfterMigrationStarts(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA079)
+
+	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
+	defer func() { _ = cs.Close() }()
+	runBlocks(t, cs, workload, 3)
+	pre := cs.Version() - 1
+
+	ro, err := cs.LoadVersionReadOnly(pre)
+	require.NoError(t, err)
+	preInfo := ro.LastCommitInfo()
+	require.NoError(t, ro.Close())
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 3)
+	require.ErrorIs(t, cs.loadFlatKV().CheckVersionReachable(pre), flatkv.ErrVersionUnreachable)
+
+	_, err = cs.LoadVersionReadOnly(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
+
+	ro, err = cs.LoadVersionReadOnlyForExport(pre)
+	require.NoError(t, err)
+	require.Equal(t, preInfo, ro.LastCommitInfo())
+	require.NoError(t, ro.Close())
 }
 
 // TestComposite_Auto_ExportImportRoundTrip pins the stream-driven import:
@@ -383,6 +438,18 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	runBlocks(t, src, workload, 1)
 	h := src.Version()
 
+	// FlatKV writes snapshots off the execution thread, so a commit returning no longer means its
+	// snapshot churn has finished. Exporting reads a snapshot by copying its directory, and pruning the
+	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
+	// delete the directory the export is part way through copying.
+	//
+	// Reached through the concrete store because quiescing the writer is not part of the gigatypes.LiveStateStore
+	// abstraction: no production caller needs it, and this test only does because it drives commits and
+	// reads from one goroutine and so has a quiet period to establish.
+	flatKVStore, ok := src.loadFlatKV().(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
 	items := drainCompositeExporter(t, exp)
@@ -394,20 +461,20 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	dstDir := t.TempDir()
 	dst := openAutoStoreWithConfig(t, dstDir, cfg, 100)
 	require.NoError(t, dst.Close())
-	require.Nil(t, dst.flatKV)
+	require.Nil(t, dst.loadFlatKV())
 
 	imp, err := dst.Importer(h)
 	require.NoError(t, err)
 	replayImport(t, imp, items)
 	require.NoError(t, imp.Close())
-	require.NotNil(t, dst.flatKV,
+	require.NotNil(t, dst.loadFlatKV(),
 		"the stream's flatkv section must materialize the flatkv backend")
 	require.DirExists(t, utils.GetFlatKVPath(dstDir))
 
 	require.NoError(t, dst.LoadLatest())
 	require.Equal(t, h, dst.Version(), "import must land at the exported version")
 	defer func() { _ = dst.Close() }()
-	require.Equal(t, types.EVMMigrated, dst.currentWriteMode,
+	require.Equal(t, types.EVMMigrated, dst.loadWriteMode(),
 		"mode derivation must work from the imported migration metadata")
 	requireOracleMatches(t, dst, workload.snapshotOracle())
 }
@@ -437,8 +504,8 @@ func TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly(t *testing.T) {
 
 // TestComposite_Auto_MemiavlLeavesHashAtVersion3 pins the memiavl side of
 // the commit-info gate: memiavl's StoreInfos drop out of the commit info
-// at the commit that persists migration version 3 (bank migration
-// complete) — while the effective mode is still MigrateBank, before any
+// at the commit that persists migration version 2 (MigrateCosmos
+// complete) — while the effective mode is still MigrateCosmos, before any
 // FlatKVOnly transition — and the exclusion is restart-independent (a
 // reopened store derives FlatKVOnly and reports the identical commit
 // info). Keying this on the mode instead of the persisted version would
@@ -450,56 +517,51 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	const batch = 25
 
 	cs := openAutoStore(t, dir, batch)
-	// Seed enough bank keys that the eventual bank migration takes
-	// several blocks at this batch size, leaving observable mid-flight
-	// commits.
+	// Seed enough bank keys that the eventual full migration takes several
+	// blocks at this batch size, leaving observable mid-flight commits.
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
-	// Walk the chain to MigrateBank.
+	// Walk the chain to MigrateCosmos.
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 200)
 	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
-	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
-	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 200)
-	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
-	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	require.NoError(t, cs.SetWriteMode(types.MigrateCosmos))
 
 	// Drive to completion one block at a time: on every commit where
-	// version 3 is not yet persisted, memiavl (which still carries
-	// unmigrated bank state) must stay in the hash. The exclusion must
-	// kick in exactly at the version-3 commit, while the mode is still
-	// MigrateBank.
+	// version 2 is not yet persisted, memiavl (which still carries
+	// unmigrated state) must stay in the hash. The exclusion must kick in
+	// exactly at the version-2 commit, while the mode is still MigrateCosmos.
 	sawMidFlight := false
 	for i := 0; i < 200; i++ {
-		done, err := migration.IsAtVersion(flatKVReaderFor(cs), migration.Version3_FlatKVOnly)
+		done, err := migration.IsAtVersion(flatKVReaderFor(cs), migration.Version2_FlatKVOnly)
 		require.NoError(t, err)
 		if done {
 			break
 		}
 		require.Contains(t, storeInfoNames(cs), keys.BankStoreKey,
-			"memiavl StoreInfos must stay in the commit info while the bank migration is in flight")
+			"memiavl StoreInfos must stay in the commit info while MigrateCosmos is in flight")
 		sawMidFlight = true
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.True(t, sawMidFlight,
-		"test must observe at least one mid-flight MigrateBank commit; lower the batch size")
-	require.Equal(t, types.MigrateBank, cs.currentWriteMode)
+		"test must observe at least one mid-flight MigrateCosmos commit; lower the batch size")
+	require.Equal(t, types.MigrateCosmos, cs.loadWriteMode())
 	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
-		"memiavl StoreInfos must leave the commit info at the version-3 commit, before the mode flips")
+		"memiavl StoreInfos must leave the commit info at the version-2 commit, before the mode flips")
 	preRestart := cs.LastCommitInfo()
 	require.NoError(t, cs.Close())
 
 	// Restart: derivation auto-advances to FlatKVOnly; the commit info
-	// must be byte-identical to what the live MigrateBank node reported.
+	// must be byte-identical to what the live MigrateCosmos node reported.
 	cs = openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
-	require.Equal(t, types.FlatKVOnly, cs.currentWriteMode)
+	require.Equal(t, types.FlatKVOnly, cs.loadWriteMode())
 	require.Equal(t, preRestart, cs.LastCommitInfo(),
 		"commit info must be restart-independent across the completion/transition window")
 }
@@ -518,7 +580,7 @@ func TestComposite_Auto_InterruptedTransitionWindow(t *testing.T) {
 	cs := openAutoStore(t, dir, batch)
 	runBlocks(t, cs, workload, 3)
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	require.NotNil(t, cs.flatKV)
+	require.NotNil(t, cs.loadFlatKV())
 	// "Crash" before any post-transition commit: the boundary on flatkv
 	// is still NotStarted.
 	require.NoError(t, cs.Close())
@@ -528,8 +590,8 @@ func TestComposite_Auto_InterruptedTransitionWindow(t *testing.T) {
 	// effective mode reverts to MemiavlOnly and flatkv is closed again.
 	cs = openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
-	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
-	require.Nil(t, cs.flatKV,
+	require.Equal(t, types.MemiavlOnly, cs.loadWriteMode())
+	require.Nil(t, cs.loadFlatKV(),
 		"non-participating flatkv must be closed on reopen during the crash window")
 	require.False(t, hasLatticeHash(cs),
 		"lattice must stay out of the AppHash through the crash window")
@@ -537,7 +599,7 @@ func TestComposite_Auto_InterruptedTransitionWindow(t *testing.T) {
 	// Level-triggered re-fire: the transition succeeds against the
 	// pre-existing directory and the migration then runs to completion.
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
-	require.NotNil(t, cs.flatKV)
+	require.NotNil(t, cs.loadFlatKV())
 	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 500)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 }
@@ -553,7 +615,7 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 	for i := 0; i < 5; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -564,17 +626,21 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	ro, ok := roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
-	require.Equal(t, types.MigrateEVM, ro.currentWriteMode)
+	require.Equal(t, types.MigrateEVM, ro.loadWriteMode())
 	requireOracleMatches(t, ro, workload.snapshotOracle())
 }
 
-// TestComposite_Auto_ReadOnlyPreFlatKVEraHeight pins the era-aware
-// read-only path: heights that predate flatkv's history (the chain ran
-// effectively memiavl-only) must remain queryable after the migration has
-// begun. The handle skips flatkv entirely — at such heights all consensus
-// data lives in memiavl — instead of failing the flatkv load. In-era
-// heights keep loading flatkv.
-func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
+// TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails records a guarantee that was deliberately
+// given up: heights predating flatkv's history used to be served memiavl-only, because flatkv kept a
+// persisted record of the height its history began at and the read path consulted it.
+//
+// That record is gone, so nothing distinguishes "this height predates flatkv" from "flatkv failed to
+// load at this height", and the read path can only take the safe branch — attempt the load and
+// surface the failure. Answering the other way would serve the height from a memiavl whose migrated
+// keys were deleted, fabricating a nonexistence answer, so failing here is the correct direction.
+//
+// In-era heights are unaffected. Delete this test only alongside a decision to restore pre-era reads.
+func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 	dir := t.TempDir()
 	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	defer func() { _ = cs.Close() }()
@@ -587,7 +653,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 				{Key: []byte("k"), Value: valAt(i)},
 			}}},
 		}))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -596,37 +662,27 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	for i := 0; i < 3; i++ {
 		require.NoError(t, cs.ApplyChangeSets(nil))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
-	require.Equal(t, int64(5), cs.flatKV.EarliestVersion(),
-		"flatkv history must begin at the seeded (transition) height")
 
-	// Pre-era height: served memiavl-only, with as-of-height values.
-	roCommitter, err := cs.LoadVersionReadOnly(3)
-	require.NoError(t, err, "pre-flatkv-era heights must remain queryable")
+	// Pre-era height: the load is attempted against a flatkv that has no such height, and fails.
+	_, err := cs.LoadVersionReadOnly(3)
+	require.Error(t, err, "a pre-flatkv-era height is no longer distinguishable from a load failure")
+
+	// In-era height: unchanged.
+	roCommitter, err := cs.LoadVersionReadOnly(7)
+	require.NoError(t, err)
 	ro, ok := roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
-	require.Equal(t, types.MemiavlOnly, ro.currentWriteMode)
-	require.Nil(t, ro.flatKV)
-	val, found, err := ro.Get(keys.BankStoreKey, []byte("k"))
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, valAt(3), val, "value as-of height 3")
-	require.NoError(t, ro.Close())
-
-	// In-era height: flatkv loads as before.
-	roCommitter, err = cs.LoadVersionReadOnly(7)
-	require.NoError(t, err)
-	ro, ok = roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
-	require.NotNil(t, ro.flatKV, "in-era heights must keep loading flatkv")
+	require.NotNil(t, ro.loadFlatKV(), "in-era heights must keep loading flatkv")
 }
 
 func TestComposite_Auto_InitializeRejectsNonCanonicalStores(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.Error(t, cs.Initialize([]string{"not-a-canonical-store"}),
 		"Auto must enforce canonical store names since the mode may become mixed")
 }
@@ -649,4 +705,162 @@ func TestComposite_Auto_CopyAvailability(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.Nil(t, cs.Copy(),
 		"Copy is unavailable once flatkv is open")
+}
+
+// TestComposite_Auto_ChildStoreReadsDuringWriteModeSwitch reads through a
+// cached child-store view while SetWriteMode replaces the router, as happens
+// when queries run during the migration kickoff block. Run with -race.
+func TestComposite_Auto_ChildStoreReadsDuringWriteModeSwitch(t *testing.T) {
+	cs := openAutoStore(t, t.TempDir(), 25)
+	defer func() { _ = cs.Close() }()
+
+	key, value := []byte("k"), []byte("v")
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: key, Value: value},
+		}}},
+	}))
+	_, err := cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
+
+	view := cs.GetChildStoreByName(keys.BankStoreKey)
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			if got := view.Get(key); !bytes.Equal(got, value) {
+				done <- fmt.Errorf("Get(%q) = %x during the write mode switch, want %x", key, got, value)
+				return
+			}
+			if i == 0 {
+				close(reading)
+			}
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	}()
+	var stopOnce sync.Once
+	stopReader := func() error {
+		stopOnce.Do(func() { close(stop) })
+		return <-done
+	}
+	defer func() { _ = stopReader() }()
+
+	// Switch only once the reader is running so the reads overlap the switch.
+	select {
+	case <-reading:
+	case err := <-done:
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	require.Equal(t, value, view.Get(key))
+	require.NoError(t, stopReader())
+}
+
+// TestComposite_Auto_ChildStoreIterationDuringWriteModeSwitch iterates through
+// a cached child-store view, and fetches new views, while SetWriteMode opens
+// flatkv and switches the mode to MigrateEVM. Run with -race.
+func TestComposite_Auto_ChildStoreIterationDuringWriteModeSwitch(t *testing.T) {
+	cs := openAutoStore(t, t.TempDir(), 25)
+	defer func() { _ = cs.Close() }()
+
+	key, value := []byte("k"), []byte("v")
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: key, Value: value},
+		}}},
+	}))
+	_, err := cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
+
+	readAll := func(view types.CommitKVStore) error {
+		iter := view.Iterator(nil, nil, true)
+		defer func() { _ = iter.Close() }()
+		found := false
+		for ; iter.Valid(); iter.Next() {
+			if bytes.Equal(iter.Key(), key) {
+				found = bytes.Equal(iter.Value(), value)
+			}
+		}
+		if !found {
+			return fmt.Errorf("iteration during the write mode switch did not return %q=%q", key, value)
+		}
+		return iter.Error()
+	}
+
+	view := cs.GetChildStoreByName(keys.BankStoreKey)
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			if err := readAll(view); err != nil {
+				done <- err
+				return
+			}
+			if err := readAll(cs.GetChildStoreByName(keys.BankStoreKey)); err != nil {
+				done <- err
+				return
+			}
+			if i == 0 {
+				close(reading)
+			}
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	}()
+	var stopOnce sync.Once
+	stopReader := func() error {
+		stopOnce.Do(func() { close(stop) })
+		return <-done
+	}
+	defer func() { _ = stopReader() }()
+
+	// Switch only once the reader is running so the reads overlap the switch.
+	select {
+	case <-reading:
+	case err := <-done:
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	require.NoError(t, readAll(view))
+	require.NoError(t, stopReader())
+}
+
+// TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned pins the pre-kickoff export fallback's
+// dependency on FlatKV's kickoff seed snapshot: once pruning drops it, both export paths fail loud.
+func TestComposite_Auto_ExportBeforeKickoffFailsOnceSeedSnapshotPruned(t *testing.T) {
+	cfg := autoExportConfig()
+	cfg.FlatKVConfig.SnapshotKeepRecent = 1
+	cs := openAutoStoreWithConfig(t, t.TempDir(), cfg, 100)
+	defer func() { _ = cs.Close() }()
+	workload := newMigrationWorkload(0x5EED)
+
+	runBlocks(t, cs, workload, 3)
+	pre, seed := cs.Version()-1, cs.Version()
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runBlocks(t, cs, workload, 6)
+	flatKVStore, ok := cs.loadFlatKV().(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
+	oldest, ok, err := flatKVStore.OldestSnapshotAbove(pre)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Greater(t, oldest, seed, "the seed snapshot must be pruned")
+
+	_, err = cs.LoadVersionReadOnlyForExport(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
+	_, err = cs.Exporter(pre)
+	require.ErrorIs(t, err, flatkv.ErrVersionUnreachable)
 }

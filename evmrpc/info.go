@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -44,6 +45,16 @@ type FeeHistoryResult struct {
 	Reward       [][]*hexutil.Big `json:"reward,omitempty"`
 	BaseFee      []*hexutil.Big   `json:"baseFeePerGas,omitempty"`
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
+}
+
+func requestCancellationError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return nil
 }
 
 func (i *InfoAPI) BlockNumber(ctx context.Context) hexutil.Uint64 {
@@ -106,11 +117,11 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	} else {
 		medianRewardPrevBlock = feeHist.Reward[0][0].ToInt()
 	}
-	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
+	return i.gasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
 }
 
-// Helper function useful for testing
-func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
+// gasPriceHelper computes the gas price given the base fee and congestion inputs.
+func (i *InfoAPI) gasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
 	isChainCongested := i.isChainCongested(totalGasUsedPrevBlock)
 	if !isChainCongested {
 		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
@@ -131,6 +142,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr, recover())
 	}()
 	result = &FeeHistoryResult{}
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return nil, err
+	}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)
 	if blockCount < 1 {
@@ -150,10 +164,12 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	}
 
 	// validate reward percentiles
-	for i, p := range rewardPercentiles {
-		if p < 0 || p > 100 || (i > 0 && p <= rewardPercentiles[i-1]) {
+	previous := -1.0
+	for _, p := range rewardPercentiles {
+		if p < 0 || p > 100 || p <= previous {
 			return nil, errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
 		}
+		previous = p
 	}
 
 	lastBlockNumber := lastBlock.Int64()
@@ -186,7 +202,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	}
 
 	if lastBlockNumber < earliestHeight {
-		return nil, errors.New("requested last block is before earliest available height")
+		return nil, fmt.Errorf("requested last block %d is before earliest available height %d", lastBlockNumber, earliestHeight)
 	}
 
 	if uint64(lastBlockNumber-earliestHeight) < uint64(blockCount) { //nolint:gosec
@@ -202,6 +218,10 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	lastBlockHeaderBaseFeeAppended := false
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		var gasUsedRatio float64
 
 		sdkCtx := i.ctxProvider(blockNum)
@@ -212,8 +232,14 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			gasUsedRatio = 0.0
 		} else {
 			// Calculate actual gas used ratio for this block
-			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
+			calculatedRatio, err := i.calculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
+				if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+					return nil, ctxErr
+				}
+				if errors.Is(err, receipt.ErrNotConfigured) {
+					return nil, err
+				}
 				// If we can't calculate the ratio, use 0.0 as fallback
 				logger.Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
 				gasUsedRatio = 0.0
@@ -240,10 +266,13 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		height := blockNum
 		block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &height, 1)
 		if err != nil {
+			if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+				return nil, ctxErr
+			}
 			// block pruned from tendermint store. Skipping
 			continue
 		}
-		rewards, err := i.getRewards(block, baseFee, rewardPercentiles)
+		rewards, err := i.getRewards(ctx, block, baseFee, rewardPercentiles)
 		if err != nil {
 			return nil, err
 		}
@@ -348,38 +377,52 @@ type GasAndReward struct {
 	Reward  *big.Int
 }
 
-func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
-	GasAndRewards := []GasAndReward{}
-	totalEVMGasUsed := uint64(0)
-	for _, txbz := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
-		if ethtx == nil {
-			// not evm tx
-			continue
-		}
-		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
-		if err != nil {
-			// tx doesn't have a receipt because of nonce mismatch
-			continue
-		}
-		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
-		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
-			// if effective gas price is 0, it's expected behavior for txs that failed ante.
-			// if it's not zero but still smaller than baseFee then something is wrong.
-			if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
-				fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
-			}
-			continue
-		}
-		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
-		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
-		totalEVMGasUsed += receipt.GasUsed
+func (i *InfoAPI) getRewards(ctx context.Context, block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return nil, err
 	}
-	return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
+	return readStores(ctx, i.ctxProvider, func(ctxProvider func(int64) sdk.Context) ([]*hexutil.Big, error) {
+		GasAndRewards := []GasAndReward{}
+		totalEVMGasUsed := uint64(0)
+		for _, txbz := range block.Block.Txs {
+			ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
+			if ethtx == nil {
+				// not evm tx
+				continue
+			}
+			// okay to get from latest since receipt is immutable
+			rcpt, err := i.keeper.GetReceipt(ctxProvider(LatestCtxHeight), ethtx.Hash())
+			if err != nil {
+				if errors.Is(err, receipt.ErrNotConfigured) {
+					return nil, err
+				}
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, ctxErr
+				}
+				// tx doesn't have a receipt because of nonce mismatch
+				continue
+			}
+			receiptEffectiveGasPrice := new(big.Int).SetUint64(rcpt.EffectiveGasPrice)
+			if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
+				// if effective gas price is 0, it's expected behavior for txs that failed ante.
+				// if it's not zero but still smaller than baseFee then something is wrong.
+				if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
+					fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
+				}
+				continue
+			}
+			reward := new(big.Int).Sub(new(big.Int).SetUint64(rcpt.EffectiveGasPrice), baseFee)
+			GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: rcpt.GasUsed, Reward: reward})
+			totalEVMGasUsed += rcpt.GasUsed
+		}
+		return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
+	})
 }
 
 func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGasUsed uint64, err error) {
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return 0, err
+	}
 	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, height, 1)
 	if err != nil {
 		// block pruned from tendermint store. Skipping
@@ -393,7 +436,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
+		receipt, err := i.keeper.GetReceiptWithRetry(ctx, i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}
@@ -407,8 +450,11 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 	return totalEVMGasUsed, nil
 }
 
-// CalculateGasUsedRatio calculates the actual gas used ratio for a specific block
-func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
+// calculateGasUsedRatio calculates the actual gas used ratio for a specific block.
+func (i *InfoAPI) calculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return 0, err
+	}
 	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &blockHeight, 1)
 	if err != nil {
 		return 0, err
@@ -443,7 +489,7 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
+		receipt, err := i.keeper.GetReceiptWithRetry(ctx, i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}
@@ -467,7 +513,7 @@ func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
 }
 
 func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
-	return i.watermarks.EarliestHeight(ctx)
+	return i.watermarks.EarliestReceiptHeight(ctx)
 }
 
 // Following go-ethereum implementation

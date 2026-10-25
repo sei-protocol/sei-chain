@@ -1,6 +1,8 @@
 package types
 
 import (
+	"maps"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
@@ -60,28 +62,44 @@ func NewOutput(addr sdk.AccAddress, coins sdk.Coins) Output {
 // ValidateInputsOutputs validates that each respective input and output is
 // valid and that the sum of inputs is equal to the sum of outputs.
 func ValidateInputsOutputs(inputs []Input, outputs []Output) error {
-	var totalIn, totalOut sdk.Coins
+	inCoinsCount := 0
+	for _, in := range inputs {
+		inCoinsCount += len(in.Coins)
+	}
+
+	inCoinsMap := make(map[string]sdk.Int, inCoinsCount)
 
 	for _, in := range inputs {
 		if err := in.ValidateBasic(); err != nil {
 			return err
 		}
-
-		totalIn = totalIn.Add(in.Coins...)
+		addCoins(inCoinsMap, in.Coins)
 	}
+
+	outCoinsMap := make(map[string]sdk.Int, len(inCoinsMap))
 
 	for _, out := range outputs {
 		if err := out.ValidateBasic(); err != nil {
 			return err
 		}
-
-		totalOut = totalOut.Add(out.Coins...)
+		addCoins(outCoinsMap, out.Coins)
 	}
 
-	// make sure inputs and outputs match
-	if !totalIn.IsEqual(totalOut) {
+	if !maps.EqualFunc(inCoinsMap, outCoinsMap, sdk.Int.Equal) {
 		return ErrInputOutputMismatch
 	}
-
 	return nil
+}
+
+// addCoins aggregates coins by denomination.
+func addCoins(totals map[string]sdk.Int, coins sdk.Coins) {
+	for _, coin := range coins {
+		amount, exists := totals[coin.Denom]
+		if exists {
+			totals[coin.Denom] = amount.Add(coin.Amount)
+		} else {
+			// A missing entry contains an sdk.Int with a nil big.Int, which cannot be added to.
+			totals[coin.Denom] = coin.Amount
+		}
+	}
 }

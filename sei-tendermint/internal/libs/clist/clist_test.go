@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestSmall(t *testing.T) {
@@ -56,9 +57,12 @@ func TestSmall(t *testing.T) {
 func TestGCFifo(t *testing.T) {
 	// SetFinalizer doesn't work well with circular structures,
 	// so we construct a trivial non-circular structure to
-	// track.
+	// track. The struct is padded to 16 bytes so it is not served by the
+	// tiny allocator, which packs several pointer-free objects into one
+	// block and only finalizes them once the whole block is unreachable.
 	type value struct {
 		Int int
+		_   int
 	}
 
 	const numElements = 10000
@@ -109,9 +113,12 @@ func TestGCFifo(t *testing.T) {
 func TestGCRandom(t *testing.T) {
 	// SetFinalizer doesn't work well with circular structures,
 	// so we construct a trivial non-circular structure to
-	// track.
+	// track. The struct is padded to 16 bytes so it is not served by the
+	// tiny allocator, which packs several pointer-free objects into one
+	// block and only finalizes them once the whole block is unreachable.
 	type value struct {
 		Int int
+		_   int
 	}
 
 	const numElements = 10000
@@ -186,8 +193,10 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	}
 
 	// Launch scanner routines that will rapidly iterate over elements.
+	g, ctx := errgroup.WithContext(t.Context())
 	for i := 0; i < numScanners; i++ {
-		go func(scannerID int) {
+		scannerID := i
+		g.Go(func() error {
 			var el *CElement[int]
 			restartCounter := 0
 			counter := 0
@@ -201,15 +210,18 @@ func TestScanRightDeleteRandom(t *testing.T) {
 				}
 				if el == nil {
 					var err error
-					el, err = l.WaitFront(t.Context())
-					require.NoError(t, err)
+					el, err = l.WaitFront(ctx)
+					if err != nil {
+						return err
+					}
 					restartCounter++
 				}
 				el = el.Next()
 				counter++
 			}
 			fmt.Printf("Scanner %v restartCounter: %v counter: %v\n", scannerID, restartCounter, counter)
-		}(i)
+			return nil
+		})
 	}
 
 	// Remove an element, push back an element.
@@ -232,8 +244,9 @@ func TestScanRightDeleteRandom(t *testing.T) {
 
 	}
 
-	// Stop scanners
+	// Stop scanners and wait for them before the list is emptied.
 	close(stop)
+	require.NoError(t, g.Wait())
 
 	// And remove all the elements.
 	l.Clear()

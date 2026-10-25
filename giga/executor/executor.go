@@ -3,7 +3,6 @@ package executor
 import (
 	"math/big"
 
-	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -14,17 +13,6 @@ import (
 
 type Executor struct {
 	evm *vm.EVM
-}
-
-func NewEvmoneExecutor(evmoneVM *evmc.VM, blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, config, customPrecompiles)
-	// Pre-compute HostContext config from chain config (avoids per-SSTORE overhead)
-	hostConfig := internal.NewHostContextConfig(chainConfig)
-	hostContext := internal.NewHostContext(evmoneVM, evm, hostConfig)
-	evm.EVMInterpreter = internal.NewEVMInterpreter(hostContext, evm)
-	return &Executor{
-		evm: evm,
-	}
 }
 
 func NewGethExecutor(blockCtx vm.BlockContext, stateDB vm.StateDB, chainConfig *params.ChainConfig, config vm.Config, customPrecompiles map[common.Address]vm.PrecompiledContract) *Executor {

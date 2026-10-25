@@ -52,8 +52,9 @@ var (
 	// ErrDuplicate error for content that exists
 	ErrDuplicate = sdkErrors.Register(DefaultCodespace, 15, "duplicate")
 
-	// ErrMaxIBCChannels error for maximum number of ibc channels reached
-	ErrMaxIBCChannels = sdkErrors.Register(DefaultCodespace, 16, "max transfer channels")
+	//  Error for maximum number of ibc channels reached is no longer supported since
+	//  IBC is removed. This variable is kept for reserving the code registration.
+	_ = sdkErrors.Register(DefaultCodespace, 16, "max transfer channels")
 
 	// ErrUnsupportedForContract error when a feature is used that is not supported for/ by this contract
 	ErrUnsupportedForContract = sdkErrors.Register(DefaultCodespace, 17, "unsupported for this contract")
@@ -92,6 +93,12 @@ var (
 
 	// ErrExceedMaxCallDepth error if max query stack size is exceeded
 	ErrExceedMaxCallDepth = sdkErrors.Register(DefaultCodespace, 30, "max call depth exceeded")
+
+	// ErrMsgExecuteContractDisabled error when governance has disabled MsgExecuteContract
+	ErrMsgExecuteContractDisabled = sdkErrors.Register(DefaultCodespace, 31, "MsgExecuteContract is disabled")
+
+	// ErrContractExecutionDisabled error when governance has disabled running contracts
+	ErrContractExecutionDisabled = sdkErrors.Register(DefaultCodespace, 32, "contract execution is disabled")
 )
 
 type ErrNoSuchContract struct {

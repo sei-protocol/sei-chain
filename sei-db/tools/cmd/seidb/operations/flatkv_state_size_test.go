@@ -29,27 +29,27 @@ func TestClassifyFlatKVPhysicalKey(t *testing.T) {
 	}{
 		{
 			name:     "evm nonce -> account",
-			key:      ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr[:]),
+			key:      ktype.BuildPhysicalEVMKey(keys.EVMKeyNonce, addr[:]),
 			expected: "account",
 		},
 		{
 			name:     "evm codehash -> account (merged)",
-			key:      ktype.EVMPhysicalKey(keys.EVMKeyCodeHash, addr[:]),
+			key:      ktype.BuildPhysicalEVMKey(keys.EVMKeyCodeHash, addr[:]),
 			expected: "account",
 		},
 		{
 			name:     "evm code -> code",
-			key:      ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:]),
+			key:      ktype.BuildPhysicalEVMKey(keys.EVMKeyCode, addr[:]),
 			expected: "code",
 		},
 		{
 			name:     "evm storage -> storage",
-			key:      ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+			key:      ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			expected: "storage",
 		},
 		{
 			name:     "non-evm module -> misc",
-			key:      ktype.ModulePhysicalKey("bank", []byte("supply")),
+			key:      ktype.BuildPhysicalKey("bank", []byte("supply")),
 			expected: "misc",
 		},
 		{
@@ -71,7 +71,7 @@ func TestClassifyFlatKVPhysicalKey(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.expected, classifyFlatKVPhysicalKey(tc.key))
+			require.Equal(t, tc.expected, ClassifyFlatKVPhysicalKey(tc.key))
 		})
 	}
 }
@@ -82,7 +82,7 @@ func TestClassifyFlatKVPhysicalKey(t *testing.T) {
 func TestExtractFlatKVContractAddress(t *testing.T) {
 	addr := ktype.Address{0xDE, 0xAD, 0xBE, 0xEF}
 	slot := ktype.Slot{0x01}
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	physKey := ktype.BuildPhysicalEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	got := extractFlatKVContractAddress(physKey)
 	want := "DEADBEEF" + strings.Repeat("00", 16)
@@ -90,7 +90,7 @@ func TestExtractFlatKVContractAddress(t *testing.T) {
 
 	// Non-evm keys (no address component) should return empty so the caller
 	// can skip ContractSizes bookkeeping.
-	require.Empty(t, extractFlatKVContractAddress(ktype.ModulePhysicalKey("bank", []byte("s"))))
+	require.Empty(t, extractFlatKVContractAddress(ktype.BuildPhysicalKey("bank", []byte("s"))))
 
 	// Too-short inner key guard.
 	require.Empty(t, extractFlatKVContractAddress([]byte("evm/\x03short")))

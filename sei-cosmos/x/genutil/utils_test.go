@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +17,26 @@ func TestExportGenesisFileWithTime(t *testing.T) {
 
 	fname := filepath.Join(t.TempDir(), "genesis.json")
 
-	require.NoError(t, ExportGenesisFileWithTime(fname, "test", nil, json.RawMessage(`{"account_owner": "Bob"}`), time.Now()))
+	require.NoError(t, ExportGenesisFileWithTime(fname, "test", nil, time.Second, json.RawMessage(`{"account_owner": "Bob"}`), time.Now()))
+}
+
+func TestExportGenesisFileWithTimePreservesConsensusParams(t *testing.T) {
+	t.Parallel()
+
+	fname := filepath.Join(t.TempDir(), "genesis.json")
+
+	require.NoError(t, ExportGenesisFileWithTime(
+		fname,
+		"test",
+		nil,
+		2*time.Second,
+		json.RawMessage(`{"account_owner": "Bob"}`),
+		time.Now(),
+	))
+
+	genDoc, err := tmtypes.GenesisDocFromFile(fname)
+	require.NoError(t, err)
+	require.Equal(t, 2*time.Second, genDoc.ConsensusParams.Timeout.Commit)
 }
 
 func TestInitializeNodeValidatorFilesFromMnemonic(t *testing.T) {

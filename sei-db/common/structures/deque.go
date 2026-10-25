@@ -6,7 +6,8 @@ import (
 	"math/bits"
 )
 
-const minDequeCapacity = 8
+// The capacity NewDeque gives a deque that is not asked for a specific one.
+const defaultDequeCapacity = 8
 
 // Deque is a generic double-ended queue backed by a growable circular buffer. It supports amortized O(1)
 // push/pop/peek at both ends and O(1) random access by index (including Python-style negative
@@ -20,14 +21,14 @@ type Deque[T any] struct {
 }
 
 func NewDeque[T any]() *Deque[T] {
-	return NewDequeWithCapacity[T](minDequeCapacity)
+	return NewDequeWithCapacity[T](defaultDequeCapacity)
 }
 
+// NewDequeWithCapacity creates a deque sized for the given number of elements, rounded up to a power
+// of two. A deque that outgrows it doubles, so asking for fewer than will be used costs copies rather
+// than correctness, and asking for one costs the least for a deque that usually holds one.
 func NewDequeWithCapacity[T any](capacity int) *Deque[T] {
 	c := nextPowerOf2(capacity)
-	if c < minDequeCapacity {
-		c = minDequeCapacity
-	}
 	return &Deque[T]{
 		data: make([]T, c),
 		mask: c - 1,

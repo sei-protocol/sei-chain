@@ -1,0 +1,3 @@
+// eth_getProof is not supported yet on Sei EVM RPC (-32000).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getProof","params":["0x1234567890123456789012345678901234567890",[],"latest"]}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"eth_getProof is not supported yet on Sei EVM RPC; please reach out to the Sei team if you need this endpoint"}}

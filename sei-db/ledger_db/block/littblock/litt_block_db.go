@@ -2,97 +2,43 @@ package littblock
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
+	"slices"
 	"sync/atomic"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
-// tableName is the single table holding blocks and QCs both, despite the name.
+// tableName is the single table holding every record kind, despite the name.
 //
 // It is persisted layout rather than just an identifier: littdb stores a table's data at
 // <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table and leaves
 // data under the old name unreachable.
 const tableName = "blocks"
 
-// legacyTableName is the name tableName had in earlier versions. Nothing opens it; refuseLegacyTable
-// only uses it to recognize a directory left behind by one of those versions.
-const legacyTableName = "ledger"
+var _ blocktypes.BlockDB = (*blockDB)(nil)
 
-var _ types.BlockDB = (*blockDB)(nil)
-
-// blockDB is a durable types.BlockDB backed by LittDB
+// blockDB is a durable blocktypes.BlockDB backed by LittDB.
 type blockDB struct {
 	db    littdb.DB
 	table littdb.Table
 
-	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
-	// PruneBefore rounds a requested prune point down to the start of the cohort
-	// containing it, and startup re-derives it as the lowest surviving QC's First
-	// (see cohortStart and recoverReadFloors). Keeping it on a cohort boundary
-	// is what makes a QC's blocks change readability atomically — the gate never
-	// splits a cohort.
-	//
-	// It serves two purposes: the GC filters treat keys strictly below it as
-	// eligible for reclamation, and reads and iterators refuse to serve any block
-	// strictly below it. The read gate is what upholds the "a served block is
-	// always covered by a served QC" invariant: asynchronous GC can strand a
-	// below-watermark block on disk (its covering QC reclaimed while the block's
-	// own segment lingers), but such a block is never served. Read from the GC
-	// goroutine, so accessed atomically.
+	// watermark is the reclamation floor. gcFilter and readers load it without
+	// holding any lock, so it is accessed atomically.
 	watermark atomic.Uint64
-
-	// Write-order cursors (see types.BlockDB contract). Guarded by mu.
-	mu              sync.Mutex
-	hasBlocks       bool
-	lastBlockNumber types.GlobalBlockNumber
-	// The newest block covered by a successful Flush (or recovered on open). GC measures retention
-	// from this cursor so it never prunes durable history against a volatile write suffix.
-	hasDurableBlocks       bool
-	lastDurableBlockNumber types.GlobalBlockNumber
-	hasQC                  bool
-	lastQCNext             types.GlobalBlockNumber
-
-	// firstBlockNumber is the lowest block number this handle has seen. Iterator clamps its
-	// start up to it so a scan always opens on a block that exists: the first block may be
-	// written anywhere inside its covering QC, so this can sit above oldestQCStart with no
-	// block in between. Set when the first block is written and re-derived on open (see
-	// recoverReadFloors).
-	//
-	// Like oldestQCStart it is a floor, not an exact value — pruning may reclaim the block it
-	// names — but by then watermark has advanced past it and Iterator clamps to both.
-	// Meaningful only while hasBlocks.
-	firstBlockNumber types.GlobalBlockNumber
-
-	// oldestQCStart is where the oldest QC this handle has seen begins. Iterator clamps its
-	// start up to it, which is what lets the positioned lookup always land on a retained QC
-	// record: a start below every QC's range has no key to position at. Set when the first QC
-	// is written and re-derived on open (see recoverReadFloors).
-	//
-	// It is a floor, not an exact value — GC may later reclaim that QC — but by then
-	// PruneBefore has advanced watermark past it, and Iterator clamps to both. Meaningful
-	// only while hasQC.
-	oldestQCStart types.GlobalBlockNumber
 }
 
-// NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
+// NewBlockDB opens (or creates) a LittDB-backed blocktypes.BlockDB from config. The
 // underlying LittDB is built from config.Litt, and the table applies
 // config.RetentionTime as a TTL failsafe (pruning never reclaims data younger
 // than that even once the watermark has advanced past it).
-func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
+//
+// Opening a store that holds records but no QC group fails: the store lost data out of
+// band and must not be served.
+func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid block db config: %w", err)
-	}
-	// Before littbuilder.NewDB, so a refused open leaves the directory exactly as it found it
-	// rather than adding an empty table beside the one it is complaining about.
-	if err := refuseLegacyTable(config.Litt.Paths); err != nil {
-		return nil, err
 	}
 	db, err := littbuilder.NewDB(config.Litt)
 	if err != nil {
@@ -101,14 +47,13 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 
 	s := &blockDB{db: db}
 
-	// Blocks and QCs live in one table with a single write shard. The block
-	// store relies on LittDB's single-shard in-write-order crash atomicity
-	// (after a crash the surviving writes form a contiguous prefix of the write
-	// order, never a gapped subset). Because the covering QC is always written
-	// before the block (WriteBlock rejects an uncovered block), that prefix
-	// guarantees a persisted block is always covered by a persisted QC. It also
-	// backs the write-order cursors and contiguous-QC recovery. ShardingFactor
-	// > 1, or splitting blocks and QCs across two tables, would void this.
+	// Every record kind lives in one table with a single write shard. The store
+	// relies on LittDB's single-shard in-write-order crash atomicity (after a
+	// crash the surviving writes form a contiguous prefix of the write order,
+	// never a gapped subset), which is the durability guarantee the
+	// blocktypes.BlockDB contract promises its caller. It also backs
+	// write-order recovery scans. ShardingFactor > 1, or splitting the kinds
+	// across several tables, would void this.
 	tableConfig := littdb.DefaultTableConfig(tableName)
 	tableConfig.TTL = config.RetentionTime
 	tableConfig.GCFilter = s.gcFilter
@@ -118,474 +63,232 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to build ledger table: %w", err)
 	}
-
 	s.table = table
-
-	if err := s.recoverCursors(); err != nil {
+	if err := s.recoverWatermark(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to recover write cursors: %w", err)
-	}
-	if err := s.recoverReadFloors(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to recover read floors: %w", err)
+		return nil, fmt.Errorf("failed to recover watermark: %w", err)
 	}
 	return s, nil
 }
 
-// refuseLegacyTable fails the open when any root path holds a table directory under legacyTableName,
-// which this process cannot reach and would otherwise leave the store looking healthy and empty. The
-// operator action is to delete the directory or move it aside.
+// recoverWatermark re-derives the reclamation floor from the oldest surviving QC
+// group. The floor is in-memory only, so a restart forgets every
+// SetPruneWatermark; that costs nothing for reclamation, since nothing new is
+// released, but it must not leave blocks readable whose covering QC is already
+// gone.
 //
-// A root that cannot be stat'd is also refused, since it cannot rule out such a directory.
-func refuseLegacyTable(paths []string) error {
-	for _, root := range paths {
-		legacy := filepath.Join(root, legacyTableName)
-		switch _, err := os.Stat(legacy); {
-		case err == nil:
-			return fmt.Errorf(
-				"block db: found a pre-rename %q table at %s; the table is now named %q, so those "+
-					"blocks and QCs would be neither served nor reclaimed. Delete or move the "+
-					"directory aside to start from an empty store",
-				legacyTableName, legacy, tableName)
-		case !os.IsNotExist(err):
-			return fmt.Errorf("block db: check for a pre-rename %q table at %s: %w",
-				legacyTableName, legacy, err)
-		}
-	}
-	return nil
-}
-
-// recoverCursors reloads the write-order cursors (lastBlockNumber, lastQCNext,
-// and their presence flags) from on-disk state. Without this, a reopened DB
-// would treat itself as empty and let WriteBlock/WriteQC silently accept
-// out-of-order or non-contiguous writes that overwrite or gap persisted data.
-func (s *blockDB) recoverCursors() error {
-	it, err := s.table.Iterator(true)
-	if err != nil {
-		return fmt.Errorf("failed to open recovery iterator: %w", err)
-	}
-	defer func() { _ = it.Close() }()
-
-	for !s.hasBlocks || !s.hasQC {
-		ok, err := it.Next()
-		if err != nil {
-			return fmt.Errorf("failed to advance recovery iterator: %w", err)
-		}
-		if !ok {
-			break
-		}
-		key, isPrimary, err := it.GetKey()
-		if err != nil {
-			return fmt.Errorf("failed to read recovery key: %w", err)
-		}
-		if !isPrimary {
-			continue
-		}
-		switch keyKind(key) {
-		case kindBlock:
-			if !s.hasBlocks {
-				s.lastBlockNumber = decodeNumberKey(key)
-				s.hasBlocks = true
-			}
-		case kindQC:
-			if !s.hasQC {
-				value, err := it.GetValue()
-				if err != nil {
-					return fmt.Errorf("failed to read newest qc value: %w", err)
-				}
-				qc, err := decodeQC(value)
-				if err != nil {
-					return fmt.Errorf("failed to unmarshal newest qc: %w", err)
-				}
-				_, s.lastQCNext = coveredRange(qc)
-				s.hasQC = true
-			}
-		}
-	}
-	if s.hasBlocks {
-		s.hasDurableBlocks = true
-		s.lastDurableBlockNumber = s.lastBlockNumber
-	}
-	return nil
-}
-
-// recoverReadFloors re-derives the read floors on open: the watermark (with oldestQCStart) from
-// the oldest surviving QC, and firstBlockNumber from the oldest surviving block. Both are
-// in-memory only, so a restart forgets every PruneBefore. That is fine for reclamation (nothing
-// new is deleted), but we must protect against showing un-pruned blocks with pruned QCs.
-//
-// One forward pass serves both. QCs are written before the blocks they cover, so the oldest
-// surviving record is normally a QC and the first block follows shortly after. The block search
-// is skipped when the store holds no blocks — hasBlocks comes from recoverCursors, which runs
-// first — so a QC-only store does not walk the whole table looking for a block that is not there.
-func (s *blockDB) recoverReadFloors() error {
+// The oldest QC group bounds what the store may serve. A non-empty store
+// without a QC group has lost that bound and must not reopen.
+func (s *blockDB) recoverWatermark() error {
 	it, err := s.table.Iterator(false)
 	if err != nil {
-		return fmt.Errorf("failed to open read floor recovery iterator: %w", err)
+		return fmt.Errorf("failed to open record iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-
-	needQC, needBlock := true, s.hasBlocks
-	for needQC || needBlock {
+	empty := true
+	for {
 		ok, err := it.Next()
 		if err != nil {
-			return fmt.Errorf("failed to advance read floor recovery iterator: %w", err)
+			return fmt.Errorf("failed to advance record iterator: %w", err)
 		}
 		if !ok {
 			break
 		}
 		key, isPrimary, err := it.GetKey()
 		if err != nil {
-			return fmt.Errorf("failed to read read floor recovery key: %w", err)
+			return fmt.Errorf("failed to read record key: %w", err)
 		}
 		if !isPrimary {
 			continue
 		}
-		switch keyKind(key) {
-		case kindQC:
-			if needQC {
-				oldest := decodeNumberKey(key)
-				s.watermark.Store(uint64(oldest))
-				s.oldestQCStart = oldest
-				needQC = false
-			}
-		case kindBlock:
-			if needBlock {
-				s.firstBlockNumber = decodeNumberKey(key)
-				needBlock = false
-			}
+		recordKey := ledgerKey(key)
+		kind, ok := recordKey.primaryKind()
+		if !ok {
+			return fmt.Errorf("invalid primary ledger key %x", key)
+		}
+		empty = false
+		if kind == kindQCGroup {
+			s.watermark.Store(uint64(recordKey.number()))
+			return nil
 		}
 	}
-
-	if needQC && s.hasBlocks {
-		// No QC survives. The never-empty prune invariant guarantees at least one
-		// (block, QC) pair is always retained, so blocks-without-QC is unreachable
-		// through normal operation — it means the store is corrupt (e.g. a QC WAL
-		// file was removed out of band). Refuse to open rather than serve blocks we
-		// can no longer trust.
-		return fmt.Errorf("corrupt store: newest block %d has no surviving QC covering it", s.lastBlockNumber)
+	if !empty {
+		return fmt.Errorf("corrupt store: no QC group in non-empty store")
 	}
 	return nil
 }
 
-func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.hasBlocks && n != s.lastBlockNumber+1 {
-		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
-			n, s.lastBlockNumber, types.ErrBlockOutOfOrder)
-	}
-	// A covering QC must already be written. Since QCs are contiguous and blocks
-	// strictly ascending, n is covered iff n < lastQCNext. This guard also fixes
-	// the QC-before-block write order: the covering QC's Put has already issued
-	// under this mutex, so on a crash a surviving block implies a surviving QC.
-	if !s.hasQC || n >= s.lastQCNext {
-		return fmt.Errorf("block number %d not covered by any written QC (next QC bound %d): %w",
-			n, s.lastQCNext, types.ErrBlockMissingQC)
-	}
+// GetPruneWatermark returns the reclamation floor.
+func (s *blockDB) GetPruneWatermark() blocktypes.BlockNumber {
+	return blocktypes.BlockNumber(s.watermark.Load())
+}
 
-	value := encodeBlock(n, blk)
-	hash := blk.Header().Hash()
-	hashAlias := &litttypes.SecondaryKey{
-		Key:    blockHashKey(hash),
-		Offset: 0,
-		Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
+// SetPruneWatermark raises the reclamation floor to n. Reclaiming the data
+// happens later, on LittDB's GC schedule and no earlier than
+// BlockDBConfig.RetentionTime.
+func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
+	for {
+		current := s.watermark.Load()
+		if uint64(n) <= current {
+			return
+		}
+		if s.watermark.CompareAndSwap(current, uint64(n)) {
+			return
+		}
 	}
-	if err := s.table.Put(blockKey(n), value, hashAlias); err != nil {
-		return fmt.Errorf("failed to put block %d: %w", n, err)
-	}
+}
 
-	if !s.hasBlocks {
-		s.firstBlockNumber = n
+// PutQC stores a QC and its blocks in one atomic LittDB value.
+func (s *blockDB) PutQC(group blocktypes.QCGroupRecord) error {
+	return s.putRecord(encodeQCGroup(group))
+}
+
+// PutAppQC stores an application QC and its covered-number aliases.
+func (s *blockDB) PutAppQC(appQC blocktypes.AppQCRecord) error {
+	return s.putRecord(encodeAppQC(appQC))
+}
+
+// PutAppProposal stores an application proposal and its covered-number aliases.
+func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
+	return s.putRecord(encodeAppProposal(proposal))
+}
+
+// putRecord inserts an encoded record and its aliases.
+func (s *blockDB) putRecord(record record) error {
+	if err := s.table.Put(record.Key, record.Value, record.Aliases...); err != nil {
+		return fmt.Errorf("failed to put ledger record: %w", err)
 	}
-	s.lastBlockNumber = n
-	s.hasBlocks = true
 	return nil
 }
 
-func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
-	first, next := coveredRange(qc)
-	if first >= next {
-		return fmt.Errorf("QC at %d covers no blocks: %w", first, types.ErrQCNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.hasQC && first != s.lastQCNext {
-		return fmt.Errorf("QC starts at %d, expected %d: %w",
-			first, s.lastQCNext, types.ErrQCNonContiguous)
-	}
-
-	value := encodeQC(qc)
-	var aliases []*litttypes.SecondaryKey
-	for m := first + 1; m < next; m++ {
-		aliases = append(aliases, &litttypes.SecondaryKey{
-			Key:    qcKey(m),
-			Offset: 0,
-			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
-		})
-	}
-	if err := s.table.Put(qcKey(first), value, aliases...); err != nil {
-		return fmt.Errorf("failed to put QC [%d,%d): %w", first, next, err)
-	}
-
-	if !s.hasQC {
-		// The first QC may start anywhere its caller allows, and nothing below it will ever
-		// be written. Record where coverage begins so Iterator can clamp to it without
-		// discovering it by scanning; a reopen re-derives the same value.
-		s.oldestQCStart = first
-	}
-	s.lastQCNext = next
-	s.hasQC = true
-	return nil
-}
-
-func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.hasBlocks {
-		// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
-		// and is technically a legal implementation of the contract in the godocs.
-		return nil
-	}
-
-	// Never make the store depend on an unflushed suffix to remain non-empty. GC and callers may
-	// prune concurrently with the persistence loop; a process crash can lose every write above this
-	// cursor, so the newest durable block's whole QC cohort is the highest safe prune boundary.
-	if !s.hasDurableBlocks {
-		return nil
-	}
-	if blockHeight > s.lastDurableBlockNumber {
-		blockHeight = s.lastDurableBlockNumber
-	}
-
-	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
-	blockHeight, err := s.clampPruneBoundary(blockHeight)
+// getRecord reads the serialized payload at a numbered lookup key.
+func (s *blockDB) getRecord(kind recordKind, n blocktypes.BlockNumber) ([]byte, bool, error) {
+	value, exists, err := s.table.Get(kind.key(n))
 	if err != nil {
-		return err
-	}
-
-	// Advance the watermark monotonically. mu serializes writers and PruneBefore
-	// is the only one, so a plain load/store suffices; the field stays atomic
-	// only because the GC filter and readers load it without holding mu.
-	if uint64(blockHeight) > s.watermark.Load() {
-		s.watermark.Store(uint64(blockHeight))
-	}
-	return nil
-}
-
-// clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
-// (which can happen if you prune the same n twice).
-func (s *blockDB) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.GlobalBlockNumber, error) {
-	value, exists, err := s.table.Get(qcKey(blockHeight))
-	if err != nil {
-		return 0, fmt.Errorf("failed to read covering QC for %d: %w", blockHeight, err)
+		return nil, false, fmt.Errorf("failed to read record kind %d at %d: %w", kind, n, err)
 	}
 	if !exists {
-		return blockHeight, nil
+		return nil, false, nil
 	}
-	qc, err := decodeQC(value)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode covering QC for %d: %w", blockHeight, err)
-	}
-	return qc.QC().GlobalRange().First, nil
+	data, err := decodePayload(kind, value)
+	return data, err == nil, err
 }
 
-// gcFilter marks a key in the shared ledger table as reclaimable, dispatching on
-// its kind prefix:
-//
-//   - block-number keys are reclaimable once the block number is strictly below
-//     the prune watermark;
-//   - QC keys (the primary First and every per-covered-number secondary) are
-//     reclaimable once their number is below the watermark, so a QC's segment is
-//     reclaimable only once its highest covered number (Next-1) is below the
-//     watermark — i.e. once Next <= watermark; a QC straddling the watermark is
-//     retained;
-//   - header-hash aliases share their block's segment, so they always pass — the
-//     block's primary number key is what actually gates segment reclamation.
-func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
-	switch keyKind(key) {
-	case kindBlock, kindQC:
-		return uint64(decodeNumberKey(key)) < s.watermark.Load(), nil
+// GetBlockByHash returns the number and opaque payload of the block indexed by hash.
+func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockNumber, []byte, bool, error) {
+	value, exists, err := s.table.Get(blockHashKey(hash))
+	if err != nil || !exists {
+		return 0, nil, exists, err
+	}
+	block, err := decodeBlock(value)
+	return block.Number, block.Value, err == nil, err
+}
+
+// ReadSuffix reads complete primary records from the latest applied QC group onward.
+func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
+	it, err := s.table.Iterator(true)
+	if err != nil {
+		return blocktypes.Suffix{}, fmt.Errorf("failed to open record iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	var suffix blocktypes.Suffix
+	var groups []blocktypes.QCGroupRecord
+	var first blocktypes.BlockNumber
+	gotAppQC := false
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return blocktypes.Suffix{}, fmt.Errorf("failed to advance record iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		key, isPrimary, err := it.GetKey()
+		if err != nil {
+			return blocktypes.Suffix{}, fmt.Errorf("failed to read record key: %w", err)
+		}
+		if !isPrimary {
+			continue
+		}
+		recordKey := ledgerKey(key)
+		kind, ok := recordKey.primaryKind()
+		if !ok {
+			return blocktypes.Suffix{}, fmt.Errorf("invalid primary ledger key %x", key)
+		}
+		if kind == kindAppQC && !gotAppQC {
+			first = recordKey.number()
+			gotAppQC = true
+		}
+		if !gotAppQC || recordKey.number() >= first {
+			value, err := it.GetValue()
+			if err != nil {
+				return blocktypes.Suffix{}, fmt.Errorf("failed to read record value: %w", err)
+			}
+			switch kind {
+			case kindQCGroup:
+				group, err := decodeQCGroup(value)
+				if err != nil {
+					return blocktypes.Suffix{}, err
+				}
+				groups = append(groups, group)
+			case kindAppQC:
+				qc, err := decodeAppQC(value)
+				if err != nil {
+					return blocktypes.Suffix{}, err
+				}
+				suffix.AppQCs = append(suffix.AppQCs, qc)
+			case kindAppProp:
+				proposal, err := decodeAppProposal(value)
+				if err != nil {
+					return blocktypes.Suffix{}, err
+				}
+				suffix.AppProposals = append(suffix.AppProposals, proposal)
+			}
+		}
+		if gotAppQC && kind == kindQCGroup && recordKey.number() <= first {
+			break
+		}
+	}
+	groups = slices.DeleteFunc(groups, func(group blocktypes.QCGroupRecord) bool { return gotAppQC && group.Blocks[0].Number < first })
+	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc blocktypes.AppQCRecord) bool { return gotAppQC && qc.First < first })
+	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal blocktypes.AppProposalRecord) bool { return gotAppQC && proposal.First < first })
+	slices.Reverse(groups)
+	for _, group := range groups {
+		suffix.QCs = append(suffix.QCs, group.QC)
+		suffix.Blocks = append(suffix.Blocks, group.Blocks...)
+	}
+	slices.Reverse(suffix.AppQCs)
+	slices.Reverse(suffix.AppProposals)
+	return suffix, nil
+}
+
+// reclaimable reports whether a key is eligible for reclamation below watermark.
+// Hash aliases are always eligible; their primary record and numbered aliases govern retention.
+func (k ledgerKey) reclaimable(watermark blocktypes.BlockNumber) (bool, error) {
+	switch keyKind(k) {
+	case kindQCGroup, kindBlock, kindQC, kindAppProp, kindAppQC:
+		return k.number() < watermark, nil
 	case kindBlockHash:
 		return true, nil
 	default:
-		return false, fmt.Errorf("unknown ledger key kind %q", key[0])
+		return false, fmt.Errorf("unknown ledger key kind in %x", k)
 	}
 }
 
-func (s *blockDB) Flush() error {
-	// Snapshot the write cursor before flushing. Table.Flush guarantees every Put that completed
-	// before it began, while overlapping writes may or may not be durable; recording this snapshot
-	// is therefore conservative without blocking the persistence loop for the duration of the I/O.
-	s.mu.Lock()
-	hasBlocks := s.hasBlocks
-	lastBlockNumber := s.lastBlockNumber
-	s.mu.Unlock()
+// gcFilter reports whether a ledger key is below the reclamation floor.
+func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
+	return ledgerKey(key).reclaimable(s.GetPruneWatermark())
+}
 
+// Flush makes all previously returned writes durable.
+func (s *blockDB) Flush() error {
 	if err := s.table.Flush(); err != nil {
 		return fmt.Errorf("failed to flush ledger table: %w", err)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if hasBlocks && (!s.hasDurableBlocks || lastBlockNumber > s.lastDurableBlockNumber) {
-		s.hasDurableBlocks = true
-		s.lastDurableBlockNumber = lastBlockNumber
 	}
 	return nil
 }
 
-func (s *blockDB) Status() types.DBStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var tips types.DBStatus
-	if s.hasBlocks {
-		tips.NextBlock = s.lastBlockNumber + 1
-	}
-	if s.hasQC {
-		tips.NextQC = s.lastQCNext
-	}
-	return tips
-}
-
-func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
-	// One consistent read of the cursors. The watermark stays on its atomic because the GC goroutine
-	// writes it, but everything else is taken together so the floors below cannot disagree about
-	// which instant they describe.
-	s.mu.Lock()
-	hasQC, nextQC, oldestQCStart := s.hasQC, s.lastQCNext, s.oldestQCStart
-	hasBlocks, firstBlock := s.hasBlocks, s.firstBlockNumber
-	s.mu.Unlock()
-	watermark := types.GlobalBlockNumber(s.watermark.Load())
-
-	if !hasQC {
-		// An empty store covers nothing.
-		return &blockDBIterator{}, nil
-	}
-
-	// Clamp up to the lowest number this store can serve. The watermark is the retention gate and
-	// oldestQCStart is where coverage begins on a store that never had data below it (bootstrapped
-	// mid-chain); either may be the higher.
-	start := max(n, watermark, oldestQCStart)
-
-	if !hasBlocks {
-		// No block has ever been written, so there is no block to open on and the QC floor governs.
-		// This is the one case blockDBIterator cannot serve safely — see simpleIterator.
-		if start >= nextQC {
-			return &blockDBIterator{}, nil
-		}
-		return newSimpleIterator(s.table, start, nextQC)
-	}
-
-	// firstBlock is where the block history begins, which can sit inside its covering QC's range
-	// because the first block is free to start there. Clamping to it is what makes the scan open on a
-	// block that exists rather than on blockless numbers below it.
-	start = max(start, firstBlock)
-
-	if start >= nextQC {
-		// Nothing is covered at or above start.
-		return &blockDBIterator{}, nil
-	}
-
-	// A QC is stored under its First as the primary key with a covered-number alias for every
-	// other number in its range, and an alias carries the full QC value. Positioning the scan at
-	// qcKey(start) therefore lands on the covering QC no matter where start falls in its range.
-	it, found, err := s.table.IteratorAt(qcKey(start), false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open iterator at %d: %w", start, err)
-	}
-	if !found {
-		// start was clamped into [oldestQCStart, NextQC) and retained QCs cover that interval
-		// contiguously, so some QC's primary or covered-number alias is stored under qcKey(start)
-		// — unless the retention floor moved past start while we were positioning. Either way we
-		// refuse rather than scanning from the beginning of the table, which would read exactly
-		// the history the caller passed n to skip. Which of the two it was decides the diagnosis,
-		// and getting that wrong is expensive: reporting corruption on a healthy store sends an
-		// operator hunting for damage that isn't there.
-		if s.watermark.Load() > uint64(start) {
-			// A concurrent PruneBefore advanced the floor past start, and GC reclaimed the record
-			// (litt surfaces a prune/GC boundary as not-found — see DiskTable.IteratorAt). GC's
-			// filter only clears a segment once the watermark exceeds every number in it, so a
-			// watermark above start is exactly the condition that makes this benign rather than
-			// corrupt. Racing a pruner has no deterministic answer, so report the floor honestly
-			// and let the caller decide whether to retry.
-			return nil, fmt.Errorf("%w: start %d fell below the retention floor while positioning",
-				types.ErrPruned, start)
-		}
-		return nil, fmt.Errorf("corrupt store: no QC record at %d despite coverage to %d", start, nextQC)
-	}
-	return &blockDBIterator{
-		it:            it,
-		startN:        start,
-		expectStartQC: true,
-	}, nil
-}
-
-func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
-	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed).
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.Block](), types.ErrPruned
-	}
-	result, err := getBlock(s.table, blockKey(n))
-	if err != nil {
-		return utils.None[*types.Block](), err
-	}
-	if bwn, ok := result.Get(); ok {
-		return utils.Some(bwn.Block), nil
-	}
-	return utils.None[*types.Block](), nil
-}
-
-func (s *blockDB) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.BlockWithNumber], error) {
-	result, err := getBlock(s.table, blockHashKey(hash))
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), err
-	}
-	// The number is not known until the block is resolved; refuse it if it turns
-	// out to be below the watermark (potentially stranded from its covering QC).
-	if bwn, ok := result.Get(); ok && uint64(bwn.Number) < s.watermark.Load() {
-		return utils.None[types.BlockWithNumber](), nil
-	}
-	return result, nil
-}
-
-func getBlock(table littdb.Table, key []byte) (utils.Option[types.BlockWithNumber], error) {
-	value, exists, err := table.Get(key)
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to read block: %w", err)
-	}
-	if !exists {
-		return utils.None[types.BlockWithNumber](), nil
-	}
-	n, blk, err := decodeBlock(value)
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to unmarshal block: %w", err)
-	}
-	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
-}
-
-func (s *blockDB) ReadQCByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.FullCommitQC], error) {
-	// Below-watermark blocks are not served, so neither is their covering QC.
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.FullCommitQC](), types.ErrPruned
-	}
-	value, exists, err := s.table.Get(qcKey(n))
-	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to read QC: %w", err)
-	}
-	if !exists {
-		return utils.None[*types.FullCommitQC](), nil
-	}
-	qc, err := decodeQC(value)
-	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to unmarshal QC: %w", err)
-	}
-	return utils.Some(qc), nil
-}
-
+// Close releases the underlying LittDB.
 func (s *blockDB) Close() error {
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("failed to close litt db: %w", err)
@@ -595,9 +298,9 @@ func (s *blockDB) Close() error {
 
 // ForceGC runs a synchronous garbage-collection pass over the table backing db,
 // so any pending prune takes effect immediately rather than on the periodic GC
-// schedule. db must be a *blockDB returned by NewBlockDB. Intended for tests and
-// operational tooling.
-func ForceGC(db types.BlockDB) error {
+// schedule. db must be a blocktypes.BlockDB returned by NewBlockDB. Intended for
+// tests and operational tooling.
+func ForceGC(db blocktypes.BlockDB) error {
 	impl, ok := db.(*blockDB)
 	if !ok {
 		return fmt.Errorf("ForceGC: db is not a littblock block store (%T)", db)
@@ -610,4 +313,24 @@ func ForceGC(db types.BlockDB) error {
 		return fmt.Errorf("failed to run GC on table %q: %w", impl.table.Name(), err)
 	}
 	return nil
+}
+
+// GetQC returns the serialized QC covering n.
+func (s *blockDB) GetQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
+	return s.getRecord(kindQC, n)
+}
+
+// GetBlock returns the serialized block numbered n.
+func (s *blockDB) GetBlock(n blocktypes.BlockNumber) ([]byte, bool, error) {
+	return s.getRecord(kindBlock, n)
+}
+
+// GetAppQC returns the serialized application QC covering n.
+func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
+	return s.getRecord(kindAppQC, n)
+}
+
+// GetAppProposal returns the serialized application proposal covering n.
+func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) ([]byte, bool, error) {
+	return s.getRecord(kindAppProp, n)
 }

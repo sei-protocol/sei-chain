@@ -134,6 +134,8 @@ type txStoreInner struct {
 	// Snapshot of the mempool state: transactions in inclusion order.
 	// Recomputed every time inInclusionOrder is called.
 	snapshot types.Txs
+	// snapshotStale is set when the store changed without recomputing the snapshot.
+	snapshotStale bool
 	// Cache of known txs, reducess pressure on app. It contains:
 	// * known unconditionally invalid txs
 	// * metadata allowing to do initial tx assessment before calling app.CheckTx
@@ -209,9 +211,10 @@ func (s *txStore) Clear() {
 }
 
 // Checks if tx should be immediately rejected.
-func (s *txStore) ShouldReject(txHash types.TxHash) bool {
+// Rejection returns why a tx with this hash must be rejected, or nil if it may be admitted.
+func (s *txStore) Rejection(txHash types.TxHash) error {
 	for inner := range s.inner.RLock() {
-		return inner.shouldReject(txHash)
+		return inner.rejection(txHash)
 	}
 	panic("unreachable")
 }
@@ -238,8 +241,17 @@ func (s *txStore) MarkInvalid(txHash types.TxHash) {
 func (s *txStore) State() txStoreState { return s.state.Load() }
 
 // Recent snapshot of the mempool.
+// The snapshot is recomputed here lazily if it went stale since the last block.
 func (s *txStore) RecentSnapshot() types.Txs {
 	for inner := range s.inner.RLock() {
+		if !inner.snapshotStale {
+			return inner.snapshot
+		}
+	}
+	for inner := range s.inner.Lock() {
+		if inner.snapshotStale {
+			inner.inInclusionOrder()
+		}
 		return inner.snapshot
 	}
 	panic("unreachable")
@@ -309,76 +321,149 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
-func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
-	// Already in mempool => true
+func (inner *txStoreInner) rejection(txHash types.TxHash) error {
+	// Already in mempool => reject
 	if _, ok := inner.byHash[txHash]; ok {
-		return true
+		return types.ErrTxInMempool
 	}
-	// Not cached => false
+	// Not cached => admit
 	e, ok := inner.cache.Get(txHash)
 	if !ok {
-		return false
+		return nil
 	}
 	// empty entry means that tx is known to be invalid.
 	evm, ok := e.Get()
 	if !ok {
-		return true
+		return types.ErrTxInCache
 	}
-	// evm account not tracked => false
+	// evm account not tracked => admit
 	account, ok := inner.accounts[evm.address]
 	if !ok {
-		return false
+		return nil
 	}
-	// too old nonce => true
+	// too old nonce => reject
 	if evm.nonce < account.firstNonce {
-		return true
+		return types.ErrTxNonceTooLow
 	}
-	// no conflicting nonce => false
+	// no conflicting nonce => admit
 	old, ok := inner.byNonce[evmAddrNonce{evm.address, evm.nonce}]
 	if !ok {
-		return false
+		return nil
 	}
-	// better tx for this nonce in mempool => false
+	// better tx for this nonce in mempool => reject
 	oldEvm := old.evm.OrPanic("non-evm tx")
 	oldReady := oldEvm.nonce < account.nextNonce
 	// If the old tx is ready but the new tx is not, then reject the new tx.
 	if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
-		return true
+		return types.ErrTxInsufficientFunds
 	}
 	// If the old tx has >= priority, then reject new tx.
 	if old.priority >= evm.priority {
-		return true
+		return types.ErrTxReplacementUnderpriced
 	}
-	// otherwise => false
-	return false
+	// otherwise => admit
+	return nil
 }
 
-func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
+// account returns the tracked state of the evm account, fetching it from the app on first use.
+func (s *txStore) account(inner *txStoreInner, evm *evmTx) *evmAccount {
+	account, ok := inner.accounts[evm.address]
+	if !ok {
+		// TODO(gprusak): consider whether we should move these queries out of the mutex.
+		b := s.app.EvmBalance(evm.address, evm.seiAddress)
+		n := s.app.EvmNonce(evm.address)
+		account = &evmAccount{b, n, n}
+		inner.accounts[evm.address] = account
+	}
+	return account
+}
+
+// cacheMetadata records the evm metadata of wtx in the cache.
+func (inner *txStoreInner) cacheMetadata(wtx *WrappedTx, evm *evmTx) {
+	inner.cache.Push(wtx.Hash(), utils.Some(cacheEvm{
+		priority:        wtx.priority,
+		address:         evm.address,
+		nonce:           evm.nonce,
+		requiredBalance: evm.requiredBalance,
+	}))
+}
+
+// advanceReady marks the account's txs ready in nonce order, starting at nextNonce,
+// until it hits a nonce gap or a tx the account cannot afford.
+// It only reclassifies txs already held in the store: state is size bookkeeping of
+// held txs, not a capacity check, which callers do against the limits separately.
+// The tx in skipAccepted is not reported as a newly accepted pending tx.
+func (s *txStore) advanceReady(inner *txStoreInner, addr common.Address, account *evmAccount, state *txStoreState, skipAccepted utils.Option[*WrappedTx]) {
+	an := evmAddrNonce{Address: addr}
+	for {
+		an.Nonce = account.nextNonce
+		wtx, ok := inner.byNonce[an]
+		if !ok {
+			break
+		}
+		requiredBalance := wtx.evm.OrPanic("non-evm tx").requiredBalance
+		if account.balance.Cmp(&requiredBalance) < 0 {
+			break
+		}
+		account.nextNonce += 1
+		state.ready.Inc(wtx.Size())
+		if !wtx.readyEl.IsPresent() {
+			s.priorityReservoir.Add(wtx.priority)
+			wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
+			if skip, ok := skipAccepted.Get(); !ok || wtx != skip {
+				recordPendingNonceAccepted()
+			}
+		}
+	}
+}
+
+// refreshReady recomputes which of the account's txs are ready, starting over from firstNonce.
+func (s *txStore) refreshReady(inner *txStoreInner, addr common.Address, account *evmAccount, state *txStoreState) {
+	for nonce := account.firstNonce; nonce < account.nextNonce; nonce++ {
+		if wtx, ok := inner.byNonce[evmAddrNonce{addr, nonce}]; ok {
+			state.ready.Dec(wtx.Size())
+		}
+	}
+	account.nextNonce = account.firstNonce
+	s.advanceReady(inner, addr, account, state, utils.None[*WrappedTx]())
+}
+
+// remove drops wtx from every index and from the gossip list.
+// Readiness of the remaining txs of the same account is left for the caller to refresh.
+func (s *txStore) remove(inner *txStoreInner, wtx *WrappedTx, state *txStoreState) {
+	delete(inner.byHash, wtx.Hash())
+	if evm, ok := wtx.evm.Get(); ok {
+		delete(inner.byEvmHash, evm.hash)
+		delete(inner.byNonce, evmAddrNonce{evm.address, evm.nonce})
+	}
+	state.total.Dec(wtx.Size())
+	if inner.isReady(wtx) {
+		state.ready.Dec(wtx.Size())
+	}
+	Global.RemovedTxsAt().Add(1)
+	if el, ok := wtx.readyEl.Get(); ok {
+		s.readyTxs.Remove(el)
+	}
+}
+
+func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
 	state := inner.state.Load()
 	if evm, ok := wtx.evm.Get(); ok {
-		// Fetch the evm account state.
-		account, ok := inner.accounts[evm.address]
-		if !ok {
-			// TODO(gprusak): consider whether we should move these queries out of the mutex.
-			b := s.app.EvmBalance(evm.address, evm.seiAddress)
-			n := s.app.EvmNonce(evm.address)
-			account = &evmAccount{b, n, n}
-			inner.accounts[evm.address] = account
-		}
+		account := s.account(inner, &evm)
 		// Reject transactions with old nonces.
 		if evm.nonce < account.firstNonce {
 			inner.cache.Push(wtx.Hash(), utils.None[cacheEvm]())
+			recordPendingNonceRejected()
 			return errOldNonce
 		}
-		inner.cache.Push(wtx.Hash(), utils.Some(cacheEvm{
-			priority:        wtx.priority,
-			address:         evm.address,
-			nonce:           evm.nonce,
-			requiredBalance: evm.requiredBalance,
-		}))
+		skipAccepted := utils.None[*WrappedTx]()
+		if recordAdded && evm.nonce == account.nextNonce {
+			skipAccepted = utils.Some(wtx)
+		}
+		inner.cacheMetadata(wtx, &evm)
 		// We check the evm hash only AFTER caching the evm metadata.
 		if _, ok := inner.byEvmHash[evm.hash]; ok {
 			return errDuplicateTx
@@ -413,24 +498,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		state.total.Inc(wtx.Size())
 		inner.byEvmHash[evm.hash] = wtx
 		inner.byNonce[an] = wtx
-		// Update account ready txs.
-		for {
-			an.Nonce = account.nextNonce
-			wtx, ok := inner.byNonce[an]
-			if !ok {
-				break
-			}
-			requiredBalance := wtx.evm.OrPanic("non-evm tx").requiredBalance
-			if account.balance.Cmp(&requiredBalance) < 0 {
-				break
-			}
-			account.nextNonce += 1
-			state.ready.Inc(wtx.Size())
-			if !wtx.readyEl.IsPresent() {
-				s.priorityReservoir.Add(wtx.priority)
-				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
-			}
-		}
+		s.advanceReady(inner, evm.address, account, &state, skipAccepted)
 	} else {
 		// Non-evm txs are automatically ready
 		state.total.Inc(wtx.Size())
@@ -442,6 +510,9 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	}
 	inner.byHash[wtx.Hash()] = wtx
 	inner.state.Store(state)
+	if recordAdded && wtx.evm.IsPresent() {
+		recordPendingNonceAdded()
+	}
 	return nil
 }
 
@@ -494,6 +565,7 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 	for i := range inner.snapshot {
 		inner.snapshot[i] = res[i].Tx()
 	}
+	inner.snapshotStale = false
 	return res
 }
 
@@ -501,7 +573,7 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 // txStore takes ownership of wtx.
 func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
-		if err := s.insert(inner, wtx); err != nil {
+		if err := s.insert(inner, wtx, true); err != nil {
 			return err
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
@@ -538,7 +610,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		total.Inc(wtx.Size())
 		limitOk := total.LessEqual(&inner.softLimit)
 		// NOTE: insertion is lazily evaluated here.
-		if !limitOk || s.insert(inner, wtx) != nil {
+		if !limitOk || s.insert(inner, wtx, false) != nil {
 			Global.RemovedTxsAt().Add(1)
 			Global.EvictedTxsAt().Add(1)
 			if el, ok := wtx.readyEl.Get(); ok {
@@ -546,6 +618,46 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 			}
 		}
 	}
+	Global.CacheSizeAt().Set(int64(inner.cache.Size()))
+}
+
+// O(m), re-evaluates account nonces and balances against the app and drops txs
+// which fell below their account nonce. Unlike compact, it keeps the indices
+// in place and never evicts, so the caller must ensure the store is within softLimit.
+func (s *txStore) refresh(inner *txStoreInner) {
+	state := txStoreState{}
+	inner.accounts = map[common.Address]*evmAccount{}
+	for txHash, wtx := range inner.byHash {
+		evm, ok := wtx.evm.Get()
+		if !ok {
+			// Non-evm txs are automatically ready
+			state.total.Inc(wtx.Size())
+			state.ready.Inc(wtx.Size())
+			continue
+		}
+		account := s.account(inner, &evm)
+		if evm.nonce < account.firstNonce {
+			inner.cache.Push(txHash, utils.None[cacheEvm]())
+			recordPendingNonceRejected()
+			delete(inner.byHash, txHash)
+			delete(inner.byEvmHash, evm.hash)
+			delete(inner.byNonce, evmAddrNonce{evm.address, evm.nonce})
+			Global.RemovedTxsAt().Add(1)
+			Global.EvictedTxsAt().Add(1)
+			if el, ok := wtx.readyEl.Get(); ok {
+				s.readyTxs.Remove(el)
+			}
+			continue
+		}
+		state.total.Inc(wtx.Size())
+		inner.cacheMetadata(wtx, &evm)
+	}
+	for addr, account := range inner.accounts {
+		account.nextNonce = account.firstNonce
+		s.advanceReady(inner, addr, account, &state, utils.None[*WrappedTx]())
+	}
+	inner.state.Store(state)
+	inner.snapshotStale = true
 	Global.CacheSizeAt().Set(int64(inner.cache.Size()))
 }
 
@@ -587,6 +699,7 @@ func (s *txStore) Update(spec updateSpec) {
 				inner.failedTxs.Push(txHash, struct{}{})
 			}
 		}
+		state := inner.state.Load()
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
 			if expired {
@@ -594,21 +707,28 @@ func (s *txStore) Update(spec updateSpec) {
 			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
-			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
+			removedByExpiry := expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
+			remove := invalid || executed || removedByExpiry
 			if remove {
+				if removedByExpiry && wtx.evm.IsPresent() {
+					recordPendingNonceExpired()
+				}
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
 				// Executed txs invalidation was handled earlier.
 				if s.config.KeepInvalidTxsInCache && !executed {
 					inner.cache.Push(txHash, utils.None[cacheEvm]())
 				}
-				delete(inner.byHash, txHash)
-				Global.RemovedTxsAt().Add(1)
-				if el, ok := wtx.readyEl.Get(); ok {
-					s.readyTxs.Remove(el)
-				}
+				s.remove(inner, wtx, &state)
 			} else if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
 				wtx.priority = newPriority
 			}
+		}
+		inner.state.Store(state)
+		// Eviction needs the full inclusion order, so fall back to compact only when
+		// the store may still exceed softLimit after the removals.
+		if state.total.LessEqual(&inner.softLimit) {
+			s.refresh(inner)
+			continue
 		}
 		start := time.Now()
 		s.compact(inner, true)
@@ -670,17 +790,27 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 			}
 		}
 		if remove {
+			state := inner.state.Load()
+			affected := map[common.Address]*evmAccount{}
 			for _, wtx := range wtxs {
-				delete(inner.byHash, wtx.Hash())
-				Global.RemovedTxsAt().Add(1)
-				if el, ok := wtx.readyEl.Get(); ok {
-					s.readyTxs.Remove(el)
+				s.remove(inner, wtx, &state)
+				if evm, ok := wtx.evm.Get(); ok {
+					affected[evm.address] = inner.accounts[evm.address]
 				}
 			}
-			start := time.Now()
-			s.compact(inner, false)
-			otelMetrics.compactTotal.Add(context.Background(), 1, triggerReapAttr)
-			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
+			// Account nonces are only re-evaluated by Update, so the successors of the
+			// reaped txs become pending until the next block.
+			for addr, account := range affected {
+				s.refreshReady(inner, addr, account, &state)
+			}
+			inner.state.Store(state)
+			inner.snapshotStale = true
+			if !state.total.LessEqual(&inner.softLimit) {
+				start := time.Now()
+				s.compact(inner, false)
+				otelMetrics.compactTotal.Add(context.Background(), 1, triggerReapAttr)
+				otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
+			}
 		}
 	}
 

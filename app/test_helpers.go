@@ -6,14 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
@@ -39,7 +37,6 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsign "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -166,13 +163,6 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 
 	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaBankKeeper.UseRegularStore = true
-
-	// Initialize evmone VM if not already initialized (best effort)
-	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
-		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
-			wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
-		}
-	}
 
 	return wrapper
 }
@@ -905,11 +895,6 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, chainID string, accNums, accSeqs []uint64, priv ...cryptotypes.PrivKey) (sdk.Tx, error) {
 	sigs := make([]signing.SignatureV2, len(priv))
 
-	// create a random length memo
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	memo := simulation.RandStringOfLength(r, simulation.RandIntBetween(r, 0, 100))
-
 	signMode := gen.SignModeHandler().DefaultMode()
 
 	// 1st round: set SignatureV2 with empty signatures, to set correct
@@ -933,7 +918,6 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 	if err != nil {
 		return nil, err
 	}
-	tx.SetMemo(memo)
 	tx.SetFeeAmount(feeAmt)
 	tx.SetGasLimit(gas)
 
@@ -983,7 +967,7 @@ func SignCheckDeliver(
 	require.Nil(t, err)
 
 	// Must simulate now as CheckTx doesn't run Msgs anymore
-	_, res, err := app.Simulate(txBytes)
+	_, res, err := app.Simulate(t.Context(), txBytes)
 
 	if expSimPass {
 		require.NoError(t, err)

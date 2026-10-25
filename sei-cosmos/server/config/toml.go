@@ -41,6 +41,11 @@ occ-enabled = {{ .BaseConfig.OccEnabled }}
 # Note: Commitment of state will be attempted on the corresponding block.
 halt-height = {{ .BaseConfig.HaltHeight }}
 
+# FreezeHeight contains the first block height a full node must not execute.
+# Query RPC remains available, while transaction and evidence submission,
+# mempool gossip, and state sync are disabled from startup.
+freeze-height = {{ .BaseConfig.FreezeHeight }}
+
 # HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 # a node will gracefully halt and shutdown that can be used to assist upgrades
 # and testing.
@@ -81,6 +86,43 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # snapshot-directory sets the directory for where state sync snapshots are persisted.
 # default is empty which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
+
+###############################################################################
+###                         Query Configuration                             ###
+###############################################################################
+
+# Pagination limits on the ABCI query path protect the node from expensive store
+# scans by untrusted callers (for example, public RPC clients). Operators tune these
+# values for their deployment, allowlist trusted indexers on Tendermint RPC, or set
+# disable-limits on nodes not exposed to untrusted callers.
+[query]
+
+# DisableLimits turns off pagination limits for all query origins. Use only on nodes
+# that are not exposed to untrusted callers.
+disable-limits = {{ .Query.DisableLimits }}
+
+# TrustedCIDRs lists caller CIDRs that bypass pagination limits. Matching uses the
+# direct TCP peer (Tendermint RPC RemoteAddr), not forwarded headers. It applies only
+# to abci_query on the Tendermint RPC listener; REST/LCD on api.address (including
+# grpc-gateway routes) relays queries in-process without caller origin, so
+# trusted-cidrs has no effect there. Trusted indexers using REST should use
+# Tendermint RPC, or set disable-limits on nodes not exposed to untrusted callers.
+# Behind a load balancer or reverse proxy every external client shares the proxy
+# address, so adding the proxy CIDR here bypasses limits for all traffic through
+# that ingress, not just internal indexers.
+trusted-cidrs = [{{ range $i, $cidr := .Query.TrustedCIDRs }}{{if $i}}, {{end}}"{{ $cidr }}"{{ end }}]
+
+# MaxLimit is the maximum page size for untrusted query origins. 0 uses the default.
+max-limit = {{ .Query.MaxLimit }}
+
+# MaxOffset is the maximum offset for untrusted query origins. 0 uses the default.
+max-offset = {{ .Query.MaxOffset }}
+
+# MaxIterations is the maximum store entries a single untrusted query may scan. 0 uses
+# the default. When the budget is exhausted the response is a partial page with next_key;
+# total stays 0 even when the client set count_total, so next_key != nil with total == 0
+# means the total is unknown rather than zero results.
+max-iterations = {{ .Query.MaxIterations }}
 `
 
 // AutoManagedConfigTemplate contains configuration sections that are auto-managed
@@ -132,9 +174,6 @@ prometheus-retention-time = {{ .Telemetry.PrometheusRetentionTime }}
 # Enable defines if the API server should be enabled.
 enable = {{ .API.Enable }}
 
-# Swagger defines if swagger documentation should automatically be registered.
-swagger = {{ .API.Swagger }}
-
 # Address defines the API server to listen on.
 address = "{{ .API.Address }}"
 
@@ -152,89 +191,6 @@ rpc-max-body-bytes = {{ .API.RPCMaxBodyBytes }}
 
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
 enabled-unsafe-cors = {{ .API.EnableUnsafeCORS }}
-
-###############################################################################
-###                     Rosetta Configuration (Auto-managed)                ###
-###############################################################################
-
-[rosetta]
-
-# Enable defines if the Rosetta API server should be enabled.
-enable = {{ .Rosetta.Enable }}
-
-# Address defines the Rosetta API server to listen on.
-address = "{{ .Rosetta.Address }}"
-
-# Network defines the name of the blockchain that will be returned by Rosetta.
-blockchain = "{{ .Rosetta.Blockchain }}"
-
-# Network defines the name of the network that will be returned by Rosetta.
-network = "{{ .Rosetta.Network }}"
-
-# Retries defines the number of retries when connecting to the node before failing.
-retries = {{ .Rosetta.Retries }}
-
-# Offline defines if Rosetta server should run in offline mode.
-offline = {{ .Rosetta.Offline }}
-
-###############################################################################
-###                       gRPC Configuration (Auto-managed)                 ###
-###############################################################################
-
-[grpc]
-
-# Enable defines if the gRPC server should be enabled.
-enable = {{ .GRPC.Enable }}
-
-# Address defines the gRPC server address to bind to.
-address = "{{ .GRPC.Address }}"
-
-# MaxRecvMsgSize defines the maximum message size in bytes the server can receive.
-# It bounds per-request memory allocation before the rate limiter fires. Default 4 MB.
-max-recv-msg-size = {{ .GRPC.MaxRecvMsgSize }}
-
-# MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
-max-open-connections = {{ .GRPC.MaxOpenConnections }}
-
-# MaxConnectionIdle is the duration after which an idle connection is closed (e.g. "5m"). 0 means infinity.
-max-connection-idle = "{{ .GRPC.MaxConnectionIdle }}"
-
-# MaxConnectionAge is the maximum duration a connection may exist before it is closed (e.g. "30m"). 0 means infinity.
-max-connection-age = "{{ .GRPC.MaxConnectionAge }}"
-
-# MaxConnectionAgeGrace is an additive period after max-connection-age during which the connection is forcibly closed. 0 means infinity.
-max-connection-age-grace = "{{ .GRPC.MaxConnectionAgeGrace }}"
-
-# KeepaliveTime is the interval after which, with no activity, the server pings the client to check liveness.
-keepalive-time = "{{ .GRPC.KeepaliveTime }}"
-
-# KeepaliveTimeout is the duration the server waits for a keepalive ping ack before closing the connection.
-keepalive-timeout = "{{ .GRPC.KeepaliveTimeout }}"
-
-# KeepaliveMinTime is the minimum interval a client must wait between keepalive pings; more frequent pings are penalized.
-keepalive-min-time = "{{ .GRPC.KeepaliveMinTime }}"
-
-# KeepalivePermitWithoutStream defines whether the server allows keepalive pings even when there are no active streams.
-keepalive-permit-without-stream = {{ .GRPC.KeepalivePermitWithoutStream }}
-
-###############################################################################
-###                        gRPC Web Configuration (Auto-managed)            ###
-###############################################################################
-
-[grpc-web]
-
-# GRPCWebEnable defines if the gRPC-web should be enabled.
-# NOTE: gRPC must also be enabled, otherwise, this configuration is a no-op.
-enable = {{ .GRPCWeb.Enable }}
-
-# Address defines the gRPC-web server address to bind to.
-address = "{{ .GRPCWeb.Address }}"
-
-# EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
-enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
-
-# MaxOpenConnections defines the number of maximum open connections. 0 means unlimited.
-max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
 
 ###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###

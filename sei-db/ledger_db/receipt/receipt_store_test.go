@@ -93,6 +93,7 @@ func TestSetReceiptsAndGet(t *testing.T) {
 		{TxHash: txHash},
 	})
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return store.LatestVersion() >= 1 }, 5*time.Second, time.Millisecond)
 
 	got, err := store.GetReceipt(ctx, txHash)
 	require.NoError(t, err)
@@ -106,9 +107,10 @@ func TestSetReceiptsAndGet(t *testing.T) {
 	require.Error(t, err)
 
 	require.GreaterOrEqual(t, store.LatestVersion(), int64(1))
-	require.NoError(t, store.SetLatestVersion(10))
+
+	// The version markers ride SetReceipts, so they are off the store's interface.
+	require.NoError(t, receipt.PinVersions(store, 1, 10))
 	require.Equal(t, int64(10), store.LatestVersion())
-	require.NoError(t, store.SetEarliestVersion(1))
 	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
@@ -245,4 +247,23 @@ func makeChangeSetEntry(version int64, txHash common.Hash, receipt *types.Receip
 		Version:    version,
 		Changesets: []*proto.NamedChangeSet{ncs},
 	}, nil
+}
+
+// The pebble backend prunes itself and refuses ExternalPruning, so the collector never takes it
+// over. Refused at startup rather than discovered later from a full disk.
+func TestReceiptExternalPruningRejectedOnPebbleBackend(t *testing.T) {
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.ExternalPruning = true
+
+	_, err := receipt.NewReceiptStore(cfg, storetypes.NewKVStoreKey("evm"))
+	require.ErrorContains(t, err, "does not support external pruning")
+}
+
+func TestReceiptIteratorUnsupportedByPebble(t *testing.T) {
+	store, _, _ := setupReceiptStore(t)
+
+	it, err := store.IterateReceipts(0)
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+	require.Nil(t, it)
 }

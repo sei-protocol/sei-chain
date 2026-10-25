@@ -25,6 +25,7 @@ type StakingKeeper interface {
 		ctx sdk.Context, delegator sdk.AccAddress,
 		fn func(index int64, delegation stakingtypes.DelegationI) (stop bool),
 	)
+	GetDelegation(ctx sdk.Context, delegator sdk.AccAddress, validator sdk.ValAddress) (stakingtypes.Delegation, bool)
 }
 
 // AccountKeeper defines the expected account keeper (noalias)
@@ -44,6 +45,8 @@ type BankKeeper interface {
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
 	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	CanSendTo(ctx sdk.Context, recipient sdk.AccAddress) bool
+	BlockedAddr(addr sdk.AccAddress) bool
 
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error

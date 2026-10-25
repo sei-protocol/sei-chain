@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -17,12 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
-
-// Number of blocks between legacy receipt migration batches
-const LegacyReceiptMigrationInterval int64 = 10
-
-// Number of receipts to migrate per batch
-const LegacyReceiptMigrationBatchSize int = 100
 
 // SetTransientReceipt sets a data structure that stores EVM specific transaction metadata.
 func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
@@ -60,7 +55,19 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	if k.receiptStore == nil {
 		return nil, receipt.ErrNotConfigured
 	}
-	return k.receiptStore.GetReceipt(ctx, txHash)
+	if goCtx := ctx.Context(); goCtx != nil {
+		if err := goCtx.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	rcpt, err := k.receiptStore.GetReceipt(ctx, txHash)
+	if goCtx := ctx.Context(); goCtx != nil {
+		if ctxErr := goCtx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+	}
+	return rcpt, err
 }
 
 // Only used for testing
@@ -72,8 +79,10 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 }
 
 // GetReceiptWithRetry attempts to get a receipt with retries to handle race conditions
-// where the receipt might not be immediately available after the transaction.
-func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
+// where the receipt might not be immediately available after the transaction. The wait
+// between retries aborts early once goCtx is done.
+func (k *Keeper) GetReceiptWithRetry(goCtx context.Context, ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
+	ctx = ctx.WithContext(goCtx)
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		rcpt, err := k.GetReceipt(ctx, txHash)
@@ -87,7 +96,11 @@ func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRet
 		}
 
 		// Wait before retrying, with increasing delay, 200ms, 400ms, 600ms, etc.
-		time.Sleep(time.Millisecond * 200 * time.Duration(i+1))
+		select {
+		case <-goCtx.Done():
+			return nil, goCtx.Err()
+		case <-time.After(time.Millisecond * 200 * time.Duration(i+1)):
+		}
 		lastErr = err
 	}
 	return nil, lastErr
@@ -140,6 +153,11 @@ func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
 }
 
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
+	// An absent receipt store means the node keeps no receipts, so there is nothing to flush. This
+	// runs from the pre-commit handler, where a returned error panics the node, so it must not be one.
+	if k.receiptStore == nil {
+		return nil
+	}
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
@@ -164,77 +182,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 		txHash := types.TransientReceiptKey(iter.Key()).TransactionHash()
 		records = append(records, receipt.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
 	}
-	if k.receiptStore == nil {
-		return receipt.ErrNotConfigured
-	}
 	return k.receiptStore.SetReceipts(ctx, records)
-}
-
-// MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store
-// into the persistent receipt store and deletes them from the legacy store.
-// It returns the number of receipts migrated.
-func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int, error) {
-	// Iterate over legacy receipt keys under prefix types.ReceiptKeyPrefix
-	legacyStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.ReceiptKeyPrefix)
-	iter := legacyStore.Iterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-
-	// Early exit if nothing to migrate
-	if !iter.Valid() {
-		return 0, nil
-	}
-
-	if batchSize <= 0 {
-		return 0, nil
-	}
-
-	var (
-		txHashes     []common.Hash
-		receipts     []*types.Receipt
-		keysToDelete [][]byte
-		migrated     int
-	)
-
-	txHashes = make([]common.Hash, 0, batchSize)
-	receipts = make([]*types.Receipt, 0, batchSize)
-	keysToDelete = make([][]byte, 0, batchSize)
-
-	for ; migrated < batchSize && iter.Valid(); iter.Next() {
-		keySuffix := iter.Key() // tx hash bytes (without prefix)
-		value := iter.Value()   // serialized receipt bytes
-
-		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(value); err != nil {
-			return 0, err
-		}
-
-		// Derive tx hash directly from key suffix
-		txHash := common.BytesToHash(keySuffix)
-
-		receipts = append(receipts, receipt)
-		txHashes = append(txHashes, txHash)
-		// Save the suffix for deletion from legacy store after successful write
-		keysToDelete = append(keysToDelete, append([]byte{}, keySuffix...))
-		migrated++
-	}
-
-	if migrated == 0 {
-		return 0, nil
-	}
-
-	// Write to transient receipt store first; they'll be flushed to receipt.db at pre-commit
-	for i := range receipts {
-		if err := k.SetTransientReceipt(ctx, txHashes[i], receipts[i]); err != nil {
-			return 0, err
-		}
-	}
-
-	// After a successful write, delete from legacy store
-	for _, kdel := range keysToDelete {
-		legacyStore.Delete(kdel)
-	}
-
-	return migrated, nil
 }
 
 func (k *Keeper) WriteReceipt(

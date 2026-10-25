@@ -219,18 +219,19 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
-	// when fromBlock is 0 and toBlock is latest, adjust the filter
-	// to unbounded filter
+	// fromBlock 0 with a tag toBlock is how ethclient sends an open-ended query, so it subscribes
+	// to new logs as an omitted fromBlock does.
 	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
 		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
-		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
-		unboundedFilter := &filters.FilterCriteria{
-			FromBlock: latest, // set to latest block height
-			ToBlock:   nil,    // set to nil to continue listening
+		filter = &filters.FilterCriteria{
 			Addresses: filter.Addresses,
 			Topics:    filter.Topics,
 		}
-		filter = unboundedFilter
+	}
+
+	start, err := a.logFetcher.pollStart(ctx, *filter)
+	if err != nil {
+		return nil, err
 	}
 
 	// Bound the number of concurrent logs subscriptions
@@ -255,13 +256,13 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			defer a.releaseLogSub()
 			defer wpMetrics.RecordSubscriptionEnd()
 			defer cancel()
-			logs, _, err := a.logFetcher.GetLogsByFilters(subCtx, *filter, 0)
+			logs, _, err := a.logFetcher.GetLogsByFilters(subCtx, *filter)
 			if err != nil {
 				if subCtx.Err() != nil {
 					return
 				}
 				wpMetrics.RecordSubscriptionError()
-				_ = notifier.Notify(rpcSub.ID, err)
+				_ = notifier.Notify(rpcSub.ID, newLogsErrorNotification(err))
 				return
 			}
 			for _, log := range logs {
@@ -279,29 +280,30 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		defer a.releaseLogSub()
 		defer wpMetrics.RecordSubscriptionEnd()
 		defer cancel()
-		begin := int64(0)
+		cursor := start
 		for {
 			var logs []*ethtypes.Log
-			var lastToHeight int64
-			logs, lastToHeight, err = a.logFetcher.getLogsByFiltersWithBackoff(subCtx, *filter, begin)
+			logs, cursor, err = a.logFetcher.pollLogs(subCtx, *filter, cursor)
 			if err != nil {
 				if subCtx.Err() != nil {
 					return
 				}
 				wpMetrics.RecordSubscriptionError()
-				_ = notifier.Notify(rpcSub.ID, err)
-				return
+				_ = notifier.Notify(rpcSub.ID, newLogsErrorNotification(err))
+				// A subscription moves on past a block it cannot serve, as a filter poll does.
+				var oversized *oversizedBlockError
+				if !errors.As(err, &oversized) {
+					return
+				}
 			}
 			for _, log := range logs {
 				if err = notifier.Notify(rpcSub.ID, log); err != nil {
 					return
 				}
 			}
-			if filter.ToBlock != nil && lastToHeight >= filter.ToBlock.Int64() {
+			if logsExhausted(*filter, cursor) {
 				return
 			}
-			begin = lastToHeight
-			filter.FromBlock = big.NewInt(lastToHeight + 1)
 			// Wait before the next poll, but stop promptly when the
 			// subscription ends (subCtx is cancelled on rpcSub.Err()).
 			select {
@@ -313,6 +315,24 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	}()
 
 	return rpcSub, nil
+}
+
+// logsErrorNotification is the notification a logs subscription sends for a poll that failed.
+// BlockNumber is the block whose logs were skipped when the subscription continues past it.
+type logsErrorNotification struct {
+	Error       string          `json:"error"`
+	BlockNumber *hexutil.Uint64 `json:"blockNumber,omitempty"`
+}
+
+// newLogsErrorNotification returns the notification for a poll that failed with err.
+func newLogsErrorNotification(err error) logsErrorNotification {
+	notification := logsErrorNotification{Error: err.Error()}
+	var oversized *oversizedBlockError
+	if errors.As(err, &oversized) {
+		height := hexutil.Uint64(toUint64(oversized.height))
+		notification.BlockNumber = &height
+	}
+	return notification
 }
 
 // bindSubscriptionContext returns a context for long-lived eth_subscribe work.
@@ -456,11 +476,12 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		"receiptsRoot":          common.Hash{}, // see function doc
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()), //nolint:gosec
-		"transactionsRoot":      common.Hash{},                          // see function doc
-		"mixHash":               common.Hash{},                          // inapplicable to Sei
-		"excessBlobGas":         hexutil.Uint64(0),                      // inapplicable to Sei
-		"parentBeaconBlockRoot": common.Hash{},                          // inapplicable to Sei
+		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
+		"milliTimestamp":        hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
+		"transactionsRoot":      common.Hash{},                               // see function doc
+		"mixHash":               common.Hash{},                               // inapplicable to Sei
+		"excessBlobGas":         hexutil.Uint64(0),                           // inapplicable to Sei
+		"parentBeaconBlockRoot": common.Hash{},                               // inapplicable to Sei
 		"hash":                  blockHash,
 		"baseFeePerGas":         (*hexutil.Big)(baseFee),
 		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
@@ -497,7 +518,8 @@ func encodeTmHeader(
 		"receiptsRoot":          resultHash,
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()), //nolint:gosec
+		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
+		"milliTimestamp":        hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      txHash,
 		"mixHash":               common.Hash{},     // inapplicable to Sei
 		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei

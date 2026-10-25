@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"golang.org/x/net/netutil"
 )
 
@@ -45,12 +46,12 @@ type HTTPConfig struct {
 	Vhosts             []string
 	DenyList           []string
 	// SeiLegacyAllowlist is BuildSeiLegacyEnabledSet(app.toml enabled_legacy_sei_apis); nil skips the HTTP gate
-	// for gated sei_* and sei2_* methods.
+	// for gated sei_* methods.
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
-	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil and enabled.
-	rateLimitGate *RateLimitGate
+	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil.
+	rateLimitGate *ratelimiter.Gate
 }
 
 // WsConfig is the JSON-RPC/Websocket configuration
@@ -333,6 +334,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetDeadlineHook(withDeadline)
 	if config.maxRequestBodyBytes > 0 {
 		bodyLimit := config.maxRequestBodyBytes
 		if bodyLimit > math.MaxInt {
@@ -397,6 +399,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetDeadlineHook(withDeadline)
 	readLimit := effectiveMaxRequestBodyBytes(config.readLimit)
 	srv.SetReadLimits(readLimit)
 	// maxConcurrentRequestBytes is passed through raw; rpc.Server.recomputeWSConcurrentBudget
@@ -453,11 +456,11 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSe
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
 func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
-	handler := srv
+	handler := NewWSConnectionHandler(srv)
 	if len(JwtSecret) != 0 {
 		handler = newJWTHandler(JwtSecret, handler)
 	}
-	return NewWSConnectionHandler(handler)
+	return handler
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {

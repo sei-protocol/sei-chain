@@ -1,71 +1,87 @@
 package statewal
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"sync"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var _ StateWAL = (*stateWALImpl)(nil)
 
-// A WAL for storing state changesets by block number.
+// A WAL for storing each block's state mutations by block number.
+//
+// Each block is sorted, serialized, appended and hashed, and its hash delivered to the listeners, on the WAL's own
+// goroutine and in write order. Every request that must stay ordered with writes passes through that goroutine.
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
-// state_wal_gc.go is the one exception: it runs on the collector's goroutine, and touches only
-// lastDurableBlock and the WAL underneath.
+// state_wal_gc.go is the exception: it runs on the collector's goroutine, and touches only lastDurableBlock and
+// requestChan.
 type stateWALImpl struct {
-	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
-	wal seiwal.WAL[[]*proto.NamedChangeSet]
+	// The underlying WAL, keyed by block number, whose entries are serialized blocks. Used only by the goroutine.
+	wal seiwal.WAL[[]byte]
 
-	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
-	// is only ever touched by the single caller, which must not invoke methods concurrently.
+	// Set by Close() so subsequent calls fail fast. Only ever touched by the single caller.
 	closed bool
 
-	// The first fatal error from the underlying WAL that bricked this one, surfaced to the caller by every
-	// subsequent operation. Once set, no operation touches the underlying WAL, so a corrupt WAL never
-	// limps onward. Caller-serialized like closed.
-	fatalErr error
+	// Cancelled when the WAL stops: by fail() with the fatal error that bricked the WAL as its cause, or by
+	// Close() with a nil cause. Every blocking operation aborts on it, and it is the ctx passed to hash listeners.
+	ctx context.Context
 
-	// The write-ordering contract state and the accumulation buffer below are mutated by Write and
-	// SignalEndOfBlock, which callers must not invoke concurrently.
+	// Cancels ctx, recording the fatal error (or nil) as its cause. Only the first call takes effect.
+	cancel context.CancelCauseFunc
 
-	// The block number of the most recent Write or SignalEndOfBlock.
-	currentBlock uint64
-	// Whether currentBlock has been finalized by SignalEndOfBlock.
-	currentBlockEnded bool
-	// Whether any block has been observed (this session or recovered from disk).
-	hasCurrentBlock bool
-	// The changesets accumulated for the current block across its Write calls, appended as one record at
-	// end-of-block. Ownership is handed to the WAL at end-of-block and a fresh buffer starts for the next
-	// block, so the serialization goroutine never races the wrapper over the backing array.
-	buf []*proto.NamedChangeSet
+	// Carries requests to the goroutine, in order.
+	requestChan chan any
 
-	// The highest block that has been ended by SignalEndOfBlock, and so is actually a record in the WAL.
-	// Distinct from currentBlock, which may name a block still accumulating in buf. Atomic because the
-	// garbage collector reads it off-goroutine (GetLatestBlock); the writer is its only mutator.
+	// Tracks the goroutine so Close() can wait for it to exit.
+	wg sync.WaitGroup
+
+	// The listeners each block's hash is delivered to, in registration order. Owned by the goroutine.
+	listeners []HashListener
+
+	// Whether lastHashedBlock and lastHash are set. Owned by the goroutine.
+	hasLastHash bool
+
+	// The block of the most recent hash delivered, or of the last stored block when the WAL was opened. Owned by
+	// the goroutine.
+	lastHashedBlock uint64
+
+	// The hash of lastHashedBlock. Owned by the goroutine.
+	lastHash [32]byte
+
+	// The highest block number written. Atomic because the garbage collector reads it off-goroutine
+	// (GetLatestBlock); Write is its only mutator.
 	//
-	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
+	// 0 also means nothing has been written yet, so a WAL whose only block is block 0 is
 	// indistinguishable from an empty one.
-	lastCompletedBlock atomic.Uint64
+	lastBlock atomic.Uint64
 
-	// The highest completed block made crash recoverable by Flush or Close. The garbage collector
-	// must measure its rollback window from this cursor rather than lastCompletedBlock: appends are
-	// asynchronous, so a completed but unflushed suffix can disappear on a process crash.
+	// The highest block made crash recoverable by Flush, Close, or recovery.
 	lastDurableBlock atomic.Uint64
+
+	// Whether any block has been written (this session or recovered from disk), which is what tells an
+	// empty WAL apart from one holding only block 0. Only ever touched by the single caller.
+	hasBlock bool
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
 // previous session.
 func New(config *Config) (StateWAL, error) {
-	wal, err := seiwal.NewGenericWAL[[]*proto.NamedChangeSet](
-		config.toSeiwalConfig(), serializeChangesets, deserializeChangesets)
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid state WAL config: %w", err)
+	}
+	wal, err := seiwal.NewWAL(config.toSeiwalConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal)
+	return newStateWAL(wal, config.RequestBufferSize)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -116,120 +132,147 @@ func VerifyIntegrity(config *Config) error {
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
-	w := &stateWALImpl{wal: wal}
-
-	// Recover the write-ordering position from the highest block already on disk.
+func newStateWAL(
+	wal seiwal.WAL[[]byte],
+	// The capacity of the channel carrying requests to the goroutine.
+	requestBufferSize uint,
+) (StateWAL, error) {
+	// Recover the write-ordering position, and the hash reported to listeners registered before any block is
+	// written, from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
 	if err != nil {
 		_ = wal.Close()
 		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
 	}
+	var lastHash [32]byte
 	if ok {
-		w.currentBlock = last
-		w.currentBlockEnded = true
-		w.hasCurrentBlock = true
-		w.lastCompletedBlock.Store(last)
-		w.lastDurableBlock.Store(last)
+		lastHash, err = computeStoredHash(wal, last)
+		if err != nil {
+			_ = wal.Close()
+			return nil, fmt.Errorf("failed to compute the hash of the last stored block: %w", err)
+		}
 	}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	w := &stateWALImpl{
+		wal:             wal,
+		ctx:             ctx,
+		cancel:          cancel,
+		requestChan:     make(chan any, requestBufferSize),
+		hasLastHash:     ok,
+		lastHashedBlock: last,
+		lastHash:        lastHash,
+	}
+	if ok {
+		w.lastBlock.Store(last)
+		w.lastDurableBlock.Store(last)
+		w.hasBlock = true
+	}
+	w.wg.Add(1)
+	go w.run()
 	return w, nil
 }
 
-// Write accumulates a set of changes for the given block number in memory.
-func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
+// computeStoredHash returns the hash of a block already stored in wal.
+func computeStoredHash(
+	// The WAL holding the block.
+	wal seiwal.WAL[[]byte],
+	// The block to compute the hash of.
+	blockNumber uint64,
+) ([32]byte, error) {
+	it, err := wal.Iterator(blockNumber, blockNumber)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to create WAL iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	ok, err := it.Next()
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
+	}
+	if !ok {
+		return [32]byte{}, fmt.Errorf("block %d is not stored", blockNumber)
+	}
+	_, serialized := it.Entry()
+	return computePlaceholderHash(serialized), nil
+}
+
+// Write appends a block's mutations to the WAL as a single record.
+func (w *stateWALImpl) Write(blockNumber uint64, mutations []mutation.Mutation) error {
 	if w.closed {
 		return fmt.Errorf("state WAL is closed")
 	}
-	if w.fatalErr != nil {
-		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
+	if err := w.fatalErr(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
 	}
-	for i, ncs := range cs {
-		if ncs == nil {
-			return fmt.Errorf("write rejected: changeset at index %d is nil", i)
-		}
-	}
-	if err := w.enforceWriteOrdering(blockNumber); err != nil {
+	if err := w.checkBlockOrder(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
-	w.buf = append(w.buf, cs...)
+
+	if !w.send(writeRequest{blockNumber: blockNumber, mutations: mutations}) {
+		return fmt.Errorf("failed to schedule block %d: %w", blockNumber, w.stoppedErr())
+	}
+	w.lastBlock.Store(blockNumber)
+	w.hasBlock = true
 	return nil
 }
 
-// SignalEndOfBlock appends the current block's accumulated changesets to the WAL as a single record.
-func (w *stateWALImpl) SignalEndOfBlock() error {
-	if w.closed {
-		return fmt.Errorf("state WAL is closed")
-	}
-	if w.fatalErr != nil {
-		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
-	}
-
-	if !w.hasCurrentBlock || w.currentBlockEnded {
-		return fmt.Errorf("no block in progress to end")
-	}
-
-	// Commit the finalization state only after the append succeeds; a failed append bricks the WAL and
-	// leaves the block in progress rather than silently finalizing a block whose changesets were lost.
-	if err := w.wal.Append(w.currentBlock, w.buf); err != nil {
-		return w.fail(fmt.Errorf("failed to append block %d: %w", w.currentBlock, err))
-	}
-	w.currentBlockEnded = true
-	w.lastCompletedBlock.Store(w.currentBlock)
-	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
-	return nil
-}
-
-// enforceWriteOrdering rejects a Write that violates the block-ordering rules (no decreasing block numbers; no
-// advancing to a new block before the current one is ended) and records the new position when it is allowed.
-func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
-	if !w.hasCurrentBlock {
-		w.currentBlock = blockNumber
-		w.currentBlockEnded = false
-		w.hasCurrentBlock = true
+// checkBlockOrder rejects a block number that breaks the contiguity rule: the first block written to an
+// empty WAL may be any number, and every block after it must be exactly one greater than the last. It
+// only reads the write-ordering state, so a Write that fails downstream of it leaves the head untouched.
+func (w *stateWALImpl) checkBlockOrder(blockNumber uint64) error {
+	if !w.hasBlock {
 		return nil
 	}
-	if blockNumber < w.currentBlock {
-		return fmt.Errorf(
-			"block number %d is less than the current block number %d", blockNumber, w.currentBlock)
+	last := w.lastBlock.Load()
+	if blockNumber != last+1 {
+		return fmt.Errorf("block number %d is not contiguous with the last block written %d (expected %d)",
+			blockNumber, last, last+1)
 	}
-	if blockNumber == w.currentBlock {
-		if w.currentBlockEnded {
-			return fmt.Errorf(
-				"block number %d has already ended; cannot write more changes to it", blockNumber)
-		}
-		return nil
-	}
-	// blockNumber > currentBlock
-	if !w.currentBlockEnded {
-		return fmt.Errorf(
-			"cannot write block %d before calling SignalEndOfBlock for block %d",
-			blockNumber, w.currentBlock)
-	}
-	if blockNumber != w.currentBlock+1 {
-		return fmt.Errorf("block number %d is not contiguous with the current block number %d (expected %d)",
-			blockNumber, w.currentBlock, w.currentBlock+1)
-	}
-	w.currentBlock = blockNumber
-	w.currentBlockEnded = false
 	return nil
 }
 
-// Flush blocks until all previously scheduled writes are durable.
+// Flush blocks until all previously scheduled writes are durable and their hashes delivered.
 func (w *stateWALImpl) Flush() error {
 	if w.closed {
 		return fmt.Errorf("state WAL is closed")
 	}
-	if w.fatalErr != nil {
-		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
+	if err := w.fatalErr(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
 	}
-	// Snapshot before Flush: an Append that overlaps the underlying flush is not guaranteed durable
-	// when it returns, so publishing lastCompletedBlock afterward could overstate the durable suffix.
-	lastCompletedBlock := w.lastCompletedBlock.Load()
-	if err := w.wal.Flush(); err != nil {
-		return w.fail(fmt.Errorf("failed to flush state WAL: %w", err))
+	request := flushRequest{reply: make(chan error, 1)}
+	if !w.send(request) {
+		return w.stoppedErr()
 	}
-	w.lastDurableBlock.Store(lastCompletedBlock)
-	return nil
+	select {
+	case err := <-request.reply:
+		if err != nil {
+			return w.fail(fmt.Errorf("failed to flush state WAL: %w", err))
+		}
+		return nil
+	case <-w.ctx.Done():
+		return w.stoppedErr()
+	}
+}
+
+// RegisterHashListener adds listener to those each block's hash is delivered to, and reports the most recent hash.
+func (w *stateWALImpl) RegisterHashListener(listener HashListener) (bool, uint64, [32]byte, error) {
+	if w.closed {
+		return false, 0, [32]byte{}, fmt.Errorf("state WAL is closed")
+	}
+	if err := w.fatalErr(); err != nil {
+		return false, 0, [32]byte{}, fmt.Errorf("state WAL failed: %w", err)
+	}
+	request := registerRequest{listener: listener, reply: make(chan registerResult, 1)}
+	if !w.send(request) {
+		return false, 0, [32]byte{}, w.stoppedErr()
+	}
+	select {
+	case result := <-request.reply:
+		return result.hasLastHash, result.lastHashedBlock, result.lastHash, nil
+	case <-w.ctx.Done():
+		return false, 0, [32]byte{}, w.stoppedErr()
+	}
 }
 
 // GetStoredRange reports the range of complete blocks stored in the WAL.
@@ -237,14 +280,22 @@ func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
 	if w.closed {
 		return false, 0, 0, fmt.Errorf("state WAL is closed")
 	}
-	if w.fatalErr != nil {
-		return false, 0, 0, fmt.Errorf("state WAL failed: %w", w.fatalErr)
+	if err := w.fatalErr(); err != nil {
+		return false, 0, 0, fmt.Errorf("state WAL failed: %w", err)
 	}
-	ok, first, last, err := w.wal.Bounds()
-	if err != nil {
-		return false, 0, 0, w.fail(fmt.Errorf("failed to read WAL bounds: %w", err))
+	request := boundsRequest{reply: make(chan boundsResult, 1)}
+	if !w.send(request) {
+		return false, 0, 0, w.stoppedErr()
 	}
-	return ok, first, last, nil
+	select {
+	case result := <-request.reply:
+		if result.err != nil {
+			return false, 0, 0, w.fail(fmt.Errorf("failed to read WAL bounds: %w", result.err))
+		}
+		return result.ok, result.first, result.last, nil
+	case <-w.ctx.Done():
+		return false, 0, 0, w.stoppedErr()
+	}
 }
 
 // Prune schedules removal of whole underlying files below lowestBlockNumberToKeep. It does not block on
@@ -253,28 +304,42 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	if w.closed {
 		return fmt.Errorf("state WAL is closed")
 	}
-	if w.fatalErr != nil {
-		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
+	if err := w.fatalErr(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
 	}
-	if err := w.wal.PruneBefore(lowestBlockNumberToKeep); err != nil {
+	if err := w.prune(lowestBlockNumberToKeep); err != nil {
 		return w.fail(fmt.Errorf("failed to prune state WAL: %w", err))
 	}
 	return nil
 }
 
 // Iterator returns an iterator over the inclusive block range [startingBlockNumber, endingBlockNumber]. It
-// yields (blockNumber, changesets) directly from the underlying generic WAL.
+// yields (blockNumber, changesets) for each block, whichever format it is stored in.
 func (w *stateWALImpl) Iterator(
 	startingBlockNumber uint64,
 	endingBlockNumber uint64,
-) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+) (StateWALIterator, error) {
 	if w.closed {
 		return nil, fmt.Errorf("state WAL is closed")
 	}
-	if w.fatalErr != nil {
-		return nil, fmt.Errorf("state WAL failed: %w", w.fatalErr)
+	if err := w.fatalErr(); err != nil {
+		return nil, fmt.Errorf("state WAL failed: %w", err)
 	}
-	it, err := w.wal.Iterator(startingBlockNumber, endingBlockNumber)
+	request := iteratorRequest{
+		startingBlockNumber: startingBlockNumber,
+		endingBlockNumber:   endingBlockNumber,
+		reply:               make(chan iteratorResult, 1),
+	}
+	if !w.send(request) {
+		return nil, w.stoppedErr()
+	}
+	var result iteratorResult
+	select {
+	case result = <-request.reply:
+	case <-w.ctx.Done():
+		return nil, w.stoppedErr()
+	}
+	it, err := result.iterator, result.err
 	if err != nil {
 		// A rejected range is the caller's error and leaves the WAL usable; only a genuine WAL failure bricks.
 		if errors.Is(err, seiwal.ErrIteratorRange) {
@@ -282,24 +347,232 @@ func (w *stateWALImpl) Iterator(
 		}
 		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
 	}
-	return it, nil
+	return &stateWALIterator{serializedBlocks: it}, nil
 }
 
-// Close flushes pending writes, closes the underlying WAL, and releases resources.
+// Close blocks until all work submitted before the call has been fully handled, then closes the underlying WAL.
 func (w *stateWALImpl) Close() error {
 	w.closed = true
+	w.send(closeRequest{})
+	w.wg.Wait()
+	w.cancel(nil)
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}
-	w.lastDurableBlock.Store(w.lastCompletedBlock.Load())
+	w.lastDurableBlock.Store(w.lastHashedBlock)
 	return nil
 }
 
-// fail records err as the first fatal error that bricks the WAL and returns it. Once set, every
-// subsequent operation fails fast rather than touching the underlying WAL.
+// fail records err as the fatal error that bricks the WAL, unless the WAL has already stopped, and returns it.
+// Once bricked, every subsequent operation fails fast rather than touching the underlying WAL. Safe to call from
+// any goroutine.
 func (w *stateWALImpl) fail(err error) error {
-	if w.fatalErr == nil {
-		w.fatalErr = err
-	}
+	w.cancel(err)
 	return err
 }
+
+// fatalErr returns the fatal error that bricked the WAL, or nil if it has not been bricked. Safe to call from any
+// goroutine.
+func (w *stateWALImpl) fatalErr() error {
+	// Close() cancels with a nil cause, which context reports as context.Canceled; fail() never passes that bare.
+	if cause := context.Cause(w.ctx); cause != nil && cause != context.Canceled {
+		return cause
+	}
+	return nil
+}
+
+// stoppedErr describes why the WAL stopped: the fatal error that bricked it, or that it was closed.
+func (w *stateWALImpl) stoppedErr() error {
+	if err := w.fatalErr(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
+	}
+	return fmt.Errorf("state WAL is closed")
+}
+
+// prune schedules removal of the blocks below lowestBlockNumberToKeep from the underlying WAL. Safe to call from any
+// goroutine.
+func (w *stateWALImpl) prune(lowestBlockNumberToKeep uint64) error {
+	request := pruneRequest{lowestBlockNumberToKeep: lowestBlockNumberToKeep, reply: make(chan error, 1)}
+	if !w.send(request) {
+		return w.stoppedErr()
+	}
+	select {
+	case err := <-request.reply:
+		return err
+	case <-w.ctx.Done():
+		return w.stoppedErr()
+	}
+}
+
+// run serves requests in the order they were sent. A failed write bricks the WAL.
+func (w *stateWALImpl) run() {
+	defer w.wg.Done()
+	for {
+		var request any
+		select {
+		case <-w.ctx.Done():
+			return
+		case request = <-w.requestChan:
+		}
+
+		switch r := request.(type) {
+		case writeRequest:
+			if err := w.write(r); err != nil {
+				w.cancel(err)
+				return
+			}
+		case flushRequest:
+			err := w.wal.Flush()
+			if err == nil {
+				w.lastDurableBlock.Store(w.lastHashedBlock)
+			}
+			r.reply <- err
+		case boundsRequest:
+			ok, first, last, err := w.wal.Bounds()
+			r.reply <- boundsResult{ok: ok, first: first, last: last, err: err}
+		case pruneRequest:
+			r.reply <- w.wal.PruneBefore(r.lowestBlockNumberToKeep)
+		case iteratorRequest:
+			iterator, err := w.wal.Iterator(r.startingBlockNumber, r.endingBlockNumber)
+			r.reply <- iteratorResult{iterator: iterator, err: err}
+		case registerRequest:
+			if r.listener != nil {
+				w.listeners = append(w.listeners, r.listener)
+			}
+			r.reply <- registerResult{
+				hasLastHash:     w.hasLastHash,
+				lastHashedBlock: w.lastHashedBlock,
+				lastHash:        w.lastHash,
+			}
+		case closeRequest:
+			return
+		default:
+			w.cancel(fmt.Errorf("unknown state WAL request %T", request))
+			return
+		}
+	}
+}
+
+// write sorts the block's mutations by key, appends their serialization to the WAL, and delivers the block's hash to
+// every listener, returning the first error.
+func (w *stateWALImpl) write(request writeRequest) error {
+	slices.SortFunc(request.mutations, func(a mutation.Mutation, b mutation.Mutation) int {
+		return bytes.Compare(a.Key, b.Key)
+	})
+	serialized := serializeBlock(request.mutations)
+	if err := w.wal.Append(request.blockNumber, serialized); err != nil {
+		return fmt.Errorf("failed to append block %d: %w", request.blockNumber, err)
+	}
+
+	hash := computePlaceholderHash(serialized)
+	for _, listener := range w.listeners {
+		if err := listener(w.ctx, request.blockNumber, hash); err != nil {
+			return fmt.Errorf("a hash listener refused block %d: %w", request.blockNumber, err)
+		}
+	}
+	w.hasLastHash = true
+	w.lastHashedBlock = request.blockNumber
+	w.lastHash = hash
+	return nil
+}
+
+// send hands request to the goroutine, blocking while its channel is full. It returns false once the WAL stops.
+func (w *stateWALImpl) send(request any) bool {
+	select {
+	case w.requestChan <- request:
+		return true
+	case <-w.ctx.Done():
+		return false
+	}
+}
+
+// A written block to sort, serialize, append and hash.
+type writeRequest struct {
+	// The block number.
+	blockNumber uint64
+
+	// The block's mutations, in any order.
+	mutations []mutation.Mutation
+}
+
+// Asks the goroutine to flush the underlying WAL.
+type flushRequest struct {
+	// Receives the result.
+	reply chan error
+}
+
+// Asks the goroutine for the range of blocks stored in the underlying WAL.
+type boundsRequest struct {
+	// Receives the result.
+	reply chan boundsResult
+}
+
+// The result of a boundsRequest.
+type boundsResult struct {
+	// Whether the WAL holds any block.
+	ok bool
+
+	// The lowest block stored.
+	first uint64
+
+	// The highest block stored.
+	last uint64
+
+	// Any error reading the range.
+	err error
+}
+
+// Asks the goroutine to prune the underlying WAL.
+type pruneRequest struct {
+	// The lowest block to keep.
+	lowestBlockNumberToKeep uint64
+
+	// Receives the result.
+	reply chan error
+}
+
+// Asks the goroutine for an iterator over the underlying WAL.
+type iteratorRequest struct {
+	// The first block to yield.
+	startingBlockNumber uint64
+
+	// The last block to yield.
+	endingBlockNumber uint64
+
+	// Receives the result.
+	reply chan iteratorResult
+}
+
+// The result of an iteratorRequest.
+type iteratorResult struct {
+	// The iterator, when err is nil.
+	iterator seiwal.Iterator[[]byte]
+
+	// Any error creating the iterator.
+	err error
+}
+
+// Asks the goroutine to add a hash listener and report the most recent hash delivered before it was added.
+type registerRequest struct {
+	// The listener to add, or nil to only read the most recent hash.
+	listener HashListener
+
+	// Receives the result.
+	reply chan registerResult
+}
+
+// The result of a registerRequest.
+type registerResult struct {
+	// Whether lastHashedBlock and lastHash are set.
+	hasLastHash bool
+
+	// The block of the most recent hash delivered before the listener was added, or of the last stored block when
+	// none has been.
+	lastHashedBlock uint64
+
+	// The hash of lastHashedBlock.
+	lastHash [32]byte
+}
+
+// Asks the goroutine to exit once every request sent before it has been served.
+type closeRequest struct{}

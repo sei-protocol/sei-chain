@@ -287,7 +287,7 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	}
 	accExists := p.accountKeeper.HasAccount(ctx, receiverSeiAddr)
 	if !accExists {
-		defer metrics.SafeTelemetryIncrCounter(1, "new", "account")
+		defer metrics.RecordBankNewAccount(ctx.Context())
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, receiverSeiAddr))
 	}
 
@@ -430,7 +430,7 @@ func (p PrecompileExecutor) spendableBalances(ctx sdk.Context, method *abi.Metho
 		return nil, 0, err
 	}
 
-	seiAddr, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	seiAddr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, 0, err
 	}

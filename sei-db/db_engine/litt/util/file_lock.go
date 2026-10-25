@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 // FileLock represents a file-based lock
@@ -17,6 +19,9 @@ type FileLock struct {
 	logger *slog.Logger
 	path   string
 	file   *os.File
+
+	// closed records whether Release has been called.
+	closed utils.CloseMarker[FileLock]
 }
 
 // IsProcessAlive checks if a process with the given PID is still running
@@ -159,11 +164,13 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 		}
 	}
 
-	return &FileLock{
+	lock := &FileLock{
 		logger: logger,
 		path:   path,
 		file:   file,
-	}, nil
+	}
+	lock.closed = utils.MustClose(lock, "littdb file lock")
+	return lock, nil
 }
 
 // Release releases the file lock by closing and removing the lock file.
@@ -172,6 +179,7 @@ func (fl *FileLock) Release() {
 	if fl.file == nil {
 		return
 	}
+	fl.closed.Close(fl)
 
 	// Close the file first
 	err := fl.file.Close()

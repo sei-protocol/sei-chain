@@ -6,21 +6,17 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"reflect"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
-	cosmosConfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
@@ -41,7 +37,6 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -106,7 +101,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
 
-	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+	oracleMsg := &retiredoracle.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        account,
 		Validator:     validator,
@@ -199,7 +194,7 @@ func TestProcessBlockWithPreDecoded(t *testing.T) {
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
 
-	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+	oracleMsg := &retiredoracle.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        account,
 		Validator:     validator,
@@ -555,58 +550,6 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.Nil(t, typedTxs[2])
 }
 
-func TestApp_RegisterAPIRoutes(t *testing.T) {
-	type args struct {
-		apiSvr    *api.Server
-		apiConfig cosmosConfig.APIConfig
-	}
-	tests := []struct {
-		name        string
-		args        args
-		wantSwagger bool
-	}{
-		{
-			name: "swagger added to the router if configured",
-			args: args{
-				apiSvr: &api.Server{
-					ClientCtx:         client.Context{},
-					Router:            &mux.Router{},
-					GRPCGatewayRouter: runtime.NewServeMux(),
-				},
-				apiConfig: cosmosConfig.APIConfig{
-					Swagger: true,
-				},
-			},
-			wantSwagger: true,
-		},
-		{
-			name: "swagger not added to the router if not configured",
-			args: args{
-				apiSvr: &api.Server{
-					ClientCtx:         client.Context{},
-					Router:            &mux.Router{},
-					GRPCGatewayRouter: runtime.NewServeMux(),
-				},
-				apiConfig: cosmosConfig.APIConfig{},
-			},
-			wantSwagger: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			seiApp := &app.App{}
-			seiApp.RegisterAPIRoutes(tt.args.apiSvr, tt.args.apiConfig)
-			routes := tt.args.apiSvr.Router
-			gotSwagger := isSwaggerRouteAdded(routes)
-
-			if !reflect.DeepEqual(gotSwagger, tt.wantSwagger) {
-				t.Errorf("Run() gotSwagger = %v, want %v", gotSwagger, tt.wantSwagger)
-			}
-		})
-
-	}
-}
-
 func TestGetEVMMsg(t *testing.T) {
 	a := &app.App{}
 	require.Nil(t, a.GetEVMMsg(nil))
@@ -653,28 +596,13 @@ func TestGetDeliverTxEntry(t *testing.T) {
 	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, bz, nil))
 }
 
-func isSwaggerRouteAdded(router *mux.Router) bool {
-	var isAdded bool
-	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
-		pathTemplate, err := route.GetPathTemplate()
-		if err == nil && pathTemplate == "/swagger/" {
-			isAdded = true
-		}
-		return nil
-	})
-	if err != nil {
-		return false
-	}
-	return isAdded
-}
-
-func TestGaslessTransactionExtremeGasValue(t *testing.T) {
+func TestTransactionExtremeGasValue(t *testing.T) {
 	sei := app.Setup(t, false, false, false)
 	ctx := sei.BaseApp.NewContext(false, types.Header{})
 
 	testAddr := sdk.AccAddress([]byte("test_address_1234567"))
 
-	// Create a potentially gasless transaction with extreme gas value
+	// Create a transaction with an extreme gas value.
 	attackMsg := &evmtypes.MsgAssociate{
 		Sender:        testAddr.String(),
 		CustomMessage: "overflow_attack",
@@ -689,12 +617,11 @@ func TestGaslessTransactionExtremeGasValue(t *testing.T) {
 	attackTxBytes, err := sei.GetTxConfig().TxEncoder()(attackTx)
 	require.NoError(t, err)
 
-	// Gasless transactions skip metrics recording
-	// Non-gasless transactions have overflow protection in IncrGasCounter
+	// app_tx_gas is an int64 counter, so an extreme gas limit records without overflow.
 	require.NotPanics(t, func() {
 		result := sei.DeliverTxWithResult(ctx, attackTxBytes, attackTx)
 		require.NotNil(t, result)
-	}, "Extreme gas values should never cause panic due to overflow protection")
+	}, "Extreme gas values should never cause panic")
 }
 
 // TestProcessProposalHandlerPanicRecovery tests the panic recovery mechanism in ProcessProposalHandler.

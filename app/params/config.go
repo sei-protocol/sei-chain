@@ -141,8 +141,6 @@ func SetTendermintConfigByMode(config *tmcfg.Config) {
 func setValidatorTypeAppConfig(config *srvconfig.Config) {
 	// Services: validators should minimize exposed services for security
 	config.API.Enable = false
-	config.GRPC.Enable = false
-	config.GRPCWeb.Enable = false
 	config.StateStore.Enable = false
 }
 
@@ -150,8 +148,6 @@ func setValidatorTypeAppConfig(config *srvconfig.Config) {
 func setFullnodeTypeAppConfig(config *srvconfig.Config) {
 	// Services: full nodes provide query services
 	config.API.Enable = true
-	config.GRPC.Enable = true
-	config.GRPCWeb.Enable = true
 	config.StateStore.Enable = true
 
 	// StateStore: full nodes keep recent history for queries

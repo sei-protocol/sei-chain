@@ -3,11 +3,12 @@ package keeper
 import (
 	"fmt"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
@@ -154,19 +155,28 @@ func (k BaseViewKeeper) IterateAllBalances(ctx sdk.Context, cb func(sdk.AccAddre
 	}
 }
 
-// LockedCoins returns all the coins that are not spendable (i.e. locked) for an
-// account by address. For standard accounts, the result will always be no coins.
-// For vesting accounts, LockedCoins is delegated to the concrete vesting account
-// type.
-func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	acc := k.ak.GetAccount(ctx, addr)
-	if acc != nil {
-		vacc, ok := acc.(vestexported.VestingAccount)
-		if ok {
-			return vacc.LockedCoins(ctx.BlockTime())
-		}
-	}
+// VestingRemovalUpgrade is the first upgrade whose blocks bank executes without
+// reading an account to look up its locked coins. It is only compared, by
+// semver, against the ClosestUpgradeName of a context re-tracing a block.
+const VestingRemovalUpgrade = "v6.8"
 
+// RetracesLockedCoinsLookup reports whether ctx re-traces a block that its
+// ClosestUpgradeName places before VestingRemovalUpgrade. The RPC context names
+// the first upgrade applied at or after the block's parent, so once
+// VestingRemovalUpgrade is applied this reports false for v6.7 blocks after the
+// first two, whose traces then use less gas than the blocks did; v6.7 freeze
+// nodes serve those traces.
+func RetracesLockedCoinsLookup(ctx sdk.Context) bool {
+	return ctx.IsTracing() && semver.Compare(ctx.ClosestUpgradeName(), VestingRemovalUpgrade) < 0
+}
+
+// LockedCoins returns the coins at addr that cannot be spent, which are none.
+// When RetracesLockedCoinsLookup reports that ctx re-traces a block from
+// before VestingRemovalUpgrade, it first reads the account, as that block did.
+func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
+	if RetracesLockedCoinsLookup(ctx) {
+		k.ak.GetAccount(ctx, addr)
+	}
 	return sdk.NewCoins()
 }
 
@@ -193,30 +203,16 @@ func (k BaseViewKeeper) spendableCoins(ctx sdk.Context, addr sdk.AccAddress) (sp
 	return
 }
 
-// ValidateBalance validates all balances for a given account address returning
-// an error if any balance is invalid. It will check for vesting account types
-// and validate the balances against the original vesting balances.
-//
-// CONTRACT: ValidateBalance should only be called upon genesis state. In the
-// case of vesting accounts, balances may change in a valid manner that would
-// otherwise yield an error from this call.
+// ValidateBalance returns an error if no account exists at addr or any of its
+// balances is invalid.
 func (k BaseViewKeeper) ValidateBalance(ctx sdk.Context, addr sdk.AccAddress) error {
-	acc := k.ak.GetAccount(ctx, addr)
-	if acc == nil {
+	if k.ak.GetAccount(ctx, addr) == nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)
 	}
 
 	balances := k.GetAllBalances(ctx, addr)
 	if !balances.IsValid() {
 		return fmt.Errorf("account balance of %s is invalid", balances)
-	}
-
-	vacc, ok := acc.(vestexported.VestingAccount)
-	if ok {
-		ogv := vacc.GetOriginalVesting()
-		if ogv.IsAnyGT(balances) {
-			return fmt.Errorf("vesting amount %s cannot be greater than total amount %s", ogv, balances)
-		}
 	}
 
 	return nil

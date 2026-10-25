@@ -2,9 +2,10 @@ package ed25519
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"testing"
 )
 
 func TestSign(t *testing.T) {

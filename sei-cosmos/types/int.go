@@ -160,6 +160,15 @@ func (i Int) ToDec() Dec {
 	return NewDecFromInt(i)
 }
 
+// CanConvertToDec reports whether i fits in a whole-number Dec (i × 10^Precision).
+func (i Int) CanConvertToDec() bool {
+	if i.i == nil {
+		return false
+	}
+	scaled := new(big.Int).Mul(i.BigInt(), precisionMultiplier(0))
+	return scaled.BitLen() <= maxDecBitLen
+}
+
 // Int64 converts Int to int64
 // Panics if the value is out of range
 func (i Int) Int64() int64 {

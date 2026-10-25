@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"sort"
-	"sync"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -73,9 +72,12 @@ func TestEvmIterator(t *testing.T) {
 	miscEnd := ktype.PrefixEnd(miscStart)
 	nonceStart := []byte{0x0a}
 	nonceEnd := ktype.PrefixEnd(nonceStart)
+	balanceStart := []byte{0x21}
+	balanceEnd := ktype.PrefixEnd(balanceStart)
 	midAddr := addrN(0x80)
 	crossSpanStart := keys.BuildEVMKey(keys.EVMKeyCodeHash, midAddr[:]) // 0x08 || addr
 	crossSpanEnd := keys.BuildEVMKey(keys.EVMKeyNonce, midAddr[:])      // 0x0a || addr
+	balanceMid := keys.BuildEVMKey(keys.EVMKeyBalance, midAddr[:])      // 0x21 || addr
 	storageResumeStart := evmStorageKey(addrN(0x40), slotN(0x10))       // 0x03 || addr || slot
 
 	cases := []struct {
@@ -95,6 +97,10 @@ func TestEvmIterator(t *testing.T) {
 		{name: "nonce prefix range descending", start: nonceStart, end: nonceEnd, ascending: false},
 		{name: "cross span codehash to nonce ascending", start: crossSpanStart, end: crossSpanEnd, ascending: true},
 		{name: "cross span codehash to nonce descending", start: crossSpanStart, end: crossSpanEnd, ascending: false},
+		{name: "balance prefix range ascending", start: balanceStart, end: balanceEnd, ascending: true},
+		{name: "balance prefix range descending", start: balanceStart, end: balanceEnd, ascending: false},
+		{name: "cross span nonce to balance ascending", start: nonceStart, end: balanceMid, ascending: true},
+		{name: "cross span nonce to balance descending", start: nonceStart, end: balanceMid, ascending: false},
 		{name: "storage resume ascending", start: storageResumeStart, end: nil, ascending: true},
 	}
 
@@ -212,14 +218,15 @@ func TestEvmIteratorDomain(t *testing.T) {
 	})
 }
 
-// TestEvmIteratorSnapshotConcurrentWithWrites exercises the RWMutex (M2):
-// iterators are stable snapshots that can be built and drained concurrently
-// with ApplyChangeSets/Commit, and a snapshot opened before writes is unaffected
-// by later commits. Run with -race to detect unsynchronized access to the
-// pending-writes maps.
-func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
+// An iterator is a point-in-time view: writes proceed while it is held, and it keeps returning the
+// rows that were committed when it was created. A fresh iterator then sees the newer rows.
+//
+// The wider property — every lane, every shape, across flush and retirement, and across a commit on
+// another goroutine — is covered in store_iteration_stability_test.go. This is the narrow
+// interleaving on a single thread.
+func TestEvmIteratorIsUnaffectedByLaterWrites(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	base := addrN(0x01)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
@@ -229,50 +236,50 @@ func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
 	)}))
 	commitAndCheck(t, s)
 
-	// Expected committed-only state, captured before any concurrent writes.
-	wantIter, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	// Two iterators at the same instant: one drained now to capture it, one held across the write.
+	// A dbm.Iterator is single-pass, so the same one cannot be read before and after.
+	iter, committed := iteratorTwin(t, func() (dbm.Iterator, error) {
+		return s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	})
+
+	// Writing while it is open is accepted, and invisible to it.
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
+		noncePair(addrN(0x02), 1),
+	)}), "the store must remain writable while an iterator is held")
+	commitAndCheck(t, s)
+
+	require.Equal(t, committed, collectIterEntries(t, iter),
+		"the iterator must still serve the instant it was created")
+	require.NoError(t, iter.Close())
+
+	after, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
 	require.NoError(t, err)
-	want := collectIterEntries(t, wantIter)
-	require.NoError(t, wantIter.Close())
+	grown := collectIterEntries(t, after)
+	require.NoError(t, after.Close())
+	require.Greater(t, len(grown), len(committed), "the newly committed row must be visible")
+}
 
-	// A snapshot opened before the writer starts must keep returning `want`
-	// regardless of the commits that follow.
-	snap, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
-	require.NoError(t, err)
+// Iterators built and drained one after another between blocks each see their block's state, which is
+// the pattern the execution thread actually uses.
+func TestEvmIteratorSeesEachCommittedBlock(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 50; i++ {
-			a := addrN(byte(0x20 + i))
-			if applyErr := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
-				noncePair(a, uint64(i+1)),
-			)}); applyErr != nil {
-				t.Errorf("ApplyChangeSets: %v", applyErr)
-				return
-			}
-			if _, commitErr := s.Commit(s.Version() + 1); commitErr != nil {
-				t.Errorf("Commit: %v", commitErr)
-				return
-			}
-		}
-	}()
+	var lastCount int
+	for i := 0; i < 5; i++ {
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
+			noncePair(addrN(byte(0x20+i)), uint64(i+1)),
+		)}))
+		commitAndCheck(t, s)
 
-	// Concurrently build and drain fresh iterators (RLock) while the writer
-	// holds the write lock, to stress the lock under -race.
-	for i := 0; i < 50; i++ {
-		it, iterErr := s.Iterator(keys.EVMStoreKey, nil, nil, true)
-		require.NoError(t, iterErr)
-		_ = collectIterEntries(t, it)
+		it, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+		require.NoError(t, err)
+		entries := collectIterEntries(t, it)
 		require.NoError(t, it.Close())
+
+		require.Greater(t, len(entries), lastCount, "block %d's row must be visible", i+1)
+		lastCount = len(entries)
 	}
-
-	wg.Wait()
-
-	got := collectIterEntries(t, snap)
-	require.NoError(t, snap.Close())
-	require.Equal(t, want, got, "pre-write snapshot must be unaffected by concurrent commits")
 }
 
 // TestEvmLaneBounds exercises every branch of evmLaneBounds in
@@ -452,7 +459,7 @@ func TestEvmIteratorDifferential(t *testing.T) {
 	for _, e := range fixture.Sorted {
 		pool = append(pool, bytes.Clone(e.Key))
 	}
-	for _, p := range [][]byte{{0x03}, {0x07}, {0x08}, {0x09}, {0x0a}} {
+	for _, p := range [][]byte{{0x03}, {0x07}, {0x08}, {0x09}, {0x0a}, {0x21}} {
 		pool = append(pool, bytes.Clone(p), ktype.PrefixEnd(p))
 	}
 
@@ -599,8 +606,11 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 		gen.addAccount(disp)
 	}
 
-	// Nonce-only account (no codehash key in iterator output).
+	// Nonce-only account (no codehash or balance key in iterator output).
 	gen.addNonceOnlyAccount()
+
+	// Balance-only account: the row exists because of its balance alone.
+	gen.addBalanceOnlyAccount()
 
 	// Malformed account-prefixed misc key: lands in the account physical
 	// region (evm/0x0a...) but is routed to miscDB, exercising the overlap
@@ -728,6 +738,15 @@ func (g *evmIteratorGenerator) rngCodeHash() vtype.CodeHash {
 	return h
 }
 
+func (g *evmIteratorGenerator) rngBalance() vtype.Balance {
+	var b vtype.Balance
+	g.rng.Read(b[:])
+	if b == (vtype.Balance{}) {
+		b[0] = 1
+	}
+	return b
+}
+
 func (g *evmIteratorGenerator) recordOverlap(key, value []byte) {
 	*g.overlaps = append(*g.overlaps, evmIteratorEntry{
 		Key:   bytes.Clone(key),
@@ -839,32 +858,44 @@ func (g *evmIteratorGenerator) addAccount(disp evmIteratorDisposition) {
 	for ch1 == ch2 {
 		ch2 = g.rngCodeHash()
 	}
+	bal1 := g.rngBalance()
+	bal2 := g.rngBalance()
+	for bal1 == bal2 {
+		bal2 = g.rngBalance()
+	}
 
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
 
 	switch disp {
 	case dispositionPebbleOnly:
-		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1))
+		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1), balancePair(addr, bal1))
 		recordNonceLatest(g.latest, addr, n1)
 		recordCodeHashLatest(g.latest, addr, ch1)
+		recordBalanceLatest(g.latest, addr, bal1)
 	case dispositionPendingOnly:
-		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2))
+		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2), balancePair(addr, bal2))
 		recordNonceLatest(g.latest, addr, n2)
 		recordCodeHashLatest(g.latest, addr, ch2)
+		recordBalanceLatest(g.latest, addr, bal2)
 	case dispositionOverlap:
-		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1))
-		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2))
+		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1), balancePair(addr, bal1))
+		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2), balancePair(addr, bal2))
 		recordNonceLatest(g.latest, addr, n2)
 		recordCodeHashLatest(g.latest, addr, ch2)
+		recordBalanceLatest(g.latest, addr, bal2)
 		g.recordOverlap(nonceKey, nonceBytes(n2))
 		g.recordOverlap(codeHashKey, ch2[:])
+		g.recordOverlap(balanceKey, bal2[:])
 	case dispositionTombstone:
-		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1))
-		*g.batch2 = append(*g.batch2, nonceDeletePair(addr), codeHashDeletePair(addr))
+		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1), balancePair(addr, bal1))
+		*g.batch2 = append(*g.batch2,
+			nonceDeletePair(addr), codeHashDeletePair(addr), balanceDeletePair(addr))
 		removeAccountLatest(g.latest, addr)
 		g.recordTombstone(nonceKey)
 		g.recordTombstone(codeHashKey)
+		g.recordTombstone(balanceKey)
 	}
 }
 
@@ -873,6 +904,16 @@ func (g *evmIteratorGenerator) addNonceOnlyAccount() {
 	n := g.rngNonce()
 	*g.batch1 = append(*g.batch1, noncePair(addr, n))
 	recordNonceLatest(g.latest, addr, n)
+}
+
+// addBalanceOnlyAccount writes an account held up by its balance alone. The balance lane emits it, the
+// codehash lane skips it, and the nonce lane emits the zero nonce every existing row carries.
+func (g *evmIteratorGenerator) addBalanceOnlyAccount() {
+	addr := g.uniqueAddr()
+	bal := g.rngBalance()
+	*g.batch1 = append(*g.batch1, balancePair(addr, bal))
+	recordBalanceLatest(g.latest, addr, bal)
+	recordNonceLatest(g.latest, addr, 0)
 }
 
 func bankNamedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
@@ -947,9 +988,19 @@ func recordCodeHashLatest(latest map[string]evmIteratorEntry, addr ktype.Address
 	setEvmLatest(latest, key, ch[:])
 }
 
+func recordBalanceLatest(latest map[string]evmIteratorEntry, addr ktype.Address, bal vtype.Balance) {
+	key := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	if bal == (vtype.Balance{}) {
+		removeEvmLatest(latest, key)
+		return
+	}
+	setEvmLatest(latest, key, bal[:])
+}
+
 func removeAccountLatest(latest map[string]evmIteratorEntry, addr ktype.Address) {
 	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]))
 }
 
 func sortedEvmEntries(latest map[string]evmIteratorEntry) []evmIteratorEntry {
@@ -1006,7 +1057,8 @@ func collectIterEntries(t *testing.T, iter dbm.Iterator) []evmIteratorEntry {
 
 func sumFlatKVTableIters(s *CommitStore) (int64, error) {
 	var sum int64
-	for _, db := range s.dataDBs() {
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
 		n, err := pebbledb.TableIters(db)
 		if err != nil {
 			return 0, err

@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -25,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -456,6 +458,30 @@ func TestAutoRestartIfBehind(t *testing.T) {
 	}
 }
 
+func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const freezeHeight = uint64(101)
+		mockBlockStore := new(MockBlockStore)
+		mockBlockStore.On("Height").Return(int64(freezeHeight - 1))
+
+		blockPool := &BlockPool{
+			height:        int64(freezeHeight),
+			maxPeerHeight: int64(freezeHeight + 100),
+		}
+		restart := utils.NewAtomicSend(false)
+		syncer := &syncController{
+			store:                     mockBlockStore,
+			blocksBehindThreshold:     1,
+			blocksBehindCheckInterval: time.Hour,
+			freezeHeight:              freezeHeight,
+			restartEvent:              func() { restart.Store(true) },
+		}
+
+		syncer.autoRestartIfBehind(t.Context(), blockPool)
+		utilsrequire.False(t, restart.Load())
+	})
+}
+
 func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	ctx := t.Context()
 
@@ -503,6 +529,27 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 		}
 	}
 	t.Fatal("did not receive block response")
+}
+
+func TestPoolRoutineHandsOffAtFreezeHeight(t *testing.T) {
+	const freezeHeight = int64(10)
+	pool := NewBlockPool(freezeHeight, nil)
+	syncer := &syncController{freezeHeight: uint64(freezeHeight)} //nolint:gosec // the test height is positive.
+	state := sm.State{InitialHeight: 1, LastBlockHeight: freezeHeight - 1}
+
+	handoff, err := syncer.poolRoutine(t.Context(), pool, state, false)
+	if err != nil {
+		t.Fatalf("poolRoutine: %v", err)
+	}
+	if handoff.state.LastBlockHeight != freezeHeight-1 {
+		t.Fatalf("handoff state height = %d, want %d", handoff.state.LastBlockHeight, freezeHeight-1)
+	}
+	if handoff.height != freezeHeight {
+		t.Fatalf("handoff pool height = %d, want %d", handoff.height, freezeHeight)
+	}
+	if handoff.blocksSynced != 0 {
+		t.Fatalf("handoff blocks synced = %d, want 0", handoff.blocksSynced)
+	}
 }
 
 func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) {

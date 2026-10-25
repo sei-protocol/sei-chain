@@ -9,6 +9,8 @@ import (
 
 	"github.com/linxGnu/grocksdb"
 	dbm "github.com/tendermint/tm-db"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 var _ dbm.Iterator = (*iterator)(nil)
@@ -21,12 +23,15 @@ type iterator struct {
 	reverse            bool
 	invalid            bool
 	closeOnce          sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[iterator]
 }
 
 func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOptions, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &iterator{
+		itr := &iterator{
 			source:   source,
 			readOpts: readOpts,
 			prefix:   prefix,
@@ -36,6 +41,8 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 			reverse:  reverse,
 			invalid:  true,
 		}
+		itr.closed = utils.MustClose(itr, "rocksdb mvcc iterator")
+		return itr
 	}
 
 	if reverse {
@@ -61,7 +68,7 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 		}
 	}
 
-	return &iterator{
+	itr := &iterator{
 		source:   source,
 		readOpts: readOpts,
 		prefix:   prefix,
@@ -71,6 +78,8 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 		reverse:  reverse,
 		invalid:  !source.Valid(),
 	}
+	itr.closed = utils.MustClose(itr, "rocksdb mvcc iterator")
+	return itr
 }
 
 // Domain returns the domain of the iterator. The caller must not modify the
@@ -161,6 +170,7 @@ func (itr *iterator) Error() error {
 
 func (itr *iterator) Close() error {
 	itr.closeOnce.Do(func() {
+		itr.closed.Close(itr)
 		src := itr.source
 		ro := itr.readOpts
 		itr.source = nil

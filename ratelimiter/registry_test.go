@@ -1,7 +1,6 @@
 package ratelimiter
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,8 +10,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 )
 
 // zeroCfg has RPS=0 which disables limiting.
@@ -113,6 +110,41 @@ func TestAllow_RejectionRecordsMethodMetric(t *testing.T) {
 	require.True(t, found, "expected rpc_rate_limit_rejected_total metric")
 }
 
+func TestAllow_CometBFTRejectionRecordsMethodMetric(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	registryMetrics.rejectedCounter = must(provider.Meter("ratelimiter").Int64Counter(
+		"rpc_rate_limit_rejected_total",
+	))
+
+	r := mustNew(t, cfg(0.001, 1))
+	ip := "10.0.0.42"
+	require.True(t, r.Allow(t.Context(), ip, PlaneCometBFT, "status"))
+	require.False(t, r.Allow(t.Context(), ip, PlaneCometBFT, "tx_search"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	found := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "rpc_rate_limit_rejected_total" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Equal(t, int64(1), sum.DataPoints[0].Value)
+			attrs := sum.DataPoints[0].Attributes.ToSlice()
+			require.Contains(t, attrs, attribute.String("plane", PlaneCometBFT))
+			require.Contains(t, attrs, attribute.String("method_namespace", "tx_search"))
+			found = true
+		}
+	}
+	require.True(t, found, "expected rpc_rate_limit_rejected_total metric")
+}
+
 func TestAllow_IPv6_SamePrefixSharesBucket(t *testing.T) {
 	r := mustNew(t, cfg(0.001, 1))
 	require.True(t, r.Allow(t.Context(), "2001:db8::1", "evm", "eth_call"), "first address in /64 passes")
@@ -190,64 +222,6 @@ func TestIPFromHTTPRequest_MultipleXFFHeaders_SpoofPrevented(t *testing.T) {
 	req.Header.Add("X-Forwarded-For", "203.0.113.5")
 	// Must use rightmost untrusted across all header lines, not just the first.
 	require.Equal(t, "203.0.113.5", r.IPFromHTTPRequest(req))
-}
-
-// --- IPFromGRPCContext ---
-
-func grpcCtx(peerAddr string, xff ...string) context.Context {
-	ctx := context.Background()
-	ctx = peer.NewContext(ctx, &peer.Peer{
-		Addr: mockAddr(peerAddr),
-	})
-	if len(xff) > 0 {
-		md := metadata.MD{"x-forwarded-for": xff}
-		ctx = metadata.NewIncomingContext(ctx, md)
-	}
-	return ctx
-}
-
-type mockAddr string
-
-func (a mockAddr) Network() string { return "tcp" }
-func (a mockAddr) String() string  { return string(a) }
-
-func TestIPFromGRPCContext_DirectPeer(t *testing.T) {
-	r := mustNew(t, cfg(100, 200)) // no trusted proxies
-	ctx := grpcCtx("203.0.113.5:9000", "1.2.3.4")
-	// Peer is not trusted, XFF must be ignored.
-	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
-}
-
-func TestIPFromGRPCContext_TrustedPeer_XFF(t *testing.T) {
-	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
-	// Proxy appended 203.0.113.5 (real client) on the right; rightmost untrusted wins.
-	ctx := grpcCtx("10.0.0.2:9000", "203.0.113.5, 10.0.0.2")
-	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
-}
-
-func TestIPFromGRPCContext_TrustedPeer_SpoofedXFF(t *testing.T) {
-	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
-	// Client pre-set a spoofed IP; proxy appended the real client IP on the right.
-	ctx := grpcCtx("10.0.0.2:9000", "1.2.3.4, 203.0.113.5")
-	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
-}
-
-func TestIPFromGRPCContext_MultipleXFFValues_SpoofPrevented(t *testing.T) {
-	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
-	// Client pre-sets a spoofed IP as the first metadata value; proxy appends real IP as a second value.
-	ctx := grpcCtx("10.0.0.2:9000", "spoofed-ip-ignored", "203.0.113.5")
-	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
-}
-
-func TestIPFromGRPCContext_TrustedPeer_NoMetadata(t *testing.T) {
-	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
-	ctx := grpcCtx("10.0.0.2:9000")
-	require.Equal(t, "10.0.0.2", r.IPFromGRPCContext(ctx))
-}
-
-func TestIPFromGRPCContext_NoPeer(t *testing.T) {
-	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
-	require.Equal(t, "", r.IPFromGRPCContext(t.Context()))
 }
 
 // --- isTrustedProxy / parseCIDRs ---

@@ -30,17 +30,24 @@ EVM RPCs prefixed by `eth_` and `debug_` on Sei generally follows [Ethereum's sp
 - **No Trie** - Sei does not store states in a trie, so any endpoint relevant to the trie data structure is not supported.
 - **No PoW** - Sei has never used proof-of-work, so endpoints like `eth_mining` and `eth_hashrate` are not supported.
 - **No Blobs** - Sei does not support EIP-4844 blob transactions. `eth_blobBaseFee` returns JSON-RPC error code `-32000` with message `blobs not supported on this chain`.
+- **Pruned receipts** - A node's receipt store can start later than its block store, typically after a state-sync or snapshot restore. For a method that takes a block identifier or range, a height below the receipt floor returns JSON-RPC error `-32000` (`requested height N receipts have been pruned; earliest available is M`; ranges use the `ComputeBlockBounds` wording) rather than an empty or `null` result. `eth_feeHistory` instead starts its window at the receipt floor. Lookups by transaction hash (`eth_getTransactionReceipt`, `eth_getTransactionByHash`, `eth_getTransactionErrorByHash`) still return `null` below the floor: a hash carries no height to compare. `filterTransactions` omits transactions whose receipts are missing, so a new handler that serves a block identifier must call `EnsureReceiptHeightAvailable` first.
+- **`milliTimestamp`** — BEP-520-compatible block-header field carrying the header time as a hex quantity of **Unix milliseconds**, alongside the standard `timestamp`, which stays in **whole seconds** because every Ethereum client reads it that way. Sei block intervals are shorter than a second, so `timestamp` repeats across consecutive blocks. `milliTimestamp` is **not** unique per block either: under Autobahn a proposal spaces consecutive blocks by 1µs (`minTimestampDiff`), so blocks less than a millisecond apart tie. Unrelated to the seconds-based values feeding fork rules and the `TIMESTAMP` opcode (`vm.BlockContext.Time`, `MakeSigner`, `ethtypes.Header.Time`) — those must stay in seconds.
+- **Four separate encoders build block headers.** A field added to one is silently absent from the other three, so a new header field has to be added to all four:
+  - `EncodeTmBlock` — `eth_getBlockByNumber` / `eth_getBlockByHash`
+  - `encodeGenesisBlock` — the synthetic genesis block; both of the above return it early, before `EncodeTmBlock` is reached
+  - `encodeCommittedBlock` — `eth_subscribe("newHeads")` under Autobahn
+  - `encodeTmHeader` — `eth_subscribe("newHeads")` under CometBFT
 - **Explicitly unsupported RPCs (same `-32000` pattern)** — Methods are registered so clients get a clear error instead of `-32601` method not found:
   - `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, `debug_getRawTransaction`
   - `eth_newPendingTransactionFilter`
   - `eth_syncing`
+  - `eth_getProof` — deprecated rather than permanently incompatible; the message directs callers who need proofs to the Sei team.
+- **Log filters poll from a cursor.** `eth_newFilter` fixes where its polls start, once: a numeric `fromBlock` (or `earliest`, which is block 0) as given, otherwise the block after the head at creation; a numeric `toBlock` below that start is rejected. Each `eth_getFilterChanges` scans from that cursor to the head, or to a numeric `toBlock` below it; a tag `toBlock` such as `latest` follows the head and never ends the filter. A numeric `fromBlock` above 0 that is below the earliest available block is rejected, while a `fromBlock` of 0 polls from that block. When pruning passes the cursor of a filter, its next poll fails with an error naming the pruned blocks, and the filter continues from the earliest block. A poll covers at most `max_blocks_for_log` blocks, and fewer when its logs exceed the log caps; later polls return the rest. A block whose logs alone exceed the caps fails the poll that reaches it with an error naming the block, and the filter or subscription continues after it. Unlike geth, a numeric `fromBlock` in the past makes the first poll return that history. `eth_getFilterLogs` resolves tags when called and never moves the cursor. `eth_subscribe("logs")` polls through the same cursor logic, and treats a `fromBlock` of 0 with a tag `toBlock`, which ethclient sends for an open-ended query, as an omitted `fromBlock`. A failed subscription poll notifies `{"error": message}` in place of logs, adding the skipped block's `blockNumber` when the subscription continues past an oversized block; any other failure, pruned blocks included, ends the subscription.
 
-## `sei_` and `sei2_` prefixed endpoints
-Several `eth_` prefixed endpoints have a `sei_` prefixed counterpart. `eth_` endpoints only have visibility into EVM transactions, whereas `sei_` endpoints have visibility into EVM transactions plus Cosmos transactions that have synthetic EVM receipts.
+## `sei_` prefixed endpoints
+The legacy `sei_` namespace contains address and Cosmos transaction helpers.
 
-The **`sei2`** namespace exposes the same **block** JSON-RPC shape as `sei` blocks, with **bank transfers** included in block payloads (HTTP only). There are seven `sei2_*` methods (block + block receipts + tx counts + `*ExcludeTraceFail` variants); there is no `sei2` transaction or filter API.
-
-Legacy **`sei_*` and `sei2_*`** JSON-RPC (EVM HTTP only) are **gated** by the same `[evm].enabled_legacy_sei_apis` list in `app.toml` (after `deny_list`). Enforcement is **centralized** in `wrapSeiLegacyHTTP` (see `sei_legacy_http.go`): it inspects the JSON-RPC `method` field only. Wired from `HTTPServer.EnableRPC` via `HTTPConfig.SeiLegacyAllowlist` — handlers do not duplicate gate logic. Both surfaces are **deprecated** and scheduled for removal; **only methods named in that array** are allowed. `seid init` / `DefaultConfig` pre-fill the three `sei_*` address/Cosmos helpers; other gated methods (including `sei2_*`) appear **commented** in the generated template. **Docker localnet** (`docker/localnode/config/app.toml`) enables **all** gated methods except **`sei_sign`**. **HTTP 200** for all responses. **Disabled** methods return JSON-RPC `error` code `-32601`, `message` explains not enabled + deprecated, `data` `"legacy_sei_deprecated"`. **Allowed** single-object bodies pass through **unchanged**; JSON **batches** may be subset-forwarded with responses merged by `id` (for requests that include `id`). Per JSON-RPC 2.0, **notifications** (no `id` in the request) do not produce entries in the batch response array, so the merged array is **not** 1:1 with the request batch when notifications are present; if nothing would be returned, the gateway sends an **empty HTTP body** (not `[]`). Optional deprecation signal: HTTP header `Sei-Legacy-RPC-Deprecation` (`SeiLegacyDeprecationHTTPHeader` in `sei_legacy.go`). Coverage: `evmrpc/sei_legacy_test.go` and `integration_test/evm_module/rpc_io_test/testdata/sei_legacy_deprecation/*.iox`.
+Legacy **`sei_*`** JSON-RPC (EVM HTTP only) are **gated** by the `[evm].enabled_legacy_sei_apis` list in `app.toml` (after `deny_list`). Enforcement is **centralized** in `wrapSeiLegacyHTTP` (see `sei_legacy_http.go`): it inspects the JSON-RPC `method` field only. Wired from `HTTPServer.EnableRPC` via `HTTPConfig.SeiLegacyAllowlist` — handlers do not duplicate gate logic. The surface is **deprecated** and scheduled for removal; **only methods named in that array** are allowed. `seid init` / `DefaultConfig` and **Docker localnet** (`docker/localnode/config/app.toml`) enable all three remaining address/Cosmos helpers. **HTTP 200** for all responses. **Disabled** methods return JSON-RPC `error` code `-32601`, `message` explains not enabled + deprecated, `data` `"legacy_sei_deprecated"`. **Allowed** single-object bodies pass through **unchanged**; JSON **batches** may be subset-forwarded with responses merged by `id` (for requests that include `id`). Per JSON-RPC 2.0, **notifications** (no `id` in the request) do not produce entries in the batch response array, so the merged array is **not** 1:1 with the request batch when notifications are present; if nothing would be returned, the gateway sends an **empty HTTP body** (not `[]`). Optional deprecation signal: HTTP header `Sei-Legacy-RPC-Deprecation` (`SeiLegacyDeprecationHTTPHeader` in `sei_legacy.go`). Coverage: `evmrpc/sei_legacy_test.go` and `integration_test/evm_module/rpc_io_test/testdata/sei_legacy_deprecation/*.iox`.
 
 ## `debug_` prefixed endpoints
 `debug_trace*` endpoints should faithfully replay historical execution. If a transaction encountered an error during its actual execution, a `debug_trace*` call for it should reflect so. If a transction consumed X amount of gas during its actual execution, a `debug_trace*` call should show that exact amount as well.
@@ -49,3 +56,39 @@ Legacy **`sei_*` and `sei2_*`** JSON-RPC (EVM HTTP only) are **gated** by the sa
 
 ## Consistency
 RPC responses for historical heights should never change as the blockchain progresses, or as the blockchain code gets upgraded.
+
+## Store-read cancellation
+
+Deadline-aware store reads attach the RPC request context to height-specific `sdk.Context` values through `readStoreAtHeight` or `readStores`. Receipt-store enforcement lives in `Keeper.GetReceipt`, while cached receipt reads enforce the same rule in `getOrSetCachedReceiptErr`; callers propagate those errors rather than adding their own guards. Current point-read APIs such as Cosmos `KVStore.Get`, StateDB, Pebble, and Litt do not accept a request context, so an in-progress point read finishes before the RPC returns the request context error; do not move those reads to abandoned goroutines.
+
+## Exported receivers are RPC surface — treat every export as a new endpoint
+
+`go-ethereum`'s `rpc.Server` registers **every exported method** on a `Service`
+struct passed to `RegisterName` (see `evmrpc/server.go`) as a callable JSON-RPC
+method, named by lower-casing the method's first letter and prefixing with the
+service's namespace (e.g. `InfoAPI.GasPriceHelper` → `eth_gasPriceHelper`).
+This applies to `InfoAPI`, `FilterAPI`, `DebugAPI`, and every other struct
+registered as a `Service` in `server.go` — there is no separate allowlist step
+for "internal" helper methods.
+
+**Any exported method added to a registered API struct is automatically a
+live, unaudited RPC endpoint** — with no request validation, no rate-limit
+review, and no `sei_*`-style gating unless someone deliberately adds it.
+
+**When reviewing or writing code in `evmrpc/`:** if a change adds, renames, or
+un-exports a method on any struct registered via `RegisterName` in
+`server.go`, call this out loudly — do not treat it as a routine
+rename/refactor. Concretely:
+
+- A new exported method on a registered API struct that is not meant to be a
+  public RPC method is a bug, not a style nit. Keep helper/internal methods
+  lower-case.
+- If a helper genuinely needs to be called from tests outside the package
+  (`evmrpc_test`, `evmrpc/tests`), export it via a `*ForTest` wrapper in
+  `evmrpc/export_test.go` (see existing examples there) instead of exporting
+  the production method itself — `_test.go` files are excluded from
+  production builds, so this does not create a real endpoint.
+- When reviewing a diff, cross-check any newly-exported method against the
+  registered `Service` list in `server.go`; if the receiver type is on that
+  list, flag the export explicitly rather than letting it pass as normal Go
+  visibility hygiene.

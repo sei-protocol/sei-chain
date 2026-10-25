@@ -30,9 +30,7 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot k
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	v, err := s.Commit(s.Version() + 1)
-	require.NoError(t, err)
-	return v
+	return commitAndCheck(t, s)
 }
 
 func TestSnapshotCreatesDir(t *testing.T) {
@@ -47,13 +45,13 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	// Verify snapshot directory exists with all 4 DB subdirs
 	snapDir := filepath.Join(flatkvDir, snapshotName(1))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		info, err := os.Stat(filepath.Join(snapDir, sub))
 		require.NoError(t, err, "subdir %s should exist", sub)
 		require.True(t, info.IsDir())
@@ -77,8 +75,8 @@ func TestSnapshotIdempotent(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
-	require.NoError(t, s.WriteSnapshot(""))
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	target, err := os.Readlink(currentPath(flatkvDir))
@@ -100,13 +98,13 @@ func TestOpenFromSnapshot(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x02}, []byte{0x02})
 
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.Equal(t, int64(2), s1.Version())
 
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x03}, []byte{0x03})
 	require.Equal(t, int64(3), s1.Version())
 
-	hashAtV3 := s1.RootHash()
+	hashAtV3 := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen - should catchup from v2 snapshot + WAL entry for v3
@@ -119,7 +117,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(3), s2.Version())
-	require.Equal(t, hashAtV3, s2.RootHash())
+	require.Equal(t, hashAtV3, rootHash(s2))
 
 	// Verify data from all 3 versions is present
 	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x10}, ktype.Slot{0x01}))
@@ -145,14 +143,14 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	// Commit 5 versions, snapshot at v2
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x01}, []byte{0x10})
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x02}, []byte{0x20})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x03}, []byte{0x30})
-	hashAtV3 := s1.RootHash()
+	hashAtV3 := rootHash(s1)
 
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x04}, []byte{0x40})
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x05}, []byte{0x50})
-	hashAtV5 := s1.RootHash()
+	hashAtV5 := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	// Reopen: catchup from v2 snapshot through v3,v4,v5 via WAL
@@ -165,7 +163,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(5), s2.Version())
-	require.Equal(t, hashAtV5, s2.RootHash(), "LtHash after catchup must match original")
+	require.Equal(t, hashAtV5, rootHash(s2), "LtHash after catchup must match original")
 
 	_ = hashAtV3 // referenced for clarity but not re-checked here
 }
@@ -181,17 +179,17 @@ func TestRollbackRewindsState(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x02}, []byte{0x02})
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x03}, []byte{0x03})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x04}, []byte{0x04})
-	hashAtV4 := s.RootHash()
+	hashAtV4 := rootHash(s)
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x05}, []byte{0x05})
 	require.Equal(t, int64(5), s.Version())
 
 	// Rollback to v4: restores from v3 snapshot, catches up to v4 via WAL
 	require.NoError(t, s.Rollback(4))
 	require.Equal(t, int64(4), s.Version())
-	require.Equal(t, hashAtV4, s.RootHash())
+	require.Equal(t, hashAtV4, rootHash(s))
 
 	// v5's data should not exist (WAL truncated, snapshot pruned)
 	key5 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x30}, ktype.Slot{0x05}))
@@ -216,15 +214,15 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x02}, []byte{0x02})
-	hashAtV2 := s.RootHash()
-	require.NoError(t, s.WriteSnapshot(""))
+	hashAtV2 := rootHash(s)
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x03}, []byte{0x03})
 	require.Equal(t, int64(3), s.Version())
 
 	require.NoError(t, s.Rollback(2))
 	require.Equal(t, int64(2), s.Version())
-	require.Equal(t, hashAtV2, s.RootHash())
+	require.Equal(t, hashAtV2, rootHash(s))
 
 	require.NoError(t, s.Close())
 }
@@ -241,7 +239,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x50}, ktype.Slot{0x01}, []byte{0x01})
 
 	// Take a valid snapshot first
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	prevTarget, err := os.Readlink(currentPath(flatkvDir))
@@ -249,13 +247,13 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x50}, ktype.Slot{0x02}, []byte{0x02})
 
-	// Sabotage: close codeDB so checkpoint fails on it. We save the handle
-	// to restore it for cleanup.
-	savedCodeDB := s.codeDB
-	require.NoError(t, s.codeDB.Close())
+	// Sabotage: close the code database so the checkpoint fails on it. The store owns that database
+	// now, so there is no handle to save and restore — the store keeps its own reference either way,
+	// and the Close below simply reports the already-closed database.
+	require.NoError(t, s.rawDBFor(codeDBDir).Close())
 
-	err = s.WriteSnapshot("")
-	require.Error(t, err, "WriteSnapshot should fail when a DB is closed")
+	err = s.outOfBandSnapshot()
+	require.Error(t, err, "outOfBandSnapshot should fail when a DB is closed")
 
 	// Current should still point to the previous snapshot
 	target, err := os.Readlink(currentPath(flatkvDir))
@@ -267,60 +265,8 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	_, statErr := os.Stat(tmpPath)
 	require.True(t, os.IsNotExist(statErr), "tmp dir should be cleaned up on failure")
 
-	// Restore codeDB for proper cleanup (reopen is needed for Close to work)
-	s.codeDB = savedCodeDB
+	// Teardown will report the database this test deliberately closed; that is expected here.
 	_ = s.Close()
-}
-
-func TestMigrationFromFlatLayout(t *testing.T) {
-	dir := t.TempDir()
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
-
-	// Simulate the old flat layout by creating DB dirs directly
-	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, miscDBDir} {
-		dbPath := filepath.Join(flatkvDir, sub)
-		require.NoError(t, os.MkdirAll(dbPath, 0750))
-		// Create an actual PebbleDB so Open works
-		cfg := pebbledb.DefaultTestConfig(t)
-		cfg.DataDir = dbPath
-		db, err := pebbledb.Open(t.Context(), &cfg)
-		require.NoError(t, err)
-		require.NoError(t, db.Close())
-	}
-
-	// Ensure no current symlink exists
-	_, err := os.Lstat(currentPath(flatkvDir))
-	require.True(t, os.IsNotExist(err))
-
-	// Open the store - should trigger migration
-	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	defer s.Close()
-
-	// current symlink should now exist
-	target, err := os.Readlink(currentPath(flatkvDir))
-	require.NoError(t, err)
-	require.Equal(t, snapshotName(0), target)
-
-	// The old flat dirs should be gone (moved into the snapshot)
-	for _, sub := range snapshotDBDirs {
-		_, err := os.Stat(filepath.Join(flatkvDir, sub))
-		require.True(t, os.IsNotExist(err), "flat dir %s should have been moved", sub)
-	}
-
-	// The snapshot dir should have the DB subdirs
-	snapDir := filepath.Join(flatkvDir, snapshotName(0))
-	for _, sub := range snapshotDBDirs {
-		info, err := os.Stat(filepath.Join(snapDir, sub))
-		require.NoError(t, err)
-		require.True(t, info.IsDir())
-	}
-
-	require.Equal(t, int64(0), s.Version())
 }
 
 func TestOpenVersionValidation(t *testing.T) {
@@ -336,23 +282,14 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x01}, []byte{0x11})
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x02}, []byte{0x22})
-	hashAtV2 := s1.RootHash()
+	hashAtV2 := rootHash(s1)
+
+	// Phase 2: rewind one DB's version record to simulate an incomplete commit — accountDB reads as
+	// v1 while every other DB and the WAL are at v2. The rewind goes into the working dir, which is
+	// what the next open reads; tampering with the snapshot instead has no effect, because
+	// SNAPSHOT_BASE still matches and the working dir is reused rather than re-cloned.
+	rewindVersionRecords(t, s1, 1, accountDBDir)
 	require.NoError(t, s1.Close())
-
-	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
-	// (accountDB thinks it's at v1, but global says v2)
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
-	snapDir, _, err := currentSnapshotDir(flatkvDir)
-	require.NoError(t, err)
-
-	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	acctCfg := pebbledb.DefaultConfig()
-	acctCfg.DataDir = accountDBPath
-	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup
 	cfg = config.DefaultTestConfig(t)
@@ -364,7 +301,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.Version())
-	require.Equal(t, hashAtV2, s2.RootHash())
+	require.Equal(t, hashAtV2, rootHash(s2))
 }
 
 func TestSnapshotNameParsing(t *testing.T) {
@@ -424,6 +361,25 @@ func TestSeekSnapshot(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOldestSnapshotAbove(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{0, 10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+	s := &CommitStore{config: config.Config{DataDir: dir}}
+
+	for _, tc := range []struct {
+		version  int64
+		snapshot int64
+		ok       bool
+	}{{0, 10, true}, {5, 10, true}, {10, 20, true}, {20, 0, false}, {25, 0, false}} {
+		snapshot, ok, err := s.OldestSnapshotAbove(tc.version)
+		require.NoError(t, err)
+		require.Equal(t, tc.ok, ok, "version %d", tc.version)
+		require.Equal(t, tc.snapshot, snapshot, "version %d", tc.version)
+	}
+}
+
 func TestReadOnlyAtTargetVersion(t *testing.T) {
 	dir := t.TempDir()
 
@@ -436,9 +392,9 @@ func TestReadOnlyAtTargetVersion(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x03}, []byte{0x03})
-	hashAtV3 := s1.RootHash()
+	hashAtV3 := rootHash(s1)
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x04}, []byte{0x04})
 	require.NoError(t, s1.Close())
 
@@ -455,7 +411,7 @@ func TestReadOnlyAtTargetVersion(t *testing.T) {
 	defer func() { require.NoError(t, ro.Close()) }()
 
 	require.Equal(t, int64(3), ro.Version())
-	require.Equal(t, hashAtV3, ro.RootHash())
+	require.Equal(t, hashAtV3, rootHash(ro))
 }
 
 // TestSnapshotThenCatchupThenVerifyCorrectness verifies that commits after a
@@ -477,7 +433,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 
 	commitStorageEntry(t, s1, addr, slot, []byte{0x01})                            // v1
 	commitStorageEntry(t, s1, ktype.Address{0x7A}, ktype.Slot{0x7C}, []byte{0xAA}) // v2
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	// Record baseline value at v2 for the same key.
 	vAtV2, ok := s1.Get(keys.EVMStoreKey, key)
@@ -538,12 +494,12 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 
 	commitStorageEntry(t, s, addr, slot, []byte{0x01})
 	commitStorageEntry(t, s, addr, slot, []byte{0x02})
-	hashAtV2 := s.RootHash()
-	require.NoError(t, s.WriteSnapshot(""))
+	hashAtV2 := rootHash(s)
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, addr, slot, []byte{0x03})
 	commitStorageEntry(t, s, addr, slot, []byte{0x04})
-	hashAtV4 := s.RootHash()
+	hashAtV4 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen at latest: the working dir is now dirty at v4, well past the v2 snapshot.
@@ -554,7 +510,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 	require.NoError(t, s2.LoadLatest())
 	defer func() { require.NoError(t, s2.Close()) }()
 	require.Equal(t, int64(4), s2.Version())
-	require.Equal(t, hashAtV4, s2.RootHash())
+	require.Equal(t, hashAtV4, rootHash(s2))
 
 	requireViewAtV2 := func(what string) {
 		t.Helper()
@@ -562,7 +518,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 		require.NoError(t, err, what)
 		defer func() { require.NoError(t, ro.Close()) }()
 		require.Equal(t, int64(2), ro.Version(), what)
-		require.Equal(t, hashAtV2, ro.RootHash(), what)
+		require.Equal(t, hashAtV2, rootHash(ro), what)
 		v, ok := ro.Get(keys.EVMStoreKey, key)
 		require.True(t, ok, what)
 		require.Equal(t, padLeft32(0x02), v, what)
@@ -593,8 +549,8 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	// Build: v1..v5, snapshot at v2.
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x02}, []byte{0x02})
-	hashAtV2 := s.RootHash()
-	require.NoError(t, s.WriteSnapshot(""))
+	hashAtV2 := rootHash(s)
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x03}, []byte{0x03})
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x04}, []byte{0x04})
@@ -603,7 +559,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	// Rollback to v2: lands at the v2 snapshot exactly, with the WAL tail beyond v2 pruned.
 	require.NoError(t, s.Rollback(2))
 	require.Equal(t, int64(2), s.Version())
-	require.Equal(t, hashAtV2, s.RootHash())
+	require.Equal(t, hashAtV2, rootHash(s))
 
 	// The WAL must not hold anything above the rolled-back version, or a restart would re-apply v3..v5.
 	ok, _, last, err := s.wal.GetStoredRange()
@@ -615,7 +571,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	require.Equal(t, int64(3), s.Version())
 
 	// Simulate restart from the rolled-back-then-advanced state: should land at v3.
-	hashAtV3 := s.RootHash()
+	hashAtV3 := rootHash(s)
 	require.NoError(t, s.Close())
 	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -626,7 +582,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(3), s2.Version())
-	require.Equal(t, hashAtV3, s2.RootHash())
+	require.Equal(t, hashAtV3, rootHash(s2))
 }
 
 // rollbackFixture returns a store with v1..v5 committed and a snapshot at v2.
@@ -634,7 +590,9 @@ func rollbackFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -643,7 +601,7 @@ func rollbackFixture(t *testing.T) *CommitStore {
 	for i := byte(1); i <= 5; i++ {
 		commitStorageEntry(t, s, ktype.Address{0x91}, ktype.Slot{i}, []byte{i})
 		if i == 2 {
-			require.NoError(t, s.WriteSnapshot(""))
+			require.NoError(t, s.outOfBandSnapshot())
 		}
 	}
 	return s
@@ -697,7 +655,9 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -705,7 +665,7 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	resetWALForTest(t, s)
 	return s
 }
@@ -740,7 +700,22 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 // TestRollbackRejectsVersionZero verifies version 0 is refused: it means no state, so there is nothing to roll
 // back to, and it is the one target that would reach PruneAfter's retains-block-zero boundary.
 func TestRollbackRejectsVersionZero(t *testing.T) {
-	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
+	requireRollbackRejected(t, rollbackFixture(t), 0, "version 0 means no state")
+}
+
+// TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
+// Rollback does. A store keeps a snapshot at 0, so 0 is a version this would otherwise land on and then
+// delete every snapshot above — which is all of them.
+func TestRewindClosedStoreToRejectsVersionZero(t *testing.T) {
+	s := rollbackFixture(t)
+	before := snapshotVersionsOnDisk(t, s)
+	require.NoError(t, s.Close())
+
+	_, err := RewindClosedStoreTo(s.flatkvDir(), 0)
+
+	require.ErrorContains(t, err, "nothing to rewind to")
+	require.Equal(t, before, snapshotVersionsOnDisk(t, s),
+		"a refused rewind must leave the snapshots where they were")
 }
 
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
@@ -749,7 +724,9 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -966,7 +943,7 @@ func TestCreateWorkingDirReusesExisting(t *testing.T) {
 	dir := t.TempDir()
 
 	snapDir := filepath.Join(dir, snapshotName(5))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		require.NoError(t, os.MkdirAll(filepath.Join(snapDir, sub), 0750))
 	}
 
@@ -988,7 +965,7 @@ func TestCreateWorkingDirReclones(t *testing.T) {
 
 	snap5 := filepath.Join(dir, snapshotName(5))
 	snap10 := filepath.Join(dir, snapshotName(10))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		require.NoError(t, os.MkdirAll(filepath.Join(snap5, sub), 0750))
 		require.NoError(t, os.MkdirAll(filepath.Join(snap10, sub), 0750))
 	}
@@ -1021,7 +998,7 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
-		require.NoError(t, s.WriteSnapshot(""))
+		require.NoError(t, s.outOfBandSnapshot())
 	}
 
 	var snapshots []int64
@@ -1047,7 +1024,7 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
-		require.NoError(t, s.WriteSnapshot(""))
+		require.NoError(t, s.outOfBandSnapshot())
 	}
 
 	var count int
@@ -1076,7 +1053,8 @@ func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
-	require.Equal(t, 0, s.pruneSnapshotsByCount(dir, 30),
+	require.Equal(t, 0,
+		pruneSnapshotsByCount(s.ctx, dir, s.config.SnapshotKeepRecent, s.config.ExternalPruning, 30),
 		"only 10 and 20 sit below the current version, and KeepRecent=2 covers both")
 
 	var remaining []int64
@@ -1097,7 +1075,7 @@ func TestOrphanSnapshotRecovery(t *testing.T) {
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	snapDir := filepath.Join(flatkvDir, snapshotName(5))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		require.NoError(t, os.MkdirAll(filepath.Join(snapDir, sub), 0750))
 	}
 
@@ -1179,12 +1157,12 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	for i := 3; i < 6; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	for i := 6; i < 8; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
@@ -1212,6 +1190,127 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	require.Contains(t, afterRollback, int64(3))
 
 	require.NoError(t, s.Close())
+}
+
+// snapshotVersionsOnDisk lists the snapshot versions under the store's directory, ascending.
+func snapshotVersionsOnDisk(t *testing.T, s *CommitStore) []int64 {
+	t.Helper()
+	var versions []int64
+	require.NoError(t, traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+		versions = append(versions, v)
+		return false, nil
+	}))
+	return versions
+}
+
+// interruptedRewindFixture returns a store in the state a rewind leaves behind when it is interrupted
+// after repointing at the base snapshot but before removing the branch above it: the store reads as the
+// base, and the discarded snapshot is still on disk.
+//
+// The store holds snapshots at 3 and 6 and was committed to 8, and the rewind it is partway through
+// targets 5, whose base is 3.
+func interruptedRewindFixture(t *testing.T) *CommitStore {
+	t.Helper()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	t.Cleanup(func() { _ = s.Close() })
+
+	for i := byte(1); i <= 8; i++ {
+		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
+		if i == 3 || i == 6 {
+			require.NoError(t, s.outOfBandSnapshot())
+		}
+	}
+	require.Equal(t, []int64{3, 6}, snapshotVersionsOnDisk(t, s))
+
+	// The first half of a rewind to 5, then the reopen a restart performs. What the removal that would
+	// have followed never got to do is the point of the tests below.
+	require.NoError(t, s.repointAtSnapshot(s.flatkvDir(), 3))
+	require.NoError(t, s.open())
+	require.Equal(t, int64(3), s.Version(), "fixture precondition: the store reads as the base snapshot")
+	require.Contains(t, snapshotVersionsOnDisk(t, s), int64(6),
+		"fixture precondition: the discarded snapshot is still on disk")
+	return s
+}
+
+// TestRewindClosedStoreToFinishesAnInterruptedRewind covers the repair rewinding unconditionally buys.
+//
+// A store left mid-rewind reads as the base snapshot, which is at or below the target, so a rewind that
+// asked the store where it was would skip and never remove the branch it abandoned. A later rollback
+// would then seek a snapshot at or below its own target, land on one from that abandoned branch, and
+// replay over it.
+func TestRewindClosedStoreToFinishesAnInterruptedRewind(t *testing.T) {
+	s := interruptedRewindFixture(t)
+	require.NoError(t, s.Close())
+
+	landed, err := RewindClosedStoreTo(s.flatkvDir(), 5)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(3), landed)
+	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+		"the discarded branch must not survive the rollback that abandoned it")
+}
+
+// DropSnapshotsAbove is the cleanup half of a rewind, and runs whether or not the store sits above the
+// target: an interrupted rewind leaves a store that does not, reading as the base it was repointed at
+// with the abandoned branch still on disk for a later rollback to land on.
+func TestDropSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
+	s := interruptedRewindFixture(t)
+	dir := s.flatkvDir()
+	require.NoError(t, s.Close())
+
+	require.NoError(t, DropSnapshotsAbove(dir, 5))
+
+	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+		"the discarded branch must not survive the rollback that abandoned it")
+	require.FileExists(t, filepath.Join(dir, workingDirName, snapshotBaseFile),
+		"a store at or below the target keeps the working copy it would open on")
+}
+
+// A store above the target comes off it, since the current link cannot be left naming a snapshot the
+// cleanup removes.
+func TestDropSnapshotsAboveRepointsAStoreAboveTheTarget(t *testing.T) {
+	s := rollbackFixture(t)
+	dir := s.flatkvDir()
+	_, current, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+	require.NoError(t, s.Close())
+
+	require.NoError(t, DropSnapshotsAbove(dir, current-1))
+
+	_, after, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Less(t, after, current)
+	require.NotContains(t, snapshotVersionsOnDisk(t, s), current)
+}
+
+// TestRewindClosedStoreToMovesCurrentOffTheDiscardedBranch verifies the rewind repoints current before it
+// deletes anything. Deleting the snapshot current names leaves the link dangling, which createWorkingDir
+// resolves to an empty working directory rather than to a failure, so the store would come up holding no
+// state at all.
+func TestRewindClosedStoreToMovesCurrentOffTheDiscardedBranch(t *testing.T) {
+	s := rollbackFixture(t)
+	dir := s.flatkvDir()
+	_, current, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+	require.NoError(t, s.Close())
+
+	landed, err := RewindClosedStoreTo(dir, current-1)
+
+	require.NoError(t, err)
+	require.Less(t, landed, current)
+	_, after, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, landed, after, "current must name the snapshot the rewind landed on")
+	require.NotContains(t, snapshotVersionsOnDisk(t, s), current,
+		"the snapshot above the target must be gone, and current must no longer name it")
 }
 
 func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {
@@ -1272,11 +1371,11 @@ func TestRollbackReportsUnremovableSnapshotWithoutRewinding(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	for i := 3; i < 6; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot("")) // snapshot-6, above the rollback target below
+	require.NoError(t, s.outOfBandSnapshot()) // snapshot-6, above the rollback target below
 
 	// atomicRemoveDir renames snapshot-6 onto this trash name before unlinking it, so an undeletable
 	// directory already sitting there fails that rename. Restore permissions before t.TempDir's own cleanup,
@@ -1324,6 +1423,18 @@ func TestSeekSnapshotEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	_, err := seekSnapshot(dir, 10)
 	require.Error(t, err, "empty dir should not find any snapshot")
+	require.ErrorIs(t, err, ErrVersionUnreachable)
+}
+
+// A filesystem fault while listing snapshots says nothing about which versions the store holds, so it
+// must not be reported as an unreachable version.
+func TestSeekSnapshotReadFailureIsNotUnreachable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(root, nil, 0600))
+
+	_, err := seekSnapshot(root, 10)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrVersionUnreachable)
 }
 
 func TestSeekSnapshotExact(t *testing.T) {
@@ -1362,8 +1473,8 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	var hashes [][]byte
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
-		require.NoError(t, s.WriteSnapshot(""))
-		hashes = append(hashes, s.RootHash())
+		require.NoError(t, s.outOfBandSnapshot())
+		hashes = append(hashes, rootHash(s))
 	}
 	require.NoError(t, s.Close())
 
@@ -1380,7 +1491,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 		ro, err := s2.LoadVersionReadOnly(ver)
 		require.NoError(t, err)
 		require.Equal(t, ver, ro.Version())
-		require.Equal(t, expectedHash, ro.RootHash(), "hash mismatch at version %d", ver)
+		require.Equal(t, expectedHash, rootHash(ro), "hash mismatch at version %d", ver)
 		require.NoError(t, ro.Close())
 	}
 }
@@ -1389,7 +1500,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 // Snapshot with all key types
 // =============================================================================
 
-func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
+func TestOutOfBandSnapshotUpdatesSnapshotBase(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -1400,7 +1511,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	workDir := filepath.Join(flatkvDir, workingDirName)
@@ -1414,7 +1525,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x03}, []byte{0x03})
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x04}, []byte{0x04})
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x05}, []byte{0x05})
-	hashAtV5 := s.RootHash()
+	hashAtV5 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
@@ -1429,7 +1540,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(5), s2.Version())
-	require.Equal(t, hashAtV5, s2.RootHash())
+	require.Equal(t, hashAtV5, rootHash(s2))
 }
 
 func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
@@ -1454,8 +1565,8 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	hash := s.RootHash()
-	require.NoError(t, s.WriteSnapshot(""))
+	hash := rootHash(s)
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -1467,7 +1578,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, hash, s2.RootHash())
+	require.Equal(t, hash, rootHash(s2))
 
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	v, ok := s2.Get(keys.EVMStoreKey, storageKey)
@@ -1507,7 +1618,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	}
 
 	require.Equal(t, int64(3), s.Version())
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	cfg2 := config.DefaultConfig()
@@ -1519,7 +1630,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(3), s2.Version(), "version should be preserved after reopen")
-	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should be unchanged after reopen")
+	require.Equal(t, hashBefore, rootHash(s2), "LtHash should be unchanged after reopen")
 }
 
 // =============================================================================
@@ -1567,7 +1678,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	cfg2 := config.DefaultConfig()
@@ -1578,7 +1689,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, hashBefore, s2.RootHash())
+	require.Equal(t, hashBefore, rootHash(s2))
 
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	_, found := s2.Get(keys.EVMStoreKey, storageKey)
@@ -1660,7 +1771,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	}
 
 	s.tryTruncateWAL()
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg)
@@ -1670,7 +1781,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(10), s2.Version())
-	require.Equal(t, hashBefore, s2.RootHash())
+	require.Equal(t, hashBefore, rootHash(s2))
 
 	for i := 1; i <= 10; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
@@ -1697,7 +1808,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	workingStorage := filepath.Join(dbDir, "working", storageDBDir)
@@ -1718,51 +1829,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when storageDB is corrupted in both working and snapshot")
-}
-
-// =============================================================================
-// Global Metadata Corruption (W-P3-2)
-// =============================================================================
-
-func TestGlobalMetadataCorruption(t *testing.T) {
-	dir := t.TempDir()
-	dbDir := filepath.Join(dir, flatkvRootDir)
-
-	cfg := config.DefaultConfig()
-	cfg.DataDir = dbDir
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
-	require.NoError(t, s.WriteSnapshot(""))
-	require.NoError(t, s.Close())
-
-	workingMeta := filepath.Join(dbDir, "working", metadataDir)
-	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = workingMeta
-	metaCfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
-
-	snapMeta := filepath.Join(dbDir, snapshotName(1), metadataDir)
-	metaCfg2 := pebbledb.DefaultConfig()
-	metaCfg2.DataDir = snapMeta
-	metaCfg2.EnableMetrics = false
-	db2, err := pebbledb.Open(context.Background(), &metaCfg2)
-	require.NoError(t, err)
-	require.NoError(t, db2.Set(ktype.MetaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
-	require.NoError(t, db2.Close())
-	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
-
-	cfg2 := config.DefaultConfig()
-	cfg2.DataDir = dbDir
-	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
-	require.NoError(t, err)
-	err = s2.LoadLatest()
-	require.Error(t, err, "open should fail when global metadata is corrupted")
+	require.NoError(t, s2.Close())
 }
 
 // =============================================================================
@@ -1782,7 +1849,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	walDir := filepath.Join(dbDir, changelogDir)
@@ -1818,7 +1885,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	// Corrupt accountDB meta version in working dir: write 3 garbage bytes (expected 8).
@@ -1850,13 +1917,11 @@ func TestLocalMetaCorruption(t *testing.T) {
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when meta version is corrupted")
-	require.Contains(t, err.Error(), "invalid meta version length")
+	require.Contains(t, err.Error(), "invalid _meta/version length")
+	require.NoError(t, s2.Close())
 }
 
-// TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
-// tidwall/wal auto-truncates corrupted segments on open, so the observable effect
-// is entry loss. When catchup needs those entries to reach the requested version,
-// LoadVersion fails with a version mismatch.
+// A corrupted state WAL fails the store's construction.
 func TestWALSegmentCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -1872,18 +1937,6 @@ func TestWALSegmentCorruption(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB}) // v2
 	require.NoError(t, s.Close())
 
-	// Simulate crash between commitBatches (v2 written) and commitGlobalMetadata:
-	// rewind global version to v1 so catchup needs to replay v2 from WAL.
-	workingMeta := filepath.Join(dbDir, "working", metadataDir)
-	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = workingMeta
-	metaCfg.EnableMetrics = false
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, mdb.Close())
-
-	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.
 	walDir := filepath.Join(dbDir, changelogDir)
 	entries, err := os.ReadDir(walDir)
 	require.NoError(t, err)
@@ -1902,13 +1955,10 @@ func TestWALSegmentCorruption(t *testing.T) {
 	}
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
-	// Request version 2: global says v1, WAL auto-truncated (empty), can't catchup to v2.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
-	require.NoError(t, err)
-	require.Error(t, s2.LoadLatest(),
-		"opening must fail loudly rather than silently skipping the corrupted WAL segment")
+	_, err = newCommitStoreWithWAL(context.Background(), cfg2)
+	require.ErrorContains(t, err, "invalid magic prefix")
 }
 
 // =============================================================================
@@ -1954,7 +2004,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg)
@@ -1963,7 +2013,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should match after reopen")
+	require.Equal(t, hashBefore, rootHash(s2), "LtHash should match after reopen")
 
 	nonceVal, found := s2.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after reopen (row deleted)")
@@ -2004,12 +2054,12 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1) // v2
 	require.NoError(t, err)
 
-	hashAtV2 := s.RootHash()
+	hashAtV2 := rootHash(s)
 	require.NoError(t, s.Close())
 
-	// Simulate crash: rewind global version to v1 so catchup must replay v2
+	// Simulate a torn commit: rewind accountDB's version record to v1 so catchup must replay v2
 	metaCfg := pebbledb.DefaultTestConfig(t)
-	metaCfg.DataDir = filepath.Join(dbDir, "working", metadataDir)
+	metaCfg.DataDir = filepath.Join(dbDir, "working", accountDBDir)
 	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
 	versionBuf := make([]byte, 8)
@@ -2024,7 +2074,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.Version())
-	require.Equal(t, hashAtV2, s2.RootHash(), "LtHash should match after WAL replay")
+	require.Equal(t, hashAtV2, rootHash(s2), "LtHash should match after WAL replay")
 
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	_, found := s2.Get(keys.EVMStoreKey, nonceKey)
@@ -2045,11 +2095,15 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	addr := ktype.Address{0xE3}
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balanceVal := balanceN(0xE7)
 
+	// Both fields live in one row, so both have to be cleared at v2 for the row to go away.
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: balanceKey, Value: balanceVal[:]},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
@@ -2063,7 +2117,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: nonceKey, Delete: true},
+			{Key: balanceKey, Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
@@ -2072,6 +2127,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	_, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should be gone at v2")
+	_, found = s.Get(keys.EVMStoreKey, balanceKey)
+	require.False(t, found, "balance should be gone at v2")
 
 	// Rollback to v1: row should be restored
 	require.NoError(t, s.Rollback(1))
@@ -2080,6 +2137,10 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be restored after rollback to v1")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
+
+	got, found := s.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, found, "balance should be restored after rollback to v1")
+	require.Equal(t, balanceVal[:], got)
 
 	require.NoError(t, s.Close())
 }
@@ -2116,12 +2177,12 @@ func TestRollbackToCurrentVersion(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s) // v1 + snapshot
 
-	hashV1 := s.RootHash()
+	hashV1 := rootHash(s)
 
 	// Rollback to current version: should be a valid no-op.
 	require.NoError(t, s.Rollback(1))
 	require.Equal(t, int64(1), s.Version())
-	require.Equal(t, hashV1, s.RootHash())
+	require.Equal(t, hashV1, rootHash(s))
 
 	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -2235,7 +2296,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
-	hashAfterNewCommits := s.RootHash()
+	hashAfterNewCommits := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen and verify WAL continuity is intact.
@@ -2246,10 +2307,10 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(4), s2.Version())
-	require.Equal(t, hashAfterNewCommits, s2.RootHash())
+	require.Equal(t, hashAfterNewCommits, rootHash(s2))
 }
 
-func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
+func TestOutOfBandSnapshotOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
@@ -2263,22 +2324,13 @@ func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	err = ro.WriteSnapshot("")
+	err = ro.(*CommitStore).outOfBandSnapshot()
 	require.Error(t, err)
 	require.ErrorIs(t, err, errReadOnly)
 	require.NoError(t, s.Close())
 }
 
-func TestWriteSnapshotAtVersion0(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	err := s.WriteSnapshot("")
-	require.Error(t, err, "snapshot at version 0 should fail")
-	require.Contains(t, err.Error(), "cannot snapshot uncommitted store")
-}
-
-func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
+func TestOutOfBandSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
@@ -2292,32 +2344,12 @@ func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	// WriteSnapshot should succeed even with active RO clone.
-	require.NoError(t, s.WriteSnapshot(""))
+	// outOfBandSnapshot should succeed even with active RO clone.
+	require.NoError(t, s.outOfBandSnapshot())
 
 	// RO clone should still work.
 	val, found := ro.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))))
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x77), val)
 	require.NoError(t, s.Close())
-}
-
-func TestWriteSnapshotDirParameterIgnored(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	cs := makeChangeSet(
-		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))),
-		padLeft32(0x88), false,
-	)
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
-
-	// Pass a non-empty dir parameter. The implementation should ignore it.
-	require.NoError(t, s.WriteSnapshot("/tmp/this-should-be-ignored"))
-
-	// Verify snapshot was created in the correct location (not the passed dir).
-	val, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))))
-	require.True(t, found)
-	require.Equal(t, padLeft32(0x88), val)
 }

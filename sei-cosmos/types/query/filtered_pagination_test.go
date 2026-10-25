@@ -37,21 +37,21 @@ func (s *paginationTestSuite) TestFilteredPaginations() {
 
 	// verify pagination with limit > total values
 	pageReq := &query.PageRequest{Key: nil, Limit: 5, CountTotal: true}
-	balances, res, err := execFilterPaginate(store, pageReq, appCodec)
+	balances, res, err := execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(4, len(balances))
 
 	s.T().Log("verify maximum uint64 limit returns all filtered values")
 	pageReq = &query.PageRequest{Limit: query.MaxLimit}
-	balances, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balances, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(4, len(balances))
 	s.Require().Nil(res.NextKey)
 
 	s.T().Log("verify empty request")
-	balances, res, err = execFilterPaginate(store, nil, appCodec)
+	balances, res, err = execFilterPaginate(ctx, store, nil, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(4, len(balances))
@@ -60,7 +60,7 @@ func (s *paginationTestSuite) TestFilteredPaginations() {
 
 	s.T().Log("verify nextKey is returned if there are more results")
 	pageReq = &query.PageRequest{Key: nil, Limit: 2, CountTotal: true}
-	balances, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balances, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(2, len(balances))
@@ -70,12 +70,12 @@ func (s *paginationTestSuite) TestFilteredPaginations() {
 
 	s.T().Log("verify both key and offset can't be given")
 	pageReq = &query.PageRequest{Key: res.NextKey, Limit: 1, Offset: 2, CountTotal: true}
-	_, _, err = execFilterPaginate(store, pageReq, appCodec)
+	_, _, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().Error(err)
 
 	s.T().Log("use nextKey for query")
 	pageReq = &query.PageRequest{Key: res.NextKey, Limit: 2, CountTotal: true}
-	balances, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balances, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(2, len(balances))
@@ -83,7 +83,7 @@ func (s *paginationTestSuite) TestFilteredPaginations() {
 
 	s.T().Log("verify default limit")
 	pageReq = &query.PageRequest{Key: nil, Limit: 0}
-	balances, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balances, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(4, len(balances))
@@ -91,7 +91,7 @@ func (s *paginationTestSuite) TestFilteredPaginations() {
 
 	s.T().Log("verify with offset")
 	pageReq = &query.PageRequest{Offset: 2, Limit: 2}
-	balances, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balances, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().LessOrEqual(len(balances), 2)
@@ -120,13 +120,13 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 	// verify pagination with limit > total values
 	pageReq := &query.PageRequest{Key: nil, Limit: 5, CountTotal: true, Reverse: true}
-	balns, res, err := execFilterPaginate(store, pageReq, appCodec)
+	balns, res, err := execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(5, len(balns))
 
 	s.T().Log("verify empty request")
-	balns, res, err = execFilterPaginate(store, nil, appCodec)
+	balns, res, err = execFilterPaginate(ctx, store, nil, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(10, len(balns))
@@ -135,7 +135,7 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 	s.T().Log("verify default limit")
 	pageReq = &query.PageRequest{Reverse: true}
-	balns, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balns, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(10, len(balns))
@@ -143,7 +143,7 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 	s.T().Log("verify nextKey is returned if there are more results")
 	pageReq = &query.PageRequest{Limit: 2, CountTotal: true, Reverse: true}
-	balns, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balns, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(2, len(balns))
@@ -153,12 +153,12 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 	s.T().Log("verify both key and offset can't be given")
 	pageReq = &query.PageRequest{Key: res.NextKey, Limit: 1, Offset: 2, Reverse: true}
-	_, _, err = execFilterPaginate(store, pageReq, appCodec)
+	_, _, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().Error(err)
 
 	s.T().Log("use nextKey for query and reverse true")
 	pageReq = &query.PageRequest{Key: res.NextKey, Limit: 2, Reverse: true}
-	balns, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balns, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(2, len(balns))
@@ -167,7 +167,7 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 	s.T().Log("verify last page records, nextKey for query and reverse true")
 	pageReq = &query.PageRequest{Key: res.NextKey, Reverse: true}
-	balns, res, err = execFilterPaginate(store, pageReq, appCodec)
+	balns, res, err = execFilterPaginate(ctx, store, pageReq, appCodec)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(6, len(balns))
@@ -187,7 +187,7 @@ func (s *paginationTestSuite) TestFilteredPaginateCountTotalLargeSparseStore() {
 		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
 	}
 
-	res, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 3, CountTotal: true}, func(key []byte, _ []byte, _ bool) (bool, error) {
+	res, err := query.FilteredPaginate(ctx, kvStore, &query.PageRequest{Limit: 3, CountTotal: true}, func(key []byte, _ []byte, _ bool) (bool, error) {
 		return string(key) == "00000000" || string(key) == "00005000" || string(key) == "00010000", nil
 	})
 	s.Require().NoError(err)
@@ -209,7 +209,7 @@ func (s *paginationTestSuite) TestFilteredPaginateLimitExceedsHitsInLargeStore()
 	}
 
 	var hits int
-	res, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 250}, func(_ []byte, value []byte, accumulate bool) (bool, error) {
+	res, err := query.FilteredPaginate(ctx, kvStore, &query.PageRequest{Limit: 250}, func(_ []byte, value []byte, accumulate bool) (bool, error) {
 		hit := string(value) == "hit"
 		if hit && accumulate {
 			hits++
@@ -245,7 +245,7 @@ func (s *paginationTestSuite) TestFilteredPaginateSparseFilter() {
 		return true, nil
 	}
 
-	res, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 5}, onResult)
+	res, err := query.FilteredPaginate(ctx, kvStore, &query.PageRequest{Limit: 5}, onResult)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(5, len(hits))
@@ -255,7 +255,7 @@ func (s *paginationTestSuite) TestFilteredPaginateSparseFilter() {
 
 	s.T().Log("count_total scans the rest of the store")
 	hits = nil
-	res, err = query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 5, CountTotal: true}, onResult)
+	res, err = query.FilteredPaginate(ctx, kvStore, &query.PageRequest{Limit: 5, CountTotal: true}, onResult)
 	s.Require().NoError(err)
 	s.Require().NotNil(res)
 	s.Require().Equal(5, len(hits))
@@ -263,12 +263,12 @@ func (s *paginationTestSuite) TestFilteredPaginateSparseFilter() {
 	s.Require().NotNil(res.NextKey)
 }
 
-func execFilterPaginate(store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {
+func execFilterPaginate(ctx sdk.Context, store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {
 	balancesStore := prefix.NewStore(store, types.BalancesPrefix)
 	accountStore := prefix.NewStore(balancesStore, address.MustLengthPrefix(addr1))
 
 	var balResult sdk.Coins
-	res, err = query.FilteredPaginate(accountStore, pageReq, func(key []byte, value []byte, accumulate bool) (bool, error) {
+	res, err = query.FilteredPaginate(ctx, accountStore, pageReq, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		var bal sdk.Coin
 		err := appCodec.Unmarshal(value, &bal)
 		if err != nil {

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,14 +18,27 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
+// EvmProxy returns the EVM RPC client of the autobahn validator that owns the
 // sender shard, or None if the sender maps to the local validator (handle
 // locally) or autobahn isn't configured.
-func (env *Environment) EvmProxy(sender common.Address) utils.Option[*url.URL] {
+func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	if r, ok := env.gigaRouter().Get(); ok {
 		return r.EvmProxy(sender)
 	}
-	return utils.None[*url.URL]()
+	return utils.None[*ethrpc.Client]()
+}
+
+// EvmProxyEnabled reports whether EvmProxy can return a client for any sender.
+func (env *Environment) EvmProxyEnabled() bool {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxyEnabled()
+	}
+	return false
+}
+
+// EvmBalance returns the address balance from the current committed EVM state.
+func (env *Environment) EvmBalance(address common.Address) uint256.Int {
+	return env.App.EvmBalance(address, nil)
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -50,12 +65,16 @@ func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if giga, ok := env.gigaRouter().Get(); ok {
 		v, ok := giga.Mempool().Get()
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		go func() { _, _ = v.TryInsertTx(ctx, req.Tx) }()
+		// The request ctx is cancelled as soon as the handler returns; the insert must outlive it.
+		go func() { _, _ = v.TryInsertTx(context.WithoutCancel(ctx), req.Tx) }()
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 	}
 	mp, err := env.requireMempool()
@@ -76,6 +95,9 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if giga, ok := env.gigaRouter().Get(); ok {
 		v, ok := giga.Mempool().Get()
 		if !ok {
@@ -110,32 +132,28 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 	}, nil
 }
 
-// BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
+// ErrBroadcastTxCommitUnsupported is returned by BroadcastTxCommit when Autobahn
+// is active. The transaction is not submitted; use BroadcastTx (CheckTx) and
+// confirm inclusion from committed state.
+var ErrBroadcastTxCommitUnsupported = errors.New("broadcast_tx_commit is not supported on Autobahn; use broadcast_tx_sync")
+
+// BroadcastTxCommit returns the CheckTx and DeliverTx results after inclusion.
+// Under Autobahn it returns ErrBroadcastTxCommitUnsupported without submitting
+// the transaction.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
+	if env.gigaRouter().IsPresent() {
+		return nil, ErrBroadcastTxCommitUnsupported
+	}
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if timeout := env.Config.TimeoutBroadcastTxCommit; timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
-	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.Mempool().Get()
-		if !ok {
-			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
-		}
-		r, err := v.InsertTx(ctx, req.Tx)
-		if err != nil {
-			return nil, err
-		}
-		if r.Code != abci.CodeTypeOK {
-			return &coretypes.ResultBroadcastTxCommit{
-				CheckTx: *r,
-				Hash:    req.Tx.Hash().Bytes(),
-			}, nil
-		}
-		return env.broadcastTxCommitFromCheckTx(ctx, req, r)
-	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -176,10 +194,10 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 				"duration", time.Since(startAt),
 				"err", ctx.Err())
 			return &coretypes.ResultBroadcastTxCommit{
-					CheckTx: *r,
-					Hash:    req.Tx.Hash().Bytes(),
-				}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
-					req.Tx.Hash(), time.Since(startAt))
+				CheckTx: *r,
+				Hash:    req.Tx.Hash().Bytes(),
+			}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
+				req.Tx.Hash(), time.Since(startAt))
 		case <-timer.C:
 			txres, err := env.Tx(ctx, &coretypes.RequestTx{
 				Hash:  req.Tx.Hash().Bytes(),
@@ -291,6 +309,50 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 		Total:      total,
 		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 	}, nil
+}
+
+// EvmTransactionCount returns the address transaction count (nonce) from the
+// current committed EVM state.
+func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
+	return env.App.EvmNonce(address)
+}
+
+// EvmTransactionCountAt returns the address transaction count (nonce) in the
+// committed EVM state after height.
+func (env *Environment) EvmTransactionCountAt(address common.Address, height int64) (uint64, error) {
+	return env.App.EvmNonceAt(address, height)
+}
+
+// EvmBalanceAt returns the address balance in the committed EVM state after height.
+func (env *Environment) EvmBalanceAt(address common.Address, height int64) (uint256.Int, error) {
+	return env.App.EvmBalanceAt(address, height)
+}
+
+// EvmCodeAt returns the contract code at address in the committed EVM state after height.
+func (env *Environment) EvmCodeAt(address common.Address, height int64) ([]byte, error) {
+	return env.App.EvmCodeAt(address, height)
+}
+
+// EvmStorageAt returns the value at key in address's storage in the committed EVM state after height.
+func (env *Environment) EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error) {
+	return env.App.EvmStorageAt(address, key, height)
+}
+
+// EvmBlockNumber returns the height of the most recently committed block.
+func (env *Environment) EvmBlockNumber() uint64 {
+	return utils.Clamp[uint64](env.App.LastBlockHeight())
+}
+
+// EvmCode returns the contract code at address in the current committed EVM
+// state.
+func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
+	return env.App.EvmCode(address)
+}
+
+// EvmStorage returns the value at key in address's storage in the current
+// committed EVM state.
+func (env *Environment) EvmStorage(address common.Address, key common.Hash) (common.Hash, error) {
+	return env.App.EvmStorage(address, key)
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't

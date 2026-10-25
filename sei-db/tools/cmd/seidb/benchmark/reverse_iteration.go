@@ -2,10 +2,15 @@ package benchmark
 
 import (
 	"fmt"
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-db/tools/bench"
+	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -66,6 +71,99 @@ func DBReverseIteration(inputKVDir string, numVersions int, outputDir string, db
 	if err != nil {
 		panic(err)
 	}
-	bench.BenchmarkDBReverseIteration(backend, inputKVDir, numVersions, concurrency, maxOps, iterationSteps)
+	benchmarkDBReverseIteration(backend, inputKVDir, numVersions, concurrency, maxOps, iterationSteps)
 	_ = backend.Close()
+}
+
+// benchmarkDBReverseIteration measures reverse iteration performance of the db
+// Given an input dir containing all the raw kv data, it selects a random key, reverse iterates and measures performance.
+func benchmarkDBReverseIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
+	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
+	if err != nil {
+		panic(err)
+	}
+
+	startTime := time.Now()
+	latencies, totalCountIteration := reverseIterateDBConcurrently(db, kvData, numVersions, concurrency, iterationSteps, maxOps)
+	endTime := time.Now()
+
+	totalTime := endTime.Sub(startTime)
+
+	// Log throughput
+	fmt.Printf("Total Prefixes Reverse-Iterated: %d\n", totalCountIteration)
+	fmt.Printf("Total Time taken: %v\n", totalTime)
+	fmt.Printf("Throughput: %f iterations/sec\n", float64(totalCountIteration)/totalTime.Seconds())
+
+	// Calculate average latency
+	var totalLatency time.Duration
+	for _, l := range latencies {
+		totalLatency += l
+	}
+	avgLatency := time.Duration(int64(totalLatency) / int64(totalCountIteration))
+	fmt.Printf("Average Per-Key Latency: %v\n", avgLatency)
+}
+
+// reverseIterateDBConcurrently generates reverse iteration load against the db
+// Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
+// that randomly select a version, key, seeks to that key and starts a reverse iteration for at most `numIterationSteps` steps.
+// It only performs `maxOps“ reverse iterations and maintains a `latencies` channel which aggregates all the latencies.
+func reverseIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
+	allLatencies := make([]time.Duration, 0, maxOps)
+	var totalSteps int
+	latencies := make(chan time.Duration, maxOps)
+	steps := make(chan int, maxOps)
+
+	var opCounter int64
+	wg := &sync.WaitGroup{}
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for {
+				currentOps := atomic.AddInt64(&opCounter, 1)
+				if currentOps > maxOps {
+					break
+				}
+				// Randomly pick a version and retrieve its column family handle
+				version := int64(rand.Intn(numVersions))
+
+				// Randomly pick a key-value pair to seek to
+				kv := allKVs[rand.Intn(len(allKVs))]
+
+				startTime := time.Now()
+				// No start key since we iterate for fixed numIterationSteps steps
+				it, err := db.ReverseIterator("", version, nil, kv.Key)
+				if err != nil {
+					panic(err)
+				}
+
+				step := 0
+				for step < numIterationSteps && it.Valid() {
+					step++
+					it.Next()
+				}
+				latency := time.Since(startTime)
+
+				latencies <- latency
+				steps <- step
+				_ = it.Close()
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(latencies)
+	close(steps)
+
+	for l := range latencies {
+		allLatencies = append(allLatencies, l)
+	}
+
+	for s := range steps {
+		totalSteps += s
+	}
+
+	return allLatencies, totalSteps
 }

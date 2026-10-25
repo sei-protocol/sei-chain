@@ -101,7 +101,10 @@ func (ins *Inspector) Run(ctx context.Context) error {
 func startRPCServers(ctx context.Context, cfg *config.RPCConfig, routes rpccore.RoutesMap) error {
 	g, tctx := errgroup.WithContext(ctx)
 	listenAddrs := tmstrings.SplitAndTrimEmpty(cfg.ListenAddress, ",", " ")
-	rh := rpc.Handler(cfg, routes)
+	rh, err := rpc.Handler(cfg, routes)
+	if err != nil {
+		return err
+	}
 	for _, listenerAddr := range listenAddrs {
 		server := rpc.Server{
 			Config:  cfg,

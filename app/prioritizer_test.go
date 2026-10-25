@@ -1,8 +1,12 @@
 package app_test
 
 import (
+	"encoding/hex"
+	"fmt"
+	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	cosmostypes "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	xparamtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	"github.com/stretchr/testify/require"
@@ -11,7 +15,9 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type PrioritizerTestSuite struct {
@@ -56,6 +62,31 @@ func (tx *mockTx) GetMsgs() []cosmostypes.Msg        { return tx.msgs }
 func (*mockTx) ValidateBasic() error                 { return nil }
 func (*mockTx) GetSigners() []cosmostypes.AccAddress { return nil }
 
+func newNativeAssociateTx(t *testing.T) cosmostypes.Tx {
+	t.Helper()
+
+	privKey := testkeeper.MockPrivateKey()
+	key, err := crypto.HexToECDSA(hex.EncodeToString(privKey.Bytes()))
+	require.NoError(t, err)
+
+	emptyData := make([]byte, 32)
+	customMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(emptyData)) + string(emptyData)
+	hash := crypto.Keccak256Hash([]byte(customMessage))
+	sig, err := crypto.Sign(hash.Bytes(), key)
+	require.NoError(t, err)
+	r, ss, _, err := ethtx.DecodeSignature(sig)
+	require.NoError(t, err)
+
+	msg, err := evmtypes.NewMsgEVMTransaction(&ethtx.AssociateTx{
+		V:             big.NewInt(int64(sig[64])).Bytes(),
+		R:             r.Bytes(),
+		S:             ss.Bytes(),
+		CustomMessage: customMessage,
+	})
+	require.NoError(t, err)
+	return &mockTx{msgs: []cosmostypes.Msg{msg}}
+}
+
 func (s *PrioritizerTestSuite) TestGetTxPriority() {
 	var (
 		zeroValueTx    = func(*PrioritizerTestSuite) cosmostypes.Tx { return &mockTx{} }
@@ -65,10 +96,18 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 				gas: 0,
 			}
 		}
-		oracleVoteTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
+		associateMsgTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
+			s.App.ParamsKeeper.SetFeesParams(s.Ctx, xparamtypes.FeesParams{AllowedFeeDenoms: []string{"fish"}})
 			return &mockFeeTx{
-				msgs: []cosmostypes.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
+				fees: cosmostypes.NewCoins(cosmostypes.NewInt64Coin("fish", 1_000)),
+				gas:  100,
+				msgs: []cosmostypes.Msg{
+					evmtypes.NewMsgAssociate(cosmostypes.AccAddress(make([]byte, 20)), "test"),
+				},
 			}
+		}
+		nativeAssociateTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
+			return newNativeAssociateTx(s.T())
 		}
 	)
 
@@ -94,9 +133,14 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 			wantPriority: 123,
 		},
 		{
-			name:         "oracle Tx type is oracle priority",
-			givenTx:      oracleVoteTx,
-			wantPriority: antedecorators.OraclePriority,
+			name:         "deprecated MsgAssociate uses fee priority",
+			givenTx:      associateMsgTx,
+			wantPriority: 10,
+		},
+		{
+			name:         "native AssociateTx keeps associate priority",
+			givenTx:      nativeAssociateTx,
+			wantPriority: antedecorators.EVMAssociatePriority,
 		},
 		{
 			name:         "zero gas FeeTx is zero priority",

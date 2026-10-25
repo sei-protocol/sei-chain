@@ -1,26 +1,51 @@
 package flatkv
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"maps"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"go.opentelemetry.io/otel/metric"
 )
 
-// ApplyChangeSets classifies changesets, buffers pending writes, and folds
-// them into the working LtHash. Non-EVM modules go to miscDB under "<module>/".
-// Row last-modified heights are stamped with version; the same version must be
-// passed to the subsequent Commit.
-func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) (err error) {
-	// Hold the write lock for the whole body: it both reads (old values) and
-	// mutates (maps.Copy) the pending-writes maps, which iterator construction
-	// and Get read under a read lock.
+// classifyBucketHeadroom is the factor applied to a kind's bucket length in the previous ApplyChangeSets call to
+// size that bucket in the next.
+const classifyBucketHeadroom = 2
+
+// classifyUnitSize is the most changeset pairs one worker classifies.
+const classifyUnitSize = 1024
+
+// ApplyChangeSets writes one block's changes into the four data stores. Non-EVM modules go to miscDB
+// under "<module>/". Each value records version as the height it was last modified at; the same version
+// must be passed to the subsequent Commit, which is what folds the block into the LtHash.
+func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
+	// The read-only refusal belongs here rather than in applyChangeSets, which a read-only store reaches
+	// legitimately: building a view at a past height replays the primary's WAL through the same apply path.
+	// Commit and outOfBandSnapshot place their refusals at the same boundary, and readOnly is fixed for a store's
+	// lifetime, so reading it outside the lock is safe.
+	if s.readOnly {
+		return errReadOnly
+	}
+	return s.applyChangeSets(version, changeSets, nil)
+}
+
+// applyChangeSets is ApplyChangeSets with the replay skip list. alreadyHave is nil outside a startup
+// replay, which means every store needs every block.
+func (s *CommitStore) applyChangeSets(
+	version int64,
+	changeSets []*proto.NamedChangeSet,
+	alreadyHave map[string]int64,
+) (err error) {
+	// Hold the write lock for the whole body: it both reads old values out of the stores and writes
+	// this block's values into them, and Get and iterator construction read them under a read lock.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -28,11 +53,22 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 		"changesets", len(changeSets))
 	defer obs.done(&err, nil)
 
-	if s.readOnly {
-		return errReadOnly
-	}
 	// Blocks are contiguous and the first block is 1, so writes always land at committedVersion+1. See the
 	// Commit contract: a store whose history starts higher is seeded by SetInitialVersion.
+	// An empty batch for a block that is already committed is accepted and does nothing.
+	if version > 0 && version == s.committedVersion {
+		if len(changeSets) == 0 {
+			// An empty batch would leave the sealed block exactly as it is, so a stale height is
+			// harmless here. No caller produces one today: every writer stamps its batch at the height
+			// after the one the store has committed. This stands as tolerance for a caller that has
+			// lost track of the height, not as a path taken in normal operation.
+			return nil
+		}
+		// Writes are a different matter: they would belong to a block that is already sealed, and there
+		// is nowhere to put them.
+		return fmt.Errorf("flatkv: apply version %d is already committed and this batch has %d changesets",
+			version, len(changeSets))
+	}
 	if version != s.committedVersion+1 {
 		return fmt.Errorf("flatkv: apply version %d must be committed version %d plus one",
 			version, s.committedVersion)
@@ -43,189 +79,292 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := classifyAndPrefix(changeSets)
+	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes, s.miscPool)
 	if err != nil {
-		return err
+		return fmt.Errorf("classify changesets: %w", err)
 	}
-	// Parse and gather first; do not touch pending-write maps or LtHash until
-	// Compute succeeds. Otherwise a later parse/Compute error would leave
-	// pending rows that Commit could flush while working hashes still reflect
-	// the pre-failure state.
+	s.classifyBucketSizes = changesByType.bucketSizes()
+	// Parse, gather, and sort. Nothing is written until all of it has validated, so a parse failure
+	// part way through cannot leave some of the block's values in a store.
 	prepared, err := s.prepareWrites(changesByType, version)
 	if err != nil {
-		return err
+		return fmt.Errorf("prepare writes: %w", err)
 	}
 
-	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
-	res, err := s.ltCalc.Compute(prepared.pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
-	if err != nil {
-		return err
+	if err := s.writeToStores(prepared, changeSets, version, alreadyHave); err != nil {
+		return fmt.Errorf("write to stores: %w", err)
 	}
-
-	// Single in-memory commit: pending rows, working hashes, and changeset
-	// bookkeeping must move together after Compute.
-	s.bufferPreparedWrites(prepared, res, changeSets, version)
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	logger.Debug("FlatKV ApplyChangeSets complete",
 		"version", version,
 		"changesets", len(changeSets),
-		"writes", len(prepared.accounts)+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
+		"writes", prepared.accountCount()+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
 		"elapsed", obs.elapsed())
 	return nil
 }
 
-// preparedWrites holds the fully-validated per-DB rows and LtHash pairs for one
-// ApplyChangeSets call. Pending maps and working hashes are updated only via
-// bufferPreparedWrites after ltCalc.Compute succeeds.
+// preparedWrites holds the fully-validated per-database values and LtHash pairs for one
+// ApplyChangeSets call. Nothing here reaches a store until every kind has validated — see
+// writeToStores.
 type preparedWrites struct {
-	accounts map[string]*vtype.AccountData
-	storage  map[string]*vtype.StorageData
-	code     map[string]*vtype.CodeData
-	misc     map[string]*vtype.MiscData
-	pairSets []lthash.DBPairs
+	accounts *accountUpdater
+	storage  []view.Write
+	code     []view.Write
+	misc     []view.Write
 }
 
-// prepareWrites reads prior values, applies EVM value semantics, and returns
-// per-DB rows plus LtHash pairs for Compute. It does not mutate the store's
-// pending-write maps: every DB kind is validated first so a mid-batch parse
-// error cannot leave a partial overlay. Only accounts need old values in
-// structured form (to merge partial nonce/codehash updates); other DBs pass
-// raw old bytes through.
+// prepareWrites applies EVM value semantics and returns the values to write, per database.
 func (s *CommitStore) prepareWrites(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	changesByType classifiedChanges,
 	blockHeight int64,
 ) (preparedWrites, error) {
-	var out preparedWrites
+	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
 
-	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
-	readStart := time.Now()
-	oldByDB, err := s.ltCalc.ReadOldValues(s, keysByDBFromClassified(changesByType))
-	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
-		metric.WithAttributes(successAttr(err)))
-	if err != nil {
-		return out, fmt.Errorf("failed to batch read old values: %w", err)
-	}
+	var wg sync.WaitGroup
+	wg.Add(4)
 
-	s.phaseTimer.SetPhase("apply_change_sets_gather_pairs")
-
-	// Account: merge partial nonce/codehash updates onto the old account.
-	accountOld, err := deserializeAccountOld(oldByDB[accountDBDir])
-	if err != nil {
-		return out, err
-	}
-	accountUpdates, err := mergeAccountUpdates(
-		changesByType[keys.EVMKeyNonce],
-		changesByType[keys.EVMKeyCodeHash],
-		nil, // TODO: update this when we add a balance key!
-	)
-	if err != nil {
-		return out, fmt.Errorf("failed to gather account updates: %w", err)
-	}
-	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
-
-	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
-	if err != nil {
-		return out, fmt.Errorf("failed to parse storage changes: %w", err)
-	}
-
-	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
-	if err != nil {
-		return out, fmt.Errorf("failed to parse code changes: %w", err)
-	}
-
-	miscWrites, err := processMiscChanges(changesByType[keys.EVMKeyMisc], blockHeight)
-	if err != nil {
-		return out, fmt.Errorf("failed to parse misc changes: %w", err)
-	}
-
-	out.accounts = newAccounts
-	out.storage = storageWrites
-	out.code = codeWrites
-	out.misc = miscWrites
-	out.pairSets = []lthash.DBPairs{
-		{Dir: storageDBDir, Pairs: gatherPairs(storageWrites, oldByDB[storageDBDir])},
-		{Dir: accountDBDir, Pairs: gatherPairs(newAccounts, oldByDB[accountDBDir])},
-		{Dir: codeDBDir, Pairs: gatherPairs(codeWrites, oldByDB[codeDBDir])},
-		{Dir: miscDBDir, Pairs: gatherPairs(miscWrites, oldByDB[miscDBDir])},
-	}
-	return out, nil
-}
-
-// bufferPreparedWrites is the atomic in-memory commit for one successful
-// ApplyChangeSets batch: pending-write maps, working LtHash / per-module
-// metadata, and pendingChangeSets / pendingBlockHeight. Keeping these updates
-// in one function prevents a future edit from buffering rows without the
-// matching hashes (or vice versa) after Compute.
-func (s *CommitStore) bufferPreparedWrites(
-	prepared preparedWrites,
-	res *lthash.Result,
-	changeSets []*proto.NamedChangeSet,
-	version int64,
-) {
-	maps.Copy(s.accountWrites, prepared.accounts)
-	maps.Copy(s.storageWrites, prepared.storage)
-	maps.Copy(s.codeWrites, prepared.code)
-	maps.Copy(s.miscWrites, prepared.misc)
-
-	s.perDBWorkingLtHash = res.PerDB
-	s.perDBModuleWorkingLtHash = res.PerModule
-	s.perDBModuleWorkingStats = res.PerModuleStats
-	s.workingLtHash = res.Global
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
-	s.pendingBlockHeight = version
-
-	addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
-	addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
-	addKVPairs(s.ctx, codeDBDir, len(prepared.code))
-	addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
-	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
-	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
-	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
-	recordPendingWrites(s.ctx, miscDBDir, len(s.miscWrites))
-}
-
-// keysByDBFromClassified maps the per-kind classified changes to the set of
-// physical keys per data DB dir, so the calculator can read old values grouped
-// by DB. Account keys come from both the nonce and codehash kinds.
-func keysByDBFromClassified(changesByType map[keys.EVMKeyKind]map[string][]byte) map[string]map[string]struct{} {
-	out := make(map[string]map[string]struct{}, len(dataDBDirs))
-	add := func(dir string, changes map[string][]byte) {
-		if len(changes) == 0 {
+	var accountWrites *accountUpdater
+	var accountErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := newAccountUpdater(
+			changesByType[keys.EVMKeyNonce],
+			changesByType[keys.EVMKeyCodeHash],
+			changesByType[keys.EVMKeyBalance],
+			blockHeight,
+		)
+		if err != nil {
+			accountErr = fmt.Errorf("prepare account writes for block %d: %w", blockHeight, err)
 			return
 		}
-		set := out[dir]
-		if set == nil {
-			set = make(map[string]struct{}, len(changes))
-			out[dir] = set
+		accountWrites = writes
+	})
+
+	var storageWrites []view.Write
+	var storageErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
+		if err != nil {
+			storageErr = fmt.Errorf("failed to parse storage changes: %w", err)
+			return
 		}
-		for key := range changes {
-			set[key] = struct{}{}
+		storageWrites = writes
+	})
+
+	var codeWrites []view.Write
+	var codeErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := toCodeValues(changesByType[keys.EVMKeyCode], blockHeight)
+		if err != nil {
+			codeErr = fmt.Errorf("failed to parse code changes: %w", err)
+			return
 		}
+		codeWrites = writes
+	})
+
+	var miscWrites []view.Write
+	var miscErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := toMiscValues(changesByType[keys.EVMKeyMisc], blockHeight)
+		if err != nil {
+			miscErr = fmt.Errorf("failed to parse misc changes: %w", err)
+			return
+		}
+		miscWrites = writes
+	})
+
+	// Every kind has to validate before any of them is returned: writeToStores stages rows, so a parse
+	// failure discovered after it ran would leave part of a block behind.
+	wg.Wait()
+	if err := errors.Join(accountErr, storageErr, codeErr, miscErr); err != nil {
+		return preparedWrites{}, err
 	}
-	add(storageDBDir, changesByType[keys.EVMKeyStorage])
-	add(accountDBDir, changesByType[keys.EVMKeyNonce])
-	add(accountDBDir, changesByType[keys.EVMKeyCodeHash])
-	add(codeDBDir, changesByType[keys.EVMKeyCode])
-	add(miscDBDir, changesByType[keys.EVMKeyMisc])
-	return out
+
+	return preparedWrites{
+		accounts: accountWrites,
+		storage:  storageWrites,
+		code:     codeWrites,
+		misc:     miscWrites,
+	}, nil
 }
 
-// deserializeAccountOld parses the raw old account bytes read by the calculator
-// into structured AccountData, needed to merge partial account-field updates.
-func deserializeAccountOld(raw map[string][]byte) (map[string]*vtype.AccountData, error) {
-	old := make(map[string]*vtype.AccountData, len(raw))
-	for key, b := range raw {
-		if b == nil {
-			continue
-		}
-		v, err := vtype.DeserializeAccountData(b)
+var _ view.BatchUpdater = (*accountUpdater)(nil)
+
+// accountUpdater folds one block's per-field account changes onto the rows those accounts already
+// hold.
+//
+// An account is stored as one row but written a field at a time, so a change carrying only a nonce or
+// only a code hash has to be applied on top of the row as it stands. The account store does that fold
+// on its own threads, after the write has been staged, so no part of it runs on the thread applying
+// the block.
+type accountUpdater struct {
+	// pending is the fields this block set, keyed by physical key. Parsed up front, so a fold can
+	// never fail on a malformed change.
+	pending map[string]vtype.PendingAccountWrite
+
+	// keys names every account the block touched, in the form BatchUpdate takes them.
+	keys []string
+
+	// blockHeight is stamped on every row written, whether or not any field value changed, because
+	// GetBlockHeightModified reports it.
+	blockHeight int64
+}
+
+// newAccountUpdater parses one batch's per-field account changes into the fields to set on each
+// account. Reports nil when the batch touches no account.
+//
+// Parsing here rather than during the fold is what keeps a malformed changeset from being discovered
+// halfway through writing the block: by the time the folds run, the block has already been accepted.
+func newAccountUpdater(
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
+	blockHeight int64,
+) (*accountUpdater, error) {
+	pending, err := mergeAccountUpdates(nonceChanges, codeHashChanges, balanceChanges)
+	if err != nil {
+		return nil, fmt.Errorf("failed to gather account updates: %w", err)
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
+
+	physKeys := make([]string, 0, len(pending))
+	for key := range pending {
+		physKeys = append(physKeys, key)
+	}
+	return &accountUpdater{pending: pending, keys: physKeys, blockHeight: blockHeight}, nil
+}
+
+// NewValueFor folds this block's changes to one account onto the row it already holds. An account the
+// store does not hold starts from zero, and a row left with no balance, nonce or code hash is deleted.
+func (u *accountUpdater) NewValueFor(key string, priorValue []byte) ([]byte, error) {
+	var stored *vtype.AccountData
+	if priorValue != nil {
+		parsed, err := vtype.DeserializeAccountData(priorValue)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
 		}
-		old[key] = v
+		stored = parsed
 	}
-	return old, nil
+
+	// Copied out of the map so the pointer-receiver methods have something addressable to work on.
+	pending := u.pending[key]
+	// Merge copies rather than writing through, so the value handed back does not alias the row the
+	// store still holds for earlier versions.
+	merged := pending.Merge(stored, u.blockHeight)
+	if merged.IsDelete() {
+		return nil, nil
+	}
+	return merged.Serialize(), nil
+}
+
+// accountCount reports how many accounts the block writes, treating a block that touches none as zero
+// rather than requiring the caller to nil-check.
+func (p preparedWrites) accountCount() int {
+	if p.accounts == nil {
+		return 0
+	}
+	return len(p.accounts.keys)
+}
+
+// writeToStores writes one block's prepared values into the four data stores.
+func (s *CommitStore) writeToStores(
+	prepared preparedWrites,
+	changeSets []*proto.NamedChangeSet,
+	version int64,
+	alreadyHave map[string]int64,
+) error {
+	s.phaseTimer.SetPhase("apply_change_write_to_stores")
+
+	// The four databases are independent view managers with independent locks, so their writes run
+	// concurrently rather than one store's fan-out waiting on the last.
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	var accountErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		accountErr = s.writeAccountStore(prepared.accounts, version, alreadyHave)
+	})
+	var storageErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		storageErr = writeStore(s.ctx, s.storageStore, storageDBDir, prepared.storage, version, alreadyHave)
+	})
+	var codeErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		codeErr = writeStore(s.ctx, s.codeStore, codeDBDir, prepared.code, version, alreadyHave)
+	})
+	var miscErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		miscErr = writeStore(s.ctx, s.miscStore, miscDBDir, prepared.misc, version, alreadyHave)
+	})
+
+	wg.Wait()
+	if err := errors.Join(accountErr, storageErr, codeErr, miscErr); err != nil {
+		return err
+	}
+
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+	s.pendingBlockHeight = version
+	return nil
+}
+
+// writeStore writes one database's values, and is a no-op for a store that already holds this block.
+func writeStore(
+	ctx context.Context,
+	store view.ViewManager,
+	dbDir string,
+	writes []view.Write,
+	version int64,
+	alreadyHave map[string]int64,
+) error {
+	if alreadyHave[dbDir] >= version {
+		// A store already holds the block only when a startup replay is catching the stores up to each
+		// other, where its hash already includes the block and writing it again would count it twice.
+		//
+		// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL
+		// replay is external, we may be able to simplify this code since we will be able to assume that
+		// all stores start at the same block.
+		return nil
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	if err := store.BatchSet(writes); err != nil {
+		return fmt.Errorf("write %s values: %w", dbDir, err)
+	}
+	addKVPairs(ctx, dbDir, len(writes))
+	return nil
+}
+
+// writeAccountStore writes the block's accounts, each folded onto the row its key already holds. A batch
+// touching no account, and a store that already holds this block, are both no-ops.
+func (s *CommitStore) writeAccountStore(
+	updater *accountUpdater,
+	version int64,
+	alreadyHave map[string]int64,
+) error {
+	if alreadyHave[accountDBDir] >= version || updater == nil {
+		// The store already holding the block is the replay case described in writeStore().
+		return nil
+	}
+	start := time.Now()
+	err := s.accountStore.BatchUpdate(updater.keys, updater)
+	otelMetrics.AccountUpdateLatency.Record(s.ctx, secondsSince(start),
+		metric.WithAttributes(successAttr(err)))
+	if err != nil {
+		return fmt.Errorf("write %s values: %w", accountDBDir, err)
+	}
+	addKVPairs(s.ctx, accountDBDir, len(updater.keys))
+	return nil
 }
 
 // moduleOfKey extracts the owning module from a physical key. Injected into the
@@ -233,88 +372,217 @@ func deserializeAccountOld(raw map[string][]byte) (map[string]*vtype.AccountData
 // (ktype already imports lthash).
 func moduleOfKey(physicalKey []byte) (string, error) {
 	module, _, err := ktype.StripModulePrefix(physicalKey)
-	return module, err
+	if err != nil {
+		return "", fmt.Errorf("strip the module prefix from key %x: %w", physicalKey, err)
+	}
+	return module, nil
 }
 
-// classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
-// already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
-// merged into the EVMKeyMisc bucket with a "<module>/" prefix.
-//
-// This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
-// avoiding an extra map allocation and repeated string concatenation per key.
-func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[keys.EVMKeyKind]map[string][]byte, 5)
+// classifiedChange is one changeset pair with its physical key already built.
+type classifiedChange struct {
+	// key is the physical key: "module/" + the module's encoded key. It is carved from a keyArena, so anything that
+	// keeps it past the version that writes it must copy it.
+	key string
 
-	getOrCreate := func(kind keys.EVMKeyKind, sizeHint int) map[string][]byte {
-		m, ok := result[kind]
-		if !ok {
-			m = make(map[string][]byte, sizeHint)
-			result[kind] = m
-		}
-		return m
+	// value is the key's new raw bytes. A nil value means the key was deleted.
+	value []byte
+}
+
+// classifiedChanges holds one ApplyChangeSets call's pairs bucketed by EVM key kind, each bucket in the order the
+// pairs arrived. A key written more than once appears once per write, and the last of them is its new value.
+type classifiedChanges [keys.EVMKeyKindCount][]classifiedChange
+
+// bucketSizes returns the number of pairs in each kind's bucket.
+func (c *classifiedChanges) bucketSizes() [keys.EVMKeyKindCount]int {
+	var sizes [keys.EVMKeyKindCount]int
+	for kind, bucket := range c {
+		sizes[kind] = len(bucket)
 	}
+	return sizes
+}
 
+// classifyAndPrefix splits changeSets into per-EVMKeyKind buckets whose keys are already in physical format
+// ("module/" + prefix_encoded_key). Non-EVM modules go to the EVMKeyMisc bucket with a "<module>/" prefix.
+//
+// sizeHints gives each kind's bucket length in an earlier call, and a kind with no hint grows on demand. The pairs
+// are classified on pool when there is more than one unit of them, and on the calling goroutine when pool is nil.
+func classifyAndPrefix(
+	changeSets []*proto.NamedChangeSet,
+	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
+) (classifiedChanges, error) {
+	// Repeated keys are kept rather than resolved here. Every consumer already resolves them in arrival order:
+	// the view manager keeps a key's last write in a version, and mergeAccountUpdates folds each account into
+	// one entry. Import input has unique keys.
+	units := planClassifyUnits(changeSets)
+	if pool == nil || len(units) < 2 {
+		return classifyUnitsSerially(units, sizeHints)
+	}
+	return classifyUnitsInParallel(units, sizeHints, pool)
+}
+
+// classifyUnit is a contiguous run of one changeset's pairs.
+type classifyUnit struct {
+	// moduleName is the name of the changeset the pairs belong to.
+	moduleName string
+
+	// pairs is the run itself, at most classifyUnitSize long.
+	pairs []*proto.KVPair
+}
+
+// planClassifyUnits divides changeSets into units of at most classifyUnitSize pairs, in block order. A unit never
+// spans two changesets.
+func planClassifyUnits(changeSets []*proto.NamedChangeSet) []classifyUnit {
+	var units []classifyUnit
 	for _, cs := range changeSets {
-		if cs == nil || len(cs.Changeset.Pairs) == 0 {
+		if cs == nil {
 			continue
 		}
-
-		if cs.Name == keys.EVMStoreKey {
-			for _, pair := range cs.Changeset.Pairs {
-				kind, keyBytes := keys.ParseEVMKey(pair.Key)
-				if kind == keys.EVMKeyEmpty {
-					return nil, fmt.Errorf("flatkv: empty key in changeset")
-				}
-
-				var physKey string
-				if kind == keys.EVMKeyMisc {
-					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
-				} else {
-					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
-				}
-
-				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
-				if pair.Delete {
-					kindMap[physKey] = nil
-				} else {
-					kindMap[physKey] = nonNilValue(pair.Value)
-				}
-			}
-		} else {
-			// An empty module name would fold into "/"+key here and later
-			// persist as the per-module meta key "_meta/x:/hash", which
-			// ParseModuleLtHashKey rejects on reload — a store that ever
-			// commits one becomes permanently unopenable (sum-to-root check
-			// fails forever). Reject it up front instead; module names are
-			// never empty in normal operation (Cosmos SDK's NewKVStoreKey
-			// panics on an empty name), so this only guards malformed input.
-			if cs.Name == "" {
-				return nil, fmt.Errorf("flatkv: empty module name in changeset")
-			}
-			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
-			for _, pair := range cs.Changeset.Pairs {
-				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
-				if pair.Delete {
-					miscMap[physKey] = nil
-				} else {
-					miscMap[physKey] = nonNilValue(pair.Value)
-				}
-			}
+		pairs := cs.Changeset.Pairs
+		for len(pairs) > 0 {
+			count := min(len(pairs), classifyUnitSize)
+			units = append(units, classifyUnit{moduleName: cs.Name, pairs: pairs[:count]})
+			pairs = pairs[count:]
 		}
 	}
+	return units
+}
 
+// classifyUnitsSerially classifies every unit on the calling goroutine, into one set of buckets.
+func classifyUnitsSerially(
+	units []classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+) (classifiedChanges, error) {
+	result := newClassifiedChanges(sizeHints)
+	for _, unit := range units {
+		if err := classifyUnitPairs(unit, &result); err != nil {
+			return classifiedChanges{}, err
+		}
+	}
 	return result, nil
 }
 
+// classifyUnitsInParallel classifies each unit on pool into its own set of buckets, then concatenates them in unit
+// order.
+func classifyUnitsInParallel(
+	units []classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
+) (classifiedChanges, error) {
+	// Each unit is sized for its share of the call rather than all of it. A unit that receives an uneven share of
+	// some kind grows that bucket on demand.
+	var unitHints [keys.EVMKeyKindCount]int
+	for kind, hint := range sizeHints {
+		unitHints[kind] = hint / len(units)
+	}
+
+	parts := make([]classifiedChanges, len(units))
+	errs := make([]error, len(units))
+
+	var wg sync.WaitGroup
+	wg.Add(len(units))
+	for i := range units {
+		pool.Submit(func() {
+			defer wg.Done()
+			parts[i] = newClassifiedChanges(unitHints)
+			errs[i] = classifyUnitPairs(units[i], &parts[i])
+		})
+	}
+	// The calling goroutine blocks rather than classifying a unit of its own. The runtime queues the last worker
+	// woken to run next on this goroutine's own CPU, so a unit classified here would delay that worker until it
+	// finished, running the two units back to back.
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return classifiedChanges{}, err
+		}
+	}
+	return mergeClassified(parts), nil
+}
+
+// newClassifiedChanges returns empty buckets, each with room for classifyBucketHeadroom times its hint.
+func newClassifiedChanges(sizeHints [keys.EVMKeyKindCount]int) classifiedChanges {
+	var result classifiedChanges
+	for kind, hint := range sizeHints {
+		if hint > 0 {
+			result[kind] = make([]classifiedChange, 0, classifyBucketHeadroom*hint)
+		}
+	}
+	return result
+}
+
+// classifyUnitPairs appends each of unit's pairs, with its physical key built, to the bucket for its kind.
+func classifyUnitPairs(unit classifyUnit, into *classifiedChanges) error {
+	keyBuf := make([]byte, 0, physKeyBufLen)
+	arena := newKeyArena(unitKeyFootprint(unit))
+	for _, pair := range unit.pairs {
+		kind, strippedKey, err := ktype.ParseLogicalKey(unit.moduleName, pair.Key)
+		if err != nil {
+			return fmt.Errorf("flatkv: %w", err)
+		}
+		if kind == keys.EVMKeyMisc {
+			keyBuf = ktype.WritePhysicalKeyToBuffer(keyBuf, unit.moduleName, pair.Key)
+		} else {
+			keyBuf = ktype.WritePhysicalEVMKeyToBuffer(keyBuf, kind, strippedKey)
+		}
+		into[kind] = append(into[kind], newClassifiedChange(arena.intern(keyBuf), pair))
+	}
+	return nil
+}
+
+// unitKeyFootprint returns an upper bound on the total length of unit's physical keys. Each is at most
+// len(moduleName)+1+len(pair.Key) bytes: a misc key is exactly "<module>/" + key, and an EVM key replaces a key
+// prefix of at least one byte with "evm/" and a single prefix byte.
+func unitKeyFootprint(unit classifyUnit) int {
+	footprint := len(unit.pairs) * (len(unit.moduleName) + 1)
+	for _, pair := range unit.pairs {
+		footprint += len(pair.Key)
+	}
+	return footprint
+}
+
+// mergeClassified concatenates each part's buckets in part order.
+func mergeClassified(parts []classifiedChanges) classifiedChanges {
+	var totals [keys.EVMKeyKindCount]int
+	for i := range parts {
+		for kind, bucket := range parts[i] {
+			totals[kind] += len(bucket)
+		}
+	}
+
+	var result classifiedChanges
+	for kind, total := range totals {
+		if total > 0 {
+			result[kind] = make([]classifiedChange, 0, total)
+		}
+	}
+	for i := range parts {
+		for kind, bucket := range parts[i] {
+			result[kind] = append(result[kind], bucket...)
+		}
+	}
+	return result
+}
+
+// newClassifiedChange pairs a physical key with a changeset pair's new value, recording a deleted pair as a nil
+// value.
+func newClassifiedChange(physicalKey string, pair *proto.KVPair) classifiedChange {
+	if pair.Delete {
+		return classifiedChange{key: physicalKey}
+	}
+	return classifiedChange{key: physicalKey, value: nonNilValue(pair.Value)}
+}
+
 // nonNilValue normalizes a non-delete changeset value so the downstream
-// "nil value == deletion" convention in process*Changes stays correct.
+// "nil value == deletion" convention in the to*Values helpers stays correct.
 //
 // A changeset pair is a deletion iff its Delete flag is set; an empty
 // (zero-length) value with Delete=false is a legitimate "set this key to an
 // empty value" write. Protobuf cannot distinguish an empty []byte{} from nil,
 // so after a WAL round-trip (catchup, read-only clone, snapshot export,
 // state-sync restore) such a write arrives as Value=nil. Without this
-// normalization the process*Changes helpers would treat the nil value as a
+// normalization the to*Values helpers would treat the nil value as a
 // deletion and drop the key on replay, diverging the per-DB LtHash — and thus
 // the evm_lattice store hash and the consensus AppHash — from the live chain
 // that stored the key. True deletes carry Delete=true and are recorded as nil
@@ -326,162 +594,98 @@ func nonNilValue(v []byte) []byte {
 	return v
 }
 
-// Process incoming storage changes into a form appropriate for hashing and insertion into the DB.
-func processStorageChanges(
-	rawChanges map[string][]byte,
+// toStorageValues turns raw storage changes into the writes the storage store takes, stamped with
+// blockHeight, one write per change and in the same order. A nil change is a deletion — as is a value
+// of all zeros, which is the same thing for storage.
+func toStorageValues(
+	rawChanges []classifiedChange,
 	blockHeight int64,
-) (map[string]*vtype.StorageData, error) {
-	result := make(map[string]*vtype.StorageData, len(rawChanges))
+) ([]view.Write, error) {
+	writes := make([]view.Write, 0, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
-			// Deletion is equivalent to setting the storage value to a zero value
-			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(&[32]byte{})
-		} else {
-			value, err := vtype.ParseStorageValue(rawChange)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse storage value: %w", err)
-			}
-			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
+	for _, change := range rawChanges {
+		if change.value == nil {
+			writes = append(writes, view.Write{Key: change.key})
+			continue
 		}
+		value, err := vtype.SerializeStorage(blockHeight, change.value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse storage value: %w", err)
+		}
+		writes = append(writes, view.Write{Key: change.key, Value: value})
 	}
 
-	return result, nil
+	return writes, nil
 }
 
-// Process incoming code changes into a form appropriate for hashing and insertion into the DB.
-func processCodeChanges(
-	rawChanges map[string][]byte,
+// toCodeValues turns raw code changes into the writes the code store takes, stamped with
+// blockHeight, one write per change and in the same order. A nil change is a deletion — as is empty
+// bytecode, which is the same thing for code.
+func toCodeValues(
+	rawChanges []classifiedChange,
 	blockHeight int64,
-) (map[string]*vtype.CodeData, error) {
-	result := make(map[string]*vtype.CodeData, len(rawChanges))
+) ([]view.Write, error) {
+	writes := make([]view.Write, 0, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
-			// Deletion is equivalent to setting the code to a zero value
-			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(nil)
-		} else {
-			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(rawChange)
+	for _, change := range rawChanges {
+		if len(change.value) == 0 {
+			writes = append(writes, view.Write{Key: change.key})
+			continue
 		}
+		value := vtype.SerializeCode(blockHeight, change.value)
+		writes = append(writes, view.Write{Key: change.key, Value: value})
 	}
-	return result, nil
+	return writes, nil
 }
 
-// Process incoming misc changes into a form appropriate for hashing and insertion into the DB.
-func processMiscChanges(
-	rawChanges map[string][]byte,
+// toMiscValues turns raw misc changes into the writes the misc store takes, stamped with
+// blockHeight, one write per change and in the same order. Only a nil change is a deletion: an empty
+// value is a write a Cosmos module may legitimately make. See nonNilValue.
+func toMiscValues(
+	rawChanges []classifiedChange,
 	blockHeight int64,
-) (map[string]*vtype.MiscData, error) {
-	result := make(map[string]*vtype.MiscData, len(rawChanges))
+) ([]view.Write, error) {
+	writes := make([]view.Write, 0, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
-			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).MarkDeleted()
-		} else {
-			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).SetValue(rawChange)
+	for _, change := range rawChanges {
+		if change.value == nil {
+			writes = append(writes, view.Write{Key: change.key})
+			continue
 		}
+		value := vtype.SerializeMisc(blockHeight, change.value)
+		writes = append(writes, view.Write{Key: change.key, Value: value})
 	}
-	return result, nil
+	return writes, nil
 }
 
-// gatherPairs builds the LtHash pairs for one DB from its new typed values and
-// the raw old serialized bytes read by the calculator. The old bytes are used
-// verbatim as LastValue: by the round-trip identity of the value serializers
-// they equal the exact bytes previously folded into the hash, so unmixing them
-// cancels that contribution precisely. A key with no prior value (or a pending
-// deletion) has a nil entry in rawOld and thus a nil LastValue (nothing to
-// unmix).
-func gatherPairs[T vtype.VType](
-	newValues map[string]T,
-	rawOld map[string][]byte,
-) []lthash.KVPairWithLastValue {
-	pairs := make([]lthash.KVPairWithLastValue, 0, len(newValues))
-	for keyStr, newValue := range newValues {
-		isDelete := newValue.IsDelete()
-
-		var newBytes []byte
-		if !isDelete {
-			newBytes = newValue.Serialize()
-		}
-
-		pairs = append(pairs, lthash.KVPairWithLastValue{
-			Key:       []byte(keyStr),
-			Value:     newBytes,
-			LastValue: rawOld[keyStr],
-			Delete:    isDelete,
-		})
-	}
-	return pairs
-}
-
-// Merge account updates down into a single update per account.
+// mergeAccountUpdates folds per-field account changes into a single update per account. Where a field of one
+// account changes more than once, the last change wins.
 func mergeAccountUpdates(
-	nonceChanges map[string][]byte,
-	codeHashChanges map[string][]byte,
-	balanceChanges map[string][]byte,
-) (map[string]*vtype.PendingAccountWrite, error) {
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
+) (map[string]vtype.PendingAccountWrite, error) {
 
-	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
+	updates := make(map[string]vtype.PendingAccountWrite,
+		len(nonceChanges)+len(codeHashChanges)+len(balanceChanges))
 
-	for key, nonceChange := range nonceChanges {
-		if nonceChange == nil {
-			// Deletion is equivalent to setting the nonce to 0
-			updates[key] = updates[key].SetNonce(0)
-		} else {
-			nonce, err := vtype.ParseNonce(nonceChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid nonce value: %w", err)
-			}
-			updates[key] = updates[key].SetNonce(nonce)
-		}
+	fields := []struct {
+		kind    keys.EVMKeyKind
+		changes []classifiedChange
+	}{
+		{keys.EVMKeyNonce, nonceChanges},
+		{keys.EVMKeyCodeHash, codeHashChanges},
+		{keys.EVMKeyBalance, balanceChanges},
 	}
-
-	for key, codeHashChange := range codeHashChanges {
-		if codeHashChange == nil {
-			// Deletion is equivalent to setting the code hash to a zero hash
-			var zero vtype.CodeHash
-			updates[key] = updates[key].SetCodeHash(&zero)
-		} else {
-			codeHash, err := vtype.ParseCodeHash(codeHashChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid codehash value: %w", err)
+	for _, field := range fields {
+		for _, change := range field.changes {
+			pending := updates[change.key]
+			// A nil value is a deletion; see nonNilValue.
+			if err := pending.SetField(field.kind, change.value, change.value == nil); err != nil {
+				return nil, fmt.Errorf("failed to set account field: %w", err)
 			}
-			updates[key] = updates[key].SetCodeHash(codeHash)
-		}
-	}
-
-	for key, balanceChange := range balanceChanges {
-		if balanceChange == nil {
-			// Deletion is equivalent to setting the balance to a zero balance
-			var zero vtype.Balance
-			updates[key] = updates[key].SetBalance(&zero)
-		} else {
-			balance, err := vtype.ParseBalance(balanceChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid balance value: %w", err)
-			}
-			updates[key] = updates[key].SetBalance(balance)
+			updates[change.key] = pending
 		}
 	}
 	return updates, nil
-}
-
-// Combine the pending account writes with prior values to determine the new account values.
-//
-// We need to take this step because accounts are split into multiple fields, and it's possible to overwrite just a
-// single field (thus requiring us to copy the unmodified fields from the prior value).
-func deriveNewAccountValues(
-	pendingWrites map[string]*vtype.PendingAccountWrite,
-	oldValues map[string]*vtype.AccountData,
-	blockHeight int64,
-) map[string]*vtype.AccountData {
-	result := make(map[string]*vtype.AccountData, len(pendingWrites))
-
-	for addrStr, pendingWrite := range pendingWrites {
-		oldValue := oldValues[addrStr]
-
-		newValue := pendingWrite.Merge(oldValue, blockHeight)
-		result[addrStr] = newValue
-	}
-	return result
 }

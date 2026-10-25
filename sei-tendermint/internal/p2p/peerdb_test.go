@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"slices"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 	dbm "github.com/tendermint/tm-db"
 

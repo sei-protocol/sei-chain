@@ -79,7 +79,10 @@ func (m *FullTimeoutVote) Verify(ep *Epoch) error {
 		return err
 	}
 	c := ep.Committee()
-	if err := m.vote.VerifySig(c); err != nil {
+	if !c.HasReplica(m.vote.Key()) {
+		return fmt.Errorf("%q is not a replica", m.vote.Key())
+	}
+	if err := m.vote.VerifySig(); err != nil {
 		return err
 	}
 	if want, ok := m.vote.Msg().latestPrepareQCView().Get(); ok {
@@ -154,7 +157,11 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 	}
 	c := ep.Committee()
 	// Check that the TimeoutQC is from the correct consensus instance.
-	if got, want := view.Index, NextIndexOpt(prev); got != want {
+	want := ep.RoadRange().First
+	if qc, ok := prev.Get(); ok {
+		want = qc.Index() + 1
+	}
+	if got := view.Index; got != want {
 		return fmt.Errorf("timeoutQC.View().Index = %v, want %v", got, want)
 	}
 	// Verify the signatures.
@@ -166,7 +173,10 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		}
 		weight += c.Weight(v.sig.key)
 		done[v.sig.key] = struct{}{}
-		if err := v.VerifySig(c); err != nil {
+		if !c.HasReplica(v.Key()) {
+			return fmt.Errorf("%q is not a replica", v.Key())
+		}
+		if err := v.VerifySig(); err != nil {
 			return err
 		}
 	}
@@ -209,13 +219,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	if !ok {
 		return nil, false
 	}
-	p := pQC.Proposal()
-	// TODO(gprusak): this unnecessarily accesses internal state and does the copy. Fix it.
-	var laneRanges []*LaneRange
-	for _, l := range p.laneRanges {
-		laneRanges = append(laneRanges, l)
-	}
-	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.App(), p.GlobalRange().First), true
+	return pQC.Proposal().atView(m.View().Next()), true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.

@@ -115,7 +115,7 @@ func mockStateFromJson(ctx sdk.Context, a *app.App, stateRaw json.RawMessage) {
 		}
 	}
 	for moduleName, data := range typed {
-		if moduleName == "evm_transient" {
+		if moduleName == "evm_transient" || moduleName == "mem_capability" {
 			continue
 		}
 		var storeKey sdk.StoreKey
@@ -123,7 +123,11 @@ func mockStateFromJson(ctx sdk.Context, a *app.App, stateRaw json.RawMessage) {
 		if kvStoreKey != nil {
 			storeKey = kvStoreKey
 		} else {
-			storeKey = a.GetMemKey(moduleName)
+			memStoreKey := a.GetMemKey(moduleName)
+			if memStoreKey == nil {
+				continue
+			}
+			storeKey = memStoreKey
 		}
 		store := ctx.KVStore(storeKey)
 		typedData := data.(map[string]interface{})

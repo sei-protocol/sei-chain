@@ -2,17 +2,18 @@ package producer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
+	"runtime"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"golang.org/x/time/rate"
 )
 
@@ -28,7 +29,25 @@ type Config struct {
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
 	MaxTxsPerSecond utils.Option[uint64]
+	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
+	// None or Some(0) means half of GOMAXPROCS, at least 1.
+	MaxConcurrentCheckTx utils.Option[uint64]
+	// Max number of pending inserts, bounding separately the InsertTx calls
+	// blocked waiting for mempool capacity and the TryInsertTx calls in flight;
+	// further calls fail immediately with a mempool-full error.
+	// 0 means DefaultMaxPendingInserts.
+	MaxPendingInserts uint64
 }
+
+func (c *Config) maxConcurrentCheckTx() int {
+	if v, ok := c.MaxConcurrentCheckTx.Get(); ok && v > 0 {
+		return int(min(v, math.MaxInt32))
+	}
+	return max(1, runtime.GOMAXPROCS(0)/2)
+}
+
+// DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
+const DefaultMaxPendingInserts uint64 = 4096
 
 const minTxGas = 21000
 
@@ -36,33 +55,57 @@ func (c *Config) maxTxsPerBlock() uint64 {
 	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
 }
 
+func (c *Config) maxPendingInserts() uint64 {
+	if c.MaxPendingInserts == 0 {
+		return DefaultMaxPendingInserts
+	}
+	return c.MaxPendingInserts
+}
+
 // State is the block producer state.
 type State struct {
-	cfg     *Config
-	app     *proxy.Proxy
-	mempool utils.Watch[*mempool]
-	// consensus state to which published blocks will be reported.
+	cfg       *Config
+	app       *proxy.Proxy
+	mempool   utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus *consensus.State
+	// checkTxSem bounds concurrent CheckTx calls on the insert path.
+	checkTxSem *utils.Semaphore
+	// tryInsertSem bounds TryInsertTx calls in flight, which are detached from
+	// the request that issued them and would otherwise pile up behind checkTxSem.
+	tryInsertSem *utils.Semaphore
 }
 
 // NewState constructs a new block producer state.
-// Returns an error if the current node is NOT a producer.
+// Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
-	lane := consensus.Avail().PublicKey()
-	n := consensus.Avail().NextBlock(lane)
 	return &State{
-		cfg: cfg,
-		app: app,
-		mempool: utils.NewWatch(&mempool{
-			capacity:  avail.BlocksPerLane,
-			first:     n,
-			next:      n,
-			blocks:    map[types.BlockNumber]*blockSpec{},
-			nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
-			evmNonces: map[common.Address]uint64{},
-			evmTxs:    map[common.Hash]tmtypes.Tx{},
-		}),
-		consensus: consensus,
+		cfg:          cfg,
+		app:          app,
+		mempool:      utils.NewAtomicSend(utils.None[*mempool]()),
+		consensus:    consensus,
+		checkTxSem:   utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
+		tryInsertSem: utils.NewSemaphore(int(min(cfg.maxPendingInserts(), math.MaxInt32))),
+	}
+}
+
+// alignMempool installs a fresh session mempool for lane.
+func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
+	n := s.consensus.Avail().NextBlock(lane)
+	m := newMempoolInner(avail.BlocksPerLane, lane, n)
+	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
+	s.mempool.Store(utils.Some(mp))
+	return mp, n
+}
+
+func (s *State) clearMempool() {
+	mp, ok := s.mempool.Load().Get()
+	// Always publish None so InsertTx waiters re-evaluate (e.g. LocalLane gone).
+	s.mempool.Store(utils.None[*mempool]())
+	if !ok {
+		return
+	}
+	for m, ctrl := range mp.inner.Lock() {
+		m.close(ctrl)
 	}
 }
 
@@ -73,10 +116,37 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 // This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
 // sequentially in the nonce order.
 func (s *State) Run(ctx context.Context) error {
+	availState := s.consensus.Avail()
+	for ctx.Err() == nil {
+		lane, err := availState.WaitForLocalLane(ctx)
+		if err != nil {
+			return err
+		}
+
+		// WaitUntilClosed ends the session; runMempool is background and torn down with it.
+		if err := scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+			sc.SpawnBg(func() error {
+				return utils.IgnoreCancel(s.runMempool(ctx, availState, lane))
+			})
+			return availState.WaitUntilClosed(ctx, lane)
+		}); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (s *State) runMempool(ctx context.Context, availState *avail.State, lane types.LaneID) error {
+	mp, firstBlock := s.alignMempool(lane)
+	defer s.clearMempool()
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		availState := s.consensus.Avail()
-		lane := availState.PublicKey()
-		firstBlock := s.mempoolFirst()
+		scope.SpawnBg(func() error {
+			_ = availState.WaitUntilClosed(ctx, lane)
+			for m, ctrl := range mp.inner.Lock() {
+				m.close(ctrl)
+			}
+			return nil
+		})
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
@@ -85,7 +155,7 @@ func (s *State) Run(ctx context.Context) error {
 				if toExecute, err = dataState.WaitUntilExecuted(ctx, lane, toExecute); err != nil {
 					return err
 				}
-				s.pruneMempool(toExecute)
+				s.pruneMempool(mp, toExecute)
 			}
 		})
 		scope.Spawn(func() error {
@@ -97,34 +167,44 @@ func (s *State) Run(ctx context.Context) error {
 				burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
 			}
 			limiter := rate.NewLimiter(limit, burst)
-			lastBlockTime := time.Now()
 			for toProduce := firstBlock; ; toProduce += 1 {
-				if err := availState.WaitForLocalCapacity(ctx, toProduce); err != nil {
-					return fmt.Errorf("availState.WaitForLocalCapacity(): %w", err)
+				if err := availState.WaitForCapacity(ctx, lane, toProduce); err != nil {
+					if errors.Is(err, avail.ErrLaneClosed) {
+						return nil
+					}
+					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
 				}
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
 				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
-				for m, ctrl := range s.mempool.Lock() {
+				for m, ctrl := range mp.inner.Lock() {
 					// Wait for full payload with timeout.
-					if err := utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
-						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
+					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
+					// We don't want to cap them together with BlockInterval, because that will cause production of almost empty blocks.
+					if err := utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
+						return ctrl.WaitUntil(ctx, func() bool { return m.closed || toProduce < m.next })
 					}); err != nil {
 						if ctx.Err() != nil {
 							return ctx.Err()
 						}
 						// Wait for non-empty payload.
 						if err := ctrl.WaitUntil(ctx, func() bool {
-							return toProduce < m.next || (toProduce == m.next && m.CanSealBlock(s.cfg.AllowEmptyBlocks))
+							return m.closed || toProduce < m.next || (toProduce == m.next && m.CanSealBlock(s.cfg.AllowEmptyBlocks))
 						}); err != nil {
 							return err
+						}
+						if m.closed {
+							return nil
 						}
 						// Seal the payload if needed.
 						if toProduce == m.next {
 							m.SealBlock()
 							ctrl.Updated()
 						}
+					}
+					if m.closed {
+						return nil
 					}
 					b, ok := m.blocks[toProduce]
 					if !ok {
@@ -146,10 +226,13 @@ func (s *State) Run(ctx context.Context) error {
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
 				}
-				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
+				if _, err := availState.ProduceLocalBlock(lane, toProduce, payload); err != nil {
+					if errors.Is(err, avail.ErrLaneClosed) {
+						return nil
+					}
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
 				}
-				lastBlockTime = time.Now()
+				// TODO(gprusak): move this limit to insertTx instead.
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
 					return fmt.Errorf("limiter(): %w", err)
 				}

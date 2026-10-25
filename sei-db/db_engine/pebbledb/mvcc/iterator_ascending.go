@@ -10,10 +10,10 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -41,14 +41,30 @@ type ascendingIterator struct {
 	readCount          int64
 	storeKey           string
 	operationMetrics   *pebbledbmetrics.OperationMetrics
+	dbName             string
+	ctx                context.Context
+	err                error
 
 	closeSync sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[ascendingIterator]
 }
 
-func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *ascendingIterator {
+func newAscendingIterator(
+	ctx context.Context,
+	src *pebble.Iterator,
+	prefix, mvccStart, mvccEnd []byte,
+	version int64,
+	earliestVersion int64,
+	reverse bool,
+	storeKey string,
+	operationMetrics *pebbledbmetrics.OperationMetrics,
+	dbName string,
+) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &ascendingIterator{
+		itr := &ascendingIterator{
 			source:           src,
 			prefix:           prefix,
 			start:            mvccStart,
@@ -58,7 +74,11 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 			reverse:          reverse,
 			storeKey:         storeKey,
 			operationMetrics: operationMetrics,
+			dbName:           dbName,
+			ctx:              ctx,
 		}
+		itr.closed = utils.MustClose(itr, "mvcc ascending iterator")
+		return itr
 	}
 
 	// move the underlying PebbleDB iterator to the first key
@@ -79,7 +99,10 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 		reverse:          reverse,
 		storeKey:         storeKey,
 		operationMetrics: operationMetrics,
+		dbName:           dbName,
+		ctx:              ctx,
 	}
+	itr.closed = utils.MustClose(itr, "mvcc ascending iterator")
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -154,6 +177,11 @@ func (itr *ascendingIterator) seekVisibleVersionForKey(targetKey []byte) bool {
 func (itr *ascendingIterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 	seekKey := MVCCEncodeAscending(currKey, math.MaxInt64)
 	for valid := itr.source.SeekGE(seekKey); valid; valid = itr.source.Next() {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return nil, false
+		}
 		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
 		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
 			return nil, false
@@ -186,6 +214,11 @@ func (itr *ascendingIterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
 func (itr *ascendingIterator) positionAtOrAfterKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -206,6 +239,11 @@ func (itr *ascendingIterator) positionAtOrAfterKey(startKey []byte) {
 func (itr *ascendingIterator) positionAtOrBeforeKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -235,7 +273,7 @@ func (itr *ascendingIterator) Key() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	keyCopy := slices.Clone(key)
+	keyCopy := bytes.Clone(key)
 	return keyCopy[len(itr.prefix):]
 }
 
@@ -249,7 +287,7 @@ func (itr *ascendingIterator) Value() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Key()))
 	}
 
-	return slices.Clone(val)
+	return bytes.Clone(val)
 }
 
 func (itr *ascendingIterator) nextForward() {
@@ -302,14 +340,21 @@ func (itr *ascendingIterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.err != nil {
+		panic(itr.err)
+	}
 	if itr.Valid() {
 		itr.readCount++
 	}
 }
 
 func (itr *ascendingIterator) Valid() bool {
+	if itr.err != nil {
+		itr.valid = false
+		return false
+	}
 	// once invalid, forever invalid
-	if !itr.valid || !itr.source.Valid() {
+	if !itr.valid || itr.source == nil || !itr.source.Valid() {
 		itr.valid = false
 		return itr.valid
 	}
@@ -332,11 +377,18 @@ func (itr *ascendingIterator) Valid() bool {
 }
 
 func (itr *ascendingIterator) Error() error {
+	if itr.err != nil {
+		return itr.err
+	}
+	if itr.source == nil {
+		return nil
+	}
 	return itr.source.Error()
 }
 
 func (itr *ascendingIterator) Close() error {
 	itr.closeSync.Do(func() {
+		itr.closed.Close(itr)
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false
@@ -348,6 +400,7 @@ func (itr *ascendingIterator) Close() error {
 			metric.WithAttributes(
 				attribute.Bool("reverse", itr.reverse),
 				attribute.String("store", itr.storeKey),
+				attribute.String("db", itr.dbName),
 			),
 		)
 		if itr.operationMetrics != nil {

@@ -5,12 +5,12 @@
 Sei is the fastest general purpose L1 blockchain and the first parallelized EVM. This allows Sei to get the best of Solana and Ethereum - a hyper optimized execution layer that benefits from the tooling and mindshare around the EVM.
 
 # Overview
-**Sei** is a high-performance, low-fee, delegated proof-of-stake blockchain designed for developers. It supports optimistic parallel execution of both EVM and CosmWasm, opening up new design possibilities. With unique optimizations like twin turbo consensus and SeiDB, Sei ensures consistent 400ms block times and a transaction throughput that’s orders of magnitude higher than Ethereum. This means faster, more cost-effective operations. Plus, Sei’s seamless interoperability between EVM and CosmWasm gives developers native access to the entire Cosmos ecosystem, including IBC tokens, multi-sig accounts, fee grants, and more.
+**Sei** is a high-performance, low-fee, delegated proof-of-stake blockchain designed for developers. It supports optimistic parallel execution of both EVM and CosmWasm, opening up new design possibilities. With unique optimizations like twin turbo consensus and SeiDB, Sei ensures consistent 400ms block times and a transaction throughput that’s orders of magnitude higher than Ethereum. This means faster, more cost-effective operations. Plus, Sei’s seamless interoperability between EVM and CosmWasm gives developers native access to multi-sig accounts and more.
 
 # Documentation
 For the most up to date documentation please visit https://www.docs.sei.io/
 
-Developer reference in this repo: [EVM JSON-RPC explicitly unsupported methods](docs/evm_jsonrpc_unsupported.md) (methods that return `-32000` with a clear message).
+Starting with v6.7, IBC module source and wiring are removed. IBC queries, historical transfer transaction decoding, and pre-v6.7 IBC precompile tracing are not served by v6.7 nodes. Run a v6.6 freeze node to serve pre-v6.7 IBC history. The IBC precompile at `0x1009` remains registered only as a tombstone that reverts every call. Starting with v6.8, the `ibc`, `transfer` and `capability` stores are deleted from state, and the four passed `ClientUpdateProposal` records (proposals 52, 81, 100 and 119) are rewritten as `TextProposal`s keeping their title and description; v6.8 nodes cannot answer gov state queries at pre-v6.8 heights for those records, use a v6.6 freeze node. CosmWasm IBC entry points, messages and queries are still compiled into `sei-wasmd` but have no IBC module behind them; they go away with the CosmWasm teardown.
 
 # Sei Optimizations
 Sei introduces four major innovations:

@@ -3,10 +3,8 @@ package distribution
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -16,8 +14,6 @@ func BeginBlocker(ctx sdk.Context, votes []abci.VoteInfo, k keeper.Keeper) {
 	beginBlockerStart := time.Now()
 	defer func() {
 		distributionMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
-		// TODO(PLT-414): remove once distribution_begin_blocker_duration verified
-		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
 	}()
 
 	// determine the total power signing the block

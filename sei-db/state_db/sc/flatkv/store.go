@@ -4,28 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
-	"time"
 
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
 
-	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/seilog"
@@ -33,107 +33,112 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
-const (
-	// Top-level directory names
-	flatkvRootDir = "flatkv"
-	changelogDir  = "changelog"
-	lockFileName  = "LOCK"
-
-	// DB subdirectories (inside each snapshot)
-	accountDBDir = "account"
-	codeDBDir    = "code"
-	storageDBDir = "storage"
-	miscDBDir    = "misc"
-	metadataDir  = "metadata"
-
-	// Suffixes for atomic directory operations
-	tmpSuffix      = "-tmp"
-	removingSuffix = "-removing"
-
-	readOnlyDirPrefix = "readonly-"
-
-	flatkvMeterName = "seidb_flatkv"
-)
-
-// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
-var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
-
-var _ Store = (*CommitStore)(nil)
-
-// CommitStore implements flatkv.Store for EVM state storage.
+// sortPoolQueueSize is the depth of the diff-sorting pool's queue.
 //
-// Concurrency: writes (ApplyChangeSets, Commit) and the reads that touch the
-// pending-writes maps (Get, Has, GetBlockHeightModified) and iterator
-// construction (Iterator, RawGlobalIterator) are guarded by mu. Iterators
-// snapshot their data at construction time (pending writes are cloned and the
-// Pebble view is pinned), so once built they may be used and Closed without
-// holding mu and may safely outlive a subsequent ApplyChangeSets/Commit. All
-// other lifecycle operations (LoadLatest, Rollback, snapshot/import/export,
-// Close) must still be serialized by the caller.
+// Deliberately far above any store's MaxUnflushedVersions. Commit submits to this pool, and throttling
+// commits belongs to MaxUnflushedVersions alone, so insertion here must never be what blocks. Nor is the
+// number of outstanding jobs bounded by that setting: a version held by an outside reservation stops
+// counting as unflushed while its successors keep being sealed. A queued job is one closure, so the depth
+// is nearly free.
+const sortPoolQueueSize = 65536
+
+var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
+
+// ErrVersionUnreachable is gigatypes.ErrVersionUnreachable: FlatKV cannot reconstruct the requested
+// version from its retained snapshots and WAL.
+var ErrVersionUnreachable = gigatypes.ErrVersionUnreachable
+
+// CommitStore implements gigatypes.LiveStateStore for EVM state.
+//
+// Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
+// (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller.
+//
+// An iterator is a fixed view of the instant it was created and may be held across later commits; it
+// will not observe them. It must still be closed — it pins resources in the underlying databases, and
+// reading one after Close is undefined behaviour, which Close reports on a best-effort basis.
 type CommitStore struct {
-	// mu guards the pending-writes maps against concurrent iterator
-	// construction / reads while ApplyChangeSets and Commit mutate them.
+	// mu serializes the exported entry points against one another: the write path (ApplyChangeSets,
+	// Commit), the reads (Get, Has, GetBlockHeightModified) and iterator construction (Iterator,
+	// RawGlobalIterator). It does not protect the block being written — that lives inside the stores,
+	// which do their own locking.
 	//
 	// TODO(concurrency): this is a coarse lock taken at the exported entry
 	// points. Commit in particular holds the write lock across its WAL fsync
 	// and periodic auto-snapshot. That is acceptable while commits are not
-	// pipelined with reads; revisit with a finer-grained scheme (guarding only
-	// the in-memory maps) if/when pipelining is introduced.
+	// pipelined with reads; revisit with a finer-grained scheme if/when
+	// pipelining is introduced.
 	mu sync.RWMutex
 
-	ctx    context.Context
+	// Store-private context, cancelled by cancel when the store closes. Metric recording and the
+	// opening of the pebble instances hang off it, so work the store started stops when it does.
+	ctx context.Context
+
+	// Cancels ctx. Called by Close.
 	cancel context.CancelFunc
+
+	// The configuration this store was opened with. Not modified after open.
 	config config.Config
-	dbDir  string
 
-	// Five separate PebbleDB instances.
-	// Physical key format: "module/" + type_prefix + stripped_key.
-	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
-	codeDB     seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
-	storageDB  seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
-	miscDB     seidbtypes.KeyValueDB // "module/"+key → vtype.MiscData
+	// The directory holding this store's databases and its snapshot tree.
+	dbDir string
 
-	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
-	localMeta map[string]*ktype.LocalMeta
+	// The metadata each database most recently persisted, keyed by database directory name.
+	//
+	// A LocalMeta records a database's committed height, its LtHash, and its per-module hashes and
+	// stats. Sealing a block hands each store its own LocalMeta as the block's finalization writes, so
+	// the metadata lands in the same atomic batch as the data it describes and a database on disk can
+	// never disagree with its own bookkeeping. This map is the in-memory copy of what was written, and
+	// is adopted only once every store has accepted the seal.
+	localMeta map[string]*LocalMeta
 
-	// LtHash state for integrity checking
+	// The height of the most recently committed block. The next Commit must be exactly this plus one.
 	committedVersion int64
-	committedLtHash  *lthash.LtHash
-	workingLtHash    *lthash.LtHash
 
-	// earliestVersion is the version this store's history begins at, as
-	// recorded by SetInitialVersion (the seeded version). 0 when unknown:
-	// genesis stores and stores created before the record existed. See
-	// EarliestVersion.
-	earliestVersion int64
+	// The hash state read off disk at load, which the hash engine is seeded from and which every
+	// hash query answers from until the first block has been finalized. Rebuilt by every path that
+	// reopens the databases underneath the engine.
+	loadedHashes *lthash.BlockHash
 
-	// Per-DB working LTHash tracking. Authoritative copies live in each
-	// DB's LocalMeta (atomically committed with data). On startup the
-	// working hashes are loaded from LocalMeta.
-	perDBWorkingLtHash map[string]*lthash.LtHash
+	// hashEngine folds each sealed block into the running lattice hash, off the execution goroutine.
+	// Built by openStores once the stores exist and torn down by closeStores. Nil on a read-only store,
+	// which never commits — such a store answers hash queries from what it loaded.
+	hashEngine *lthash.HashEngine
 
-	// Per-DB, per-module working LtHash: dbDir -> module name -> hash.
-	// The per-DB root (perDBWorkingLtHash[dir]) is the homomorphic sum of
-	// the module hashes here. account/code/storage DBs only ever carry the
-	// "evm" module; miscDB may carry several (evm plus cosmos modules).
-	// Persisted alongside the per-DB root in each DB's LocalMeta and reloaded
-	// on startup. This is bookkeeping metadata only: it does not feed the
-	// global evm_lattice/AppHash.
-	perDBModuleWorkingLtHash map[string]map[string]*lthash.LtHash
+	// finalizer records each block's hashes onto that block's own views, and is the sole consumer of
+	// the engine's stream. Same lifecycle as hashEngine.
+	finalizer *FinalizationManager
 
-	// Per-DB, per-module working stats: dbDir -> module name -> key-count /
-	// byte totals. Accumulated alongside perDBModuleWorkingLtHash using the
-	// same key-membership rule, persisted in each DB's LocalMeta, and reloaded
-	// on startup. Consensus-irrelevant bookkeeping; per-DB / global totals are
-	// derived on demand.
-	perDBModuleWorkingStats map[string]map[string]lthash.ModuleStats
+	// hashListeners holds the callbacks each finalized block's hash is dispatched to. Held here
+	// rather than on the finalizer that dispatches through it, so that a registration survives the
+	// finalizer being rebuilt by restartHashing. Never nil.
+	hashListeners *hashListenerRegistry
 
-	// Pending writes buffer
-	accountWrites map[string]*vtype.AccountData
-	codeWrites    map[string]*vtype.CodeData
-	storageWrites map[string]*vtype.StorageData
-	miscWrites    map[string]*vtype.MiscData
+	// The four data stores below mediate every read and write of their databases. The block being
+	// applied accumulates its writes inside each store, so a read through a store already sees what
+	// that same block staged, with no separate overlay to consult.
+	//
+	// They are constructed as the last step of open, after any replay or rollback has run, and are nil
+	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
+
+	// Mediates the account database.
+	accountStore view.ViewManager
+
+	// Mediates the code database.
+	codeStore view.ViewManager
+
+	// Mediates the storage database.
+	storageStore view.ViewManager
+
+	// Mediates the misc database.
+	miscStore view.ViewManager
+
+	// All four stores, for the paths that treat them uniformly.
+	stores []view.ViewManager
+
+	// The views of the most recently committed block, one reservation held for as long as they stay
+	// installed, which is what keeps any later block out of pebble. Nil outside the window in which the
+	// view managers exist.
+	lastSealed *sview.AtomicStoreView
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -144,18 +149,29 @@ type CommitStore struct {
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
-	// pendingBlockHeight is the version stamped by the current buffered
-	// ApplyChangeSets. 0 means no pending apply. Further ApplyChangeSets
-	// calls and Commit both require version to match when this is non-zero:
-	// only one block may be buffered per commit.
+	// pendingBlockHeight is the version stamped by the current buffered ApplyChangeSets. 0 means no
+	// pending apply. It records the staged height; it does not constrain it — neither ApplyChangeSets
+	// nor Commit validates its version against this field.
 	pendingBlockHeight int64
 
-	lastSnapshotTime time.Time
+	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
+	// torn down by closeStores, so its lifetime is exactly the window in which the databases it
+	// checkpoints are open. Nil on a read-only store, which never commits.
+	snapshotWriter *SnapshotWriter
+
+	// The schedule this store takes its checkpoint heights from, nil when it is on its own interval.
+	// Held here as well as on the snapshot writer because the writer is rebuilt by every open, and a
+	// store that lost its schedule to a reopen would drift off the node's shared heights silently.
+	checkpointScheduler *controller.CheckpointScheduler
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
 
 	phaseTimer *metrics.PhaseTimer
+
+	// classifyBucketSizes is the length of each kind's bucket in the previous ApplyChangeSets call, used to size
+	// the next call's buckets. Zero for a kind that call did not touch.
+	classifyBucketSizes [keys.EVMKeyKindCount]int
 
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
@@ -177,40 +193,26 @@ type CommitStore struct {
 	// Uses a fixed-size pool, same lifecycle as readPool / miscPool.
 	ltHashPool threading.Pool
 
-	// ltCalc encapsulates the lattice-hash pipeline (old-value reads, per-key
-	// hashing, and worker-combine into final per-DB / per-module hashes) over
-	// ltHashPool. The commit path is serialized by s.mu, so the calculator has
-	// a single caller at a time.
-	ltCalc *lthash.HashCalculator
+	// A work pool that orders each sealed block's writes by key, ahead of the flush that consumes them.
+	//
+	// Uses a fixed-size pool, same lifecycle as readPool / miscPool.
+	sortPool threading.Pool
+
+	// moduleOf names the module a physical key belongs to, for bucketing a block's pairs into per-module
+	// hashes. A field rather than a direct call to moduleOfKey, and read on every call rather than
+	// captured, so that a test can inject a failing one into an open store.
+	moduleOf lthash.ModuleParser
 }
 
-// dataDBs returns the four data PebbleDB instances in fixed iteration order:
-// accountDB, codeDB, storageDB, miscDB. metadataDB is excluded.
-func (s *CommitStore) dataDBs() []seidbtypes.KeyValueDB {
-	return []seidbtypes.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.miscDB}
-}
-
-type namedDB struct {
-	dir string
-	db  seidbtypes.KeyValueDB
-}
-
-// namedDataDBs returns the four data DBs paired with their directory names.
-func (s *CommitStore) namedDataDBs() []namedDB {
-	return []namedDB{
-		{accountDBDir, s.accountDB},
-		{codeDBDir, s.codeDB},
-		{storageDBDir, s.storageDB},
-		{miscDBDir, s.miscDB},
-	}
-}
-
-// routePhysicalKey maps a physical DB key to its target database.
+// routePhysicalKey names the database directory a physical DB key belongs to.
 // Non-EVM modules are routed to miscDB; EVM keys are routed by kind.
-func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueDB, error) {
+//
+// It answers with a directory name rather than a database handle so that deciding where a key goes stays
+// separate from holding the thing it goes into.
+func routePhysicalKey(physicalKey []byte) (string, error) {
 	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if moduleName == "" {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
@@ -219,21 +221,21 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 		// bricking the store (root != sum(modules) forever). Reject it here,
 		// at the state-sync import dispatch boundary, mirroring the
 		// classifyAndPrefix guard on the live-commit path (store_apply.go).
-		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
+		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {
-		return s.miscDB, nil
+		return miscDBDir, nil
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
-	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
-		return s.accountDB, nil
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
+		return accountDBDir, nil
 	case keys.EVMKeyCode:
-		return s.codeDB, nil
+		return codeDBDir, nil
 	case keys.EVMKeyStorage:
-		return s.storageDB, nil
+		return storageDBDir, nil
 	default:
-		return s.miscDB, nil
+		return miscDBDir, nil
 	}
 }
 
@@ -250,7 +252,7 @@ func NewCommitStore(
 	stateWAL statewal.StateWAL,
 ) (*CommitStore, error) {
 
-	InitializeDataDirectories(cfg)
+	cfg = resolveConfig(cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
@@ -268,36 +270,87 @@ func NewCommitStore(
 
 	ltHashPoolSize := lthashWorkerCount(cfg, coreCount)
 	ltHashPool := threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
-	ltCalc := lthash.NewHashCalculator(ltHashPool, dataDBDirs, moduleOfKey)
+
+	sortPool := threading.NewFixedPool("flatkv-sort", sortWorkerCount(cfg, coreCount), sortPoolQueueSize)
 
 	return &CommitStore{
-		ctx:                      ctx,
-		cancel:                   cancel,
-		config:                   *cfg,
-		localMeta:                make(map[string]*ktype.LocalMeta),
-		accountWrites:            make(map[string]*vtype.AccountData),
-		codeWrites:               make(map[string]*vtype.CodeData),
-		storageWrites:            make(map[string]*vtype.StorageData),
-		miscWrites:               make(map[string]*vtype.MiscData),
-		pendingChangeSets:        make([]*proto.NamedChangeSet, 0),
-		committedLtHash:          lthash.New(),
-		workingLtHash:            lthash.New(),
-		perDBWorkingLtHash:       make(map[string]*lthash.LtHash),
-		perDBModuleWorkingLtHash: newPerDBModuleLtHashMap(),
-		perDBModuleWorkingStats:  newPerDBModuleStatsMap(),
-		phaseTimer:               metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
-		readPool:                 readPool,
-		miscPool:                 miscPool,
-		ltHashPool:               ltHashPool,
-		ltCalc:                   ltCalc,
-		wal:                      stateWAL,
+		ctx:               ctx,
+		cancel:            cancel,
+		hashListeners:     newHashListenerRegistry(),
+		config:            *cfg,
+		localMeta:         make(map[string]*LocalMeta),
+		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
+		loadedHashes:      lthash.NewBlockHash(dataDBDirs),
+		phaseTimer:        metrics.NewPhaseTimerFactory(flatkvMeter, "seidb_main_thread").RecordLatencies().Build(),
+		readPool:          readPool,
+		miscPool:          miscPool,
+		ltHashPool:        ltHashPool,
+		sortPool:          sortPool,
+		moduleOf:          moduleOfKey,
+		wal:               stateWAL,
 	}, nil
+}
+
+// resolveConfig returns cfg with every value a store derives for itself filled in: each database's
+// data directory, taken from DataDir where the caller left it empty, and the store-wide pebble
+// metrics and fsync settings fanned out to the per-database configs. The databases live under the
+// working directory, at <DataDir>/working/<subdir>. cfg itself is left untouched.
+func resolveConfig(cfg *config.Config) *config.Config {
+	resolved := cfg.Copy()
+
+	workDir := filepath.Join(resolved.DataDir, workingDirName)
+	if resolved.AccountDBConfig.DataDir == "" {
+		resolved.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	}
+	if resolved.CodeDBConfig.DataDir == "" {
+		resolved.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	}
+	if resolved.StorageDBConfig.DataDir == "" {
+		resolved.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	}
+	if resolved.MiscDBConfig.DataDir == "" {
+		resolved.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
+	}
+
+	applyPebbleMetricsConfig(resolved)
+	applyFlushSyncConfig(resolved)
+	return resolved
+}
+
+func applyPebbleMetricsConfig(c *config.Config) {
+	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
+	// EnableMetrics values are intentionally overwritten here.
+	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
+
+	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+}
+
+func applyFlushSyncConfig(c *config.Config) {
+	c.AccountStoreConfig.FlushSync = c.Fsync
+	c.CodeStoreConfig.FlushSync = c.Fsync
+	c.StorageStoreConfig.FlushSync = c.Fsync
+	c.MiscStoreConfig.FlushSync = c.Fsync
 }
 
 // lthashWorkerCount computes the fixed lattice-hash pool worker count from
 // config, clamped to at least 1 (LtHash computation always needs a worker).
 func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 	n := int(cfg.LtHashThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// sortWorkerCount computes the fixed diff-sorting pool worker count from config, clamped to at least 1.
+func sortWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.SortThreadsPerCore * float64(coreCount))
 	if n < 1 {
 		n = 1
 	}
@@ -318,14 +371,30 @@ func (s *CommitStore) resetPools() {
 
 	ltHashPoolSize := lthashWorkerCount(&s.config, coreCount)
 	s.ltHashPool = threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
-	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, moduleOfKey)
+
+	s.sortPool = threading.NewFixedPool("flatkv-sort", sortWorkerCount(&s.config, coreCount), sortPoolQueueSize)
 }
 
 func (s *CommitStore) flatkvDir() string {
 	return s.config.DataDir
 }
 
-var errReadOnly = errors.New("flatkv: store is read-only")
+// SetCheckpointScheduler hands this store the schedule it takes its checkpoint heights from, in place
+// of its own SnapshotInterval. Every committed block is then offered to the schedule, which is what
+// holds this store and every other store on it to the same heights.
+//
+// A nil scheduler returns the store to its interval. Safe to call on an open store, and it survives a
+// later reopen.
+func (s *CommitStore) SetCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
+	s.mu.Lock()
+	s.checkpointScheduler = scheduler
+	writer := s.snapshotWriter
+	s.mu.Unlock()
+
+	if writer != nil {
+		writer.setCheckpointScheduler(scheduler)
+	}
+}
 
 // LoadLatest opens the database at the latest persisted version, leaving this store open for writing.
 // It is the only way to obtain a store that can commit.
@@ -360,6 +429,43 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 	return nil
 }
 
+// LoadWorkingCopy opens the database on the version its files already hold — the working copy, or the
+// snapshot the current link names when there is no working copy to resume — and leaves this store open
+// for writing without replaying any WAL block.
+//
+// It is LoadLatest for a store whose WAL an outer context owns, and it touches no WAL at all: replaying
+// one forward from the version this opens on is that context's, as is RebuildIfUnreachable, the repair
+// that has to precede it.
+func (s *CommitStore) LoadWorkingCopy() (retErr error) {
+	obs := s.observeOp("LoadWorkingCopy", otelMetrics.OpenLatency).
+		withAttrs(attribute.Bool("read_only", false))
+	defer obs.done(&retErr, func() {
+		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		logger.Info("FlatKV LoadWorkingCopy complete", "version", s.committedVersion, "elapsed", obs.elapsed())
+	})
+
+	if s.readOnly {
+		return errReadOnly
+	}
+
+	_ = s.closeDBsOnly()
+
+	// The lock is released on failure only when this call took it, since open does not track one it
+	// found already held.
+	lockHeldBefore := s.fileLock != nil
+	defer func() {
+		if retErr != nil && !lockHeldBefore && s.fileLock != nil {
+			_ = s.fileLock.Unlock()
+			s.fileLock = nil
+		}
+	}()
+
+	if err := s.open(); err != nil {
+		return fmt.Errorf("open FlatKV store: %w", err)
+	}
+	return nil
+}
+
 // LoadVersionReadOnly returns an isolated read-only view of the database at targetVersion (0 = latest).
 // This store is left untouched and keeps committing; the caller owns the view and must Close it.
 //
@@ -367,7 +473,7 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened gigatypes.LiveStateStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
@@ -385,6 +491,11 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	if s.readOnly {
 		return nil, errReadOnly
 	}
+	if targetVersion != 0 {
+		if err := s.CheckVersionReachable(targetVersion); err != nil {
+			return nil, err
+		}
+	}
 
 	lazyLock := s.fileLock == nil
 	if lazyLock {
@@ -400,6 +511,14 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
 
+	defer func() {
+		if retErr != nil {
+			if closeErr := ro.Close(); closeErr != nil {
+				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
+			}
+		}
+	}()
+
 	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("create readonly temp dir: %w", err)
@@ -410,7 +529,13 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	ro.config.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
 	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
 	ro.config.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
-	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+
+	// View manager metrics are labelled by manager name, which the read-only clone shares with this store,
+	// so leaving them enabled would publish two conflicting values for every series.
+	ro.config.AccountStoreConfig.MetricsEnabled = false
+	ro.config.CodeStoreConfig.MetricsEnabled = false
+	ro.config.StorageStoreConfig.MetricsEnabled = false
+	ro.config.MiscStoreConfig.MetricsEnabled = false
 
 	// Transfer the lazily-acquired lock to the view so that ro.Close()
 	// releases it, preventing a leak when this store is never closed.
@@ -419,21 +544,19 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 		s.fileLock = nil
 	}
 
-	defer func() {
-		if retErr != nil {
-			if closeErr := ro.Close(); closeErr != nil {
-				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
-			}
-		}
-	}()
+	// Read-only from the moment it exists, so no window exists in which the view would accept a caller's
+	// write. Replay reaches the apply path below ApplyChangeSets, which is where the refusal lives, so
+	// marking it here does not block the catch-up that follows.
+	ro.readOnly = true
 
-	if err := ro.openReadOnly(targetVersion); err != nil {
+	// The clone shares this store's flatkv root, so the writer that owns that root — and prunes it —
+	// is this store's, not the clone's. The clone never has one of its own.
+	if err := ro.openReadOnly(targetVersion, s.currentSnapshotWriter()); err != nil {
 		return nil, fmt.Errorf("readonly open: %w", err)
 	}
 
 	// The clone is open at a snapshot boundary with a nil WAL. Replay this (primary) store's WAL into it up
-	// to targetVersion so it reflects the exact requested height. The clone is not yet marked read-only, so
-	// the replay's ApplyChangeSets calls are permitted; mark it read-only only once replay succeeds.
+	// to targetVersion so it reflects the exact requested height.
 	if err := s.replayIntoReadOnlyCopy(ro, targetVersion); err != nil {
 		return nil, err
 	}
@@ -443,8 +566,6 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 			targetVersion, ro.committedVersion)
 	}
 
-	ro.readOnly = true
-
 	logger.Info("FlatKV readonly store opened", "version", ro.committedVersion, "dir", ro.readOnlyWorkDir)
 	return ro, nil
 }
@@ -452,34 +573,30 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 // openReadOnly opens PebbleDBs in readOnlyWorkDir at the snapshot boundary at or below targetVersion,
 // leaving committedVersion at that snapshot version. It never modifies the global "current" symlink.
 //
+// owner is the snapshot writer of the store that owns the snapshot tree being read, which is the
+// primary rather than this clone. Nil means no writer is running against that tree.
+//
 // This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
 // targetVersion — and marking the store read-only — is driven by the primary via LoadVersionReadOnly /
 // replayIntoReadOnlyCopy, which feeds the primary's WAL into this clone.
-func (s *CommitStore) openReadOnly(targetVersion int64) error {
-	s.clearPendingWrites()
+func (s *CommitStore) openReadOnly(targetVersion int64, owner *SnapshotWriter) (retErr error) {
+	s.clearPendingBlock()
 
-	dir := s.flatkvDir()
-
-	var snapDir string
-	if targetVersion > 0 {
-		baseVer, err := seekSnapshot(dir, targetVersion)
-		if err != nil {
-			return fmt.Errorf("seek snapshot for readonly: %w", err)
-		}
-		snapDir = filepath.Join(dir, snapshotName(baseVer))
-	} else {
-		var err error
-		snapDir, _, err = currentSnapshotDir(dir)
-		if err != nil {
-			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
-		}
+	if err := s.cloneSnapshotToWorkDir(targetVersion, owner); err != nil {
+		return err
 	}
 
-	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
-		return fmt.Errorf("create readonly working dir: %w", err)
+	dbs, err := s.openRawDBs()
+	if err != nil {
+		return err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = dbs.close()
+		}
+	}()
 
-	if err := s.openDBs(s.readOnlyWorkDir); err != nil {
+	if err := s.loadLocalMeta(dbs); err != nil {
 		return err
 	}
 
@@ -487,8 +604,39 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 		return err
 	}
 
+	// A read-only clone still needs stores: it replays the primary's WAL to reach its target version
+	// and reuses the one apply path to do it.
+	if err := s.openStores(dbs); err != nil {
+		return err
+	}
+
 	logger.Info("FlatKV readonly base opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
+	return nil
+}
+
+// cloneSnapshotToWorkDir materializes the snapshot this read-only clone opens against into its
+// working directory.
+//
+// It goes through owner rather than copying here, because the copy has to be serialized against the
+// pruning that owner also performs: a snapshot resolved on this goroutine can be deleted before the
+// copy has finished reading it. A nil owner means no writer is running against that tree, so there
+// is nothing to serialize against and the copy is done inline.
+func (s *CommitStore) cloneSnapshotToWorkDir(targetVersion int64, owner *SnapshotWriter) error {
+	if owner != nil {
+		if err := owner.CloneSnapshot(targetVersion, s.readOnlyWorkDir); err != nil {
+			return fmt.Errorf("create readonly working dir: %w", err)
+		}
+		return nil
+	}
+
+	snapDir, err := resolveSnapshotToClone(s.flatkvDir(), targetVersion)
+	if err != nil {
+		return err
+	}
+	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
+		return fmt.Errorf("create readonly working dir: %w", err)
+	}
 	return nil
 }
 
@@ -499,7 +647,89 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 	if err := s.open(); err != nil {
 		return err
 	}
+	if err := s.rebuildIfAnyDataDBIsUnreachable(); err != nil {
+		return err
+	}
 	return s.replayIntoMutableStore(catchupTarget)
+}
+
+// rebuildIfAnyDataDBIsUnreachable discards the working copy when a data DB records a version that
+// neither the snapshots nor this store's own WAL can account for.
+func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
+	reachable, err := latestVersion(s.flatkvDir(), s.wal)
+	if err != nil {
+		return err
+	}
+	return s.rebuildIfAnyDataDBIsAbove(reachable)
+}
+
+// RebuildIfUnreachable discards the working copy when a data DB records a version that neither this
+// store's snapshots nor a WAL ending at walHead can account for.
+//
+// It is the repair inside LoadLatest, for a store whose WAL an outer context owns: that context hands
+// the head over instead, so nothing here opens the WAL. It has to run before that context replays,
+// which erases the evidence it works from.
+func (s *CommitStore) RebuildIfUnreachable(walHead int64) error {
+	snapshotVersion, err := currentSnapshotVersion(s.flatkvDir())
+	if err != nil {
+		return err
+	}
+	return s.rebuildIfAnyDataDBIsAbove(max(snapshotVersion, walHead))
+}
+
+// RebuildIfTorn discards the working copy when its data DBs disagree, one recording a block the others
+// do not, which is what an interrupted commit leaves.
+//
+// It is the repair for a store whose WAL holds no blocks, where RebuildIfUnreachable would measure the
+// working copy against the current snapshot and discard a copy that is legitimately ahead of it. The
+// height the data DBs agree on is the yardstick here instead. The rebuild still comes back from the
+// current snapshot, so the blocks between it and that height are replayed or re-executed afterwards.
+func (s *CommitStore) RebuildIfTorn() error {
+	return s.rebuildIfAnyDataDBIsAbove(s.committedVersion)
+}
+
+// rebuildIfAnyDataDBIsAbove rebuilds the working copy from the current snapshot when a data DB records
+// a version above reachable, leaving the store at a version replay can reach.
+//
+// It must run before replay, because replay erases the evidence: applying an older block to a DB that
+// is past it rewrites that DB's version record downward to match the others while leaving the later
+// block's rows in place. Nothing after replay can then tell the two apart.
+//
+// The blocks discarded here were never servable. A block present in one data DB and absent from the
+// WAL is a block no consistent state includes, so rebuilding from the snapshot loses nothing that
+// could have been read back — which is why this repairs rather than refusing and taking the node down.
+func (s *CommitStore) rebuildIfAnyDataDBIsAbove(reachable int64) error {
+	unreachable := make([]string, 0, len(dataDBDirs))
+	for _, dbDir := range dataDBDirs {
+		if meta := s.localMeta[dbDir]; meta.CommittedVersion > reachable {
+			unreachable = append(unreachable, fmt.Sprintf("%s at %d", dbDir, meta.CommittedVersion))
+		}
+	}
+	if len(unreachable) == 0 {
+		return nil
+	}
+
+	logger.Warn("FlatKV rebuilding the working copy: a data DB holds blocks nothing can account for",
+		"dataDBs", strings.Join(unreachable, ", "), "highestReachableVersion", reachable)
+	return s.rebuildWorkingCopy()
+}
+
+// rebuildWorkingCopy throws away the working directory and reopens from the snapshot the current
+// symlink names, discarding everything the working copy held beyond that snapshot. Snapshots are left
+// in place; the current one is at or below the highest reachable version by construction, so replaying
+// forward from it is always valid.
+func (s *CommitStore) rebuildWorkingCopy() error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("flatkv: close before rebuilding the working copy: %w", err)
+	}
+	workDir := filepath.Join(s.flatkvDir(), workingDirName)
+	if err := atomicRemoveDir(workDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("flatkv: remove %s while rebuilding the working copy: %w", workingDirName, err)
+	}
+	if err := s.open(); err != nil {
+		return fmt.Errorf("flatkv: reopen after rebuilding the working copy: %w", err)
+	}
+	return nil
 }
 
 // open opens all database instances.
@@ -512,11 +742,10 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 //	  working/{account,code,...}/          (mutable clone)
 //	  changelog/                           (WAL, shared)
 //
-// The baseline snapshot is cloned into working/ on every open so that
-// PebbleDB writes never mutate snapshot directories. On first run,
-// existing flat DB directories are migrated into a snapshot.
+// The baseline snapshot is cloned into working/ so that PebbleDB writes never mutate snapshot
+// directories. The clone is skipped when working/ already records the same snapshot as its source.
 func (s *CommitStore) open() (retErr error) {
-	s.clearPendingWrites()
+	s.clearPendingBlock()
 
 	dir := s.flatkvDir()
 	if err := os.MkdirAll(dir, 0750); err != nil {
@@ -557,11 +786,27 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("create working dir: %w", err)
 	}
 
-	if err := s.openDBs(workDir); err != nil {
+	dbs, err := s.openRawDBs()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			_ = dbs.close()
+		}
+	}()
+
+	// Global and per-DB metadata are read off Pebble first, while the databases are still the only
+	// thing holding state, and only then are the stores built on top.
+	if err := s.loadLocalMeta(dbs); err != nil {
 		return err
 	}
 
 	if err := s.loadGlobalMetadata(); err != nil {
+		return err
+	}
+
+	if err := s.openStores(dbs); err != nil {
 		return err
 	}
 
@@ -570,159 +815,524 @@ func (s *CommitStore) open() (retErr error) {
 }
 
 func (s *CommitStore) acquireFileLock(dir string) error {
-	lockPath, err := filepath.Abs(filepath.Join(dir, lockFileName))
+	fl, err := lockDir(dir)
 	if err != nil {
-		return fmt.Errorf("abs lock path: %w", err)
-	}
-	fl, err := filelock.New(lockPath)
-	if err != nil {
-		return fmt.Errorf("create file lock: %w", err)
-	}
-	locked, err := fl.TryLock()
-	if err != nil {
-		if errors.Is(err, filelock.ErrLocked) {
-			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
-		}
-		return fmt.Errorf("acquire file lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
+		return err
 	}
 	s.fileLock = fl
 	return nil
 }
 
-// openPebbleDB creates the directory at cfg.DataDir and opens a PebbleDB instance.
-func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, cacheCfg *dbcache.CacheConfig) (seidbtypes.KeyValueDB, error) {
+// openPebbleDB creates the directory at cfg.DataDir and opens a bare PebbleDB instance.
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig) (seidbtypes.KeyValueDB, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
-	db, err := pebbledb.OpenWithCache(s.ctx, cfg, cacheCfg, s.readPool, s.miscPool)
+	db, err := pebbledb.Open(s.ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}
 	return db, nil
 }
 
-// openDBs opens all PebbleDBs from dbDir. On failure all already-opened handles are closed.
-//
-// It does not touch the WAL: the WAL is injected at construction and its lifecycle is decoupled from the
-// DB open/close cycle (it must survive LoadVersion/Rollback DB reopens), so it is neither opened nor
-// cleared here.
-func (s *CommitStore) openDBs(dbDir string) (retErr error) {
+// rawDBs holds the four raw pebble handles between opening them and handing them to the stores.
+type rawDBs struct {
+	account seidbtypes.KeyValueDB
+	code    seidbtypes.KeyValueDB
+	storage seidbtypes.KeyValueDB
+	misc    seidbtypes.KeyValueDB
+}
 
-	var toClose []io.Closer
+// forDir returns the handle for the named database directory, or nil when the name is not one of them.
+func (d rawDBs) forDir(name string) seidbtypes.KeyValueDB {
+	switch name {
+	case accountDBDir:
+		return d.account
+	case codeDBDir:
+		return d.code
+	case storageDBDir:
+		return d.storage
+	case miscDBDir:
+		return d.misc
+	}
+	return nil
+}
+
+// close closes every handle, joining whatever errors come back.
+func (d rawDBs) close() error {
+	return errors.Join(
+		closeDB(accountDBDir, d.account),
+		closeDB(codeDBDir, d.code),
+		closeDB(storageDBDir, d.storage),
+		closeDB(miscDBDir, d.misc),
+	)
+}
+
+// closeDB closes db, naming dir in any error. A nil handle is nothing to close.
+func closeDB(dir string, db seidbtypes.KeyValueDB) error {
+	if db == nil {
+		return nil
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("%s close: %w", dir, err)
+	}
+	return nil
+}
+
+// openRawDBs opens the four pebble instances. The caller owns them until the stores take over; on
+// failure nothing is left open.
+func (s *CommitStore) openRawDBs() (dbs rawDBs, retErr error) {
 	defer func() {
 		if retErr != nil {
-			for _, c := range toClose {
-				_ = c.Close()
-			}
-			s.metadataDB = nil
-			s.accountDB = nil
-			s.codeDB = nil
-			s.storageDB = nil
-			s.miscDB = nil
-			s.localMeta = make(map[string]*ktype.LocalMeta)
+			_ = dbs.close()
 		}
 	}()
 
 	var err error
-	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig, &s.config.AccountCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open account DB: %w", err)
+	if dbs.account, err = s.openPebbleDB(&s.config.AccountDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open account DB: %w", err)
 	}
-	toClose = append(toClose, s.accountDB)
-
-	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig, &s.config.CodeCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open code DB: %w", err)
+	if dbs.code, err = s.openPebbleDB(&s.config.CodeDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open code DB: %w", err)
 	}
-	toClose = append(toClose, s.codeDB)
-
-	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig, &s.config.StorageCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open storage DB: %w", err)
+	if dbs.storage, err = s.openPebbleDB(&s.config.StorageDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open storage DB: %w", err)
 	}
-	toClose = append(toClose, s.storageDB)
-
-	s.miscDB, err = s.openPebbleDB(&s.config.MiscDBConfig, &s.config.MiscCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open misc DB: %w", err)
+	if dbs.misc, err = s.openPebbleDB(&s.config.MiscDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open misc DB: %w", err)
 	}
-	toClose = append(toClose, s.miscDB)
+	return dbs, nil
+}
 
-	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, &s.config.MetadataCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open metadata DB: %w", err)
-	}
-	toClose = append(toClose, s.metadataDB)
-
-	for _, ndb := range s.namedDataDBs() {
-		meta, err := loadLocalMeta(ndb.db)
+// loadLocalMeta reads each data database's persisted metadata into localMeta.
+func (s *CommitStore) loadLocalMeta(dbs rawDBs) error {
+	s.localMeta = make(map[string]*LocalMeta)
+	for _, dir := range dataDBDirs {
+		meta, err := loadLocalMeta(dbs.forDir(dir))
 		if err != nil {
-			return fmt.Errorf("failed to load %s local meta: %w", ndb.dir, err)
+			return fmt.Errorf("failed to load %s local meta: %w", dir, err)
 		}
-		s.localMeta[ndb.dir] = meta
+		s.localMeta[dir] = meta
+	}
+	return nil
+}
+
+// openStores wraps the four already-open PebbleDBs in view managers. It is the last step of opening a
+// store: each database is handed to the store that wraps it, which owns it from then on, and every later
+// access goes through that store. Reaching a database directly after this point is possible only through
+// rawDBFor, whose doc gives the rules for it.
+//
+// On failure every store already constructed is closed, leaving the store store-less rather than
+// half-wired.
+func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		// A store that fails to close may leave its database open, and the next open then fails on the
+		// file lock with an error that looks unrelated. Joining it here names the real cause.
+		if closeErr := s.closeStores(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close partially opened stores: %w", closeErr))
+		}
+	}()
+
+	var err error
+
+	// readPool and miscPool must stay distinct pools: misc tasks block on read results, so sharing one
+	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
+	// own reads onto either pool, for the same reason.
+	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
+		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool, s.sortPool)
+		if storeErr != nil {
+			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
+		}
+		return store, nil
+	}
+
+	s.accountStore, err = open(&s.config.AccountStoreConfig, dbs.account)
+	if err != nil {
+		return err
+	}
+	s.codeStore, err = open(&s.config.CodeStoreConfig, dbs.code)
+	if err != nil {
+		return err
+	}
+	s.storageStore, err = open(&s.config.StorageStoreConfig, dbs.storage)
+	if err != nil {
+		return err
+	}
+	s.miscStore, err = open(&s.config.MiscStoreConfig, dbs.misc)
+	if err != nil {
+		return err
+	}
+
+	s.stores = []view.ViewManager{
+		s.accountStore, s.codeStore, s.storageStore, s.miscStore,
+	}
+
+	// Every store gets a baseline seal, read-only views included. A view replays blocks to reach its target
+	// height, and each replayed block is hashed against the snapshot before it; without a baseline there is no
+	// "before", so every key in the first replayed block would be mixed in as new with nothing mixed out and
+	// the view would report a hash matching no real chain history.
+	if err := s.sealBaseline(); err != nil {
+		return err
+	}
+
+	if err := s.startHashing(); err != nil {
+		return err
+	}
+
+	if !s.readOnly {
+		// Built last, and only here: it checkpoints the databases the view managers above own, so it must
+		// not outlive them. closeStores drains it before those managers go away.
+		s.snapshotWriter = newSnapshotWriter(
+			s.ctx,
+			s.flatkvDir(),
+			s.config.SnapshotKeepRecent,
+			s.config.ExternalPruning,
+			s.config.SnapshotInterval,
+			s.config.MaxSnapshotLagBlocks,
+			s.checkpointables(),
+			s.checkpointScheduler,
+		)
 	}
 
 	return nil
 }
 
+// checkpointables returns the handle each database is checkpointed through, keyed by database
+// directory name. Captured once while the view managers exist, so a snapshot being written off-thread
+// never has to reach back into the store for a handle that teardown may have cleared.
+//
+// A checkpoint addresses a database as a file rather than as a key-value store, which is the one thing
+// a view manager cannot express — so this is the single place FlatKV reaches past one, and the
+// manager's escape hatch names checkpointing as its only sanctioned use.
+func (s *CommitStore) checkpointables() map[string]seidbtypes.Checkpointable {
+	dbs := make(map[string]seidbtypes.Checkpointable, len(dataDBDirs))
+	for _, name := range dataDBDirs {
+		if db, ok := s.rawDBFor(name).(seidbtypes.Checkpointable); ok {
+			dbs[name] = db
+		}
+	}
+	return dbs
+}
+
+// viewManagerFor returns the view manager mediating the named database, or nil before the managers exist.
+//
+// It answers with the manager, not the database beneath it, so that every access through it is an access the
+// manager has sanctioned. The one operation that genuinely needs the database — taking a Pebble checkpoint,
+// which addresses it as a file rather than as a key-value store — reaches past the manager at its own call
+// site, where the reason is written down.
+func (s *CommitStore) viewManagerFor(name string) view.ViewManager {
+	switch name {
+	case accountDBDir:
+		return s.accountStore
+	case codeDBDir:
+		return s.codeStore
+	case storageDBDir:
+		return s.storageStore
+	case miscDBDir:
+		return s.miscStore
+	}
+	return nil
+}
+
+// rawDBFor returns the raw database behind the named view manager, bypassing every guarantee that manager
+// provides. Apply intense scrutiny at every call site.
+//
+// Reading data through it is a bug: it sees only what the flusher has written, missing both staged and
+// finalized-but-unflushed rows, silently. Use Get/BatchGet/Iterator instead.
+//
+// Returns nil before the managers exist; callers in that window hold the handles directly.
+func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
+	manager := s.viewManagerFor(name)
+	if manager == nil {
+		return nil
+	}
+	return manager.EscapeHatchUnderlyingDB()
+}
+
+// closeStores tears down whichever stores exist and clears them, so a store that is being reopened
+// (rollback, restore) does not keep stores pointed at closed databases. Errors are joined rather
+// than short-circuited: every store must be given its chance to stop.
+func (s *CommitStore) closeStores() error {
+	var errs []error
+
+	// Hashing stops before the writer, which can be waiting for a block to flush — something only
+	// finalization makes possible.
+	if err := s.stopHashing(); err != nil {
+		errs = append(errs, err)
+	}
+
+	// The writer must stop before anything below runs: closing a view manager closes the database it
+	// owns, and a checkpoint in progress would then be reading a closed handle. This is the choke point
+	// every teardown path reaches — Close directly, Rollback and resetForImport through closeDBsOnly —
+	// so the guard lives here rather than at each of them.
+	if s.snapshotWriter != nil {
+		if err := s.snapshotWriter.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close snapshot writer: %w", err))
+		}
+		s.snapshotWriter = nil
+	}
+
+	// Release the reservations on the last sealed block and forget the handles. They belong to the
+	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
+	// awaiting a flush on views whose store is already gone.
+	if s.lastSealed != nil {
+		if err := s.lastSealed.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+		}
+		s.lastSealed = nil
+	}
+
+	for _, store := range s.stores {
+		if store == nil {
+			continue
+		}
+		if err := store.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("%s store close: %w", store.Name(), err))
+		}
+	}
+
+	s.accountStore = nil
+	s.codeStore = nil
+	s.storageStore = nil
+	s.miscStore = nil
+	s.stores = nil
+	return errors.Join(errs...)
+}
+
+// computeStoreHeights reports the height each database actually reached on disk, keyed by database
+// directory name, or nil when they all sit at the store's committed version and replay has nothing to
+// skip.
+//
+// Replay starts from the committed version, which deriveGlobalState has already set to the lowest of
+// these heights; the databases that are past that block skip it individually rather than the whole
+// block being refused.
+//
+// Must run after each database's LocalMeta has been read off pebble, and before the stores exist.
+func (s *CommitStore) computeStoreHeights() map[string]int64 {
+	heights := make(map[string]int64, len(dataDBDirs))
+	for _, dir := range dataDBDirs {
+		heights[dir] = s.localMeta[dir].CommittedVersion
+	}
+
+	// A database ahead of the store-wide version flushed a block whose peers did not. Only when all four
+	// agree is there nothing to catch up.
+	for _, height := range heights {
+		if height != s.committedVersion {
+			logger.Info("FlatKV stores are at different heights; replay will catch them up",
+				"storeWide", s.committedVersion, "perDB", heights)
+			return heights
+		}
+	}
+	return nil
+}
+
+// loadGlobalMetadata rebuilds the store's in-memory global state from the data DBs' metadata.
 func (s *CommitStore) loadGlobalMetadata() error {
-	globalVersion, err := s.loadGlobalVersion()
-	if err != nil {
-		return fmt.Errorf("failed to load global version: %w", err)
+	if err := s.hydratePerDBState(); err != nil {
+		return err
 	}
-	s.committedVersion = globalVersion
+	s.deriveGlobalState()
+	return nil
+}
 
-	earliestVersion, err := s.loadGlobalEarliestVersion()
-	if err != nil {
-		return fmt.Errorf("failed to load global earliest version: %w", err)
-	}
-	s.earliestVersion = earliestVersion
-
-	globalLtHash, err := s.loadGlobalLtHash()
-	if err != nil {
-		return fmt.Errorf("failed to load global LtHash: %w", err)
-	}
-	if globalLtHash != nil {
-		s.committedLtHash = globalLtHash
-		s.workingLtHash = globalLtHash.Clone()
-	} else {
-		s.committedLtHash = lthash.New()
-		s.workingLtHash = lthash.New()
-	}
-
-	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
-	// If any DB's version is behind the global version (partial commit or
-	// corruption), lower committedVersion so catchup replays from there.
+// hydratePerDBState rebuilds loadedHashes from each data DB's LocalMeta. It rejects a DB whose
+// per-module hashes do not sum to its recorded root.
+func (s *CommitStore) hydratePerDBState() error {
+	s.loadedHashes = lthash.NewBlockHash(dataDBDirs)
 	for _, dbDir := range dataDBDirs {
 		meta := s.localMeta[dbDir]
 		if err := validatePerModuleMetadata(dbDir, meta); err != nil {
 			return err
 		}
 		if meta != nil && meta.LtHash != nil {
-			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+			s.loadedHashes.PerDB[dbDir] = meta.LtHash.Clone()
 		} else {
-			s.perDBWorkingLtHash[dbDir] = lthash.New()
+			s.loadedHashes.PerDB[dbDir] = lthash.New()
 		}
 		if meta != nil {
-			s.perDBModuleWorkingLtHash[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
-			s.perDBModuleWorkingStats[dbDir] = cloneModuleStats(meta.ModuleStats)
-		} else {
-			s.perDBModuleWorkingLtHash[dbDir] = make(map[string]*lthash.LtHash)
-			s.perDBModuleWorkingStats[dbDir] = make(map[string]lthash.ModuleStats)
+			s.loadedHashes.PerModule[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
+			s.loadedHashes.PerModuleStats[dbDir] = cloneModuleStats(meta.ModuleStats)
 		}
-		if meta != nil && meta.CommittedVersion < s.committedVersion {
-			logger.Warn("DB LocalMeta version behind global version, will catchup",
-				"db", dbDir,
-				"localVersion", meta.CommittedVersion,
-				"globalVersion", s.committedVersion)
-			s.committedVersion = meta.CommittedVersion
+	}
+	return nil
+}
+
+// deriveGlobalState sets the committed version to the lowest version any data DB
+// reached and the committed LtHash to the homomorphic sum of their roots.
+func (s *CommitStore) deriveGlobalState() {
+	version := s.localMeta[dataDBDirs[0]].CommittedVersion
+	for _, dbDir := range dataDBDirs {
+		if v := s.localMeta[dbDir].CommittedVersion; v < version {
+			version = v
 		}
 	}
 
+	for _, dbDir := range dataDBDirs {
+		if meta := s.localMeta[dbDir]; meta.CommittedVersion > version {
+			logger.Warn("data DB versions disagree, catchup will replay from the lowest",
+				"db", dbDir,
+				"localVersion", meta.CommittedVersion,
+				"storeVersion", version)
+		}
+	}
+
+	s.committedVersion = version
+	s.loadedHashes.BlockNumber = version
+	s.loadedHashes.Global = lthash.SumDBHashes(dataDBDirs, s.loadedHashes.PerDB)
+}
+
+// startHashing builds the hash engine and the finalizer that consumes it, both seeded from what load
+// read off disk. They are built together and only here, so neither outlives the stores it reads.
+//
+// A read-only store gets them too: it replays blocks to reach its target height, and each replayed block
+// is hashed against the one before it exactly as a committed block is.
+func (s *CommitStore) startHashing() error {
+	// Called through a closure rather than passed directly, so the field stays the live source of truth
+	// and a test can swap it on an open store.
+	moduleParser := func(key []byte) (string, error) { return s.moduleOf(key) }
+
+	engine, err := lthash.NewHashEngine(
+		s.ctx, &s.config.HashEngineConfig, s.ltHashPool, dataDBDirs, moduleParser, s.loadedHashes)
+	if err != nil {
+		return fmt.Errorf("create hash engine: %w", err)
+	}
+	s.hashEngine = engine
+	s.finalizer = newFinalizationManager(
+		s.ctx,
+		s.hashEngine.AwaitHash(),
+		s.loadedHashes,
+		s.config.FinalizationQueueSize,
+		s.hashListeners,
+	)
+
+	// The listeners are told the height hashing starts from, since a store that opened, seeded or
+	// rolled back reached it without any block being committed.
+	if err := s.hashListeners.dispatch(s.ctx, s.loadedHashes); err != nil {
+		return fmt.Errorf("dispatch the loaded hash of block %d: %w", s.loadedHashes.BlockNumber, err)
+	}
 	return nil
+}
+
+// flushInFlightBlocks waits for the blocks committed so far to be hashed and finalized, so that they
+// reach the databases: a block's rows are written into the same batch its hashes are recorded in, so a
+// block still in flight when hashing stops never lands at all.
+//
+// A store whose own context is already cancelled has nothing to wait for, both phases being stopped by
+// that cancellation, and the blocks still in flight are abandoned for replay to recover.
+//
+// Unlike FlushHashes this takes no lock, for the teardown path that already holds one.
+func (s *CommitStore) flushInFlightBlocks() error {
+	if s.hashEngine == nil || s.ctx.Err() != nil {
+		return nil
+	}
+	// The engine first: its output is the finalizer's input, so waiting on the finalizer alone would
+	// return while blocks were still inside the engine.
+	if err := s.hashEngine.Flush(); err != nil {
+		return fmt.Errorf("flush hash engine: %w", err)
+	}
+	if err := s.finalizer.Flush(); err != nil {
+		return fmt.Errorf("flush finalization manager: %w", err)
+	}
+	return nil
+}
+
+// stopHashing finishes the blocks already in flight, then closes the hash engine and the finalizer.
+//
+// This is the one function every teardown path passes through — Close directly, Rollback and
+// resetForImport through closeDBsOnly — so the flush that lands those blocks lives here rather than at
+// each of them.
+//
+// Closing itself needs no ordering between the two: each cancels its own context, and every wait
+// either of them holds is released by that cancellation.
+func (s *CommitStore) stopHashing() error {
+	var errs []error
+
+	if err := s.flushInFlightBlocks(); err != nil {
+		errs = append(errs, err)
+	}
+
+	if s.hashEngine != nil {
+		if err := s.hashEngine.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close hash engine: %w", err))
+		}
+		s.hashEngine = nil
+	}
+	if s.finalizer != nil {
+		if err := s.finalizer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close finalization manager: %w", err))
+		}
+		s.finalizer = nil
+	}
+	return errors.Join(errs...)
+}
+
+// restartHashing rebuilds the hash engine and the finalizer from what the store has just loaded, for a
+// caller that has replaced the databases underneath them.
+//
+// Discarding and rebuilding rather than reseeding in place: the caller has already quiesced the store,
+// so there is nothing in flight to preserve, and the pair has to move together anyway — the finalizer
+// captures the engine's stream when it is built.
+func (s *CommitStore) restartHashing() error {
+	if s.hashEngine == nil {
+		return nil
+	}
+	if err := s.stopHashing(); err != nil {
+		return err
+	}
+	return s.startHashing()
+}
+
+// reloadLocalMeta re-reads each data database's recorded metadata from disk, for a caller that needs
+// what the finalizer has written rather than what load saw.
+//
+// It waits for both barriers first, because without them the read is meaningless: a block's metadata is
+// written by the finalizer, on its own goroutine, into the same batch as the block's data — and that
+// batch reaches disk asynchronously after that. Waiting here rather than at each caller is what stops
+// the next one reading a database that has not caught up yet.
+func (s *CommitStore) reloadLocalMeta() error {
+	if err := s.FlushHashes(); err != nil {
+		return fmt.Errorf("flush hashes before reading local meta: %w", err)
+	}
+	if err := s.flushLatestVersion(); err != nil {
+		return fmt.Errorf("flush to disk before reading local meta: %w", err)
+	}
+	for _, dir := range dataDBDirs {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		if err != nil {
+			return fmt.Errorf("reload %s local meta: %w", dir, err)
+		}
+		s.localMeta[dir] = meta
+	}
+	return nil
+}
+
+// requireAlignedDataDBs returns an error unless every data DB sits at the store's committed version.
+// The condition holds once replay has run; before then the DBs may legally disagree, and
+// rebuildIfAnyDataDBIsUnreachable has already removed the disagreements replay cannot close.
+//
+// This is what makes summing the per-DB roots into the store root sound: the sum only describes a real
+// state if every DB contributed at the same version.
+func (s *CommitStore) requireAlignedDataDBs() error {
+	// s.localMeta describes what load saw, not what the replay above has since recorded.
+	if err := s.reloadLocalMeta(); err != nil {
+		return fmt.Errorf("flatkv: reload local meta before checking data DB alignment: %w", err)
+	}
+
+	misaligned := make([]string, 0, len(dataDBDirs))
+	for _, dbDir := range dataDBDirs {
+		if meta := s.localMeta[dbDir]; meta.CommittedVersion != s.committedVersion {
+			misaligned = append(misaligned, fmt.Sprintf("%s at %d", dbDir, meta.CommittedVersion))
+		}
+	}
+	if len(misaligned) == 0 {
+		return nil
+	}
+	return fmt.Errorf("flatkv: store is at version %d after replay but %s; the write-ahead log did not "+
+		"bring every data DB to the same version (restore from a snapshot, or re-sync)",
+		s.committedVersion, strings.Join(misaligned, ", "))
 }
 
 func (s *CommitStore) Version() int64 {
@@ -735,24 +1345,87 @@ func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
 }
 
-// RootHash returns the Blake3-256 digest of the working LtHash.
-func (s *CommitStore) RootHash() []byte {
-	checksum := s.workingLtHash.Checksum()
-	return checksum[:]
+// currentHash returns the hash of the height this store stands at: what the pipeline has reached on
+// a committing store, and what was loaded before it has hashed anything.
+func (s *CommitStore) currentHash() *lthash.BlockHash {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.finalizer != nil {
+		return s.finalizer.PublishedHash()
+	}
+	return s.loadedHashes
 }
 
-// CommittedRootHash returns the Blake3-256 digest of the last committed LtHash.
-func (s *CommitStore) CommittedRootHash() []byte {
-	checksum := s.committedLtHash.Checksum()
-	return checksum[:]
+// RegisterHashListener registers a callback the store hands the hash of each committed block to:
+// exactly one per block, in block order, with no gaps or duplicates. It reports the most recent hash
+// dispatched, which is the block the listener's first delivery follows.
+func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
+	return s.hashListeners.register(listener, s.currentHash()), nil
 }
 
-// EarliestVersion implements Store.
-func (s *CommitStore) EarliestVersion() int64 {
-	return s.earliestVersion
+// Flush returns immediately: Commit writes and flushes the block WAL before it returns, so nothing is
+// ever pending.
+func (s *CommitStore) Flush() error {
+	return nil
 }
 
+// FlushHashes blocks until every block committed so far has been hashed and its hash handed to every
+// registered listener.
+func (s *CommitStore) FlushHashes() error {
+	s.mu.RLock()
+	engine, finalizer := s.hashEngine, s.finalizer
+	s.mu.RUnlock()
+
+	if engine == nil {
+		return nil
+	}
+	// The engine first: its output is the finalizer's input, so waiting on the finalizer alone would
+	// return before blocks still inside the engine had reached it.
+	if err := engine.Flush(); err != nil {
+		return fmt.Errorf("flush hashes: %w", err)
+	}
+	if err := finalizer.Flush(); err != nil {
+		return fmt.Errorf("flush hashes: %w", err)
+	}
+	return nil
+}
+
+// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A no-op
+// on a store with no pending writes, which is every store between blocks and every read-only store.
+//
+// A block that has not been committed has no hash — the hash is computed from the views a commit
+// produces — so a caller wanting one mid-block is asking for the block to be committed. This is that
+// request, made explicitly. Post-Cosmos nothing asks for a hash mid-block and this goes away.
+func (s *CommitStore) CommitPendingBlock() error {
+	if s.readOnly {
+		return nil
+	}
+	pending := s.PendingVersion()
+	if pending == 0 {
+		return nil
+	}
+	if _, err := s.Commit(pending); err != nil {
+		return fmt.Errorf("commit pending block %d: %w", pending, err)
+	}
+	return nil
+}
+
+// Importer returns an importer for data from an untrusted source, such as a state sync peer. The import
+// fails unless physical keys arrive in strictly ascending order, which is the order KVExporter emits.
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	return s.newImporter(version, true)
+}
+
+// TrustedImporter returns an importer for data from a trusted source, such as an offline migration of this
+// node's own state. It accepts physical keys in any order, but each key must appear at most once: a repeat
+// is not detected and leaves the imported hash wrong.
+func (s *CommitStore) TrustedImporter(version int64) (types.Importer, error) {
+	return s.newImporter(version, false)
+}
+
+// newImporter prepares the store for an import at version and returns the importer.
+func (s *CommitStore) newImporter(version int64, requireAscendingKeys bool) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
@@ -775,7 +1448,21 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-	return NewKVImporter(s, version), nil
+	return NewKVImporter(s, version, s.importDBs(), requireAscendingKeys), nil
+}
+
+// importDBs collects the raw databases an import writes into, taken from the view managers that
+// currently own them.
+//
+// An import writes beneath the managers, so it needs the databases themselves. Gathering them in one place
+// keeps that need visible as a single act rather than as a handle fetched per key.
+func (s *CommitStore) importDBs() rawDBs {
+	return rawDBs{
+		account: s.rawDBFor(accountDBDir),
+		code:    s.rawDBFor(codeDBDir),
+		storage: s.rawDBFor(storageDBDir),
+		misc:    s.rawDBFor(miscDBDir),
+	}
 }
 
 // resetForImport purges all existing data so that a subsequent import
@@ -833,11 +1520,7 @@ func (s *CommitStore) resetForImport() error {
 	}
 
 	s.committedVersion = 0
-	s.committedLtHash = lthash.New()
-	s.workingLtHash = lthash.New()
-	s.perDBWorkingLtHash = newPerDBLtHashMap()
-	s.perDBModuleWorkingLtHash = newPerDBModuleLtHashMap()
-	s.perDBModuleWorkingStats = newPerDBModuleStatsMap()
+	s.loadedHashes = lthash.NewBlockHash(dataDBDirs)
 
 	return nil
 }
@@ -859,7 +1542,7 @@ func (s *CommitStore) reopenWAL() error {
 	if err := s.wal.Close(); err != nil {
 		return fmt.Errorf("close state WAL: %w", err)
 	}
-	w, err := statewal.New(stateWALConfig(&s.config))
+	w, err := statewal.New(StateWALConfig(s.config.DataDir))
 	if err != nil {
 		return fmt.Errorf("open state WAL: %w", err)
 	}
@@ -869,43 +1552,4 @@ func (s *CommitStore) reopenWAL() error {
 
 func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {
 	return s.phaseTimer
-}
-
-// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
-// that does not already have one, using DataDir as the base path. The DBs live
-// under the working directory: <DataDir>/working/<subdir>.
-func InitializeDataDirectories(c *config.Config) {
-	workDir := filepath.Join(c.DataDir, workingDirName)
-	if c.AccountDBConfig.DataDir == "" {
-		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
-	}
-	if c.CodeDBConfig.DataDir == "" {
-		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
-	}
-	if c.StorageDBConfig.DataDir == "" {
-		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
-	}
-	if c.MiscDBConfig.DataDir == "" {
-		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
-	}
-	if c.MetadataDBConfig.DataDir == "" {
-		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
-	}
-	applyPebbleMetricsConfig(c)
-}
-
-func applyPebbleMetricsConfig(c *config.Config) {
-	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
-	// EnableMetrics values are intentionally overwritten here.
-	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
-
-	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }

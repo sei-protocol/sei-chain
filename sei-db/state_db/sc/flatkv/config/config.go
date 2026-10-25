@@ -4,13 +4,10 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-)
-
-const (
-	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -19,29 +16,35 @@ type Config struct {
 	// Must be set before calling Validate().
 	DataDir string
 
-	// Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
-	// WAL always uses NoSync (matching memiavl); crash recovery relies on
-	// WAL catchup, which is idempotent.
-	// Default: false
+	// Fsync controls whether every view manager's flush is fsync'd. It overwrites each store
+	// config's FlushSync, so the four databases are always synced alike. The state WAL is
+	// unaffected and always writes NoSync.
 	Fsync bool `mapstructure:"fsync"`
 
 	// AsyncWriteBuffer defines the size of the async write buffer for data DBs.
 	// Set <= 0 for synchronous writes.
-	// Default: 0 (synchronous)
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
 	// SnapshotInterval defines how often (in blocks) a PebbleDB checkpoint
 	// snapshot is taken. 0 disables auto-snapshots.
 	// Without periodic snapshots the WAL grows unbounded and every restart
 	// replays the entire history from snapshot-0.
-	// Default: 10000
 	SnapshotInterval uint32 `mapstructure:"snapshot-interval"`
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// It is not derived from memIAVL's sc-keep-recent.
 	// Ignored entirely when ExternalPruning is set.
-	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// MaxSnapshotLagBlocks is how many committed blocks may queue up behind a snapshot that is still
+	// being written before Commit blocks. A value below 1 is treated as 1.
+	//
+	// A snapshot being written holds every database pinned at its own height, so no later block can
+	// reach disk until it completes, and each one is retained in memory meanwhile. This bounds how far
+	// that can run, trading a pause in block production for the memory the backlog would otherwise
+	// consume. It bounds blocks rather than bytes, so it mitigates exhaustion rather than preventing it.
+	MaxSnapshotLagBlocks uint32 `mapstructure:"max-snapshot-lag-blocks"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
 	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
@@ -51,47 +54,41 @@ type Config struct {
 	//
 	// With it on, snapshots are retained by height rather than by count, so the number kept becomes
 	// RollbackWindow / SnapshotInterval instead of SnapshotKeepRecent + 1.
-	//
-	// Default: false
 	ExternalPruning bool `mapstructure:"-"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
-	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 
 	// EnableReadWriteMetrics emits simple estimated read/write counters for FlatKV's Pebble DBs.
-	// Default: false
 	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig
 
-	// AccountCacheConfig defines the cache configuration for the account database.
-	AccountCacheConfig dbcache.CacheConfig
+	// AccountStoreConfig defines the view manager configuration for the account database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	AccountStoreConfig view.ViewManagerConfig
 
 	// CodeDBConfig defines the PebbleDB configuration for the code database.
 	CodeDBConfig pebbledb.PebbleDBConfig
 
-	// CodeCacheConfig defines the cache configuration for the code database.
-	CodeCacheConfig dbcache.CacheConfig
+	// CodeStoreConfig defines the view manager configuration for the code database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	CodeStoreConfig view.ViewManagerConfig
 
 	// StorageDBConfig defines the PebbleDB configuration for the storage database.
 	StorageDBConfig pebbledb.PebbleDBConfig
 
-	// StorageCacheConfig defines the cache configuration for the storage database.
-	StorageCacheConfig dbcache.CacheConfig
+	// StorageStoreConfig defines the view manager configuration for the storage database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	StorageStoreConfig view.ViewManagerConfig
 
 	// MiscDBConfig defines the PebbleDB configuration for the misc database.
 	MiscDBConfig pebbledb.PebbleDBConfig
 
-	// MiscCacheConfig defines the cache configuration for the misc database.
-	MiscCacheConfig dbcache.CacheConfig
-
-	// MetadataDBConfig defines the PebbleDB configuration for the metadata database.
-	MetadataDBConfig pebbledb.PebbleDBConfig
-
-	// MetadataCacheConfig defines the cache configuration for the metadata database.
-	MetadataCacheConfig dbcache.CacheConfig
+	// MiscStoreConfig defines the view manager configuration for the misc database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	MiscStoreConfig view.ViewManagerConfig
 
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
@@ -112,41 +109,73 @@ type Config struct {
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
 
-	// Controls the number of workers in the dedicated lattice-hash pool used to
-	// compute per-module LtHashes during ApplyChangeSets. The worker count is
-	// LtHashThreadsPerCore * runtime.NumCPU() (clamped to at least 1). LtHash
-	// computation is CPU-bound, so ~1 worker per core is a sensible default.
+	// HashEngineConfig configures the pipeline that hashes each committed block.
+	HashEngineConfig lthash.Config
+
+	// FinalizationQueueSize is how many sealed blocks may be waiting to have their hashes recorded
+	// before Commit blocks.
+	//
+	// A block waiting here holds a reservation on its own views, and a held reservation stops its
+	// database's flush frontier, so this bounds how much of the pipeline stays resident.
+	FinalizationQueueSize uint32 `mapstructure:"finalization-queue-size"`
+
+	// Controls the number of workers in the dedicated lattice-hash pool used to compute per-module
+	// LtHashes. The number of workers in this pool is equal to LtHashThreadsPerCore * runtime.NumCPU(),
+	// clamped to at least 1.
 	LtHashThreadsPerCore float64
+
+	// Controls the number of workers in the dedicated pool that orders each sealed block's writes by key
+	// before the flush consumes them. The worker count is SortThreadsPerCore * runtime.NumCPU(), clamped
+	// to at least 1.
+	//
+	// A block is sealed long before it is flushed, so this pool exists to keep the ordering off the flush
+	// thread rather than to finish any one block quickly. Its queue is deliberately far larger than its
+	// worker count: submitting happens on the commit path, and throttling commits is
+	// MaxUnflushedVersions' job alone.
+	SortThreadsPerCore float64
+}
+
+// defaultStoreConfig returns the view manager defaults for one database, named for the database's
+// directory so metrics and per-database hash bookkeeping can tell the stores apart.
+func defaultStoreConfig(name string) view.ViewManagerConfig {
+	return *view.DefaultViewManagerConfig(name, ktype.MetaKeyPrefix)
 }
 
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
-		Fsync:                     false,
-		AsyncWriteBuffer:          0,
-		SnapshotInterval:          DefaultSnapshotInterval,
-		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
+		Fsync:            false,
+		AsyncWriteBuffer: 0,
+		SnapshotInterval: 10000,
+		// A composite read needs a version both backends still hold. At mainnet state size memIAVL
+		// publishes a snapshot only about every 50,000 blocks, so FlatKV must reach back further
+		// than that: ten old checkpoints at this interval reach 100,000 blocks. A checkpoint
+		// hardlinks its SSTs, so each one costs only what compaction has obsoleted since, about
+		// 290 MiB at mainnet state size.
+		SnapshotKeepRecent:        10,
+		MaxSnapshotLagBlocks:      64,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
-		AccountCacheConfig:        dbcache.DefaultCacheConfig(),
+		AccountStoreConfig:        defaultStoreConfig("account"),
 		CodeDBConfig:              pebbledb.DefaultConfig(),
-		CodeCacheConfig:           dbcache.DefaultCacheConfig(),
+		CodeStoreConfig:           defaultStoreConfig("code"),
 		StorageDBConfig:           pebbledb.DefaultConfig(),
-		StorageCacheConfig:        dbcache.DefaultCacheConfig(),
+		StorageStoreConfig:        defaultStoreConfig("storage"),
 		MiscDBConfig:              pebbledb.DefaultConfig(),
-		MiscCacheConfig:           dbcache.DefaultCacheConfig(),
-		MetadataDBConfig:          pebbledb.DefaultConfig(),
-		MetadataCacheConfig:       dbcache.DefaultCacheConfig(),
+		MiscStoreConfig:           defaultStoreConfig("misc"),
 		ReaderThreadsPerCore:      2.0,
 		ReaderConstantThreadCount: 0,
 		ReaderPoolQueueSize:       1024,
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
 		LtHashThreadsPerCore:      1.0,
+		SortThreadsPerCore:        0.25,
+		HashEngineConfig:          *lthash.DefaultConfig(),
+		FinalizationQueueSize:     64,
 	}
 
-	cfg.AccountCacheConfig.MaxSize = unit.GB
-	cfg.StorageCacheConfig.MaxSize = unit.GB * 4
+	cfg.AccountStoreConfig.MaxSize = unit.GB
+	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
 
 	return cfg
 }
@@ -160,20 +189,17 @@ func (c *Config) Copy() *Config {
 
 // Validate checks that the configuration is sane and returns an error if it is not.
 func (c *Config) Validate() error {
-	if err := c.AccountCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("account cache config is invalid: %w", err)
+	if err := c.AccountStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("account store config is invalid: %w", err)
 	}
-	if err := c.CodeCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("code cache config is invalid: %w", err)
+	if err := c.CodeStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("code store config is invalid: %w", err)
 	}
-	if err := c.StorageCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("storage cache config is invalid: %w", err)
+	if err := c.StorageStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("storage store config is invalid: %w", err)
 	}
-	if err := c.MiscCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("misc cache config is invalid: %w", err)
-	}
-	if err := c.MetadataCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("metadata cache config is invalid: %w", err)
+	if err := c.MiscStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("misc store config is invalid: %w", err)
 	}
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
@@ -189,9 +215,6 @@ func (c *Config) Validate() error {
 	}
 	if err := c.MiscDBConfig.Validate(); err != nil {
 		return fmt.Errorf("misc db config is invalid: %w", err)
-	}
-	if err := c.MetadataDBConfig.Validate(); err != nil {
-		return fmt.Errorf("metadata db config is invalid: %w", err)
 	}
 
 	if c.ReaderThreadsPerCore <= 0 {
@@ -211,6 +234,9 @@ func (c *Config) Validate() error {
 	}
 	if c.LtHashThreadsPerCore < 0 {
 		return fmt.Errorf("lthash threads per core must not be negative")
+	}
+	if c.SortThreadsPerCore < 0 {
+		return fmt.Errorf("sort threads per core must not be negative")
 	}
 
 	return nil

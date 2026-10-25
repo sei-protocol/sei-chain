@@ -3,6 +3,7 @@ package mvcc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -10,10 +11,10 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -36,14 +37,49 @@ type iterator struct {
 	readCount          int64
 	storeKey           string
 	operationMetrics   *pebbledbmetrics.OperationMetrics
+	dbName             string
+	ctx                context.Context
+	err                error
 
 	closeSync sync.Once
+
+	// closed records whether Close has been called.
+	closed utils.CloseMarker[iterator]
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *iterator {
+func abortIfCancelled(ctx context.Context) error {
+	if ctx == nil || ctx.Done() == nil {
+		return nil
+	}
+	return ctx.Err()
+}
+
+// finishMVCCIterator returns a construction-time cancel or deadline as an
+// error so the caller can abort. Other iterator errors stay on the iterator.
+func finishMVCCIterator(itr dbm.Iterator) (dbm.Iterator, error) {
+	err := itr.Error()
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		_ = itr.Close()
+		return nil, err
+	}
+	return itr, nil
+}
+
+func newPebbleDBIterator(
+	ctx context.Context,
+	src *pebble.Iterator,
+	prefix, mvccStart, mvccEnd []byte,
+	version int64,
+	earliestVersion int64,
+	reverse bool,
+	useDefaultComparer bool,
+	storeKey string,
+	operationMetrics *pebbledbmetrics.OperationMetrics,
+	dbName string,
+) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &iterator{
+		itr := &iterator{
 			source:             src,
 			prefix:             prefix,
 			start:              mvccStart,
@@ -54,7 +90,11 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			useDefaultComparer: useDefaultComparer,
 			storeKey:           storeKey,
 			operationMetrics:   operationMetrics,
+			dbName:             dbName,
+			ctx:                ctx,
 		}
+		itr.closed = utils.MustClose(itr, "mvcc iterator")
+		return itr
 	}
 
 	// move the underlying PebbleDB iterator to the first key
@@ -76,7 +116,10 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		useDefaultComparer: useDefaultComparer,
 		storeKey:           storeKey,
 		operationMetrics:   operationMetrics,
+		dbName:             dbName,
+		ctx:                ctx,
 	}
+	itr.closed = utils.MustClose(itr, "mvcc iterator")
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -146,6 +189,11 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 
 func (itr *iterator) nextLogicalKeyByScan(currKey []byte) ([]byte, bool) {
 	for valid := itr.source.Next(); valid; valid = itr.source.Next() {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return nil, false
+		}
 		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
 		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
 			return nil, false
@@ -173,6 +221,11 @@ func (itr *iterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
 func (itr *iterator) positionAtOrAfterKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -189,6 +242,11 @@ func (itr *iterator) positionAtOrAfterKey(startKey []byte) {
 func (itr *iterator) positionAtOrBeforeKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -218,7 +276,7 @@ func (itr *iterator) Key() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	keyCopy := slices.Clone(key)
+	keyCopy := bytes.Clone(key)
 	return keyCopy[len(itr.prefix):]
 }
 
@@ -232,7 +290,7 @@ func (itr *iterator) Value() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Key()))
 	}
 
-	return slices.Clone(val)
+	return bytes.Clone(val)
 }
 
 func (itr *iterator) nextForward() {
@@ -284,14 +342,21 @@ func (itr *iterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.err != nil {
+		panic(itr.err)
+	}
 	if itr.Valid() {
 		itr.readCount++
 	}
 }
 
 func (itr *iterator) Valid() bool {
+	if itr.err != nil {
+		itr.valid = false
+		return false
+	}
 	// once invalid, forever invalid
-	if !itr.valid || !itr.source.Valid() {
+	if !itr.valid || itr.source == nil || !itr.source.Valid() {
 		itr.valid = false
 		return itr.valid
 	}
@@ -314,11 +379,18 @@ func (itr *iterator) Valid() bool {
 }
 
 func (itr *iterator) Error() error {
+	if itr.err != nil {
+		return itr.err
+	}
+	if itr.source == nil {
+		return nil
+	}
 	return itr.source.Error()
 }
 
 func (itr *iterator) Close() error {
 	itr.closeSync.Do(func() {
+		itr.closed.Close(itr)
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false
@@ -330,6 +402,7 @@ func (itr *iterator) Close() error {
 			metric.WithAttributes(
 				attribute.Bool("reverse", itr.reverse),
 				attribute.String("store", itr.storeKey),
+				attribute.String("db", itr.dbName),
 			),
 		)
 		if itr.operationMetrics != nil {

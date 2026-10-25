@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -86,6 +87,7 @@ func makeSeedNode(
 		utils.None[*proxy.Proxy](),
 		genDoc,
 		dbProvider,
+		utils.None[*bootstrap.GigaStorageManager](),
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
@@ -207,7 +209,7 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) (err error) {
 		go func() {
 			select {
 			case <-ctx.Done():
-				sctx, scancel := context.WithTimeout(context.Background(), time.Second)
+				sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 				defer scancel()
 				_ = srv.Shutdown(sctx)
 			case <-rpcCtx.Done():

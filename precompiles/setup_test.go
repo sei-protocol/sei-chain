@@ -4,11 +4,19 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFeegrantPrecompileIsNotRegistered(t *testing.T) {
+	const feegrantAddress = "0x0000000000000000000000000000000000001010"
+
+	_, exists := precompiles.GetCustomPrecompiles(&utils.EmptyKeepers{})[common.HexToAddress(feegrantAddress)]
+	require.False(t, exists)
+}
 
 // TestIsTransactionMatchesABIStateMutability verifies that every precompile
 // executor exposing IsTransaction agrees with its ABI: exactly the non-view
@@ -17,14 +25,13 @@ import (
 // misclassified as a view would have its state changes silently dropped (and
 // a query misclassified as a transaction would leak querier side effects).
 func TestIsTransactionMatchesABIStateMutability(t *testing.T) {
-	const latest = "latest"
-	for addr, versioned := range precompiles.GetCustomPrecompiles(latest, &utils.EmptyKeepers{}) {
+	for addr, precompile := range precompiles.GetCustomPrecompiles(&utils.EmptyKeepers{}) {
 		var (
 			name     string
 			executor interface{}
 			methods  map[string]bool // method name -> is view per abi
 		)
-		switch p := versioned[latest].(type) {
+		switch p := precompile.(type) {
 		case *pcommon.DynamicGasPrecompile:
 			name, executor = p.GetName(), p.GetExecutor()
 			methods = viewMethods(p.GetABI().Methods)
@@ -32,7 +39,7 @@ func TestIsTransactionMatchesABIStateMutability(t *testing.T) {
 			name, executor = p.GetName(), p.GetExecutor()
 			methods = viewMethods(p.GetABI().Methods)
 		default:
-			t.Fatalf("unexpected precompile wrapper type %T at %s", versioned[latest], addr.Hex())
+			t.Fatalf("unexpected precompile wrapper type %T at %s", precompile, addr.Hex())
 		}
 		classifier, ok := executor.(interface{ IsTransaction(string) bool })
 		if !ok {

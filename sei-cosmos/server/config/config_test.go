@@ -2,9 +2,9 @@ package config
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
-	"time"
 
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
@@ -46,15 +46,10 @@ func TestOCCEnabled(t *testing.T) {
 	require.False(t, cfg.OccEnabled)
 }
 
-func TestDefaultSwaggerConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	require.True(t, cfg.API.Swagger)
-}
-
 func TestDefaultTelemetryConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.Telemetry.Enabled, "Telemetry should be enabled by default")
-	require.Equal(t, int64(7200), cfg.Telemetry.PrometheusRetentionTime)
+	require.Equal(t, int64(0), cfg.Telemetry.PrometheusRetentionTime)
 	require.Empty(t, cfg.Telemetry.GlobalLabels)
 }
 
@@ -62,24 +57,7 @@ func TestDefaultAPIConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.False(t, cfg.API.Enable, "API should be disabled by default")
 	require.Equal(t, "tcp://0.0.0.0:1317", cfg.API.Address)
-	require.True(t, cfg.API.Swagger)
 	require.Equal(t, uint(1000), cfg.API.MaxOpenConnections)
-}
-
-func TestDefaultGRPCConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	require.True(t, cfg.GRPC.Enable)
-	require.Equal(t, DefaultGRPCAddress, cfg.GRPC.Address)
-	require.Equal(t, DefaultGRPCMaxRecvMsgSize, cfg.GRPC.MaxRecvMsgSize)
-	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
-	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
-	require.Equal(t, 5*time.Minute, cfg.GRPC.MaxConnectionIdle)
-	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
-	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
-	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
-	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
-	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
-	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
 }
 
 // seedViperWithDefaultConfig renders the default app config template and reads
@@ -92,108 +70,6 @@ func seedViperWithDefaultConfig(t *testing.T) *viper.Viper {
 	v.SetConfigType("toml")
 	require.NoError(t, v.ReadConfig(&buf))
 	return v
-}
-
-// TestGetConfigGRPCDefaultsWhenAbsent ensures a node upgrading with an older
-// app.toml (which lacks the new gRPC keys) still gets the bounded in-code
-// defaults rather than zero/unlimited values.
-func TestGetConfigGRPCDefaultsWhenAbsent(t *testing.T) {
-	// Minimal app.toml that predates the new gRPC keys. global-labels is the
-	// only key GetConfig hard-requires.
-	const legacyAppToml = `
-[telemetry]
-global-labels = []
-
-[grpc]
-enable = true
-address = "0.0.0.0:9090"
-`
-	v := viper.New()
-	v.SetConfigType("toml")
-	require.NoError(t, v.ReadConfig(bytes.NewBufferString(legacyAppToml)))
-	require.False(t, v.IsSet("grpc.max-recv-msg-size"))
-	require.False(t, v.IsSet("grpc.max-open-connections"))
-	require.False(t, v.IsSet("grpc.max-connection-idle"))
-	require.False(t, v.IsSet("grpc.max-connection-age"))
-	require.False(t, v.IsSet("grpc.max-connection-age-grace"))
-	require.False(t, v.IsSet("grpc.keepalive-permit-without-stream"))
-
-	cfg, err := GetConfig(v)
-	require.NoError(t, err)
-	require.Equal(t, DefaultGRPCMaxRecvMsgSize, cfg.GRPC.MaxRecvMsgSize)
-	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
-	// The bounded idle default must survive an older app.toml that omits the key.
-	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
-	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
-	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
-	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
-	// The directly-read fields (no IsSet guard) must still resolve to their
-	// in-code defaults when the keys are absent.
-	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
-	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
-	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
-}
-
-// TestGetConfigGRPCClampsNegativeDurations ensures a misconfigured negative
-// keepalive/connection-age duration falls back to the safe in-code default
-// rather than being passed verbatim to the gRPC server.
-func TestGetConfigGRPCClampsNegativeDurations(t *testing.T) {
-	v := seedViperWithDefaultConfig(t)
-	v.Set("grpc.max-connection-idle", "-1s")
-	v.Set("grpc.max-connection-age", "-1s")
-	v.Set("grpc.max-connection-age-grace", "-1s")
-	v.Set("grpc.keepalive-time", "-1s")
-	v.Set("grpc.keepalive-timeout", "-1s")
-	v.Set("grpc.keepalive-min-time", "-1s")
-
-	cfg, err := GetConfig(v)
-	require.NoError(t, err)
-	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
-	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
-	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
-	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
-	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
-	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
-}
-
-// TestGetConfigGRPCOverrides ensures operator-provided values override the
-// in-code defaults.
-func TestGetConfigGRPCOverrides(t *testing.T) {
-	v := seedViperWithDefaultConfig(t)
-	v.Set("grpc.max-recv-msg-size", 8*1024*1024)
-	v.Set("grpc.max-open-connections", 50)
-	v.Set("grpc.max-connection-idle", "5m")
-	v.Set("grpc.max-connection-age", "30m")
-	v.Set("grpc.max-connection-age-grace", "1m")
-	v.Set("grpc.keepalive-time", "1m")
-	v.Set("grpc.keepalive-timeout", "10s")
-	v.Set("grpc.keepalive-min-time", "30s")
-	v.Set("grpc.keepalive-permit-without-stream", true)
-
-	cfg, err := GetConfig(v)
-	require.NoError(t, err)
-	require.Equal(t, 8*1024*1024, cfg.GRPC.MaxRecvMsgSize)
-	require.Equal(t, uint(50), cfg.GRPC.MaxOpenConnections)
-	require.Equal(t, 5*time.Minute, cfg.GRPC.MaxConnectionIdle)
-	require.Equal(t, 30*time.Minute, cfg.GRPC.MaxConnectionAge)
-	require.Equal(t, time.Minute, cfg.GRPC.MaxConnectionAgeGrace)
-	require.Equal(t, time.Minute, cfg.GRPC.KeepaliveTime)
-	require.Equal(t, 10*time.Second, cfg.GRPC.KeepaliveTimeout)
-	require.Equal(t, 30*time.Second, cfg.GRPC.KeepaliveMinTime)
-	require.True(t, cfg.GRPC.KeepalivePermitWithoutStream)
-}
-
-func TestDefaultGRPCWebConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	require.True(t, cfg.GRPCWeb.Enable)
-	require.Equal(t, DefaultGRPCWebAddress, cfg.GRPCWeb.Address)
-	require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
-}
-
-func TestDefaultRosettaConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	require.False(t, cfg.Rosetta.Enable)
-	require.Equal(t, ":8080", cfg.Rosetta.Address)
 }
 
 func TestDefaultStateSyncConfig(t *testing.T) {
@@ -242,6 +118,35 @@ func TestValidateBasic(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			name: "freeze height above maximum int64",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = uint64(math.MaxInt64) + 1
+				return cfg
+			},
+			expectErr: true,
+		},
+		{
+			name: "freeze and halt heights",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = 100
+				cfg.HaltHeight = 100
+				return cfg
+			},
+			expectErr: true,
+		},
+		{
+			name: "freeze height and halt time",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = 100
+				cfg.HaltTime = 100
+				return cfg
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -255,6 +160,14 @@ func TestValidateBasic(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetConfigRejectsNegativeFreezeHeight(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("freeze-height", -1)
+
+	_, err := GetConfig(v)
+	require.Error(t, err)
 }
 
 func TestGetMinGasPrices(t *testing.T) {
@@ -303,10 +216,7 @@ func TestGetConfig(t *testing.T) {
 	v.Set("telemetry.prometheus-retention-time", int64(7200))
 	v.Set("telemetry.global-labels", []interface{}{})
 	v.Set("api.enable", false)
-	v.Set("api.swagger", true)
 	v.Set("api.address", "tcp://0.0.0.0:1317")
-	v.Set("grpc.enable", true)
-	v.Set("grpc.address", DefaultGRPCAddress)
 	v.Set("concurrency-workers", DefaultConcurrencyWorkers)
 	v.Set("occ-enabled", DefaultOccEnabled)
 
@@ -434,40 +344,6 @@ func TestSetAndGetMinGasPrices(t *testing.T) {
 	require.Equal(t, 2, len(parsed))
 	require.Equal(t, "usei", parsed[0].Denom)
 	require.Equal(t, "uatom", parsed[1].Denom)
-}
-
-func TestGetConfigGRPCWebMaxOpenConnections(t *testing.T) {
-	baseViper := func() *viper.Viper {
-		v := viper.New()
-		v.Set("minimum-gas-prices", DefaultMinGasPrices)
-		v.Set("telemetry.global-labels", []interface{}{})
-		return v
-	}
-
-	t.Run("missing key falls back to the in-code default", func(t *testing.T) {
-		// Mirrors a node upgrading with an older app.toml that predates the
-		// grpc-web.max-open-connections key
-		cfg, err := GetConfig(baseViper())
-		require.NoError(t, err)
-		require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
-	})
-
-	t.Run("explicit zero is preserved as unlimited", func(t *testing.T) {
-		v := baseViper()
-		v.Set("grpc-web.max-open-connections", 0)
-		cfg, err := GetConfig(v)
-		require.NoError(t, err)
-		require.Equal(t, uint(0), cfg.GRPCWeb.MaxOpenConnections,
-			"explicit 0 must remain an opt-in to unlimited connections")
-	})
-
-	t.Run("explicit value overrides the default", func(t *testing.T) {
-		v := baseViper()
-		v.Set("grpc-web.max-open-connections", 250)
-		cfg, err := GetConfig(v)
-		require.NoError(t, err)
-		require.Equal(t, uint(250), cfg.GRPCWeb.MaxOpenConnections)
-	})
 }
 
 func TestGetConfigStateCommit(t *testing.T) {

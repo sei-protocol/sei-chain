@@ -1,10 +1,11 @@
 package keeper_test
 
 import (
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestMigrate2to3(t *testing.T) {

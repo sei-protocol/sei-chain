@@ -23,7 +23,32 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
+
+func withGeneratedState(state evmonly.StateReader) evmonly.Option {
+	store := evmonly.NewMemoryStore(state)
+	return func(executor *evmonly.Executor) {
+		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
+	}
+}
+
+type readOnlyGeneratedStore struct {
+	*evmonly.MemoryStore
+}
+
+func (*readOnlyGeneratedStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+
+func withReadOnlyGeneratedState(state evmonly.StateReader) evmonly.Option {
+	store := &readOnlyGeneratedStore{MemoryStore: evmonly.NewMemoryStore(state)}
+	return func(executor *evmonly.Executor) {
+		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
+	}
+}
 
 func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	cfg, err := parseConfig([]string{
@@ -41,7 +66,7 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
@@ -54,7 +79,7 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	}
 
 	var released atomic.Bool
-	require.NoError(t, discardResultSink{writer: &discardStateWriter{}}.StoreBlockResult(t.Context(), request.Context.Number, result, func() {
+	require.NoError(t, discardResultSink{}.StoreBlockResult(t.Context(), request.Context.Number, result, func() {
 		released.Store(true)
 	}))
 	require.True(t, released.Load())
@@ -127,7 +152,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 			executor := evmonly.NewExecutor(evmonly.Config{
 				MinGasPrice: cfg.minGasPrice,
 				OCCWorkers:  4,
-			}, evmonly.WithState(state))
+			}, withGeneratedState(state))
 			result, err := executor.ExecuteBlock(t.Context(), request)
 			require.NoError(t, err)
 			require.True(t, result.OCCStats.Attempted)
@@ -179,7 +204,7 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  cfg.executorWorkers,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
@@ -231,7 +256,7 @@ func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  4,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
@@ -283,7 +308,7 @@ func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  4,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 	require.True(t, result.OCCStats.Attempted)
@@ -326,15 +351,74 @@ func applyGeneratedStateChangeSet(state *generatedState, changeSet evmonly.State
 	}
 }
 
-func TestBlocksRequiresBoundedRun(t *testing.T) {
+func TestRunNeedsABlockCountOrAnAccountPool(t *testing.T) {
 	_, err := parseConfig([]string{})
-	require.ErrorContains(t, err, "blocks must be positive")
+	require.ErrorContains(t, err, "set --blocks for a fixed run, or --accounts to run until interrupted")
+}
+
+// An unbounded run reserves a contiguous range of pool slots per block, so a pool smaller than a
+// block would put two of its transactions on one sender.
+// The pool has to hold two blocks of senders, not one: a recipient is drawn half a pool away so it
+// falls outside the block that paid it, which a single block's worth cannot satisfy.
+func TestAccountPoolMustCoverTwoBlocks(t *testing.T) {
+	_, err := parseConfig([]string{"--blocks=0", "--accounts=199", "--txs-per-block=100"})
+	require.ErrorContains(t, err, "accounts must be at least twice txs-per-block")
+
+	_, err = parseConfig([]string{"--blocks=0", "--accounts=200", "--txs-per-block=100"})
+	require.NoError(t, err)
+}
+
+// A pooled run seeds its senders up front, but same-sender derives one from the block height, so
+// the two together would run every transaction from an unfunded account.
+func TestSameSenderIsRejectedWithAnAccountPool(t *testing.T) {
+	_, err := parseConfig([]string{"--blocks=0", "--accounts=4000", "--txs-per-block=100", "--same-sender"})
+	require.ErrorContains(t, err, "same-sender cannot be used with an account pool")
+
+	_, err = parseConfig([]string{"--blocks=10", "--txs-per-block=100", "--same-sender"})
+	require.NoError(t, err)
 }
 
 func TestDefaultChainIDIsLocal(t *testing.T) {
 	cfg, err := parseConfig([]string{"--blocks=1"})
 	require.NoError(t, err)
 	require.Equal(t, "1337", cfg.chainID.String())
+}
+
+func TestStorageDirFlag(t *testing.T) {
+	cfg, err := parseConfig([]string{"--blocks=1"})
+	require.NoError(t, err)
+	require.Empty(t, cfg.storageDir)
+
+	cfg, err = parseConfig([]string{
+		"--blocks=1",
+		"--storage-dir=/tmp/evmonly-storage",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/evmonly-storage", cfg.storageDir)
+
+	cfg, err = parseConfig([]string{
+		"--blocks=1",
+		"--storage-dir=   ",
+	})
+	require.NoError(t, err)
+	require.Empty(t, cfg.storageDir)
+}
+
+func TestOpenStorageDirectoryOverrideIsKept(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "giga")
+	path, cleanup, err := openStorageDirectory(dir)
+	require.NoError(t, err)
+	require.Equal(t, dir, path)
+	require.NoError(t, cleanup())
+	require.DirExists(t, dir)
+}
+
+func TestOpenStorageDirectoryTempIsRemoved(t *testing.T) {
+	path, cleanup, err := openStorageDirectory("")
+	require.NoError(t, err)
+	require.DirExists(t, path)
+	require.NoError(t, cleanup())
+	require.NoDirExists(t, path)
 }
 
 func TestRecipientConflictRateValidation(t *testing.T) {
@@ -426,6 +510,14 @@ func TestParseWorkersConfig(t *testing.T) {
 	require.ErrorContains(t, err, "parse-workers must be non-negative")
 }
 
+func TestBlockExecutorWorkersMustRemainOrdered(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--blocks=1",
+		"--workers=2",
+	})
+	require.ErrorContains(t, err, "workers must be 1 for ordered giga store commits")
+}
+
 func TestRunPrebuiltBlocks(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
@@ -435,6 +527,22 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, run(cfg))
+}
+
+func TestRunPrebuiltBlocksKeepsStorageDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "giga")
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--blocks=2",
+		"--txs-per-block=2",
+		"--storage-dir=" + dir,
+	})
+	require.NoError(t, err)
+	require.NoError(t, run(cfg))
+	require.DirExists(t, filepath.Join(dir, "data", "state_commit", "flatkv"))
+	require.DirExists(t, filepath.Join(dir, "data", "ledger", "block"))
+	require.DirExists(t, filepath.Join(dir, "data", "ledger", "receipt", "littidx"))
 }
 
 func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
@@ -736,7 +844,7 @@ func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
 	defer func() {
 		require.NoError(t, sinks.Close())
 	}()
-	executor := evmonly.NewExecutor(executorConfig(cfg), evmonly.WithState(state), evmonly.WithResultSink(sinks))
+	executor := evmonly.NewExecutor(executorConfig(cfg), withGeneratedState(state), evmonly.WithResultSink(sinks))
 	defer executor.Close()
 
 	for blockNumber := uint64(1); blockNumber <= 20; blockNumber++ {
@@ -843,6 +951,10 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			name: "same_sender_nonce_chain",
 			args: []string{"--same-sender"},
 		},
+		{
+			name: "erc20_single_contract",
+			args: []string{"--workload=" + workloadERC20Transfer},
+		},
 	}
 	for _, tc := range tests {
 		b.Run(tc.name, func(b *testing.B) {
@@ -857,14 +969,14 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			require.NoError(b, err)
 
 			state := newGeneratedState()
-			workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			workload, err := scenarios.NewWorkload(cfg.workload, scenarioConfig(cfg), state)
 			require.NoError(b, err)
 			request, err := workload.BuildBlock(b.Context(), 1)
 			require.NoError(b, err)
 			executor := evmonly.NewExecutor(evmonly.Config{
 				MinGasPrice: cfg.minGasPrice,
 				OCCWorkers:  cfg.executorWorkers,
-			}, evmonly.WithState(state))
+			}, withReadOnlyGeneratedState(state))
 
 			b.ReportAllocs()
 			b.SetBytes(int64(cfg.txsPerBlock))

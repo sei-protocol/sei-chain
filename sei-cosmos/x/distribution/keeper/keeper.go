@@ -127,11 +127,16 @@ func (k Keeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddr
 	}
 
 	commission, remainder := accumCommission.Commission.TruncateDecimal()
+	commissionDec, err := sdk.NewDecCoinsFromCoins(commission...)
+	if err != nil {
+		return nil, err
+	}
+
 	k.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: remainder}) // leave remainder to withdraw later
 
 	// update outstanding
 	outstanding := k.GetValidatorOutstandingRewards(ctx, valAddr).Rewards
-	k.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: outstanding.Sub(sdk.NewDecCoinsFromCoins(commission...))})
+	k.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: outstanding.Sub(commissionDec)})
 
 	if !commission.IsZero() {
 		accAddr := sdk.AccAddress(valAddr)
@@ -169,12 +174,17 @@ func (k Keeper) GetTotalRewards(ctx sdk.Context) (totalRewards sdk.DecCoins) {
 // added to the pool. An error is returned if the amount cannot be sent to the
 // module account.
 func (k Keeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender sdk.AccAddress) error {
+	decAmount, err := sdk.NewDecCoinsFromCoins(amount...)
+	if err != nil {
+		return err
+	}
+
 	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sender, types.ModuleName, amount); err != nil {
 		return err
 	}
 
 	feePool := k.GetFeePool(ctx)
-	feePool.CommunityPool = feePool.CommunityPool.Add(sdk.NewDecCoinsFromCoins(amount...)...)
+	feePool.CommunityPool = feePool.CommunityPool.Add(decAmount...)
 	k.SetFeePool(ctx, feePool)
 
 	return nil

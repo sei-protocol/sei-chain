@@ -20,16 +20,20 @@ import (
 
 // fakeTracerAPI drives the baker with controllable per-call results.
 type fakeTracerAPI struct {
-	mu      sync.Mutex
-	calls   int32
-	results map[int64][]*gethtracers.TxTraceResult // keyed by height
-	errs    map[int64]error
-	gate    chan struct{}           // when set, blocks each call until released
-	gates   map[int64]chan struct{} // optional per-height gates
+	mu                 sync.Mutex
+	calls              int32
+	results            map[int64][]*gethtracers.TxTraceResult // keyed by height
+	errs               map[int64]error
+	gate               chan struct{}           // when set, blocks each call until released
+	gates              map[int64]chan struct{} // optional per-height gates
+	synthesizeOnCancel bool                    // wait for ctx.Done, then return results with a nil error
 }
 
-func (f *fakeTracerAPI) TraceBlockByNumber(_ context.Context, number rpc.BlockNumber, _ *gethtracers.TraceConfig) ([]*gethtracers.TxTraceResult, error) {
+func (f *fakeTracerAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, _ *gethtracers.TraceConfig) ([]*gethtracers.TxTraceResult, error) {
 	atomic.AddInt32(&f.calls, 1)
+	if f.synthesizeOnCancel {
+		<-ctx.Done()
+	}
 	f.mu.Lock()
 	gate := f.gate
 	if f.gates != nil {
@@ -149,6 +153,38 @@ func TestTraceBakerErrorBecomesFailedCount(t *testing.T) {
 	b.Enqueue(99)
 	waitForCount(t, b.FailedCount, 1)
 	require.Equal(t, uint64(0), b.BakedCount(), "errors should not count as baked")
+}
+
+func TestTraceBakerDoesNotCacheExpiredSynthesizedTrace(t *testing.T) {
+	cache, err := keeper.NewTraceDB(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	tx := common.HexToHash("0xee")
+	api := &fakeTracerAPI{
+		synthesizeOnCancel: true,
+		results: map[int64][]*gethtracers.TxTraceResult{
+			11: {{TxHash: tx, Result: map[string]string{"error": "store access cancelled"}}},
+		},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{
+		Workers:     1,
+		QueueSize:   8,
+		BakeTimeout: time.Millisecond,
+	})
+	b.tracersAPI = api
+
+	require.False(t, b.bakeBlockOneTracer(11, "callTracer"))
+	require.Equal(t, uint64(1), b.FailedCount())
+	require.Equal(t, uint64(0), b.BakedCount())
+
+	_, ok, err := cache.Get(11, "callTracer", tx)
+	require.NoError(t, err)
+	require.False(t, ok, "expired bake must not persist a per-tx row")
+
+	_, ok, err = cache.GetBlock(11, "callTracer")
+	require.NoError(t, err)
+	require.False(t, ok, "expired bake must not persist a block row")
 }
 
 func TestTraceBakerSkipsNilOrErroredTxResults(t *testing.T) {

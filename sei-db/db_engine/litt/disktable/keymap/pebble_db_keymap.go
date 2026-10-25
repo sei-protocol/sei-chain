@@ -11,6 +11,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -25,6 +26,8 @@ type PebbleDBKeymap struct {
 	doubleWriteProtection bool
 	keymapPath            string
 	alive                 atomic.Bool
+	// closed records whether Stop has been called.
+	closed utils.CloseMarker[PebbleDBKeymap]
 	// This is a "test mode only" flag. Should be true in production use cases or anywhere that data consistency
 	// is critical. Unit tests write lots of little values, and syncing each one is slow, so it may be desirable
 	// to set this to false in some tests.
@@ -85,6 +88,7 @@ func newPebbleDBKeymap(
 		syncWrites:            syncWrites,
 	}
 	kmap.alive.Store(true)
+	kmap.closed = utils.MustClose(kmap, "littdb pebble keymap")
 
 	return kmap, requiresReload, nil
 }
@@ -200,6 +204,7 @@ func (p *PebbleDBKeymap) Stop() error {
 	if !alive {
 		return nil
 	}
+	p.closed.Close(p)
 
 	err := p.db.Close()
 	if err != nil {

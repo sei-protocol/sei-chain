@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package cosmos.gov.v1beta1;
+
+import "cosmos/gov/v1beta1/genesis.proto";
+import "cosmos/gov/v1beta1/gov.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types";
+option (gogoproto.goproto_getters_all) = false;
+
+// TallyBoundary defines the electorate and update boundary for a tally round.
+message TallyBoundary {
+  google.protobuf.Timestamp lower_time = 1 [
+    (gogoproto.stdtime) = true,
+    (gogoproto.nullable) = false
+  ];
+  google.protobuf.Timestamp upper_time = 2 [
+    (gogoproto.stdtime) = true,
+    (gogoproto.nullable) = false
+  ];
+  uint64 update_sequence = 3;
+  FrozenTallyElectorate electorate = 4 [(gogoproto.nullable) = false];
+}
+
+// FrozenTallyElectorate defines the immutable validator and parameter state for a tally round.
+message FrozenTallyElectorate {
+  string total_bonded_tokens = 1 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+    (gogoproto.nullable) = false
+  ];
+  TallyParams tally_params = 2 [(gogoproto.nullable) = false];
+  repeated TallyValidator validators = 3 [(gogoproto.nullable) = false];
+}
+
+// TallyProgress defines the mutable cursor for an unfinished tally round.
+message TallyProgress {
+  bytes cursor = 1;
+  bytes boundary_id = 2;
+  bool expedited = 3;
+}
+
+// TallyOptionResults defines decimal totals by vote option.
+message TallyOptionResults {
+  string yes = 1 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+  string abstain = 2 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+  string no = 3 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+  string no_with_veto = 4 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// TallyValidatorAccumulator defines the mutable tally state for one frozen validator.
+message TallyValidatorAccumulator {
+  string observed_delegator_shares = 1 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+  TallyOptionResults delegator_results = 2 [(gogoproto.nullable) = false];
+  repeated WeightedVoteOption vote = 3 [(gogoproto.nullable) = false];
+}
+
+// VoteDelegationUpdate defines one deferred slash-induced delegation update.
+message VoteDelegationUpdate {
+  string voter = 1;
+  string validator = 2;
+  string shares = 3 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+  google.protobuf.Timestamp block_time = 4 [
+    (gogoproto.stdtime) = true,
+    (gogoproto.nullable) = false
+  ];
+  bytes cursor = 5;
+}

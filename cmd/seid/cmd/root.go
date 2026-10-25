@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,8 +13,9 @@ import (
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	giganodeconfig "github.com/sei-protocol/sei-chain/giga/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
@@ -42,7 +41,6 @@ import (
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -100,15 +98,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			// SEI_CONFIG_MANAGER is read once per PersistentPreRunE invocation
-			// (a clean two-way door). When PR2 adds the `seid config ...` subtree
-			// (which skips PersistentPreRunE), it must own single-read discipline
-			// so one process cannot select two different managers.
-			mgr, err := configmanager.Select(os.Getenv)
-			if err != nil {
-				return err
-			}
-			return mgr.Apply(cmd, customAppTemplate, customAppConfig)
+			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
@@ -145,7 +135,6 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
 		config.Cmd(),
-		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
 	)
@@ -159,7 +148,6 @@ func initRootCmd(
 		rootCmd,
 		app.DefaultNodeHome,
 		newApp,
-		appExport,
 		addModuleInitFlags,
 		tracingProviderOpts,
 	)
@@ -310,61 +298,6 @@ func newApp(
 	return app
 }
 
-// appExport creates a new simapp (optionally at a given height)
-func appExport(
-	db dbm.DB,
-	traceStore io.Writer,
-	height int64,
-	forZeroHeight bool,
-	jailAllowedAddrs []string,
-	appOpts servertypes.AppOptions,
-	file *os.File,
-) (servertypes.ExportedApp, error) {
-	exportableApp, err := getExportableApp(
-		db,
-		traceStore,
-		height,
-		appOpts,
-	)
-	if err != nil {
-		return servertypes.ExportedApp{}, err
-	}
-
-	if file == nil {
-		return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
-	} else {
-		return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, file)
-	}
-}
-
-func getExportableApp(
-	db dbm.DB,
-	traceStore io.Writer,
-	height int64,
-	appOpts servertypes.AppOptions,
-) (*app.App, error) {
-	encCfg := app.MakeEncodingConfig()
-	encCfg.Marshaler = codec.NewProtoCodec(encCfg.InterfaceRegistry)
-
-	var exportableApp *app.App
-
-	homePath, ok := appOpts.Get(flags.FlagHome).(string)
-	if !ok || homePath == "" {
-		return nil, errors.New("application home not set")
-	}
-
-	if height != -1 {
-		exportableApp = app.New(db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
-		if err := exportableApp.LoadHeight(height); err != nil {
-			return nil, err
-		}
-	} else {
-		exportableApp = app.New(db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
-	}
-	return exportableApp, nil
-
-}
-
 func getPrimeNums(lo int, hi int) []int {
 	var primeNums []int
 
@@ -416,9 +349,9 @@ func initAppConfig() (string, interface{}) {
 	pruningInterval := primes[r.Intn(len(primes))]
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
-	// Metrics
+	// Metrics. Retention is left at the upstream default, which is zero, so this pipeline agrees with
+	// the one seid init runs and neither starts the Prometheus sink without an operator asking for it.
 	srvCfg.Telemetry.Enabled = true
-	srvCfg.Telemetry.PrometheusRetentionTime = 60
 
 	// Use shared CustomAppConfig from app_config.go
 	customAppConfig := NewCustomAppConfig(srvCfg, evmrpcconfig.DefaultConfig)
@@ -429,7 +362,9 @@ func initAppConfig() (string, interface{}) {
 		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		gigaconfig.ConfigTemplate +
+		giganodeconfig.ConfigTemplate +
 		admin.ConfigTemplate +
+		cosmosmetrics.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###
@@ -437,7 +372,7 @@ func initAppConfig() (string, interface{}) {
 
 [wasm]
 # This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = 300000
+query_gas_limit = {{ .WASM.QueryGasLimit }}
 # This is the number of wasm vm instances we keep cached in memory for speed-up
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
 lru_size = 0

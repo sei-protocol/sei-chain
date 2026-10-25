@@ -21,7 +21,7 @@ DB_BACKEND=${DB_BACKEND:-goleveldb}
 # --- New env vars for phase gating / multi-instance support ---
 # Final chain data dir. If != ~/.sei, init in ~/.sei then mv.
 SEI_HOME=${SEI_HOME:-"$HOME/.sei"}
-# Added to all ports (RPC, P2P, pprof, gRPC, etc.)
+# Added to all ports (RPC, P2P, pprof, REST, EVM, etc.)
 PORT_OFFSET=${PORT_OFFSET:-0}
 # Pre-built binary path. If set, skip build + copy to ~/go/bin/seid.
 SEID_BIN=${SEID_BIN:-""}
@@ -133,20 +133,22 @@ mv ~/.sei/config/tmp_genesis_3.json ~/.sei/config/genesis.json && rm ~/.sei/conf
 
 echo "Creating Accounts"
 # create 10 test accounts + fund them
-python3  "$REPO_ROOT/loadtest/scripts/populate_genesis_accounts.py" 20 loc
+python3  "$REPO_ROOT/scripts/populate_genesis_accounts.py" 20 loc
 
 "$SEID" collect-gentxs
 # update some params in genesis file for easier use of the chain localls (make gov props faster)
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["max_deposit_period"]="60s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["voting_period"]="30s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["expedited_voting_period"]="10s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["vote_period"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["evm"]["params"]["target_gas_used_per_block"]="1000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["oracle"]["params"]["whitelist"]=[{"name": "ueth"},{"name": "ubtc"},{"name": "uusdc"},{"name": "uusdt"},{"name": "uosmo"},{"name": "uatom"},{"name": "usei"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["distribution"]["params"]["community_tax"]="0.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="100000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["min_txs_in_block"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas_wanted"]="150000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["vote"]="2000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["vote_delta"]="2000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["commit"]="2000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["bypass_commit_timeout"]=false' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["max_voting_power_ratio"]="1.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 
@@ -224,7 +226,6 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     sed -i 's/indexer = \["kv"\]/indexer = \["null"\]/g' "$CONFIG_PATH"
     echo "Indexer disabled"
   fi
-  sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' "$CONFIG_PATH"
   sed -i 's/pprof-laddr = ""/pprof-laddr = ":6060"/g' "$CONFIG_PATH"
   # Set the DB backend
   sed -i "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" "$CONFIG_PATH"
@@ -240,12 +241,7 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" "$CONFIG_PATH"
   echo "DB backend set to: $DB_BACKEND"
 else
-  printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
-  printf "###         Consensus Configuration Options         ###\n"
-  printf "\t timeout_prevote = \"2000ms\"\n"
-  printf "\t timeout_precommit = \"2000ms\"\n"
-  printf "\t timeout_commit = \"2000ms\"\n"
-  printf "\t skip_timeout_commit = false\n"
+  printf "Platform not supported, please configure config.toml manually.\n"
   exit 1
 fi
 
@@ -254,10 +250,7 @@ if [ "$PORT_OFFSET" -ne 0 ] 2>/dev/null; then
   RPC=$((26657 + PORT_OFFSET))
   P2P=$((26656 + PORT_OFFSET))
   PPROF=$((6060 + PORT_OFFSET))
-  GRPC=$((9090 + PORT_OFFSET))
-  GRPCWEB=$((9091 + PORT_OFFSET))
   API=$((1317 + PORT_OFFSET))
-  ROSETTA=$((8080 + PORT_OFFSET))
   EVM_HTTP=$((8545 + PORT_OFFSET))
   EVM_WS=$((8546 + PORT_OFFSET))
 
@@ -265,20 +258,14 @@ if [ "$PORT_OFFSET" -ne 0 ] 2>/dev/null; then
     sed -i '' "s|pprof-laddr = .*|pprof-laddr = \"localhost:${PPROF}\"|g" "$CONFIG_PATH"
     sed -i '' "s|laddr = \"tcp://127.0.0.1:26657\"|laddr = \"tcp://127.0.0.1:${RPC}\"|g" "$CONFIG_PATH"
     sed -i '' "s|laddr = \"tcp://127.0.0.1:26656\"|laddr = \"tcp://127.0.0.1:${P2P}\"|g" "$CONFIG_PATH"
-    sed -i '' "s|address = \"0.0.0.0:9090\"|address = \"0.0.0.0:${GRPC}\"|g" "$APP_PATH"
-    sed -i '' "s|address = \"0.0.0.0:9091\"|address = \"0.0.0.0:${GRPCWEB}\"|g" "$APP_PATH"
     sed -i '' "s|address = \"tcp://0.0.0.0:1317\"|address = \"tcp://0.0.0.0:${API}\"|g" "$APP_PATH"
-    sed -i '' "s|address = \":8080\"|address = \":${ROSETTA}\"|g" "$APP_PATH"
     sed -i '' "s|http_port = 8545|http_port = ${EVM_HTTP}|g" "$APP_PATH"
     sed -i '' "s|ws_port = 8546|ws_port = ${EVM_WS}|g" "$APP_PATH"
   else
     sed -i "s|pprof-laddr = .*|pprof-laddr = \"localhost:${PPROF}\"|g" "$CONFIG_PATH"
     sed -i "s|laddr = \"tcp://127.0.0.1:26657\"|laddr = \"tcp://127.0.0.1:${RPC}\"|g" "$CONFIG_PATH"
     sed -i "s|laddr = \"tcp://127.0.0.1:26656\"|laddr = \"tcp://127.0.0.1:${P2P}\"|g" "$CONFIG_PATH"
-    sed -i "s|address = \"0.0.0.0:9090\"|address = \"0.0.0.0:${GRPC}\"|g" "$APP_PATH"
-    sed -i "s|address = \"0.0.0.0:9091\"|address = \"0.0.0.0:${GRPCWEB}\"|g" "$APP_PATH"
     sed -i "s|address = \"tcp://0.0.0.0:1317\"|address = \"tcp://0.0.0.0:${API}\"|g" "$APP_PATH"
-    sed -i "s|address = \":8080\"|address = \":${ROSETTA}\"|g" "$APP_PATH"
     sed -i "s|http_port = 8545|http_port = ${EVM_HTTP}|g" "$APP_PATH"
     sed -i "s|ws_port = 8546|ws_port = ${EVM_WS}|g" "$APP_PATH"
   fi

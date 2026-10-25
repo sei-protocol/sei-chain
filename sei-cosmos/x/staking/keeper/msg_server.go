@@ -4,10 +4,7 @@ import (
 	"context"
 	"time"
 
-	metrics "github.com/armon/go-metrics"
-
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
@@ -226,15 +223,7 @@ func (k msgServer) Delegate(goCtx context.Context, msg *types.MsgDelegate) (*typ
 	if msg.Amount.Amount.IsInt64() {
 		defer func() {
 			stakingMetrics.delegateTotal.Add(goCtx, 1)
-			// TODO(PLT-353): remove once staking_delegate_total verified
-			telemetry.IncrCounter(1, types.ModuleName, "delegate")
 			stakingMetrics.delegateAmount.Record(goCtx, msg.Amount.Amount.Int64())
-			// TODO(PLT-353): remove once staking_delegate_amount verified
-			telemetry.SetGaugeWithLabels(
-				[]string{"tx", "msg", msg.Type()},
-				float32(msg.Amount.Amount.Int64()),
-				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)},
-			)
 		}()
 	}
 
@@ -295,15 +284,7 @@ func (k msgServer) BeginRedelegate(goCtx context.Context, msg *types.MsgBeginRed
 	if msg.Amount.Amount.IsInt64() {
 		defer func() {
 			stakingMetrics.redelegateTotal.Add(goCtx, 1)
-			// TODO(PLT-353): remove once staking_redelegate_total verified
-			telemetry.IncrCounter(1, types.ModuleName, "redelegate")
 			stakingMetrics.redelegateAmount.Record(goCtx, msg.Amount.Amount.Int64())
-			// TODO(PLT-353): remove once staking_redelegate_amount verified
-			telemetry.SetGaugeWithLabels(
-				[]string{"tx", "msg", msg.Type()},
-				float32(msg.Amount.Amount.Int64()),
-				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)},
-			)
 		}()
 	}
 
@@ -361,15 +342,7 @@ func (k msgServer) Undelegate(goCtx context.Context, msg *types.MsgUndelegate) (
 	if msg.Amount.Amount.IsInt64() {
 		defer func() {
 			stakingMetrics.undelegateTotal.Add(goCtx, 1)
-			// TODO(PLT-353): remove once staking_undelegate_total verified
-			telemetry.IncrCounter(1, types.ModuleName, "undelegate")
 			stakingMetrics.undelegateAmount.Record(goCtx, msg.Amount.Amount.Int64())
-			// TODO(PLT-353): remove once staking_undelegate_amount verified
-			telemetry.SetGaugeWithLabels(
-				[]string{"tx", "msg", msg.Type()},
-				float32(msg.Amount.Amount.Int64()),
-				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)},
-			)
 		}()
 	}
 

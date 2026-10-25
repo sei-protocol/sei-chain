@@ -52,18 +52,20 @@ func fullScanModuleStats(t *testing.T, db types.KeyValueDB) map[string]lthash.Mo
 // non-zero counts.
 func verifyModuleStats(t *testing.T, s *CommitStore) {
 	t.Helper()
-	for _, ndb := range s.namedDataDBs() {
-		scanned := fullScanModuleStats(t, ndb.db)
-		working := s.perDBModuleWorkingStats[ndb.dir]
+	requireFlushedToDisk(t, s)
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
+		scanned := fullScanModuleStats(t, db)
+		working := s.maintainedHashes().PerModuleStats[dir]
 
 		for module, want := range scanned {
 			require.Equal(t, want, working[module],
-				"per-module stats mismatch for %s/%s", ndb.dir, module)
+				"per-module stats mismatch for %s/%s", dir, module)
 		}
 		for module, got := range working {
 			if _, ok := scanned[module]; !ok {
 				require.Equal(t, lthash.ModuleStats{}, got,
-					"stale non-zero working stats for emptied module %s/%s", ndb.dir, module)
+					"stale non-zero working stats for emptied module %s/%s", dir, module)
 			}
 		}
 	}
@@ -81,7 +83,7 @@ func TestPerModuleStatsIncrementalEqualsFullScan(t *testing.T) {
 	}
 
 	// Sanity: miscDB tracks evm + gov + bank, each with the expected key count.
-	misc := s.perDBModuleWorkingStats[miscDBDir]
+	misc := s.maintainedHashes().PerModuleStats[miscDBDir]
 	require.Equal(t, int64(5), misc[keys.EVMStoreKey].KeyCount, "one evm-misc key per round")
 	require.Equal(t, int64(10), misc["gov"].KeyCount, "two gov keys per round")
 	require.Equal(t, int64(5), misc["bank"].KeyCount, "one bank key per round")
@@ -95,8 +97,8 @@ func TestPerModuleStatsAddUpdateDeleteTransitions(t *testing.T) {
 	defer s.Close()
 
 	govKey := []byte{0x01, 0x2A}
-	physKeyLen := int64(len(ktype.ModulePhysicalKey("gov", govKey)))
-	stats := func() lthash.ModuleStats { return s.perDBModuleWorkingStats[miscDBDir]["gov"] }
+	physKeyLen := int64(len(ktype.BuildPhysicalKey("gov", govKey)))
+	stats := func() lthash.ModuleStats { return s.maintainedHashes().PerModuleStats[miscDBDir]["gov"] }
 
 	// Add: one key with a short value. Footprint must exceed the physical key
 	// length (key bytes are always counted, plus a non-empty serialized value).
@@ -150,7 +152,7 @@ func TestPerModuleStatsPersistenceAfterReopen(t *testing.T) {
 	verifyModuleStats(t, s1)
 
 	expected := make(map[string]map[string]lthash.ModuleStats)
-	for dir, mods := range s1.perDBModuleWorkingStats {
+	for dir, mods := range s1.maintainedHashes().PerModuleStats {
 		expected[dir] = make(map[string]lthash.ModuleStats)
 		for module, st := range mods {
 			expected[dir][module] = st
@@ -171,17 +173,17 @@ func TestPerModuleStatsPersistenceAfterReopen(t *testing.T) {
 
 	for dir, mods := range expected {
 		for module, want := range mods {
-			require.Equal(t, want, s2.perDBModuleWorkingStats[dir][module],
+			require.Equal(t, want, s2.maintainedHashes().PerModuleStats[dir][module],
 				"working stats mismatch after reopen for %s/%s", dir, module)
 		}
 	}
 
 	// On-disk LocalMeta carries the same stats.
 	dbInstances := map[string]types.KeyValueDB{
-		accountDBDir: s2.accountDB,
-		codeDBDir:    s2.codeDB,
-		storageDBDir: s2.storageDB,
-		miscDBDir:    s2.miscDB,
+		accountDBDir: s2.rawDBFor(accountDBDir),
+		codeDBDir:    s2.rawDBFor(codeDBDir),
+		storageDBDir: s2.rawDBFor(storageDBDir),
+		miscDBDir:    s2.rawDBFor(miscDBDir),
 	}
 	for dir, db := range dbInstances {
 		meta, err := loadLocalMeta(db)
@@ -209,26 +211,36 @@ func TestPerModuleStatsAfterImportSurvivesRestart(t *testing.T) {
 
 	imp, err := s1.Importer(7)
 	require.NoError(t, err)
+	var nodes []*scTypes.SnapshotNode
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
 		storVal := vtype.NewStorageData().SetBlockHeight(7).SetValue(&[32]byte{i, 0xAA}).Serialize()
 		acctVal := vtype.NewAccountData().SetBlockHeight(7).SetNonce(uint64(i)).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 7})
-		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 7})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     storagePhysKey(addr, slot),
+			Value:   storVal,
+			Version: 7,
+		})
+		nodes = append(nodes, &scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 7})
 
 		govVal := vtype.NewMiscData().SetBlockHeight(7).SetValue([]byte{i, 0xC0}).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: ktype.ModulePhysicalKey("gov", []byte{i}), Value: govVal, Version: 7})
+		nodes = append(nodes, &scTypes.SnapshotNode{
+			Key:     ktype.BuildPhysicalKey("gov", []byte{i}),
+			Value:   govVal,
+			Version: 7,
+		})
 	}
+	addNodesInKeyOrder(imp, nodes)
 	require.NoError(t, imp.Close())
 	verifyModuleStats(t, s1)
 
-	require.Equal(t, int64(5), s1.perDBModuleWorkingStats[storageDBDir][keys.EVMStoreKey].KeyCount)
-	require.Equal(t, int64(5), s1.perDBModuleWorkingStats[accountDBDir][keys.EVMStoreKey].KeyCount)
-	require.Equal(t, int64(5), s1.perDBModuleWorkingStats[miscDBDir]["gov"].KeyCount)
+	require.Equal(t, int64(5), s1.maintainedHashes().PerModuleStats[storageDBDir][keys.EVMStoreKey].KeyCount)
+	require.Equal(t, int64(5), s1.maintainedHashes().PerModuleStats[accountDBDir][keys.EVMStoreKey].KeyCount)
+	require.Equal(t, int64(5), s1.maintainedHashes().PerModuleStats[miscDBDir]["gov"].KeyCount)
 
 	expected := make(map[string]map[string]lthash.ModuleStats)
-	for dir, mods := range s1.perDBModuleWorkingStats {
+	for dir, mods := range s1.maintainedHashes().PerModuleStats {
 		expected[dir] = make(map[string]lthash.ModuleStats)
 		for module, st := range mods {
 			expected[dir][module] = st
@@ -248,7 +260,7 @@ func TestPerModuleStatsAfterImportSurvivesRestart(t *testing.T) {
 	verifyModuleStats(t, s2)
 	for dir, mods := range expected {
 		for module, want := range mods {
-			require.Equal(t, want, s2.perDBModuleWorkingStats[dir][module],
+			require.Equal(t, want, s2.maintainedHashes().PerModuleStats[dir][module],
 				"stats mismatch after restart for %s/%s", dir, module)
 		}
 	}

@@ -9,6 +9,7 @@ build/
 dist/
 cache/
 ./evm_stress
+/autobahn-e2e
 *.iml
 
 # Local .terraform directories
@@ -30,17 +31,7 @@ c.out
 # fuzz test data
 **/testdata/fuzz/**
 
-# loadtest contracts build artifact
-loadtest/contracts/**/artifacts/
-loadtest/contracts/**/target/
-loadtest/contracts/**.json
-
 loadtest_results.txt
-
-# parallelization test build artifact
-parallelization/**/artifacts/
-parallelization/**/target/
-parallelization/**/Cargo.lock
 
 # integration test resources
 integration_test/**/*.txt
@@ -51,9 +42,6 @@ coverage.out
 
 # example artifacts
 example/cosmwasm/echo/target
-example/cosmwasm/cw20/target
-example/cosmwasm/cw721/target
-example/cosmwasm/cw1155/target
 example/cosmwasm/iter/target
 
 # Solidity contracts artifacts
@@ -63,9 +51,5 @@ contracts/artifacts
 integration_test/dapp_tests/artifacts
 
 # DB benchmark data and artifacts
-sei-db/state_db/bench/cryptosim/data/**
-sei-db/state_db/bench/cryptosim/bin/
-sei-db/state_db/bench/cryptosim/logs/
-sei-db/ledger_db/block/blocksim/bin/
-sei-db/seiwal/walsim/bin/
+sei-db/bench/gigasim/bin/
 sei-db/db_engine/litt/bin/

@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
@@ -15,7 +16,8 @@ type Config struct {
 	// instances in the same process. Required; must match [a-zA-Z0-9_-]+.
 	Name string
 
-	// The size of the channel used to send work from the caller to the serialization goroutine.
+	// The size of the channel used to send work from the caller to the WAL's goroutine, which sorts, serializes,
+	// appends and hashes each block. Write blocks while it is full.
 	RequestBufferSize uint
 
 	// The size of the channel used to send framed records from the underlying WAL's serialization to its
@@ -23,7 +25,7 @@ type Config struct {
 	WriteBufferSize uint
 
 	// The size a WAL file may reach before it is sealed and a fresh one is opened. Because each block is
-	// written as a single record, a file may exceed this by the size of one block's serialized changesets.
+	// written as a single record, a file may exceed this by the size of one block's serialized record.
 	// Must be greater than 0.
 	TargetFileSize uint
 
@@ -48,7 +50,7 @@ func DefaultConfig(path string, name string) *Config {
 		Path:                  path,
 		Name:                  name,
 		RequestBufferSize:     16,
-		WriteBufferSize:       s.WriteBufferSize,
+		WriteBufferSize:       2048,
 		TargetFileSize:        s.TargetFileSize,
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,
@@ -58,18 +60,20 @@ func DefaultConfig(path string, name string) *Config {
 
 // Validate the configuration, returning nil if valid, or an error describing the problem if invalid.
 func (c *Config) Validate() error {
-	return c.toSeiwalConfig().Validate()
+	if err := c.toSeiwalConfig().Validate(); err != nil {
+		return fmt.Errorf("invalid underlying WAL config: %w", err)
+	}
+	return nil
 }
 
-// toSeiwalConfig maps this configuration onto the underlying generic WAL's configuration.
+// toSeiwalConfig maps this configuration onto the underlying WAL's configuration.
 func (c *Config) toSeiwalConfig() *seiwal.Config {
 	return &seiwal.Config{
-		Path:                 c.Path,
-		Name:                 c.Name,
-		WriteBufferSize:      c.WriteBufferSize,
-		SerializerBufferSize: c.RequestBufferSize,
-		TargetFileSize:       c.TargetFileSize,
-		FsyncOnFlush:         c.FsyncOnFlush,
+		Path:            c.Path,
+		Name:            c.Name,
+		WriteBufferSize: c.WriteBufferSize,
+		TargetFileSize:  c.TargetFileSize,
+		FsyncOnFlush:    c.FsyncOnFlush,
 		// State blocks must be contiguous — no skipped blocks — so the underlying WAL rejects gaps.
 		PermitGaps:            false,
 		IteratorPrefetchSize:  c.IteratorPrefetchSize,

@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/spf13/viper"
 
 	"gopkg.in/yaml.v2"
@@ -29,7 +29,7 @@ type LocalClient interface {
 	Client
 	EvmNextPendingNonce(addr common.Address) uint64
 	EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool)
-	EvmProxy(sender common.Address) utils.Option[*url.URL]
+	EvmProxy(sender common.Address) utils.Option[*ethrpc.Client]
 	// GenesisInitialHeight returns the chain's genesis InitialHeight from the
 	// node's in-memory genesis doc, or 0 if it is unavailable.
 	GenesisInitialHeight() int64
@@ -211,8 +211,7 @@ func (ctx Context) WithFromAddress(addr sdk.AccAddress) Context {
 	return ctx
 }
 
-// WithFeeGranterAddress returns a copy of the context with an updated fee granter account
-// address.
+// WithFeeGranterAddress returns a copy of the context with an updated fee granter address.
 func (ctx Context) WithFeeGranterAddress(addr sdk.AccAddress) Context {
 	ctx.FeeGranter = addr
 	return ctx

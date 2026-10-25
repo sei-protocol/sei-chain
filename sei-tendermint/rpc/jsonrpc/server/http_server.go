@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/net/netutil"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -78,7 +80,7 @@ func Serve(ctx context.Context, listener net.Listener, handler http.Handler, con
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_ = s.Shutdown(sctx)
 		case <-sig:
@@ -113,7 +115,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_ = s.Shutdown(sctx)
 		case <-sig:
@@ -134,7 +136,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(statusCode)
-	_, _ = fmt.Fprintln(w, err.Error())
+	_, _ = fmt.Fprintln(w, err.Error()) //nolint:gosec // the response is explicitly text/plain, so error text is not interpreted as HTML.
 }
 
 // writeHTTPResponse writes a JSON-RPC response to w. If rsp encodes an error,
@@ -193,6 +195,68 @@ func writeRPCResponse(w http.ResponseWriter, rsps ...rpctypes.RPCResponse) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
+	_, _ = w.Write(body)
+}
+
+// writeJSONRPCErrorWithStatus writes a JSON-RPC 2.0 error object for POST /
+// admission rejections. reqBody is best-effort parsed for the response id.
+func writeJSONRPCErrorWithStatus(w http.ResponseWriter, reqBody []byte, httpStatus int, code rpctypes.ErrorCode, format string, args ...interface{}) {
+	var req rpctypes.RPCRequest
+	if len(reqBody) > 0 {
+		_ = json.Unmarshal(reqBody, &req)
+	}
+	writeJSONWithStatus(w, httpStatus, req.MakeErrorf(code, format, args...))
+}
+
+// tooManyRequestsMsg is the JSON-RPC error message of an HTTP 429 reply.
+const tooManyRequestsMsg = "too many requests"
+
+// writeJSONRPCTooManyRequests writes a single JSON-RPC error object as the
+// HTTP 429 reply to a rate-limited POST / request.
+func writeJSONRPCTooManyRequests(w http.ResponseWriter, reqBody []byte) {
+	writeJSONRPCErrorWithStatus(w, reqBody, http.StatusTooManyRequests, rpctypes.CodeInternalError, tooManyRequestsMsg)
+}
+
+// writeJSONRPCBatchTooManyRequests writes the HTTP 429 reply to a rate-limited
+// POST / request whose body holds batchLen requests, as reported by the gate.
+// A batch within RequestBatchSizeLimit gets an array with one error response
+// per non-notification request; any other body gets a single error object.
+func writeJSONRPCBatchTooManyRequests(w http.ResponseWriter, reqBody []byte, batchLen int) {
+	if batchLen == 0 || batchLen > rpctypes.RequestBatchSizeLimit {
+		writeJSONRPCTooManyRequests(w, reqBody)
+		return
+	}
+	var reqs []rpctypes.RPCRequest
+	if err := json.Unmarshal(reqBody, &reqs); err != nil {
+		writeJSONRPCTooManyRequests(w, reqBody)
+		return
+	}
+
+	var resps []rpctypes.RPCResponse
+	for _, req := range reqs {
+		if req.IsNotification() {
+			continue
+		}
+		resps = append(resps, req.MakeErrorf(rpctypes.CodeInternalError, tooManyRequestsMsg))
+	}
+	// A batch of only notifications gets no response body, as when it is served.
+	if len(resps) == 0 {
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	writeJSONWithStatus(w, http.StatusTooManyRequests, resps)
+}
+
+// writeJSONWithStatus writes v as a JSON body with the given HTTP status.
+func writeJSONWithStatus(w http.ResponseWriter, httpStatus int, v any) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		logger.Error("Error encoding RPC response", "err", err)
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatus)
 	_, _ = w.Write(body)
 }
 
@@ -305,7 +369,13 @@ func Listen(addr string, maxOpenConnections int) (listener net.Listener, err err
 		)
 	}
 	proto, addr := parts[0], parts[1]
-	listener, err = net.Listen(proto, addr)
+	// Literal TCP addresses go through tcp.Listen so that tests can adopt a
+	// port reserved with tcp.TestReserveAddr.
+	if ap, perr := netip.ParseAddrPort(addr); proto == "tcp" && perr == nil && ap.Port() != 0 {
+		listener, err = tcp.Listen(ap)
+	} else {
+		listener, err = net.Listen(proto, addr)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %v: %v", addr, err)
 	}

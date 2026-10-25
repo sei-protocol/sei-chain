@@ -17,11 +17,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	v152 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152"
-	v155 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
@@ -76,15 +75,10 @@ type Keeper struct {
 	cdc                   codec.Codec
 	accountKeeper         types.AccountKeeper
 	bank                  CoinTransferrer
-	portKeeper            types.PortKeeper
-	capabilityKeeper      types.CapabilityKeeper
 	paramsKeeper          types.ParamsKeeper
-	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
 	simulationWasmVM      types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
-	rpcWasmVM152          types.WasmerEngine
-	rpcWasmVM155          types.WasmerEngine
 	wasmVMQueryHandler    WasmVMQueryHandler
 	wasmVMResponseHandler WasmVMResponseHandler
 	messenger             Messenger
@@ -107,11 +101,6 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
-	channelKeeper types.ChannelKeeper,
-	portKeeper types.PortKeeper,
-	capabilityKeeper types.CapabilityKeeper,
-	upgradeKeeper types.UpgradeKeeper,
-	portSource types.ICS20TransferPortSource,
 	router MessageRouter,
 	queryRouter GRPCQueryRouter,
 	homeDir string,
@@ -131,14 +120,6 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
-	rpcWasmer152, err := v152.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
-	if err != nil {
-		panic(err)
-	}
-	rpcWasmer155, err := v155.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
-	if err != nil {
-		panic(err)
-	}
 	// set KeyTable if it has not already been set
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
@@ -151,21 +132,16 @@ func NewKeeper(
 		wasmVM:            NewVMWrapper(wasmer),
 		simulationWasmVM:  NewVMWrapper(simulationWasmer),
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
-		rpcWasmVM152:      NewVMWrapper(rpcWasmer152),
-		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
-		portKeeper:        portKeeper,
-		capabilityKeeper:  capabilityKeeper,
-		upgradeKeeper:     upgradeKeeper,
-		messenger:         NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
+		messenger:         NewDefaultMessageHandler(router, bankKeeper, cdc),
 		queryGasLimit:     wasmConfig.SmartQueryGasLimit,
 		paramSpace:        paramSpace,
 		gasRegister:       NewDefaultWasmGasRegister(),
 		maxQueryStackSize: types.DefaultMaxQueryStackSize,
 		maxCallDepth:      types.DefaultMaxCallDepth,
 	}
-	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, channelKeeper, queryRouter, keeper)
+	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, queryRouter, keeper)
 	for _, o := range opts {
 		o.apply(keeper)
 	}
@@ -180,15 +156,6 @@ func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
 		return k.simulationWasmVM
 	}
 	if ctx.IsTracing() {
-		if ctx.ChainID() != "pacific-1" {
-			return k.rpcWasmVM
-		}
-		if ctx.BlockHeight() < 102491599 {
-			return k.rpcWasmVM152
-		}
-		if ctx.BlockHeight() < 139936278 {
-			return k.rpcWasmVM155
-		}
 		return k.rpcWasmVM
 	}
 	return k.wasmVM
@@ -204,6 +171,25 @@ func (k Keeper) getInstantiateAccessConfig(ctx sdk.Context) types.AccessType {
 	var a types.AccessType
 	k.paramSpace.Get(ctx, types.ParamStoreKeyInstantiateAccess, &a)
 	return a
+}
+
+// msgExecuteContractDisabled reports whether governance has disabled MsgExecuteContract.
+func (k Keeper) msgExecuteContractDisabled(ctx sdk.Context) bool {
+	return k.getFlagParam(ctx, types.ParamStoreKeyMsgExecuteContractDisabled)
+}
+
+// contractExecutionDisabled reports whether governance has disabled running contracts.
+func (k Keeper) contractExecutionDisabled(ctx sdk.Context) bool {
+	return k.getFlagParam(ctx, types.ParamStoreKeyContractExecutionDisabled)
+}
+
+// getFlagParam returns the bool param stored under key, or false when it is not stored.
+func (k Keeper) getFlagParam(ctx sdk.Context, key []byte) bool {
+	var set bool
+	// Charges no gas and reads a missing key as false, so executions, including replays
+	// of blocks from before the param existed, keep their original gas and outcome.
+	k.paramSpace.GetIfExists(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()), key, &set)
+	return set
 }
 
 // GetParams returns the total set of wasm parameters.
@@ -300,6 +286,9 @@ func (k Keeper) ImportCode(ctx sdk.Context, codeID uint64, codeInfo types.CodeIn
 }
 
 func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (sdk.AccAddress, []byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractInstantiateDuration(ctx.Context(), start) }()
 
@@ -368,12 +357,7 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 		return nil, nil, sdkerrors.Wrap(types.ErrInstantiateFailed, err.Error())
 	}
 	if report.HasIBCEntryPoints {
-		// register IBC port
-		ibcPort, err := k.ensureIbcPort(ctx, contractAddress)
-		if err != nil {
-			return nil, nil, err
-		}
-		contractInfo.IBCPortID = ibcPort
+		contractInfo.IBCPortID = PortIDForContract(contractAddress)
 	}
 
 	// store contract before dispatch so that contract could be called back
@@ -398,6 +382,9 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 
 // Execute executes the contract instance
 func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractExecuteDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
@@ -442,6 +429,9 @@ func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 }
 
 func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte, authZ AuthorizationPolicy) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractMigrateDuration(ctx.Context(), start) }()
 	migrateSetupCosts := k.gasRegister.InstantiateContractCosts(k.IsPinnedCode(ctx, newCodeID), len(msg))
@@ -468,12 +458,7 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 		// prevent update to non ibc contract
 		return nil, sdkerrors.Wrap(types.ErrMigrationFailed, "requires ibc callbacks")
 	case report.HasIBCEntryPoints && contractInfo.IBCPortID == "":
-		// add ibc port
-		ibcPort, err := k.ensureIbcPort(ctx, contractAddress)
-		if err != nil {
-			return nil, err
-		}
-		contractInfo.IBCPortID = ibcPort
+		contractInfo.IBCPortID = PortIDForContract(contractAddress)
 	}
 
 	env := types.NewEnv(ctx, contractAddress)
@@ -516,6 +501,9 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 // another native Go module directly, or on-chain governance (if sudo proposals are enabled). Thus, the keeper doesn't
 // place any access controls on it, that is the responsibility or the app developer (who passes the wasm.Keeper in app.go)
 func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error) {
+	if k.contractExecutionDisabled(ctx) {
+		return nil, types.ErrContractExecutionDisabled
+	}
 	start := time.Now()
 	defer func() { recordContractSudoDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
@@ -681,7 +669,6 @@ func (k Keeper) QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
 	start := time.Now()
 	defer func() { recordContractQuerySmartDuration(ctx.Context(), start) }()
-	recordContractQuerySmartInvocation(contractAddr.String())
 
 	// checks and increase query stack size
 	ctx, err := checkAndIncreaseQueryStackSize(ctx, k.maxQueryStackSize)
@@ -711,7 +698,7 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
 
-	recordContractQuerySmartGasUsed(ctx.Context(), contractAddr.String(), gasUsed)
+	recordContractQuerySmartGasUsed(ctx.Context(), gasUsed)
 	return queryResult, nil
 }
 

@@ -12,7 +12,6 @@ import {
     DistributionExtension,
     SigningStargateClient,
     defaultRegistryTypes,
-    assertIsDeliverTxSuccess,
 } from '@cosmjs/stargate';
 import { Tendermint34Client } from '@cosmjs/tendermint-rpc';
 import { DirectSecp256k1HdWallet, Registry } from '@cosmjs/proto-signing';
@@ -42,7 +41,20 @@ export type CosmosQueryClient = QueryClient &
     GovExtension &
     DistributionExtension;
 
+let tendermintPromise: Promise<Tendermint34Client> | undefined;
 let clientPromise: Promise<CosmosQueryClient> | undefined;
+
+/**
+ * The suite's shared Tendermint RPC connection (`SEI_COSMOS_RPC`). Every
+ * Cosmos-side read goes through it, including the raw `abci_query` calls in
+ * moduleQueries.
+ */
+export async function tendermintClient(): Promise<Tendermint34Client> {
+    if (!tendermintPromise) {
+        tendermintPromise = Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
+    }
+    return tendermintPromise;
+}
 
 /**
  * The suite's Cosmos-side parity oracle: one shared query client over the
@@ -52,7 +64,7 @@ let clientPromise: Promise<CosmosQueryClient> | undefined;
 export async function cosmosQuery(): Promise<CosmosQueryClient> {
     if (!clientPromise) {
         clientPromise = (async () => {
-            const tm = await Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
+            const tm = await tendermintClient();
             return QueryClient.withExtensions(
                 tm,
                 setupBankExtension,
@@ -119,44 +131,17 @@ export async function bankSupplyOf(denom = 'usei'): Promise<bigint> {
 }
 
 /**
- * Create a tokenfactory denom from `mnemonic` and wait until its bank metadata
- * is visible. x/tokenfactory sets denom metadata automatically on creation
- * (name/symbol = the full `factory/<creator>/<subdenom>` string, exponent 0),
- * which is exactly the precondition the pointer precompile's addNativePointer
- * checks. Returns the full denom.
+ * The base of the first denom the bank module holds metadata for. Nothing on chain
+ * creates denom metadata at runtime, so this is genesis state: the docker devnet
+ * seeds metadata for `uatom`.
  */
-export async function createTokenfactoryDenom(
-    mnemonic: string,
-    subdenom: string,
-): Promise<string> {
-    const wallet = await seiWalletFromMnemonic(mnemonic);
-    const [account] = await wallet.getAccounts();
-    const registry = new Registry([...seiProtoRegistry, ...defaultRegistryTypes]);
-    const client = await SigningStargateClient.connectWithSigner(Endpoints.sei.cosmosRpc, wallet, {
-        registry,
-    });
-    try {
-        const msg = {
-            typeUrl: `/${Encoder.tokenfactory.MsgCreateDenom.$type}`,
-            value: Encoder.tokenfactory.MsgCreateDenom.fromPartial({
-                sender: account.address,
-                subdenom,
-            }),
-        };
-        const fee = { amount: coins(40000, 'usei'), gas: '400000' };
-        const res = await client.signAndBroadcast(account.address, [msg], fee, 'create denom');
-        assertIsDeliverTxSuccess(res);
-    } finally {
-        client.disconnect();
-    }
-
-    const denom = `factory/${account.address}/${subdenom}`;
+export async function denomWithMetadata(): Promise<string> {
     const qc = await cosmosQuery();
-    await waitUntil(async () => (await qc.bank.denomMetadata(denom)) ?? null, {
-        timeoutMs: 30_000,
-        label: `bank metadata for ${denom}`,
-    });
-    return denom;
+    const [metadata] = await qc.bank.denomsMetadata();
+    if (!metadata) {
+        throw new Error('denomWithMetadata: the bank module holds metadata for no denom');
+    }
+    return metadata.base;
 }
 
 /** True when a local `sei-node-0` docker container is running. */

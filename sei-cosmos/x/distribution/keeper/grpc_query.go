@@ -90,21 +90,17 @@ func (k Keeper) ValidatorSlashes(c context.Context, req *types.QueryValidatorSla
 	}
 	slashesStore := prefix.NewStore(store, types.GetValidatorSlashEventPrefix(valAddr))
 
-	paginate := query.FilteredPaginateV66
-	if ctx.IsABCIQuery() {
-		paginate = query.FilteredPaginate
-	}
+	pageRes, err := query.FilteredPaginateForContext(ctx, slashesStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
+		height := types.GetValidatorSlashEventHeight(key)
+		if height < req.StartingHeight || height > req.EndingHeight {
+			return false, nil
+		}
 
-	pageRes, err := paginate(slashesStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		var result types.ValidatorSlashEvent
 		err := k.cdc.Unmarshal(value, &result)
 
 		if err != nil {
 			return false, err
-		}
-
-		if result.ValidatorPeriod < req.StartingHeight || result.ValidatorPeriod > req.EndingHeight {
-			return false, nil
 		}
 
 		if accumulate {

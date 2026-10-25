@@ -344,27 +344,11 @@ fetchers = "4"
 
 wal-file = "data/cs.wal/wal"
 
-# How long we wait for a proposal block before prevoting nil
-unsafe-propose-timeout-override = "3s"
-# How much timeout_propose increases with each round
-unsafe-propose-timeout-delta-override = "500ms"
-# How long we wait after receiving +2/3 precommits for “anything” (ie. not a single block or nil)
-unsafe-vote-timeout-override = "50ms"
-# How much the timeout_precommit increases with each round
-unsafe-vote-timeout-delta-override = "500ms"
-# How long we wait after committing a block, before starting on the new
-# height (this gives us a chance to receive some more precommits, even
-# though we already have +2/3).
-unsafe-commit-timeout-override = "50ms"
-
 # How many blocks to look back to check existence of the node's consensus votes before joining consensus
 # When non-zero, the node will panic upon restart
 # if the same consensus key was used to sign {double_sign_check_height} last blocks.
 # So, validators should stop the state machine, wait for some blocks, and then restart the state machine to avoid panic.
 double-sign-check-height = 0
-
-# Make progress as soon as we have all the precommits (as if TimeoutCommit = 0)
-unsafe-bypass-commit-timeout-override = false
 
 # EmptyBlocks mode and possible interval between empty blocks
 create-empty-blocks = true

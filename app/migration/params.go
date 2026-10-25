@@ -8,14 +8,6 @@
 // dedicated x/params subspace and is editable via the standard
 // ParameterChangeProposal gov flow. The app reads it once per block in
 // BeginBlock and pushes it into the SC commit store.
-//
-// Caveat: this subspace has no owning AppModule, so the x/params module's
-// ExportGenesis (which only emits Fees/CosmosGas params) does not serialize
-// NumKeysToMigratePerBlock. A `seid export` taken mid-migration therefore
-// omits the rate, and a chain bootstrapped from that genesis re-seeds the
-// default (0, paused) on the first BeginBlock. This is not consensus-fatal —
-// re-issue the ParameterChangeProposal on the new chain to resume the drain —
-// but operators forking/recovering via export must be aware of it.
 package migration
 
 import (
@@ -45,11 +37,27 @@ const DefaultNumKeysToMigratePerBlock uint64 = 0
 // at a safe size, so we reject anything larger at proposal-validation time.
 const MaxNumKeysToMigratePerBlock uint64 = 1_000_000
 
+// KeyMigrateCosmosEnabled is the param key that allows an SC store to start
+// the MigrateCosmos migration once its EVM migration is complete. The v6.8
+// upgrade and InitChainer set it to true; an absent value means false. Setting
+// it to false prevents a new start but does not stop a MigrateCosmos in
+// progress; set NumKeysToMigratePerBlock to 0 to pause that.
+var KeyMigrateCosmosEnabled = []byte("MigrateCosmosEnabled")
+
 // ParamKeyTable returns the key table for the migration subspace.
 func ParamKeyTable() paramtypes.KeyTable {
 	return paramtypes.NewKeyTable(
 		paramtypes.NewParamSetPair(KeyNumKeysToMigratePerBlock, new(uint64), validateNumKeysToMigratePerBlock),
+		paramtypes.NewParamSetPair(KeyMigrateCosmosEnabled, new(bool), validateMigrateCosmosEnabled),
 	)
+}
+
+// validateMigrateCosmosEnabled type-checks the MigrateCosmosEnabled value.
+func validateMigrateCosmosEnabled(i interface{}) error {
+	if _, ok := i.(bool); !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	return nil
 }
 
 // validateNumKeysToMigratePerBlock type-checks the value and bounds it to

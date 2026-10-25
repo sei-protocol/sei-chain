@@ -73,7 +73,11 @@ func (fee StdFee) GasPrices() sdk.DecCoins {
 	if fee.Gas > uint64(math.MaxInt64) {
 		panic(fmt.Sprintf("gas %d exceeds max int64", fee.Gas))
 	}
-	return sdk.NewDecCoinsFromCoins(fee.Amount...).QuoDec(sdk.NewDec(int64(fee.Gas))) //nolint:gosec G115 -- bounds checked above
+	decAmount, err := sdk.NewDecCoinsFromCoins(fee.Amount...)
+	if err != nil {
+		panic(err)
+	}
+	return decAmount.QuoDec(sdk.NewDec(int64(fee.Gas))) //nolint:gosec G115 -- bounds checked above
 }
 
 // StdTx is the legacy transaction format for wrapping a Msg with Fee and Signatures.

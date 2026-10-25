@@ -40,14 +40,6 @@ func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
 }
 
-// TestAutobahnBankModule is the Autobahn-matrix bank slice. It runs only
-// send_funds_test.yaml because the multi_sig and simulation cases broadcast
-// with -b block, which Autobahn's KV indexer doesn't support (BroadcastTxCommit
-// hangs to its timeout).
-func TestAutobahnBankModule(t *testing.T) {
-	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
-}
-
 func TestMintModule(t *testing.T) {
 	runner.RunFile(t, "../mint_module/mint_test.yaml")
 }
@@ -58,17 +50,13 @@ func TestGovModule(t *testing.T) {
 }
 
 func TestOracleModule(t *testing.T) {
-	runner.RunFile(t, "../oracle_module/verify_penalty_counts.yaml")
-	runner.RunFile(t, "../oracle_module/set_feeder_test.yaml")
+	runner.RunFile(t, "../oracle_module/queries_deprecated.yaml")
+	runner.RunFile(t, "../oracle_module/messages_deprecated.yaml")
 }
 
 func TestDistributionModule(t *testing.T) {
 	runner.RunFile(t, "../distribution_module/community_pool.yaml")
 	runner.RunFile(t, "../distribution_module/rewards.yaml")
-}
-
-func TestTokenFactoryModule(t *testing.T) {
-	runner.RunFile(t, "../tokenfactory_module/create_tokenfactory_test.yaml")
 }
 
 func TestAuthzModule(t *testing.T) {
@@ -99,7 +87,7 @@ func TestSeiDBFlatKV(t *testing.T) {
 }
 
 // TestSeiDBStateStore runs state-store iteration tests.
-// In CI wasm contracts and tokenfactory denoms are deployed as a prerequisite.
+// In CI wasm contracts are deployed as a prerequisite.
 func TestSeiDBStateStore(t *testing.T) {
 	runner.RunFile(t, "../seidb/state_store_test.yaml")
 }

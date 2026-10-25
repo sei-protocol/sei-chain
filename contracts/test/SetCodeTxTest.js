@@ -4,8 +4,10 @@ const { privateKeyToAccount } = require('viem/accounts');
 const { ethers } = require("hardhat");
 const { expect } = require("chai");
 
-const seilocal = defineChain({
-  id: 713714,
+// seilocal describes the local chain to viem. The chain ID is read from the
+// network under test, since the EVM-only Autobahn chain uses a different one.
+const seilocal = (id) => defineChain({
+  id,
   name: 'Sei',
   nativeCurrency: {
     decimals: 12,
@@ -34,7 +36,7 @@ describe("EIP-7702 Transaction Test", function () {
     account = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80');
     walletClient = createWalletClient({
       account,
-      chain: seilocal,
+      chain: seilocal(Number(await ethers.provider.send("eth_chainId", []))),
       transport: http()
     });
     await fundAddress(await account.address);

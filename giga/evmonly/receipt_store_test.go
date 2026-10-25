@@ -1,0 +1,221 @@
+package evmonly
+
+import (
+	"context"
+	"math/big"
+	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+)
+
+func TestMemoryReceiptStoreIndexesOwnedReceiptCopies(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	txHash := common.Hash{1}
+	record := receipt.ReceiptRecord{
+		TxHash: txHash,
+		Receipt: &evmtypes.Receipt{
+			TxHashHex:   txHash.Hex(),
+			BlockNumber: 5,
+			LogsBloom:   []byte{2},
+			Logs: []*evmtypes.Log{{
+				Address: common.Address{3}.Hex(),
+				Topics:  []string{common.Hash{4}.Hex()},
+				Data:    []byte{5},
+			}},
+		},
+	}
+
+	receiptCtx := newReceiptContext(t.Context(), 5)
+	require.NoError(t, store.SetReceipts(receiptCtx, []receipt.ReceiptRecord{record}))
+	record.Receipt.LogsBloom[0] = 12
+	record.Receipt.Logs[0].Address = common.Address{13}.Hex()
+	record.Receipt.Logs[0].Topics[0] = common.Hash{14}.Hex()
+	record.Receipt.Logs[0].Data[0] = 15
+
+	stored, err := store.GetReceipt(receiptCtx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, []byte{2}, stored.LogsBloom)
+	require.Equal(t, common.Address{3}.Hex(), stored.Logs[0].Address)
+	require.Equal(t, []string{common.Hash{4}.Hex()}, stored.Logs[0].Topics)
+	require.Equal(t, []byte{5}, stored.Logs[0].Data)
+
+	stored.Status = 1
+	stored.Logs[0].Data[0] = 16
+	storedAgain, err := store.GetReceipt(receiptCtx, txHash)
+	require.NoError(t, err)
+	require.Zero(t, storedAgain.Status)
+	require.Equal(t, []byte{5}, storedAgain.Logs[0].Data)
+	require.Equal(t, int64(5), store.LatestVersion())
+}
+
+func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	txHash := common.Hash{1}
+	first := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 7}
+	second := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8}
+
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: first}}))
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: second}}))
+
+	stored, err := store.GetReceipt(newReceiptContext(t.Context(), 8), txHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(8), stored.BlockNumber)
+	require.NotContains(t, store.blocks, uint64(7))
+	require.Equal(t, int64(8), store.LatestVersion())
+
+	// Block 7 lost its only receipt to the move: its stats must read as a real, empty block, not
+	// the stale ones computed while the receipt still belonged to it.
+	stats7, err := store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.NoError(t, err)
+	require.Zero(t, stats7.TxCount)
+
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 9), nil))
+	require.Equal(t, int64(9), store.LatestVersion())
+
+	// Block 9 executed no receipts but is still a real, committed block.
+	stats9, err := store.GetBlockStats(newReceiptContext(t.Context(), 9), 9)
+	require.NoError(t, err)
+	require.Zero(t, stats9.TxCount)
+}
+
+func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	oldHash := common.Hash{1}
+	newHash := common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3}},
+		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4}},
+	}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 4), records))
+
+	require.NoError(t, store.PruneHistory(4))
+	_, err := store.GetReceipt(newReceiptContext(t.Context(), 4), oldHash)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+	_, err = store.GetReceipt(newReceiptContext(t.Context(), 4), newHash)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), store.EarliestVersion())
+	require.Equal(t, uint64(2), store.GetRollbackFloor(2))
+}
+
+func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	hash1, hash2 := common.Hash{1}, common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: hash1, Receipt: &evmtypes.Receipt{TxHashHex: hash1.Hex(), BlockNumber: 5, GasUsed: 10}, Reward: big.NewInt(100)},
+		{TxHash: hash2, Receipt: &evmtypes.Receipt{TxHashHex: hash2.Hex(), BlockNumber: 5, GasUsed: 20}, Reward: big.NewInt(300)},
+	}
+	receiptCtx := newReceiptContext(t.Context(), 5)
+	require.NoError(t, store.SetReceipts(receiptCtx, records))
+
+	stats, err := store.GetBlockStats(receiptCtx, 5)
+	require.NoError(t, err)
+	require.Equal(t, uint64(30), stats.TotalGasUsed)
+	require.Equal(t, uint32(2), stats.TxCount)
+	min, ok := stats.RewardAt(0)
+	require.True(t, ok)
+	require.Equal(t, uint64(100), min)
+
+	_, err = store.GetBlockStats(receiptCtx, 6)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
+}
+
+// TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove verifies a moved receipt invalidates its
+// old block's cached stats even when other receipts remain there.
+func TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	hashA, hashB := common.Hash{1}, common.Hash{2}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{
+		{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 7, GasUsed: 10}},
+		{TxHash: hashB, Receipt: &evmtypes.Receipt{TxHashHex: hashB.Hex(), BlockNumber: 7, GasUsed: 20}},
+	}))
+	_, err := store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.NoError(t, err, "sanity: block 7 has stats before the move")
+
+	// hashA is re-included at block 8; block 7 still holds hashB, so it is not empty.
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8),
+		[]receipt.ReceiptRecord{{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 8, GasUsed: 10}}}))
+
+	require.Contains(t, store.blocks, uint64(7), "block 7 still holds hashB")
+	_, err = store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported,
+		"block 7's stats must be invalidated, not left reporting both receipts")
+}
+
+func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	oldHash, newHash := common.Hash{1}, common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3, GasUsed: 1}},
+		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4, GasUsed: 2}},
+	}
+	receiptCtx := newReceiptContext(t.Context(), 4)
+	require.NoError(t, store.SetReceipts(receiptCtx, records))
+	require.NoError(t, store.PruneHistory(4))
+
+	_, err := store.GetBlockStats(receiptCtx, 3)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+	stats, err := store.GetBlockStats(receiptCtx, 4)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), stats.TotalGasUsed)
+}
+
+// TestMemoryReceiptStorePruneHistoryRemovesOrphanedBlockStats verifies a stats entry with no
+// matching s.blocks entry (an empty block) is still removed by pruning, not leaked.
+func TestMemoryReceiptStorePruneHistoryRemovesOrphanedBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 3), nil)) // empty block
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 4),
+		[]receipt.ReceiptRecord{{TxHash: common.Hash{1}, Receipt: &evmtypes.Receipt{TxHashHex: common.Hash{1}.Hex(), BlockNumber: 4}}}))
+	require.NotContains(t, store.blocks, uint64(3), "sanity: an empty block has no blocks entry")
+	require.Contains(t, store.blockStats, uint64(3), "sanity: an empty block still has a stats entry")
+
+	require.NoError(t, store.PruneHistory(4))
+
+	require.NotContains(t, store.blockStats, uint64(3))
+}
+
+func TestMemoryReceiptStoreHonorsCanceledContext(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	receiptCtx := newReceiptContext(ctx, 1)
+
+	require.ErrorIs(t, store.SetReceipts(receiptCtx, nil), context.Canceled)
+	_, err := store.GetReceipt(receiptCtx, common.Hash{})
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = store.FilterLogs(receiptCtx, 1, 1, filters.FilterCriteria{}, nil)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestMemoryReceiptStoreKeepExistingPreservesReceiptAndStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	txHash := common.Hash{1}
+	original := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 7, TransactionIndex: 0, GasUsed: 21_000, Status: 1}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: original}}))
+
+	other := common.Hash{2}
+	stale := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8, TransactionIndex: 1}
+	replay := []receipt.ReceiptRecord{
+		{TxHash: other, Receipt: &evmtypes.Receipt{TxHashHex: other.Hex(), BlockNumber: 8, GasUsed: 30_000, Status: 1}},
+		{TxHash: txHash, Receipt: stale, KeepExisting: true},
+	}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8), replay))
+
+	kept, err := store.GetReceipt(newReceiptContext(t.Context(), 8), txHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), kept.BlockNumber)
+	require.Equal(t, uint64(21_000), kept.GasUsed)
+
+	stats, err := store.GetBlockStats(newReceiptContext(t.Context(), 8), 8)
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), stats.TxCount)
+	require.Equal(t, uint64(30_000), stats.TotalGasUsed)
+	stats, err = store.GetBlockStats(newReceiptContext(t.Context(), 8), 7)
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), stats.TxCount)
+}

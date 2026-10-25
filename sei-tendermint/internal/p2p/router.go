@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -105,7 +106,7 @@ func NewRouter(
 	router.giga = options.Giga
 	router.BaseService = service.NewBaseService("router", router)
 
-	// Publish the peers gauge at construction, not from metricsRoutine. It is a
+	// Publish the p2p gauges at construction, not from metricsRoutine. Each is a
 	// MetricVec child, absent from /metrics until something sets it, and an absent
 	// series is not zero: an alert comparing peers against the connection cap
 	// matches nothing until the series exists, which is exactly the window a
@@ -114,6 +115,7 @@ func NewRouter(
 	// the genesis-time wait, well before Start — can expose a scrapeable endpoint
 	// whose peers series is still missing.
 	Global.peersAt().Set(int64(router.peerManager.Conns().Len()))
+	Global.knownAddressesAt().Set(int64(len(router.peerManager.AllAddrs())))
 
 	return router, nil
 }
@@ -155,6 +157,10 @@ func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
+	if chDesc.ID > math.MaxUint8 {
+		return nil, fmt.Errorf("channel ID %d exceeds the one-byte wire limit", chDesc.ID)
+	}
+
 	for channels := range r.channels.Lock() {
 		id := chDesc.ID
 		if _, ok := channels[id]; ok {
@@ -162,7 +168,7 @@ func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*
 		}
 		channels[id] = newChannel(chDesc.ToGeneric())
 		// add the channel to the nodeInfo if it's not already there.
-		r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
+		r.nodeInfoProducer().AddChannel(byte(chDesc.ID)) //nolint:gosec // bounds-checked above
 		return &Channel[T]{
 			router:  r,
 			channel: channels[id],
@@ -225,24 +231,32 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					if r.options.PexOnHandshake {
 						pexAddrs = r.Advertise(MaxPexAddrs)
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, handshakeSpec{
+					spec := handshakeSpec{
 						SelfAddr: r.options.SelfAddress,
 						// Listener has to send pex data, so that dialer can learn about more peers in
 						// case listener does not have capacity for new connections.
 						// Dialer also could potentially send pex data, but there is no benefit from doing so:
 						// - if listener is full, then it won't use the new data and it won't gossip it further either, since only verified data is gossiped.
 						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
-						PexAddrs:          pexAddrs,
-						SeiGigaConnection: r.giga.IsPresent(),
-					})
+						PexAddrs: pexAddrs,
+					}
+					var offer utils.Option[handshakeOffer]
+					giga, hasGiga := r.giga.Get()
+					if hasGiga {
+						spec, offer = giga.fillInboundHandshake(spec)
+					}
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, spec, offer)
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
-					if giga, ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
+					if hasGiga && hConn.msg.SeiGigaConnection {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
 					}
-					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+					// The node info exchange is part of the handshake, so it runs under
+					// the same deadline. Without it a peer that loses connectivity
+					// mid-exchange holds an accept slot for as long as its socket lives.
+					info, err := exchangeNodeInfo(handshakeCtx, hConn, *r.nodeInfoProducer())
 					if err != nil {
 						return fmt.Errorf("exchangeNodeInfo(): %w", err)
 					}
@@ -294,7 +308,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
 							SelfAddr:          r.options.SelfAddress,
 							SeiGigaConnection: false,
-						})
+						}, utils.None[handshakeOffer]())
 						if err != nil {
 							return fmt.Errorf("handshake(): %w", err)
 						}
@@ -367,6 +381,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 		// construction, but a refresh only after the first sleep would leave it
 		// reporting that construction-time zero for ten seconds while peers connect.
 		Global.peersAt().Set(int64(r.peerManager.Conns().Len()))
+		Global.knownAddressesAt().Set(int64(len(r.peerManager.AllAddrs())))
 		r.peerManager.LogState()
 		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 			return err

@@ -3,7 +3,6 @@ package wasm
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -14,8 +13,6 @@ import (
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	simKeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -23,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client/rest"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/simulation"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
@@ -121,45 +117,40 @@ func (b AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) 
 	types.RegisterInterfaces(registry)
 }
 
-// ____________________________________________________________________________
-
 // AppModule implements an application module for the wasm module.
 type AppModule struct {
 	AppModuleBasic
 	cdc                codec.Codec
 	keeper             *Keeper
 	validatorSetSource keeper.ValidatorSetSource
-	accountKeeper      types.AccountKeeper // for simulation
-	bankKeeper         simKeeper.BankKeeper
 }
 
 // ConsensusVersion is a sequence number for state-breaking change of the
 // module. It should be incremented on each consensus-breaking change
 // introduced by the module. To avoid wrong/empty versions, the initial version
 // should be set to 1.
-func (AppModule) ConsensusVersion() uint64 { return 1 }
+func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // NewAppModule creates a new AppModule object
 func NewAppModule(
 	cdc codec.Codec,
 	keeper *Keeper,
 	validatorSetSource keeper.ValidatorSetSource,
-	ak types.AccountKeeper,
-	bk simKeeper.BankKeeper,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic:     AppModuleBasic{},
 		cdc:                cdc,
 		keeper:             keeper,
 		validatorSetSource: validatorSetSource,
-		accountKeeper:      ak,
-		bankKeeper:         bk,
 	}
 }
 
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(keeper.NewDefaultPermissionKeeper(am.keeper)))
+	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(cfg.QueryServer(), NewQuerier(am.keeper))
+
+	m := keeper.NewMigrator(*am.keeper)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
 }
 
 func (am AppModule) LegacyQuerierHandler(amino *codec.LegacyAmino) sdk.Querier { //nolint:staticcheck
@@ -171,7 +162,7 @@ func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {}
 
 // Route returns the message routing key for the wasm module.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(RouterKey, NewHandler(keeper.NewDefaultPermissionKeeper(am.keeper)))
+	return sdk.NewRoute(RouterKey, NewHandler(am.keeper))
 }
 
 // QuerierRoute returns the wasm module's querier route name.
@@ -189,53 +180,6 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.
 		panic(err)
 	}
 	return validators
-}
-
-// ExportGenesis returns the exported genesis state as raw bytes for the wasm
-// module.
-func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
-	gs := ExportGenesis(ctx, am.keeper)
-	marshalled := cdc.MustMarshalJSON(gs)
-	return marshalled
-}
-
-func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
-	ch := ExportGenesisStream(ctx, am.keeper)
-	chRaw := make(chan json.RawMessage)
-	go func() {
-		for genState := range ch {
-			chRaw <- cdc.MustMarshalJSON(genState)
-		}
-		close(chRaw)
-	}()
-	return chRaw
-}
-
-// ____________________________________________________________________________
-// AppModuleSimulation functions
-
-// GenerateGenesisState creates a randomized GenState of the bank module.
-func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	simulation.RandomizedGenState(simState)
-}
-
-// ProposalContents doesn't return any content functions for governance proposals.
-func (AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
-}
-
-// RandomizedParams creates randomized bank param changes for the simulator.
-func (am AppModule) RandomizedParams(r *rand.Rand) []simtypes.ParamChange {
-	return simulation.ParamChanges(r, am.cdc)
-}
-
-// RegisterStoreDecoder registers a decoder for supply module's types
-func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
-}
-
-// WeightedOperations returns the all the gov module operations with their respective weights.
-func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
-	return simulation.WeightedOperations(&simState, am.accountKeeper, am.bankKeeper, am.keeper)
 }
 
 // ____________________________________________________________________________

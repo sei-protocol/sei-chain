@@ -193,9 +193,9 @@ func TestRun(t *testing.T) {
 			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
 		),
 		// gas refund to the sender
-		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(130879)))),
+		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(133251)))),
 		// tip is paid to the validator
-		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(69121)))),
+		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(66749)))),
 	}
 	require.EqualValues(t, expectedEvts.ToABCIEvents(), evts)
 
@@ -244,7 +244,7 @@ func TestRun(t *testing.T) {
 		Denom:  "ufoo",
 	}, bank.CoinBalance(parsedBalances[0]))
 	require.Equal(t, bank.CoinBalance{
-		Amount: big.NewInt(9930868),
+		Amount: big.NewInt(9933240),
 		Denom:  "usei",
 	}, bank.CoinBalance(parsedBalances[1]))
 
@@ -434,6 +434,42 @@ func TestSpendableBalancesQuery(t *testing.T) {
 		Denom:  "uspendablequery",
 	}, bank.CoinBalance(balances[0]))
 	require.Empty(t, outputs[1].([]byte))
+}
+
+func TestSpendableBalancesQueryUnassociatedAddress(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	_, evmAddr := testkeeper.MockAddressPair()
+	castAddr := sdk.AccAddress(evmAddr[:])
+	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("uspendablecast", sdk.NewInt(7777))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, castAddr, sdk.NewCoins(sdk.NewCoin("uspendablecast", sdk.NewInt(7777))))
+	require.Nil(t, err)
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	spendableBalances, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).SpendableBalancesID)
+	require.Nil(t, err)
+	args, err := spendableBalances.Inputs.Pack(evmAddr, []byte{})
+	require.Nil(t, err)
+	res, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).SpendableBalancesID, args...), 100000, nil, nil, false, false)
+	require.Nil(t, err)
+	outputs, err := spendableBalances.Outputs.Unpack(res)
+	require.Nil(t, err)
+	balances := outputs[0].([]struct {
+		Amount *big.Int `json:"amount"`
+		Denom  string   `json:"denom"`
+	})
+	require.Equal(t, 1, len(balances))
+	require.Equal(t, bank.CoinBalance{
+		Amount: big.NewInt(7777),
+		Denom:  "uspendablecast",
+	}, bank.CoinBalance(balances[0]))
 }
 
 func TestTotalSupplyQuery(t *testing.T) {

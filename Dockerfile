@@ -1,11 +1,9 @@
 ARG SEICTL_VERSION=v0.0.5@sha256:268fc871e8358e706f505f0ce9ef318761e0d00d317716e9d87218734ae1a81c
 
 FROM ghcr.io/sei-protocol/seictl:${SEICTL_VERSION} AS seictl
-FROM docker.io/golang:1.25.6-bookworm@sha256:2f768d462dbffbb0f0b3a5171009f162945b086f326e0b2a8fd5d29c3219ff14 AS builder
+FROM docker.io/golang:1.27.3-bookworm@sha256:5c3e9b43cfd3bb95c7937462e29d87ada57b481a96fa23ad0eb61778d7a00110 AS builder
 WORKDIR /go/src/sei-chain
 
-COPY sei-wasmd/x/wasm/artifacts/v152/api/*.so /tmp/wasmd-libs/
-COPY sei-wasmd/x/wasm/artifacts/v155/api/*.so /tmp/wasmd-libs/
 COPY sei-wasmvm/internal/api/*.so /tmp/wasmvm-libs/
 ARG TARGETARCH
 RUN mkdir -p /go/lib && \
@@ -14,8 +12,6 @@ RUN mkdir -p /go/lib && \
       arm64) ARCH_SUFFIX="aarch64" ;; \
       *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac && \
-    cp /tmp/wasmd-libs/libwasmvm152.${ARCH_SUFFIX}.so /go/lib/ && \
-    cp /tmp/wasmd-libs/libwasmvm155.${ARCH_SUFFIX}.so /go/lib/ && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
@@ -25,10 +21,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# Install the platform evmone shared library next to the other native libraries
-# so the Giga executor can load it from a fixed, trusted absolute path (/usr/lib)
-# at runtime instead of relying on the dynamic linker's search path.
-RUN cp giga/executor/lib/libevmone.0.12.0_linux_${TARGETARCH}.so /go/lib/
 ENV CGO_ENABLED=1
 ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""
@@ -45,6 +37,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X '${VERSION_PKG}.BuildTags=${BUILD_TAGS}'" && \
     go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
 
+# seidb is pure Go, so it builds without cgo and does not link libwasmvm.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -o /go/bin/seidb ./sei-db/tools/cmd/seidb
+
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
 
 RUN apt-get update && \
@@ -52,6 +49,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /go/bin/seid /usr/bin/
+COPY --from=builder /go/bin/seidb /usr/bin/
 COPY --from=seictl /usr/bin/seictl /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
 

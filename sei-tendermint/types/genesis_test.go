@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,6 +49,9 @@ func TestGenesisBad(t *testing.T) {
 				`},"power":"10","name":""}` +
 				`]}`,
 		),
+		// non-positive autobahn view timeout
+		[]byte(`{"chain_id":"mychain","autobahn":{"view_timeout":"0"}}`),
+		[]byte(`{"chain_id":"mychain","autobahn":{"view_timeout":"-1"}}`),
 	}
 
 	for _, testCase := range testCases {
@@ -86,8 +90,9 @@ func TestBasicGenesisDoc(t *testing.T) {
 			}
 		}`,
 	)
-	_, err := GenesisDocFromJSON(genDocBytes)
+	genDoc, err := GenesisDocFromJSON(genDocBytes)
 	assert.NoError(t, err, "expected no error for good genDoc json")
+	assert.Equal(t, 1500*time.Millisecond, genDoc.Autobahn.ViewTimeout)
 
 	pubkey := ed25519.GenerateSecretKey().Public()
 	// create a base gendoc from struct
@@ -99,7 +104,7 @@ func TestBasicGenesisDoc(t *testing.T) {
 	assert.NoError(t, err, "error marshaling genDoc")
 
 	// test base gendoc and check consensus params were filled
-	genDoc, err := GenesisDocFromJSON(genDocBytes)
+	genDoc, err = GenesisDocFromJSON(genDocBytes)
 	assert.NoError(t, err, "expected no error for valid genDoc json")
 	assert.NotNil(t, genDoc.ConsensusParams, "expected consensus params to be filled in")
 
@@ -172,6 +177,7 @@ func randomGenesisDoc() *GenesisDoc {
 		InitialHeight:   1000,
 		Validators:      []GenesisValidator{{pubkey.Address(), pubkey, 10, "myval"}},
 		ConsensusParams: DefaultConsensusParams(),
+		Autobahn:        DefaultAutobahnParams(),
 		AppHash:         []byte{1, 2, 3},
 	}
 }

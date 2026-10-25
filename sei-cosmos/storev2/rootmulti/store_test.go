@@ -3,6 +3,7 @@ package rootmulti
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -50,6 +53,24 @@ func TestLastCommitID(t *testing.T) {
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
+func TestQueryUnknownStore(t *testing.T) {
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	store.MountStoreWithDB(types.NewKVStoreKey("bank"), types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	response := store.Query(context.Background(), abci.RequestQuery{
+		Path: "/doesnotexist/key",
+	})
+	require.Equal(t, uint32(sdkerrors.ErrUnknownRequest.ABCICode()), response.Code)
+	require.Contains(t, response.Log, "no such store: doesnotexist")
+}
+
 // waitUntilSSVersion waits until the SS latest version reaches at least target or times out.
 func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 	ss := store.GetStateStore()
@@ -59,12 +80,117 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
+// newStateProofTestStore opens a store in which bank key "k" is "v1" at height 1 and "v2" at height 2.
+// With ssEnabled, it returns once SS has both heights.
+func newStateProofTestStore(t *testing.T, enableStateProof, ssEnabled bool) *Store {
+	t.Helper()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.EnableStateProof = enableStateProof
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = ssEnabled
+
+	store := NewStore(t.TempDir(), scCfg, ssCfg, []string{})
+	t.Cleanup(func() { _ = store.Close() })
+
+	store.MountStoreWithDB(types.NewKVStoreKey("bank"), types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	for i, val := range [][]byte{[]byte("v1"), []byte("v2")} {
+		kv := store.GetStoreByName("bank").(types.KVStore)
+		kv.Set([]byte("k"), val)
+		require.Equal(t, int64(i+1), store.Commit(true).Version)
+	}
+	if ssEnabled {
+		waitUntilSSVersion(t, store, 2)
+	}
+	return store
+}
+
+var stateProofTestHeights = []struct {
+	name   string
+	height int64
+	value  []byte
+}{
+	{name: "latest", height: 2, value: []byte("v2")},
+	{name: "historical", height: 1, value: []byte("v1")},
+}
+
+func TestQuery_StateProofDisabledByDefault(t *testing.T) {
+	store := newStateProofTestStore(t, false, false)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  false,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.Equal(t, tc.value, resp.Value)
+
+			resp = store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.Equal(t, uint32(sdkerrors.ErrNotSupported.ABCICode()), resp.Code)
+			require.Contains(t, resp.Log, "state proofs are disabled on this node")
+			require.Contains(t, resp.Log, "state-commit.sc-enable-state-proof")
+		})
+	}
+}
+
+// TestQuery_StateProofDisabledAdmitsProveOnSubspace pins that the guard rejects only paths that
+// produce a proof: on a node that serves /subspace, a /subspace query asking for one is served
+// unproven, as before.
+func TestQuery_StateProofDisabledAdmitsProveOnSubspace(t *testing.T) {
+	store := newStateProofTestStore(t, false, true)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/subspace",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.NotEmpty(t, resp.Value)
+			require.Nil(t, resp.ProofOps)
+		})
+	}
+}
+
+func TestQuery_StateProofEnabledReturnsProofOps(t *testing.T) {
+	store := newStateProofTestStore(t, true, false)
+
+	for _, tc := range stateProofTestHeights {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := store.Query(t.Context(), abci.RequestQuery{
+				Path:   "/bank/key",
+				Data:   []byte("k"),
+				Height: tc.height,
+				Prove:  true,
+			})
+			require.EqualValues(t, 0, resp.Code, resp.Log)
+			require.Equal(t, tc.value, resp.Value)
+			require.NotNil(t, resp.ProofOps)
+			require.NotEmpty(t, resp.ProofOps.Ops)
+		})
+	}
+}
+
 func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	// Enable both SC and SS, but make SC WAL writes synchronous so the
 	// historical proof query below cannot race memIAVL durability.
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = true
 	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	ssCfg := config.DefaultStateStoreConfig()
@@ -133,6 +259,68 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+
+	// Once SS reports a higher floor, historical SS queries below it must fail
+	// before a cache store can mix available Cosmos data with unavailable routed
+	// data.
+	require.NoError(t, store.ssStore.SetEarliestVersion(c2.Version, false))
+	_, err = store.CacheMultiStoreWithVersion(c1.Version)
+	require.ErrorContains(t, err, "below earliest available version 2")
+
+	resp = store.Query(context.Background(), abci.RequestQuery{
+		Path:   "/bank/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  false,
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+}
+
+// A boundary produces an SS snapshot whether or not the block carried changesets, which is what
+// routing every committed block through CommitBlock buys.
+func TestFlushSchedulesSSSnapshotAtABoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		writeAtBlock int64
+	}{
+		{name: "boundary block is populated", writeAtBlock: 2},
+		{name: "boundary block is empty", writeAtBlock: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			scCfg := config.DefaultStateCommitConfig()
+			scCfg.Enable = true
+			scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+			// SS mirrors the SC cadence, so this is what puts the SS boundary at 2.
+			scCfg.MemIAVLConfig.SnapshotInterval = 2
+			scCfg.MemIAVLConfig.SnapshotKeepRecent = 1
+
+			ssCfg := config.DefaultStateStoreConfig()
+			ssCfg.Enable = true
+			ssCfg.SnapshotEnable = true
+
+			store := NewStore(home, scCfg, ssCfg, []string{})
+			defer func() { _ = store.Close() }()
+			require.NotNil(t, store.ssCommitter, "SS commit capability was not resolved")
+
+			key := types.NewKVStoreKey("bank")
+			store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+			require.NoError(t, store.LoadLatestVersion())
+
+			for block := int64(1); block <= 2; block++ {
+				if block == tc.writeAtBlock {
+					store.GetStoreByName("bank").(types.KVStore).Set([]byte("k"), []byte("v"))
+				}
+				require.Equal(t, block, store.Commit(true).Version)
+			}
+
+			root := filepath.Join(home, "data", "state_store", sscomposite.SnapshotsDirName)
+			require.Eventually(t, func() bool {
+				versions, err := sscomposite.ListSnapshotVersions(root)
+				return err == nil && len(versions) == 1 && versions[0] == 2
+			}, 10*time.Second, 20*time.Millisecond, "boundary did not produce an SS snapshot")
+		})
+	}
 }
 
 // TestCacheMultiStoreWithVersion_OnlyUsesSSStores verifies that CacheMultiStoreWithVersion
@@ -399,6 +587,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.EnableStateProof = true
 	scCfg.HistoricalProofRateLimit = 0
 	scCfg.HistoricalProofMaxInFlight = 1
 	ssCfg := config.DefaultStateStoreConfig()
@@ -430,4 +619,148 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+}
+
+func TestTryAcquireSubspaceQueryPermit(t *testing.T) {
+	store := &Store{
+		subspaceQuerySem: make(chan struct{}, 2),
+	}
+
+	require.NoError(t, store.tryAcquireSubspaceQueryPermit())
+	require.NoError(t, store.tryAcquireSubspaceQueryPermit())
+
+	err := store.tryAcquireSubspaceQueryPermit()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "subspace query busy")
+
+	store.releaseSubspaceQueryPermit()
+	store.releaseSubspaceQueryPermit()
+	store.releaseSubspaceQueryPermit() // no-op when empty
+	require.NoError(t, store.tryAcquireSubspaceQueryPermit())
+}
+
+func TestQuery_SubspaceSemaphoreRejectsWhenSaturated(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	scCfg.SubspaceQueryMaxInFlight = 2
+
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	kv := store.GetStoreByName("bank").(types.KVStore)
+	kv.Set([]byte("ab1"), []byte("v1"))
+	require.Equal(t, int64(1), store.Commit(true).Version)
+	waitUntilSSVersion(t, store, 1)
+
+	store.subspaceQuerySem <- struct{}{}
+	store.subspaceQuerySem <- struct{}{}
+	defer func() {
+		<-store.subspaceQuerySem
+		<-store.subspaceQuerySem
+	}()
+
+	resp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/subspace",
+		Data: []byte("ab"),
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+	require.Contains(t, resp.Log, "subspace query busy")
+}
+
+func TestQuery_SubspaceNarrowPrefixAndKeyUnaffected(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	keyBytes := []byte("ab1")
+	kv := store.GetStoreByName("bank").(types.KVStore)
+	kv.Set(keyBytes, []byte("v1"))
+	kv.Set([]byte("ab2"), []byte("v2"))
+	require.Equal(t, int64(1), store.Commit(true).Version)
+	waitUntilSSVersion(t, store, 1)
+
+	subspaceResp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/subspace",
+		Data: []byte("ab"),
+	})
+	require.EqualValues(t, 0, subspaceResp.Code)
+	require.NotEmpty(t, subspaceResp.Value)
+
+	keyResp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/key",
+		Data: keyBytes,
+	})
+	require.EqualValues(t, 0, keyResp.Code)
+	require.Equal(t, []byte("v1"), keyResp.Value)
+}
+
+func TestQuery_SubspaceEmptyPrefixRejected(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	resp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/subspace",
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+	require.Contains(t, resp.Log, "subspace prefix must not be empty")
+}
+
+func TestUnmountedStoreKeepsItsTreeUntilDeleted(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	open := func(names ...string) *Store {
+		store := NewStore(home, scCfg, config.StateStoreConfig{}, []string{})
+		for _, name := range names {
+			store.MountStoreWithDB(types.NewKVStoreKey(name), types.StoreTypeIAVL, nil)
+		}
+		return store
+	}
+
+	store := open("bank", "oracle")
+	require.NoError(t, store.LoadLatestVersion())
+	store.GetStoreByName("oracle").(types.KVStore).Set([]byte("k"), []byte("v"))
+	store.Commit(true)
+	require.NoError(t, store.Close())
+
+	store = open("bank")
+	require.NoError(t, store.LoadLatestVersion())
+	require.True(t, store.MayHoldStore("oracle"), "loading without the store upgrade dropped the unmounted tree")
+	require.NoError(t, store.Close())
+
+	store = open("bank")
+	require.NoError(t, store.LoadLatestVersionAndUpgrade(&types.StoreUpgrades{Deleted: []string{"oracle"}}))
+	defer func() { _ = store.Close() }()
+	require.False(t, store.MayHoldStore("oracle"))
+	require.True(t, store.MayHoldStore("bank"))
 }

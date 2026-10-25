@@ -13,7 +13,6 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -25,10 +24,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// This file pins the legacy boot seam itself: LegacyConfigManager.Apply, which
-// forwards verbatim to server.InterceptConfigsPreRunHandler.
+// This file pins the boot seam itself: server.InterceptConfigsPreRunHandler, called
+// Apply below.
 //
-// Apply is the whole legacy configuration path in one call. It resolves --home,
+// Apply is the whole configuration path in one call. It resolves --home,
 // creates or reads config/config.toml, unmarshals it into a tmcfg.Config, creates
 // or merges config/app.toml into the same viper, binds every cobra flag, and
 // leaves two channels behind for the rest of the boot:
@@ -37,10 +36,8 @@ import (
 //	serverCtx.Viper  — the flat key/value map every appOpts.Get() call site reads
 //
 // Those two channels are the entire interface between configuration and a running
-// node, which is what makes them the right thing to pin. A replacement manager is
-// correct exactly insofar as it leaves the same two channels in the same state,
-// and every target here states one property of that state precisely enough for a
-// second implementation to be measured against it.
+// node, which is what makes them the right thing to pin. Every target here states
+// one property of that state.
 //
 // Everything runs in a pinned environment (configtest.Isolate) against a fixture
 // home. That is not tidiness: the path reads bare environment variables and $HOME,
@@ -53,8 +50,8 @@ type applyResult struct {
 	err error
 }
 
-// applyLegacy boots one fixture home through LegacyConfigManager.Apply with the
-// given explicit flags, and returns the resulting channels.
+// applyLegacy boots one fixture home through Apply with the given explicit flags,
+// and returns the resulting channels.
 //
 // The command is built fresh for every call, from the real server.StartCmd flag
 // set and the real initAppConfig template, so the flag universe and the app.toml
@@ -118,7 +115,7 @@ func setFlags(t *testing.T, cmd *cobra.Command, flagValues map[string]string) {
 // threaded through this call.
 func applyThrough(cmd *cobra.Command) error {
 	template, appConfig := initAppConfig()
-	return configmanager.LegacyConfigManager{}.Apply(cmd, template, appConfig)
+	return server.InterceptConfigsPreRunHandler(cmd, template, appConfig)
 }
 
 // setServerEnv sets the environment variable the server viper reads for a config
@@ -247,9 +244,8 @@ func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
 // nobody writes a hand test for — env set but file absent, flag set with neither,
 // all three set at once.
 //
-// This is the ordering the whole four-layer model in the ConfigManager design
-// rests on, and it is currently an emergent property of viper's precedence
-// interacting with bindFlags' write-back rather than anything stated in one place.
+// This ordering is an emergent property of viper's precedence interacting with
+// bindFlags' write-back rather than anything stated in one place.
 // Pinning it is what makes it a contract.
 func FuzzApplyPrecedenceTendermint(f *testing.F) {
 	// Every row against every presence combination, generated rather than listed. A plain go test
@@ -351,11 +347,11 @@ var appKeys = []appKey{
 	{Key: "minimum-gas-prices", Values: [3]string{"0.01usei", "0.02usei", "0.03usei"}, WantGoType: "string"},
 	{Key: "halt-height", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 	{Key: "min-retain-blocks", Values: [3]string{"1000", "2000", "3000"}, Numeric: true, WantGoType: "string"},
-	{Key: "grpc.address", Values: [3]string{"127.0.0.1:9010", "127.0.0.1:9020", "127.0.0.1:9030"}, WantGoType: "string"},
 	{Key: "state-sync.snapshot-interval", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 	// concurrency-workers is registered as an Int flag, which is one of the few
 	// types viper converts rather than passing through as text.
 	{Key: "concurrency-workers", Values: [3]string{"4", "8", "16"}, Numeric: true, WantGoType: "int"},
+	{Key: "freeze-height", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 }
 
 // FuzzApplyPrecedenceApp pins the same ordering on the other channel. App
@@ -673,9 +669,8 @@ func TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot(t *testing.T) {
 	}
 }
 
-// TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap the
-// legacy path leaves, and it is the single most important row in this file for the
-// ConfigManager work, because closing it is one of the new manager's stated goals.
+// TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap
+// Apply leaves.
 //
 // interceptConfigs calls conf.ValidateBasic() only on the branch that *creates*
 // config.toml. When the file already exists it is read, unmarshalled, and handed
@@ -749,6 +744,7 @@ func FuzzApplyMalformedAppTOML(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte("halt-height = 1\n"))
 	f.Add([]byte("halt-height = \n"))
+	f.Add([]byte("freeze-height = 1\n"))
 	f.Add([]byte("[telemetry\nenabled = true\n"))
 	f.Add([]byte("moniker = \"app-toml-wins\"\n"))
 	f.Add([]byte("telemetry.global-labels = \"not-a-list\"\n"))
@@ -781,7 +777,7 @@ func FuzzApplyMalformedAppTOML(f *testing.F) {
 // this file meaningful: booting the same home twice resolves to the same thing.
 //
 // It is not trivially true. The first Apply on a fresh home *writes* both files —
-// config.toml with hardcoded overrides that DefaultConfig does not carry, and
+// config.toml with hardcoded values that DefaultConfig does not carry, and
 // app.toml rendered from whatever the viper held at that moment — and the second
 // Apply reads what the first one wrote. So this target is really asking whether
 // materialization is a fixed point, which is what lets a node restart without its
@@ -849,17 +845,15 @@ func FuzzApplyIsIdempotent(f *testing.F) {
 // legacy path's least obvious behaviors, and one with a real operational
 // consequence.
 //
-// When config.toml is absent, interceptConfigs writes it after stamping four
+// When config.toml is absent, interceptConfigs writes it after stamping three
 // values that neither tmcfg.DefaultConfig nor the template carries: a pprof
-// listener on localhost:6060, P2P receive and send rates of 5120000, and a 5s
-// unsafe commit-timeout override. When config.toml is present, those stampings do
-// not happen — the file is simply read.
+// listener on localhost:6060 and P2P receive and send rates of 5120000. When
+// config.toml is present, those stampings do not happen — the file is simply read.
 //
-// So two nodes on the same binary run different consensus timeouts and different
-// P2P rate limits depending only on whether their config.toml was generated by
-// this code path or by an earlier one. Deleting and regenerating a config.toml
-// changes node behavior, which is the opposite of what "regenerate the defaults"
-// implies.
+// So two nodes on the same binary run different RPC and P2P settings depending
+// only on whether their config.toml was generated by this code path or by an
+// earlier one. Deleting and regenerating a config.toml changes node behavior,
+// which is the opposite of what "regenerate the defaults" implies.
 func TestApplyMaterializationOverridesOnlyApplyToACreatedConfigFile(t *testing.T) {
 	configtest.Isolate(t)
 
@@ -889,11 +883,6 @@ func TestApplyMaterializationOverridesOnlyApplyToACreatedConfigFile(t *testing.T
 		{"RPC.PprofListenAddress", generated.ctx.Config.RPC.PprofListenAddress, read.ctx.Config.RPC.PprofListenAddress},
 		{"P2P.RecvRate", generated.ctx.Config.P2P.RecvRate, read.ctx.Config.P2P.RecvRate},
 		{"P2P.SendRate", generated.ctx.Config.P2P.SendRate, read.ctx.Config.P2P.SendRate},
-		{
-			"Consensus.UnsafeCommitTimeoutOverride",
-			generated.ctx.Config.Consensus.UnsafeCommitTimeoutOverride,
-			read.ctx.Config.Consensus.UnsafeCommitTimeoutOverride,
-		},
 	}
 	for _, c := range checks {
 		if fmt.Sprintf("%v", c.fromGenerated) == fmt.Sprintf("%v", c.fromRead) {
@@ -1154,78 +1143,8 @@ func TestStateCommitAsyncCommitBufferTagAddressesNoReader(t *testing.T) {
 	}
 }
 
-// TestKeyNamesMatchTheRecordedNames records the two [state-sync] keys whose constant nothing
-// else in the tree holds.
-//
-// NewApp reads all three state-sync keys through the constants declared in
-// sei-cosmos/server/start.go — `appOpts.Get(server.FlagStateSyncSnapshotDir)` at root.go:255 and
-// the three baseapp.Set* calls at root.go:304-306. It is not the only reader, and the readers
-// that name the keys name them as literals: sei-cosmos/server/config.GetConfig reads all three
-// into StateSyncConfig at config.go:615-619, and the app.toml template writes all three as
-// literal text at sei-cosmos/server/config/toml.go:76, :79 and :83. Those namings are what make
-// this record necessary rather than redundant: a constant rename moves NewApp and leaves every
-// literal where it was, so the suite stays green, the readers now disagree about which key they
-// resolve, and the key an operator wrote reaches only one of them.
-//
-// A third reader names them neither way: ParseConfig (sei-cosmos/server/config/toml.go:272-277)
-// unmarshals the section by mapstructure tag, so a tag rename moves it and leaves both the
-// literals and the constants where they were — the mirror of the case above, and the same seam
-// TestStateCommitAsyncCommitBufferTagAddressesNoReader records for [state-commit]. It reaches
-// seid only on util.go:308's empty-template branch, and initAppConfig always supplies a template
-// (root.go:426 assembles it, non-empty), so nothing here holds it. That unreachability is prose
-// rather than an assertion: the branch goes live the moment any caller passes an empty template.
-//
-// snapshot-interval is the exception, and by accident of spelling rather than by design: appKeys
-// above names it as a literal, so it does not move when the constant moves and a constant-only
-// rename fails six seeds of FuzzApplyPrecedenceApp. The other two have no such assertion, so
-// editing the constant renames an operator-facing key with this whole suite green.
-//
-// What each rename costs is why they are worth a record rather than a deferral:
-//
-//   - snapshot-keep-recent is a registered flag defaulting to 2 (start.go:234), so a rename does
-//     not surface as a missing flag — it silently reverts an explicit `= 10` to 2, and the serving
-//     node prunes snapshots a joining node is part-way through downloading. It presents on the
-//     joining node, as state-sync failure against a serving node that looks healthy.
-//   - snapshot-directory is registered nowhere, so a rename silently drops an explicit path and
-//     snapshots land in $HOME/data/snapshots instead (root.go:255-257). It presents as disk
-//     pressure on whichever volume the home directory is on.
-//
-// They are recorded with no rows because a row predicts a resolved leaf and NewApp builds a whole
-// baseapp against a materialized node directory rather than resolving an AppOpts into a struct.
-// That is a property of this reader and not of the section: GetConfig's reading of the same three
-// keys is describable and is described, by a three-row manifest and a state-sync record of its own
-// in sei-cosmos/server/config. Here a KeyName claims the spelling and nothing else, which is what
-// can be said truthfully about NewApp. The consequence is that no seeds check ties this record —
-// that tie needs a manifest — so this call is the only thing holding it, unlike the thirteen
-// sections where CheckEveryRowHasADiscriminatingSeed compares the record as well.
-func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
-	configtest.CheckKeyNames(t, "state-sync", nil,
-		server.FlagStateSyncSnapshotKeepRecent,
-		server.FlagStateSyncSnapshotDir)
-}
-
-// TestTendermintKeyNamesMatchTheRecordedNames pins the operator-facing spelling of the five
-// Tendermint keys FuzzApplyPrecedenceTendermint drives.
-//
-// tmKeys carries a local struct rather than a KeySpec table, because a precedence row needs three
-// distinct legal values and a KeySpec has nowhere to put them. The consequence is that no manifest
-// check reaches these keys, so their spelling had nothing holding it. A KeyName claims the spelling
-// and nothing else, which is the same thing the state-sync record above does and for the same
-// reason.
-//
-// Read from tmKeys rather than listed here, so a row added later is recorded without anyone
-// remembering this call.
-func TestTendermintKeyNamesMatchTheRecordedNames(t *testing.T) {
-	names := make([]configtest.KeyName, 0, len(tmKeys))
-	for _, row := range tmKeys {
-		names = append(names, configtest.KeyName(row.Key))
-	}
-	configtest.CheckKeyNames(t, "tendermint", nil, names...)
-}
-
-// TestApplyLeavesBothChannelsPopulated states the seam's minimum contract, the one
-// the ConfigManager interface documents: whichever manager runs, both channels
-// come back populated. It is the assertion a new manager fails first.
+// TestApplyLeavesBothChannelsPopulated states the seam's minimum contract: both
+// channels come back populated.
 func TestApplyLeavesBothChannelsPopulated(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
@@ -1250,17 +1169,10 @@ func TestApplyLeavesBothChannelsPopulated(t *testing.T) {
 		"evm.http_enabled",
 		"giga_executor.enabled",
 		"admin_server.admin_enabled",
+		"cosmos_metrics.enabled",
 	} {
 		if got.ctx.Viper.Get(key) == nil {
 			t.Errorf("serverCtx.Viper is missing %q, which app.New reads through appOpts.Get", key)
 		}
 	}
-}
-
-// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
-//
-// Every other check here reports a change to what it asserts. None reports a check being removed, so
-// this records the wiring and fails when it thins out.
-func TestWiringMatchesTheRecord(t *testing.T) {
-	configtest.CheckWiring(t)
 }

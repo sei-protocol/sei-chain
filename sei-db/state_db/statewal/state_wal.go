@@ -1,57 +1,72 @@
 package statewal
 
 import (
+	"context"
+
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
-// A WAL for state.
+// A WAL for state. Each block is written as mutations and read back as changesets.
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
-// in particular Write and SignalEndOfBlock share write-ordering state that is not internally locked.
+// in particular Write maintains write-ordering state that is not internally locked.
 //
-// Slices are not copied at the call boundary. Changesets passed to Write — and every byte slice reachable
-// through them — must not be modified after the call: the WAL retains them and serializes them
-// asynchronously, so mutating them races the WAL and can corrupt what is persisted. Likewise the changesets
-// returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
-// mutate such data must copy it first.
+// The changesets returned by the iterator are owned by the WAL and must not be modified.
 type StateWAL interface {
+	controllertypes.PrunableStore
 
-	// Write a set of changes to the WAL.
+	// Write a block's mutations to the WAL as a single record.
 	//
-	// This method only schedules the write, it does not block until the write is complete.
+	// This method only schedules the write, it does not block until the write is complete. It does block while the
+	// WAL is behind by more than Config.RequestBufferSize blocks.
 	//
-	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
-	// this call. Callers that need to modify those buffers must copy them first.
+	// Write takes ownership of mutations. Once the call begins, neither mutations nor any byte slice reachable
+	// through it may be read or modified.
 	//
-	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
-	// nil or empty.
-	//
-	// Blocks must be written in contiguous ascending order, one at a time:
-	//
-	// - The first block written to an empty WAL may be any number. Every block after it must be exactly one
-	//   greater than the last, so forward jumps are rejected. This survives close and reopen.
-	// - Any number of Writes may target the current block until SignalEndOfBlock; afterwards that block is
-	//   closed and writing to it again is an error.
+	// Blocks must be written in contiguous ascending order, one Write per block. The first block written to
+	// an empty WAL may be any number; every block after it must be exactly one greater than the last, so
+	// repeats and forward jumps are rejected. This survives close and reopen.
 	//
 	// Violations are reported synchronously and leave the WAL usable.
 	Write(
-		// The block number associated with the changeset.
+		// The block number associated with the mutations.
 		blockNumber uint64,
-		// The changeset to write.
-		cs []*proto.NamedChangeSet,
+		// The block's mutations, one per key the block writes.
+		mutations []mutation.Mutation,
 	) error
 
-	// Signal that there will be no more writes for the current block number. Writing additional changes for
-	// the same block number after calling this method is an error.
-	//
-	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make
-	// data immediately crash durable.
-	SignalEndOfBlock() error
-
-	// Flush the WAL to disk. Only completed blocks — those for which SignalEndOfBlock has been called — are
-	// made crash durable; changes for a block that has not yet been ended remain buffered and are not flushed.
+	// Flush the WAL to disk, making every block written so far crash durable, and wait until every listener has
+	// returned for each of those blocks.
 	Flush() error
+
+	// Register a listener that receives the hash of each block written, one call per block, in block order, with
+	// no gaps. Listeners are meant for steady state, after setup; during setup, read the hashes of specific blocks
+	// with Iterator() and GetHash().
+	//
+	// Listeners run on a goroutine owned by the WAL, so a listener that falls behind eventually blocks Write(). A
+	// listener must not call back into the WAL: RegisterHashListener(), Write(), Flush(), and Close() wait on that
+	// goroutine and would deadlock, and the other methods are not safe to call concurrently with the WAL's owner.
+	// An error from a listener bricks the WAL, and no listener receives a hash for any later block.
+	RegisterHashListener(
+		// The listener to register, or nil to only read the most recent hash.
+		listener HashListener,
+	) (
+		// If false, no block has a hash yet: the WAL was opened empty and no hash has been delivered since.
+		// blockNumber and hash are then undefined, and the listener's first delivery is the first block
+		// written.
+		ok bool,
+		// The block of the most recent hash delivered to listeners, or of the last stored block if none has
+		// been delivered since the WAL was opened. The listener's first delivery is for blockNumber+1.
+		blockNumber uint64,
+		// The hash of the key-value pairs modified by executing the transactions in block blockNumber.
+		hash [32]byte,
+		// Any error encountered while registering.
+		err error,
+	)
 
 	// Get the range of block numbers stored in the WAL.
 	GetStoredRange() (
@@ -85,13 +100,32 @@ type StateWAL interface {
 	// start and the return of this call. Data written before that instant is included; data written after it
 	// is not. For data written concurrently with this call, whether it is included is unspecified.
 	//
-	// The iterator yields one entry per block in ascending block order. Its Entry() returns (blockNumber,
-	// changesets), where changesets are all the changes written for that block (across one or more Write
-	// calls) combined in write order. Blocks that were never ended with SignalEndOfBlock are not yielded.
-	// The returned changesets, and every byte slice reachable through them, must be treated as read-only.
-	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
+	// The iterator yields one entry per block in ascending block order.
+	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (StateWALIterator, error)
 
-	// Close the WAL, flushing complete blocks (those ended with SignalEndOfBlock) to disk and releasing
-	// resources. Changes for a block that was not ended with SignalEndOfBlock are discarded.
+	// Close blocks until all work submitted before the call has been fully handled, then releases the WAL's
+	// resources.
 	Close() error
+}
+
+// A callback that receives the hash of the key-value pairs modified by executing the transactions in a block. Its
+// signature matches AppHashBuilder.ReportBUDHash(), so that method registers as one directly.
+//
+// The hash is currently a stopgap placeholder, not a BUD as the BUD spec defines it; see computePlaceholderHash().
+type HashListener func(
+	// Cancelled when the StateWAL stops. A listener blocked when it is cancelled must return.
+	ctx context.Context,
+	// The block the hash belongs to.
+	blockHeight uint64,
+	// The hash of the key-value pairs modified by executing the transactions in the block.
+	hash [32]byte,
+) error
+
+// An iterator over the blocks of a StateWAL. Entry() returns (blockNumber, changesets).
+type StateWALIterator interface {
+	seiwal.Iterator[[]*proto.NamedChangeSet]
+
+	// GetHash returns the hash delivered to listeners for the block at the iterator's current position. It is valid
+	// only after Next() returns true.
+	GetHash() ([32]byte, error)
 }

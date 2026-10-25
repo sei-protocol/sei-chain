@@ -2,21 +2,26 @@ package keeper_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/precompiles/json"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 
@@ -25,9 +30,7 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -92,7 +95,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NotEmpty(t, res.ReturnData)
+	require.Empty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
@@ -128,16 +131,50 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
-	require.NotEmpty(t, res.Logs)
+	require.Empty(t, res.Logs)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt = testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
+	require.Len(t, receipt.Logs, 1)
 	stateDB := state.NewDBImpl(ctx, k, false)
 	val := hex.EncodeToString(bytes.Trim(stateDB.GetState(contractAddr, common.Hash{}).Bytes(), "\x00")) // key is 0x0 since the contract only has one variable
 	require.Equal(t, "14", val)                                                                          // value is 0x14 = 20
+}
+
+func TestEVMTransactionSimulationCancellation(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	contractAddr := common.HexToAddress("0x1234")
+	k.SetCode(ctx, contractAddr, []byte{byte(vm.JUMPDEST), byte(vm.PUSH1), 0, byte(vm.JUMP)})
+
+	privKey := testkeeper.MockPrivateKey()
+	key, err := crypto.ToECDSA(privKey.Bytes())
+	require.NoError(t, err)
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		GasPrice: big.NewInt(0),
+		Gas:      math.MaxUint64,
+		To:       &contractAddr,
+	})
+	signer := ethtypes.MakeSigner(types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx)), big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix()))
+	tx, err = ethtypes.SignTx(tx, signer, key)
+	require.NoError(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.NoError(t, err)
+	msg, err := types.NewMsgEVMTransaction(txwrapper)
+	require.NoError(t, err)
+	require.NoError(t, ante.Preprocess(ctx, msg, k.ChainID(ctx), false))
+
+	deadlineCtx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	ctx = ctx.WithIsSimulation(true).WithContext(deadlineCtx)
+
+	started := time.Now()
+	res, err := keeper.NewMsgServerImpl(k).EVMTransaction(sdk.WrapSDKContext(ctx), msg)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, res)
+	require.Less(t, time.Since(started), time.Second)
 }
 
 func TestEVMTransactionError(t *testing.T) {
@@ -247,6 +284,79 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	require.True(t, receipt.PreExecutionFailure)
 }
 
+// TestEVMTransactionPrecompileOutOfGas covers a dynamic-gas precompile that
+// exhausts its Cosmos gas meter mid-execution: the tx must complete as a normal
+// failed EVM execution with a receipt carrying the real gas used and effective
+// gas price, and the sender must be charged for exactly that gas, rather than
+// the gas-meter panic escaping and failing the tx at the Cosmos layer.
+func TestEVMTransactionPrecompileOutOfGas(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeperWithPrecompiles()
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+
+	jsonPrecompile, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	// 1000 payload bytes cost 100,000 Cosmos gas to parse, far more than the gas
+	// left after the intrinsic charge, so the precompile runs out of gas.
+	payload := []byte(`{"key":"` + strings.Repeat("a", 1000) + `"}`)
+	data, err := jsonPrecompile.Pack(json.ExtractAsBytesMethod, payload, "key")
+	require.Nil(t, err)
+	jsonAddr := jsonPrecompile.Address()
+	const gasLimit uint64 = 70000
+	const gasPrice int64 = 1000000000000
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(gasPrice),
+		Gas:      gasLimit,
+		To:       &jsonAddr,
+		Value:    big.NewInt(0),
+		Data:     data,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	const funding int64 = 1000000
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(funding)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt))
+
+	msgServer := keeper.NewMsgServerImpl(k)
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	var res *types.MsgEVMTransactionResponse
+	require.NotPanics(t, func() {
+		res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	})
+	require.Nil(t, err)
+	require.Equal(t, vm.ErrOutOfGas.Error(), res.VmError)
+	require.Equal(t, gasLimit, res.GasUsed)
+
+	// usei has 6 decimals against wei's 18, so 1e12 wei per gas is 1 usei per gas.
+	require.Equal(t, uint64(funding)-gasLimit, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), k.GetBaseDenom(ctx)).Amount.Uint64())
+
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
+	require.False(t, receipt.PreExecutionFailure)
+	require.Equal(t, gasLimit, receipt.GasUsed)
+	require.Equal(t, uint64(gasPrice), receipt.EffectiveGasPrice)
+	require.Equal(t, vm.ErrOutOfGas.Error(), receipt.VmError)
+}
+
 func TestEVMDynamicFeeTransaction(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
@@ -293,7 +403,6 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	maxUseiBalanceChange := (200000 * 1000000000) / 1000000000000000000 // 200000 gas * 1 gwei / 1 usei per wei
 	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-uint64(maxUseiBalanceChange))
@@ -352,7 +461,6 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(500000))
 	require.Empty(t, res.VmError)
-	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), k.GetBaseDenom(ctx)).Amount.Uint64())
 	coinbaseBalanceAfter := k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64()
@@ -469,7 +577,6 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	fmt.Println("all balances sender = ", k.BankKeeper().GetAllBalances(ctx, sdk.AccAddress(evmAddr[:])))
@@ -532,177 +639,6 @@ func TestSend(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiFrom, "usei").Amount)
 	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiTo, "usei").Amount)
-}
-
-func TestRegisterPointer(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper(t)
-	sender, _ := testkeeper.MockAddressPair()
-	_, pointee := testkeeper.MockAddressPair()
-
-	// Test register-pointer for ERC20
-	res, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC20,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.Nil(t, err)
-	pointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
-	require.True(t, exists)
-	require.Equal(t, erc20.CurrentVersion, version)
-	require.Equal(t, pointer.String(), res.PointerAddress)
-	hasRegisteredEvent := false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-		require.Equal(t, types.EventTypePointerRegistered, e.Type)
-		require.Equal(t, "erc20", string(e.Attributes[0].Value))
-	}
-	require.True(t, hasRegisteredEvent)
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	// ERC20 pointer already exists
-	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC20,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-	}
-	require.False(t, hasRegisteredEvent)
-
-	// upgrade ERC20 pointer
-	k.DeleteCW20ERC20Pointer(ctx, pointee, version)
-	k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), version-1)
-	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC20,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.Nil(t, err)
-	newPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
-	require.True(t, exists)
-	require.Equal(t, erc20.CurrentVersion, version)
-	require.Equal(t, newPointer.String(), res.PointerAddress)
-	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	// Test register-pointer for ERC721
-	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC721,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.Nil(t, err)
-	pointer, version, exists = k.GetCW721ERC721Pointer(ctx, pointee)
-	require.True(t, exists)
-	require.Equal(t, erc721.CurrentVersion, version)
-	require.Equal(t, pointer.String(), res.PointerAddress)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-		require.Equal(t, types.EventTypePointerRegistered, e.Type)
-		require.Equal(t, "erc721", string(e.Attributes[0].Value))
-	}
-	require.True(t, hasRegisteredEvent)
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	// ERC721 pointer already exists
-	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC721,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-	}
-	require.False(t, hasRegisteredEvent)
-
-	// upgrade ERC721 pointer
-	k.DeleteCW721ERC721Pointer(ctx, pointee, version)
-	k.SetCW721ERC721PointerWithVersion(ctx, pointee, pointer.String(), version-1)
-	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC721,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.Nil(t, err)
-	newPointer, version, exists = k.GetCW721ERC721Pointer(ctx, pointee)
-	require.True(t, exists)
-	require.Equal(t, erc721.CurrentVersion, version)
-	require.Equal(t, newPointer.String(), res.PointerAddress)
-	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	// Test register-pointer for ERC1155
-	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC1155,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.Nil(t, err)
-	pointer, version, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
-	require.True(t, exists)
-	require.Equal(t, erc1155.CurrentVersion, version)
-	require.Equal(t, pointer.String(), res.PointerAddress)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-		require.Equal(t, types.EventTypePointerRegistered, e.Type)
-		require.Equal(t, "erc1155", string(e.Attributes[0].Value))
-	}
-	require.True(t, hasRegisteredEvent)
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	// ERC1155 pointer already exists
-	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC1155,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-	}
-	require.False(t, hasRegisteredEvent)
-
-	// upgrade ERC1155 pointer
-	k.DeleteCW1155ERC1155Pointer(ctx, pointee, version)
-	k.SetCW1155ERC1155PointerWithVersion(ctx, pointee, pointer.String(), version-1)
-	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC1155,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.Nil(t, err)
-	newPointer, version, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
-	require.True(t, exists)
-	require.Equal(t, erc1155.CurrentVersion, version)
-	require.Equal(t, newPointer.String(), res.PointerAddress)
-	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
 }
 
 func TestEvmError(t *testing.T) {
@@ -788,28 +724,23 @@ func TestEvmError(t *testing.T) {
 func TestAssociateContractAddress(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
-	dummySeiAddr, dummyEvmAddr := testkeeper.MockAddressPair()
-	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      dummySeiAddr.String(),
-		PointerType: types.PointerType_ERC20,
-		ErcAddress:  dummyEvmAddr.Hex(),
-	})
-	require.Nil(t, err)
-	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+	dummySeiAddr, _ := testkeeper.MockAddressPair()
+	contractAddr := setupCW20Contract(t, ctx, k, dummySeiAddr)
+	_, err := msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
 		Sender:  dummySeiAddr.String(),
-		Address: res.PointerAddress,
+		Address: contractAddr.String(),
 	})
 	require.Nil(t, err)
-	associatedEvmAddr, found := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
+	associatedEvmAddr, found := k.GetEVMAddress(ctx, contractAddr)
 	require.True(t, found)
-	require.Equal(t, common.BytesToAddress(sdk.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
+	require.Equal(t, common.BytesToAddress(contractAddr), associatedEvmAddr)
 	associatedSeiAddr, found := k.GetSeiAddress(ctx, associatedEvmAddr)
 	require.True(t, found)
-	require.Equal(t, res.PointerAddress, associatedSeiAddr.String())
+	require.Equal(t, contractAddr.String(), associatedSeiAddr.String())
 	// setting for an associated address would fail
 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
 		Sender:  dummySeiAddr.String(),
-		Address: res.PointerAddress,
+		Address: contractAddr.String(),
 	})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "contract already has an associated address")
@@ -822,124 +753,62 @@ func TestAssociateContractAddress(t *testing.T) {
 	require.Contains(t, err.Error(), "no wasm contract found at the given address")
 }
 
-func TestAssociate(t *testing.T) {
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithChainID("sei-test").WithBlockHeight(1)
-	privKey := testkeeper.MockPrivateKey()
-	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	acc := testkeeper.EVMTestApp.AccountKeeper.NewAccountWithAddress(ctx, seiAddr)
-	testkeeper.EVMTestApp.AccountKeeper.SetAccount(ctx, acc)
-	msg := types.NewMsgAssociate(seiAddr, "test")
-	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	tb.SetMsgs(msg)
-	tb.SetSignatures(signing.SignatureV2{
-		PubKey: privKey.PubKey(),
-		Data: &signing.SingleSignatureData{
-			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
-			Signature: nil,
-		},
-		Sequence: acc.GetSequence(),
-	})
-	signerData := authsigning.SignerData{
-		ChainID:       "sei-test",
-		AccountNumber: acc.GetAccountNumber(),
-		Sequence:      acc.GetSequence(),
-	}
-	signBytes, err := testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().GetSignBytes(testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(), signerData, tb.GetTx())
+func setupCW20Contract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, creator sdk.AccAddress) sdk.AccAddress {
+	code, err := os.ReadFile("../../../contracts/wasm/cw20_base.wasm")
 	require.Nil(t, err)
-	sig, err := privKey.Sign(signBytes)
+	codeID, err := k.WasmKeeper().Create(ctx, creator, code, nil)
 	require.Nil(t, err)
-	sigs := make([]signing.SignatureV2, 1)
-	sigs[0] = signing.SignatureV2{
-		PubKey: privKey.PubKey(),
-		Data: &signing.SingleSignatureData{
-			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
-			Signature: sig,
-		},
-		Sequence: acc.GetSequence(),
-	}
-	require.Nil(t, tb.SetSignatures(sigs...))
-	sdktx := tb.GetTx()
-	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
+	instantiateMsg := fmt.Sprintf(
+		`{"name":"test","symbol":"test","decimals":6,"initial_balances":[{"address":"%s","amount":"1000000000"}]}`,
+		creator.String(),
+	)
+	contractAddr, _, err := k.WasmKeeper().Instantiate(ctx, codeID, creator, creator, []byte(instantiateMsg), "test", sdk.NewCoins())
 	require.Nil(t, err)
-
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.NotEqual(t, uint32(0), res.Code) // not enough balance
-
-	require.Nil(t, testkeeper.EVMTestApp.BankKeeper.AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.OneInt()))
-
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
+	return contractAddr
 }
 
-func TestRegisterPointerDisabled(t *testing.T) {
+func TestAssociate(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	seiAddr, _ := testkeeper.MockAddressPair()
+
+	res, err := keeper.NewMsgServerImpl(k).Associate(
+		sdk.WrapSDKContext(ctx),
+		types.NewMsgAssociate(seiAddr, "test"),
+	)
+	require.Nil(t, res)
+	require.ErrorIs(t, err, types.ErrAssociateDeprecated)
+}
+
+func TestRegisterPointerDeprecated(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	sender, _ := testkeeper.MockAddressPair()
 	pointer, pointee := testkeeper.MockAddressPair()
-	// set params to disable registering CW->ERC pointers
-	params := k.GetParams(ctx)
-	params.RegisterPointerDisabled = true
-	k.SetParams(ctx, params)
 
-	// Test register-pointer for ERC20 fails with useLatest = true
-	_, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC20,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	for _, pointerType := range []types.PointerType{types.PointerType_ERC20, types.PointerType_ERC721, types.PointerType_ERC1155} {
+		res, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+			Sender:      sender.String(),
+			PointerType: pointerType,
+			ErcAddress:  pointee.Hex(),
+		})
+		require.Nil(t, res)
+		require.ErrorIs(t, err, types.ErrRegisterPointerDeprecated)
+	}
+
 	_, _, exists := k.GetCW20ERC20Pointer(ctx, pointee)
 	require.False(t, exists)
-
-	// Test register-pointer for ERC721 fails with useLatest = true
-	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC721,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 	_, _, exists = k.GetCW721ERC721Pointer(ctx, pointee)
 	require.False(t, exists)
-
-	// Test register-pointer for ERC1155 fails with useLatest = true
-	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC1155,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 	_, _, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
 	require.False(t, exists)
 
-	// Test that no events are emitted
-	hasRegisteredEvent := false
 	for _, e := range ctx.EventManager().Events() {
-		if e.Type == types.EventTypePointerRegistered {
-			hasRegisteredEvent = true
-			break
-		}
+		require.NotEqual(t, types.EventTypePointerRegistered, e.Type)
 	}
-	require.False(t, hasRegisteredEvent)
 
-	// Test that existing pointers can still be queried
-	// First manually set up a pointer
-	err = k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), erc20.CurrentVersion)
-	require.Nil(t, err)
-
-	// Verify the pointer exists and can be queried
+	// pointers registered before the handler was retired stay readable
+	require.Nil(t, k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), erc20.CurrentVersion))
 	gotPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
 	require.True(t, exists)
 	require.Equal(t, erc20.CurrentVersion, version)
 	require.Equal(t, pointer, gotPointer)
-
-	// Test that attempting to register a pointer for an address that already has one still fails
-	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-		Sender:      sender.String(),
-		PointerType: types.PointerType_ERC20,
-		ErcAddress:  pointee.Hex(),
-	})
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 }

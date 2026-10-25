@@ -10,10 +10,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -21,6 +24,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -39,7 +43,13 @@ type SendAPI struct {
 }
 
 type SendConfig struct {
-	slow bool
+	slow             bool
+	enableSimulation bool
+	autobahn         bool
+}
+
+func NewSendConfig(slow bool, enableSimulation bool, autobahn bool) *SendConfig {
+	return &SendConfig{slow: slow, enableSimulation: enableSimulation, autobahn: autobahn}
 }
 
 func NewSendAPI(
@@ -92,17 +102,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	// but we still need to handle it.
 	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
 	if senderErr == nil {
-		if url, ok := s.tmClient.EvmProxy(sender).Get(); ok {
+		if client, ok := s.tmClient.EvmProxy(sender).Get(); ok {
 			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
-			// HTTP transport pooling already happens globally underneath net/http, so
-			// creating a fresh RPC client per proxied request is fine here. If we
-			// start proxying over WebSocket, we'll need explicit custom pooling since
-			// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
-			client, err := rpc.DialContext(ctx, url.String())
-			if err != nil {
-				return hash, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
-			}
-			defer client.Close()
 
 			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
 				// No error wrapping, because evm server is too dumb to handle wrapped error.
@@ -120,8 +121,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err != nil {
 		return hash, err
 	}
-	gasUsedEstimate := tx.Gas() // if issue simulating, fallback to gas limit
-	if senderErr == nil {       // simulation requires sender.
+	gasUsedEstimate := tx.Gas()                            // if issue simulating, fallback to gas limit
+	if s.sendConfig.enableSimulation && senderErr == nil { // simulation requires sender.
 		if gas, err := s.simulateTx(ctx, sender, tx); err == nil {
 			gasUsedEstimate = gas
 		}
@@ -136,10 +137,13 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return hash, encodeErr
 	}
 
-	if s.sendConfig.slow {
+	// Autobahn rejects BroadcastTxCommit before InsertTx. evm.slow still
+	// submits via BroadcastTx so eth_sendRawTransaction lands the tx; only
+	// seid -b block / broadcast_tx_commit itself fail-fasts.
+	if s.sendConfig.slow && !s.sendConfig.autobahn {
 		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
 		if broadcastError != nil {
-			err = broadcastError
+			err = toEthBroadcastError(broadcastError)
 		} else if res == nil {
 			err = errors.New("missing broadcast response")
 		} else if res.CheckTx.Code != 0 {
@@ -148,7 +152,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	} else {
 		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
 		if broadcastError != nil {
-			err = broadcastError
+			err = toEthBroadcastError(broadcastError)
 		} else if res == nil {
 			err = errors.New("missing broadcast response")
 		} else if res.Code != 0 {
@@ -156,6 +160,22 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		}
 	}
 	return
+}
+
+// toEthBroadcastError maps a mempool rejection to its Ethereum equivalent, if it has one.
+func toEthBroadcastError(err error) error {
+	switch {
+	case errors.Is(err, tmtypes.ErrTxInMempool):
+		return txpool.ErrAlreadyKnown
+	case errors.Is(err, tmtypes.ErrTxNonceTooLow):
+		return core.ErrNonceTooLow
+	case errors.Is(err, tmtypes.ErrTxReplacementUnderpriced):
+		return txpool.ErrReplaceUnderpriced
+	case errors.Is(err, tmtypes.ErrTxInsufficientFunds):
+		return core.ErrInsufficientFunds
+	default:
+		return err
+	}
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {
@@ -220,6 +240,12 @@ func (s *SendAPI) SignTransaction(ctx context.Context, args apitypes.SendTxArgs,
 }
 
 func (s *SendAPI) SendTransaction(ctx context.Context, args export.TransactionArgs) (result common.Hash, returnErr error) {
+	if timeout, ok := s.methodTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_sendTransaction", s.connectionType, startTime, returnErr, recover())

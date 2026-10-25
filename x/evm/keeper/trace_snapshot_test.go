@@ -26,8 +26,9 @@ func (f *fakeCommitter) Close() error                             { atomic.Store
 func (f *fakeCommitter) IsClosed() bool                           { return atomic.LoadInt32(&f.closed) == 1 }
 func (f *fakeCommitter) Version() int64                           { return f.id }
 func (f *fakeCommitter) Initialize(_ []string) error              { panic("unused") }
-func (f *fakeCommitter) Commit() (int64, error)                   { panic("unused") }
+func (f *fakeCommitter) Commit(int64) (int64, error)              { panic("unused") }
 func (f *fakeCommitter) GetLatestVersion() (int64, error)         { panic("unused") }
+func (f *fakeCommitter) Flush() error                             { panic("unused") }
 func (f *fakeCommitter) Get(string, []byte) ([]byte, bool, error) { panic("unused") }
 func (f *fakeCommitter) SetWriteMode(sctypes.WriteMode) error     { panic("unused") }
 func (f *fakeCommitter) SetMigrationBatchSize(int) error          { panic("unused") }
@@ -40,7 +41,7 @@ func (f *fakeCommitter) GetProof(string, []byte) (*ics23.CommitmentProof, error)
 }
 func (f *fakeCommitter) ApplyChangeSets(_ []*proto.NamedChangeSet) error { panic("unused") }
 func (f *fakeCommitter) ApplyUpgrades(_ []*proto.TreeNameUpgrade) error  { panic("unused") }
-func (f *fakeCommitter) WorkingCommitInfo() *proto.CommitInfo            { panic("unused") }
+func (f *fakeCommitter) WorkingCommitInfo(int64) *proto.CommitInfo       { panic("unused") }
 func (f *fakeCommitter) LastCommitInfo() *proto.CommitInfo               { panic("unused") }
 func (f *fakeCommitter) LoadVersion(int64, bool) (sctypes.Committer, error) {
 	panic("unused")
@@ -48,6 +49,7 @@ func (f *fakeCommitter) LoadVersion(int64, bool) (sctypes.Committer, error) {
 func (f *fakeCommitter) Rollback(int64) error                             { panic("unused") }
 func (f *fakeCommitter) SetInitialVersion(int64) error                    { panic("unused") }
 func (f *fakeCommitter) GetChildStoreByName(string) sctypes.CommitKVStore { panic("unused") }
+func (f *fakeCommitter) MayHoldStore(string) bool                         { panic("unused") }
 func (f *fakeCommitter) Copy() sctypes.Committer {
 	atomic.AddInt32(&f.copies, 1)
 	return &fakeCommitter{id: f.id}

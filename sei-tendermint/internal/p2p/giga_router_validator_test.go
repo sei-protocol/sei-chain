@@ -4,16 +4,20 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -73,23 +77,27 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
 			littCfg.Litt.Fsync = true
-			blockDB, err := littblock.NewBlockDB(littCfg)
+			db, err := littblock.NewBlockDB(littCfg)
 			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
-			t.Cleanup(func() { _ = blockDB.Close() })
+			blockStore, err := blockstore.New(db)
+			require.NoError(t, err, "blockstore.New[%v]", i)
+			t.Cleanup(func() { _ = blockStore.Close() })
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
-				PersistentStateDir: utils.Some(dir),
+				PersistentStateDir: dir,
 				App:                proxyApp,
 				GenDoc:             genDoc,
+				EnableEvmProxy:     true,
 			}
-			dataState, err := BuildDataState(&commonCfg, blockDB)
+			dataState, err := BuildDataState(&commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
 				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
+				ProposalTimeout:        time.Hour,
 				Producer: &producer.Config{
 					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
 					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
@@ -97,6 +105,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
+					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
@@ -109,8 +118,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					Endpoint:                 e,
 					Connection:               conn.DefaultMConnConfig(),
 					IncomingConnectionWindow: utils.Some(time.Duration(0)),
-					MaxAcceptRate:            utils.Some(rate.Inf),
-					MaxDialRate:              utils.Some(rate.Limit(30)),
+					MaxAcceptRate:            rate.Inf,
+					MaxDialRate:              rate.Limit(30),
 					Giga:                     utils.Some[GigaRouter](giga),
 				},
 			)
@@ -153,6 +162,15 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
+			// Covers GigaRouter.ExecutedBlocks — the watch behind
+			// eth_subscribe("newHeads"). It must reach the committed height,
+			// and the block it names must be readable via BlockByNumber.
+			executed, err := giga.ExecutedBlocks().Wait(ctx, func(w atypes.ExecutedBlocks) bool {
+				return int64(w.Latest().Number) >= committed
+			})
+			require.NoError(t, err, "router[%v].ExecutedBlocks().Wait()", i)
+			_, err = giga.BlockByNumber(ctx, executed.Latest().Number)
+			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed.Latest().Number)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries
@@ -214,14 +232,19 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	_, validatorKeys := atypes.GenCommittee(rng, 10)
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
-	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	urlByValidator := map[atypes.PublicKey]url.URL{}
+	// DialContext opens the websocket before the first call, so the URL has
+	// to name a listener.
+	rpcSrv := ethrpc.NewServer()
+	t.Cleanup(rpcSrv.Stop)
+	httpSrv := httptest.NewServer(rpcSrv.WebsocketHandler([]string{"*"}))
+	t.Cleanup(httpSrv.Close)
+	rpcURL := *utils.OrPanic1(url.Parse("ws" + strings.TrimPrefix(httpSrv.URL, "http")))
 	// NewGigaRouter requires EVMRPC on every committee member in both
 	// validator and fullnode modes.
-	for i, validatorKey := range validatorKeys {
+	for _, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-		require.NoError(t, err)
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
@@ -242,58 +265,63 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	blockDB, err := littblock.NewBlockDB(littCfg)
+	db, err := littblock.NewBlockDB(littCfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blockDB.Close() })
+	blockStore, err := blockstore.New(db)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockStore.Close() })
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(dir),
+		PersistentStateDir: dir,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
+		EnableEvmProxy:     true,
 	}
-	dataState, err := BuildDataState(&commonCfg, blockDB)
+	dataState, err := BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 		GigaRouterCommonConfig: commonCfg,
 		ValidatorKey:           validatorKeys[0],
 		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
+		ProposalTimeout:        time.Hour,
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)
 
 	localValidator := validatorKeys[0].Public()
-	localURL, ok := urlByValidator[localValidator]
-	require.True(t, ok)
+
+	connectedRemote := map[atypes.PublicKey]*ethrpc.Client{}
+	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
+	for validator, addr := range addrs {
+		if validator == localValidator {
+			continue
+		}
+		if len(connectedRemote) >= 3 {
+			break
+		}
+		client := registerEvmProxyForTest(t, router.gigaRouterCommon, validator, addr.EVMRPC)
+		connectedRemote[validator] = client
+		expectedRemoteClients[client] = struct{}{}
+	}
 
 	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		connectedRemote := map[atypes.PublicKey]struct{}{}
-		expectedRemoteURLs := map[string]struct{}{}
-		type noOpAPI = rpc.Client[giga.API]
-		for validator, addr := range addrs {
-			if validator == localValidator {
-				continue
-			}
-			if len(connectedRemote) >= 3 {
-				break
-			}
-			connectedRemote[validator] = struct{}{}
-			expectedRemoteURLs[addr.EVMRPC.String()] = struct{}{}
-			key := addr.Key
+		for validator := range connectedRemote {
 			ready := make(chan struct{})
-			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", key), func() error {
-				var client noOpAPI
-				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", validator), func() error {
+				var client rpc.Client[giga.API]
+				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, validator, client, func(ctx context.Context) error {
 					close(ready)
 					<-ctx.Done()
-					return nil
+					return ctx.Err()
 				}))
 			})
 			if _, _, err := utils.RecvOrClosed(ctx, ready); err != nil {
@@ -301,46 +329,66 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			}
 		}
 
-		returnedRemoteURLs := map[string]struct{}{}
+		returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 		seenDisconnected := false
 		for range 400 {
 			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-			shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+			shardValidator := router.data.NextCommitEpoch().Load().Committee().EvmShard(sender)
 
-			proxyURL, ok := router.EvmProxy(sender).Get()
-			expectedURL := urlByValidator[shardValidator]
+			proxyClient, ok := router.EvmProxy(sender).Get()
 
 			if shardValidator == localValidator {
 				// Self-shard: validator short-circuits to local mempool.
-				if ok || proxyURL != nil {
-					return fmt.Errorf("expected local shard %s to avoid proxying", shardValidator)
-				}
-			} else if _, connected := connectedRemote[shardValidator]; !connected {
-				if ok || proxyURL != nil {
-					return fmt.Errorf("expected disconnected shard %s to avoid proxying", shardValidator)
-				}
+				require.False(t, ok, "expected local shard %s to avoid proxying", shardValidator)
+				require.Nil(t, proxyClient)
+			} else if expectedClient, connected := connectedRemote[shardValidator]; !connected {
+				require.False(t, ok, "expected disconnected shard %s to avoid proxying", shardValidator)
+				require.Nil(t, proxyClient)
 				seenDisconnected = true
 			} else {
-				if !ok || proxyURL == nil {
-					return fmt.Errorf("expected connected shard %s to proxy", shardValidator)
-				}
-				if got := proxyURL.String(); got != expectedURL.String() {
-					return fmt.Errorf("proxy url = %s, want %s", got, expectedURL.String())
-				}
-				if proxyURL.String() == localURL.String() {
-					return fmt.Errorf("connected remote shard %s unexpectedly proxied to local URL", shardValidator)
-				}
-				returnedRemoteURLs[proxyURL.String()] = struct{}{}
+				require.True(t, ok, "expected connected shard %s to proxy", shardValidator)
+				require.NotNil(t, proxyClient)
+				require.Equal(t, expectedClient, proxyClient)
+				returnedRemoteClients[proxyClient] = struct{}{}
 			}
 		}
 
-		if !maps.Equal(expectedRemoteURLs, returnedRemoteURLs) {
-			return fmt.Errorf("returned remote urls = %v, want %v", returnedRemoteURLs, expectedRemoteURLs)
-		}
-		if !seenDisconnected {
-			return fmt.Errorf("expected at least one disconnected shard sample")
-		}
+		require.True(t, maps.Equal(expectedRemoteClients, returnedRemoteClients), "returned remote clients = %v, want %v", returnedRemoteClients, expectedRemoteClients)
+		require.True(t, seenDisconnected, "expected at least one disconnected shard sample")
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 1)
+	self := &testNodeCfg{
+		validatorKey: validatorKeys[0],
+		nodeKey:      makeKey(rng),
+		addr:         tcp.TestReserveAddr(),
+	}
+	for _, tc := range []struct {
+		name     string
+		hostPort tcp.HostPort
+		want     string
+	}{
+		{"zero port", tcp.HostPort{Hostname: "validator1.example.com"}, "missing port"},
+		{"empty hostname", tcp.HostPort{Port: 26656}, "missing hostname"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := self.GigaNodeAddr()
+			addr.HostPort = tc.hostPort
+			_, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: GigaRouterCommonConfig{
+					ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+						self.validatorKey.Public(): addr,
+					},
+				},
+				ValidatorKey: self.validatorKey,
+			}, self.nodeKey, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
 }

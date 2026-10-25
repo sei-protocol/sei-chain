@@ -73,6 +73,7 @@ type loadMetrics struct {
 	failedTxRate       prometheus.Gauge
 	gasRate            prometheus.Gauge
 	queuedBlocks       prometheus.Gauge
+	reorderPending     prometheus.Gauge
 	sinkQueuedRecords  prometheus.Gauge
 	sinkQueueCapacity  prometheus.Gauge
 	poolCapacityGauge  prometheus.Gauge
@@ -234,6 +235,10 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_queued_blocks",
 			Help: "Blocks currently waiting in the executor input queue.",
 		}),
+		reorderPending: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_reorder_pending_blocks",
+			Help: "Blocks built ahead of the next height in a streaming run, held until that height is sent. Bounded by twice --builders.",
+		}),
 		sinkQueuedRecords: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_result_sink_queued_records",
 			Help: "Persistent result sink records currently waiting for the async writer.",
@@ -287,6 +292,7 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.failedTxRate,
 		m.gasRate,
 		m.queuedBlocks,
+		m.reorderPending,
 		m.sinkQueuedRecords,
 		m.sinkQueueCapacity,
 		m.poolCapacityGauge,
@@ -294,6 +300,10 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.poolOverflowGauge,
 	)
 	return m
+}
+
+func (m *loadMetrics) recordReorderPending(blocks int) {
+	m.reorderPending.Set(float64(blocks))
 }
 
 func (m *loadMetrics) recordInput() {

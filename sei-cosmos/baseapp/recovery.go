@@ -1,6 +1,7 @@
 package baseapp
 
 import (
+	"errors"
 	"fmt"
 	"runtime/debug"
 
@@ -78,6 +79,32 @@ func newOCCAbortRecoveryMiddleware(next recoveryMiddleware) recoveryMiddleware {
 				abort.DependentTxIdx, abort.Err,
 			),
 		)
+	}
+
+	return newRecoveryMiddleware(handler, next)
+}
+
+// newContextCancelledRecoveryMiddleware recovers a panic that is this
+// context's already-expired cancel or deadline. Live contexts and other
+// panic values fall through.
+func newContextCancelledRecoveryMiddleware(ctx sdk.Context, next recoveryMiddleware) recoveryMiddleware {
+	handler := func(recoveryObj interface{}) error {
+		stdCtx := ctx.Context()
+		if stdCtx == nil {
+			return nil
+		}
+		expired := stdCtx.Err()
+		if expired == nil {
+			return nil
+		}
+		err, ok := recoveryObj.(error)
+		if !ok {
+			return nil
+		}
+		if errors.Is(err, expired) {
+			return err
+		}
+		return nil
 	}
 
 	return newRecoveryMiddleware(handler, next)

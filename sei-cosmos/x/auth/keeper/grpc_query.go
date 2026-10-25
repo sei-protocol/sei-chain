@@ -26,7 +26,7 @@ func (ak AccountKeeper) Accounts(c context.Context, req *types.QueryAccountsRequ
 	accountsStore := prefix.NewStore(store, types.AddressStoreKeyPrefix)
 
 	var accounts []*codectypes.Any
-	pageRes, err := query.Paginate(accountsStore, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, accountsStore, req.Pagination, func(key, value []byte) error {
 		account := ak.decodeAccount(value)
 		any, err := codectypes.NewAnyWithValue(account)
 		if err != nil {
@@ -38,7 +38,7 @@ func (ak AccountKeeper) Accounts(c context.Context, req *types.QueryAccountsRequ
 	})
 
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "paginate: %v", err)
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryAccountsResponse{Accounts: accounts, Pagination: pageRes}, err

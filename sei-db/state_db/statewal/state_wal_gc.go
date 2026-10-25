@@ -3,18 +3,18 @@ package statewal
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
+	controllertypes "github.com/sei-protocol/sei-chain/sei-db/controller/types"
 )
 
 // stateWALImpl joins the shared prune cycle as a contiguous store: it holds every block from its
 // retention floor up to its head, so any height in between can serve a rollback.
 //
 // This is the only surface of stateWALImpl usable from another goroutine (see the type doc). Every
-// method here reads a constant, a single atomic, or the WAL underneath.
+// method here reads a constant or a single atomic, or sends a request to the WAL's goroutine.
 //
 // SC and SS must be managed by the same collector, since they replay from this WAL and it is their
 // reported floors that keep the blocks they need.
-var _ gc.PrunableStore = (*stateWALImpl)(nil)
+var _ controllertypes.PrunableStore = (*stateWALImpl)(nil)
 
 func (w *stateWALImpl) Name() string {
 	return "StateWAL"
@@ -26,9 +26,9 @@ func (w *stateWALImpl) ExternalPruning() bool {
 	return true
 }
 
-// PruneHistory schedules removal of the blocks below blockNumber, going straight to the underlying
-// WAL. Prune is the equivalent for the WAL's own owner; this one is safe to call from the collector's
-// goroutine, and leaves the WAL usable on failure rather than bricking it.
+// PruneHistory schedules removal of the blocks below blockNumber. Prune is the equivalent for the WAL's
+// own owner; this one is safe to call from the collector's goroutine, and leaves the WAL usable on failure
+// rather than bricking it.
 func (w *stateWALImpl) PruneHistory(blockNumber uint64) error {
 	head := w.lastDurableBlock.Load()
 	if head == 0 {
@@ -37,7 +37,7 @@ func (w *stateWALImpl) PruneHistory(blockNumber uint64) error {
 	if blockNumber > head {
 		blockNumber = head
 	}
-	if err := w.wal.PruneBefore(blockNumber); err != nil {
+	if err := w.prune(blockNumber); err != nil {
 		return fmt.Errorf("failed to prune state WAL below block %d: %w", blockNumber, err)
 	}
 	return nil

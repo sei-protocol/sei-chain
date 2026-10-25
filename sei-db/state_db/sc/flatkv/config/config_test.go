@@ -15,7 +15,6 @@ func validBaseConfig() *Config {
 	cfg.CodeDBConfig.DataDir = "/tmp/test/code"
 	cfg.StorageDBConfig.DataDir = "/tmp/test/storage"
 	cfg.MiscDBConfig.DataDir = "/tmp/test/misc"
-	cfg.MetadataDBConfig.DataDir = "/tmp/test/metadata"
 	return cfg
 }
 
@@ -82,6 +81,14 @@ func TestValidateNegativeMiscConstantThreadCount(t *testing.T) {
 	require.Contains(t, err.Error(), "misc constant thread count")
 }
 
+func TestValidateNegativeSortThreadsPerCore(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.SortThreadsPerCore = -1.0
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sort threads per core")
+}
+
 func TestDefaultConfigValidExceptDataDir(t *testing.T) {
 	cfg := DefaultConfig()
 	err := cfg.Validate()
@@ -92,7 +99,6 @@ func TestDefaultConfigValidExceptDataDir(t *testing.T) {
 	cfg.CodeDBConfig.DataDir = "/tmp/test/code"
 	cfg.StorageDBConfig.DataDir = "/tmp/test/storage"
 	cfg.MiscDBConfig.DataDir = "/tmp/test/misc"
-	cfg.MetadataDBConfig.DataDir = "/tmp/test/metadata"
 	require.NoError(t, cfg.Validate())
 }
 
@@ -121,13 +127,13 @@ func TestValidateNestedPebbleDBConfigError(t *testing.T) {
 	require.Contains(t, err.Error(), "account db config is invalid")
 }
 
-func TestValidateNestedCacheConfigError(t *testing.T) {
+func TestValidateNestedEngineConfigError(t *testing.T) {
 	cfg := validBaseConfig()
-	cfg.StorageCacheConfig.MaxSize = 1024
-	cfg.StorageCacheConfig.ShardCount = 3 // not a power of two
+	cfg.StorageStoreConfig.MaxSize = 1024
+	cfg.StorageStoreConfig.ShardCount = 3 // not a power of two
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "storage cache config is invalid")
-	require.Contains(t, err.Error(), "shard count must be a non-zero power of two")
+	require.Contains(t, err.Error(), "storage store config is invalid")
+	require.Contains(t, err.Error(), "ShardCount must be a power of two and greater than 0")
 }

@@ -3,15 +3,34 @@ package migration
 import (
 	"context"
 	"fmt"
-	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
+
+// RouterOption adjusts how BuildRouter assembles a router.
+type RouterOption func(*routerOptions)
+
+type routerOptions struct {
+	telemetry bool
+}
+
+// WithoutTelemetry makes the router's MigrationManager keep its migration
+// metrics in process, without publishing them on the process-wide OTel instruments.
+func WithoutTelemetry() RouterOption {
+	return func(o *routerOptions) { o.telemetry = false }
+}
+
+func (o routerOptions) migrationMetrics(ctx context.Context, targetVersion uint64) *MigrationMetrics {
+	if !o.telemetry {
+		return newLocalMigrationMetrics()
+	}
+	return NewMigrationMetrics(ctx, targetVersion)
+}
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
 // reads/writes between the memiavl and flatkv backends.
@@ -19,10 +38,15 @@ func BuildRouter(
 	ctx context.Context,
 	writeMode types.WriteMode,
 	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
+	flatKV gigatypes.LiveStateStore,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
 	migrationBatchSize int,
+	options ...RouterOption,
 ) (Router, error) {
+	opts := routerOptions{telemetry: true}
+	for _, apply := range options {
+		apply(&opts)
+	}
 
 	switch writeMode {
 	case types.MemiavlOnly:
@@ -32,7 +56,7 @@ func BuildRouter(
 		}
 		return router, nil
 	case types.MigrateEVM:
-		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
+		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize, opts)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
 		}
@@ -51,30 +75,10 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case types.MigrateAllButBank:
-		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
+	case types.MigrateCosmos:
+		router, err := buildMigrateCosmosRouter(ctx, memIAVL, flatKV, migrationBatchSize, opts)
 		if err != nil {
-			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
-		}
-		threadSafe, err := NewThreadSafeRouter(router)
-		if err != nil {
-			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
-		}
-		return threadSafe, nil
-	case types.AllMigratedButBank:
-		router, err := buildAllMigratedButBankRouter(memIAVL, flatKV)
-		if err != nil {
-			return nil, fmt.Errorf("buildAllMigratedButBankRouter: %w", err)
-		}
-		threadSafe, err := NewThreadSafeRouter(router)
-		if err != nil {
-			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
-		}
-		return threadSafe, nil
-	case types.MigrateBank:
-		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
-		if err != nil {
-			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
+			return nil, fmt.Errorf("buildMigrateCosmosRouter: %w", err)
 		}
 		threadSafe, err := NewThreadSafeRouter(router)
 		if err != nil {
@@ -148,8 +152,9 @@ func buildMemiavlOnlyRouter(
 func buildMigrateEVMRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
+	flatKV gigatypes.LiveStateStore,
 	migrationBatchSize int,
+	opts routerOptions,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -168,7 +173,7 @@ func buildMigrateEVMRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
-		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
+		opts.migrationMetrics(ctx, Version1_MigrateEVM),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
@@ -221,7 +226,7 @@ func buildMigrateEVMRouter(
 // Build a router for handling write mode EVMMigrated. Operates on a schema at migration version 1.
 func buildEVMMigratedRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
+	flatKV gigatypes.LiveStateStore,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -253,14 +258,13 @@ func buildEVMMigratedRouter(
 	return moduleRouter, nil
 }
 
-/* Data flow: MigrateAllButBank (1 -> 2)
+/* Data flow: MigrateCosmos (1 -> 2)
 
                        ┌──────────────┐                                  ┌─────────┐
-──all-modules────────▶ │ moduleRouter │ ──────────────bank/────────────▶ │ memIAVL │
+──all-modules────────▶ │ moduleRouter │                                  │ memIAVL │
                        └──────────────┘                                  └─────────┘
                         │     │                                               ▲
-                        │   all but                                           │
-                        │   bank/ and evm/    ┌──────un-migrated-keys─────────┘
+                        │   all except evm/   ┌──────un-migrated-keys─────────┘
                         │     │               │
                         │     ▼               │
                         │   ┌──────────────────┐                         ┌────────┐
@@ -271,12 +275,13 @@ func buildEVMMigratedRouter(
                         └────────────────────────────evm/────────────────────┘
 */
 
-// Build a router for handling write mode MigrateAllButBank. Migrates from version 1 to version 2.
-func buildMigrateAllButBankRouter(
+// Build a router for handling write mode MigrateCosmos. Migrates from version 1 to version 2.
+func buildMigrateCosmosRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
+	flatKV gigatypes.LiveStateStore,
 	migrationBatchSize int,
+	opts routerOptions,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -285,30 +290,24 @@ func buildMigrateAllButBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	allModulesButEvmAndBank, err := keys.AllModulesExcept(keys.EVMStoreKey, keys.BankStoreKey)
+	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
 
-	// Manages migration and routing for all keys except evm/ (already migrated) and bank/ (not migrating yet)
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
 		Version1_MigrateEVM,
-		Version2_MigrateAllButBank,
+		Version2_FlatKVOnly,
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
-		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
+		NewMemiavlMigrationIterator(memIAVL.GetDB(), nonEVMModules),
+		opts.migrationMetrics(ctx, Version2_FlatKVOnly),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
-	}
-
-	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
-	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
 	evmRoute, err := routeToFlatKV(flatKV, keys.EVMStoreKey)
@@ -316,12 +315,12 @@ func buildMigrateAllButBankRouter(
 		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
 
-	allOtherModulesRoute, err := migrationManager.BuildRoute(allModulesButEvmAndBank...)
+	allOtherModulesRoute, err := migrationManager.BuildRoute(nonEVMModules...)
 	if err != nil {
 		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
 
-	moduleRouter, err := NewModuleRouter(bankRoute, evmRoute, allOtherModulesRoute)
+	moduleRouter, err := NewModuleRouter(evmRoute, allOtherModulesRoute)
 	if err != nil {
 		return nil, fmt.Errorf("NewModuleRouter: %w", err)
 	}
@@ -329,138 +328,16 @@ func buildMigrateAllButBankRouter(
 	return moduleRouter, nil
 }
 
-/* Data flow: AllMigratedButBank (2)
-
-                       ┌──────────────┐                                  ┌─────────┐
-──all-modules────────▶ │ moduleRouter │ ───bank/───────────────────────▶ │ memIAVL │
-                       └──────────────┘                                  └─────────┘
-                              │
-                              │
-                              │
-                              │
-                              │
-                              │                                          ┌────────┐
-                              └────────────all─but─bank/───────────────▶ │ flatKV │
-                                                                         └────────┘
-*/
-
-// Build a router for handling write mode AllMigratedButBank. Operates on a schema at migration version 2.
-func buildAllMigratedButBankRouter(
-	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
-) (Router, error) {
-
-	if memIAVL == nil {
-		return nil, fmt.Errorf("memIAVL is nil")
-	}
-	if flatKV == nil {
-		return nil, fmt.Errorf("flatKV is nil")
-	}
-
-	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
-	if err != nil {
-		return nil, fmt.Errorf("AllModulesExcept: %w", err)
-	}
-	nonBankRoute, err := routeToFlatKV(flatKV, allButBankModules...)
-	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
-	}
-
-	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
-	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
-	}
-
-	moduleRouter, err := NewModuleRouter(nonBankRoute, bankRoute)
-	if err != nil {
-		return nil, fmt.Errorf("NewModuleRouter: %w", err)
-	}
-
-	return moduleRouter, nil
-}
-
-/* Data flow: MigrateBank (2 -> 3)
-
-                       ┌──────────────┐                                  ┌─────────┐
-──all-modules────────▶ │ moduleRouter │                                  │ memIAVL │
-                       └──────────────┘                                  └─────────┘
-                        │     │                                               ▲
-                        │   bank/             ┌──────un-migrated-keys─────────┘
-                        │     │               │
-                        │     ▼               │
-                        │   ┌──────────────────┐                         ┌────────┐
-                        │   │ migrationManager │ ───migrated-keys──────▶ │ flatKV │
-                        │   └──────────────────┘                         └────────┘
-                        │                                                    ▲
-                        │                                                    │
-                        └───────────────────all─but─bank/────────────────────┘
-*/
-
-// Build a router for handling write mode MigrateBank. Migrates from version 2 to version 3.
-func buildMigrateBankRouter(
-	ctx context.Context,
-	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
-	migrationBatchSize int,
-) (Router, error) {
-
-	if memIAVL == nil {
-		return nil, fmt.Errorf("memIAVL is nil")
-	}
-	if flatKV == nil {
-		return nil, fmt.Errorf("flatKV is nil")
-	}
-	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
-	if err != nil {
-		return nil, fmt.Errorf("AllModulesExcept: %w", err)
-	}
-
-	// Manages migration and routing for keys in the bank/ module (the
-	// final module remaining in memiavl; every other module already
-	// lives in flatkv from prior migrations).
-	migrationManager, err := NewMigrationManager(
-		migrationBatchSize,
-		Version2_MigrateAllButBank,
-		Version3_FlatKVOnly,
-		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
-		buildFlatKVReader(flatKV),
-		buildFlatKVWriter(flatKV),
-		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
-		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("NewMigrationManager: %w", err)
-	}
-
-	bankRoute, err := migrationManager.BuildRoute(keys.BankStoreKey)
-	if err != nil {
-		return nil, fmt.Errorf("BuildRoute: %w", err)
-	}
-
-	allOtherModulesRoute, err := routeToFlatKV(flatKV, allButBankModules...)
-	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
-	}
-
-	moduleRouter, err := NewModuleRouter(bankRoute, allOtherModulesRoute)
-	if err != nil {
-		return nil, fmt.Errorf("NewModuleRouter: %w", err)
-	}
-
-	return moduleRouter, nil
-}
-
-/* Data flow: FlatKVOnly (3)
+/* Data flow: FlatKVOnly (2)
 
                        ┌─────────────┐                                  ┌────────┐
 ──all-modules────────▶ │ passthrough │ ──────────all-modules──────────▶ │ flatKV │
                        └─────────────┘                                  └────────┘
 */
 
-// Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 3.
+// Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 2.
 func buildFlatKVOnlyRouter(
-	flatKV flatkv.Store,
+	flatKV gigatypes.LiveStateStore,
 ) (Router, error) {
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
@@ -498,7 +375,7 @@ func buildFlatKVOnlyRouter(
 // CRITICAL: this is a test-only router and should never be deployed to production machines.
 func buildTestOnlyDualWriteRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV flatkv.Store,
+	flatKV gigatypes.LiveStateStore,
 ) (Router, error) {
 	if memIAVL == nil {
 		return nil, fmt.Errorf("memIAVL is nil")
@@ -599,7 +476,7 @@ func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 }
 
 // Build a function capable of reading data from flatkv.
-func buildFlatKVReader(flatKV flatkv.Store) DBReader {
+func buildFlatKVReader(flatKV gigatypes.LiveStateStore) DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
 		value, found := flatKV.Get(store, key)
 		return value, found, nil
@@ -607,7 +484,7 @@ func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 }
 
 // Build a function capable of writing data to flatkv.
-func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
+func buildFlatKVWriter(flatKV gigatypes.LiveStateStore) DBWriter {
 	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		// Stamp at the next commit height so Apply/Commit versions match
 		// under the sequential composite commit path. Note this is called
@@ -635,7 +512,7 @@ func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route
 }
 
 // Build a route to a flatkv store for the given module names.
-func routeToFlatKV(flatKV flatkv.Store, moduleNames ...string) (*Route, error) {
+func routeToFlatKV(flatKV gigatypes.LiveStateStore, moduleNames ...string) (*Route, error) {
 	return NewRoute(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),

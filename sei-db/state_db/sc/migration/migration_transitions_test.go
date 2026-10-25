@@ -39,7 +39,7 @@ func TestMigrateEVM(t *testing.T) {
 	keysInUse := newLiveKeySet()
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -107,7 +107,7 @@ func TestMigrateEVM(t *testing.T) {
 	// (Go closures capture local variables by reference), but redeclaring
 	// keeps the post-restart setup symmetric with phase 1.
 	commitBoth = func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -187,16 +187,10 @@ func TestMigrateEVM(t *testing.T) {
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
 
-// Test the MigrateAllButBank data migration. At the start of this migration,
-// evm/ data lives in flatkv and everything else lives in memiavl (i.e. the
-// EVMMigrated steady state). At the end, every module except bank/ lives in
-// flatkv; bank/ remains in memiavl.
-//
-// This test evaluates the 1->2 migration path. The setup phase relies on the
-// EVMMigrated router (verified by TestEVMMigrated) to lay down a realistic
-// v1 schema, then explicitly seeds flatKV's MigrationVersionKey since the
-// EVMMigrated router does not itself write that bookkeeping.
-func TestMigrateAllButBank(t *testing.T) {
+// TestMigrateCosmos verifies the V1 -> V2 data migration. At the start, evm/
+// data lives in flatkv and every other module lives in memiavl. At the end,
+// every module lives in flatkv and memiavl is empty.
+func TestMigrateCosmos(t *testing.T) {
 
 	rng := testutil.NewTestRandom()
 
@@ -215,7 +209,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	keysInUse := newLiveKeySet()
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -223,8 +217,8 @@ func TestMigrateAllButBank(t *testing.T) {
 
 	// --- Phase 1: EVMMigrated setup ---
 	// Lay down v1 state: evm/ in flatKV, everything else in memiavl. Drives
-	// roughly equal load across all real modules so the non-evm-non-bank
-	// stores accumulate enough keys to make the v1->v2 migration meaningful.
+	// roughly equal load across all real modules so the V1 -> V2 migration is
+	// meaningful.
 	evmMigratedRouter, err := BuildRouter(t.Context(), types.EVMMigrated, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err, "build EVMMigrated router")
 	SimulateBlocks(t,
@@ -243,17 +237,16 @@ func TestMigrateAllButBank(t *testing.T) {
 	// The EVMMigrated router has no route for MigrationStore, so it never
 	// writes the migration version key. A real chain at v1 would have that
 	// key already (left behind by the prior MigrateEVM run); seed it
-	// directly so the upcoming MigrateAllButBank constructor can read v1
+	// directly so the upcoming MigrateCosmos constructor can read v1
 	// from the new DB instead of erroring out.
 	SeedMigrationVersionInFlatKV(t, flatKVDB, Version1_MigrateEVM)
 
-	// --- Phase 2: partial MigrateAllButBank ---
-	migrationRouter, err := BuildRouter(t.Context(), types.MigrateAllButBank, memiavlDB, flatKVDB, 100)
-	require.NoError(t, err, "build MigrateAllButBank router")
+	// --- Phase 2: MigrateCosmos ---
+	migrationRouter, err := BuildRouter(t.Context(), types.MigrateCosmos, memiavlDB, flatKVDB, 100)
+	require.NoError(t, err, "build MigrateCosmos router")
 
-	// 50 blocks * 100 batch ≈ 5,000 keys migrated, well short of the ~9,000
-	// non-evm-non-bank keys produced in setup; this guarantees we end this
-	// phase with a partially-migrated state and a persisted boundary.
+	// 50 blocks * 100 batch is well short of the non-EVM keys produced in
+	// setup. This leaves a persisted boundary for the restart path.
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
 		commitBoth,
@@ -268,202 +261,14 @@ func TestMigrateAllButBank(t *testing.T) {
 	)
 
 	// Sanity check: the test must actually catch the migration in flight,
-	// otherwise the restart below is degenerate (no boundary to resume
-	// from). Spans every store currently being migrated - i.e. every
-	// production module except bank.
+	// otherwise the restart below is degenerate (no boundary to resume from).
 	migratingStores := make([]string, 0, len(keys.MemIAVLStoreKeys)-1)
 	for _, s := range keys.MemIAVLStoreKeys {
-		if s != keys.BankStoreKey {
+		if s != keys.EVMStoreKey {
 			migratingStores = append(migratingStores, s)
 		}
 	}
 	inMemoryRouter.AssertMigrationInFlight(t, memiavlDB, flatKVDB, migratingStores...)
-
-	// --- Restart ---
-	// Close and reopen both backends to verify the in-progress migration is
-	// not corrupted by a restart and resumes from the persisted boundary.
-	// SimulateBlocks already committed after each block, so closing here is
-	// safe.
-	require.NoError(t, memiavlDB.Close(), "close memiavl before restart")
-	require.NoError(t, flatKVDB.Close(), "close flatKV before restart")
-
-	memiavlDB = NewTestMemIAVLCommitStore(t, memiavlDir, keys.MemIAVLStoreKeys)
-	flatKVDB = NewTestFlatKVCommitStore(t, flatKVDir)
-
-	commitBoth = func() {
-		_, err := memiavlDB.Commit()
-		require.NoError(t, err, "memiavl commit")
-		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
-		require.NoError(t, err, "flatKV commit")
-	}
-
-	migrationRouter, err = BuildRouter(t.Context(), types.MigrateAllButBank, memiavlDB, flatKVDB, 100)
-	require.NoError(t, err, "rebuild MigrateAllButBank router after restart")
-
-	// Sanity check: all oracle data is still reachable through the rebuilt
-	// router. This exercises the post-restart hybrid read path (some keys
-	// in memiavl, some already migrated to flatKV).
-	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
-
-	// --- Phase 3: finish migration ---
-	// 100 more blocks * 100 batch = 10,000 capacity vs. ~5,400 keys still to
-	// drain (4,000 left over from phase 2 + ~1,400 new keys added during
-	// phases 2+3). Comfortable margin to converge.
-	SimulateBlocks(t,
-		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
-		commitBoth,
-		rng,
-		keysInUse,
-		keys.MemIAVLStoreKeys,
-		100, // reads per block
-		100, // updates per block
-		10,  // deletes per block
-		10,  // new keys per block
-		100, // blocks to simulate
-	)
-
-	// --- Verification ---
-
-	// All oracle data must be reachable through the migration router.
-	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
-
-	// Count bank vs non-bank keys in the oracle.
-	var bankKeyCount, nonBankKeyCount int64
-	for _, kp := range keysInUse.keys {
-		if kp.store == keys.BankStoreKey {
-			bankKeyCount++
-		} else {
-			nonBankKeyCount++
-		}
-	}
-
-	// Key count check.
-	// flatKV holds every non-bank key + exactly 1 migration metadata key
-	// (MigrationVersionKey). MigrationBoundaryKey is deleted on the final
-	// migration block, leaving only the version key.
-	// memiavl holds only bank keys; its MigrationStore tree is empty
-	// (version written to flatKV, boundary deleted).
-	require.Equal(t, nonBankKeyCount+1, GetFlatKVKeyCount(t, flatKVDB),
-		"flatKV should hold every non-bank key plus the migration version key")
-	require.Equal(t, bankKeyCount, GetMemIAVLKeyCount(t, memiavlDB),
-		"memiavl should hold only bank keys")
-
-	// Migration version check.
-	flatKVVersion, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
-	require.True(t, found, "migration version key must be present in flatKV after migration")
-	require.Equal(t, uint64(Version2_MigrateAllButBank), flatKVVersion,
-		"flatKV migration version should be Version2_MigrateAllButBank")
-
-	// Migration boundary check. The boundary key tracks the in-progress
-	// migration cursor. On the final migration block it is deleted in the
-	// same atomic write that records the new version, so post-completion it
-	// must be absent from flatkv (memiavl never holds migration metadata).
-	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
-	require.False(t, found,
-		"migration boundary key must be cleared from flatKV after migration completes")
-
-	// Placement check. Build a flatKV-store map containing every module
-	// except bank — i.e. every store whose keys must end up in flatKV.
-	flatKVStores := make(map[string]bool, len(keys.MemIAVLStoreKeys))
-	for _, s := range keys.MemIAVLStoreKeys {
-		if s != keys.BankStoreKey {
-			flatKVStores[s] = true
-		}
-	}
-	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB, flatKVStores)
-
-	require.NoError(t, memiavlDB.Close(), "close memiavl")
-	require.NoError(t, flatKVDB.Close(), "close flatKV")
-}
-
-// Test the MigrateBank data migration. At the start of this migration, every
-// module except bank/ already lives in flatKV, and bank/ lives in memiavl
-// (i.e. the AllMigratedButBank steady state). At the end, every module
-// lives in flatKV; memiavl is empty.
-//
-// This test evaluates the 2->3 migration path. The setup phase relies on the
-// AllMigratedButBank router (verified by TestAllMigratedButBank) to lay down
-// a realistic v2 schema, then explicitly seeds flatKV's MigrationVersionKey
-// since the AllMigratedButBank router does not itself write that bookkeeping.
-func TestMigrateBank(t *testing.T) {
-
-	rng := testutil.NewTestRandom()
-
-	// Reserve stable directories so we can close and reopen the stores
-	// mid-migration to simulate a process restart.
-	memiavlDir := t.TempDir()
-	flatKVDir := t.TempDir()
-
-	// Migration metadata lives exclusively on flatkv; memiavl is opened
-	// with just the production module stores. SimulateBlocks is
-	// restricted to MemIAVLStoreKeys so no user data lands elsewhere.
-	memiavlDB := NewTestMemIAVLCommitStore(t, memiavlDir, keys.MemIAVLStoreKeys)
-	flatKVDB := NewTestFlatKVCommitStore(t, flatKVDir)
-
-	inMemoryRouter := NewTestInMemoryRouter()
-	keysInUse := newLiveKeySet()
-
-	commitBoth := func() {
-		_, err := memiavlDB.Commit()
-		require.NoError(t, err, "memiavl commit")
-		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
-		require.NoError(t, err, "flatKV commit")
-	}
-
-	// --- Phase 1: AllMigratedButBank setup ---
-	// Lay down v2 state: bank/ in memiavl, everything else in flatKV. Drives
-	// roughly equal load across all real modules so bank/ accumulates enough
-	// keys to make the v2->v3 migration meaningful.
-	allMigratedButBankRouter, err := BuildRouter(t.Context(), types.AllMigratedButBank, memiavlDB, flatKVDB, 0)
-	require.NoError(t, err, "build AllMigratedButBank router")
-	SimulateBlocks(t,
-		NewTestMultiRouter(t, allMigratedButBankRouter, inMemoryRouter),
-		commitBoth,
-		rng,
-		keysInUse,
-		keys.MemIAVLStoreKeys,
-		100, // reads per block
-		100, // updates per block
-		20,  // deletes per block
-		100, // new keys per block
-		100, // blocks to simulate
-	)
-
-	// The AllMigratedButBank router has no route for MigrationStore, so it
-	// never writes the migration version key. A real chain at v2 would have
-	// that key already (left behind by the prior MigrateAllButBank run);
-	// seed it directly so the upcoming MigrateBank constructor can read v2
-	// from the new DB instead of erroring out.
-	SeedMigrationVersionInFlatKV(t, flatKVDB, Version2_MigrateAllButBank)
-
-	// --- Phase 2: MigrateBank ---
-	migrationRouter, err := BuildRouter(t.Context(), types.MigrateBank, memiavlDB, flatKVDB, 100)
-	require.NoError(t, err, "build MigrateBank router")
-
-	// Drive 2 blocks through the migration router. Phase 1 produced ~500
-	// bank keys (1 of 20 modules at 100 new keys/block * 100 blocks); with
-	// a batch size of 100 the migration drains those source keys in 5
-	// blocks, so 2 blocks is deliberately short to leave the migration in
-	// flight at the restart point: ~200 of the ~500 source bank keys
-	// migrated to flatKV, ~300 still un-migrated in memiavl.
-	// AssertMigrationInFlight below verifies this split before we close
-	// the DBs.
-	SimulateBlocks(t,
-		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
-		commitBoth,
-		rng,
-		keysInUse,
-		keys.MemIAVLStoreKeys,
-		100, // reads per block
-		100, // updates per block
-		10,  // deletes per block
-		10,  // new keys per block
-		2,   // blocks to simulate
-	)
-
-	// Sanity check: the test must actually catch the migration in flight,
-	// otherwise the restart below is degenerate (no boundary to resume from).
-	inMemoryRouter.AssertMigrationInFlight(t, memiavlDB, flatKVDB, keys.BankStoreKey)
 
 	// --- Restart ---
 	// Close and reopen both backends. SimulateBlocks committed after every
@@ -478,27 +283,23 @@ func TestMigrateBank(t *testing.T) {
 	flatKVDB = NewTestFlatKVCommitStore(t, flatKVDir)
 
 	commitBoth = func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
 	}
 
-	migrationRouter, err = BuildRouter(t.Context(), types.MigrateBank, memiavlDB, flatKVDB, 100)
-	require.NoError(t, err, "rebuild MigrateBank router after restart")
+	migrationRouter, err = BuildRouter(t.Context(), types.MigrateCosmos, memiavlDB, flatKVDB, 100)
+	require.NoError(t, err, "rebuild MigrateCosmos router after restart")
 
 	// Sanity check: all oracle data is still reachable through the rebuilt
-	// router. Exercises the post-restart hybrid read path: ~200 bank keys
-	// already in flatKV, ~300 still in memiavl awaiting migration, and
-	// every other module (already in flatKV from the v2 setup) routed
-	// directly to flatKV.
+	// router. This exercises the post-restart hybrid read path.
 	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
 
 	// --- Phase 3: finish migration ---
-	// 100 more blocks after the restart. The first ~3 blocks finish draining
-	// the ~300 un-migrated source bank keys (batch 100); the remaining ~97
-	// blocks run in passthrough mode and exercise normal user-key churn
-	// against the post-completion write path.
+	// 200 more blocks after the restart. This gives enough capacity to drain
+	// the old keys and then exercise normal user-key churn against the
+	// post-completion write path.
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
 		commitBoth,
@@ -509,7 +310,7 @@ func TestMigrateBank(t *testing.T) {
 		100, // updates per block
 		10,  // deletes per block
 		10,  // new keys per block
-		100, // blocks to simulate
+		200, // blocks to simulate
 	)
 
 	// --- Verification ---
@@ -517,7 +318,7 @@ func TestMigrateBank(t *testing.T) {
 	// All oracle data must be reachable through the migration router.
 	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
 
-	// After v3 every key in the oracle lives in flatKV.
+	// After v2 every key in the oracle lives in flatKV.
 	totalKeyCount := int64(keysInUse.Len())
 
 	// Key count check.
@@ -535,8 +336,8 @@ func TestMigrateBank(t *testing.T) {
 	// Migration version check.
 	flatKVVersion, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
 	require.True(t, found, "migration version key must be present in flatKV after migration")
-	require.Equal(t, uint64(Version3_FlatKVOnly), flatKVVersion,
-		"flatKV migration version should be Version3_FlatKVOnly")
+	require.Equal(t, uint64(Version2_FlatKVOnly), flatKVVersion,
+		"flatKV migration version should be Version2_FlatKVOnly")
 
 	// Migration boundary check. The boundary key tracks the in-progress
 	// migration cursor. On the final migration block it is deleted in the
@@ -546,7 +347,7 @@ func TestMigrateBank(t *testing.T) {
 	require.False(t, found,
 		"migration boundary key must be cleared from flatKV after migration completes")
 
-	// Placement check. After v3, every module's keys must be in flatKV and
+	// Placement check. After v2, every module's keys must be in flatKV and
 	// absent from memiavl, including bank/.
 	flatKVStores := make(map[string]bool, len(keys.MemIAVLStoreKeys))
 	for _, s := range keys.MemIAVLStoreKeys {

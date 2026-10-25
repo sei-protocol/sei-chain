@@ -1,37 +1,29 @@
 package ktype
 
-import (
-	"bytes"
+import "bytes"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-)
-
-const metaKeyPrefix = "_meta/"
+// MetaKeyPrefix is the key namespace a database reserves for its own metadata, which hashing must
+// exclude: the metadata records the hash, so combining it in would make the hash depend on itself.
+const MetaKeyPrefix = "_meta/"
 
 const (
-	metaVersion  = metaKeyPrefix + "version"
-	metaLtHash   = metaKeyPrefix + "hash"
-	metaEarliest = metaKeyPrefix + "earliest"
+	metaVersion = MetaKeyPrefix + "version"
+	metaLtHash  = MetaKeyPrefix + "hash"
 
 	// moduleLtHashPrefix brackets the per-module metadata keys stored in each
 	// data DB, e.g. "_meta/x:evm/hash", "_meta/x:gov/stats". The "x:" segment
 	// namespaces module names so they never collide with the fixed per-DB keys
-	// (version / hash / earliest). Each module has a "/hash" key (its per-module
+	// (version / hash). Each module has a "/hash" key (its per-module
 	// LtHash) and a "/stats" key (its per-module key-count / byte totals).
-	moduleLtHashPrefix = metaKeyPrefix + "x:"
+	moduleLtHashPrefix = MetaKeyPrefix + "x:"
 	moduleLtHashSuffix = "/hash"
 	moduleStatsSuffix  = "/stats"
 )
 
 var (
-	MetaKeyPrefixBytes = []byte(metaKeyPrefix)
+	MetaKeyPrefixBytes = []byte(MetaKeyPrefix)
 	MetaVersionKey     = []byte(metaVersion)
 	MetaLtHashKey      = []byte(metaLtHash)
-	// MetaEarliestVersionKey records the version a seeded store's history
-	// begins at (written once by SetInitialVersion, global metadata DB
-	// only). Absent on genesis stores and stores predating the record.
-	MetaEarliestVersionKey = []byte(metaEarliest)
-
 	// ModuleLtHashPrefixBytes is the inclusive lower bound for iterating the
 	// per-module LtHash keys ("_meta/x:") within a data DB.
 	ModuleLtHashPrefixBytes = []byte(moduleLtHashPrefix)
@@ -92,26 +84,16 @@ func parseModuleKey(key []byte, suffix string) (string, bool) {
 // 0x5F6D657461 ("_meta") — probability ~2^-48 for random addresses and
 // negligible even under CREATE2 brute-force. Misc DB keys must not use
 // the _meta/ prefix.
+//
+// The meta namespace is a cache. Every record in it is derived — the per-DB root and
+// the per-module hashes and stats from a full scan of the DB's keys, the version
+// from whatever wrote them — and it is kept on disk only because that scan is
+// expensive. Consistently with being a cache it is neither hashed nor exported:
+// the LtHash scan and RawGlobalIterator both skip it, so it is outside consensus
+// and a state-synced node rebuilds all of it from the data it imported.
+//
+// A key that would be a source of truth rather than a cached derivation belongs
+// in a module keyspace, the way migration progress does.
 func IsMetaKey(key []byte) bool {
 	return bytes.HasPrefix(key, MetaKeyPrefixBytes)
-}
-
-// LocalMeta stores per-DB version tracking metadata.
-// Version is stored at _meta/version, the per-DB root LtHash at _meta/hash,
-// and per-module LtHashes at _meta/x:<module>/hash.
-type LocalMeta struct {
-	CommittedVersion int64          // Current committed version in this DB
-	LtHash           *lthash.LtHash // per-DB root; nil for old format (version-only)
-
-	// ModuleLtHashes holds the LtHash of each module's keys within this DB,
-	// keyed by module name (e.g. "evm", "gov"). The per-DB root (LtHash)
-	// equals the homomorphic sum of these module hashes. nil/empty when the
-	// DB has never been written (fresh store).
-	ModuleLtHashes map[string]*lthash.LtHash
-
-	// ModuleStats holds the auxiliary key-count / byte totals of each module's
-	// keys within this DB, keyed by module name and mirroring ModuleLtHashes.
-	// Consensus-irrelevant; per-DB / global totals are derived on demand.
-	// nil/empty when the DB has never been written (fresh store).
-	ModuleStats map[string]lthash.ModuleStats
 }

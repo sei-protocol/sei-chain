@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
+
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -14,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -27,7 +31,11 @@ func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(registry *epoch.Registry, cfg *consensus.Config) *testNode {
 	cfg.PersistentStateDir = utils.None[string]()
-	dataState, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
+	store, err := blockstore.New(memblock.NewBlockDB())
+	if err != nil {
+		panic(fmt.Sprintf("blockstore.New: %v", err))
+	}
+	dataState, err := data.NewState(&data.Config{Registry: registry}, store)
 	if err != nil {
 		panic(fmt.Sprintf("data.NewState: %v", err))
 	}
@@ -58,7 +66,7 @@ type testEnv struct {
 }
 
 func newTestEnv(registry *epoch.Registry) *testEnv {
-	return &testEnv{registry, registry.LatestEpoch().Committee(), map[types.PublicKey]*testNode{}}
+	return &testEnv{registry, registry.MustEpoch(0).Committee(), map[types.PublicKey]*testNode{}}
 }
 
 // Call AddNode BEFORE Run.
@@ -71,6 +79,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 			}
 			return 0
 		},
+		ProposalTimeout: time.Hour,
 	})
 	e.nodes[key.Public()] = n
 	return n
@@ -78,7 +87,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 
 func (e *testEnv) Run(ctx context.Context) error {
 	return utils.IgnoreAfterCancel(ctx, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for _, x := range e.nodes {
+		for xKey, x := range e.nodes {
 			s.SpawnNamed("node", func() error { return x.Run(ctx) })
 			for _, y := range e.nodes {
 				xConn, yConn := conn.NewTestConn()
@@ -86,8 +95,8 @@ func (e *testEnv) Run(ctx context.Context) error {
 				client := rpc.NewClient[API]()
 				s.SpawnNamed("mux server", func() error { return server.Run(ctx, xConn) })
 				s.SpawnNamed("mux client", func() error { return client.Run(ctx, yConn) })
-				s.SpawnNamed("RunServer", func() error { return x.service.RunServer(ctx, server) })
-				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx, client, true) })
+				s.SpawnNamed("RunServer", func() error { return x.service.RunServer(ctx, server, true) })
+				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx, client, xKey, true) })
 			}
 		}
 		return nil
@@ -102,6 +111,10 @@ func TestDataClientServer(t *testing.T) {
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
 	firstBlock := server.data.Registry().FirstBlock()
+	blockOK := fetchCount(resBlock, "ok")
+	qcOK := fetchCount(resFullCommitQC, "ok")
+	notFound := serveCount(resBlock, "not_found")
+	unavailable := fetchCount(resBlock, "unavailable")
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 
@@ -109,7 +122,7 @@ func TestDataClientServer(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, server.data.Registry().LatestEpoch(), keys, prev)
+			qc, blocks := data.TestCommitQC(rng, server.data.Registry().MustEpoch(0), keys, prev)
 			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}
@@ -141,8 +154,36 @@ func TestDataClientServer(t *testing.T) {
 				return fmt.Errorf("QC mismatch at block %d: %w", n, err)
 			}
 		}
+		if fetchCount(resBlock, "ok") <= blockOK {
+			return fmt.Errorf("fetch{block,ok} did not increase")
+		}
+		if fetchCount(resFullCommitQC, "ok") <= qcOK {
+			return fmt.Errorf("fetch{full_commit_qc,ok} did not increase")
+		}
+		if fetchCount(resBlock, "unavailable") <= unavailable {
+			return fmt.Errorf("fetch{block,unavailable} did not increase")
+		}
+		if serveCount(resBlock, "not_found") <= notFound {
+			return fmt.Errorf("serve{block,not_found} did not increase")
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func fetchCount(resource, reason string) int64 {
+	return readCounter(Global.fetchAt(resource, reason))
+}
+
+func serveCount(resource, reason string) int64 {
+	return readCounter(Global.serveAt(resource, reason))
+}
+
+func readCounter(c *tmprometheus.CounterInt) int64 {
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		panic(err)
+	}
+	return int64(m.GetCounter().GetValue())
 }

@@ -3,7 +3,7 @@
 package memiavl
 
 import (
-	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -27,11 +27,11 @@ func NewNodes(buf []byte) (Nodes, error) {
 	// check alignment and size of the buffer
 	p := unsafe.Pointer(unsafe.SliceData(buf))
 	if uintptr(p)%unsafe.Alignof(nodeLayout{}) != 0 {
-		return Nodes{}, errors.New("input buffer is not aligned")
+		return Nodes{}, fmt.Errorf("%w: nodes buffer is not aligned", errCorruptedSnapshot)
 	}
 	size := int(unsafe.Sizeof(nodeLayout{}))
 	if len(buf)%size != 0 {
-		return Nodes{}, errors.New("input buffer length is not correct")
+		return Nodes{}, fmt.Errorf("%w: nodes buffer length is not correct", errCorruptedSnapshot)
 	}
 	nodes := unsafe.Slice((*nodeLayout)(p), len(buf)/size)
 	return Nodes{nodes}, nil
@@ -82,11 +82,11 @@ func NewLeaves(buf []byte) (Leaves, error) {
 	// check alignment and size of the buffer
 	p := unsafe.Pointer(unsafe.SliceData(buf))
 	if uintptr(p)%unsafe.Alignof(leafLayout{}) != 0 {
-		return Leaves{}, errors.New("input buffer is not aligned")
+		return Leaves{}, fmt.Errorf("%w: leaves buffer is not aligned", errCorruptedSnapshot)
 	}
 	size := int(unsafe.Sizeof(leafLayout{}))
 	if len(buf)%size != 0 {
-		return Leaves{}, errors.New("input buffer length is not correct")
+		return Leaves{}, fmt.Errorf("%w: leaves buffer length is not correct", errCorruptedSnapshot)
 	}
 	leaves := unsafe.Slice((*leafLayout)(p), len(buf)/size)
 	return Leaves{leaves}, nil

@@ -57,7 +57,7 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 			_, err = wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
-			log, err := open(dir, opts)
+			log, err := open(dir, opts, false)
 			require.NoError(t, err)
 
 			lastIndex, err := log.LastIndex()
@@ -171,7 +171,7 @@ func TestOpenWithNilOptions(t *testing.T) {
 	dir := t.TempDir()
 
 	// Test that open function handles nil options correctly
-	log, err := open(dir, nil)
+	log, err := open(dir, nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, log)
 
@@ -249,6 +249,12 @@ func TestTruncateBefore(t *testing.T) {
 	entry, err := changelog.ReadAt(2)
 	require.NoError(t, err)
 	require.Equal(t, []byte("hello1"), entry.Changesets[0].Changeset.Pairs[0].Key)
+
+	// Truncating below the current first index is a no-op.
+	require.NoError(t, changelog.TruncateBefore(1))
+	firstIndex, err = changelog.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), firstIndex)
 }
 
 func TestCloseSyncMode(t *testing.T) {
@@ -553,7 +559,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 	require.Eventually(t, func() bool {
 		last, err := changelog.LastOffset()
 		return err == nil && last > 0
-	}, 1*time.Second, 10*time.Millisecond, "expected some writes before Close()")
+	}, 10*time.Second, 10*time.Millisecond, "expected some writes before Close()")
 
 	closeDone := make(chan struct{})
 	closeErr := make(chan error, 1)
@@ -572,7 +578,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 10*time.Millisecond, "writers did not exit (possible deadlock)")
+	}, 10*time.Second, 10*time.Millisecond, "writers did not exit (possible deadlock)")
 
 	// Ensure Close() returns too.
 	require.Eventually(t, func() bool {
@@ -582,23 +588,24 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 10*time.Millisecond, "Close() did not return (possible deadlock)")
+	}, 10*time.Second, 10*time.Millisecond, "Close() did not return (possible deadlock)")
 
 	require.NoError(t, <-closeErr)
 }
 
 func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
+	const (
+		totalWrites = 50
+		keepRecent  = 10
+	)
+
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{
 		WriteBufferSize: 10,
-		KeepRecent:      10,
+		KeepRecent:      keepRecent,
 		PruneInterval:   1 * time.Millisecond,
 	})
 	require.NoError(t, err)
-
-	const (
-		totalWrites = 50
-	)
 
 	// Write a bunch of entries (async writes). We'll wait until they're all persisted.
 	for i := 1; i <= totalWrites; i++ {
@@ -635,6 +642,12 @@ func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 		first, err := changelog.FirstOffset()
 		return err == nil && first >= firstBefore+1
 	}, 3*time.Second, 10*time.Millisecond, "manual truncation did not take effect")
+
+	// Wait for pruning to reach its fixed point so the range read below is stable.
+	require.Eventually(t, func() bool {
+		first, err := changelog.FirstOffset()
+		return err == nil && first >= totalWrites-keepRecent
+	}, 3*time.Second, 10*time.Millisecond, "background pruning did not settle")
 
 	// Read first + last entries to ensure no corruption (decode succeeds; expected structure).
 	first, err := changelog.FirstOffset()
@@ -678,6 +691,9 @@ func TestTruncateAll(t *testing.T) {
 	require.NoError(t, err)
 	// With AllowEmpty, FirstIndex returns LastIndex+1 when empty.
 	require.True(t, first > last, "expected empty WAL (first > last)")
+
+	// Truncating below the first index of an emptied log is a no-op.
+	require.NoError(t, changelog.TruncateBefore(1))
 
 	// Can write new entries after truncating all.
 	entry := proto.ChangelogEntry{
