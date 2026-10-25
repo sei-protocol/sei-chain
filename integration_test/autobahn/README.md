@@ -440,6 +440,11 @@ subscription other than `newHeads`:
 - A block lists every finalized transaction, including rejected ones, and
   `transactionIndex` is the position in that list, so a block's receipts can
   skip positions. Hiding rejected transactions from block results is planned.
+- In `debug_traceBlockByNumber` and `debug_traceBlockByHash`, the
+  `flatCallTracer`'s `transactionPosition`, including inside `muxTracer`,
+  counts only the transactions that executed, so after a rejected transaction
+  it is lower than the receipt's `transactionIndex`. `debug_traceTransaction`
+  reports the receipt's index.
 - `eth_getLogs` covers at most 2,000 blocks and 10,000 logs per query, and a
   bound outside the indexed, retained range returns an error.
   `eth_feeHistory` covers at most 1,024 blocks.
@@ -504,11 +509,10 @@ run `debug_traceCall` against the latest block.
   instead. `pending` is refused, as are state and block overrides, which
   `eth_call` does not take either.
 - `debug_traceBlockByNumber` and `debug_traceBlockByHash` return one
-  `{txHash, result}` entry per transaction the block stored a receipt for, in
-  execution order. A transaction the block rejected before it ran has no
-  receipt and changed nothing, so it is skipped. Tags resolve to the latest
-  block whose receipts are indexed, and a block whose receipts are not indexed
-  yet returns an error.
+  `{txHash, result}` entry per transaction that executed, in execution order.
+  A transaction the block rejected changed nothing, so it is skipped. Tags
+  resolve to the latest block whose receipts are indexed, and a block whose
+  receipts are not indexed yet returns an error.
 
 ```sh
 curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \

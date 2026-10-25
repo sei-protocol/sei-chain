@@ -47,7 +47,7 @@ var (
 type traceChain struct {
 	sender   common.Address
 	blocks   map[int64]*coretypes.ResultBlock
-	executed []*ethtypes.Transaction // block 2's transactions that have a receipt, in order
+	executed []*ethtypes.Transaction // block 2's transactions that executed, in order
 	backend  *testBackend
 	store    receipt.ReceiptStore
 }

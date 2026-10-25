@@ -100,14 +100,14 @@ func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	})
 }
 
-// TraceBlockByNumber traces every transaction the block at number stored a receipt for.
+// TraceBlockByNumber traces every transaction of the block at number that executed.
 func (api *debugAPI) TraceBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, config *tracers.TraceConfig) (any, error) {
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceBlockByNumber(ctx, number, config)
 	})
 }
 
-// TraceBlockByHash traces every transaction the block with hash stored a receipt for.
+// TraceBlockByHash traces every transaction of the block with hash that executed.
 func (api *debugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (any, error) {
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceBlockByHash(ctx, hash, config)
