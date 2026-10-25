@@ -50,6 +50,13 @@ func (r *hashRequest) release() error {
 	return previousErr
 }
 
+// discard releases a request the engine will not hash, latching a release failure through brick.
+func (r *hashRequest) discard(brick func(error)) {
+	if err := r.release(); err != nil {
+		brick(fmt.Errorf("release block %d while stopping: %w", r.blockNumber, err))
+	}
+}
+
 // gatheredBlock is one block the gather phase has finished with, waiting to be folded onto the
 // running hash.
 type gatheredBlock struct {
