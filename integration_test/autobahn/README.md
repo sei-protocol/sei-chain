@@ -498,8 +498,9 @@ and `noopTracer`. JavaScript tracers are refused.
 A traced transaction is replayed against the state it executed on: the state
 after the previous block, with the block's earlier transactions applied. That
 state comes from the EVM state store, so tracing a mined transaction or a block
-needs a full node, and fails once the block is pruned. A validator can still
-run `debug_traceCall` against the latest block.
+needs a full node, and fails once the block's parent is pruned, so the oldest
+retained block cannot be traced. A validator can still run `debug_traceCall`
+against the latest block.
 
 - `debug_traceTransaction` takes a mined transaction's hash; an unknown hash
   returns error `-32602`.
