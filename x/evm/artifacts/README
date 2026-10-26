@@ -1,9 +1,8 @@
-The .abi and .bin files here are frozen. They are the ERC20/721/1155 pointer contracts
-deployed on chain before pointer creation was retired. The bytecode is embedded so that
-`debug_trace*` can replay historical pointer creation, and the ABIs so that the
-registry queries and the CosmWasm ERC helpers can call a pointer that is already
-deployed.
+The .abi files here are the frozen interfaces of the ERC20, ERC721 and ERC1155 pointer
+contracts deployed on chain before pointer creation was retired. The CLI, the CosmWasm EVM
+bindings and the synthetic CosmWasm receipts use them to encode calls to, and decode events
+from, ERC tokens. native/NativeSeiTokensERC20.bin is the deployed native pointer bytecode,
+kept so tests can deploy a real native pointer.
 
-Nothing regenerates these artifacts. Their Solidity sources are not in the tree:
-a rebuild could only produce bytecode that differs from what is deployed, which would
-break the replay these files exist for.
+Nothing regenerates these files. Their Solidity sources are not in the tree, and a rebuild
+could only produce bytecode that differs from what is deployed.

@@ -337,32 +337,6 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
-async function testAPIEnabled(provider) {
-    try {
-        // noop operation to see if it throws
-        await incrementPointerVersion(provider, "cw20", 0)
-        return true;
-    } catch(e){
-        console.log(e)
-        return false;
-    }
-}
-
-async function incrementPointerVersion(provider, pointerType, offset) {
-    if(await isDocker()) {
-        // must update on all nodes
-        for(let i=0; i<4; i++) {
-            const resultStr = await execCommand(`docker exec sei-node-${i} curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"test_incrementPointerVersion","params":["${pointerType}", ${offset}],"id":1}'`)
-            const result = JSON.parse(resultStr)
-            if(result.error){
-                throw new Error(`failed to increment pointer version: ${result.error}`)
-            }
-        }
-    } else {
-       await provider.send("test_incrementPointerVersion", [pointerType, offset]);
-    }
-}
-
 async function rawHttpDebugTraceWithCallTracer(txHash) {
     const payload = {
         jsonrpc: "2.0",
@@ -1009,8 +983,6 @@ module.exports = {
     waitForReceipt,
     getCosmosTx,
     isDocker,
-    testAPIEnabled,
-    incrementPointerVersion,
     associateWasm,
     generateWallet,
     printClaimMsg,

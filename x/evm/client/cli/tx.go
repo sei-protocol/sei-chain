@@ -289,10 +289,7 @@ func CmdERC20Send() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unable to parse amount: %s", args[2])
 			}
-			abi, err := native.NativeMetaData.GetAbi()
-			if err != nil {
-				return err
-			}
+			abi := native.GetParsedABI()
 			payload, err := abi.Pack("transfer", recipient, amt)
 			if err != nil {
 				return err
