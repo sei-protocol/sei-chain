@@ -136,16 +136,14 @@ message View {
 }
 
 message Proposal {
-  reserved 2;
-  reserved "created_at";
+  reserved 2, 6;
+  reserved "created_at", "global_first";
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
   optional View view = 1; // required.
   optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
-  reserved 6;
-  reserved "global_first";
 }
 
 message FullProposal {
@@ -230,8 +228,8 @@ message AppQC {
 }
 
 message AppProposal {
-  reserved 1;
-  reserved "global_number";
+  reserved 1, 5, 6;
+  reserved "global_number", "global_first", "global_next";
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
 
@@ -239,8 +237,6 @@ message AppProposal {
   optional uint64 epoch_index = 4; // required
   // Index of the commit qc finalizing the block.
   optional uint64 road_index = 2; // required
-  reserved 5, 6;
-  reserved "global_first", "global_next";
   // App hash after executing this SuperBlock.
   optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
 }

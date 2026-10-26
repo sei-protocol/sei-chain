@@ -162,27 +162,19 @@ type SuperBlock struct {
 	Height    RoadIndex
 	Timestamp time.Time
 	GasWanted uint64
-	txs       [][]byte
+	Txs       [][]byte
 }
 
-// NewSuperBlock merges blocks in CommitQC header order.
+// NewSuperBlock merges blocks supplied in CommitQC header order.
+// Callers must verify that the blocks match qc.
 func NewSuperBlock(qc *FullCommitQC, blocks []*Block) *SuperBlock {
-	if len(blocks) != len(qc.Headers()) {
-		panic("blocks do not match CommitQC headers")
-	}
 	b := &SuperBlock{Height: qc.Index(), Timestamp: qc.QC().Proposal().Timestamp()}
-	for i, block := range blocks {
-		if block.Header().Hash() != qc.Headers()[i].Hash() {
-			panic("block does not match CommitQC header")
-		}
+	for _, block := range blocks {
 		b.GasWanted += block.Payload().TotalGasWanted()
-		b.txs = append(b.txs, block.Payload().Txs()...)
+		b.Txs = append(b.Txs, block.Payload().Txs()...)
 	}
 	return b
 }
-
-// Txs returns the transactions in execution order.
-func (b *SuperBlock) Txs() [][]byte { return b.txs }
 
 // NewBlock creates a new Block.
 func NewBlock(

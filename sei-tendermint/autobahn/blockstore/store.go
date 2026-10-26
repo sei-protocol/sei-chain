@@ -44,9 +44,6 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 
 func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	index := qc.QC().Index()
-	if index == utils.Max[types.RoadIndex]() {
-		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
-	}
 
 	if err := validateBlocks(qc, blocks); err != nil {
 		return fmt.Errorf("invalid QC blocks: %w", err)
@@ -82,9 +79,6 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 
 func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 	index := appQC.Proposal().Index()
-	if index == utils.Max[types.RoadIndex]() {
-		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
-	}
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
 		if !ok || current.NextAppProposal <= index {
@@ -188,6 +182,9 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 		if err != nil {
 			return types.Suffix{}, fmt.Errorf("read recovery suffix: %w", err)
 		}
+		if len(records.AppQCs) > 1 {
+			return types.Suffix{}, fmt.Errorf("too large suffix")
+		}
 		if len(records.Blocks) == 0 {
 			if len(records.AppQCs) > 0 || len(records.AppProposals) > 0 {
 				return types.Suffix{}, types.ErrMissingQC
@@ -198,7 +195,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 		status := types.SuffixRange{First: first, NextQC: first, NextAppProposal: first, NextAppQC: first}
 		var suffix types.Suffix
 		for _, record := range records.Blocks {
-			if types.RoadIndex(record.Index) != status.NextQC || status.NextQC == utils.Max[types.RoadIndex]() {
+			if types.RoadIndex(record.Index) != status.NextQC {
 				return types.Suffix{}, types.ErrUnexpectedIndex
 			}
 			group, err := decodeBlockRecord(record)
@@ -206,44 +203,35 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 				return types.Suffix{}, fmt.Errorf("decode SuperBlock %d: %w", record.Index, err)
 			}
 			suffix.QCGroups = append(suffix.QCGroups, group)
-			status.NextQC++
+			status.NextQC += 1
 		}
 		for _, record := range records.AppProposals {
-			index := types.RoadIndex(record.Index)
-			if index >= status.NextQC {
-				return types.Suffix{}, types.ErrMissingQC
-			}
-			if index != status.NextAppProposal {
-				return types.Suffix{}, types.ErrUnexpectedIndex
-			}
 			proposal, err := decodeAppProposal(record.Data)
 			if err != nil {
 				return types.Suffix{}, err
 			}
-			if proposal.Index() != index {
+			if proposal.Index() >= status.NextQC {
+				return types.Suffix{}, types.ErrMissingQC
+			}
+			if proposal.Index() != status.NextAppProposal {
 				return types.Suffix{}, types.ErrUnexpectedIndex
 			}
 			suffix.AppProposals = append(suffix.AppProposals, proposal)
-			status.NextAppProposal++
+			status.NextAppProposal += 1
 		}
 		for _, record := range records.AppQCs {
-			index := types.RoadIndex(record.Index)
-			if index >= status.NextAppProposal {
-				return types.Suffix{}, types.ErrMissingAppProposal
-			}
-			if index != status.NextAppQC {
-				return types.Suffix{}, types.ErrUnexpectedIndex
-			}
 			qc, err := decodeAppQC(record.Data)
 			if err != nil {
 				return types.Suffix{}, err
 			}
-			if qc.Proposal().Index() != index {
+			if qc.Proposal().Index() >= status.NextAppProposal {
+				return types.Suffix{}, types.ErrMissingAppProposal
+			}
+			if qc.Proposal().Index() != status.NextAppQC {
 				return types.Suffix{}, types.ErrUnexpectedIndex
 			}
 			suffix.AppQCs = append(suffix.AppQCs, qc)
-			status.NextAppQC++
-			status.First = index
+			status.NextAppQC += 1
 		}
 		suffix.Status = utils.Some(status)
 		return suffix, nil
@@ -305,9 +293,7 @@ func (s *Store) ReadSuperBlockByHash(hash common.Hash) (utils.Option[*types.Supe
 	return utils.Some(types.NewSuperBlock(group.QC, group.Blocks)), nil
 }
 
-func (s *Store) ReadQCByBlockNumber(
-	n types.RoadIndex,
-) (utils.Option[*types.FullCommitQC], error) {
+func (s *Store) ReadQC(n types.RoadIndex) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.FullCommitQC](), types.ErrPruned
@@ -326,9 +312,7 @@ func (s *Store) ReadQCByBlockNumber(
 	return utils.Some(qc), nil
 }
 
-func (s *Store) ReadAppProposalByBlockNumber(
-	n types.RoadIndex,
-) (utils.Option[*types.AppProposal], error) {
+func (s *Store) ReadAppProposal(n types.RoadIndex) (utils.Option[*types.AppProposal], error) {
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppProposal](), types.ErrPruned
 	}
@@ -346,9 +330,7 @@ func (s *Store) ReadAppProposalByBlockNumber(
 	return utils.Some(appProposal), nil
 }
 
-func (s *Store) ReadAppQCByBlockNumber(
-	n types.RoadIndex,
-) (utils.Option[*types.AppQC], error) {
+func (s *Store) ReadAppQC(n types.RoadIndex) (utils.Option[*types.AppQC], error) {
 	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppQC](), types.ErrPruned
 	}

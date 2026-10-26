@@ -236,7 +236,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 
 			// Mark block as executed.
 			h := b.CalculateBlockHash()
-			resp, err := env.app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: b.Txs(), Hash: h[:]})
+			resp, err := env.app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{Txs: b.Txs, Hash: h[:]})
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}

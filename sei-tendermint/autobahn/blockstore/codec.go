@@ -84,8 +84,11 @@ func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
 
 // encodeBlockRecord encodes a CommitQC and its lane blocks with the SuperBlock lookup hash.
 func encodeBlockRecord(qc *types.FullCommitQC, blocks []*types.Block) blocktypes.BlockRecord {
-	block := types.NewSuperBlock(qc, blocks)
-	record := blocktypes.BlockRecord{Index: blocktypes.BlockNumber(qc.Index()), Hash: blocktypes.BlockHash(block.CalculateBlockHash()), QC: encodeQC(qc)}
+	record := blocktypes.BlockRecord{
+		Index: blocktypes.BlockNumber(qc.Index()),
+		Hash:  blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()),
+		QC:    encodeQC(qc),
+	}
 	for _, lane := range blocks {
 		record.LaneBlocks = append(record.LaneBlocks, encodeBlock(lane))
 	}

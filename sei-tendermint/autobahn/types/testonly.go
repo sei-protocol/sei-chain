@@ -410,7 +410,7 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 // GenSuperBlock generates a random SuperBlock.
 func GenSuperBlock(rng utils.Rng) *SuperBlock {
 	payload := GenPayload(rng)
-	return &SuperBlock{Height: GenRoadIndex(rng), Timestamp: payload.CreatedAt(), GasWanted: payload.TotalGasWanted(), txs: payload.Txs()}
+	return &SuperBlock{Height: GenRoadIndex(rng), Timestamp: payload.CreatedAt(), GasWanted: payload.TotalGasWanted(), Txs: payload.Txs()}
 }
 
 // GenPrepareVote generates a random PrepareVote.

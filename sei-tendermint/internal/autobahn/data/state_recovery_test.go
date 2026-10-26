@@ -23,7 +23,7 @@ func TestRecoveryEmpty(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, db)
 	require.Equal(t, fb, state.NextBlock())
 	for inner := range state.inner.Lock() {
-		require.Equal(t, fb, inner.nextQC)
+		require.Equal(t, fb, inner.nextPartialBlock)
 		require.Equal(t, fb, inner.nextAppProposal)
 	}
 }

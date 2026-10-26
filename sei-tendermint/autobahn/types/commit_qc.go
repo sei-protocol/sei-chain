@@ -62,7 +62,8 @@ type FullCommitQC struct {
 // NewFullCommitQC constructs a new FullCommitQC.
 func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
 	if got, want := len(headers), int(qc.Proposal().NumBlocks()); got != want { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
-		panic(fmt.Sprintf("headers length %d != finalized blocks %d", got, want))
+		//TODO(gprusak): why is it ok to panic here?
+		panic(fmt.Errorf("headers length %d != finalized blocks %d", got, want))
 	}
 	return &FullCommitQC{qc: qc, headers: headers}
 }

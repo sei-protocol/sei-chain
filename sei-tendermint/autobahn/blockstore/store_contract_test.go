@@ -160,15 +160,15 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, byHash.IsPresent())
 
-	qc, err := db.ReadQCByBlockNumber(0)
+	qc, err := db.ReadQC(0)
 	require.NoError(t, err)
 	require.False(t, qc.IsPresent())
 
-	appQC, err := db.ReadAppQCByBlockNumber(0)
+	appQC, err := db.ReadAppQC(0)
 	require.NoError(t, err)
 	require.False(t, appQC.IsPresent())
 
-	appProposal, err := db.ReadAppProposalByBlockNumber(0)
+	appProposal, err := db.ReadAppProposal(0)
 	require.NoError(t, err)
 	require.False(t, appProposal.IsPresent())
 
@@ -305,7 +305,7 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 	}
 
 	if tips.NextQC > tips.First {
-		qc, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
+		qc, err := db.ReadQC(tips.NextQC - 1)
 		require.NoError(t, err)
 		got, ok := qc.Get()
 		require.True(t, ok, "NextQC must point past a readable QC")
@@ -313,14 +313,14 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 	}
 
 	if tips.NextAppQC > tips.First {
-		appQC, err := db.ReadAppQCByBlockNumber(tips.NextAppQC - 1)
+		appQC, err := db.ReadAppQC(tips.NextAppQC - 1)
 		require.NoError(t, err)
 		got, ok := appQC.Get()
 		require.True(t, ok, "NextAppQC must point past a readable AppQC")
 		require.Equal(t, tips.NextAppQC, got.Proposal().Next())
 	}
 	if tips.NextAppProposal > tips.First {
-		appProposal, err := db.ReadAppProposalByBlockNumber(tips.NextAppProposal - 1)
+		appProposal, err := db.ReadAppProposal(tips.NextAppProposal - 1)
 		require.NoError(t, err)
 		got, ok := appProposal.Get()
 		require.True(t, ok, "NextAppProposal must point past a readable AppProposal")
@@ -357,7 +357,7 @@ func testQCByBlockNumber(t *testing.T, build builder) {
 	assertQCsReadable(t, db, committee, batches)
 
 	last := batches[len(batches)-1]
-	miss, err := db.ReadQCByBlockNumber(last.next + 1000)
+	miss, err := db.ReadQC(last.next + 1000)
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent())
 }
@@ -381,7 +381,7 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	for _, appProposal := range appProposals {
 		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
 		for n := gr.First; n < gr.Next; n++ {
-			opt, err := db.ReadAppProposalByBlockNumber(n)
+			opt, err := db.ReadAppProposal(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "AppProposal covering %d should exist", n)
@@ -389,7 +389,7 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 			require.Equal(t, appProposal.AppHash(), got.AppHash())
 		}
 	}
-	miss, err := db.ReadAppProposalByBlockNumber(batches[2].first)
+	miss, err := db.ReadAppProposal(batches[2].first)
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent(), "CommitQCs/blocks past the AppProposal prefix should not imply AppProposal presence")
 
@@ -412,7 +412,7 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 
 	for _, appProposal := range appProposals {
 		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
-		opt, err := db.ReadAppProposalByBlockNumber(gr.First)
+		opt, err := db.ReadAppProposal(gr.First)
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "AppProposal [%d,%d) must survive restart", gr.First, gr.Next)
@@ -440,7 +440,7 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	for _, appQC := range appQCs {
 		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
 		for n := gr.First; n < gr.Next; n++ {
-			opt, err := db.ReadAppQCByBlockNumber(n)
+			opt, err := db.ReadAppQC(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "AppQC covering %d should exist", n)
@@ -448,7 +448,7 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 			require.Equal(t, appQC.Proposal().AppHash(), got.Proposal().AppHash())
 		}
 	}
-	miss, err := db.ReadAppQCByBlockNumber(batches[2].first)
+	miss, err := db.ReadAppQC(batches[2].first)
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent(), "CommitQCs/blocks past the AppQC prefix should not imply AppQC presence")
 
@@ -471,7 +471,7 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 
 	for _, appQC := range appQCs {
 		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
-		opt, err := db.ReadAppQCByBlockNumber(gr.First)
+		opt, err := db.ReadAppQC(gr.First)
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "AppQC [%d,%d) must survive restart", gr.First, gr.Next)
@@ -536,7 +536,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 			if lookup < watermark {
 				lookup = watermark
 			}
-			opt, err := db.ReadQCByBlockNumber(lookup)
+			opt, err := db.ReadQC(lookup)
 			require.NoError(t, err)
 			require.True(t, opt.IsPresent(), "QC [%d,%d) (Next > watermark) must be retained", b.first, b.next)
 		}
@@ -571,7 +571,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 
 	// The retained QC stays (its Next > watermark); a lookup at or above the
 	// watermark inside its range still resolves to it.
-	opt, err := db.ReadQCByBlockNumber(watermark)
+	opt, err := db.ReadQC(watermark)
 	require.NoError(t, err)
 	got, ok := opt.Get()
 	require.True(t, ok, "retained QC must be retained")
@@ -607,11 +607,11 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 		require.NoError(t, err)
 		require.False(t, byHash.IsPresent(), "block %d below watermark %d must not be served by hash", n, watermark)
 
-		appProposal, err := db.ReadAppProposalByBlockNumber(n)
+		appProposal, err := db.ReadAppProposal(n)
 		require.ErrorIs(t, err, types.ErrPruned, "AppProposal at block %d below watermark %d must be reported pruned", n, watermark)
 		require.False(t, appProposal.IsPresent(), "AppProposal at block %d below watermark %d must not be served", n, watermark)
 
-		appQC, err := db.ReadAppQCByBlockNumber(n)
+		appQC, err := db.ReadAppQC(n)
 		require.ErrorIs(t, err, types.ErrPruned, "AppQC at block %d below watermark %d must be reported pruned", n, watermark)
 		require.False(t, appQC.IsPresent(), "AppQC at block %d below watermark %d must not be served", n, watermark)
 	}
@@ -652,14 +652,14 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 		opt, err := db.ReadSuperBlockByNumber(n)
 		require.NoError(t, err, "block %d in the retained cohort must not report ErrPruned", n)
 		require.True(t, opt.IsPresent(), "block %d in the retained cohort must remain served", n)
-		appProposal, err := db.ReadAppProposalByBlockNumber(n)
+		appProposal, err := db.ReadAppProposal(n)
 		require.NoError(t, err, "AppProposal at block %d in the retained cohort must not report ErrPruned", n)
 		require.True(t, appProposal.IsPresent(), "AppProposal at block %d in the retained cohort must remain served", n)
-		appQC, err := db.ReadAppQCByBlockNumber(n)
+		appQC, err := db.ReadAppQC(n)
 		require.NoError(t, err, "AppQC at block %d in the retained cohort must not report ErrPruned", n)
 		require.True(t, appQC.IsPresent(), "AppQC at block %d in the retained cohort must remain served", n)
 	}
-	qcOpt, err := db.ReadQCByBlockNumber(retained.first)
+	qcOpt, err := db.ReadQC(retained.first)
 	require.NoError(t, err, "retained cohort's QC must not report ErrPruned")
 	got, ok := qcOpt.Get()
 	require.True(t, ok, "retained cohort's QC must remain served")
@@ -671,13 +671,13 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	blk, err := db.ReadSuperBlockByNumber(belowNum)
 	require.ErrorIs(t, err, types.ErrPruned, "below-watermark block must report ErrPruned")
 	require.False(t, blk.IsPresent())
-	qc, err := db.ReadQCByBlockNumber(belowNum)
+	qc, err := db.ReadQC(belowNum)
 	require.ErrorIs(t, err, types.ErrPruned, "below-watermark QC must report ErrPruned")
 	require.False(t, qc.IsPresent())
-	appProposal, err := db.ReadAppProposalByBlockNumber(belowNum)
+	appProposal, err := db.ReadAppProposal(belowNum)
 	require.ErrorIs(t, err, types.ErrPruned, "below-watermark AppProposal must report ErrPruned")
 	require.False(t, appProposal.IsPresent())
-	appQC, err := db.ReadAppQCByBlockNumber(belowNum)
+	appQC, err := db.ReadAppQC(belowNum)
 	require.ErrorIs(t, err, types.ErrPruned, "below-watermark AppQC must report ErrPruned")
 	require.False(t, appQC.IsPresent())
 
@@ -686,13 +686,13 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	missBlk, err := db.ReadSuperBlockByNumber(unwritten)
 	require.NoError(t, err, "never-written height must not report ErrPruned")
 	require.False(t, missBlk.IsPresent())
-	missQC, err := db.ReadQCByBlockNumber(unwritten)
+	missQC, err := db.ReadQC(unwritten)
 	require.NoError(t, err, "never-written height must not report ErrPruned")
 	require.False(t, missQC.IsPresent())
-	missAppProposal, err := db.ReadAppProposalByBlockNumber(unwritten)
+	missAppProposal, err := db.ReadAppProposal(unwritten)
 	require.NoError(t, err, "never-written AppProposal height must not report ErrPruned")
 	require.False(t, missAppProposal.IsPresent())
-	missAppQC, err := db.ReadAppQCByBlockNumber(unwritten)
+	missAppQC, err := db.ReadAppQC(unwritten)
 	require.NoError(t, err, "never-written AppQC height must not report ErrPruned")
 	require.False(t, missAppQC.IsPresent())
 }
@@ -763,11 +763,11 @@ func testFirstQCSetsFloor(t *testing.T, build builder) {
 	check := func(db types.BlockStore) {
 		t.Helper()
 		require.Equal(t, start.first, db.First())
-		_, err := db.ReadQCByBlockNumber(start.first - 1)
+		_, err := db.ReadQC(start.first - 1)
 		require.ErrorIs(t, err, types.ErrPruned)
 		_, err = db.ReadSuperBlockByNumber(start.first - 1)
 		require.ErrorIs(t, err, types.ErrPruned)
-		got, err := db.ReadQCByBlockNumber(start.first)
+		got, err := db.ReadQC(start.first)
 		require.NoError(t, err)
 		require.True(t, got.IsPresent())
 	}
@@ -821,15 +821,15 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 				require.True(t, ok, "block %d must survive lookup by hash", n)
 				require.Equal(t, n, bwn.Height)
 
-				qc, err := db.ReadQCByBlockNumber(n)
+				qc, err := db.ReadQC(n)
 				require.NoError(t, err)
 				require.True(t, qc.IsPresent(), "the QC covering the newest cohort must survive")
 
-				appProposal, err := db.ReadAppProposalByBlockNumber(n)
+				appProposal, err := db.ReadAppProposal(n)
 				require.NoError(t, err)
 				require.True(t, appProposal.IsPresent(), "the AppProposal covering the newest cohort must survive")
 
-				appQC, err := db.ReadAppQCByBlockNumber(n)
+				appQC, err := db.ReadAppQC(n)
 				require.NoError(t, err)
 				require.True(t, appQC.IsPresent(), "the AppQC covering the newest cohort must survive")
 			}
@@ -840,10 +840,10 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			below, err := db.ReadSuperBlockByNumber(belowBatch.first)
 			require.ErrorIs(t, err, types.ErrPruned, "blocks below the newest cohort must be reported pruned")
 			require.False(t, below.IsPresent(), "blocks below the newest cohort must not be served")
-			belowAppProposal, err := db.ReadAppProposalByBlockNumber(belowBatch.first)
+			belowAppProposal, err := db.ReadAppProposal(belowBatch.first)
 			require.ErrorIs(t, err, types.ErrPruned, "AppProposals below the newest cohort must be reported pruned")
 			require.False(t, belowAppProposal.IsPresent(), "AppProposals below the newest cohort must not be served")
-			belowAppQC, err := db.ReadAppQCByBlockNumber(belowBatch.first)
+			belowAppQC, err := db.ReadAppQC(belowBatch.first)
 			require.ErrorIs(t, err, types.ErrPruned, "AppQCs below the newest cohort must be reported pruned")
 			require.False(t, belowAppQC.IsPresent(), "AppQCs below the newest cohort must not be served")
 
@@ -879,25 +879,25 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	blk, err := db.ReadSuperBlockByNumber(below.first)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, blk.IsPresent())
-	appQC, err := db.ReadAppQCByBlockNumber(below.first)
+	appQC, err := db.ReadAppQC(below.first)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, appQC.IsPresent())
-	appProposal, err := db.ReadAppProposalByBlockNumber(below.first)
+	appProposal, err := db.ReadAppProposal(below.first)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, appProposal.IsPresent())
 
 	blk, err = db.ReadSuperBlockByNumber(latestApp.first)
 	require.NoError(t, err)
 	require.True(t, blk.IsPresent(), "newest AppQC cohort must retain a block")
-	qc, err := db.ReadQCByBlockNumber(latestApp.first)
+	qc, err := db.ReadQC(latestApp.first)
 	require.NoError(t, err)
 	require.True(t, qc.IsPresent(), "newest AppQC cohort must retain its CommitQC")
-	appQC, err = db.ReadAppQCByBlockNumber(latestApp.first)
+	appQC, err = db.ReadAppQC(latestApp.first)
 	require.NoError(t, err)
 	got, ok := appQC.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppQC")
 	require.Equal(t, types.RoadRange{First: latestApp.qc.QC().Index(), Next: latestApp.qc.QC().Next()}, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
-	appProposal, err = db.ReadAppProposalByBlockNumber(latestApp.first)
+	appProposal, err = db.ReadAppProposal(latestApp.first)
 	require.NoError(t, err)
 	gotProposal, ok := appProposal.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppProposal")
@@ -1134,7 +1134,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 	tips := status(t, db)
 	require.Equal(t, highest+1, tips.NextQC, "Status block tip must match the iterator scan")
 	require.Equal(t, prevQC.Next(), tips.NextQC, "Status QC tip must match the iterator scan")
-	covering, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
+	covering, err := db.ReadQC(tips.NextQC - 1)
 	require.NoError(t, err)
 	got, ok := covering.Get()
 	require.True(t, ok, "the newest QC must be resolvable by point read (blocksim's resume path)")
@@ -1233,7 +1233,7 @@ func testWriteEmptyQC(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := block.Get()
 	require.True(t, ok)
-	require.Empty(t, got.Txs())
+	require.Empty(t, got.Txs)
 	byHash, err := db.ReadSuperBlockByHash(got.CalculateBlockHash())
 	require.NoError(t, err)
 	require.True(t, byHash.IsPresent())
@@ -1265,7 +1265,7 @@ func TestMemblockPruneHidesEverythingBelowWatermark(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrPruned, "block %d should be pruned", n)
 		require.False(t, opt.IsPresent(), "block %d should be pruned", n)
 	}
-	qc, err := db.ReadQCByBlockNumber(batches[0].first)
+	qc, err := db.ReadQC(batches[0].first)
 	require.ErrorIs(t, err, types.ErrPruned, "QC below watermark should be pruned")
 	require.False(t, qc.IsPresent(), "QC below watermark should be pruned")
 
@@ -1301,7 +1301,7 @@ func TestMemblockPruneRetainsWholeSuperBlock(t *testing.T) {
 	// The retained QC is retained and resolves across its whole range.
 	for i := range retained.superBlocks() {
 		n := retained.first + gbn(i)
-		qc, err := db.ReadQCByBlockNumber(n)
+		qc, err := db.ReadQC(n)
 		require.NoError(t, err, "cohort QC must resolve at %d", n)
 		require.True(t, qc.IsPresent(), "cohort QC must resolve at %d", n)
 	}
@@ -1352,7 +1352,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 			got, ok := byNum.Get()
 			require.True(t, ok, "block %d should exist", n)
 			require.Equal(t, blk.CalculateBlockHash(), got.CalculateBlockHash())
-			require.Equal(t, blk.Txs(), got.Txs())
+			require.Equal(t, blk.Txs, got.Txs)
 			require.Equal(t, blk.GasWanted, got.GasWanted)
 
 			byHash, err := db.ReadSuperBlockByHash(blk.CalculateBlockHash())
@@ -1369,7 +1369,7 @@ func assertQCsReadable(t *testing.T, db types.BlockStore, committee *types.Commi
 	for _, b := range batches {
 		r := types.RoadRange{First: b.qc.QC().Index(), Next: b.qc.QC().Next()}
 		for n := r.First; n < r.Next; n++ {
-			opt, err := db.ReadQCByBlockNumber(n)
+			opt, err := db.ReadQC(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "QC covering %d should exist", n)

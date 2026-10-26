@@ -168,7 +168,7 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*
 // translateSuperBlock converts a SuperBlock to the CometBFT result used by block RPCs.
 // LastCommit has empty Signatures, matching executeBlock's empty CommitInfo.
 func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes.ResultBlock {
-	srcTxs := gb.Txs()
+	srcTxs := gb.Txs
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
 		tmTxs[i] = tx
@@ -212,7 +212,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBloc
 	}
 
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-		Txs: b.Txs(),
+		Txs: b.Txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
 		// WARNING: this is the SuperBlock hash calculated before execution.

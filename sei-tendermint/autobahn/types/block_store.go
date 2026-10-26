@@ -41,9 +41,9 @@ type BlockStore interface {
 	ReadLaneBlock(pos LaneBlockPos) (utils.Option[*Block], error)
 	ReadSuperBlockByNumber(n RoadIndex) (utils.Option[*SuperBlock], error)
 	ReadSuperBlockByHash(hash common.Hash) (utils.Option[*SuperBlock], error)
-	ReadQCByBlockNumber(n RoadIndex) (utils.Option[*FullCommitQC], error)
-	ReadAppProposalByBlockNumber(n RoadIndex) (utils.Option[*AppProposal], error)
-	ReadAppQCByBlockNumber(n RoadIndex) (utils.Option[*AppQC], error)
+	ReadQC(n RoadIndex) (utils.Option[*FullCommitQC], error)
+	ReadAppProposal(n RoadIndex) (utils.Option[*AppProposal], error)
+	ReadAppQC(n RoadIndex) (utils.Option[*AppQC], error)
 	Close() error
 }
 

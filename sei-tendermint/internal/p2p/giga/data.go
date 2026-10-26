@@ -169,9 +169,9 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 				scope.Spawn(func() error {
 					defer release()
 					for first := true; ; first = false {
-						// NeedBlock (not TryBlock): gap-fills above nextBlock already
-						// satisfy this height. Re-fetching them while a lower hole is
-						// empty wastes the shared per-peer GetBlock queue and can
+						// NeedBlock skips received gap-fills without consulting BlockStore.
+						// Re-fetching them while a lower hole is empty wastes the
+						// shared per-peer GetBlock queue and can
 						// starve the contiguous prefix.
 						if !x.data.NeedBlock(pos) {
 							return nil

@@ -88,7 +88,7 @@ func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	require.Equal(t, qc.Index(), block.Height)
 	require.Equal(t, proposal.Proposal().Msg().Timestamp(), block.Timestamp)
 	require.Zero(t, block.GasWanted)
-	require.Empty(t, block.Txs())
+	require.Empty(t, block.Txs)
 }
 
 // oneLaneQCMap builds a single LaneQC advancing the first lane.

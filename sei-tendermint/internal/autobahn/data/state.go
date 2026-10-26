@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-const blocksCacheSize = 4000
+const qcsCacheSize = 4000 / 40
 
 // ErrOutOfOrder is returned when PushAppHash receives an app hash past the
 // next CommitQC range waiting for execution.
@@ -31,43 +31,40 @@ type Config struct {
 	Registry *epoch.Registry
 }
 
-// qcEntry is a FullCommitQC stored in qcs, with the epoch used to verify it.
-// The epoch is resolved once at insertQC (or load); later PushBlock / AppQC
-// paths use this pointer instead of querying the registry again.
-type qcEntry struct {
-	qc    *types.FullCommitQC
-	epoch *types.Epoch
+// blockEntry contains a FullCommitQC, its lane blocks, and its verifying epoch.
+type blockEntry struct {
+	qc         *types.FullCommitQC
+	epoch      *types.Epoch
+	laneBlocks map[uint64]*types.Block
 }
 
 type inner struct {
-	qcs              map[types.RoadIndex]qcEntry            // [first, nextQC)
-	blocks           map[types.LaneBlockPos]*types.Block    // [first, nextBlock) + gap-fills in [nextBlock, nextQC)
-	appProposals     map[types.RoadIndex]*types.AppProposal // [first, nextAppProposal)
-	appQCs           map[types.RoadIndex]*types.AppQC       // [first, nextAppQC)
-	superBlockHashes map[common.Hash]types.RoadIndex        // superBlockHashes mirrors blocks (insertBlock / setPersisted)
+	blocks       map[types.RoadIndex]blockEntry         // [first, nextPartialBlock)
+	appProposals map[types.RoadIndex]*types.AppProposal // [first, nextAppProposal)
+	appQCs       map[types.RoadIndex]*types.AppQC       // [first, nextAppQC)
+	byHash       map[common.Hash]types.RoadIndex        // complete SuperBlocks retained in blocks
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
 	// Heights below first have a persisted AppQC that matched local execution.
-	// first <= nextAppQC <= nextAppProposal <= nextBlock <= nextQC
+	// first <= nextAppQC <= nextAppProposal <= nextFullBlock <= nextPartialBlock
 	first            types.RoadIndex
 	nextAppQC        types.RoadIndex
 	nextAppProposal  types.RoadIndex
-	nextBlock        types.RoadIndex
-	nextQC           types.RoadIndex
+	nextFullBlock    types.RoadIndex
+	nextPartialBlock types.RoadIndex
 	persisted        types.SuffixRange
-	cachedLaneBlocks uint64
 
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
 	anchor utils.AtomicSend[utils.Option[Anchor]]
-	// nextCommitEpoch covers nextQC once that epoch is registered; otherwise
+	// nextCommitEpoch covers nextPartialBlock once that epoch is registered; otherwise
 	// the previous publish stands (genesis epoch 0 before any CommitQC).
 	nextCommitEpoch utils.AtomicSend[*types.Epoch]
 }
 
 func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
-	ep, err := registry.EpochAt(i.nextQC)
+	ep, err := registry.EpochAt(i.nextPartialBlock)
 	if err != nil {
 		return
 	}
@@ -78,14 +75,14 @@ func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
 }
 
 // insertQC verifies and inserts a FullCommitQC into the inner state.
-// Already retained QCs are skipped; future QCs must have index nextQC.
+// Already retained QCs are skipped; future QCs must have index nextPartialBlock.
 func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error {
 	index, next := qc.QC().Index(), qc.QC().Next()
-	if next <= i.nextQC {
+	if next <= i.nextPartialBlock {
 		return nil // fully behind, skip
 	}
-	if index > i.nextQC {
-		return fmt.Errorf("QC gap: expected first<=%d, got %d", i.nextQC, index)
+	if index > i.nextPartialBlock {
+		return fmt.Errorf("QC gap: expected first<=%d, got %d", i.nextPartialBlock, index)
 	}
 	e, err := registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
 	if err != nil {
@@ -101,12 +98,11 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 // insertVerifiedQC records a verified QC and its empty SuperBlock, if any.
 func (i *inner) insertVerifiedQC(registry *epoch.Registry, qc *types.FullCommitQC, ep *types.Epoch) {
 	index := qc.Index()
-	i.qcs[index] = qcEntry{qc: qc, epoch: ep}
-	i.cachedLaneBlocks += uint64(len(qc.Headers()))
-	i.nextQC = qc.QC().Next()
+	i.blocks[index] = blockEntry{qc: qc, epoch: ep, laneBlocks: map[uint64]*types.Block{}}
+	i.nextPartialBlock = qc.QC().Next()
 	if len(qc.Headers()) == 0 {
 		block := types.NewSuperBlock(qc, nil)
-		i.superBlockHashes[block.CalculateBlockHash()] = index
+		i.byHash[block.CalculateBlockHash()] = index
 	}
 	i.publishNextCommitEpoch(registry)
 }
@@ -122,7 +118,7 @@ func (i *inner) insertAppQC(appQC *types.AppQC) error {
 	if index > i.nextAppQC {
 		return fmt.Errorf("AppQC gap: expected first<=%d, got %d", i.nextAppQC, index)
 	}
-	ep := i.qcs[i.nextAppQC].epoch
+	ep := i.blocks[i.nextAppQC].epoch
 	if err := appQC.Verify(ep.Committee()); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
@@ -148,13 +144,13 @@ func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 	if next <= i.nextAppProposal {
 		return nil
 	}
-	if next > i.nextQC {
+	if next > i.nextPartialBlock {
 		return fmt.Errorf("missing CommitQC for this AppProposal")
 	}
 	if index > i.nextAppProposal {
 		return fmt.Errorf("AppProposal gap: expected first<=%d, got %d", i.nextAppProposal, index)
 	}
-	if err := appProposal.Verify(i.qcs[i.nextAppProposal].qc.QC()); err != nil {
+	if err := appProposal.Verify(i.blocks[i.nextAppProposal].qc.QC()); err != nil {
 		return fmt.Errorf("appProposal.Verify(): %w", err)
 	}
 	i.appProposals[index] = appProposal
@@ -167,38 +163,39 @@ func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 // payload integrity before calling; insertBlock matches the header against
 // the stored FullCommitQC (unlike insertQC, which verifies the QC itself).
 //
-// insertBlock does NOT advance nextBlock — callers should call
+// insertBlock does NOT advance nextFullBlock — callers should call
 // updateNextBlock after inserting one or more blocks. This separation
 // allows batch insertion (e.g. PushQC inserts multiple blocks, then
-// advances nextBlock once).
+// advances nextFullBlock once).
 func (i *inner) insertBlock(n types.LaneBlockPos, block *types.Block) error {
-	if n.Index < i.nextBlock || n.Index >= i.nextQC {
+	if n.Index < i.nextFullBlock || n.Index >= i.nextPartialBlock {
 		return nil
 	}
-	if _, ok := i.blocks[n]; ok {
+	entry := i.blocks[n.Index]
+	if _, ok := entry.laneBlocks[n.Offset]; ok {
 		return nil
 	}
-	qc := i.qcs[n.Index].qc
+	qc := entry.qc
 	if n.Offset >= uint64(len(qc.Headers())) {
 		return fmt.Errorf("invalid lane block position %v", n)
 	}
 	if want, got := qc.Headers()[n.Offset].Hash(), block.Header().Hash(); want != got {
 		return fmt.Errorf("block %v header hash mismatch: want %v, got %v", n, want, got)
 	}
-	i.blocks[n] = block
+	entry.laneBlocks[n.Offset] = block
 	if blocks, ok := i.completeBlocks(n.Index); ok {
 		b := types.NewSuperBlock(qc, blocks)
-		i.superBlockHashes[b.CalculateBlockHash()] = n.Index
+		i.byHash[b.CalculateBlockHash()] = n.Index
 	}
 	return nil
 }
 
 // completeBlocks returns all lane blocks at n in header order when every block is present.
 func (i *inner) completeBlocks(n types.RoadIndex) ([]*types.Block, bool) {
-	qc := i.qcs[n].qc
-	blocks := make([]*types.Block, len(qc.Headers()))
+	entry := i.blocks[n]
+	blocks := make([]*types.Block, len(entry.qc.Headers()))
 	for offset := range blocks {
-		block, ok := i.blocks[types.LaneBlockPos{Index: n, Offset: uint64(offset)}]
+		block, ok := entry.laneBlocks[uint64(offset)]
 		if !ok {
 			return nil, false
 		}
@@ -209,8 +206,8 @@ func (i *inner) completeBlocks(n types.RoadIndex) ([]*types.Block, bool) {
 
 func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	t := time.Now()
-	for i.nextBlock < i.nextQC {
-		blocks, ok := i.completeBlocks(i.nextBlock)
+	for i.nextFullBlock < i.nextPartialBlock {
+		blocks, ok := i.completeBlocks(i.nextFullBlock)
 		if !ok {
 			break
 		}
@@ -219,9 +216,9 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 			m.BlockLatency.Receive.Observe(latency)
 			m.TxLatency.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 		}
-		i.nextBlock++
+		i.nextFullBlock++
 	}
-	m.NextBlock.Receive.Set(utils.Clamp[int64](i.nextBlock))
+	m.NextBlock.Receive.Set(utils.Clamp[int64](i.nextFullBlock))
 }
 
 // State of the chain.
@@ -242,8 +239,8 @@ func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
 		return nil, fmt.Errorf("loadFromBlockStore: %w", err)
 	}
 	m := metrics.Get()
-	m.NextBlock.QC.Set(utils.Clamp[int64](inner.nextQC))
-	m.NextBlock.Receive.Set(utils.Clamp[int64](inner.nextBlock))
+	m.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
+	m.NextBlock.Receive.Set(utils.Clamp[int64](inner.nextFullBlock))
 	m.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 	m.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 	m.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
@@ -279,16 +276,15 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		return nil, fmt.Errorf("missing genesis epoch: %w", err)
 	}
 	inner := &inner{
-		qcs:              map[types.RoadIndex]qcEntry{},
-		blocks:           map[types.LaneBlockPos]*types.Block{},
+		blocks:           map[types.RoadIndex]blockEntry{},
 		appQCs:           map[types.RoadIndex]*types.AppQC{},
 		appProposals:     map[types.RoadIndex]*types.AppProposal{},
-		superBlockHashes: map[common.Hash]types.RoadIndex{},
+		byHash:           map[common.Hash]types.RoadIndex{},
 		first:            status.First,
 		nextAppProposal:  status.First,
 		nextAppQC:        status.First,
-		nextBlock:        status.First,
-		nextQC:           status.First,
+		nextFullBlock:    status.First,
+		nextPartialBlock: status.First,
 		persisted:        status,
 		anchor:           utils.NewAtomicSend(utils.None[Anchor]()),
 		nextCommitEpoch:  utils.NewAtomicSend(genesis),
@@ -314,9 +310,9 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 			}
 		}
 	}
-	// Advance nextBlock through contiguous loaded blocks. Don't use
+	// Advance nextFullBlock through contiguous loaded blocks. Don't use
 	// updateNextBlock: stale timestamps would skew metrics.
-	inner.nextBlock = max(inner.first, status.NextQC)
+	inner.nextFullBlock = max(inner.first, status.NextQC)
 	for _, appProposal := range suffix.AppProposals {
 		if err := inner.insertAppProposal(appProposal); err != nil {
 			return nil, fmt.Errorf("load AppProposal from BlockStore: %w", err)
@@ -366,10 +362,10 @@ func (s *State) activateStagedEpoch() error {
 // insertBlocksByHash matches byHash against stored (already verified) QC
 // headers at index and inserts hits. Caller must hold inner's lock.
 func (s *State) insertBlocksByHash(inner *inner, index types.RoadIndex, byHash map[types.BlockHeaderHash]*types.Block) error {
-	if index < inner.nextBlock || index >= inner.nextQC {
+	if index < inner.nextFullBlock || index >= inner.nextPartialBlock {
 		return nil
 	}
-	for offset, header := range inner.qcs[index].qc.Headers() {
+	for offset, header := range inner.blocks[index].qc.Headers() {
 		if b, ok := byHash[header.Hash()]; ok {
 			if err := inner.insertBlock(types.LaneBlockPos{Index: index, Offset: uint64(offset)}, b); err != nil {
 				return err
@@ -387,13 +383,11 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				// Empty QCs also need to count toward the cache bound.
-				return index <= inner.nextQC && (index < inner.nextQC ||
-					inner.cachedLaneBlocks < blocksCacheSize && inner.nextQC-inner.first < blocksCacheSize)
+				return index <= inner.nextPartialBlock && (index < inner.nextPartialBlock || len(inner.blocks) < qcsCacheSize)
 			}); err != nil {
 				return false, err
 			}
-			return inner.nextQC == index, nil
+			return inner.nextPartialBlock == index, nil
 		}
 		panic("unreachable")
 	}()
@@ -420,10 +414,10 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	// Atomically insert QC and blocks.
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
-			if inner.nextQC == index {
+			if inner.nextPartialBlock == index {
 				inner.insertVerifiedQC(s.cfg.Registry, qc, ep)
 			}
-			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextQC))
+			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextPartialBlock))
 		}
 		if len(byHash) > 0 {
 			if err := s.insertBlocksByHash(inner, qc.Index(), byHash); err != nil {
@@ -440,29 +434,29 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 func (s *State) QC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return n < inner.nextQC
+			return n < inner.nextPartialBlock
 		}); err != nil {
 			return nil, err
 		}
-		// [first, nextQC) is retained in RAM; below that use BlockStore.
+		// [first, nextPartialBlock) is retained in RAM; below that use BlockStore.
 		if n < inner.first {
 			break
 		}
-		return inner.qcs[n].qc, nil
+		return inner.blocks[n].qc, nil
 	}
 	return s.qcFromDB(n)
 }
 
 // PushBlock pushes block to the state.
 // The QC for n must already be present (guaranteed by PushQC ordering), unless
-// the height is already in the contiguous block prefix (n < nextBlock) — in
+// the height is already in the contiguous block prefix (n < nextFullBlock) — in
 // that case the block is dropped silently (already stored or executed/evicted).
 func (s *State) PushBlock(ctx context.Context, n types.LaneBlockPos, block *types.Block) error {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n.Index < inner.nextQC }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n.Index < inner.nextPartialBlock }); err != nil {
 			return err
 		}
-		if n.Index < inner.nextBlock {
+		if n.Index < inner.nextFullBlock {
 			return nil
 		}
 	}
@@ -482,7 +476,7 @@ func (s *State) PushBlock(ctx context.Context, n types.LaneBlockPos, block *type
 // NextBlock returns the index of the next block to be pushed.
 func (s *State) NextBlock() types.RoadIndex {
 	for inner := range s.inner.Lock() {
-		return inner.nextBlock
+		return inner.nextFullBlock
 	}
 	panic("unreachable")
 }
@@ -499,30 +493,30 @@ func (s *State) NextAppQC() types.RoadIndex {
 // Complete SuperBlocks ahead of an incomplete road are served from memory.
 func (s *State) SuperBlockByHash(hash common.Hash) (utils.Option[*types.SuperBlock], error) {
 	for inner := range s.inner.Lock() {
-		if n, ok := inner.superBlockHashes[hash]; ok {
+		if n, ok := inner.byHash[hash]; ok {
 			blocks, complete := inner.completeBlocks(n)
 			if !complete {
 				panic("hash indexed for incomplete SuperBlock")
 			}
-			return utils.Some(types.NewSuperBlock(inner.qcs[n].qc, blocks)), nil
+			return utils.Some(types.NewSuperBlock(inner.blocks[n].qc, blocks)), nil
 		}
 	}
 	return s.blockStore.ReadSuperBlockByHash(hash)
 }
 
 // Block returns the lane block at position n.
-// Waits until the contiguous prefix reaches n (n < nextBlock), then returns
-// it from memory or BlockStore. Does not expose gaps ahead of nextBlock.
+// Waits until the contiguous prefix reaches n (n < nextFullBlock), then returns
+// it from memory or BlockStore. Does not expose gaps ahead of nextFullBlock.
 // This function is used to sync individual lane blocks.
 func (s *State) Block(ctx context.Context, n types.LaneBlockPos) (*types.Block, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n.Index < inner.nextBlock }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n.Index < inner.nextFullBlock }); err != nil {
 			return nil, err
 		}
 		if n.Index < inner.first {
 			break
 		}
-		b, ok := inner.blocks[n]
+		b, ok := inner.blocks[n.Index].laneBlocks[n.Offset]
 		if !ok {
 			return nil, types.ErrNotFound
 		}
@@ -531,20 +525,18 @@ func (s *State) Block(ctx context.Context, n types.LaneBlockPos) (*types.Block, 
 	return s.blockFromDB(n)
 }
 
-// TryBlock returns the lane block at position n.
-// Returns ErrNotFound if n is not yet in the contiguous prefix (n >= nextBlock),
-// including gap-fills stored above nextBlock — same no-gap contract as Block.
-// Returns ErrPruned if BlockStore no longer has an evicted height.
-// Evicted-but-still-durable heights (n < nextBlock) load from BlockStore.
+// TryBlock returns an available lane block, including from a partial SuperBlock.
+// Missing blocks return ErrNotFound. Evicted blocks are read from BlockStore
+// and return ErrPruned if they are below its retention floor.
 func (s *State) TryBlock(n types.LaneBlockPos) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
-		if n.Index >= inner.nextBlock {
+		if n.Index >= inner.nextPartialBlock {
 			return nil, types.ErrNotFound
 		}
 		if n.Index < inner.first {
 			break
 		}
-		b, ok := inner.blocks[n]
+		b, ok := inner.blocks[n.Index].laneBlocks[n.Offset]
 		if !ok {
 			return nil, types.ErrNotFound
 		}
@@ -554,32 +546,34 @@ func (s *State) TryBlock(n types.LaneBlockPos) (*types.Block, error) {
 }
 
 // TryQC returns the FullCommitQC covering global height n without waiting.
-// Returns ErrNotFound if n is not yet covered (n >= nextQC).
+// Returns ErrNotFound if n is not yet covered (n >= nextPartialBlock).
 // Returns ErrPruned if BlockStore no longer has an evicted height.
 func (s *State) TryQC(n types.RoadIndex) (*types.FullCommitQC, error) {
 	for inner := range s.inner.Lock() {
-		if n >= inner.nextQC {
+		if n >= inner.nextPartialBlock {
 			return nil, types.ErrNotFound
 		}
 		if n < inner.first {
 			break
 		}
-		return inner.qcs[n].qc, nil
+		return inner.blocks[n].qc, nil
 	}
 	return s.qcFromDB(n)
 }
 
-// NeedBlock reports whether catch-up still needs to fetch height n.
-// False when n is already past nextBlock (including heights pruned or
-// evicted from RAM) or an in-memory gap-fill is present. Unlike TryBlock,
-// gap-fills count as satisfied so the fetcher does not keep re-requesting
-// them while a lower contiguous hole is open. Does not consult BlockStore.
+// NeedBlock reports whether catch-up still needs to fetch lane block n.
+// Received blocks and roads below nextFullBlock do not need fetching.
+// It does not consult BlockStore.
 func (s *State) NeedBlock(n types.LaneBlockPos) bool {
 	for inner := range s.inner.Lock() {
-		if n.Index < inner.nextBlock {
+		if n.Index < inner.nextFullBlock {
 			return false
 		}
-		_, ok := inner.blocks[n]
+		entry, ok := inner.blocks[n.Index]
+		if !ok {
+			return true
+		}
+		_, ok = entry.laneBlocks[n.Offset]
 		return !ok
 	}
 	panic("unreachable")
@@ -589,7 +583,7 @@ func (s *State) NeedBlock(n types.LaneBlockPos) bool {
 // Evicted roads are read from BlockStore; pruned roads return ErrPruned.
 func (s *State) SuperBlock(ctx context.Context, n types.RoadIndex) (*types.SuperBlock, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return nil, err
 		}
 		if n < inner.first {
@@ -597,9 +591,9 @@ func (s *State) SuperBlock(ctx context.Context, n types.RoadIndex) (*types.Super
 		}
 		blocks, ok := inner.completeBlocks(n)
 		if !ok {
-			panic("incomplete SuperBlock below nextBlock")
+			panic("incomplete SuperBlock below nextFullBlock")
 		}
-		return types.NewSuperBlock(inner.qcs[n].qc, blocks), nil
+		return types.NewSuperBlock(inner.blocks[n].qc, blocks), nil
 	}
 	opt, err := s.blockStore.ReadSuperBlockByNumber(n)
 	if err != nil {
@@ -628,9 +622,9 @@ func (s *State) blockFromDB(n types.LaneBlockPos) (*types.Block, error) {
 }
 
 func (s *State) qcFromDB(n types.RoadIndex) (*types.FullCommitQC, error) {
-	opt, err := s.blockStore.ReadQCByBlockNumber(n)
+	opt, err := s.blockStore.ReadQC(n)
 	if err != nil {
-		return nil, fmt.Errorf("blockStore.ReadQCByBlockNumber(%d): %w", n, err)
+		return nil, fmt.Errorf("blockStore.ReadQC(%d): %w", n, err)
 	}
 	qc, ok := opt.Get()
 	if !ok {
@@ -640,9 +634,9 @@ func (s *State) qcFromDB(n types.RoadIndex) (*types.FullCommitQC, error) {
 }
 
 func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
-	opt, err := s.blockStore.ReadAppQCByBlockNumber(n)
+	opt, err := s.blockStore.ReadAppQC(n)
 	if err != nil {
-		return nil, fmt.Errorf("blockStore.ReadAppQCByBlockNumber(%d): %w", n, err)
+		return nil, fmt.Errorf("blockStore.ReadAppQC(%d): %w", n, err)
 	}
 	if appQC, ok := opt.Get(); ok {
 		return appQC, nil
@@ -655,7 +649,7 @@ func (s *State) appQCFromDB(n types.RoadIndex) (*types.AppQC, error) {
 func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.AppHash, weights map[types.PublicKey]uint64) error {
 	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextFullBlock }); err != nil {
 			return err
 		}
 		if n < inner.nextAppProposal {
@@ -667,7 +661,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.RoadIndex, hash types.A
 		if n != inner.nextAppProposal {
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
 		}
-		proposal := types.NewAppProposal(inner.qcs[n].qc.QC().Proposal(), hash)
+		proposal := types.NewAppProposal(inner.blocks[n].qc.QC().Proposal(), hash)
 		blocks, ok := inner.completeBlocks(n)
 		if !ok {
 			panic("incomplete executed SuperBlock")
@@ -711,7 +705,7 @@ func (s *State) PushGasUsed(gasUsed int64) {
 
 // AppVote returns an appVote for a block >= n.
 // Vote is available ONLY once AppHash has been pushed AND persisted.
-// This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextBlock).
+// This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextFullBlock).
 func (s *State) AppVote(ctx context.Context, n types.RoadIndex) (*types.AppVote, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
@@ -787,7 +781,7 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 }
 
 // NextCommitEpoch returns the epoch covering the road after the latest CommitQC
-// in qcs, or genesis epoch 0 when qcs is empty. If that epoch is not registered
+// in blocks, or genesis epoch 0 when blocks is empty. If that epoch is not registered
 // yet, the previous value stands. Used by giga EVM tx sharding.
 func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
 	for inner := range s.inner.Lock() {
@@ -797,13 +791,13 @@ func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
 }
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
-	if i.nextAppProposal < i.nextQC {
-		return i.qcs[i.nextAppProposal].qc.QC().LaneRange(lane).First()
+	if i.nextAppProposal < i.nextPartialBlock {
+		return i.blocks[i.nextAppProposal].qc.QC().LaneRange(lane).First()
 	}
 	if i.first < i.nextAppProposal {
-		return i.qcs[i.nextAppProposal-1].qc.QC().LaneRange(lane).Next()
+		return i.blocks[i.nextAppProposal-1].qc.QC().LaneRange(lane).Next()
 	}
-	// Genesis state: i.first == i.nextQC
+	// Genesis state: i.first == i.nextPartialBlock
 	return 0
 }
 
@@ -852,7 +846,7 @@ func (s *State) runPersist(ctx context.Context) error {
 			status = inner.persisted
 			// Wait until there is anything to persist.
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				if status.NextQC < inner.nextQC && inner.qcs[status.NextQC].qc.QC().Next() <= inner.nextBlock {
+				if status.NextQC < inner.nextPartialBlock && inner.blocks[status.NextQC].qc.QC().Next() <= inner.nextFullBlock {
 					return true
 				}
 				return status.NextAppProposal < inner.nextAppProposal || status.NextAppQC < inner.nextAppQC
@@ -860,10 +854,10 @@ func (s *State) runPersist(ctx context.Context) error {
 				return err
 			}
 			// Collect data to persist.
-			for status.NextQC < inner.nextQC {
-				qc := inner.qcs[status.NextQC].qc
+			for status.NextQC < inner.nextPartialBlock {
+				qc := inner.blocks[status.NextQC].qc
 				next := qc.QC().Next()
-				if next > inner.nextBlock {
+				if next > inner.nextFullBlock {
 					break
 				}
 				covered, complete := inner.completeBlocks(qc.Index())
@@ -922,16 +916,14 @@ func (s *State) runPersist(ctx context.Context) error {
 				if !complete {
 					panic("incomplete evicted SuperBlock")
 				}
-				block := types.NewSuperBlock(inner.qcs[n].qc, blocks)
-				delete(inner.superBlockHashes, block.CalculateBlockHash())
-				for offset, b := range blocks {
+				block := types.NewSuperBlock(inner.blocks[n].qc, blocks)
+				delete(inner.byHash, block.CalculateBlockHash())
+				for _, b := range blocks {
 					latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 					s.metrics.BlockLatency.Evict.Observe(latency)
 					s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-					delete(inner.blocks, types.LaneBlockPos{Index: n, Offset: uint64(offset)})
 				}
-				inner.cachedLaneBlocks -= uint64(len(blocks))
-				delete(inner.qcs, n)
+				delete(inner.blocks, n)
 				delete(inner.appQCs, n)
 				delete(inner.appProposals, n)
 				inner.first += 1
@@ -957,7 +949,7 @@ func (s *State) runPersist(ctx context.Context) error {
 
 func (i *inner) setAnchor() {
 	if i.first < i.persisted.NextAppQC {
-		entry := i.qcs[i.first]
+		entry := i.blocks[i.first]
 		i.anchor.Store(utils.Some(Anchor{
 			CommitQC: entry.qc.QC(),
 			AppQC:    i.appQCs[i.first],
