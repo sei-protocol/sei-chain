@@ -69,6 +69,8 @@ type insertTicket struct {
 	gasEstimated uint64
 	appNonce     utils.Option[uint64]
 	first        types.BlockNumber
+	// queued is when the InsertTx call joined the session's admission queue.
+	queued time.Time
 }
 
 func newInsertTicket() *insertTicket {
@@ -405,6 +407,7 @@ func (s *State) admitQueued(ctx context.Context, mp *mempool, tx tmtypes.Tx, res
 	ticket := newInsertTicket()
 	ticket.tx, ticket.resp = tx, resp
 	ticket.gasWanted, ticket.gasEstimated = gasWanted, gasEstimated
+	ticket.queued = time.Now()
 	mp.admitMu.Lock()
 	mp.admitQueue = append(mp.admitQueue, ticket)
 	lead := !mp.admitting
@@ -414,7 +417,7 @@ func (s *State) admitQueued(ctx context.Context, mp *mempool, tx tmtypes.Tx, res
 		s.runAdmission(mp)
 	}
 	waited, waitErr := ticket.waitForCapacity(ctx)
-	metrics.ObserveCapacityWait(waited, 1)
+	metrics.ObserveCapacityWait(waited)
 	if waitErr != nil {
 		for m, ctrl := range mp.inner.Lock() {
 			if !ticket.done {
@@ -451,9 +454,16 @@ func (s *State) runAdmission(mp *mempool) {
 }
 
 // admitBatch reads the nonces of the batch's untracked senders outside the lock, then appends or
-// queues each insert in order under one lock.
+// queues each insert in order under one lock. Admission is FIFO: a large tx is never passed over
+// in favor of smaller ones behind it.
 func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
 	defer metrics.PhaseAdmit.Enter()()
+	defer func() {
+		now := time.Now()
+		for _, ticket := range batch {
+			metrics.ObserveAdmit(now.Sub(ticket.queued))
+		}
+	}()
 	for attempt := 1; ; attempt++ {
 		untracked, first := s.readUntrackedNonces(mp, batch)
 		for m, ctrl := range mp.inner.Lock() {
@@ -622,57 +632,20 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	}
 
 	admitStart := time.Now()
-	var waited time.Duration
-	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
-	leaveAdmit := metrics.PhaseAdmit.Enter()
-	defer func() { leaveAdmit() }()
-	// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
-	// in favor of waiting for smaller txs. This simple algorithm allows us to cap
-	// pending txs to size of a single block. We can refine this rule later if needed.
-	// Blocked calls queue up in arrival order. Whoever frees capacity appends the queued txs
-	// in order, so admission never waits on one call waking the next.
-	var ticket *insertTicket
+	defer func() { metrics.ObserveAdmit(time.Since(admitStart)) }()
+	defer metrics.PhaseAdmit.Enter()()
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {
 			return nil, ErrNotProducing
 		}
 		s.drainWaiters(mp, m, ctrl)
-		if !m.IsFull() && len(m.waiters) == 0 {
-			if err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first); err != nil {
-				return nil, err
-			}
-			return resp.ResponseCheckTx, nil
-		}
 		// A call that may not wait never joins the queue, and never jumps ahead of it.
-		if !waitIfFull {
+		if m.IsFull() || len(m.waiters) > 0 {
 			return nil, errMempoolFull
 		}
-		if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
-			return nil, errPendingFull
+		if err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first); err != nil {
+			return nil, err
 		}
-		ticket = newInsertTicket()
-		ticket.tx, ticket.resp = tx, resp
-		ticket.gasWanted, ticket.gasEstimated = gasWanted, gasEstimated
-		ticket.appNonce, ticket.first = appNonce, first
-		mp.enqueue(m, ticket)
-		s.drainWaiters(mp, m, ctrl)
-	}
-	defer func() { metrics.ObserveCapacityWait(waited) }()
-	leaveAdmit()
-	d, waitErr := ticket.waitForCapacity(ctx)
-	waited += d
-	leaveAdmit = metrics.PhaseAdmit.Enter()
-	for m, ctrl := range mp.inner.Lock() {
-		if !ticket.done {
-			// Cancelled before admission: leave the queue so the calls behind it are not held up.
-			mp.dequeue(m, ticket)
-			s.drainWaiters(mp, m, ctrl)
-			return nil, waitErr
-		}
-	}
-	// An appended tx is reported as admitted even when the wait was cancelled meanwhile.
-	if ticket.err != nil {
-		return nil, ticket.err
 	}
 	return resp.ResponseCheckTx, nil
 }
