@@ -64,7 +64,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "lane_blocks_in_flight",
-			Help:      "Lane block positions past the latest CommitQC, by the consensus step they wait on. Positions in the current proposal count whether or not this replica holds those blocks.",
+			Help:      "Lane block positions past the latest persisted CommitQC, by the consensus step they wait on. Positions in the current proposal count whether or not this replica holds those blocks.",
 		}, []string{"stage"}),
 	}
 }

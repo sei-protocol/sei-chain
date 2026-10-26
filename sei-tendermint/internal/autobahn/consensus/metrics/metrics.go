@@ -30,7 +30,7 @@ type metrics struct {
 	viewNumber prometheus.GaugeIntVec
 	// Latency from a proposal's construction to this replica casting its PrepareVote, and to it observing the PrepareQC and the CommitQC. It includes clock skew between the leader and this replica.
 	proposalLatency prometheus.HistogramVec `metrics_labels:"stage" metrics_buckets:"exp(0.0005, 1.5, 30)"`
-	// Lane block positions past the latest CommitQC, by the consensus step they wait on. Positions in the current proposal count whether or not this replica holds those blocks.
+	// Lane block positions past the latest persisted CommitQC, by the consensus step they wait on. Positions in the current proposal count whether or not this replica holds those blocks.
 	laneBlocksInFlight prometheus.GaugeIntVec `metrics_labels:"stage"`
 }
 

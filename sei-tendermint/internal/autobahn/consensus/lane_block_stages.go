@@ -22,7 +22,7 @@ func (s *State) runLaneBlockStages(ctx context.Context) error {
 	}
 }
 
-// laneBlockStages counts lane block positions past the latest CommitQC by the consensus step each waits on.
+// laneBlockStages counts lane block positions past the latest persisted CommitQC by the consensus step each waits on.
 type laneBlockStages struct {
 	laneQC    types.BlockNumber
 	proposal  types.BlockNumber
