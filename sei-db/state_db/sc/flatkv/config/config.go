@@ -147,6 +147,10 @@ var AccountShardCount uint64
 // AccountCacheBytes, when non-zero, replaces the in-memory size of the FlatKV account database.
 var AccountCacheBytes uint64
 
+// AccountMaxUnflushedVersions, when non-zero, replaces how many versions the FlatKV account database holds
+// unflushed before a commit waits.
+var AccountMaxUnflushedVersions uint64
+
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
@@ -183,6 +187,9 @@ func DefaultConfig() *Config {
 	cfg.AccountStoreConfig.MaxSize = unit.GB
 	if AccountShardCount > 0 {
 		cfg.AccountStoreConfig.ShardCount = AccountShardCount
+	}
+	if AccountMaxUnflushedVersions > 0 {
+		cfg.AccountStoreConfig.MaxUnflushedVersions = AccountMaxUnflushedVersions
 	}
 	if AccountCacheBytes > 0 {
 		cfg.AccountStoreConfig.MaxSize = AccountCacheBytes

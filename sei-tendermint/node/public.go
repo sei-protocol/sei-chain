@@ -263,6 +263,9 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 	if cfg.FlatKVViewShards > 0 {
 		flatkvconfig.AccountShardCount = cfg.FlatKVViewShards
 	}
+	if cfg.FlatKVAccountMaxUnflushed > 0 {
+		flatkvconfig.AccountMaxUnflushedVersions = cfg.FlatKVAccountMaxUnflushed
+	}
 	if cfg.FlatKVAccountCacheMB > 0 {
 		flatkvconfig.AccountCacheBytes = cfg.FlatKVAccountCacheMB << 20
 	}

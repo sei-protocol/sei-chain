@@ -86,6 +86,9 @@ type ExecutionConfig struct {
 	FlatKVViewShards uint64 `mapstructure:"flatkv_view_shards"`
 	// FlatKVAccountCacheMB, when non-zero, replaces the in-memory size of the FlatKV account database.
 	FlatKVAccountCacheMB uint64 `mapstructure:"flatkv_account_cache_mb"`
+	// FlatKVAccountMaxUnflushed, when non-zero, replaces how many versions the FlatKV account database
+	// holds unflushed before a commit waits.
+	FlatKVAccountMaxUnflushed uint64 `mapstructure:"flatkv_account_max_unflushed"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -175,6 +178,7 @@ const (
 	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVAccountCacheMB    = "giga.execution.flatkv_account_cache_mb"
+	FlagExecutionFlatKVAccountMaxUnflush = "giga.execution.flatkv_account_max_unflushed"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -277,6 +281,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
 		if cfg.Execution.LaneCapacity, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionLaneCapacity, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFlatKVAccountMaxUnflush); v != nil {
+		if cfg.Execution.FlatKVAccountMaxUnflushed, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVAccountMaxUnflush, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionFlatKVAccountCacheMB); v != nil {
@@ -488,6 +497,10 @@ flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
 
 # flatkv_account_cache_mb, when non-zero, replaces the in-memory size of the FlatKV account database.
 flatkv_account_cache_mb = {{ .Giga.Execution.FlatKVAccountCacheMB }}
+
+# flatkv_account_max_unflushed, when non-zero, replaces how many versions the FlatKV account database
+# holds unflushed before a commit waits.
+flatkv_account_max_unflushed = {{ .Giga.Execution.FlatKVAccountMaxUnflushed }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
