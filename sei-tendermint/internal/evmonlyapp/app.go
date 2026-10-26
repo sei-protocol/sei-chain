@@ -45,7 +45,7 @@ const evmOnlyBlockMinGasPrice = 1_000_000_000
 // checkedSendersCap bounds the senders remembered from CheckTx per generation.
 // Entries are dropped as their transactions execute; the cap only guards against
 // admitted transactions that never reach a block.
-const checkedSendersCap = 1 << 18
+const checkedSendersCap = 1 << 22
 
 // minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
 const minTxsPerHashWorker = 64
@@ -400,6 +400,12 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	}
 }
 
+// RememberEvmSender records a sender recovered from the transaction with this hash before CheckTx, so
+// CheckTx and FinalizeBlock reuse it.
+func (a *evmOnlyApplication) RememberEvmSender(hash common.Hash, sender common.Address) {
+	a.rememberSender(hash, sender)
+}
+
 func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
 	for senders := range a.checkedSenders.Lock() {
 		senders.put(hash, sender)
@@ -493,11 +499,22 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
 		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %s", a.minGasPrice)
 	}
+	if sender, ok := a.checkedSender(tx.Hash()).Get(); ok {
+		return tx, sender, nil
+	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	return tx, sender, nil
+}
+
+// checkedSender returns the sender recorded for this transaction hash, if any.
+func (a *evmOnlyApplication) checkedSender(hash common.Hash) utils.Option[common.Address] {
+	for senders := range a.checkedSenders.Lock() {
+		return senders.peek(hash)
+	}
+	panic("unreachable")
 }
 
 func evmOnlyStoreAddress(address common.Address) gigatypes.Address {

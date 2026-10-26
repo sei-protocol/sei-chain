@@ -63,6 +63,19 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
+// evmSenderRememberer is implemented by applications that can reuse a sender recovered before CheckTx.
+type evmSenderRememberer interface {
+	RememberEvmSender(common.Hash, common.Address)
+}
+
+// RememberEvmSender records the sender recovered for the transaction with this hash, when the wrapped
+// application can use it. It is a no-op otherwise.
+func (app *Proxy) RememberEvmSender(hash common.Hash, sender common.Address) {
+	if rememberer, ok := app.app.(evmSenderRememberer); ok {
+		rememberer.RememberEvmSender(hash, sender)
+	}
+}
+
 // evmNonceBatcher is implemented by applications that read many EVM nonces at once more cheaply than
 // one at a time.
 type evmNonceBatcher interface {
