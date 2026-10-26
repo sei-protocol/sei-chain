@@ -84,6 +84,7 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/metrics"
@@ -237,6 +238,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 		i.PrepareVote = utils.Some(v)
 		isend.Store(i)
 	}
+	meters.PrepareVoteLatency.Observe(time.Since(proposal.Proposal().Msg().Timestamp()).Seconds())
 	return nil
 }
 
@@ -264,6 +266,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 		i.CommitVote = utils.Some(v)
 		isend.Store(i)
 	}
+	meters.PrepareQCLatency.Observe(time.Since(qc.Proposal().Timestamp()).Seconds())
 	return nil
 }
 
