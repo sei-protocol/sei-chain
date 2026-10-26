@@ -82,6 +82,8 @@ type ExecutionConfig struct {
 	GCPercent int `mapstructure:"gc_percent"`
 	// LaneCapacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 	LaneCapacity int `mapstructure:"lane_capacity"`
+	// MaxExecutionLag is how many committed superblocks may stay unexecuted before inserts are refused. 0 disables it.
+	MaxExecutionLag uint64 `mapstructure:"max_execution_lag"`
 	// FlatKVViewShards, when non-zero, replaces the view shard count of the FlatKV account database. It
 	// must be a power of two.
 	FlatKVViewShards uint64 `mapstructure:"flatkv_view_shards"`
@@ -182,6 +184,7 @@ const (
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
+	FlagExecutionMaxExecutionLag         = "giga.execution.max_execution_lag"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
@@ -281,6 +284,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionGCPercent); v != nil {
 		if cfg.Execution.GCPercent, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionGCPercent, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxExecutionLag); v != nil {
+		if cfg.Execution.MaxExecutionLag, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxExecutionLag, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
@@ -491,6 +499,9 @@ gc_percent = {{ .Giga.Execution.GCPercent }}
 
 # lane_capacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 lane_capacity = {{ .Giga.Execution.LaneCapacity }}
+
+# max_execution_lag is how many committed superblocks may stay unexecuted before inserts are refused. 0 disables it.
+max_execution_lag = {{ .Giga.Execution.MaxExecutionLag }}
 
 # flatkv_view_shards, when non-zero, replaces the view shard count of the FlatKV account database.
 flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
