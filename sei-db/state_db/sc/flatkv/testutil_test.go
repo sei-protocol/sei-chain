@@ -195,6 +195,15 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	return v
 }
 
+// commitBuffered commits the block ApplyChangeSets buffered without waiting for it to reach disk, so later reads
+// go through the stores' unflushed versions.
+func commitBuffered(t *testing.T, s *CommitStore) int64 {
+	t.Helper()
+	v, err := s.Commit(s.Version() + 1)
+	require.NoError(t, err)
+	return v
+}
+
 // rootHash returns the store's root hash once hashing has caught up with what was committed.
 //
 // Hashing is asynchronous, so nearly every assertion about a hash needs that barrier first; putting it

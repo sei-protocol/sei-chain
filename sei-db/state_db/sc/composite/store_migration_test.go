@@ -339,6 +339,8 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 			{Key: evmStorageTestKey(0x04), Value: evmStorageTestValue(0x44)},
 		}}},
 	}))
+	_, err = cs.Commit(cs.Version() + 1)
+	require.NoError(t, err)
 
 	boundaryBytes, ok := cs.loadFlatKV().Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
 	require.True(t, ok)
