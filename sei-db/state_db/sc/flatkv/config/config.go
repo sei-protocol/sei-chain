@@ -138,15 +138,11 @@ type Config struct {
 // defaultStoreConfig returns the view manager defaults for one database, named for the database's
 // directory so metrics and per-database hash bookkeeping can tell the stores apart.
 func defaultStoreConfig(name string) view.ViewManagerConfig {
-	cfg := *view.DefaultViewManagerConfig(name, ktype.MetaKeyPrefix)
-	if StoreShardCount > 0 {
-		cfg.ShardCount = StoreShardCount
-	}
-	return cfg
+	return *view.DefaultViewManagerConfig(name, ktype.MetaKeyPrefix)
 }
 
-// StoreShardCount, when non-zero, replaces the view shard count of every FlatKV database.
-var StoreShardCount uint64
+// AccountShardCount, when non-zero, replaces the view shard count of the FlatKV account database.
+var AccountShardCount uint64
 
 // AccountCacheBytes, when non-zero, replaces the in-memory size of the FlatKV account database.
 var AccountCacheBytes uint64
@@ -185,6 +181,9 @@ func DefaultConfig() *Config {
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB
+	if AccountShardCount > 0 {
+		cfg.AccountStoreConfig.ShardCount = AccountShardCount
+	}
 	if AccountCacheBytes > 0 {
 		cfg.AccountStoreConfig.MaxSize = AccountCacheBytes
 	}

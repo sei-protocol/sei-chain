@@ -261,7 +261,7 @@ func applyExecutionRuntime(cfg gigaconfig.ExecutionConfig) {
 		avail.LaneCapacity = uint64(cfg.LaneCapacity)
 	}
 	if cfg.FlatKVViewShards > 0 {
-		flatkvconfig.StoreShardCount = cfg.FlatKVViewShards
+		flatkvconfig.AccountShardCount = cfg.FlatKVViewShards
 	}
 	if cfg.FlatKVAccountCacheMB > 0 {
 		flatkvconfig.AccountCacheBytes = cfg.FlatKVAccountCacheMB << 20
