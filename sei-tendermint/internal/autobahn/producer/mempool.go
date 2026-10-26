@@ -454,6 +454,45 @@ func (s *State) runAdmission(mp *mempool) {
 // queues each insert in order under one lock.
 func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
 	defer metrics.PhaseAdmit.Enter()()
+	for attempt := 1; ; attempt++ {
+		untracked, first := s.readUntrackedNonces(mp, batch)
+		for m, ctrl := range mp.inner.Lock() {
+			// A prune since the read can advance a sender's app nonce, and appendTx would then read it
+			// again under this lock for each such sender, so the read is redone outside the lock instead.
+			if m.first != first && attempt < admissionReadAttempts {
+				break
+			}
+			for _, ticket := range batch {
+				if ticket.cancelled {
+					continue
+				}
+				if ticket.resp.IsEVM {
+					ticket.appNonce, ticket.first = untracked[ticket.resp.EVMSenderAddress], first
+				}
+				switch {
+				case m.closed:
+					ticket.finish(ErrNotProducing)
+				case !m.IsFull() && len(m.waiters) == 0:
+					ticket.finish(s.appendTx(m, ctrl, ticket.tx, ticket.resp, ticket.gasWanted, ticket.gasEstimated, ticket.appNonce, ticket.first))
+				case uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
+					ticket.finish(errPendingFull)
+				default:
+					mp.enqueue(m, ticket)
+				}
+			}
+			s.drainWaiters(mp, m, ctrl)
+			return
+		}
+	}
+}
+
+// admissionReadAttempts is how many times admitBatch reads nonces outside the lock before it appends
+// with whatever a prune left stale.
+const admissionReadAttempts = 3
+
+// readUntrackedNonces reads, outside the mempool lock, the app nonce of every EVM sender in batch the
+// mempool does not track, and returns them with the lane's first block at the time of the check.
+func (s *State) readUntrackedNonces(mp *mempool, batch []*insertTicket) (map[common.Address]utils.Option[uint64], types.BlockNumber) {
 	untracked := map[common.Address]utils.Option[uint64]{}
 	var addrs []common.Address
 	var first types.BlockNumber
@@ -479,27 +518,7 @@ func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
 		}
 		metrics.ObserveNonceLookup(time.Since(start))
 	}
-	for m, ctrl := range mp.inner.Lock() {
-		for _, ticket := range batch {
-			if ticket.cancelled {
-				continue
-			}
-			if ticket.resp.IsEVM {
-				ticket.appNonce, ticket.first = untracked[ticket.resp.EVMSenderAddress], first
-			}
-			switch {
-			case m.closed:
-				ticket.finish(ErrNotProducing)
-			case !m.IsFull() && len(m.waiters) == 0:
-				ticket.finish(s.appendTx(m, ctrl, ticket.tx, ticket.resp, ticket.gasWanted, ticket.gasEstimated, ticket.appNonce, ticket.first))
-			case uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
-				ticket.finish(errPendingFull)
-			default:
-				mp.enqueue(m, ticket)
-			}
-		}
-		s.drainWaiters(mp, m, ctrl)
-	}
+	return untracked, first
 }
 
 // insertResult classifies an insert outcome for the inserts metric.
