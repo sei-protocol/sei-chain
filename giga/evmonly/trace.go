@@ -25,6 +25,9 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 	chainConfig := e.chainConfig(prepared.Context)
 	evm := vm.NewEVM(EVMBlockContext(prepared.Context), stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
 	stateDB.SetEVM(evm)
+	// executeTx does not watch ctx, so the EVM is stopped mid-transaction once ctx ends.
+	stop := context.AfterFunc(ctx, evm.Cancel)
+	defer stop()
 	gasPool := new(core.GasPool).AddGas(prepared.Context.GasLimit)
 	baseFee := cloneOptionalBig(prepared.Context.BaseFee)
 	for txIndex, p := range prepared.Txs {
@@ -34,6 +37,10 @@ func (e *Executor) ReplayState(ctx context.Context, view gigatypes.EVMStateView,
 		if _, _, err := e.executeTx(evm, stateDB, gasPool, prepared.Context, p, txIndex, uint(txIndex), baseFee); err != nil { //nolint:gosec // G115: txIndex is non-negative.
 			return nil, fmt.Errorf("replay tx %d %s: %w", txIndex, p.Tx.Hash(), err)
 		}
+	}
+	// A canceled EVM stops a transaction part way, leaving a state no block produced.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return stateDB, nil
 }

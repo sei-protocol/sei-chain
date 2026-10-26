@@ -1,8 +1,10 @@
 package evmonly
 
 import (
+	"context"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -90,4 +92,34 @@ func TestReplayStateRefusesAnInvalidBlockContext(t *testing.T) {
 	})
 
 	require.ErrorIs(t, err, errInvalidBlockGasLimit)
+}
+
+// TestReplayStateStopsATransactionWhenCanceled cancels a replay while a transaction whose gas alone
+// would never stop it is running, and checks the replay ends with the cancellation.
+func TestReplayStateStopsATransactionWhenCanceled(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	loop := testAddress(0xb3)
+	const gas = 1_000_000_000_000
+	state := NewMemoryState()
+	state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), new(big.Int).Mul(big.NewInt(gas), big.NewInt(testGasPriceWei)))
+	state.SetCode(loop, infiniteLoopCode())
+	view := NewMemoryStore(state).OpenView()
+	defer view.Close()
+	blockCtx := blockContext(chainID)
+	blockCtx.GasLimit = gas
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err = NewExecutor(Config{RejectUnappliableTxs: true}).ReplayState(ctx, view, BlockRequest{
+		Context: blockCtx,
+		Txs:     [][]byte{signLegacyTxWithGas(t, key, chainID, 0, &loop, big.NewInt(0), nil, gas)},
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
 }
