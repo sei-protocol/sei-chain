@@ -19,6 +19,7 @@ func init() {
 		Global.capacityWaitWakeups,
 		Global.inFlight,
 		Global.inserts,
+		Global.executionThrottled,
 	)
 }
 
@@ -77,6 +78,12 @@ func newMetrics() *metrics {
 			Name:      "inserts",
 			Help:      "Number of finished inserts by outcome.",
 		}, []string{"result"}),
+		executionThrottled: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "execution_throttled",
+			Help:      "1 while the mempool refuses inserts because local execution lags too far behind, else 0.",
+		}, nil),
 	}
 }
 
@@ -110,4 +117,8 @@ func (m *metrics) inFlightAt(phase string) *tmprometheus.GaugeInt {
 
 func (m *metrics) insertsAt(result string) *tmprometheus.CounterInt {
 	return m.inserts.WithLabelValues(result)
+}
+
+func (m *metrics) executionThrottledAt() *tmprometheus.GaugeInt {
+	return m.executionThrottled.WithLabelValues()
 }

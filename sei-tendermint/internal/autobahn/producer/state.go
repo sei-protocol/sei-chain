@@ -46,6 +46,10 @@ func (c *Config) maxConcurrentCheckTx() int {
 	return max(1, runtime.GOMAXPROCS(0)/2)
 }
 
+// MaxExecutionLag is how many committed global blocks this node may leave unexecuted before its
+// mempool refuses new transactions; 0 disables the limit.
+var MaxExecutionLag uint64
+
 // DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
 const DefaultMaxPendingInserts uint64 = 4096
 
@@ -147,6 +151,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 			}
 			return nil
 		})
+		scope.Spawn(func() error { return s.throttleOnExecutionLag(ctx, mp) })
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()

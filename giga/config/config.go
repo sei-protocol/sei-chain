@@ -81,6 +81,8 @@ type ExecutionConfig struct {
 	GCPercent int `mapstructure:"gc_percent"`
 	// LaneCapacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 	LaneCapacity int `mapstructure:"lane_capacity"`
+	// MaxExecutionLag is how many committed blocks may stay unexecuted before inserts are refused. 0 disables it.
+	MaxExecutionLag uint64 `mapstructure:"max_execution_lag"`
 	// PrepareAheadBlocks is how many blocks beyond the next one may be prepared ahead of execution.
 	PrepareAheadBlocks int `mapstructure:"prepare_ahead_blocks"`
 	// FlatKVViewShards, when non-zero, replaces the view shard count of the FlatKV account database. It
@@ -181,6 +183,7 @@ const (
 	FlagExecutionEvmWsPort               = "giga.execution.evm_ws_port"
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
+	FlagExecutionMaxExecutionLag         = "giga.execution.max_execution_lag"
 	FlagExecutionPrepareAheadBlocks      = "giga.execution.prepare_ahead_blocks"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
 	FlagExecutionFlatKVAccountCacheMB    = "giga.execution.flatkv_account_cache_mb"
@@ -288,6 +291,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionPrepareAheadBlocks); v != nil {
 		if cfg.Execution.PrepareAheadBlocks, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionPrepareAheadBlocks, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionMaxExecutionLag); v != nil {
+		if cfg.Execution.MaxExecutionLag, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionMaxExecutionLag, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
@@ -508,6 +516,9 @@ gc_percent = {{ .Giga.Execution.GCPercent }}
 
 # lane_capacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 lane_capacity = {{ .Giga.Execution.LaneCapacity }}
+
+# max_execution_lag is how many committed blocks may stay unexecuted before inserts are refused. 0 disables it.
+max_execution_lag = {{ .Giga.Execution.MaxExecutionLag }}
 
 # prepare_ahead_blocks is how many blocks beyond the next one may be prepared ahead of execution.
 prepare_ahead_blocks = {{ .Giga.Execution.PrepareAheadBlocks }}
