@@ -77,7 +77,7 @@ func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txS
 		Address: addr,
 		Nonce:   nonce,
 		// We randomize the gas in a way that both gas wanted and tx count limit have a chance of being exercised.
-		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter))),
+		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter+1))),
 		GasEstimated: uint64(rng.Int63n(int64(env.state.cfg.MaxGasEstimatedPerBlock))),
 		EVMHash:      common.Hash(utils.GenBytes(rng, len(common.Hash{}))),
 		Payload:      [32]byte(utils.GenBytes(rng, 32)),
@@ -833,6 +833,80 @@ func TestInsertTx_FIFOAdmission(t *testing.T) {
 			if want := [][]byte{tx.encode()}; !slices.EqualFunc(env.state.UnconfirmedTxs(), want, slices.Equal) {
 				return fmt.Errorf("admitted tx %d out of order", i)
 			}
+		}
+		return nil
+	}))
+}
+
+// smallTx returns a tx many of which fit in one lane block.
+func (env *testEnv) smallTx(rng utils.Rng, app *testApp) *txSpec {
+	addr, nonce := app.NewAccount(rng)
+	tx := env.genTx(rng, addr, nonce)
+	tx.GasWanted = minTxGas
+	tx.GasEstimated = minTxGas
+	return tx
+}
+
+// Freeing one lane block admits every queued tx that fits in the next one, in arrival order.
+func TestInsertTx_FreedBlockAdmitsTheWholeQueue(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	for range avail.BlocksPerLane {
+		_, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode())
+		require.NoError(t, err)
+	}
+	open := env.smallTx(rng, app)
+	_, err := env.state.TryInsertTx(ctx, open.encode())
+	require.NoError(t, err)
+	_, err = env.state.TryInsertTx(ctx, env.smallTx(rng, app).encode())
+	require.ErrorIs(t, err, errMempoolFull)
+
+	const n = 5
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		want := [][]byte{open.encode()}
+		pending := mp.pendingInserts.Load()
+		for range n {
+			tx := env.smallTx(rng, app)
+			want = append(want, tx.encode())
+			env.spawnInserter(ctx, s, tx, nil)
+			pending++
+			if _, err := mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got == pending }); err != nil {
+				return err
+			}
+		}
+		env.freeOneBlock(mp)
+		if got := mp.pendingInserts.Load(); got != 0 {
+			return fmt.Errorf("pending after freeing one block: got %d, want 0", got)
+		}
+		if !slices.EqualFunc(env.state.UnconfirmedTxs(), want, slices.Equal) {
+			return fmt.Errorf("queued txs were not admitted together in arrival order")
+		}
+		return nil
+	}))
+}
+
+// Closing the session fails every queued InsertTx call and empties the queue.
+func TestInsertTx_CloseFailsTheQueuedInserts(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 3, ErrNotProducing); err != nil {
+			return err
+		}
+		for m, ctrl := range mp.inner.Lock() {
+			mp.close(m, ctrl)
+		}
+		if got := mp.pendingInserts.Load(); got != 0 {
+			return fmt.Errorf("pending after close: got %d, want 0", got)
 		}
 		return nil
 	}))
