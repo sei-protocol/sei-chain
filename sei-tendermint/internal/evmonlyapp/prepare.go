@@ -8,11 +8,9 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
-	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -71,17 +69,6 @@ func (q *preparedQueue) take(height int64, hash common.Hash) (preparedBlock, boo
 	return b, true
 }
 
-// preparePhaseTimerCount bounds the PrepareBlock calls timed at once; further calls wait for a timer.
-const preparePhaseTimerCount = 16
-
-func newPreparePhaseTimers() chan *seidbmetrics.PhaseTimer {
-	timers := make(chan *seidbmetrics.PhaseTimer, preparePhaseTimerCount)
-	for range preparePhaseTimerCount {
-		timers <- seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName)
-	}
-	return timers
-}
-
 func newPreparedBlocksCounter(meter otelmetric.Meter) otelmetric.Int64Counter {
 	counter, err := meter.Int64Counter(
 		preparedBlocksMetricName,
@@ -113,9 +100,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	}
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
-	phases := <-a.preparePhaseTimers
-	defer func() { a.preparePhaseTimers <- phases }()
-	phases.SetPhase(preparePhaseParse)
+	a.preparePhases.SetPhase(preparePhaseParse)
 	txHashes := hashRawTxs(req.Txs)
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
@@ -130,12 +115,12 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		Senders: a.peekSenders(txHashes),
 	})
 	if err != nil {
-		phases.Reset()
+		a.preparePhases.Reset()
 		return ctx.Err()
 	}
-	phases.SetPhase(preparePhaseWarm)
+	a.preparePhases.SetPhase(preparePhaseWarm)
 	executor.WarmAccounts(ctx, prepared)
-	phases.Reset()
+	a.preparePhases.Reset()
 	next := a.LastBlockHeight() + 1
 	for queue := range a.prepared.Lock() {
 		queue.put(preparedBlock{
