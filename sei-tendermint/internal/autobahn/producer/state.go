@@ -151,6 +151,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 			}
 			return nil
 		})
+		scope.Spawn(func() error { return s.throttleOnExecutionLag(ctx, mp) })
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()

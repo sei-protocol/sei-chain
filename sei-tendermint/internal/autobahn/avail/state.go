@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -373,10 +372,6 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
-	if err := v.VerifySig(); err != nil {
-		return fmt.Errorf("v.VerifySig(): %w", err)
-	}
-	s.recordPeerExecution(v)
 	// Wait for the corresponding commitQC.
 	idx := v.Msg().Proposal().RoadIndex()
 	epoch, commitQC, err := s.commitQC(ctx, idx)
@@ -389,8 +384,12 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if err := v.Msg().Proposal().Verify(commitQC); err != nil {
 		return fmt.Errorf("invalid vote: %w", err)
 	}
-	if !epoch.Committee().HasReplica(v.Key()) {
+	c := epoch.Committee()
+	if !c.HasReplica(v.Key()) {
 		return fmt.Errorf("%q is not a replica", v.Key())
+	}
+	if err := v.VerifySig(); err != nil {
+		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if idx < inner.roads.first || inner.roads.next <= idx {
@@ -401,37 +400,6 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 	}
 	return nil
-}
-
-// PeerExecution is how far a replica reported having executed, and when that report arrived.
-type PeerExecution struct {
-	// Next is the first global block the replica has not executed.
-	Next types.GlobalBlockNumber
-	At   time.Time
-}
-
-// recordPeerExecution notes how far the signer of v, a replica of the applied committee other than this
-// node, has executed. Votes for blocks that already have an AppQC count too.
-func (s *State) recordPeerExecution(v *types.Signed[*types.AppVote]) {
-	if v.Key() == s.key.Public() {
-		return
-	}
-	next := v.Msg().Proposal().GlobalRange().Next
-	now := time.Now()
-	for inner := range s.inner.Lock() {
-		if !inner.applied().Committee().HasReplica(v.Key()) {
-			return
-		}
-		inner.peerExecution[v.Key()] = PeerExecution{Next: max(inner.peerExecution[v.Key()].Next, next), At: now}
-	}
-}
-
-// PeerExecutions returns the latest execution each other replica has reported.
-func (s *State) PeerExecutions() map[types.PublicKey]PeerExecution {
-	for inner := range s.inner.Lock() {
-		return maps.Clone(inner.peerExecution)
-	}
-	panic("unreachable")
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.

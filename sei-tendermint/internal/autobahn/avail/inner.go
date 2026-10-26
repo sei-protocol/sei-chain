@@ -128,8 +128,6 @@ type inner struct {
 	// ideal. Only RecvBatch needs to be notified of cursor changes;
 	// collectPersistBatch is in the same goroutine and reads it directly.
 	nextBlockToPersist map[types.LaneID]types.BlockNumber
-	// peerExecution is the latest execution each other replica reported through its AppVotes.
-	peerExecution map[types.PublicKey]PeerExecution
 }
 
 // loadedState holds data loaded from disk on restart.
@@ -154,7 +152,6 @@ func newInner(ep *types.Epoch, first types.RoadIndex) *inner {
 		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
-		peerExecution:      map[types.PublicKey]PeerExecution{},
 	}
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)

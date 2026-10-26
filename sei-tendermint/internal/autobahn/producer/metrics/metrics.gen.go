@@ -20,7 +20,6 @@ func init() {
 		Global.inFlight,
 		Global.inserts,
 		Global.executionThrottled,
-		Global.throttleLag,
 	)
 }
 
@@ -85,12 +84,6 @@ func newMetrics() *metrics {
 			Name:      "execution_throttled",
 			Help:      "1 while the mempool refuses inserts because local execution lags too far behind, else 0.",
 		}, nil),
-		throttleLag: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "throttle_lag",
-			Help:      "Committed global blocks the slowest of this node and its live peers has not executed.",
-		}, nil),
 	}
 }
 
@@ -128,8 +121,4 @@ func (m *metrics) insertsAt(result string) *tmprometheus.CounterInt {
 
 func (m *metrics) executionThrottledAt() *tmprometheus.GaugeInt {
 	return m.executionThrottled.WithLabelValues()
-}
-
-func (m *metrics) throttleLagAt() *tmprometheus.GaugeInt {
-	return m.throttleLag.WithLabelValues()
 }

@@ -3,7 +3,6 @@ package metrics
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
@@ -30,8 +29,6 @@ type metrics struct {
 	inserts prometheus.CounterIntVec `metrics_labels:"result"`
 	// 1 while the mempool refuses inserts because local execution lags too far behind, else 0.
 	executionThrottled prometheus.GaugeIntVec
-	// Committed global blocks the slowest of this node and its live peers has not executed.
-	throttleLag prometheus.GaugeIntVec
 }
 
 // Phase is an insert phase tracked by the in-flight gauge.
@@ -90,9 +87,6 @@ func SetExecutionThrottled(throttled bool) {
 	}
 	Global.executionThrottledAt().Set(v)
 }
-
-// SetThrottleLag records the execution lag the mempool throttle acts on.
-func SetThrottleLag(lag uint64) { Global.throttleLagAt().Set(utils.Clamp[int64](lag)) }
 
 // ObserveAdmit records the time one insert spent in the locked admission section.
 func ObserveAdmit(d time.Duration) { Global.admitLatencyAt().Observe(d.Seconds()) }
