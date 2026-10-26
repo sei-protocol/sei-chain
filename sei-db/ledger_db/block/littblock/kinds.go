@@ -22,10 +22,10 @@ var kinds = kindRegistry{}
 
 // These IDs are persisted in ledger keys and must not be reassigned or reused.
 var (
-	kindSuperBlock = kinds.register(0)
-	kindAppQC      = kinds.register(1)
-	kindLaneBlock  = kinds.register(2)
-	kindBlockHash  = kinds.register(3)
-	kindAppProp    = kinds.register(4)
-	kindQC         = kinds.register(5)
+	kindBlock     = kinds.register(0)
+	kindAppQC     = kinds.register(1)
+	kindLaneBlock = kinds.register(2)
+	kindBlockHash = kinds.register(3)
+	kindAppProp   = kinds.register(4)
+	kindQC        = kinds.register(5)
 )

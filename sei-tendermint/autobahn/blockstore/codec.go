@@ -1,7 +1,6 @@
 package blockstore
 
 import (
-	"bytes"
 	"fmt"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -86,7 +85,7 @@ func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
 // encodeBlockRecord encodes a CommitQC and its lane blocks with the SuperBlock lookup hash.
 func encodeBlockRecord(qc *types.FullCommitQC, blocks []*types.Block) blocktypes.BlockRecord {
 	block := types.NewSuperBlock(qc, blocks)
-	record := blocktypes.BlockRecord{Index: blocktypes.BlockNumber(qc.Index()), Hash: block.CalculateBlockHash().Bytes(), QC: encodeQC(qc)}
+	record := blocktypes.BlockRecord{Index: blocktypes.BlockNumber(qc.Index()), Hash: blocktypes.BlockHash(block.CalculateBlockHash()), QC: encodeQC(qc)}
 	for _, lane := range blocks {
 		record.LaneBlocks = append(record.LaneBlocks, encodeBlock(lane))
 	}
@@ -113,7 +112,7 @@ func decodeBlockRecord(record blocktypes.BlockRecord) (types.QCGroup, error) {
 	if err := validateBlocks(qc, blocks); err != nil {
 		return types.QCGroup{}, err
 	}
-	if !bytes.Equal(types.NewSuperBlock(qc, blocks).CalculateBlockHash().Bytes(), record.Hash) {
+	if blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()) != record.Hash {
 		return types.QCGroup{}, types.ErrQCBlocksMismatch
 	}
 	return types.QCGroup{QC: qc, Blocks: blocks}, nil

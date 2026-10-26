@@ -13,7 +13,7 @@ type blockDB struct {
 	mu        sync.RWMutex
 	suffix    blocktypes.Suffix
 	blocks    map[blocktypes.BlockNumber]blocktypes.BlockRecord
-	hashes    map[string]blocktypes.BlockNumber
+	hashes    map[blocktypes.BlockHash]blocktypes.BlockNumber
 	appQCs    map[blocktypes.BlockNumber]blocktypes.AppQCRecord
 	proposals map[blocktypes.BlockNumber]blocktypes.AppProposalRecord
 	watermark blocktypes.BlockNumber
@@ -23,14 +23,13 @@ type blockDB struct {
 func NewBlockDB() blocktypes.BlockDB {
 	return &blockDB{
 		blocks:    make(map[blocktypes.BlockNumber]blocktypes.BlockRecord),
-		hashes:    make(map[string]blocktypes.BlockNumber),
+		hashes:    make(map[blocktypes.BlockHash]blocktypes.BlockNumber),
 		appQCs:    make(map[blocktypes.BlockNumber]blocktypes.AppQCRecord),
 		proposals: make(map[blocktypes.BlockNumber]blocktypes.AppProposalRecord),
 	}
 }
 
 func (s *blockDB) PutBlock(record blocktypes.BlockRecord) error {
-	record.Hash = slices.Clone(record.Hash)
 	record.QC = slices.Clone(record.QC)
 	record.LaneBlocks = slices.Clone(record.LaneBlocks)
 	for i, block := range record.LaneBlocks {
@@ -40,7 +39,7 @@ func (s *blockDB) PutBlock(record blocktypes.BlockRecord) error {
 	defer s.mu.Unlock()
 	s.suffix.Blocks = append(s.suffix.Blocks, record)
 	s.blocks[record.Index] = record
-	s.hashes[string(record.Hash)] = record.Index
+	s.hashes[record.Hash] = record.Index
 	return nil
 }
 
@@ -79,7 +78,7 @@ func (s *blockDB) GetBlockByNumber(n blocktypes.BlockNumber) (blocktypes.BlockRe
 func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockRecord, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	index, ok := s.hashes[string(hash)]
+	index, ok := s.hashes[hash]
 	if !ok {
 		return blocktypes.BlockRecord{}, false, nil
 	}
@@ -154,7 +153,7 @@ func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 			return false
 		}
 		delete(s.blocks, record.Index)
-		delete(s.hashes, string(record.Hash))
+		delete(s.hashes, record.Hash)
 		return true
 	})
 	s.suffix.AppQCs = slices.DeleteFunc(s.suffix.AppQCs, func(record blocktypes.AppQCRecord) bool {

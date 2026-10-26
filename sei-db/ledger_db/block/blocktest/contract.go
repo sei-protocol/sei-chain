@@ -3,6 +3,7 @@ package blocktest
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"testing"
 
@@ -212,7 +213,9 @@ const valueSize = 64
 
 // BlockHash returns a unique opaque hash for road n.
 func BlockHash(n blocktypes.BlockNumber) blocktypes.BlockHash {
-	return blocktypes.BlockHash(fmt.Sprintf("block-hash-%020d", n))
+	var hash blocktypes.BlockHash
+	binary.BigEndian.PutUint64(hash[len(hash)-8:], uint64(n))
+	return hash
 }
 
 // RecordValue returns a distinct opaque payload for kind at n.

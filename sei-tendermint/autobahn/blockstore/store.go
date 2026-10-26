@@ -3,7 +3,6 @@
 package blockstore
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -289,14 +288,14 @@ func (s *Store) ReadSuperBlockByNumber(n types.RoadIndex) (utils.Option[*types.S
 }
 
 func (s *Store) ReadSuperBlockByHash(hash common.Hash) (utils.Option[*types.SuperBlock], error) {
-	record, exists, err := s.db.GetBlockByHash(hash.Bytes())
+	record, exists, err := s.db.GetBlockByHash(blocktypes.BlockHash(hash))
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
 	if !exists || record.Index < s.db.GetPruneWatermark() {
 		return utils.None[*types.SuperBlock](), nil
 	}
-	if !bytes.Equal(record.Hash, hash.Bytes()) {
+	if record.Hash != blocktypes.BlockHash(hash) {
 		return utils.None[*types.SuperBlock](), types.ErrQCBlocksMismatch
 	}
 	group, err := decodeBlockRecord(record)
