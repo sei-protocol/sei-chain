@@ -442,6 +442,7 @@ func (s *State) runAdmission(mp *mempool) {
 func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
 	defer metrics.PhaseAdmit.Enter()()
 	untracked := map[common.Address]utils.Option[uint64]{}
+	var addrs []common.Address
 	var first types.BlockNumber
 	for m := range mp.inner.Lock() {
 		first = m.first
@@ -449,13 +450,21 @@ func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
 			if !ticket.resp.IsEVM {
 				continue
 			}
-			if _, tracked := m.evmNonces[ticket.resp.EVMSenderAddress]; !tracked {
-				untracked[ticket.resp.EVMSenderAddress] = utils.None[uint64]()
+			addr := ticket.resp.EVMSenderAddress
+			if _, tracked := m.evmNonces[addr]; !tracked {
+				if _, seen := untracked[addr]; !seen {
+					untracked[addr] = utils.None[uint64]()
+					addrs = append(addrs, addr)
+				}
 			}
 		}
 	}
-	for addr := range untracked {
-		untracked[addr] = utils.Some(s.evmNonce(addr))
+	if len(addrs) > 0 {
+		start := time.Now()
+		for i, nonce := range s.app.EvmNonces(addrs) {
+			untracked[addrs[i]] = utils.Some(nonce)
+		}
+		metrics.ObserveNonceLookup(time.Since(start))
 	}
 	for m, ctrl := range mp.inner.Lock() {
 		for _, ticket := range batch {

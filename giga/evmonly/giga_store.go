@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/sync/errgroup"
@@ -219,6 +220,42 @@ func (e *Executor) SettledNonce(addr common.Address) uint64 {
 	defer view.Close()
 	return view.GetNonce(addr)
 }
+
+// SettledNonces returns, aligned with addrs, each address's nonce as SettledNonce reads it, through one
+// view and with the view's reads spread across workers.
+func (e *Executor) SettledNonces(addrs []common.Address) []uint64 {
+	nonces := make([]uint64, len(addrs))
+	// Taken before the view, for the reason executePreparedBlockWithStore gives.
+	pending := e.pipelineNonceIndex()
+	var misses []int
+	for i, addr := range addrs {
+		if nonce, ok := pending[addr]; ok {
+			nonces[i] = nonce
+		} else {
+			misses = append(misses, i)
+		}
+	}
+	if len(misses) == 0 {
+		return nonces
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	workers := min(len(misses), max(1, e.cfg.ParseWorkers), (len(misses)+settledNoncesPerWorker-1)/settledNoncesPerWorker)
+	chunk := (len(misses) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(misses); start += chunk {
+		wg.Go(func() {
+			for _, i := range misses[start:min(start+chunk, len(misses))] {
+				nonces[i] = view.GetNonce(addrs[i])
+			}
+		})
+	}
+	wg.Wait()
+	return nonces
+}
+
+// settledNoncesPerWorker is the fewest view reads SettledNonces gives a worker of its own.
+const settledNoncesPerWorker = 64
 
 // pipelineNonceIndex returns the nonces the in-flight commit writes, by address, or nil when no commit
 // is in flight. The index is built once per commit.

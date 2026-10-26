@@ -527,6 +527,18 @@ func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
 	return a.storage.StateDB().OpenView()
 }
 
+// EvmNonces returns, aligned with addresses, each address's nonce as EvmNonce reads it.
+func (a *evmOnlyApplication) EvmNonces(addresses []common.Address) []uint64 {
+	if executor, ok := a.settler.Load().Get(); ok {
+		return executor.SettledNonces(addresses)
+	}
+	nonces := make([]uint64, len(addresses))
+	for i, address := range addresses {
+		nonces[i] = a.EvmNonce(address)
+	}
+	return nonces
+}
+
 func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
 	if executor, ok := a.settler.Load().Get(); ok {
 		return executor.SettledNonce(address)

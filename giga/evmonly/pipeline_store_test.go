@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
@@ -190,6 +191,7 @@ func TestSettledNonceReadsTheInFlightCommit(t *testing.T) {
 
 	require.Equal(t, uint64(1), executor.SettledNonce(sender))
 	require.Equal(t, uint64(0), executor.SettledNonce(recipient))
+	require.Equal(t, []uint64{0, 1, 0}, executor.SettledNonces([]common.Address{recipient, sender, recipient}))
 }
 
 // blockingOpenStore holds a block inside OpenView, and so inside the executor's store lock, until
