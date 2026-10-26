@@ -11,11 +11,15 @@ import (
 func fullChangeSet() *StateChangeSet {
 	addr := common.HexToAddress("0x1")
 	return &StateChangeSet{
-		Balances:      []BalanceChange{{Address: addr, Balance: big.NewInt(5), PriorBalance: big.NewInt(3)}},
-		Nonces:        []NonceChange{{Address: addr, Nonce: 2, PriorNonce: 1}},
-		Code:          []CodeChange{{Address: addr, Code: []byte{0x01}, PriorCode: []byte{0x02}}},
-		StorageClears: []Address{addr},
-		Storage:       []StorageChange{{Address: addr, Key: common.Hash{0x01}, Value: common.Hash{0x02}, PriorValue: common.Hash{0x03}}},
+		Balances: []BalanceChange{{Address: addr, Balance: big.NewInt(5), PriorBalance: big.NewInt(3)}},
+		Nonces:   []NonceChange{{Address: addr, Nonce: 2, PriorNonce: 1}},
+		Code:     []CodeChange{{Address: addr, Code: []byte{0x01}, PriorCode: []byte{0x02}}},
+		Storage: []StorageChange{{
+			Address:    addr,
+			Key:        common.Hash{0x01},
+			Value:      common.Hash{0x02},
+			PriorValue: common.Hash{0x03},
+		}},
 	}
 }
 
@@ -29,7 +33,6 @@ func TestCloneSurvivesTheOriginalBeingReused(t *testing.T) {
 	original.Nonces[0].Nonce = 999
 	original.Code[0].Code[0] = 0xff
 	original.Code[0].PriorCode[0] = 0xff
-	original.StorageClears[0] = common.HexToAddress("0xff")
 	original.Storage[0].Value = common.Hash{0xff}
 	original.Reset()
 
@@ -58,11 +61,10 @@ func TestIsEmptyReportsAnyEntry(t *testing.T) {
 
 	full := fullChangeSet()
 	for name, set := range map[string]*StateChangeSet{
-		"balances":       {Balances: full.Balances},
-		"nonces":         {Nonces: full.Nonces},
-		"code":           {Code: full.Code},
-		"storage clears": {StorageClears: full.StorageClears},
-		"storage":        {Storage: full.Storage},
+		"balances": {Balances: full.Balances},
+		"nonces":   {Nonces: full.Nonces},
+		"code":     {Code: full.Code},
+		"storage":  {Storage: full.Storage},
 	} {
 		require.False(t, set.IsEmpty(), name)
 	}
@@ -79,7 +81,6 @@ func TestResetEmptiesTheSetAndKeepsCapacity(t *testing.T) {
 	require.Equal(t, 1, cap(set.Balances))
 	require.Equal(t, 1, cap(set.Nonces))
 	require.Equal(t, 1, cap(set.Code))
-	require.Equal(t, 1, cap(set.StorageClears))
 	require.Equal(t, 1, cap(set.Storage))
 	require.Equal(t, BalanceChange{}, balances[0])
 	require.Equal(t, CodeChange{}, code[0])

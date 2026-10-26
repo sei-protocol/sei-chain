@@ -1,5 +1,5 @@
-// Package config defines the [giga] section of app.toml: the storage, execution and EVM RPC
-// settings a Giga (Autobahn) node runs with.
+// Package config defines the [giga] section of app.toml: the storage, execution, EVM RPC and
+// state sync settings a Giga (Autobahn) node runs with.
 package config
 
 import (
@@ -28,6 +28,7 @@ type Config struct {
 	Storage   StorageConfig   `mapstructure:"storage"`
 	Execution ExecutionConfig `mapstructure:"execution"`
 	RPC       RPCConfig       `mapstructure:"rpc"`
+	StateSync StateSyncConfig `mapstructure:"state_sync"`
 }
 
 // StorageConfig is the [giga.storage] sub-table: retention and layout of the Giga stores.
@@ -100,6 +101,13 @@ type RPCConfig struct {
 	MaxWSConnections int `mapstructure:"max_ws_connections"`
 }
 
+// StateSyncConfig is the [giga.state_sync] sub-table: whether this node uses giga state sync.
+type StateSyncConfig struct {
+	// Enabled allows the state-sync-snapshot create and restore commands on this node, and the
+	// seed of a restored home on start.
+	Enabled bool `mapstructure:"enabled"`
+}
+
 // DefaultConfig is what a Giga node runs when the section is absent. Storage defaults are the
 // sei-db ones, so there is a single place they are defined.
 var DefaultConfig = Config{
@@ -122,6 +130,9 @@ var DefaultConfig = Config{
 		BatchRequestLimit:             100,
 		BatchResponseMaxSize:          25 * 1000 * 1000,
 		MaxWSConnections:              2000,
+	},
+	StateSync: StateSyncConfig{
+		Enabled: false,
 	},
 }
 
@@ -165,6 +176,7 @@ const (
 	FlagRPCBatchRequestLimit             = "giga.rpc.batch_request_limit"
 	FlagRPCBatchResponseMaxSize          = "giga.rpc.batch_response_max_size"
 	FlagRPCMaxWSConnections              = "giga.rpc.max_ws_connections"
+	FlagStateSyncEnabled                 = "giga.state_sync.enabled"
 )
 
 // ReadConfig reads the [giga] section from app options. An absent key keeps its default.
@@ -286,6 +298,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s: %w", FlagRPCMaxWSConnections, err)
 		}
 	}
+	if v := opts.Get(FlagStateSyncEnabled); v != nil {
+		if cfg.StateSync.Enabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStateSyncEnabled, err)
+		}
+	}
 	return cfg, cfg.Validate()
 }
 
@@ -368,7 +385,7 @@ const ConfigTemplate = `
 ###                          Giga Node Configuration                        ###
 ###############################################################################
 
-# Storage, execution and EVM RPC settings of a Giga (Autobahn) node. Committee and consensus
+# Storage, execution, EVM RPC and state sync settings of a Giga (Autobahn) node. Committee and consensus
 # settings stay in the file named by autobahn-config-file in config.toml.
 
 [giga.storage]
@@ -456,4 +473,9 @@ batch_response_max_size = {{ .Giga.RPC.BatchResponseMaxSize }}
 
 # max_ws_connections caps simultaneously open WebSocket connections.
 max_ws_connections = {{ .Giga.RPC.MaxWSConnections }}
+
+[giga.state_sync]
+# enabled allows the state-sync-snapshot create and restore commands on this node, and the
+# seed of a restored home on start.
+enabled = {{ .Giga.StateSync.Enabled }}
 `

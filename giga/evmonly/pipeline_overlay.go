@@ -23,9 +23,6 @@ type pendingOverlay struct {
 	nonces   map[common.Address]uint64
 	code     map[common.Address][]byte
 	storage  map[storageChangeKey]common.Hash
-	// Addresses whose storage the block wiped, where a slot the block did not rewrite reads as unset
-	// rather than falling through to the view.
-	cleared map[common.Address]struct{}
 }
 
 // newPendingOverlay indexes changes for lookup. It returns base unchanged when there is nothing to
@@ -40,7 +37,6 @@ func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
 		nonces:   make(map[common.Address]uint64, len(changes.Nonces)),
 		code:     make(map[common.Address][]byte, len(changes.Code)),
 		storage:  make(map[storageChangeKey]common.Hash, len(changes.Storage)),
-		cleared:  make(map[common.Address]struct{}, len(changes.StorageClears)),
 	}
 	for _, change := range changes.Balances {
 		o.balances[change.Address] = change.Balance
@@ -54,9 +50,6 @@ func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
 			continue
 		}
 		o.code[change.Address] = change.Code
-	}
-	for _, addr := range changes.StorageClears {
-		o.cleared[addr] = struct{}{}
 	}
 	for _, change := range changes.Storage {
 		if change.Delete {
@@ -92,9 +85,6 @@ func (o *pendingOverlay) GetCode(addr common.Address) []byte {
 func (o *pendingOverlay) GetState(addr common.Address, key common.Hash) common.Hash {
 	if value, ok := o.storage[storageChangeKey{address: addr, key: key}]; ok {
 		return value
-	}
-	if _, wiped := o.cleared[addr]; wiped {
-		return common.Hash{}
 	}
 	return o.base.GetState(addr, key)
 }
