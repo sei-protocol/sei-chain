@@ -8,6 +8,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // TestReplayStateAppliesEachPrefixAsTheBlockDid replays every prefix of a block holding a rejected
@@ -122,4 +124,43 @@ func TestReplayStateStopsATransactionWhenCanceled(t *testing.T) {
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// failingReadView is a view whose account and storage reads panic once failing is set, as a read of
+// a height pruned under an open view does.
+type failingReadView struct {
+	gigatypes.StateView
+	failing bool
+}
+
+func (v *failingReadView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
+	if v.failing {
+		panic("historical read failed")
+	}
+	return v.StateView.ReadAccount(addr)
+}
+
+func (v *failingReadView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
+	if v.failing {
+		panic("historical read failed")
+	}
+	return v.StateView.GetStorage(addr, key)
+}
+
+// TestReplayStateReportsAFailedReadOfTheStateUnderIt fails a read of the replayed state's view after
+// the replay, as a trace reading it lazily would meet, and checks the state reports it even once the
+// snapshot around the read is reverted.
+func TestReplayStateReportsAFailedReadOfTheStateUnderIt(t *testing.T) {
+	view := &failingReadView{StateView: NewMemoryStore(NewMemoryState()).OpenView()}
+	defer view.Close()
+	replayed, err := NewExecutor(Config{}).ReplayState(t.Context(), view, BlockRequest{})
+	require.NoError(t, err)
+	require.NoError(t, replayed.Error())
+
+	view.failing = true
+	snapshot := replayed.Snapshot()
+	require.Panics(t, func() { replayed.GetBalance(testAddress(0xb4)) })
+	replayed.RevertToSnapshot(snapshot)
+
+	require.Error(t, replayed.Error())
 }

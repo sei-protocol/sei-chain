@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -51,6 +52,8 @@ type traceChain struct {
 	rejected *ethtypes.Transaction   // block 2's rejected transaction that stored a receipt
 	backend  *testBackend
 	store    receipt.ReceiptStore
+	// failReads makes reads of traceRecipient from a replayed state's view fail after its replay.
+	failReads bool
 }
 
 func newTraceChain(t *testing.T) *traceChain {
@@ -104,8 +107,9 @@ func newTraceChain(t *testing.T) *traceChain {
 		}
 	}
 	replay := func(ctx context.Context, header *ethtypes.Header, txs [][]byte) (vm.StateDB, func(), error) {
-		view := evmonly.NewMemoryStore(base).OpenView()
+		view := &failingReadView{StateView: evmonly.NewMemoryStore(base).OpenView()}
 		stateDB, err := executor.ReplayState(ctx, view, evmonly.BlockRequest{Context: blockContext(header), Txs: txs})
+		view.failing = chain.failReads
 		return stateDB, view.Close, err
 	}
 	chain.backend = &testBackend{
@@ -344,6 +348,52 @@ func TestDebugTraceBlock(t *testing.T) {
 		err := client.CallContext(t.Context(), &got, "debug_traceBlockByNumber", ethrpc.BlockNumber(3), tracer("callTracer"))
 		require.ErrorContains(t, err, errTraceBlockNotIndexed.Error())
 	})
+}
+
+// failingReadView is a view whose reads of traceRecipient panic once failing is set, as a read of a
+// height pruned under an open view does.
+type failingReadView struct {
+	gigatypes.StateView
+	failing bool
+}
+
+func (v *failingReadView) ReadAccount(addr gigatypes.Address) (gigatypes.Account, bool) {
+	if v.failing && addr == traceRecipient {
+		panic("historical read failed")
+	}
+	return v.StateView.ReadAccount(addr)
+}
+
+func (v *failingReadView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
+	if v.failing && addr == traceRecipient {
+		panic("historical read failed")
+	}
+	return v.StateView.GetStorage(addr, key)
+}
+
+// TestDebugTraceRefusesAStateThatFailedARead fails the read of a transfer's recipient part way through
+// each kind of trace, once the sender has been read, and checks the trace returns an error rather
+// than go-ethereum's trace of a failed transaction.
+func TestDebugTraceRefusesAStateThatFailedARead(t *testing.T) {
+	chain := newTraceChain(t)
+	chain.failReads = true
+	client := chain.client(t, noRPCLimits)
+	transfer := map[string]any{"from": chain.sender, "to": traceRecipient, "value": "0x1"}
+
+	// Each traced state is replayed from before any transfer, so the recipient is first read mid-trace.
+	for _, tc := range []struct {
+		method string
+		params []any
+	}{
+		{method: "debug_traceTransaction", params: []any{chain.executed[0].Hash(), tracer("callTracer")}},
+		{method: "debug_traceBlockByNumber", params: []any{ethrpc.BlockNumber(2), tracer("callTracer")}},
+		{method: "debug_traceCall", params: []any{transfer, "0x1", tracer("callTracer")}},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			var got json.RawMessage
+			require.Error(t, client.CallContext(t.Context(), &got, tc.method, tc.params...))
+		})
+	}
 }
 
 func TestDebugTraceCall(t *testing.T) {

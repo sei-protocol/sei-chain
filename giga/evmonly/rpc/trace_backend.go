@@ -222,6 +222,7 @@ func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, 
 		height = ethrpc.LatestBlockNumber.Int64()
 	}
 	stateDB, release, err := b.backend.EvmStateAt(ctx, height)
+	trackState(ctx, stateDB)
 	return stateDB, release, err
 }
 
@@ -251,6 +252,7 @@ func (b *traceBackend) StateAtTransaction(ctx context.Context, block *ethtypes.B
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
 	}
+	trackState(ctx, stateDB)
 	return tx, blockCtx, stateDB, release, nil
 }
 
@@ -296,6 +298,37 @@ func (b *traceBackend) Engine() consensus.Engine {
 
 // ChainDb returns nil; only tracer methods this node does not serve read it.
 func (b *traceBackend) ChainDb() ethdb.Database {
+	return nil
+}
+
+// tracedStates holds every state served to one trace.
+type tracedStates struct {
+	states []vm.StateDB
+}
+
+type tracedStatesKey struct{}
+
+// withTracedStates returns ctx holding a new tracedStates, which StateAtBlock and StateAtTransaction
+// add every state they serve under ctx to.
+func withTracedStates(ctx context.Context) (context.Context, *tracedStates) {
+	states := &tracedStates{}
+	return context.WithValue(ctx, tracedStatesKey{}, states), states
+}
+
+// trackState adds stateDB to the tracedStates ctx holds, if any.
+func trackState(ctx context.Context, stateDB vm.StateDB) {
+	if states, ok := ctx.Value(tracedStatesKey{}).(*tracedStates); ok && stateDB != nil {
+		states.states = append(states.states, stateDB)
+	}
+}
+
+// failure returns the first error a held state reports.
+func (t *tracedStates) failure() error {
+	for _, stateDB := range t.states {
+		if err := stateDB.Error(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

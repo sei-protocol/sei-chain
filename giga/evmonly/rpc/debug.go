@@ -124,7 +124,8 @@ func (api *debugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 }
 
 // trace runs one trace under config, once the config is accepted and a trace slot is free, bounded
-// by the trace timeout. A nil config is the default struct logger's.
+// by the trace timeout. A nil config is the default struct logger's. A trace whose state failed a
+// read is refused.
 func (api *debugAPI) trace(ctx context.Context, config *tracers.TraceConfig, run func(context.Context, *tracers.TraceConfig) (any, error)) (any, error) {
 	if config == nil {
 		config = &tracers.TraceConfig{}
@@ -137,10 +138,15 @@ func (api *debugAPI) trace(ctx context.Context, config *tracers.TraceConfig, run
 		return nil, err
 	}
 	defer done()
+	ctx, states := withTracedStates(ctx)
 	result, err := run(ctx, config)
 	// An interrupted trace can come back as a partial result, which must not be served.
 	if expired := ctx.Err(); expired != nil {
 		return nil, expired
+	}
+	// go-ethereum serves a read that failed mid-trace as the trace of a failed transaction.
+	if failed := states.failure(); failed != nil {
+		return nil, failed
 	}
 	return result, err
 }
