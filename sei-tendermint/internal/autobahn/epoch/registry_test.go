@@ -187,6 +187,48 @@ func TestStateWindow_RequiresCurrentEpochs(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestStageWindow_StagesNextCommittee(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	window, err := r.StateWindow(0, map[types.PublicKey]uint64{pk: 7})
+	require.NoError(t, err)
+	_, want, err := DecodeStateEpochRecord(window.Next)
+	require.NoError(t, err)
+
+	require.NoError(t, r.StageWindow(0, window))
+	pending, ok := r.Pending().Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(2), pending)
+	require.NoError(t, r.StageWindow(0, window))
+	require.Error(t, r.StageEpoch(0, map[types.PublicKey]uint64{pk: 8}))
+	require.NoError(t, r.ActivateEpoch(2))
+	require.True(t, r.MustEpoch(2).Committee().Equal(want))
+}
+
+func TestStageWindow_RejectsMismatchedWindow(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	window, err := r.StateWindow(0, map[types.PublicKey]uint64{pk: 7})
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(1, window))
+
+	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		types.TestSecretKey("other").Public(): 5,
+	}))
+	_, prev, err := DecodeStateEpochRecord(window.Prev)
+	require.NoError(t, err)
+	_, next, err := DecodeStateEpochRecord(window.Next)
+	require.NoError(t, err)
+	foreignCurrent, err := NewStateWindow(0, prev, 1, other, 2, next)
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(0, foreignCurrent))
+
+	unrelatedNext, err := NewStateWindow(0, prev, 1, committee, 2, other)
+	require.NoError(t, err)
+	require.Error(t, r.StageWindow(0, unrelatedNext))
+	require.False(t, r.Pending().IsPresent())
+}
+
 func TestStageEpoch_RequiresNext(t *testing.T) {
 	rng := utils.TestRng()
 	pk := types.GenSecretKey(rng).Public()

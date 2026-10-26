@@ -252,12 +252,8 @@ func (r *Registry) commit(s, next *registryState) error {
 func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
 	target := endEpoch + 2
 	for s := range r.state.Lock() {
-		if s.dropped(target) {
-			return fmt.Errorf("epoch %d: %w", target, types.ErrPruned)
-		}
-		ep, registered := s.m[target]
-		if !registered && target != s.live.Next {
-			return fmt.Errorf("epoch %d cannot be staged, want %d", target, s.live.Next)
+		if err := s.checkStageable(target); err != nil {
+			return err
 		}
 		prev, ok := s.m[endEpoch+1]
 		if !ok {
@@ -267,23 +263,73 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 		if err != nil {
 			return fmt.Errorf("DeriveNext(%d): %w", target, err)
 		}
-		if registered {
-			if !ep.Committee().Equal(committee) {
-				return fmt.Errorf("epoch %d already registered with a different committee", target)
-			}
-			return nil
-		}
-		if staged, ok := s.pending.Get(); ok {
-			if !staged.Equal(committee) {
-				return fmt.Errorf("epoch %d already staged with a different committee", target)
-			}
-			return nil
-		}
-		next := s.clone()
-		next.pending = utils.Some(committee)
-		return r.commit(s, next)
+		return r.stage(s, target, committee)
 	}
 	panic("unreachable")
+}
+
+// StageWindow persists the next record of window as pending, as StageEpoch does
+// for a derived committee. window must start at endEpoch, its current record must
+// equal the registered committee of that epoch, and its next record must follow it.
+func (r *Registry) StageWindow(endEpoch types.EpochIndex, window StateWindow) error {
+	if err := window.Validate(); err != nil {
+		return err
+	}
+	prevIdx, _, _ := DecodeStateEpochRecord(window.Prev)
+	if prevIdx != endEpoch {
+		return fmt.Errorf("epoch window starts at epoch %d, want %d", prevIdx, endEpoch)
+	}
+	currentIdx, current, _ := DecodeStateEpochRecord(window.Current)
+	target, committee, _ := DecodeStateEpochRecord(window.Next)
+	for s := range r.state.Lock() {
+		if err := s.checkStageable(target); err != nil {
+			return err
+		}
+		registered, ok := s.m[currentIdx]
+		if !ok {
+			return fmt.Errorf("epoch %d not registered", currentIdx)
+		}
+		if !registered.Committee().Equal(current) {
+			return fmt.Errorf("epoch %d in the window differs from the registered committee", currentIdx)
+		}
+		if err := s.checkDerivedFromPrev(target, committee); err != nil {
+			return fmt.Errorf("epoch %d: %w", target, err)
+		}
+		return r.stage(s, target, committee)
+	}
+	panic("unreachable")
+}
+
+// checkStageable returns an error if target was dropped, or is neither
+// registered nor live.Next.
+func (s *registryState) checkStageable(target types.EpochIndex) error {
+	if s.dropped(target) {
+		return fmt.Errorf("epoch %d: %w", target, types.ErrPruned)
+	}
+	if _, registered := s.m[target]; !registered && target != s.live.Next {
+		return fmt.Errorf("epoch %d cannot be staged, want %d", target, s.live.Next)
+	}
+	return nil
+}
+
+// stage persists committee as pending for target. A no-op if target is already
+// staged or registered with the same committee, and an error if it conflicts.
+func (r *Registry) stage(s *registryState, target types.EpochIndex, committee *types.Committee) error {
+	if ep, registered := s.m[target]; registered {
+		if !ep.Committee().Equal(committee) {
+			return fmt.Errorf("epoch %d already registered with a different committee", target)
+		}
+		return nil
+	}
+	if staged, ok := s.pending.Get(); ok {
+		if !staged.Equal(committee) {
+			return fmt.Errorf("epoch %d already staged with a different committee", target)
+		}
+		return nil
+	}
+	next := s.clone()
+	next.pending = utils.Some(committee)
+	return r.commit(s, next)
 }
 
 // StateWindow returns the three committee records that app state stores after

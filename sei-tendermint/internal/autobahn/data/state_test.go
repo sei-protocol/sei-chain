@@ -200,6 +200,51 @@ func TestClosingEpochReportsOnlyLastBlockOfLastRoad(t *testing.T) {
 	require.False(t, got.IsPresent())
 }
 
+func TestPushAppHashWithEpochWindow_StagesWindowNext(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+	window, err := registry.StateWindow(0, map[types.PublicKey]uint64{keys[0].Public(): 9})
+	require.NoError(t, err)
+	_, want, err := epoch.DecodeStateEpochRecord(window.Next)
+	require.NoError(t, err)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc, blocks := commitQCAtRoadBlocks(ep0, keys, registry.LastRoad(0), ep0.FirstBlock(), 2)
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		gr := qc.QC().GlobalRange()
+		hash := types.GenAppHash(rng)
+		if err := state.PushAppHashWithEpochWindow(ctx, gr.First, hash, utils.None[epoch.StateWindow]()); err != nil {
+			return fmt.Errorf("block before the closing block: %w", err)
+		}
+		closing := gr.Next - 1
+		if err := state.PushAppHashWithEpochWindow(ctx, closing, hash, utils.None[epoch.StateWindow]()); err == nil {
+			return errors.New("closing block without an epoch window: got nil error")
+		}
+		if registry.Pending().IsPresent() {
+			return errors.New("epoch staged without an epoch window")
+		}
+		if err := state.PushAppHashWithEpochWindow(ctx, closing, hash, utils.Some(window)); err != nil {
+			return err
+		}
+		if err := pushAppQCForBlock(ctx, state, keys, closing); err != nil {
+			return err
+		}
+		ep2, err := registry.EpochByIndex(2)
+		if err != nil {
+			return fmt.Errorf("epoch 2 after AppQC: %w", err)
+		}
+		if !ep2.Committee().Equal(want) {
+			return errors.New("epoch 2 committee differs from the window's next record")
+		}
+		return nil
+	}))
+}
+
 func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

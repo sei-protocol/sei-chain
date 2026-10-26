@@ -702,6 +702,33 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 // PushAppHash records the AppHash for executed blocks through n and stages
 // C_{E+2} when n closes LastRoad(E).
 func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash, weights map[types.PublicKey]uint64) error {
+	return s.pushAppHash(ctx, n, hash, func(e types.EpochIndex) error {
+		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
+			return fmt.Errorf("StageEpoch(%d): %w", e, err)
+		}
+		return nil
+	})
+}
+
+// PushAppHashWithEpochWindow records the AppHash for executed blocks through n
+// and, when n closes LastRoad(E), stages C_{E+2} from window, the epoch window
+// committed with n. window is ignored for any other block.
+func (s *State) PushAppHashWithEpochWindow(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash, window utils.Option[epoch.StateWindow]) error {
+	return s.pushAppHash(ctx, n, hash, func(e types.EpochIndex) error {
+		w, ok := window.Get()
+		if !ok {
+			return fmt.Errorf("block %v closes epoch %d without an epoch window", n, e)
+		}
+		if err := s.cfg.Registry.StageWindow(e, w); err != nil {
+			return fmt.Errorf("StageWindow(%d): %w", e, err)
+		}
+		return nil
+	})
+}
+
+// pushAppHash records the AppHash for executed blocks through n and calls
+// stage with E when n closes LastRoad(E).
+func (s *State) pushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash, stage func(types.EpochIndex) error) error {
 	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
@@ -752,8 +779,8 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		}
 	}
 	if e, ok := endEpoch.Get(); ok {
-		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
-			return fmt.Errorf("StageEpoch(%d): %w", e, err)
+		if err := stage(e); err != nil {
+			return err
 		}
 	}
 	return s.activateStagedEpoch()

@@ -273,13 +273,20 @@ func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int6
 
 func evmOnlyTestEpochWindow(t *testing.T) epoch.StateWindow {
 	t.Helper()
+	return evmOnlyTestEpochWindowWithNextWeight(t, 3)
+}
+
+// evmOnlyTestEpochWindowWithNextWeight returns a window whose next committee
+// holds one validator with nextWeight.
+func evmOnlyTestEpochWindowWithNextWeight(t *testing.T, nextWeight uint64) epoch.StateWindow {
+	t.Helper()
 	a := atypes.TestSecretKey("epoch-a").Public()
 	b := atypes.TestSecretKey("epoch-b").Public()
 	prev, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{a: 1, b: 1})
 	require.NoError(t, err)
 	current, err := prev.DeriveNext(map[atypes.PublicKey]uint64{a: 1, b: 2}, 1)
 	require.NoError(t, err)
-	next, err := current.DeriveNext(map[atypes.PublicKey]uint64{b: 3}, 2)
+	next, err := current.DeriveNext(map[atypes.PublicKey]uint64{b: nextWeight}, 2)
 	require.NoError(t, err)
 	window, err := epoch.NewStateWindow(0, prev, 1, current, 2, next)
 	require.NoError(t, err)
@@ -1175,6 +1182,67 @@ func TestEVMOnlyApplicationCommitsEpochWindow(t *testing.T) {
 	require.True(t, protoutils.Equal(window.Prev, got.Prev))
 	require.True(t, protoutils.Equal(window.Current, got.Current))
 	require.True(t, protoutils.Equal(window.Next, got.Next))
+}
+
+func TestEVMOnlyApplicationHashesEpochWindow(t *testing.T) {
+	appHash := func(window utils.Option[epoch.StateWindow]) []byte {
+		app := newInitializedEVMOnlyTestApp(t)
+		if w, ok := window.Get(); ok {
+			require.NoError(t, app.(*evmOnlyApplication).SetEpochWindow(1, w))
+		}
+		return finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	}
+
+	none := appHash(utils.None[epoch.StateWindow]())
+	windowA := appHash(utils.Some(evmOnlyTestEpochWindowWithNextWeight(t, 3)))
+	windowB := appHash(utils.Some(evmOnlyTestEpochWindowWithNextWeight(t, 4)))
+	require.NotEqual(t, none, windowA)
+	require.NotEqual(t, windowA, windowB)
+	require.Equal(t, windowA, appHash(utils.Some(evmOnlyTestEpochWindowWithNextWeight(t, 3))))
+}
+
+func TestEVMOnlyApplicationReadsCommittedEpochWindow(t *testing.T) {
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorageAt(t, home)
+	app, err := NewEVMOnlyApplication(
+		evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(),
+		gigaconfig.DefaultConfig.Execution,
+	)
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	evmApp := app.(*evmOnlyApplication)
+	got, err := evmApp.CommittedEpochWindow()
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
+
+	window := evmOnlyTestEpochWindow(t)
+	require.NoError(t, evmApp.SetEpochWindow(1, window))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+
+	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
+	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	got, err = app.(*evmOnlyApplication).CommittedEpochWindow()
+	require.NoError(t, err)
+	w, ok := got.Get()
+	require.True(t, ok)
+	require.True(t, protoutils.Equal(window.Prev, w.Prev))
+	require.True(t, protoutils.Equal(window.Current, w.Current))
+	require.True(t, protoutils.Equal(window.Next, w.Next))
+}
+
+func TestLoadEpochWindowRejectsIncompleteWindow(t *testing.T) {
+	storage := openEVMOnlyTestStorageAt(t, t.TempDir())
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	changeSet, err := evmOnlyTestEpochWindow(t).ChangeSet()
+	require.NoError(t, err)
+	changeSet.Changeset.Pairs = changeSet.Changeset.Pairs[:2]
+	store := storage.SC()
+	require.NoError(t, store.ApplyChangeSets(1, []*proto.NamedChangeSet{changeSet}))
+
+	_, err = loadEpochWindow(store)
+	require.Error(t, err)
 }
 
 func TestEVMOnlyApplicationRejectsEpochWindowAtWrongHeight(t *testing.T) {

@@ -226,9 +226,9 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	)
 }
 
-// encodeCursorChangeSet chains the block into the app hash and stages the
-// resulting cursor as pending, returning it as the changeset committed with
-// the block's state.
+// encodeCursorChangeSet chains the block and its staged epoch window into the
+// app hash and stages the resulting cursor as pending, returning the cursor and
+// the epoch window as the changesets committed with the block's state.
 func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]*proto.NamedChangeSet, error) {
 	height, ok := utils.SafeCast[int64](block.Number)
 	if !ok {
@@ -238,7 +238,11 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		if height != state.committed.height+1 {
 			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
 		}
-		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		epochChangeSets, err := epochWindowChangeSets(state.pendingEpoch, height)
+		if err != nil {
+			return nil, err
+		}
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result, epochChangeSets...)
 		if err != nil {
 			return nil, err
 		}
@@ -250,20 +254,35 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
-		changeSets := []*proto.NamedChangeSet{next.changeSet()}
-		if pending, ok := state.pendingEpoch.Get(); ok {
-			if pending.height != height {
-				return nil, fmt.Errorf("EVM-only block %d has epoch window for height %d", height, pending.height)
-			}
-			changeSet, err := pending.window.ChangeSet()
-			if err != nil {
-				return nil, fmt.Errorf("encode epoch window: %w", err)
-			}
-			changeSets = append(changeSets, changeSet)
-		}
-		return changeSets, nil
+		return append([]*proto.NamedChangeSet{next.changeSet()}, epochChangeSets...), nil
 	}
 	panic("unreachable")
+}
+
+// epochWindowChangeSets returns the changeset of the epoch window staged for
+// height, or none if no window is staged.
+func epochWindowChangeSets(pending utils.Option[pendingEpochWindow], height int64) ([]*proto.NamedChangeSet, error) {
+	p, ok := pending.Get()
+	if !ok {
+		return nil, nil
+	}
+	if p.height != height {
+		return nil, fmt.Errorf("EVM-only block %d has epoch window for height %d", height, p.height)
+	}
+	changeSet, err := p.window.ChangeSet()
+	if err != nil {
+		return nil, fmt.Errorf("encode epoch window: %w", err)
+	}
+	return []*proto.NamedChangeSet{changeSet}, nil
+}
+
+// CommittedEpochWindow returns the epoch window in the committed state, or None
+// if no epoch window was committed.
+func (a *evmOnlyApplication) CommittedEpochWindow() (utils.Option[epoch.StateWindow], error) {
+	if err := a.AwaitCommits(); err != nil {
+		return utils.None[epoch.StateWindow](), err
+	}
+	return loadEpochWindow(a.storage.SC())
 }
 
 // SetEpochWindow stages the epoch committee window that must be committed with height.
@@ -891,7 +910,9 @@ func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
 	return tx.Err.Error()
 }
 
-func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+// hashEVMOnlyResult chains the block onto previous over its EVM changes and the
+// extra changesets committed with it.
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult, extra ...*proto.NamedChangeSet) (common.Hash, error) {
 	h := sha256.New()
 	w := newEVMOnlyHashWriter(h)
 	w.write(previous[:])
@@ -902,7 +923,7 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	if err != nil {
 		return common.Hash{}, err
 	}
-	for _, changeset := range changesets {
+	for _, changeset := range append(changesets, extra...) {
 		w.writeSizedString(changeset.Name)
 		for _, pair := range changeset.Changeset.Pairs {
 			w.writeSized(pair.Key)

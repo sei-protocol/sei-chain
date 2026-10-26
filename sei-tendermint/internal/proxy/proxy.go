@@ -88,14 +88,15 @@ func (app *Proxy) AwaitCommits() error {
 	return settler.AwaitCommits()
 }
 
-type epochWindowSetter interface {
+type epochWindowApp interface {
 	SetEpochWindow(atypes.GlobalBlockNumber, epoch.StateWindow) error
+	CommittedEpochWindow() (utils.Option[epoch.StateWindow], error)
 }
 
 // SupportsEpochWindow reports whether the wrapped application stores Autobahn
 // epoch state.
 func (app *Proxy) SupportsEpochWindow() bool {
-	_, ok := app.app.(epochWindowSetter)
+	_, ok := app.app.(epochWindowApp)
 	return ok
 }
 
@@ -103,11 +104,23 @@ func (app *Proxy) SupportsEpochWindow() bool {
 // epoch state.
 func (app *Proxy) SetEpochWindow(height atypes.GlobalBlockNumber, window epoch.StateWindow) error {
 	defer addTimeSample(Global.MethodTimingAt("set_epoch_window", "sync"))()
-	setter, ok := app.app.(epochWindowSetter)
+	windowApp, ok := app.app.(epochWindowApp)
 	if !ok {
 		return nil
 	}
-	return setter.SetEpochWindow(height, window)
+	return windowApp.SetEpochWindow(height, window)
+}
+
+// CommittedEpochWindow returns the epoch window in the wrapped application's
+// committed state. It returns None if the application does not store Autobahn
+// epoch state or no epoch window was committed.
+func (app *Proxy) CommittedEpochWindow() (utils.Option[epoch.StateWindow], error) {
+	defer addTimeSample(Global.MethodTimingAt("committed_epoch_window", "sync"))()
+	windowApp, ok := app.app.(epochWindowApp)
+	if !ok {
+		return utils.None[epoch.StateWindow](), nil
+	}
+	return windowApp.CommittedEpochWindow()
 }
 
 // evmCodeReader is implemented by applications that can read contract code
