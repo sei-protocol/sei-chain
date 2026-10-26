@@ -27,6 +27,9 @@ const (
 	maxPreparedBlocks = 2
 )
 
+// MaxPreparedBlocks is the prepared-block bound in use; it defaults to maxPreparedBlocks.
+var MaxPreparedBlocks = maxPreparedBlocks
+
 // preparedBlock is the stateless part of a FinalizeBlock request, computed before the
 // request arrives. FinalizeBlock uses it only for the block with this height and hash.
 type preparedBlock struct {
@@ -48,7 +51,7 @@ func (q *preparedQueue) put(b preparedBlock, next int64) {
 	kept := slices.DeleteFunc(*q, func(p preparedBlock) bool { return p.height < next || p.height == b.height })
 	kept = append(kept, b)
 	slices.SortFunc(kept, func(x, y preparedBlock) int { return cmp.Compare(x.height, y.height) })
-	n := min(len(kept), maxPreparedBlocks)
+	n := min(len(kept), MaxPreparedBlocks)
 	clear(kept[n:])
 	*q = kept[:n]
 }

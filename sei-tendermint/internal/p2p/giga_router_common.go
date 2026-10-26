@@ -35,6 +35,9 @@ import (
 // you need more.
 const maxInboundFullnodePeers = 10000
 
+// PrepareAheadBlocks is how many prepared blocks the fetcher may hold beyond the one it hands over next.
+var PrepareAheadBlocks = 0
+
 var errGigaMembershipChanged = errors.New("inbound giga peer changed committee membership")
 
 type gigaRouterCommon struct {
@@ -501,7 +504,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// Blocks are fetched and prepared one ahead of execution: the unbuffered
 		// channel lets the fetcher hold block n+1, already prepared, while the
 		// loop below executes block n.
-		blocks := make(chan fetchedBlock)
+		blocks := make(chan fetchedBlock, PrepareAheadBlocks)
 		s.Spawn(func() error {
 			for n := next; ; n += 1 {
 				b, err := r.data.GlobalBlock(ctx, n)
