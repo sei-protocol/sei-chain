@@ -182,17 +182,29 @@ func (e *Executor) encodingReadsTheStore() bool {
 // reads an in-flight commit's nonces from that commit's changes instead of waiting for it to land.
 func (e *Executor) SettledNonce(addr common.Address) uint64 {
 	// Taken before the view, for the reason executePreparedBlockWithStore gives.
-	pending := e.pipelinePending()
+	if nonce, ok := e.pipelineNonceIndex()[addr]; ok {
+		return nonce
+	}
 	view := e.stateStore.OpenView()
 	defer view.Close()
-	if pending != nil {
-		for i := len(pending.Nonces) - 1; i >= 0; i-- {
-			if pending.Nonces[i].Address == addr {
-				return pending.Nonces[i].Nonce
-			}
+	return view.GetNonce(addr)
+}
+
+// pipelineNonceIndex returns the nonces the in-flight commit writes, by address, or nil when no commit
+// is in flight. The index is built once per commit.
+func (e *Executor) pipelineNonceIndex() map[common.Address]uint64 {
+	e.pipelineMu.Lock()
+	defer e.pipelineMu.Unlock()
+	if e.pipelineChanges == nil {
+		return nil
+	}
+	if e.pipelineNonces == nil {
+		e.pipelineNonces = make(map[common.Address]uint64, len(e.pipelineChanges.Nonces))
+		for _, change := range e.pipelineChanges.Nonces {
+			e.pipelineNonces[change.Address] = change.Nonce
 		}
 	}
-	return view.GetNonce(addr)
+	return e.pipelineNonces
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
@@ -246,6 +258,7 @@ func (e *Executor) awaitPipelineCommit() error {
 			}
 			e.pipelineDone = nil
 			e.pipelineChanges = nil
+			e.pipelineNonces = nil
 			e.pipelineErr = nil
 		}
 		e.pipelineMu.Unlock()
@@ -279,6 +292,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
+	e.pipelineNonces = nil
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
