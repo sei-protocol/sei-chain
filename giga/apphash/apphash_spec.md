@@ -3,9 +3,8 @@
 **Status:** draft. **Schema version:** 1.
 
 This document defines the app hash that Giga validators compute for each executed block and agree on through
-Autobahn. It specifies what goes into the app hash and how those inputs are combined. Several inputs are
-currently placeholders that need further design; each one is marked **PLACEHOLDER**, and they are collected in
-[Open design work](#open-design-work).
+Autobahn. It specifies what goes into the app hash and how those inputs are combined. Design work that remains
+open is collected in [Open design work](#open-design-work).
 
 ## Notation
 
@@ -39,7 +38,7 @@ separators, or length prefixes, for a fixed total of 177 bytes.
 |     17 |   32 | `blockHash`       | raw bytes | Defined                                                     |
 |     49 |   32 | `stateHash`       | raw bytes | Defined                                                     |
 |     81 |   32 | `budHash`         | raw bytes | Defined                                                     |
-|    113 |   32 | `receiptHash`     | raw bytes | **PLACEHOLDER**                                             |
+|    113 |   32 | `receiptHash`     | raw bytes | Defined                                                     |
 |    145 |   32 | `previousAppHash` | raw bytes | Defined, except for the block at the giga activation height |
 
 A decoder reads `version` from the first byte and rejects any version it does not support. It then rejects
@@ -208,11 +207,10 @@ The BUD hash of the block: a commitment to the key-value changes produced by exe
 defined by the [BUD specification](bud/bud_spec.md), which also defines the BUD proofs and BUD
 state proofs built against it.
 
-### `receiptHash`: PLACEHOLDER
+### `receiptHash`
 
-A commitment to the transaction receipts produced by executing the block.
-
-**Needs design.** Its definition is owned by the EVM team and is not specified here.
+The receipt hash of the block: a commitment to the transaction receipts produced by executing it. It is defined
+by the [Giga Receipt Hash specification](receipthash/receipt_hash_spec.md).
 
 ### `previousAppHash`
 
@@ -228,7 +226,6 @@ to be block 0, since the chain already exists without this app hash.
 
 | Item                   | Needed                                                   | Owner    |
 |------------------------|----------------------------------------------------------|----------|
-| `receiptHash`          | A full definition                                        | EVM team |
 | Giga activation height | The height of the first block computed under this scheme | TBD      |
 
 ## Test vector

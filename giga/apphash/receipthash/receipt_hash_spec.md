@@ -1,11 +1,10 @@
 # Giga Receipt Hash
 
-**Status:** draft. **Depends on:** [Giga App Hash](apphash_spec.md), schema version 1.
+**Status:** draft. **Depends on:** [Giga App Hash](../apphash_spec.md), schema version 1.
 
-This document defines `receiptHash`, the field of `appHashData` marked **PLACEHOLDER** in the
-[App Hash specification](apphash_spec.md#the-app-hash): *"A commitment to the transaction receipts
-produced by executing the block. Needs design. Its definition is owned by the EVM team and is not
-specified here."* This document is that definition.
+This document defines `receiptHash`, the field of `appHashData` in the
+[App Hash specification](../apphash_spec.md#the-app-hash) that commits to the transaction receipts
+produced by executing the block.
 
 It defines a commitment scheme only — what `receiptHash` is a hash of, and how an individual
 receipt or log can be proven against it. It does not define how receipts are stored, pruned, or
@@ -14,13 +13,12 @@ served over RPC; that remains the unmodified concern of the existing receipt sto
 that cannot be derived from a transaction plus already-committed prior state without executing it;
 see [Rationale](#rationale-non-normative) for the complete reasoning.
 
-This document has no schema version of its own. The algorithm it defines is tied 1:1 to the App
-Hash schema version in effect for the block (`appHashData.version`); a future change to anything
-here can only ship by riding a bump to that version.
+This document defines receipt hash version 1. The version is committed in `receiptHash` itself, so a
+future change to anything here ships as a new version.
 
 ## Notation
 
-In addition to the notation defined in the [App Hash specification](apphash_spec.md#notation):
+In addition to the notation defined in the [App Hash specification](../apphash_spec.md#notation):
 
 - `u8(x)` is `x` as a single unsigned byte.
 - A *tag* is a single domain-separation byte prefixed onto data before it is hashed.
@@ -28,77 +26,68 @@ In addition to the notation defined in the [App Hash specification](apphash_spec
 ## Merkle tree construction (MTH)
 
 Both trees this document defines — the per-receipt logs tree and the per-block receipts tree — use
-the same construction, parameterized by a pair of domain tags `(tagLeaf, tagNode)`, over an ordered
-list of byte-string entries `D = [d_0, …, d_{n-1}]`:
+the BUD tree construction of the [BUD specification](../bud/bud_spec.md#bud-tree), over an ordered
+list of byte-string entries `D = [d_0, …, d_{n-1}]` in place of serialized budlets:
 
 ```
-MTH(tagLeaf, tagNode, {})      = SHA-256()                                       for n = 0
-MTH(tagLeaf, tagNode, {d_0})   = SHA-256(tagLeaf ‖ d_0)                           for n = 1
-MTH(tagLeaf, tagNode, D[0:n])  = SHA-256(tagNode ‖ MTH(tagLeaf, tagNode, D[0:k])
-                                              ‖ MTH(tagLeaf, tagNode, D[k:n]))    for n > 1
+leafHash(d)            = SHA-256(u8(0x00) ‖ d)
+innerHash(left, right) = SHA-256(u8(0x01) ‖ left ‖ right)
+MTH(D)                 = the BUD tree root over leafHash(d_0) … leafHash(d_{n-1})
 ```
 
-where, for `n > 1`, `k` is the largest power of two strictly less than `n`. This is RFC 6962's
-Merkle Tree Hash (§2.1), applied with caller-chosen domain tags in place of RFC 6962's fixed
-`0x00`/`0x01`, so that no leaf or internal-node hash from one tree instance can ever be mistaken for
-one from the other. The empty-tree case (`n = 0`) uses no tag — `SHA-256()`, the hash of the empty
-string — per RFC 6962's own definition, unmodified.
-
-This document uses two tag pairs:
-
-| Tree | `tagLeaf` | `tagNode` |
-|---|---|---|
-| Logs tree (per receipt) | `0x00` | `0x01` |
-| Receipts tree (per block) | `0x02` | `0x03` |
-
-> This unique-per-tree domain separation may be more than is needed. A logs tree's root never
-> enters the receipts tree as a tree element in its own right — it is embedded as 32 opaque bytes
-> inside `receiptPreimage`, which then gets its own leaf hash under the receipts tree's own tags —
-> so there may be no path for a hash from one tree to be mistaken for one from the other even if
-> both reused the same `0x00`/`0x01` pair. Reusing a single shared pair would also let this
-> commitment be built directly on `sei-tendermint/crypto/merkle.HashFromByteSlices`, Sei's own
-> existing RFC 6962 implementation (leaf `0x00`, node `0x01`, SHA-256, the same largest-power-of-two
-> split used here), instead of a bespoke construction.
+`MTH({})` is 32 zero bytes; otherwise `MTH` is RFC 6962's Merkle Tree Hash (§2.1). The two trees
+share their tags: the receipts tree holds a logs tree only as its root, embedded as 32 opaque bytes
+inside `receiptPreimage`, so no node of one tree can stand in for a node of the other.
 
 ## `receiptHash`
 
 ```
-receiptHash(N) = MTH(0x02, 0x03, [ receiptPreimage(r) for r in receipts(N), in transaction order ])
+receiptHash(N) = SHA-256("sei-receipts" ‖ u8(version) ‖ u64be(n) ‖ MTH([ receiptPreimage(r) for r in receipts(N) ]))
 ```
 
-`receipts(N)` is block `N`'s list of transaction receipts. Each entry fed to the tree is:
+`"sei-receipts"` is a domain separation tag: its 12 ASCII bytes, with no terminator or length prefix.
+`version` is `1`, the receipt hash version this document defines. `n` is the number of receipts in
+`receipts(N)`, committed so that a proof cannot claim a different count and index for the same root
+(see [Rationale](#logcount)).
+
+`receipts(N)` holds the receipts of block `N`'s transactions that consumed a nonce, in block order. A
+transaction that execution rejected without running it (a spent or unreachable nonce, a sender that
+cannot pay, or no block gas left) consumed no nonce and has no receipt here, so a transaction hash
+appears in at most one receipt. Each entry fed to the tree is:
 
 ```
-receiptPreimage(r) = u8(r.status) ‖ varint(r.gasUsed) ‖ varint(r.logCount) ‖ logsRoot(r)
+receiptPreimage(r) = u8(r.status) ‖ r.txHash ‖ varint(r.blockIndex) ‖ varint(r.gasUsed) ‖ varint(r.logCount) ‖ logsRoot(r)
 ```
 
 | Field | Encoding |
 |---|---|
 | `status` | `u8`; `0` = failed, `1` = success |
+| `txHash` | raw bytes; the hash of the receipt's transaction |
+| `blockIndex` | `varint`; the transaction's position in block `N`'s transaction list, counting every transaction, rejected ones included |
 | `gasUsed` | `varint`; gas used by this transaction alone, not cumulative across the block |
 | `logCount` | `varint`; `len(r.logs)` — see [Rationale](#logcount) for why this is committed here |
 | `logsRoot` | raw bytes, see below |
 
-`gasUsed` and `logCount` are LEB128, not fixed-width, matching the same choice `blockHash` already
-makes for `totalGasWanted`/`totalGasEstimated`/`block_number` in the App Hash specification: these
+`blockIndex`, `gasUsed`, and `logCount` are LEB128, not fixed-width, matching the same choice
+`blockHash` already makes for `totalGasWanted`/`totalGasEstimated`/`block_number` in the App Hash
+specification: these
 figures are almost always far smaller than 2⁶⁴, so a realistic value fits in a few bytes instead of
 a fixed-width field. `varint` is self-delimiting — every byte but the last has its continuation bit
 set, and that last byte (continuation bit clear) is *included* in the value it terminates, not a
-separator before the next field. So `gasUsed`'s varint runs through and including its first
-clear-continuation-bit byte; `logCount`'s varint starts at the byte immediately after that and is
-parsed the same way; `logsRoot` starts immediately after `logCount`'s varint ends. `receiptPreimage`
-is therefore not a fixed size: it is 35 to 53 bytes — 1 (`status`) plus 1 to 10 (`varint(gasUsed)`)
-plus 1 to 10 (`varint(logCount)`), per the App Hash specification's own bound on `varint`, plus 32
-(`logsRoot`). It is not itself a leaf hash — `MTH` applies the receipts tree's leaf tag (`0x02`) when
-hashing it.
+separator before the next field. So each varint runs through and including its first
+clear-continuation-bit byte, the next field starts at the byte immediately after that, and
+`logsRoot` starts immediately after `logCount`'s varint ends. `receiptPreimage` is therefore not a
+fixed size: it is 68 to 95 bytes — 1 (`status`) plus 32 (`txHash`) plus 1 to 10 for each of the
+three varints, per the App Hash specification's own bound on `varint`, plus 32 (`logsRoot`). It is
+not itself a leaf hash — `MTH` applies the leaf tag (`0x00`) when hashing it.
 
 ### `logsRoot`
 
 ```
-logsRoot(r) = MTH(0x00, 0x01, [ logLeaf(l) for l in r.logs, in emission order ])
+logsRoot(r) = MTH([ logLeaf(l) for l in r.logs, in emission order ])
 ```
 
-A receipt that emits no logs has `logsRoot(r) = SHA-256()` — the `n = 0` case above. Verifying a
+A receipt that emits no logs has `logsRoot(r)` of 32 zero bytes — the `n = 0` case above. Verifying a
 single log against `logsRoot` in isolation (without the rest of the logs) requires an authenticated
 `len(r.logs)`; that value is committed as `logCount` in `receiptPreimage`, not derived here (see
 [Rationale](#logcount)).
@@ -121,7 +110,7 @@ pad(l, i)   = l.topics[i]     if i < l.topicCount
 | 21 | 128 | `topics` | 4 × 32 bytes; zero-padded past `topicCount` |
 | 149 | variable | `data` | raw bytes; runs to the end of the leaf's input |
 
-`logLeaf` is not itself a leaf hash — `MTH` applies the logs tree's leaf tag (`0x00`) when hashing
+`logLeaf` is not itself a leaf hash — `MTH` applies the leaf tag (`0x00`) when hashing
 it. `data` carries no explicit length field: it is the sole variable-length component and it is
 positioned last, so its extent is unambiguous from the preimage alone (see
 [Rationale](#e-no-length-field-for-data)). `topicCount` is the sole authority on how many of the
@@ -156,36 +145,45 @@ logLeaf(1) = 3333333333333333333333333333333333333333
 
 ```
 logsRoot({logLeaf(0), logLeaf(1)}) = c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e
-logsRoot({})                       = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+logsRoot({})                       = 0000000000000000000000000000000000000000000000000000000000000000
 ```
 
-**Receipt 0** — `status` 1, `gasUsed` 21000 (`varint` = `88a401`), `logCount` 2
-(`varint` = `02`), `logsRoot` as computed above from the two logs.
+**Receipt 0** — `status` 1, `txHash` 32 bytes of `0xaa`, `blockIndex` 0 (`varint` = `00`),
+`gasUsed` 21000 (`varint` = `88a401`), `logCount` 2 (`varint` = `02`), `logsRoot` as computed above
+from the two logs.
 
 ```
-receiptPreimage(0) = 01 88a401 02 c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e
+receiptPreimage(0) = 01 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 00 88a401 02 c6ab01a590f123c121f3dad8fcc5e8a59ef73156492f384931e0158cd6d12e4e
 ```
 
-**Receipt 1** — `status` 0 (failed), `gasUsed` 250000 (`varint` = `90a10f`),
-`logCount` 0 (`varint` = `00`), no logs.
+**Receipt 1** — `status` 0 (failed), `txHash` 32 bytes of `0xbb`, `blockIndex` 2 (`varint` = `02`;
+the transaction at position 1 was rejected, so it has no receipt), `gasUsed` 250000
+(`varint` = `90a10f`), `logCount` 0 (`varint` = `00`), no logs.
 
 ```
-receiptPreimage(1) = 00 90a10f 00 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+receiptPreimage(1) = 00 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 02 90a10f 00 0000000000000000000000000000000000000000000000000000000000000000
+```
+
+**Receipt 2** — `status` 1, `txHash` 32 bytes of `0xcc`, `blockIndex` 3 (`varint` = `03`),
+`gasUsed` 50000 (`varint` = `d08603`), `logCount` 1 (`varint` = `01`), and Log 1 as its only log,
+so `logsRoot` is the leaf hash of `logLeaf(1)`.
+
+```
+receiptPreimage(2) = 01 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc 03 d08603 01 17cfcd0320b8675c9e08a6306059ce867f9e113f50c52f987a81cc2abdc4d71c
 ```
 
 ```
-receiptHash({receiptPreimage(0)})                     = 86dee5ab9eced226d9f56ab788b3457a1bada8f7010bb0cc5e02fe082c8bc417
-receiptHash({receiptPreimage(0), receiptPreimage(1)}) = b901abdef77024535a360f0abd3fafd95abcd81f52efd23aa6319d48c9916816
+receiptHash({})                                                           = e040c5d218b18c10ff1b8fb7660cb7779e69bd3a482c9717c4815b87b6035b88
+receiptHash({receiptPreimage(0)})                                         = 32b95177fd02367881c7fbadad25ace4c913704bfb0461a4933801f6707f84c8
+receiptHash({receiptPreimage(0), receiptPreimage(1)})                     = 78ba037d0b37247d421b702148ccdb97b66b95ab98190ec5dc017d9b12f4b59f
+receiptHash({receiptPreimage(0), receiptPreimage(1), receiptPreimage(2)}) = 22b544a23d66ff07ce814e6e151ad46c8d9d490699af6b5091ceccfaa9573d20
 ```
 
-(The single-receipt case above intentionally equals `MTH`'s `n = 1` leaf hash of `receiptPreimage(0)`
-directly — a consistency check anyone re-implementing this can verify independently. Both
-`receiptPreimage(0)` and `receiptPreimage(1)` happen to be 37 bytes here — `gasUsed` needs 3 LEB128
-bytes either way (21000 and 250000), and `logCount` needs exactly 1 byte either way (2 and 0 are both
-single-byte values), so the lengths coincide even though the field values differ. That's an artifact
-of these particular example values, not a general property: `receiptPreimage` ranges from 35 to 53
-bytes depending on `gasUsed` and `logCount`, and `MTH` handles that variation the same as it handles
-any other variable-length tree entry.)
+(All three preimages happen to be 70 bytes here — each `blockIndex` and `logCount` needs 1 LEB128
+byte and each `gasUsed` needs 3 — so the lengths coincide even though the field values differ. That's
+an artifact of these particular example values, not a general property: `receiptPreimage` ranges
+from 68 to 95 bytes, and `MTH` handles that variation the same as it handles any other
+variable-length tree entry.)
 
 ## Rationale (non-normative)
 
@@ -204,7 +202,6 @@ below fails that test and is deliberately excluded as implied:
 | `from` | ECDSA-recoverable from the transaction's own signature |
 | `effective_gas_price` | a pure function of the transaction's fee fields and the block's base fee |
 | `contract_address` (CREATE) | deterministic from `from` and the sender's nonce (or `from`+salt+initcode-hash for CREATE2) — pure arithmetic over the transaction plus `stateHash`'s pre-state |
-| `tx_hash` | implied by the receipt's position matching the transaction list's position |
 | `logs_bloom` | a pure, deterministic function of the logs already committed via `logsRoot` |
 | `error_code` | a diagnostic refinement of `status`; nothing is identified as needing to cryptographically prove *which* failure occurred, only that one did |
 
@@ -212,9 +209,14 @@ below fails that test and is deliberately excluded as implied:
 *include* direction — none are derivable without executing, which is the entire reason this
 commitment needs to exist at all.
 
-No version byte appears in either preimage for the same reason given in the opening section: the
-algorithm is governed by `appHashData.version`, so an independent per-receipt version tag would be
-redundant. The stored receipt format keeps its own, separate versioning (`receiptDataV1` in
+`txHash` and `blockIndex` identify the transaction a receipt belongs to. `receipts(N)` leaves out
+rejected transactions, and which transactions were rejected is itself only known by executing, so
+a receipt's position in the tree does not identify its transaction. `txHash` identifies it without
+the block; `blockIndex` places it in the block's transaction list, which can hold the same
+transaction more than once.
+
+No version byte appears in either preimage: `receiptHash` commits the version once, so a
+per-receipt version tag would be redundant. The stored receipt format keeps its own, separate versioning (`receiptDataV1` in
 `sei-db/ledger_db/receipt/codec.go`) — a storage concern, decoupled from this document.
 
 ### `logCount`
@@ -240,11 +242,10 @@ the root. That lets a prover misstate which position a log sits at, or how many 
 emitted — exactly the kind of claim this commitment exists to make unforgeable.
 
 This is fixable either by committing the count directly, or by pointing to an already-authenticated
-source of it elsewhere. The receipts tree has the latter: a block's transaction count is already
-committed via `blockHash`'s own transaction list (`encodePayload`'s `txs`, in
-[`apphash_spec.md`](apphash_spec.md)), so no separate field is needed there. The logs tree has no
-equivalent source — nothing else commits how many logs a given transaction emitted — so `logCount`
-has to be committed directly, in `receiptPreimage`.
+source of it elsewhere. Neither tree has such a source, so both commit their counts directly. The
+receipts tree's count is `n` in `receiptHash`: `receipts(N)` leaves out rejected transactions, so
+the block's transaction count that `blockHash` commits is not its size. The logs tree's count is
+`logCount`, in `receiptPreimage`: nothing else commits how many logs a given transaction emitted.
 
 ### Deviations from Ethereum, and why
 
@@ -304,6 +305,7 @@ there is no separate expected-length check to perform.
 ## References
 
 - `giga/apphash/apphash_spec.md` — the parent App Hash specification this document fills in
+- `giga/apphash/bud/bud_spec.md` — the BUD tree construction both trees use
 - `sei-db/ledger_db/receipt/receipt_store.go`, `litt_receipt_store.go`, `codec.go` — the existing,
   unmodified receipt store
 - `proto/evm/receipt.proto`, `x/evm/types/receipt.pb.go` — the current stored receipt encoding,
