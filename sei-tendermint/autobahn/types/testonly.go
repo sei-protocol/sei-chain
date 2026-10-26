@@ -17,8 +17,7 @@ import (
 const testViewTimeout = 1500 * time.Millisecond
 
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
-// If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is
-// non-empty (empty tipcuts are rejected by Proposal.Verify).
+// If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is non-empty.
 // Use BuildFullCommitQC when you want random blocks generated automatically.
 func BuildCommitQC(
 	epoch *Epoch,
@@ -328,10 +327,7 @@ func GenProposalAt(rng utils.Rng, view View) *Proposal {
 	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange))
 }
 
-// ProposalAt returns a minimal non-empty Proposal at view, consistent with ep,
-// with a single 1-block lane range so
-// Proposal.Verify accepts it (empty tipcuts are forbidden). For tests that care
-// about signature weight or epoch binding rather than real lane/app data.
+// ProposalAt returns a Proposal at view, consistent with ep, with a single 1-block lane range.
 func ProposalAt(ep *Epoch, view View) *Proposal {
 	p, _ := ProposalAtBlocks(ep, view, 1)
 	return p

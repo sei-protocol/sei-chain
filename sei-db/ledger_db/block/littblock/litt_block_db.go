@@ -34,7 +34,7 @@ type blockDB struct {
 // config.RetentionTime as a TTL failsafe (pruning never reclaims data younger
 // than that even once the watermark has advanced past it).
 //
-// Opening a store that holds records but no QC group fails: the store lost data out of
+// Opening a store that holds records but no SuperBlock fails: the store lost data out of
 // band and must not be served.
 func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 	if err := config.Validate(); err != nil {
@@ -71,14 +71,8 @@ func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 	return s, nil
 }
 
-// recoverWatermark re-derives the reclamation floor from the oldest surviving QC
-// group. The floor is in-memory only, so a restart forgets every
-// SetPruneWatermark; that costs nothing for reclamation, since nothing new is
-// released, but it must not leave blocks readable whose covering QC is already
-// gone.
-//
-// The oldest QC group bounds what the store may serve. A non-empty store
-// without a QC group has lost that bound and must not reopen.
+// recoverWatermark restores the floor from the oldest surviving SuperBlock.
+// A non-empty store without a SuperBlock cannot supply a recovery anchor.
 func (s *blockDB) recoverWatermark() error {
 	it, err := s.table.Iterator(false)
 	if err != nil {
@@ -107,13 +101,13 @@ func (s *blockDB) recoverWatermark() error {
 			return fmt.Errorf("invalid primary ledger key %x", key)
 		}
 		empty = false
-		if kind == kindQCGroup {
+		if kind == kindSuperBlock {
 			s.watermark.Store(uint64(recordKey.number()))
 			return nil
 		}
 	}
 	if !empty {
-		return fmt.Errorf("corrupt store: no QC group in non-empty store")
+		return fmt.Errorf("corrupt store: no SuperBlock in non-empty store")
 	}
 	return nil
 }
@@ -138,17 +132,17 @@ func (s *blockDB) SetPruneWatermark(n blocktypes.BlockNumber) {
 	}
 }
 
-// PutQC stores a QC and its blocks in one atomic LittDB value.
-func (s *blockDB) PutQC(group blocktypes.QCGroupRecord) error {
-	return s.putRecord(encodeQCGroup(group))
+// PutBlock stores a SuperBlock's QC and lane blocks in one atomic LittDB value.
+func (s *blockDB) PutBlock(block blocktypes.BlockRecord) error {
+	return s.putRecord(encodeBlock(block))
 }
 
-// PutAppQC stores an application QC and its covered-number aliases.
+// PutAppQC stores an application QC at its road index.
 func (s *blockDB) PutAppQC(appQC blocktypes.AppQCRecord) error {
 	return s.putRecord(encodeAppQC(appQC))
 }
 
-// PutAppProposal stores an application proposal and its covered-number aliases.
+// PutAppProposal stores an application proposal at its road index.
 func (s *blockDB) PutAppProposal(proposal blocktypes.AppProposalRecord) error {
 	return s.putRecord(encodeAppProposal(proposal))
 }
@@ -170,21 +164,35 @@ func (s *blockDB) getRecord(kind recordKind, n blocktypes.BlockNumber) ([]byte, 
 	if !exists {
 		return nil, false, nil
 	}
-	data, err := decodePayload(kind, value)
-	return data, err == nil, err
+	return value, true, nil
 }
 
-// GetBlockByHash returns the number and opaque payload of the block indexed by hash.
-func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockNumber, []byte, bool, error) {
+// GetBlockByHash returns the complete record indexed by a SuperBlock hash.
+func (s *blockDB) GetBlockByHash(hash blocktypes.BlockHash) (blocktypes.BlockRecord, bool, error) {
 	value, exists, err := s.table.Get(blockHashKey(hash))
 	if err != nil || !exists {
-		return 0, nil, exists, err
+		return blocktypes.BlockRecord{}, exists, err
 	}
 	block, err := decodeBlock(value)
-	return block.Number, block.Value, err == nil, err
+	return block, err == nil, err
 }
 
-// ReadSuffix reads complete primary records from the latest applied QC group onward.
+// GetBlockByNumber returns the complete record at road index n.
+func (s *blockDB) GetBlockByNumber(n blocktypes.BlockNumber) (blocktypes.BlockRecord, bool, error) {
+	value, exists, err := s.table.Get(kindSuperBlock.key(n))
+	if err != nil || !exists {
+		return blocktypes.BlockRecord{}, exists, err
+	}
+	block, err := decodeBlock(value)
+	return block, err == nil, err
+}
+
+// GetLaneBlock returns the lane block at a road index and header offset.
+func (s *blockDB) GetLaneBlock(n blocktypes.BlockNumber, offset uint64) ([]byte, bool, error) {
+	return s.table.Get(laneBlockKey(n, offset))
+}
+
+// ReadSuffix reads complete primary records from the latest AppQC onward.
 func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 	it, err := s.table.Iterator(true)
 	if err != nil {
@@ -192,7 +200,7 @@ func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 	}
 	defer func() { _ = it.Close() }()
 	var suffix blocktypes.Suffix
-	var groups []blocktypes.QCGroupRecord
+
 	var first blocktypes.BlockNumber
 	gotAppQC := false
 	for {
@@ -225,38 +233,26 @@ func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 				return blocktypes.Suffix{}, fmt.Errorf("failed to read record value: %w", err)
 			}
 			switch kind {
-			case kindQCGroup:
-				group, err := decodeQCGroup(value)
+			case kindSuperBlock:
+				block, err := decodeBlock(value)
 				if err != nil {
 					return blocktypes.Suffix{}, err
 				}
-				groups = append(groups, group)
+				suffix.Blocks = append(suffix.Blocks, block)
 			case kindAppQC:
-				qc, err := decodeAppQC(value)
-				if err != nil {
-					return blocktypes.Suffix{}, err
-				}
-				suffix.AppQCs = append(suffix.AppQCs, qc)
+				suffix.AppQCs = append(suffix.AppQCs, blocktypes.AppQCRecord{Index: recordKey.number(), Data: value})
 			case kindAppProp:
-				proposal, err := decodeAppProposal(value)
-				if err != nil {
-					return blocktypes.Suffix{}, err
-				}
-				suffix.AppProposals = append(suffix.AppProposals, proposal)
+				suffix.AppProposals = append(suffix.AppProposals, blocktypes.AppProposalRecord{Index: recordKey.number(), Data: value})
 			}
 		}
-		if gotAppQC && kind == kindQCGroup && recordKey.number() <= first {
+		if gotAppQC && kind == kindSuperBlock && recordKey.number() <= first {
 			break
 		}
 	}
-	groups = slices.DeleteFunc(groups, func(group blocktypes.QCGroupRecord) bool { return gotAppQC && group.Blocks[0].Number < first })
-	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc blocktypes.AppQCRecord) bool { return gotAppQC && qc.First < first })
-	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal blocktypes.AppProposalRecord) bool { return gotAppQC && proposal.First < first })
-	slices.Reverse(groups)
-	for _, group := range groups {
-		suffix.QCs = append(suffix.QCs, group.QC)
-		suffix.Blocks = append(suffix.Blocks, group.Blocks...)
-	}
+	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block blocktypes.BlockRecord) bool { return gotAppQC && block.Index < first })
+	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(qc blocktypes.AppQCRecord) bool { return gotAppQC && qc.Index < first })
+	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(proposal blocktypes.AppProposalRecord) bool { return gotAppQC && proposal.Index < first })
+	slices.Reverse(suffix.Blocks)
 	slices.Reverse(suffix.AppQCs)
 	slices.Reverse(suffix.AppProposals)
 	return suffix, nil
@@ -266,7 +262,7 @@ func (s *blockDB) ReadSuffix() (blocktypes.Suffix, error) {
 // Hash aliases are always eligible; their primary record and numbered aliases govern retention.
 func (k ledgerKey) reclaimable(watermark blocktypes.BlockNumber) (bool, error) {
 	switch keyKind(k) {
-	case kindQCGroup, kindBlock, kindQC, kindAppProp, kindAppQC:
+	case kindSuperBlock, kindLaneBlock, kindQC, kindAppProp, kindAppQC:
 		return k.number() < watermark, nil
 	case kindBlockHash:
 		return true, nil
@@ -315,22 +311,17 @@ func ForceGC(db blocktypes.BlockDB) error {
 	return nil
 }
 
-// GetQC returns the serialized QC covering n.
+// GetQC returns the serialized QC at road n.
 func (s *blockDB) GetQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	return s.getRecord(kindQC, n)
 }
 
-// GetBlock returns the serialized block numbered n.
-func (s *blockDB) GetBlock(n blocktypes.BlockNumber) ([]byte, bool, error) {
-	return s.getRecord(kindBlock, n)
-}
-
-// GetAppQC returns the serialized application QC covering n.
+// GetAppQC returns the serialized application QC at road n.
 func (s *blockDB) GetAppQC(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	return s.getRecord(kindAppQC, n)
 }
 
-// GetAppProposal returns the serialized application proposal covering n.
+// GetAppProposal returns the serialized application proposal at road n.
 func (s *blockDB) GetAppProposal(n blocktypes.BlockNumber) ([]byte, bool, error) {
 	return s.getRecord(kindAppProp, n)
 }

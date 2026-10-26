@@ -1,7 +1,7 @@
 package blockstore
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
@@ -67,39 +67,6 @@ func decodeAppQC(value []byte) (*types.AppQC, error) {
 	return appQC, nil
 }
 
-// encodeBlocks encodes the lane blocks in CommitQC header order.
-func encodeBlocks(blocks []*types.Block) []byte {
-	var value []byte
-	for _, block := range blocks {
-		encoded := encodeBlock(block)
-		value = binary.BigEndian.AppendUint32(value, uint32(len(encoded))) //nolint:gosec // lane block size is bounded
-		value = append(value, encoded...)
-	}
-	return value
-}
-
-// decodeBlocks decodes a complete ordered set of lane blocks.
-func decodeBlocks(value []byte) ([]*types.Block, error) {
-	var blocks []*types.Block
-	for len(value) > 0 {
-		if len(value) < 4 {
-			return nil, fmt.Errorf("truncated lane block length")
-		}
-		length := uint64(binary.BigEndian.Uint32(value))
-		value = value[4:]
-		if length > uint64(len(value)) {
-			return nil, fmt.Errorf("truncated lane block")
-		}
-		block, err := decodeBlock(value[:length])
-		if err != nil {
-			return nil, err
-		}
-		blocks = append(blocks, block)
-		value = value[length:]
-	}
-	return blocks, nil
-}
-
 // validateBlocks checks that lane blocks match their CommitQC in header order.
 func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
 	if len(blocks) != len(qc.Headers()) || uint64(len(blocks)) != qc.QC().Proposal().NumBlocks() {
@@ -107,7 +74,7 @@ func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
 	}
 	for i, block := range blocks {
 		if err := block.Verify(); err != nil {
-			return fmt.Errorf("block %d: %w", i, err)
+			return fmt.Errorf("block %d: %w: %w", i, types.ErrQCBlocksMismatch, err)
 		}
 		if block.Header().Hash() != qc.Headers()[i].Hash() {
 			return types.ErrQCBlocksMismatch
@@ -116,17 +83,38 @@ func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
 	return nil
 }
 
-// decodeQCGroupBlocks decodes and validates a QC's complete block set.
-func decodeQCGroupBlocks(qc *types.FullCommitQC, records []blocktypes.BlockRecord) (types.QCGroup, error) {
-	if len(records) != 1 || types.RoadIndex(records[0].Number) != qc.Index() {
-		return types.QCGroup{}, types.ErrQCBlocksMismatch
+// encodeBlockRecord encodes a CommitQC and its lane blocks with the SuperBlock lookup hash.
+func encodeBlockRecord(qc *types.FullCommitQC, blocks []*types.Block) blocktypes.BlockRecord {
+	block := types.NewSuperBlock(qc, blocks)
+	record := blocktypes.BlockRecord{Index: blocktypes.BlockNumber(qc.Index()), Hash: block.CalculateBlockHash().Bytes(), QC: encodeQC(qc)}
+	for _, lane := range blocks {
+		record.LaneBlocks = append(record.LaneBlocks, encodeBlock(lane))
 	}
-	blocks, err := decodeBlocks(records[0].Value)
+	return record
+}
+
+// decodeBlockRecord decodes and validates a complete SuperBlock record.
+func decodeBlockRecord(record blocktypes.BlockRecord) (types.QCGroup, error) {
+	qc, err := decodeQC(record.QC)
 	if err != nil {
 		return types.QCGroup{}, err
 	}
+	if qc.Index() != types.RoadIndex(record.Index) {
+		return types.QCGroup{}, types.ErrQCBlocksMismatch
+	}
+	blocks := make([]*types.Block, len(record.LaneBlocks))
+	for i, value := range record.LaneBlocks {
+		block, err := decodeBlock(value)
+		if err != nil {
+			return types.QCGroup{}, err
+		}
+		blocks[i] = block
+	}
 	if err := validateBlocks(qc, blocks); err != nil {
 		return types.QCGroup{}, err
+	}
+	if !bytes.Equal(types.NewSuperBlock(qc, blocks).CalculateBlockHash().Bytes(), record.Hash) {
+		return types.QCGroup{}, types.ErrQCBlocksMismatch
 	}
 	return types.QCGroup{QC: qc, Blocks: blocks}, nil
 }

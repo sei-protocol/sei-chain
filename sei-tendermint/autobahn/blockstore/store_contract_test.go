@@ -1,6 +1,7 @@
 package blockstore_test
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -114,7 +116,7 @@ func runContract(t *testing.T, build builder) {
 	t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, build) })
 	t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) { testWriteOrderRejectedAfterRestart(t, build) })
 
-	t.Run("WriteQCCoversNoBlocksRejected", func(t *testing.T) { testWriteQCCoversNoBlocksRejected(t, build) })
+	t.Run("WriteEmptyQC", func(t *testing.T) { testWriteEmptyQC(t, build) })
 	t.Run("WriteAppDataOrderRejected", func(t *testing.T) { testWriteAppDataOrderRejected(t, build) })
 	t.Run("PruneWithAppQCNeverEmpties", func(t *testing.T) { testPruneWithAppQCNeverEmpties(t, build) })
 	t.Run("PruneAfterRestart", func(t *testing.T) { testPruneAfterRestart(t, build) })
@@ -201,7 +203,6 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 	var entries []iterEntry
 	floor := suffix.Status.Or(types.SuffixRange{
 		First:           0,
-		NextBlock:       0,
 		NextQC:          0,
 		NextAppQC:       0,
 		NextAppProposal: 0,
@@ -256,7 +257,7 @@ func presentBlockNumbers(entries []iterEntry) []types.RoadIndex {
 
 // testStatus asserts Status matches the highest block/QC still present
 // (via a full iterator scan), including after prune and restart. QC writes
-// advance NextQC and NextBlock together.
+// advance NextQC atomically with their lane blocks.
 func testStatus(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -267,7 +268,6 @@ func testStatus(t *testing.T, build builder) {
 	tips := status(t, db)
 	require.Equal(t, batches[0].first, tips.First)
 	require.Equal(t, batches[0].next, tips.NextQC)
-	require.Equal(t, batches[0].next, tips.NextBlock, "QC and blocks advance together")
 	require.Equal(t, tips.First, tips.NextAppQC, "no AppQC has been written")
 	require.Equal(t, tips.First, tips.NextAppProposal, "no AppProposal has been written")
 	assertTipsMatchPresent(t, db)
@@ -275,7 +275,6 @@ func testStatus(t *testing.T, build builder) {
 	writeAll(t, db, batches[1:])
 	last := batches[len(batches)-1]
 	tips = status(t, db)
-	require.Equal(t, last.next, tips.NextBlock)
 	require.Equal(t, last.next, tips.NextQC)
 	assertTipsMatchPresent(t, db)
 
@@ -285,14 +284,12 @@ func testStatus(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(batches[1].first))
 	assertTipsMatchPresent(t, db)
 	tips = status(t, db)
-	require.Equal(t, last.next, tips.NextBlock, "prune must not move the block write tip")
-	require.Equal(t, last.next, tips.NextQC, "prune must not move the QC write tip")
+	require.Equal(t, last.next, tips.NextQC, "prune must not move the block write tip")
 
 	db = restart(t, o, db)
 	assertTipsMatchPresent(t, db)
 	tips = status(t, db)
-	require.Equal(t, last.next, tips.NextBlock, "block tip must survive restart")
-	require.Equal(t, last.next, tips.NextQC, "QC tip must survive restart")
+	require.Equal(t, last.next, tips.NextQC, "block tip must survive restart")
 }
 
 // assertTipsMatchPresent checks Status against point reads for the records the
@@ -301,10 +298,10 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 	t.Helper()
 	tips := status(t, db)
 
-	if tips.NextBlock > tips.First {
-		blk, err := db.ReadSuperBlockByNumber(tips.NextBlock - 1)
+	if tips.NextQC > tips.First {
+		blk, err := db.ReadSuperBlockByNumber(tips.NextQC - 1)
 		require.NoError(t, err)
-		require.True(t, blk.IsPresent(), "NextBlock must point past a readable block")
+		require.True(t, blk.IsPresent(), "NextQC must point past a readable SuperBlock")
 	}
 
 	if tips.NextQC > tips.First {
@@ -980,8 +977,8 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	defer func() { _ = db.Close() }()
 	b0 := batches[0]
 	require.NoError(t, db.WriteQC(b0.qc, b0.blocks))
-	require.ErrorIs(t, db.WriteQC(b0.qc, b0.blocks), types.ErrQCNonContiguous)
-	require.ErrorIs(t, db.WriteQC(batches[2].qc, batches[2].blocks), types.ErrQCNonContiguous)
+	require.ErrorIs(t, db.WriteQC(b0.qc, b0.blocks), types.ErrUnexpectedIndex)
+	require.ErrorIs(t, db.WriteQC(batches[2].qc, batches[2].blocks), types.ErrUnexpectedIndex)
 	assertBlocksReadable(t, db, batches[:1])
 	require.NoError(t, db.WriteQC(batches[1].qc, batches[1].blocks))
 	assertBlocksReadable(t, db, batches[:2])
@@ -1008,22 +1005,22 @@ func testWriteAppProposalOrderRejected(t *testing.T, build builder) {
 	b2 := batches[2]
 
 	err := db.WriteAppProposal(appProposalForBatch(rng, b0))
-	require.ErrorIs(t, err, types.ErrAppProposalMissingQC, "AppProposal before CommitQC must fail")
+	require.ErrorIs(t, err, types.ErrMissingQC, "AppProposal before CommitQC must fail")
 
 	require.NoError(t, db.WriteQC(b0.qc, b0.blocks))
 	require.NoError(t, db.WriteQC(b1.qc, b1.blocks))
 	err = db.WriteAppProposal(appProposalForBatch(rng, b1))
-	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "first AppProposal must start at retained QC floor")
+	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "first AppProposal must start at retained QC floor")
 
 	appProposal0 := appProposalForBatch(rng, b0)
 	require.NoError(t, db.WriteAppProposal(appProposal0))
 
 	err = db.WriteAppProposal(appProposal0)
-	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "duplicate AppProposal write must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "duplicate AppProposal write must fail")
 
 	require.NoError(t, db.WriteQC(b2.qc, b2.blocks))
 	err = db.WriteAppProposal(appProposalForBatch(rng, b2))
-	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "AppProposal gap must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "AppProposal gap must fail")
 
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	tips := status(t, db)
@@ -1042,25 +1039,26 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	b2 := batches[2]
 
 	err := db.WriteAppQC(appQCForBatch(rng, keys, b0))
-	require.ErrorIs(t, err, types.ErrAppQCMissingQC, "AppQC before CommitQC must fail")
+	require.ErrorIs(t, err, types.ErrMissingAppProposal, "AppQC before CommitQC must fail")
 
 	require.NoError(t, db.WriteQC(b0.qc, b0.blocks))
 	require.NoError(t, db.WriteQC(b1.qc, b1.blocks))
 	err = db.WriteAppQC(appQCForBatch(rng, keys, b1))
-	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "first AppQC must start at retained QC floor")
+	require.ErrorIs(t, err, types.ErrMissingAppProposal, "AppQC requires its AppProposal")
 
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b0)))
 	appQC0 := appQCForBatch(rng, keys, b0)
 	require.NoError(t, db.WriteAppQC(appQC0))
 
 	err = db.WriteAppQC(appQC0)
-	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "duplicate AppQC write must fail")
+	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "duplicate AppQC write must fail")
 
 	require.NoError(t, db.WriteQC(b2.qc, b2.blocks))
-	err = db.WriteAppQC(appQCForBatch(rng, keys, b2))
-	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "AppQC gap must fail")
-
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
+	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b2)))
+	err = db.WriteAppQC(appQCForBatch(rng, keys, b2))
+	require.ErrorIs(t, err, types.ErrUnexpectedIndex, "AppQC gap must fail")
+
 	require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b1)))
 	tips := status(t, db)
 	require.Equal(t, b1.next, tips.NextAppQC)
@@ -1091,7 +1089,7 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 
 	// A reopened store rejects an already-persisted QC and its blocks.
 	err := db.WriteQC(last.qc, last.blocks)
-	require.ErrorIs(t, err, types.ErrQCNonContiguous)
+	require.ErrorIs(t, err, types.ErrUnexpectedIndex)
 
 	// The contiguous continuation is accepted — this succeeds only if the cursors
 	// were recovered to their exact pre-restart values.
@@ -1134,7 +1132,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 	require.Equal(t, last.next, prevQC.Next())
 
 	tips := status(t, db)
-	require.Equal(t, highest+1, tips.NextBlock, "Status block tip must match the iterator scan")
+	require.Equal(t, highest+1, tips.NextQC, "Status block tip must match the iterator scan")
 	require.Equal(t, prevQC.Next(), tips.NextQC, "Status QC tip must match the iterator scan")
 	covering, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
 	require.NoError(t, err)
@@ -1222,15 +1220,25 @@ func testWriteQCBlocksMismatchRejected(t *testing.T, build builder) {
 	}
 }
 
-// testWriteQCCoversNoBlocksRejected verifies that empty QCs persist nothing.
-func testWriteQCCoversNoBlocksRejected(t *testing.T, build builder) {
+// testWriteEmptyQC verifies that an empty QC persists a SuperBlock and advances the road.
+func testWriteEmptyQC(t *testing.T, build builder) {
 	rng := utils.TestRng()
-	db, _ := openFresh(t, build)
+	db, reopen := openFresh(t, build)
 	defer func() { _ = db.Close() }()
-	require.ErrorIs(t, db.WriteQC(types.GenFullCommitQCAt(rng, 0, 0), nil), types.ErrQCNonContiguous)
-	require.False(t, db.Status().IsPresent())
+	qc := types.GenFullCommitQCAt(rng, 0, 0)
+	require.NoError(t, db.WriteQC(qc, nil))
+	require.Equal(t, types.RoadIndex(1), status(t, db).NextQC)
+	db = restart(t, reopen, db)
+	block, err := db.ReadSuperBlockByNumber(qc.Index())
+	require.NoError(t, err)
+	got, ok := block.Get()
+	require.True(t, ok)
+	require.Empty(t, got.Txs())
+	byHash, err := db.ReadSuperBlockByHash(got.CalculateBlockHash())
+	require.NoError(t, err)
+	require.True(t, byHash.IsPresent())
 	committee, keys := buildCommittee()
-	b := generateBatches(committee, keys)[0]
+	b := generateBatches(committee, keys)[1]
 	require.NoError(t, db.WriteQC(b.qc, b.blocks))
 	require.Equal(t, b.next, status(t, db).NextQC)
 }
@@ -1530,4 +1538,26 @@ func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 // superBlocks returns the execution unit represented by this batch.
 func (b batch) superBlocks() []*types.SuperBlock {
 	return []*types.SuperBlock{types.NewSuperBlock(b.qc, b.blocks)}
+}
+
+type failedBlockDB struct {
+	blocktypes.BlockDB
+	writeErr error
+}
+
+func (db failedBlockDB) PutBlock(blocktypes.BlockRecord) error { return db.writeErr }
+
+func TestFailedFirstWriteKeepsStoreEmpty(t *testing.T) {
+	rng := utils.TestRngFromSeed(42)
+	failure := errors.New("write failed")
+	backend := memblock.NewBlockDB()
+	store, err := blockstore.New(failedBlockDB{BlockDB: backend, writeErr: failure})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	require.ErrorIs(t, store.WriteQC(types.GenFullCommitQCAt(rng, 42, 0), nil), failure)
+	require.False(t, store.Status().IsPresent())
+	require.Zero(t, store.First())
+	suffix, err := store.ReadSuffix()
+	require.NoError(t, err)
+	require.False(t, suffix.Status.IsPresent())
 }

@@ -94,11 +94,21 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 	if err := qc.Verify(e); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	i.qcs[index] = qcEntry{qc: qc, epoch: e}
-	i.cachedLaneBlocks += uint64(len(qc.Headers()))
-	i.nextQC = next
-	i.publishNextCommitEpoch(registry)
+	i.insertVerifiedQC(registry, qc, e)
 	return nil
+}
+
+// insertVerifiedQC records a verified QC and its empty SuperBlock, if any.
+func (i *inner) insertVerifiedQC(registry *epoch.Registry, qc *types.FullCommitQC, ep *types.Epoch) {
+	index := qc.Index()
+	i.qcs[index] = qcEntry{qc: qc, epoch: ep}
+	i.cachedLaneBlocks += uint64(len(qc.Headers()))
+	i.nextQC = qc.QC().Next()
+	if len(qc.Headers()) == 0 {
+		block := types.NewSuperBlock(qc, nil)
+		i.superBlockHashes[block.CalculateBlockHash()] = index
+	}
+	i.publishNextCommitEpoch(registry)
 }
 
 func (i *inner) insertAppQC(appQC *types.AppQC) error {
@@ -262,7 +272,6 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		NextQC:          firstBlock,
 		NextAppProposal: firstBlock,
 		NextAppQC:       firstBlock,
-		NextBlock:       firstBlock,
 	})
 	// Empty-chain default; loaded QCs publish the epoch of their successor.
 	genesis, err := cfg.Registry.EpochByIndex(0)
@@ -307,7 +316,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	}
 	// Advance nextBlock through contiguous loaded blocks. Don't use
 	// updateNextBlock: stale timestamps would skew metrics.
-	inner.nextBlock = max(inner.first, status.NextBlock)
+	inner.nextBlock = max(inner.first, status.NextQC)
 	for _, appProposal := range suffix.AppProposals {
 		if err := inner.insertAppProposal(appProposal); err != nil {
 			return nil, fmt.Errorf("load AppProposal from BlockStore: %w", err)
@@ -355,8 +364,7 @@ func (s *State) activateStagedEpoch() error {
 }
 
 // insertBlocksByHash matches byHash against stored (already verified) QC
-// headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
-// when the contiguous prefix grows. Caller must hold inner's lock.
+// headers at index and inserts hits. Caller must hold inner's lock.
 func (s *State) insertBlocksByHash(inner *inner, index types.RoadIndex, byHash map[types.BlockHeaderHash]*types.Block) error {
 	if index < inner.nextBlock || index >= inner.nextQC {
 		return nil
@@ -368,7 +376,6 @@ func (s *State) insertBlocksByHash(inner *inner, index types.RoadIndex, byHash m
 			}
 		}
 	}
-	inner.updateNextBlock(s.metrics)
 	return nil
 }
 
@@ -376,11 +383,13 @@ func (s *State) insertBlocksByHash(inner *inner, index types.RoadIndex, byHash m
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
-	index, next := qc.QC().Index(), qc.QC().Next()
+	index := qc.Index()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return index <= inner.nextQC && (index < inner.nextQC || inner.cachedLaneBlocks < blocksCacheSize)
+				// Empty QCs also need to count toward the cache bound.
+				return index <= inner.nextQC && (index < inner.nextQC ||
+					inner.cachedLaneBlocks < blocksCacheSize && inner.nextQC-inner.first < blocksCacheSize)
 			}); err != nil {
 				return false, err
 			}
@@ -412,20 +421,17 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
 			if inner.nextQC == index {
-				inner.qcs[index] = qcEntry{qc: qc, epoch: ep}
-				inner.cachedLaneBlocks += uint64(len(qc.Headers()))
-				inner.nextQC = next
+				inner.insertVerifiedQC(s.cfg.Registry, qc, ep)
 			}
 			s.metrics.NextBlock.QC.Set(utils.Clamp[int64](inner.nextQC))
-			inner.publishNextCommitEpoch(s.cfg.Registry)
-			ctrl.Updated()
 		}
 		if len(byHash) > 0 {
 			if err := s.insertBlocksByHash(inner, qc.Index(), byHash); err != nil {
 				return err
 			}
-			ctrl.Updated()
 		}
+		inner.updateNextBlock(s.metrics)
+		ctrl.Updated()
 	}
 	return nil
 }
@@ -827,7 +833,7 @@ func (s *State) PruneBefore(retainFrom types.RoadIndex) error {
 // runPersist is a background goroutine that persists QCs, blocks,
 // AppProposals, and AppQCs to BlockStore. It waits for in-memory data to advance
 // past the SuffixRange persistence cursor, then writes each stream in cursor
-// order and flushes once per batch. persisted.NextBlock advances with the
+// order and flushes once per batch. persisted.NextQC advances with the
 // block tip to unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
 // AppQCs are persisted only when their AppHash matches local execution.
@@ -867,7 +873,6 @@ func (s *State) runPersist(ctx context.Context) error {
 				blocks = append(blocks, covered)
 				qcs = append(qcs, qc)
 				status.NextQC = next
-				status.NextBlock = next
 			}
 			for status.NextAppProposal < inner.nextAppProposal {
 				appProposal := inner.appProposals[status.NextAppProposal]

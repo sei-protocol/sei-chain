@@ -68,22 +68,30 @@ func TestViewSpecGenesisRoadOrigin(t *testing.T) {
 	require.Equal(t, RoadIndex(7), vs.Index())
 }
 
-func TestProposalVerifyRejectsEmptyTipcut(t *testing.T) {
+func TestProposalVerifyAcceptsEmptyTipcut(t *testing.T) {
 	rng := utils.TestRng()
-	committee, _ := GenCommittee(rng, 4)
+	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
 	vs := ViewSpec{ConsensusSpec: ConsensusSpec{Epoch: ep}}
 
-	// Direct Proposal.Verify rejects empty tipcuts (no LaneQCs / zero lane blocks).
-	// Local propose waits via WaitForLaneQCs; verification must refuse empty tipcuts
-	// from peers as well.
 	empty := newProposal(vs.View(), time.Now(), nil)
 	require.Equal(t, uint64(0), empty.NumBlocks())
-	require.Error(t, empty.Verify(ep))
+	require.NoError(t, empty.Verify(ep))
+
+	proposal, err := NewProposal(leaderKey(committee, keys, vs.View()), vs, vs.NextTimestamp(), nil)
+	require.NoError(t, err)
+	require.NoError(t, proposal.Verify(vs, testViewTimeout))
+	qc := NewFullCommitQC(makeCommitQCFromProposal(keys, proposal), nil)
+	require.NoError(t, qc.Verify(ep))
+	require.NoError(t, FullCommitQCConv.Test(qc))
+	block := NewSuperBlock(qc, nil)
+	require.Equal(t, qc.Index(), block.Height)
+	require.Equal(t, proposal.Proposal().Msg().Timestamp(), block.Timestamp)
+	require.Zero(t, block.GasWanted)
+	require.Empty(t, block.Txs())
 }
 
-// oneLaneQCMap builds a single LaneQC so NewProposal is non-empty (empty tipcuts
-// are rejected by Proposal.Verify).
+// oneLaneQCMap builds a single LaneQC advancing the first lane.
 func oneLaneQCMap(rng utils.Rng, committee *Committee, keys []SecretKey, vs ViewSpec) map[LaneID]*LaneQC {
 	lane := committee.Lanes().At(0)
 	n := LaneRangeOpt(vs.CommitQC, lane).Next()

@@ -2,57 +2,21 @@ package types
 
 import "errors"
 
-// ErrNotFound is returned when a requested record is not yet available —
-// a block, QC, or AppProposal ahead of what data.State currently has (e.g.
-// ahead of the contiguous block/QC prefix). Distinct from ErrPruned, which
-// means the height is below the retention / eviction floor.
+// ErrNotFound indicates that requested data is not yet available.
 var ErrNotFound = errors.New("not found")
 
-// ErrBlockGap indicates that persisted blocks are not contiguous.
-var ErrBlockGap = errors.New("block gap in BlockDB")
+// ErrUnexpectedIndex indicates a repeated, skipped, stale, or unrepresentable write index.
+var ErrUnexpectedIndex = errors.New("unexpected road index")
 
-// ErrQCNonContiguous is returned by WriteQC when the QC's Index
-// does not equal the previous QC's Next. QCs must be written as
-// a contiguous, ascending sequence.
-var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
+// ErrMissingQC indicates that an application proposal has no stored CommitQC.
+var ErrMissingQC = errors.New("missing CommitQC")
 
-// ErrAppProposalNonContiguous is returned by WriteAppProposal when the supplied
-// AppProposal does not extend the existing AppProposal prefix. AppProposals must
-// be written as a contiguous, ascending sequence aligned with the retained
-// CommitQC prefix.
-var ErrAppProposalNonContiguous = errors.New("block: WriteAppProposal non-contiguous")
+// ErrMissingAppProposal indicates that an AppQC has no stored application proposal.
+var ErrMissingAppProposal = errors.New("missing AppProposal")
 
-// ErrAppProposalMissingQC is returned by WriteAppProposal when no previously
-// written CommitQC has the AppProposal's road index. The matching
-// CommitQC must be written before the AppProposal.
-var ErrAppProposalMissingQC = errors.New("block: WriteAppProposal without matching CommitQC")
-
-// ErrAppQCNonContiguous is returned by WriteAppQC when the supplied AppQC does
-// not extend the existing AppQC prefix. AppQCs must be written as a contiguous,
-// ascending sequence aligned with the retained CommitQC prefix.
-var ErrAppQCNonContiguous = errors.New("block: WriteAppQC non-contiguous")
-
-// ErrAppQCMissingQC is returned by WriteAppQC when no previously written
-// CommitQC has the AppQC's road index. The matching CommitQC must
-// be written before the AppQC.
-var ErrAppQCMissingQC = errors.New("block: WriteAppQC without matching CommitQC")
-
-// ErrPruned is returned when a requested record is below the current retention
-// / eviction floor and is not served. Used for BlockDB by-number reads below
-// the store watermark, for BlockDB.Iterator when a concurrent PruneBefore moves
-// the floor past the requested start before the iterator can be positioned, and
-// for data.State lookups (blocks, QCs, AppProposals) after in-memory eviction.
-// Distinct from utils.None on BlockDB, which means "not present at or above the
-// watermark" and may still be filled by a future write.
-//
-// ErrPruned reflects the watermark's current position, not a permanent verdict.
-// The watermark only advances while a store stays open, so within a single
-// session ErrPruned is terminal — retrying the same n keeps returning it. It is
-// not durable across restarts: the watermark is re-derived on open and
-// reclamation is asynchronous, so an n that returned ErrPruned before a restart
-// may afterward read as present (or as utils.None). Callers should treat
-// ErrPruned as "not currently served," not as a guarantee the record is gone.
+// ErrPruned indicates that requested data is below the current retention floor.
+// The floor is re-derived on reopen, so hidden records may become readable again.
 var ErrPruned = errors.New("pruned: below retention watermark")
 
-// ErrQCBlocksMismatch indicates that blocks do not match a QC's complete header list.
+// ErrQCBlocksMismatch indicates inconsistent SuperBlock metadata, hash, or lane blocks.
 var ErrQCBlocksMismatch = errors.New("QC blocks do not match headers")

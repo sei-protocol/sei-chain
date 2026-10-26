@@ -3,7 +3,7 @@
 package blockstore
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -45,36 +45,36 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 
 func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	index := qc.QC().Index()
+	if index == utils.Max[types.RoadIndex]() {
+		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
+	}
 
 	if err := validateBlocks(qc, blocks); err != nil {
 		return fmt.Errorf("invalid QC blocks: %w", err)
 	}
-	block := types.NewSuperBlock(qc, blocks)
-	records := []blocktypes.BlockRecord{{Number: blocktypes.BlockNumber(qc.Index()), Hash: block.CalculateBlockHash().Bytes(), Value: encodeBlocks(blocks)}}
+	record := encodeBlockRecord(qc, blocks)
 
 	for status := range s.status.Lock() {
-		current,ok := status.Get()
+		current, ok := status.Get()
 		if !ok {
 			current = types.SuffixRange{
-				First: index,
-				NextQC: index,
-				NextAppQC: index,
+				First:           index,
+				NextQC:          index,
+				NextAppQC:       index,
 				NextAppProposal: index,
-			}	
+			}
 		}
 		if current.NextQC != index {
-			return fmt.Errorf("QC starts at %d, expected %d: %w", index, current.NextQC, types.ErrQCNonContiguous)
+			return fmt.Errorf("QC starts at %d, expected %d: %w", index, current.NextQC, types.ErrUnexpectedIndex)
 		}
-		if err := s.db.PutQC(blocktypes.QCGroupRecord{
-			QC: blocktypes.QCRecord{Data: encodeQC(qc)}, Blocks: records,
-		}); err != nil {
+		if err := s.db.PutBlock(record); err != nil {
 			return fmt.Errorf("failed to put QC %d: %w", index, err)
 		}
-		if current.First == index {
+		if !ok {
 			// Reads below the first QC must return ErrPruned before and after reopening.
 			s.setPruneWatermark(index)
 		}
-		current.NextQC = index+1
+		current.NextQC = index + 1
 		*status = utils.Some(current)
 		return nil
 	}
@@ -83,14 +83,17 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 
 func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 	index := appQC.Proposal().Index()
+	if index == utils.Max[types.RoadIndex]() {
+		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
+	}
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
 		if !ok || current.NextAppProposal <= index {
-			return fmt.Errorf("Missing AppProposal for AppQC %d", index)
+			return fmt.Errorf("AppQC %d: %w", index, types.ErrMissingAppProposal)
 		}
 		if current.NextAppQC != index {
 			return fmt.Errorf("AppQC.Index() = %d, want %d: %w",
-				index, current.NextAppQC, types.ErrAppQCNonContiguous)
+				index, current.NextAppQC, types.ErrUnexpectedIndex)
 		}
 
 		if err := s.db.PutAppQC(blocktypes.AppQCRecord{
@@ -100,7 +103,7 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 			return fmt.Errorf("failed to put AppQC %d: %w", index, err)
 		}
 		current.First = index
-		current.NextAppQC = index+1
+		current.NextAppQC = index + 1
 		*status = utils.Some(current)
 		return nil
 	}
@@ -109,14 +112,17 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 
 func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 	index := appProposal.Index()
+	if index == utils.Max[types.RoadIndex]() {
+		return fmt.Errorf("road index cannot advance: %w", types.ErrUnexpectedIndex)
+	}
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
 		if !ok || current.NextQC <= index {
-			return fmt.Errorf("Missing QC for AppProposal %d", index)
+			return fmt.Errorf("AppProposal %d: %w", index, types.ErrMissingQC)
 		}
 		if current.NextAppProposal != index {
 			return fmt.Errorf("AppProposal.Index() = %v, want %v: %w",
-				index, current.NextAppProposal, types.ErrAppProposalNonContiguous)
+				index, current.NextAppProposal, types.ErrUnexpectedIndex)
 		}
 
 		if err := s.db.PutAppProposal(blocktypes.AppProposalRecord{
@@ -125,7 +131,7 @@ func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
 		}); err != nil {
 			return fmt.Errorf("failed to put AppProposal %d: %w", index, err)
 		}
-		current.NextAppProposal = index+1
+		current.NextAppProposal = index + 1
 		*status = utils.Some(current)
 		return nil
 	}
@@ -177,146 +183,127 @@ func (s *Store) Status() utils.Option[types.SuffixRange] {
 
 // ReadSuffix reads the materialized startup-recovery suffix.
 func (s *Store) ReadSuffix() (types.Suffix, error) {
-	// Suffix is computed under lock, so that GC cannot malform it:
-	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.
+	// Keep the pruning floor fixed while reading its recovery suffix.
 	for range s.status.Lock() {
 		records, err := s.db.ReadSuffix()
 		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to read suffix: %w", err)
+			return types.Suffix{}, fmt.Errorf("read recovery suffix: %w", err)
 		}
+		if len(records.Blocks) == 0 {
+			if len(records.AppQCs) > 0 || len(records.AppProposals) > 0 {
+				return types.Suffix{}, types.ErrMissingQC
+			}
+			return types.Suffix{}, nil
+		}
+		first := types.RoadIndex(records.Blocks[0].Index)
+		status := types.SuffixRange{First: first, NextQC: first, NextAppProposal: first, NextAppQC: first}
 		var suffix types.Suffix
-		var status types.SuffixRange
-		blocks := records.Blocks
-		for _, record := range records.QCs {
-			qc, err := decodeQC(record.Data)
+		for _, record := range records.Blocks {
+			if types.RoadIndex(record.Index) != status.NextQC || status.NextQC == utils.Max[types.RoadIndex]() {
+				return types.Suffix{}, types.ErrUnexpectedIndex
+			}
+			group, err := decodeBlockRecord(record)
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
+				return types.Suffix{}, fmt.Errorf("decode SuperBlock %d: %w", record.Index, err)
 			}
-			count := 1
-			if count > len(blocks) {
-				return types.Suffix{}, types.ErrQCBlocksMismatch
+			suffix.QCGroups = append(suffix.QCGroups, group)
+			status.NextQC++
+		}
+		for _, record := range records.AppProposals {
+			index := types.RoadIndex(record.Index)
+			if index >= status.NextQC {
+				return types.Suffix{}, types.ErrMissingQC
 			}
-			group, err := decodeQCGroupBlocks(qc, blocks[:count])
+			if index != status.NextAppProposal {
+				return types.Suffix{}, types.ErrUnexpectedIndex
+			}
+			proposal, err := decodeAppProposal(record.Data)
 			if err != nil {
 				return types.Suffix{}, err
 			}
-			blocks = blocks[count:]
-			status.NextQC = qc.QC().Next()
-			suffix.QCGroups = append(suffix.QCGroups, group)
-		}
-		if len(blocks) > 0 {
-			return types.Suffix{}, types.ErrQCBlocksMismatch
-		}
-		for _, record := range records.AppProposals {
-			proposal, err := decodeAppProposal(record.Data)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
+			if proposal.Index() != index {
+				return types.Suffix{}, types.ErrUnexpectedIndex
 			}
-			status.NextAppProposal = proposal.Next()
 			suffix.AppProposals = append(suffix.AppProposals, proposal)
+			status.NextAppProposal++
 		}
 		for _, record := range records.AppQCs {
+			index := types.RoadIndex(record.Index)
+			if index >= status.NextAppProposal {
+				return types.Suffix{}, types.ErrMissingAppProposal
+			}
+			if index != status.NextAppQC {
+				return types.Suffix{}, types.ErrUnexpectedIndex
+			}
 			qc, err := decodeAppQC(record.Data)
 			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
+				return types.Suffix{}, err
 			}
-			status.NextAppQC = qc.Proposal().Next()
-			status.First = status.NextAppQC - 1
+			if qc.Proposal().Index() != index {
+				return types.Suffix{}, types.ErrUnexpectedIndex
+			}
 			suffix.AppQCs = append(suffix.AppQCs, qc)
+			status.NextAppQC++
+			status.First = index
 		}
-		if len(suffix.QCGroups) == 0 {
-			// Empty db.
-			return types.Suffix{}, nil
-		}
-		// Set fields for missing resources.
-		first := suffix.QCGroups[0].QC.QC().Index()
-		status.NextQC = max(status.NextQC, first)
-		status.NextBlock = status.NextQC
-		status.NextAppProposal = max(status.NextAppProposal, first)
-		status.NextAppQC = max(status.NextAppQC, first)
-		status.First = max(status.First, first)
 		suffix.Status = utils.Some(status)
-
 		return suffix, nil
 	}
 	panic("unreachable")
 }
 
-// readBlocks returns all lane blocks belonging to road n.
-func (s *Store) readBlocks(n types.RoadIndex) (utils.Option[[]*types.Block], error) {
-	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
-		return utils.None[[]*types.Block](), types.ErrPruned
-	}
-	value, exists, err := s.db.GetBlock(blocktypes.BlockNumber(n))
-	if err != nil {
-		return utils.None[[]*types.Block](), err
-	}
-	if !exists {
-		return utils.None[[]*types.Block](), nil
-	}
-	blocks, err := decodeBlocks(value)
-	if err != nil {
-		return utils.None[[]*types.Block](), err
-	}
-	return utils.Some(blocks), nil
-}
-
 func (s *Store) ReadLaneBlock(pos types.LaneBlockPos) (utils.Option[*types.Block], error) {
-	opt, err := s.readBlocks(pos.Index)
+	if blocktypes.BlockNumber(pos.Index) < s.db.GetPruneWatermark() {
+		return utils.None[*types.Block](), types.ErrPruned
+	}
+	value, exists, err := s.db.GetLaneBlock(blocktypes.BlockNumber(pos.Index), pos.Offset)
 	if err != nil {
 		return utils.None[*types.Block](), err
 	}
-	blocks, ok := opt.Get()
-	if !ok || pos.Offset >= uint64(len(blocks)) {
+	if !exists {
 		return utils.None[*types.Block](), nil
 	}
-	return utils.Some(blocks[pos.Offset]), nil
+	block, err := decodeBlock(value)
+	if err != nil {
+		return utils.None[*types.Block](), err
+	}
+	return utils.Some(block), nil
 }
 
 func (s *Store) ReadSuperBlockByNumber(n types.RoadIndex) (utils.Option[*types.SuperBlock], error) {
-	opt, err := s.readBlocks(n)
+	if blocktypes.BlockNumber(n) < s.db.GetPruneWatermark() {
+		return utils.None[*types.SuperBlock](), types.ErrPruned
+	}
+	record, exists, err := s.db.GetBlockByNumber(blocktypes.BlockNumber(n))
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
-	blocks, ok := opt.Get()
-	if !ok {
+	if !exists {
 		return utils.None[*types.SuperBlock](), nil
 	}
-	return s.assembleSuperBlock(n, blocks)
-}
-
-func (s *Store) assembleSuperBlock(n types.RoadIndex, blocks []*types.Block) (utils.Option[*types.SuperBlock], error) {
-	opt, err := s.ReadQCByBlockNumber(n)
+	group, err := decodeBlockRecord(record)
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
-	qc, ok := opt.Get()
-	if !ok {
-		return utils.None[*types.SuperBlock](), types.ErrQCBlocksMismatch
-	}
-	if err := validateBlocks(qc, blocks); err != nil {
-		return utils.None[*types.SuperBlock](), err
-	}
-	return utils.Some(types.NewSuperBlock(qc, blocks)), nil
+	return utils.Some(types.NewSuperBlock(group.QC, group.Blocks)), nil
 }
 
 func (s *Store) ReadSuperBlockByHash(hash common.Hash) (utils.Option[*types.SuperBlock], error) {
-	n, value, exists, err := s.db.GetBlockByHash(hash.Bytes())
+	record, exists, err := s.db.GetBlockByHash(hash.Bytes())
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
-	if !exists || n < s.db.GetPruneWatermark() {
+	if !exists || record.Index < s.db.GetPruneWatermark() {
 		return utils.None[*types.SuperBlock](), nil
 	}
-	blocks, err := decodeBlocks(value)
+	if !bytes.Equal(record.Hash, hash.Bytes()) {
+		return utils.None[*types.SuperBlock](), types.ErrQCBlocksMismatch
+	}
+	group, err := decodeBlockRecord(record)
 	if err != nil {
 		return utils.None[*types.SuperBlock](), err
 	}
-	block, err := s.assembleSuperBlock(types.RoadIndex(n), blocks)
-	if errors.Is(err, types.ErrPruned) {
-		return utils.None[*types.SuperBlock](), nil
-	}
-	return block, err
+	return utils.Some(types.NewSuperBlock(group.QC, group.Blocks)), nil
 }
 
 func (s *Store) ReadQCByBlockNumber(

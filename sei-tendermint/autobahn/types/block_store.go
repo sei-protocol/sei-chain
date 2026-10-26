@@ -20,7 +20,7 @@ import (
 // return None. Hash lookups return None for unknown or pruned SuperBlocks.
 type BlockStore interface {
 	// WriteQC stores a CommitQC and its complete lane blocks in header order.
-	// Empty QCs, gaps, and overlaps return ErrQCNonContiguous. Missing, extra,
+	// Gaps and overlaps return ErrUnexpectedIndex. Missing, extra,
 	// reordered, or mismatched blocks return ErrQCBlocksMismatch.
 	WriteQC(qc *FullCommitQC, blocks []*Block) error
 	WriteAppQC(qc *AppQC) error
@@ -48,7 +48,7 @@ type BlockStore interface {
 }
 
 // SuffixRange contains the road cursors restored by startup recovery.
-// First <= NextAppQC <= NextAppProposal <= NextBlock == NextQC.
+// First <= NextAppQC <= NextAppProposal <= NextQC.
 type SuffixRange struct {
 	// First is the latest AppQC's road, or the first retained QC's road if no AppQC exists.
 	First RoadIndex
@@ -56,7 +56,7 @@ type SuffixRange struct {
 	NextAppQC RoadIndex
 	// NextAppProposal is the next road awaiting a persisted AppProposal.
 	NextAppProposal RoadIndex
-	// NextQC is the next road awaiting a persisted QC group, equal to NextBlock.
+	// NextQC is the next road awaiting a persisted QC group.
 	NextQC RoadIndex
 }
 

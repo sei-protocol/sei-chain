@@ -43,3 +43,27 @@ func TestDecodeRejectsGarbage(t *testing.T) {
 	_, qcErr := decodeQC(garbage)
 	require.Error(t, qcErr)
 }
+
+func TestDecodeBlockRecordRejectsInconsistentMetadata(t *testing.T) {
+	for _, field := range []string{"index", "hash", "lane blocks"} {
+		t.Run(field, func(t *testing.T) {
+			rng := utils.TestRngFromSeed(3)
+			lane := types.GenBlock(rng)
+			qc := types.GenFullCommitQCAt(rng, 3, 1)
+			qc = types.NewFullCommitQC(qc.QC(), []*types.BlockHeader{lane.Header()})
+			record := encodeBlockRecord(qc, []*types.Block{lane})
+			_, err := decodeBlockRecord(record)
+			require.NoError(t, err)
+			switch field {
+			case "index":
+				record.Index++
+			case "hash":
+				record.Hash[0] ^= 1
+			case "lane blocks":
+				record.LaneBlocks = nil
+			}
+			_, err = decodeBlockRecord(record)
+			require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
+		})
+	}
+}

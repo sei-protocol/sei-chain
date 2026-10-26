@@ -684,6 +684,40 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
+func TestPushEmptyQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	previous, blocks := TestCommitQC(rng, ep, keys, utils.None[*types.CommitQC]())
+	vs := types.ViewSpec{ConsensusSpec: types.ConsensusSpec{CommitQC: utils.Some(previous.QC()), Epoch: ep}}
+	leader := keys[0]
+	for _, key := range keys {
+		if key.Public() == ep.Committee().Leader(vs.View()) {
+			leader = key
+			break
+		}
+	}
+	proposal, err := types.NewProposal(leader, vs, vs.NextTimestamp(), nil)
+	require.NoError(t, err)
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for i, key := range keys {
+		votes[i] = types.Sign(key, types.NewCommitVote(proposal.Proposal().Msg()))
+	}
+	qc := types.NewFullCommitQC(types.NewCommitQC(votes), nil)
+	state := newTestState(t, &Config{Registry: registry}, newMemoryBlockStore(t))
+	require.NoError(t, state.PushQC(t.Context(), previous, blocks))
+	require.NoError(t, state.PushQC(t.Context(), qc, nil))
+	want := types.NewSuperBlock(qc, nil)
+	byHash, err := state.SuperBlockByHash(want.CalculateBlockHash())
+	require.NoError(t, err)
+	require.True(t, byHash.IsPresent())
+	require.Equal(t, qc.QC().Next(), state.NextBlock())
+	got, err := state.SuperBlock(t.Context(), qc.Index())
+	require.NoError(t, err)
+	require.Equal(t, want.Height, got.Height)
+	require.Empty(t, got.Txs())
+}
+
 func TestSuperBlockByHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -741,7 +775,7 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
+		// PushAppHash waits on persisted.NextQC, so success implies Flush.
 		for n := gr1.First; n < gr1.Next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
@@ -751,7 +785,7 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 	}))
 
 	tips := db.Status().OrPanic("non-empty BlockDB status")
-	require.Equal(t, gr1.Next, tips.NextBlock)
+	require.Equal(t, gr1.Next, tips.NextQC)
 	require.Equal(t, gr1.Next, tips.NextQC)
 
 	require.NoError(t, db.Close())
@@ -780,7 +814,7 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		for inner, ctrl := range state.inner.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc1.QC().Next() }); err != nil {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextQC == qc1.QC().Next() }); err != nil {
 				return err
 			}
 		}
@@ -800,7 +834,7 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 			return err
 		}
 		for inner, ctrl := range state.inner.Lock() {
-			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextBlock == qc2.QC().Next() })
+			return ctrl.WaitUntil(ctx, func() bool { return inner.persisted.NextQC == qc2.QC().Next() })
 		}
 		panic("unreachable")
 	}))

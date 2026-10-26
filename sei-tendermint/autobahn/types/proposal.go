@@ -233,16 +233,11 @@ const minTimestampDiff = time.Microsecond
 // NextTimestamp returns the lowest allowed timestamp for the next proposal.
 func (m *Proposal) NextTimestamp() time.Time { return m.Timestamp().Add(minTimestampDiff) }
 
-// Verify checks epoch binding, lane-range structural validity (bounds, max-length,
-// lane committee membership, and a zero hash on an empty height-0 range). Empty tipcuts (no finalized blocks) are rejected;
-// leaders wait for LaneQCs via WaitForLaneQCs instead. QC-chain continuity
-// (matching starts against the previous QC) is only enforced by FullProposal.Verify.
+// Verify checks epoch binding and lane-range bounds, lengths, committee membership,
+// and empty height-0 hashes. FullProposal.Verify additionally checks QC-chain continuity.
 func (m *Proposal) Verify(ep *Epoch) error {
 	if err := m.view.Verify(ep); err != nil {
 		return fmt.Errorf("view: %w", err)
-	}
-	if m.NumBlocks() == 0 {
-		return errors.New("empty tipcut: proposal must finalize at least one block")
 	}
 	c := ep.Committee()
 	for _, r := range m.laneRanges {
@@ -344,11 +339,7 @@ func buildProposal(
 			laneRanges = append(laneRanges, &LaneRange{lane: lane, first: first, next: first, lastHash: prev.LastHash()})
 		}
 	}
-	proposal := newProposal(viewSpec.View(), timestamp, laneRanges)
-	if proposal.NumBlocks() == 0 {
-		return nil, errors.New("empty tipcut: need at least one LaneQC")
-	}
-	return proposal, nil
+	return newProposal(viewSpec.View(), timestamp, laneRanges), nil
 }
 
 // NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the

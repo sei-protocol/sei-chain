@@ -47,9 +47,9 @@ func TestPrefixedKeys(t *testing.T) {
 	// Block and QC number keys carry distinct kind prefixes, so the same number
 	// never collides across the two record kinds in the shared table.
 	const n blocktypes.BlockNumber = 42
-	bk := numberKey(kindBlock, n)
+	bk := numberKey(kindSuperBlock, n)
 	qk := numberKey(kindQC, n)
-	require.Equal(t, kindBlock, keyKind(bk))
+	require.Equal(t, kindSuperBlock, keyKind(bk))
 	require.Equal(t, kindQC, keyKind(qk))
 	require.NotEqual(t, bk, qk, "same number must not collide across kinds")
 	require.Equal(t, n, decodeNumberKey(bk))
@@ -68,12 +68,12 @@ func TestPrefixedKeys(t *testing.T) {
 }
 
 func TestPrimaryKinds(t *testing.T) {
-	for _, kind := range []recordKind{kindQCGroup, kindAppProp, kindAppQC} {
+	for _, kind := range []recordKind{kindSuperBlock, kindAppProp, kindAppQC} {
 		got, ok := kind.key(42).primaryKind()
 		require.True(t, ok)
 		require.Equal(t, kind, got)
 	}
-	for _, kind := range []recordKind{kindQC, kindBlock, kindBlockHash} {
+	for _, kind := range []recordKind{kindQC, kindLaneBlock, kindBlockHash} {
 		_, ok := numberKey(kind, 42).primaryKind()
 		require.False(t, ok)
 	}
