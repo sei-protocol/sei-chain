@@ -167,26 +167,51 @@ func (m *mempoolInner) IsFull() bool {
 	return m.throttled || (uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0)
 }
 
-// throttleOnExecutionLag holds the mempool full while this node's execution lags more than
-// MaxExecutionLag committed blocks, and releases it once the lag is back to half that.
+// throttleInterval is how often throttleOnExecutionLag re-evaluates the execution lag.
+const throttleInterval = 50 * time.Millisecond
+
+// peerLiveWindow is how recently a peer must have reported its execution to count toward the lag.
+const peerLiveWindow = 10 * time.Second
+
+// peerCatchUpFactor bounds, in multiples of MaxExecutionLag, how far a peer may trail and still count
+// toward the lag; one further behind is catching up and must not hold the chain.
+const peerCatchUpFactor = 8
+
+// throttleOnExecutionLag holds the mempool full while executionLag exceeds MaxExecutionLag, and releases
+// it once the lag is back to half that.
 func (s *State) throttleOnExecutionLag(ctx context.Context, mp *mempool) error {
 	if MaxExecutionLag == 0 {
 		return nil
 	}
-	data := s.consensus.Data()
 	throttled := false
 	for {
-		if _, err := data.WaitForExecutionLag(ctx, func(lag uint64) bool {
-			if throttled {
-				return lag <= MaxExecutionLag/2
-			}
-			return lag > MaxExecutionLag
-		}); err != nil {
+		lag := s.executionLag(time.Now())
+		if want := lag > MaxExecutionLag || (throttled && lag > MaxExecutionLag/2); want != throttled {
+			throttled = want
+			s.setThrottled(mp, throttled)
+		}
+		metrics.SetThrottleLag(lag)
+		if err := utils.Sleep(ctx, throttleInterval); err != nil {
 			return err
 		}
-		throttled = !throttled
-		s.setThrottled(mp, throttled)
 	}
+}
+
+// executionLag returns how many committed global blocks the slowest of this node and its live peers has
+// not executed. A peer counts while it reported within peerLiveWindow and trails by at most
+// peerCatchUpFactor x MaxExecutionLag.
+func (s *State) executionLag(now time.Time) uint64 {
+	committed, executed := s.consensus.Data().ExecutionProgress()
+	lag := uint64(committed - min(executed, committed))
+	for _, peer := range s.consensus.Avail().PeerExecutions() {
+		if now.Sub(peer.At) > peerLiveWindow || peer.Next >= committed {
+			continue
+		}
+		if peerLag := uint64(committed - peer.Next); peerLag <= peerCatchUpFactor*MaxExecutionLag {
+			lag = max(lag, peerLag)
+		}
+	}
+	return lag
 }
 
 // setThrottled holds the mempool full or releases it, admitting queued inserts on release.

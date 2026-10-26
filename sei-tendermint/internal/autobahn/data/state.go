@@ -858,18 +858,11 @@ func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	return 0
 }
 
-// WaitForExecutionLag waits until ready holds for the execution lag, the number of committed global
-// blocks not yet executed locally, and returns that lag.
-func (s *State) WaitForExecutionLag(ctx context.Context, ready func(lag uint64) bool) (uint64, error) {
-	for inner, ctrl := range s.inner.Lock() {
-		for {
-			if lag := uint64(inner.nextQC - inner.nextAppProposal); ready(lag) {
-				return lag, nil
-			}
-			if err := ctrl.Wait(ctx); err != nil {
-				return 0, err
-			}
-		}
+// ExecutionProgress returns the first global block not yet committed and the first not yet executed
+// locally.
+func (s *State) ExecutionProgress() (committed, executed types.GlobalBlockNumber) {
+	for inner := range s.inner.Lock() {
+		return inner.nextQC, inner.nextAppProposal
 	}
 	panic("unreachable")
 }
