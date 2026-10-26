@@ -1283,11 +1283,19 @@ func TestPreparedQueueKeepsTheBlocksThatCanStillExecute(t *testing.T) {
 	contents := func(q preparedQueue) []preparedBlock { return slices.Clone(q) }
 	var q preparedQueue
 
-	q.put(block(5, 1), 5)
-	q.put(block(7, 1), 5)
-	q.put(block(6, 1), 5)
-	require.Equal(t, []preparedBlock{block(5, 1), block(6, 1)}, contents(q))
+	// A full queue keeps the lowest heights.
+	var lowest []preparedBlock
+	for height := int64(5 + maxPreparedBlocks); height >= 5; height-- {
+		q.put(block(height, 1), 5)
+		if height < 5+maxPreparedBlocks {
+			lowest = append([]preparedBlock{block(height, 1)}, lowest...)
+		}
+	}
+	require.Equal(t, lowest, contents(q))
 
+	q = nil
+	q.put(block(5, 1), 5)
+	q.put(block(6, 1), 5)
 	q.put(block(6, 2), 5)
 	require.Equal(t, []preparedBlock{block(5, 1), block(6, 2)}, contents(q))
 

@@ -8,10 +8,12 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -23,9 +25,9 @@ const (
 	preparePhaseParse = "parse"
 	preparePhaseWarm  = "warm_accounts"
 
-	// maxPreparedBlocks bounds the prepared blocks held: the block about to execute
-	// and the one after it.
-	maxPreparedBlocks = 2
+	// maxPreparedBlocks bounds the prepared blocks held. It must cover the block about to
+	// execute and the four the giga router's fetcher can prepare beyond it.
+	maxPreparedBlocks = 5
 )
 
 // The prepared-blocks counter's attribute sets, built once.
@@ -73,6 +75,17 @@ func (q *preparedQueue) take(height int64, hash common.Hash) (preparedBlock, boo
 	return b, true
 }
 
+// preparePhaseTimerCount bounds the PrepareBlock calls timed at once; further calls wait for a timer.
+const preparePhaseTimerCount = 16
+
+func newPreparePhaseTimers() chan *seidbmetrics.PhaseTimer {
+	timers := make(chan *seidbmetrics.PhaseTimer, preparePhaseTimerCount)
+	for range preparePhaseTimerCount {
+		timers <- seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName)
+	}
+	return timers
+}
+
 func newPreparedBlocksCounter(meter otelmetric.Meter) otelmetric.Int64Counter {
 	counter, err := meter.Int64Counter(
 		preparedBlocksMetricName,
@@ -104,7 +117,9 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	}
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
-	a.preparePhases.SetPhase(preparePhaseParse)
+	phases := <-a.preparePhaseTimers
+	defer func() { a.preparePhaseTimers <- phases }()
+	phases.SetPhase(preparePhaseParse)
 	txHashes := hashRawTxs(req.Txs)
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
@@ -119,12 +134,12 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		Senders: a.peekSenders(txHashes),
 	})
 	if err != nil {
-		a.preparePhases.Reset()
+		phases.Reset()
 		return ctx.Err()
 	}
-	a.preparePhases.SetPhase(preparePhaseWarm)
+	phases.SetPhase(preparePhaseWarm)
 	executor.WarmAccounts(ctx, prepared)
-	a.preparePhases.Reset()
+	phases.Reset()
 	next := a.LastBlockHeight() + 1
 	for queue := range a.prepared.Lock() {
 		queue.put(preparedBlock{
