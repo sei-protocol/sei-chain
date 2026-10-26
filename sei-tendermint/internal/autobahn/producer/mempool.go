@@ -237,14 +237,26 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 			for _, hash := range b.evmHashes {
 				delete(m.evmTxs, hash)
 			}
+			var unsettled []common.Address
+			var wantNonces []uint64
 			for addr, wantNonce := range b.evmNonces {
 				if wantNonce == m.evmNonces[addr] {
 					// Happy path: all account's txs got executed.
 					delete(m.evmNonces, addr)
-				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
+				} else {
+					unsettled = append(unsettled, addr)
+					wantNonces = append(wantNonces, wantNonce)
+				}
+			}
+			if len(unsettled) == 0 {
+				continue
+			}
+			for i, gotNonce := range s.app.EvmNonces(unsettled) {
+				if gotNonce < wantNonces[i] {
 					// Some txs have not been executed - reset account tracking.
 					// NOTE: app execution is not synchronized with mempool, so nonce could have already
 					// proceeded past wantNonce and that is expected.
+					addr := unsettled[i]
 					delete(m.evmNonces, addr)
 					delete(m.nextBlock.evmNonces, addr)
 					for _, x := range m.blocks {
