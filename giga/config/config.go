@@ -82,8 +82,8 @@ type ExecutionConfig struct {
 	GCPercent int `mapstructure:"gc_percent"`
 	// LaneCapacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 	LaneCapacity int `mapstructure:"lane_capacity"`
-	// FlatKVViewShards, when non-zero, replaces the view shard count of every FlatKV database. It must
-	// be a power of two.
+	// FlatKVViewShards, when non-zero, replaces the view shard count of the FlatKV account database. It
+	// must be a power of two.
 	FlatKVViewShards uint64 `mapstructure:"flatkv_view_shards"`
 }
 
@@ -492,7 +492,7 @@ gc_percent = {{ .Giga.Execution.GCPercent }}
 # lane_capacity is the number of unpruned blocks a lane may hold. 0 keeps the built-in capacity.
 lane_capacity = {{ .Giga.Execution.LaneCapacity }}
 
-# flatkv_view_shards, when non-zero, replaces the view shard count of every FlatKV database.
+# flatkv_view_shards, when non-zero, replaces the view shard count of the FlatKV account database.
 flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
 
 [giga.rpc]
