@@ -276,7 +276,7 @@ The summary table below records historical suite snapshots. The current legacy b
 
 **Latest docker localnet + `evm_rpc_tests.sh`:** **0** failures (**eth parity + legacy batch gate (Mar 2026)**). Methods that Sei documents as unsupported still use **`not-supported.iox`** (and `eth_blobBaseFee/blobs-not-supported-error.iox`): those fixtures **expect** JSON-RPC **error** `-32000` (not `-32601`).
 
-**Historical (pre–Mar 2026, after getLogs range fix):** 11 `eth_*` rows failed until RPC + fixture fixes (insufficient funds / parse error / `get-block-notfound` shape / `eth_getProof` store unwrap / tx-by-index on empty `latest` block). Details are archived in [FAILED_TEST_ANALYSIS.md](FAILED_TEST_ANALYSIS.md).
+**Historical (pre–Mar 2026, after getLogs range fix):** 11 `eth_*` rows failed until RPC + fixture fixes (insufficient funds / parse error / `get-block-notfound` shape / `eth_getProof` store unwrap / tx-by-index on empty `latest` block).
 
 
 ### Skipped tests (0)
