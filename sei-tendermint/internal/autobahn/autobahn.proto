@@ -144,7 +144,8 @@ message Proposal {
   optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
-  optional uint64 global_first = 6; // required; first global block number of this proposal's global range
+  reserved 6;
+  reserved "global_first";
 }
 
 message FullProposal {
@@ -238,11 +239,9 @@ message AppProposal {
   optional uint64 epoch_index = 4; // required
   // Index of the commit qc finalizing the block.
   optional uint64 road_index = 2; // required
-  // Range of global blocks convered by this proposal.
-  // Has to match the corresponding CommitQC.
-  optional uint64 global_first = 5; // required
-  optional uint64 global_next = 6; // required
-  // App hash of the state at the end of the range above.
+  reserved 5, 6;
+  reserved "global_first", "global_next";
+  // App hash after executing this SuperBlock.
   optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
 }
 
@@ -338,4 +337,11 @@ message EpochMember {
   option (wireguard.sized) = true;
   optional LaneID lane_id = 1; // required
   optional uint64 weight = 2; // required, can't be zero
+}
+
+// LaneBlockPos addresses a lane block in CommitQC header order.
+message LaneBlockPos {
+ option (wireguard.sized) = true;
+ optional uint64 index = 1; // required
+ optional uint64 offset = 2; // required
 }

@@ -176,7 +176,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			// lookups. Fetch the last committed block and verify it carries
 			// the expected height + hash, the right chain id, and that the
 			// payload Txs round-tripped (we just submitted txs).
-			rb, err := giga.BlockByNumber(ctx, atypes.GlobalBlockNumber(committed)) //nolint:gosec // committed is positive (validated above)
+			rb, err := giga.BlockByNumber(ctx, atypes.RoadIndex(committed)) //nolint:gosec // committed is positive (validated above)
 			require.NoError(t, err, "router[%v].BlockByNumber(%v)", i, committed)
 			require.NotNil(t, rb.Block, "router[%v].BlockByNumber(%v).Block", i, committed)
 			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
@@ -192,14 +192,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.Empty(t, rb.Block.LastCommit.Signatures, "router[%v].BlockByNumber(%v) Signatures", i, committed)
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
-			var hashKey atypes.BlockHeaderHash
+			var hashKey common.Hash
 			copy(hashKey[:], rb.BlockID.Hash)
 			rbh, err := giga.BlockByHash(ctx, hashKey)
 			require.NoError(t, err, "router[%v].BlockByHash(%x)", i, rb.BlockID.Hash)
 			require.Equal(t, rb, rbh, "router[%v].BlockByHash(%x) ≠ BlockByNumber(%v)", i, rb.BlockID.Hash, committed)
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
-		// data layer holds (GlobalBlock.Payload.Txs) must equal the txs
+		// data layer holds (SuperBlock.Payload.Txs) must equal the txs
 		// surfaced through BlockByNumber. Iterates the full retain window
 		// rather than a fixed tail so the assertion holds regardless of
 		// where producers placed the test txs. Reaches into giga0.data
@@ -207,20 +207,20 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		giga0 := gigas[0]
 		latest := giga0.LastCommittedBlockNumber()
 		for h := int64(1); h <= latest; h++ {
-			gbn := atypes.GlobalBlockNumber(h) //nolint:gosec // h is positive
-			gb, err := giga0.data.GlobalBlock(ctx, gbn)
+			gbn := atypes.RoadIndex(h) //nolint:gosec // h is positive
+			gb, err := giga0.data.SuperBlock(ctx, gbn)
 			if err != nil {
 				continue // pruned out of the retain window
 			}
 			rb, err := giga0.BlockByNumber(ctx, gbn)
 			require.NoError(t, err, "router[0].BlockByNumber(%v)", h)
 			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
-			// to compare against gb.Payload.Txs() directly.
+			// to compare against gb.Txs() directly.
 			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
 			for j, t := range rb.Block.Data.Txs {
 				rbBytes[j] = t
 			}
-			require.Equal(t, gb.Payload.Txs(), rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.GlobalBlock(%v).Payload.Txs", h, h)
+			require.Equal(t, gb.Txs(), rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.SuperBlock(%v).Payload.Txs", h, h)
 		}
 		return nil
 	})

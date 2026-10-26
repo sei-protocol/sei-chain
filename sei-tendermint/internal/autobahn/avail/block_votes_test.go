@@ -56,7 +56,7 @@ func TestBlockVotes_CountsLaneQCOncePerBlock(t *testing.T) {
 		weights[k.Public()] = 1
 	}
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: 10}, time.Time{},
-		utils.OrPanic1(types.NewCommittee(weights)), 0)
+		utils.OrPanic1(types.NewCommittee(weights)))
 	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
 	h := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
 
@@ -85,7 +85,7 @@ func TestBlockVotes_CountsLaneQCAcrossReweight(t *testing.T) {
 	keys := utils.GenSliceN(rng, 4, types.GenSecretKey)
 	epochAt := func(idx types.EpochIndex, first types.RoadIndex, weights map[types.PublicKey]uint64) *types.Epoch {
 		return types.NewEpoch(idx, types.RoadRange{First: first, Next: first + 10}, time.Time{},
-			utils.OrPanic1(types.NewCommittee(weights)), 0)
+			utils.OrPanic1(types.NewCommittee(weights)))
 	}
 	light := map[types.PublicKey]uint64{
 		keys[0].Public(): 1, keys[1].Public(): 1, keys[2].Public(): 5, keys[3].Public(): 5,
@@ -126,7 +126,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 	d := types.GenSecretKey(rng)
 	mk := func(weights map[types.PublicKey]uint64, idx types.EpochIndex, first, next types.RoadIndex) *types.Epoch {
 		return types.NewEpoch(idx, types.RoadRange{First: first, Next: next}, time.Time{},
-			utils.OrPanic1(types.NewCommittee(weights)), 0)
+			utils.OrPanic1(types.NewCommittee(weights)))
 	}
 	headerOn := func(ep *types.Epoch, sk types.SecretKey) *types.BlockHeader {
 		lane := ep.Committee().Lane(sk.Public()).OrPanic("lane")
@@ -149,7 +149,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		ep1 := types.NewEpoch(1, types.RoadRange{First: 10, Next: 20}, time.Time{},
 			utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{
 				a.Public(): 1, b.Public(): 1, c.Public(): 1,
-			}, 1)), 0)
+			}, 1)))
 		bv.reweight(ep1)
 		qc, ok := bv.qc.Get()
 		require.True(t, ok)
@@ -167,7 +167,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		bv := newBlockVotes()
 		bv.pushVote(ep0, types.Sign(d, types.NewLaneVote(h)))
 		ep1 := types.NewEpoch(1, types.RoadRange{First: 10, Next: 20}, time.Time{},
-			utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{a.Public(): 1}, 1)), 0)
+			utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{a.Public(): 1}, 1)))
 		bv.reweight(ep1)
 		require.False(t, bv.qc.IsPresent())
 		require.Equal(t, 1, len(bv.byKey))
@@ -183,7 +183,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		ep1 := types.NewEpoch(1, types.RoadRange{First: 10, Next: 20}, time.Time{},
 			utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{
 				a.Public(): 1, b.Public(): 1, c.Public(): 5, d.Public(): 5,
-			}, 1)), 0)
+			}, 1)))
 		require.Equal(t, uint64(4), ep1.Committee().LaneQuorum())
 		bv.reweight(ep1)
 		require.False(t, bv.qc.IsPresent())
@@ -204,7 +204,7 @@ func TestBlockVotes_Reweight(t *testing.T) {
 		ep1 := types.NewEpoch(1, types.RoadRange{First: 10, Next: 20}, time.Time{},
 			utils.OrPanic1(ep0.Committee().DeriveNext(map[types.PublicKey]uint64{
 				a.Public(): 5, b.Public(): 5, c.Public(): 1, d.Public(): 1,
-			}, 1)), 0)
+			}, 1)))
 		require.Equal(t, uint64(4), ep1.Committee().LaneQuorum())
 		bv.reweight(ep1)
 		qc, ok := bv.qc.Get()

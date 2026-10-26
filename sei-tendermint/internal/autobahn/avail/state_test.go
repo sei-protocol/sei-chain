@@ -118,7 +118,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 		appHash0 := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc0.QC().GlobalRange().Next-1, appHash0, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc0.QC().Next()-1, appHash0, nil); err != nil {
 			return err
 		}
 		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().Proposal(), appHash0))); err != nil {
@@ -223,7 +223,7 @@ func TestAnchorResetsState(t *testing.T) {
 			return err
 		}
 		appHash := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, appHash, nil); err != nil {
+		if err := ds.PushAppHash(ctx, qc.QC().Next()-1, appHash, nil); err != nil {
 			return err
 		}
 		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().Proposal(), appHash))
@@ -337,7 +337,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			t.Logf("Push app votes.")
 			appHash := types.GenAppHash(rng)
 			appProposal := types.NewAppProposal(qc.Proposal(), appHash)
-			appGR := appProposal.GlobalRange()
+			appGR := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
 			if err := ds.PushAppHash(ctx, appGR.Next-1, appHash, nil); err != nil {
 				return fmt.Errorf("ds.PushAppHash(): %w", err)
 			}
@@ -349,7 +349,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 
 			t.Logf("Executed CommitQC should be eventually evicted")
 			for inner, ctrl := range state.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex()+1 }); err != nil {
+				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.Index()+1 }); err != nil {
 					return err
 				}
 			}
@@ -364,9 +364,9 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Check that the blocks were successfully pushed to data state.")
-			gr := got.QC().GlobalRange()
+			gr := types.RoadRange{First: got.QC().Index(), Next: got.QC().Next()}
 			for i := gr.First; i < gr.Next; i++ {
-				b, err := ds.Block(ctx, i)
+				b, err := ds.Block(ctx, types.LaneBlockPos{Index: i})
 				if err != nil {
 					return fmt.Errorf("ds.Block(): %w", err)
 				}
@@ -390,7 +390,7 @@ func TestNextViewEpoch(t *testing.T) {
 
 		last := registry.LastRoad(0)
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
+			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}))),
 		})
 		qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
@@ -420,7 +420,7 @@ func TestNextViewEpoch(t *testing.T) {
 
 		last := registry.LastRoad(1)
 		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
+			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}))),
 		})
 		qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
@@ -506,11 +506,11 @@ func TestStateRestartFromPersisted(t *testing.T) {
 					return fmt.Errorf("PushAppVote: %w", err)
 				}
 			}
-			if _, err := state.appQC(ctx, appProposal.RoadIndex()); err != nil {
+			if _, err := state.appQC(ctx, appProposal.Index()); err != nil {
 				return fmt.Errorf("WaitForAppQC: %w", err)
 			}
 			prev = utils.Some(qc)
-			wantAppQCIdx = appProposal.RoadIndex()
+			wantAppQCIdx = appProposal.Index()
 		}
 
 		// Wait for commitQC persistence. markCommitQCsPersisted fires after
@@ -971,7 +971,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			stay.Public(): 1, leaver.Public(): 1, a.Public(): 1, b.Public(): 1,
 		})
 		require.NoError(t, err)
-		registry, err := epoch.NewRegistry(genesis, 0, 0, time.Time{}, utils.None[string]())
+		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[string]())
 		require.NoError(t, err)
 		ds := newTestDataState(&data.Config{Registry: registry})
 		state, err := NewState(stay, ds, utils.None[string]())

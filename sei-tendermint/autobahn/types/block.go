@@ -24,16 +24,16 @@ type NodeID string
 // BlockNumber is the number of a block in a lane.
 type BlockNumber uint64
 
-// GlobalBlockNumber is the number of a block in the global chain.
+// LaneBlockPos identifies a lane block by its CommitQC road index and header offset.
 type LaneBlockPos struct {
-	Index RoadIndex
+	Index  RoadIndex
 	Offset uint64
 }
 
 // ExecutedBlock is a block committed to the app together with the gas its
 // transactions used.
 type ExecutedBlock struct {
-	Number  GlobalBlockNumber
+	Number  RoadIndex
 	GasUsed uint64
 }
 
@@ -70,7 +70,7 @@ func (w ExecutedBlocks) Latest() ExecutedBlock {
 }
 
 // Get returns the block numbered n if the window still holds it.
-func (w ExecutedBlocks) Get(n GlobalBlockNumber) (ExecutedBlock, bool) {
+func (w ExecutedBlocks) Get(n RoadIndex) (ExecutedBlock, bool) {
 	if len(w.blocks) == 0 {
 		return ExecutedBlock{}, false
 	}
@@ -79,14 +79,6 @@ func (w ExecutedBlocks) Get(n GlobalBlockNumber) (ExecutedBlock, bool) {
 		return ExecutedBlock{}, false
 	}
 	return w.blocks[n-first], true
-}
-
-// BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
-// payload of the utils.Option returned by ReadBlockByHash so that the block
-// number is only present when the block itself is present.
-type BlockWithNumber struct {
-	Block  *Block
-	Number GlobalBlockNumber
 }
 
 // BlockHeaderHash is the hash of a BlockHeader.
@@ -164,13 +156,33 @@ type Block struct {
 	payload *Payload
 }
 
-// SuperBlock is a finalized block with global block number.
+// SuperBlock contains all transactions finalized by one CommitQC in header order.
 type SuperBlock struct {
-	Height RoadIndex
+	utils.ReadOnly
+	Height    RoadIndex
 	Timestamp time.Time
 	GasWanted uint64
-	txs [][]byte
+	txs       [][]byte
 }
+
+// NewSuperBlock merges blocks in CommitQC header order.
+func NewSuperBlock(qc *FullCommitQC, blocks []*Block) *SuperBlock {
+	if len(blocks) != len(qc.Headers()) {
+		panic("blocks do not match CommitQC headers")
+	}
+	b := &SuperBlock{Height: qc.Index(), Timestamp: qc.QC().Proposal().Timestamp()}
+	for i, block := range blocks {
+		if block.Header().Hash() != qc.Headers()[i].Hash() {
+			panic("block does not match CommitQC header")
+		}
+		b.GasWanted += block.Payload().TotalGasWanted()
+		b.txs = append(b.txs, block.Payload().Txs()...)
+	}
+	return b
+}
+
+// Txs returns the transactions in execution order.
+func (b *SuperBlock) Txs() [][]byte { return b.txs }
 
 // NewBlock creates a new Block.
 func NewBlock(
@@ -354,13 +366,26 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 }
 
 // CalculateBlockHash calculates the hash of a block.
-func (b *GlobalBlock) CalculateBlockHash() common.Hash {
+func (b *SuperBlock) CalculateBlockHash() common.Hash {
 	header := &ethtypes.Header{
-		Time:       uint64(b.Timestamp.Unix()), //nolint:gosec // block timestamps are always positive post-epoch values
-		Number:     big.NewInt(int64(b.Height)),    //nolint:gosec // block numbers are within int64 range for all practical chain heights
+		Time:       uint64(b.Timestamp.Unix()),  //nolint:gosec // block timestamps are always positive post-epoch values
+		Number:     big.NewInt(int64(b.Height)), //nolint:gosec // block numbers are within int64 range for all practical chain heights
 		GasUsed:    b.GasWanted,
 		Difficulty: big.NewInt(0),
 		BaseFee:    big.NewInt(0),
 	}
 	return header.Hash()
+}
+
+// LaneBlockPosConv is the protobuf converter for LaneBlockPos.
+var LaneBlockPosConv = protoutils.Conv[LaneBlockPos, *pb.LaneBlockPos]{
+	Encode: func(p LaneBlockPos) *pb.LaneBlockPos {
+		return &pb.LaneBlockPos{Index: utils.Alloc(uint64(p.Index)), Offset: utils.Alloc(p.Offset)}
+	},
+	Decode: func(p *pb.LaneBlockPos) (LaneBlockPos, error) {
+		if p.Index == nil || p.Offset == nil {
+			return LaneBlockPos{}, fmt.Errorf("missing lane block position")
+		}
+		return LaneBlockPos{Index: RoadIndex(*p.Index), Offset: *p.Offset}, nil
+	},
 }

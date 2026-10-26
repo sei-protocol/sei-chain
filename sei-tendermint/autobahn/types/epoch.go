@@ -24,6 +24,9 @@ type EpochRange struct {
 // OpenRoadRange returns a RoadRange covering all road indices from 0.
 func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
+// Len returns the number of road indices in the range.
+func (r RoadRange) Len() uint64 { return uint64(r.Next - r.First) }
+
 func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
 
 func (r EpochRange) Has(idx EpochIndex) bool { return r.First <= idx && idx < r.Next }
@@ -36,25 +39,22 @@ type Epoch struct {
 	roads          RoadRange
 	firstTimestamp time.Time
 	committee      *Committee
-	firstBlock     GlobalBlockNumber
 }
 
 // NewEpoch constructs an Epoch.
-func NewEpoch(index EpochIndex, roads RoadRange, firstTimestamp time.Time, committee *Committee, firstBlock GlobalBlockNumber) *Epoch {
+func NewEpoch(index EpochIndex, roads RoadRange, firstTimestamp time.Time, committee *Committee) *Epoch {
 	return &Epoch{
 		epochIndex:     index,
 		roads:          roads,
 		firstTimestamp: firstTimestamp,
 		committee:      committee,
-		firstBlock:     firstBlock,
 	}
 }
 
-func (e *Epoch) EpochIndex() EpochIndex        { return e.epochIndex }
-func (e *Epoch) RoadRange() RoadRange          { return e.roads }
-func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
-func (e *Epoch) Committee() *Committee         { return e.committee }
-func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }
+func (e *Epoch) EpochIndex() EpochIndex    { return e.epochIndex }
+func (e *Epoch) RoadRange() RoadRange      { return e.roads }
+func (e *Epoch) FirstTimestamp() time.Time { return e.firstTimestamp }
+func (e *Epoch) Committee() *Committee     { return e.committee }
 
 // IsClosed reports whether the lane's previous membership period has ended in
 // this epoch: Joined is strictly before this epoch and the lane is absent from

@@ -110,7 +110,7 @@ func TestDataClientServer(t *testing.T) {
 	env := newTestEnv(registry)
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
-	firstBlock := server.data.Registry().FirstBlock()
+	firstBlock := server.data.Registry().FirstRoad()
 	blockOK := fetchCount(resBlock, "ok")
 	qcOK := fetchCount(resFullCommitQC, "ok")
 	notFound := serveCount(resBlock, "not_found")
@@ -130,11 +130,11 @@ func TestDataClientServer(t *testing.T) {
 		}
 		t.Logf("wait for replication")
 		for n := firstBlock; n < server.data.NextBlock(); n++ {
-			want, err := server.data.GlobalBlock(ctx, n)
+			want, err := server.data.SuperBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)
 			}
-			got, err := client.data.GlobalBlock(ctx, n)
+			got, err := client.data.SuperBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.FinalBlock(): %w", err)
 			}

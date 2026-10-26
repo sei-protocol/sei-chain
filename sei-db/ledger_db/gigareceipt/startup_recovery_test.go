@@ -36,21 +36,16 @@ func nonceChange(block uint64) []*proto.NamedChangeSet {
 	}}
 }
 
-// writeBlockLedger finalizes blocks [1, through] in the block store under one synthetic QC.
+// writeBlockLedger finalizes SuperBlocks [1, through] in the block store.
 func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, through uint64) {
 	t.Helper()
 	rng := tmutils.TestRng()
-	next := autobahn.GlobalBlockNumber(through + 1)
-	qc := autobahn.GenFullCommitQCRange(rng, 1, next)
-	blocks := make([]*autobahn.Block, 0, through)
-	headers := make([]*autobahn.BlockHeader, 0, through)
-	for n := autobahn.GlobalBlockNumber(1); n < next; n++ {
+	for index := autobahn.RoadIndex(1); index <= autobahn.RoadIndex(through); index++ {
 		block := autobahn.GenBlock(rng)
-		blocks = append(blocks, block)
-		headers = append(headers, block.Header())
+		qc := autobahn.GenFullCommitQCAt(rng, index, 1)
+		qc = autobahn.NewFullCommitQC(qc.QC(), []*autobahn.BlockHeader{block.Header()})
+		require.NoError(t, manager.BlockStore().WriteQC(qc, []*autobahn.Block{block}))
 	}
-	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
-	require.NoError(t, manager.BlockStore().WriteQC(qc, blocks))
 }
 
 // executeBlocks commits state and receipts for blocks [from, through], as executing them would.

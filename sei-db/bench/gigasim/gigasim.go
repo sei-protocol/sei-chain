@@ -309,28 +309,25 @@ func (g *GigaSim) stopExecutors() {
 	g.executorsRunning.Wait()
 }
 
-// agreedNextBlockNumber returns the height the next superblock commits at, refusing a data directory
-// whose block store and state DB disagree on where they left off. Lane blocks and superblocks stay in
-// step: after superblock h the block store's next height is the first lane block of superblock h+1.
-// A gap is what a run which died without draining leaves behind, and such a directory has to be
-// cleaned rather than resumed.
+// agreedNextBlockNumber returns the next SuperBlock height shared by the block store and state DB.
 func agreedNextBlockNumber(config *GigasimConfig, state *executionState, blocks *blockStoreWriter) (int64, error) {
 	next := state.height() + 1
-	expectedLane := config.firstLaneBlock(next)
 	blockStoreNext, ok := blocks.nextBlockNumber()
-	if !ok || blockStoreNext == expectedLane {
+	if !ok {
 		return next, nil
 	}
-	if config.LaneBlocksPerSuperblock == 1 {
-		return 0, fmt.Errorf(
-			"the block store resumes at block %d but the state DB resumes at block %d; "+
-				"this data directory was left by an interrupted run and has to be cleaned to be reused",
-			blockStoreNext, next)
+	if blockStoreNext != next {
+		return 0, fmt.Errorf("the block store resumes at block %d but the state DB resumes at block %d; this data directory was left by an interrupted run and has to be cleaned to be reused", blockStoreNext, next)
 	}
-	return 0, fmt.Errorf(
-		"the block store resumes at lane block %d but superblock %d starts at lane block %d; "+
-			"this data directory was left by an interrupted run and has to be cleaned to be reused",
-		blockStoreNext, next, expectedLane)
+	suffix, err := blocks.store.ReadSuffix()
+	if err != nil {
+		return 0, err
+	}
+	last := suffix.QCGroups[len(suffix.QCGroups)-1]
+	if got := len(last.Blocks); got != config.LaneBlocksPerSuperblock {
+		return 0, fmt.Errorf("stored SuperBlock has %d lane blocks, configured %d", got, config.LaneBlocksPerSuperblock)
+	}
+	return next, nil
 }
 
 // setup brings the ERC20 contracts and the account population up to the configured size before

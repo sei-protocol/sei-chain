@@ -11,8 +11,8 @@ var ErrNotFound = errors.New("not found")
 // ErrBlockGap indicates that persisted blocks are not contiguous.
 var ErrBlockGap = errors.New("block gap in BlockDB")
 
-// ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First
-// does not equal the previous QC's GlobalRange().Next. QCs must be written as
+// ErrQCNonContiguous is returned by WriteQC when the QC's Index
+// does not equal the previous QC's Next. QCs must be written as
 // a contiguous, ascending sequence.
 var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 
@@ -23,7 +23,7 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 var ErrAppProposalNonContiguous = errors.New("block: WriteAppProposal non-contiguous")
 
 // ErrAppProposalMissingQC is returned by WriteAppProposal when no previously
-// written CommitQC exactly matches the AppProposal's GlobalRange. The matching
+// written CommitQC has the AppProposal's road index. The matching
 // CommitQC must be written before the AppProposal.
 var ErrAppProposalMissingQC = errors.New("block: WriteAppProposal without matching CommitQC")
 
@@ -33,7 +33,7 @@ var ErrAppProposalMissingQC = errors.New("block: WriteAppProposal without matchi
 var ErrAppQCNonContiguous = errors.New("block: WriteAppQC non-contiguous")
 
 // ErrAppQCMissingQC is returned by WriteAppQC when no previously written
-// CommitQC exactly matches the AppQC's GlobalRange. The matching CommitQC must
+// CommitQC has the AppQC's road index. The matching CommitQC must
 // be written before the AppQC.
 var ErrAppQCMissingQC = errors.New("block: WriteAppQC without matching CommitQC")
 

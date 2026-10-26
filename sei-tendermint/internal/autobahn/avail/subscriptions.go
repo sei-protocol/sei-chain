@@ -103,7 +103,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 
 type AppVotesRecv struct {
 	state *State
-	next  types.GlobalBlockNumber
+	next  types.RoadIndex
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
@@ -120,7 +120,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 			}
 			return nil, err
 		}
-		r.next = vote.Proposal().GlobalRange().Next
+		r.next = vote.Proposal().Next()
 		return types.Sign(r.state.key, vote), nil
 	}
 }

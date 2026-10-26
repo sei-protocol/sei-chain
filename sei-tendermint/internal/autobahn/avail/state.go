@@ -185,8 +185,7 @@ func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	}
 	i.refreshConsensusSpec()
 	if qc, ok := i.persistedCommitQC.Load().Get(); ok {
-		meters.CommitRoadIndex.Set(int64(qc.Index()))                    // nolint: gosec
-		meters.CommitGlobalBlockNumber.Set(int64(qc.GlobalRange().Next)) // nolint: gosec
+		meters.CommitRoadIndex.Set(int64(qc.Index())) // nolint: gosec
 	}
 	return i, nil
 }
@@ -370,7 +369,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	// Wait for the corresponding commitQC.
-	idx := v.Msg().Proposal().RoadIndex()
+	idx := v.Msg().Proposal().Index()
 	epoch, commitQC, err := s.commitQC(ctx, idx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {

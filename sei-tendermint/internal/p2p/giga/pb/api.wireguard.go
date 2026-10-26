@@ -2,10 +2,11 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*ConsensusResp) MaxSize() int {
@@ -29,7 +30,7 @@ func (*LaneProposal) MaxSize() int {
 }
 
 func (*AppVote) MaxSize() int {
-	return 187
+	return 165
 }
 
 func (*StreamLaneProposalsReq) MaxSize() int {
@@ -49,7 +50,7 @@ func (*StreamAppVotesReq) MaxSize() int {
 }
 
 func (*GetBlockReq) MaxSize() int {
-	return 11
+	return 24
 }
 
 func (*GetBlockResp) MaxSize() int {
@@ -106,7 +107,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.GetBlockReq.
 	runtime.MustRegister[*GetBlockReq](runtime.Schema{
-		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.LaneBlockPos]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.GetBlockResp.

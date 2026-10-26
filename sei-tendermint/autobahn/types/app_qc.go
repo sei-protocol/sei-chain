@@ -30,7 +30,7 @@ func NewAppQC(votes []*Signed[*AppVote]) *AppQC {
 // Proposal .
 func (m *AppQC) Proposal() *AppProposal { return m.vote.Msg().Proposal() }
 
-// Next is the number of the next global block to finalize AppHash for.
+// Next is the road index of the next SuperBlock awaiting an AppHash.
 func (m *AppQC) Next() RoadIndex {
 	return m.Proposal().Next()
 }

@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -101,7 +102,7 @@ func runContract(t *testing.T, build builder) {
 	t.Run("ReadSuffix", func(t *testing.T) { testReadSuffix(t, build) })
 	t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, build) })
 	t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, build) })
-	t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, build) })
+	t.Run("PruneAtRoadRetainsQC", func(t *testing.T) { testPruneAtRoadRetainsQC(t, build) })
 	t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, build) })
 	t.Run("PrunedDistinctFromNotFound", func(t *testing.T) { testPrunedDistinctFromNotFound(t, build) })
 	t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, build) })
@@ -149,11 +150,11 @@ func testEmptyDB(t *testing.T, build builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	blk, err := db.ReadBlockByNumber(0)
+	blk, err := db.ReadSuperBlockByNumber(0)
 	require.NoError(t, err)
 	require.False(t, blk.IsPresent())
 
-	byHash, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
+	byHash, err := db.ReadSuperBlockByHash(common.Hash{1})
 	require.NoError(t, err)
 	require.False(t, byHash.IsPresent())
 
@@ -177,13 +178,13 @@ func testEmptyDB(t *testing.T, build builder) {
 // iterEntry is one position observed while draining an iterator.
 type iterEntry struct {
 	// n is the position's block number.
-	n types.GlobalBlockNumber
+	n types.RoadIndex
 
 	// qc is the covering QC at the position (never nil).
 	qc *types.FullCommitQC
 
 	// blk is the block at the position; nil when no block is persisted there.
-	blk *types.Block
+	blk *types.SuperBlock
 
 	// appQC is the AppQC at the position; nil when no AppQC is persisted there.
 	appQC *types.AppQC
@@ -207,14 +208,12 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 	}).First
 	for _, group := range suffix.QCGroups {
 		qc := group.QC
-		first := qc.QC().GlobalRange().First
-		next := first + gbn(len(qc.Headers()))
-		for n := max(first, floor); n < next; n++ {
-			entries = append(entries, iterEntry{n: n, qc: qc, blk: group.Blocks[n-first]})
+		if qc.Index() >= floor {
+			entries = append(entries, iterEntry{n: qc.Index(), qc: qc, blk: types.NewSuperBlock(qc, group.Blocks)})
 		}
 	}
 	for _, appQC := range suffix.AppQCs {
-		gr := appQC.Proposal().GlobalRange()
+		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
 		for i := range entries {
 			if gr.Has(entries[i].n) {
 				entries[i].appQC = appQC
@@ -222,7 +221,7 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 		}
 	}
 	for _, appProposal := range suffix.AppProposals {
-		gr := appProposal.GlobalRange()
+		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
 		for i := range entries {
 			if gr.Has(entries[i].n) {
 				entries[i].appProposal = appProposal
@@ -233,10 +232,10 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 }
 
 // qcFirsts returns the distinct covering-QC Firsts across entries, in encounter order.
-func qcFirsts(entries []iterEntry) []types.GlobalBlockNumber {
-	var firsts []types.GlobalBlockNumber
+func qcFirsts(entries []iterEntry) []types.RoadIndex {
+	var firsts []types.RoadIndex
 	for _, e := range entries {
-		first := e.qc.QC().GlobalRange().First
+		first := e.qc.QC().Index()
 		if len(firsts) == 0 || firsts[len(firsts)-1] != first {
 			firsts = append(firsts, first)
 		}
@@ -245,8 +244,8 @@ func qcFirsts(entries []iterEntry) []types.GlobalBlockNumber {
 }
 
 // presentBlockNumbers returns the numbers of entries whose block is present, in encounter order.
-func presentBlockNumbers(entries []iterEntry) []types.GlobalBlockNumber {
-	var nums []types.GlobalBlockNumber
+func presentBlockNumbers(entries []iterEntry) []types.RoadIndex {
+	var nums []types.RoadIndex
 	for _, e := range entries {
 		if e.blk != nil {
 			nums = append(nums, e.n)
@@ -303,7 +302,7 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 	tips := status(t, db)
 
 	if tips.NextBlock > tips.First {
-		blk, err := db.ReadBlockByNumber(tips.NextBlock - 1)
+		blk, err := db.ReadSuperBlockByNumber(tips.NextBlock - 1)
 		require.NoError(t, err)
 		require.True(t, blk.IsPresent(), "NextBlock must point past a readable block")
 	}
@@ -313,7 +312,7 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 		require.NoError(t, err)
 		got, ok := qc.Get()
 		require.True(t, ok, "NextQC must point past a readable QC")
-		require.Equal(t, tips.NextQC, got.QC().GlobalRange().Next)
+		require.Equal(t, tips.NextQC, got.QC().Next())
 	}
 
 	if tips.NextAppQC > tips.First {
@@ -321,14 +320,14 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 		require.NoError(t, err)
 		got, ok := appQC.Get()
 		require.True(t, ok, "NextAppQC must point past a readable AppQC")
-		require.Equal(t, tips.NextAppQC, got.Proposal().GlobalRange().Next)
+		require.Equal(t, tips.NextAppQC, got.Proposal().Next())
 	}
 	if tips.NextAppProposal > tips.First {
 		appProposal, err := db.ReadAppProposalByBlockNumber(tips.NextAppProposal - 1)
 		require.NoError(t, err)
 		got, ok := appProposal.Get()
 		require.True(t, ok, "NextAppProposal must point past a readable AppProposal")
-		require.Equal(t, tips.NextAppProposal, got.GlobalRange().Next)
+		require.Equal(t, tips.NextAppProposal, got.Next())
 	}
 }
 
@@ -342,11 +341,11 @@ func testReadRoundTrip(t *testing.T, build builder) {
 	assertBlocksReadable(t, db, batches)
 
 	// Misses.
-	missNum, err := db.ReadBlockByNumber(1 << 40)
+	missNum, err := db.ReadSuperBlockByNumber(1 << 40)
 	require.NoError(t, err)
 	require.False(t, missNum.IsPresent())
 
-	missHash, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
+	missHash, err := db.ReadSuperBlockByHash(common.Hash{1})
 	require.NoError(t, err)
 	require.False(t, missHash.IsPresent())
 }
@@ -383,13 +382,13 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	}
 
 	for _, appProposal := range appProposals {
-		gr := appProposal.GlobalRange()
+		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
 		for n := gr.First; n < gr.Next; n++ {
 			opt, err := db.ReadAppProposalByBlockNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "AppProposal covering %d should exist", n)
-			require.Equal(t, gr, got.GlobalRange())
+			require.Equal(t, gr, types.RoadRange{First: got.Index(), Next: got.Next()})
 			require.Equal(t, appProposal.AppHash(), got.AppHash())
 		}
 	}
@@ -415,12 +414,12 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	assertTipsMatchPresent(t, db)
 
 	for _, appProposal := range appProposals {
-		gr := appProposal.GlobalRange()
+		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
 		opt, err := db.ReadAppProposalByBlockNumber(gr.First)
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "AppProposal [%d,%d) must survive restart", gr.First, gr.Next)
-		require.Equal(t, gr, got.GlobalRange())
+		require.Equal(t, gr, types.RoadRange{First: got.Index(), Next: got.Next()})
 	}
 }
 
@@ -442,13 +441,13 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	}
 
 	for _, appQC := range appQCs {
-		gr := appQC.Proposal().GlobalRange()
+		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
 		for n := gr.First; n < gr.Next; n++ {
 			opt, err := db.ReadAppQCByBlockNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "AppQC covering %d should exist", n)
-			require.Equal(t, gr, got.Proposal().GlobalRange())
+			require.Equal(t, gr, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
 			require.Equal(t, appQC.Proposal().AppHash(), got.Proposal().AppHash())
 		}
 	}
@@ -474,12 +473,12 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	assertTipsMatchPresent(t, db)
 
 	for _, appQC := range appQCs {
-		gr := appQC.Proposal().GlobalRange()
+		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
 		opt, err := db.ReadAppQCByBlockNumber(gr.First)
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "AppQC [%d,%d) must survive restart", gr.First, gr.Next)
-		require.Equal(t, gr, got.Proposal().GlobalRange())
+		require.Equal(t, gr, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
 	}
 }
 
@@ -524,16 +523,16 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	for _, b := range batches {
-		for i, blk := range b.blocks {
+		for i, blk := range b.superBlocks() {
 			n := b.first + gbn(i)
 			if n < watermark {
 				continue
 			}
-			opt, err := db.ReadBlockByNumber(n)
+			opt, err := db.ReadSuperBlockByNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+			require.Equal(t, blk.CalculateBlockHash(), got.CalculateBlockHash())
 		}
 		if b.next > watermark {
 			lookup := b.first
@@ -547,46 +546,44 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 	}
 }
 
-// testPruneStraddleRetainsQC asserts the one nontrivial prune case: a watermark
-// that falls strictly *inside* a QC's range. The straddling QC (First < n < Next)
-// and every block at or above the watermark must be retained.
-func testPruneStraddleRetainsQC(t *testing.T, build builder) {
+// testPruneAtRoadRetainsQC checks that pruning at a road preserves its complete QC group.
+func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 	writeAll(t, db, batches)
 
-	straddled := batches[1]
-	watermark := straddled.first + 2
-	require.Greater(t, straddled.next, watermark, "watermark must fall strictly inside the batch range")
+	retained := batches[1]
+	watermark := retained.first
+	require.Greater(t, retained.next, watermark, "watermark must precede the next road")
 	require.NoError(t, db.PruneBefore(watermark))
 
-	// Blocks at or above the watermark within the straddled batch survive.
-	for i, blk := range straddled.blocks {
-		n := straddled.first + gbn(i)
+	// Blocks at or above the watermark within the retained batch survive.
+	for i, blk := range retained.superBlocks() {
+		n := retained.first + gbn(i)
 		if n < watermark {
 			continue
 		}
-		opt, err := db.ReadBlockByNumber(n)
+		opt, err := db.ReadSuperBlockByNumber(n)
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-		require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+		require.Equal(t, blk.CalculateBlockHash(), got.CalculateBlockHash())
 	}
 
-	// The straddling QC stays (its Next > watermark); a lookup at or above the
+	// The retained QC stays (its Next > watermark); a lookup at or above the
 	// watermark inside its range still resolves to it.
 	opt, err := db.ReadQCByBlockNumber(watermark)
 	require.NoError(t, err)
 	got, ok := opt.Get()
-	require.True(t, ok, "straddling QC must be retained")
-	require.Equal(t, straddled.first, got.QC().GlobalRange().First)
+	require.True(t, ok, "retained QC must be retained")
+	require.Equal(t, retained.first, got.QC().Index())
 }
 
 // testPruneRefusesBelowWatermark asserts the refuse direction of PruneBefore:
 // once the watermark advances past a block, that block is no longer served by
-// ReadBlockByNumber, ReadBlockByHash, or the Blocks iterator — so a caller can
+// ReadSuperBlockByNumber, ReadSuperBlockByHash, or the Blocks iterator — so a caller can
 // never observe a block whose covering QC may have been pruned out from under it.
 func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
@@ -601,15 +598,15 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	below := batches[0]
-	for i, blk := range below.blocks {
+	for i, blk := range below.superBlocks() {
 		n := below.first + gbn(i)
 		require.Less(t, n, watermark)
 
-		byNum, err := db.ReadBlockByNumber(n)
+		byNum, err := db.ReadSuperBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d below watermark %d must be reported pruned", n, watermark)
 		require.False(t, byNum.IsPresent(), "block %d below watermark %d must not be served", n, watermark)
 
-		byHash, err := db.ReadBlockByHash(blk.Header().Hash())
+		byHash, err := db.ReadSuperBlockByHash(blk.CalculateBlockHash())
 		require.NoError(t, err)
 		require.False(t, byHash.IsPresent(), "block %d below watermark %d must not be served by hash", n, watermark)
 
@@ -634,11 +631,8 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 // reports a plain utils.None with a nil error (absent, but a future write may
 // fill it). Both implementations must agree.
 //
-// The prune point is placed strictly *inside* a QC's range. A QC's cohort of
-// blocks must change readability atomically — the watermark may never split a
-// cohort — so the effective watermark rounds down to the cohort boundary: the
-// whole straddled cohort stays readable, and only the fully-below first cohort
-// becomes pruned.
+// The prune point is a road boundary: the retained SuperBlock stays readable,
+// and the previous SuperBlock becomes pruned.
 func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -647,37 +641,37 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	writeAll(t, db, batches)
 	writeAppData(t, db, utils.TestRngFromSeed(testSeed+501), keys, batches)
 
-	straddled := batches[1]
-	pruneAt := straddled.first + 2
-	require.Greater(t, straddled.next, pruneAt, "prune point must fall strictly inside the cohort")
-	require.LessOrEqual(t, batches[0].next, straddled.first, "first cohort must sit below the straddled one")
+	retained := batches[1]
+	pruneAt := retained.first
+	require.Greater(t, retained.next, pruneAt, "prune point must precede the next road")
+	require.LessOrEqual(t, batches[0].next, retained.first, "first cohort must sit below the retained one")
 	require.NoError(t, db.PruneBefore(pruneAt))
 
-	// Cohort atomicity: every block in the straddled cohort is still served,
+	// Cohort atomicity: every block in the retained cohort is still served,
 	// including those numerically below the prune point — the cohort does not
 	// split.
-	for i := range straddled.blocks {
-		n := straddled.first + gbn(i)
-		opt, err := db.ReadBlockByNumber(n)
-		require.NoError(t, err, "block %d in the straddled cohort must not report ErrPruned", n)
-		require.True(t, opt.IsPresent(), "block %d in the straddled cohort must remain served", n)
+	for i := range retained.superBlocks() {
+		n := retained.first + gbn(i)
+		opt, err := db.ReadSuperBlockByNumber(n)
+		require.NoError(t, err, "block %d in the retained cohort must not report ErrPruned", n)
+		require.True(t, opt.IsPresent(), "block %d in the retained cohort must remain served", n)
 		appProposal, err := db.ReadAppProposalByBlockNumber(n)
-		require.NoError(t, err, "AppProposal at block %d in the straddled cohort must not report ErrPruned", n)
-		require.True(t, appProposal.IsPresent(), "AppProposal at block %d in the straddled cohort must remain served", n)
+		require.NoError(t, err, "AppProposal at block %d in the retained cohort must not report ErrPruned", n)
+		require.True(t, appProposal.IsPresent(), "AppProposal at block %d in the retained cohort must remain served", n)
 		appQC, err := db.ReadAppQCByBlockNumber(n)
-		require.NoError(t, err, "AppQC at block %d in the straddled cohort must not report ErrPruned", n)
-		require.True(t, appQC.IsPresent(), "AppQC at block %d in the straddled cohort must remain served", n)
+		require.NoError(t, err, "AppQC at block %d in the retained cohort must not report ErrPruned", n)
+		require.True(t, appQC.IsPresent(), "AppQC at block %d in the retained cohort must remain served", n)
 	}
-	qcOpt, err := db.ReadQCByBlockNumber(straddled.first)
-	require.NoError(t, err, "straddled cohort's QC must not report ErrPruned")
+	qcOpt, err := db.ReadQCByBlockNumber(retained.first)
+	require.NoError(t, err, "retained cohort's QC must not report ErrPruned")
 	got, ok := qcOpt.Get()
-	require.True(t, ok, "straddled cohort's QC must remain served")
-	require.Equal(t, straddled.first, got.QC().GlobalRange().First)
+	require.True(t, ok, "retained cohort's QC must remain served")
+	require.Equal(t, retained.first, got.QC().Index())
 
 	// The fully-below first cohort is pruned: ErrPruned for both the block and
 	// its covering QC.
 	belowNum := batches[0].first
-	blk, err := db.ReadBlockByNumber(belowNum)
+	blk, err := db.ReadSuperBlockByNumber(belowNum)
 	require.ErrorIs(t, err, types.ErrPruned, "below-watermark block must report ErrPruned")
 	require.False(t, blk.IsPresent())
 	qc, err := db.ReadQCByBlockNumber(belowNum)
@@ -692,7 +686,7 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 
 	// Above the watermark but never written: not pruned, just absent.
 	unwritten := batches[len(batches)-1].next + 1000
-	missBlk, err := db.ReadBlockByNumber(unwritten)
+	missBlk, err := db.ReadSuperBlockByNumber(unwritten)
 	require.NoError(t, err, "never-written height must not report ErrPruned")
 	require.False(t, missBlk.IsPresent())
 	missQC, err := db.ReadQCByBlockNumber(unwritten)
@@ -724,16 +718,16 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 
 	// Everything at or above the highest watermark is still intact and correct.
 	for _, b := range batches {
-		for i, blk := range b.blocks {
+		for i, blk := range b.superBlocks() {
 			n := b.first + gbn(i)
 			if n < watermark {
 				continue
 			}
-			opt, err := db.ReadBlockByNumber(n)
+			opt, err := db.ReadSuperBlockByNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must survive redundant prunes", n, watermark)
-			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+			require.Equal(t, blk.CalculateBlockHash(), got.CalculateBlockHash())
 		}
 	}
 }
@@ -774,7 +768,7 @@ func testFirstQCSetsFloor(t *testing.T, build builder) {
 		require.Equal(t, start.first, db.First())
 		_, err := db.ReadQCByBlockNumber(start.first - 1)
 		require.ErrorIs(t, err, types.ErrPruned)
-		_, err = db.ReadBlockByNumber(start.first - 1)
+		_, err = db.ReadSuperBlockByNumber(start.first - 1)
 		require.ErrorIs(t, err, types.ErrPruned)
 		got, err := db.ReadQCByBlockNumber(start.first)
 		require.NoError(t, err)
@@ -805,7 +799,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 	// Every request lands the watermark inside (or past) the newest cohort:
 	// within the cohort, exactly at the newest block, and well past every block.
 	// All must clamp identically to the cohort's first.
-	for _, prune := range []types.GlobalBlockNumber{last.first + 1, newest, last.next + 1000} {
+	for _, prune := range []types.RoadIndex{last.first + 1, newest, last.next + 1000} {
 		t.Run(fmt.Sprintf("prune=%d", prune), func(t *testing.T) {
 			db, _ := openFresh(t, build)
 			defer func() { _ = db.Close() }()
@@ -815,20 +809,20 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			require.NoError(t, db.PruneBefore(prune))
 
 			// Every block in the newest cohort is still served on every read path.
-			for i, blk := range last.blocks {
+			for i, blk := range last.superBlocks() {
 				n := last.first + gbn(i)
 
-				byNum, err := db.ReadBlockByNumber(n)
+				byNum, err := db.ReadSuperBlockByNumber(n)
 				require.NoError(t, err)
 				got, ok := byNum.Get()
 				require.True(t, ok, "block %d in the newest cohort must survive PruneBefore(%d)", n, prune)
-				require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+				require.Equal(t, blk.CalculateBlockHash(), got.CalculateBlockHash())
 
-				byHash, err := db.ReadBlockByHash(blk.Header().Hash())
+				byHash, err := db.ReadSuperBlockByHash(blk.CalculateBlockHash())
 				require.NoError(t, err)
 				bwn, ok := byHash.Get()
 				require.True(t, ok, "block %d must survive lookup by hash", n)
-				require.Equal(t, n, bwn.Number)
+				require.Equal(t, n, bwn.Height)
 
 				qc, err := db.ReadQCByBlockNumber(n)
 				require.NoError(t, err)
@@ -846,7 +840,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			// A block below the newest cohort is gone (clamped watermark refuses/removes it).
 			belowBatch := batches[len(batches)-2]
 			require.Less(t, belowBatch.first, last.first)
-			below, err := db.ReadBlockByNumber(belowBatch.first)
+			below, err := db.ReadSuperBlockByNumber(belowBatch.first)
 			require.ErrorIs(t, err, types.ErrPruned, "blocks below the newest cohort must be reported pruned")
 			require.False(t, below.IsPresent(), "blocks below the newest cohort must not be served")
 			belowAppProposal, err := db.ReadAppProposalByBlockNumber(belowBatch.first)
@@ -856,12 +850,11 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			require.ErrorIs(t, err, types.ErrPruned, "AppQCs below the newest cohort must be reported pruned")
 			require.False(t, belowAppQC.IsPresent(), "AppQCs below the newest cohort must not be served")
 
-			// ReadSuffix starts at recentFloor(), while the prune watermark still
-			// rounds down to keep the whole newest QC cohort readable.
+			// ReadSuffix and pruning both retain the newest complete QC group.
 			entries := drainSuffix(t, db)
-			require.Equal(t, []types.GlobalBlockNumber{newest}, presentBlockNumbers(entries),
+			require.Equal(t, []types.RoadIndex{newest}, presentBlockNumbers(entries),
 				"ReadSuffix must start at recentFloor() after PruneBefore(%d)", prune)
-			require.Equal(t, []types.GlobalBlockNumber{last.first}, qcFirsts(entries),
+			require.Equal(t, []types.RoadIndex{last.first}, qcFirsts(entries),
 				"ReadSuffix must include the QC covering the suffix floor")
 		})
 	}
@@ -886,7 +879,7 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(batches[len(batches)-1].next+1000))
 
 	below := batches[1]
-	blk, err := db.ReadBlockByNumber(below.first)
+	blk, err := db.ReadSuperBlockByNumber(below.first)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, blk.IsPresent())
 	appQC, err := db.ReadAppQCByBlockNumber(below.first)
@@ -896,7 +889,7 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, appProposal.IsPresent())
 
-	blk, err = db.ReadBlockByNumber(latestApp.first)
+	blk, err = db.ReadSuperBlockByNumber(latestApp.first)
 	require.NoError(t, err)
 	require.True(t, blk.IsPresent(), "newest AppQC cohort must retain a block")
 	qc, err := db.ReadQCByBlockNumber(latestApp.first)
@@ -906,18 +899,16 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := appQC.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppQC")
-	require.Equal(t, latestApp.qc.QC().GlobalRange(), got.Proposal().GlobalRange())
+	require.Equal(t, types.RoadRange{First: latestApp.qc.QC().Index(), Next: latestApp.qc.QC().Next()}, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
 	appProposal, err = db.ReadAppProposalByBlockNumber(latestApp.first)
 	require.NoError(t, err)
 	gotProposal, ok := appProposal.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppProposal")
-	require.Equal(t, latestApp.qc.QC().GlobalRange(), gotProposal.GlobalRange())
+	require.Equal(t, types.RoadRange{First: latestApp.qc.QC().Index(), Next: latestApp.qc.QC().Next()}, types.RoadRange{First: gotProposal.Index(), Next: gotProposal.Next()})
 }
 
-// testPruneAfterRestart pins the one prune input that comes from recovery. The
-// cohort a prune rounds down to is re-read from the covering QC at prune time, so
-// a restart cannot get it wrong, but the ceiling — how far the application has
-// committed — is recovered with the rest of the write cursors. A recovery that
+// testPruneAfterRestart checks the recovered pruning ceiling: how far the
+// application has committed, restored with the rest of the write cursors. A recovery that
 // lost it would not fail loudly: the ceiling would fall back to the oldest cohort
 // and pruning would silently stop reclaiming.
 //
@@ -948,10 +939,10 @@ func testPruneAfterRestart(t *testing.T, build builder) {
 		"the recovered ceiling must cap the prune at the newest committed cohort")
 
 	// The floor is where it claims to be, in both directions.
-	blk, err := db.ReadBlockByNumber(batches[1].first)
+	blk, err := db.ReadSuperBlockByNumber(batches[1].first)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, blk.IsPresent())
-	blk, err = db.ReadBlockByNumber(latestApp.first)
+	blk, err = db.ReadSuperBlockByNumber(latestApp.first)
 	require.NoError(t, err)
 	require.True(t, blk.IsPresent(), "newest committed cohort must survive the capped prune")
 }
@@ -973,11 +964,11 @@ func testReadSuffix(t *testing.T, build builder) {
 	require.Equal(t, status(t, db), suffix.Status.OrPanic("suffix status"))
 	require.NotEmpty(t, suffix.AppQCs)
 	gotAppQC := suffix.AppQCs[0]
-	require.Equal(t, appQC.Proposal().RoadIndex(), gotAppQC.Proposal().RoadIndex())
+	require.Equal(t, appQC.Proposal().Index(), gotAppQC.Proposal().Index())
 	entries := drainSuffix(t, db)
-	recoveryFloor := appQC.Proposal().GlobalRange().Next - 1
-	require.Equal(t, []types.GlobalBlockNumber{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
-	require.Equal(t, batches[2].next-recoveryFloor, types.GlobalBlockNumber(len(entries)))
+	recoveryFloor := appQC.Proposal().Next() - 1
+	require.Equal(t, []types.RoadIndex{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
+	require.Equal(t, batches[2].next-recoveryFloor, types.RoadIndex(len(entries)))
 	require.Equal(t, recoveryFloor, entries[0].n)
 	require.Len(t, presentBlockNumbers(entries), int(batches[2].next-recoveryFloor))
 }
@@ -1139,17 +1130,17 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	prevQC, ok := recoverLastQC(t, db)
 	require.True(t, ok)
-	require.Equal(t, last.first, prevQC.GlobalRange().First, "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.GlobalRange().Next)
+	require.Equal(t, last.first, prevQC.Index(), "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, prevQC.Next())
 
 	tips := status(t, db)
 	require.Equal(t, highest+1, tips.NextBlock, "Status block tip must match the iterator scan")
-	require.Equal(t, prevQC.GlobalRange().Next, tips.NextQC, "Status QC tip must match the iterator scan")
+	require.Equal(t, prevQC.Next(), tips.NextQC, "Status QC tip must match the iterator scan")
 	covering, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
 	require.NoError(t, err)
 	got, ok := covering.Get()
 	require.True(t, ok, "the newest QC must be resolvable by point read (blocksim's resume path)")
-	require.Equal(t, last.first, got.QC().GlobalRange().First)
+	require.Equal(t, last.first, got.QC().Index())
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
@@ -1162,7 +1153,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 // recoverHighestBlock returns the highest persisted block number via a full
 // iterator scan (false if the store has no blocks). Test-side independent
 // verification; production resume uses Status (see blocksim.recoverResumeState).
-func recoverHighestBlock(t *testing.T, db types.BlockStore) (types.GlobalBlockNumber, bool) {
+func recoverHighestBlock(t *testing.T, db types.BlockStore) (types.RoadIndex, bool) {
 	t.Helper()
 	present := presentBlockNumbers(drainSuffix(t, db))
 	if len(present) == 0 {
@@ -1220,8 +1211,8 @@ func testWriteQCBlocksMismatchRejected(t *testing.T, build builder) {
 			}
 			require.ErrorIs(t, db.WriteQC(b.qc, blocks), types.ErrQCBlocksMismatch)
 			require.False(t, db.Status().IsPresent())
-			for _, block := range b.blocks {
-				got, err := db.ReadBlockByHash(block.Header().Hash())
+			for range b.blocks {
+				got, err := db.ReadSuperBlockByHash(types.NewSuperBlock(b.qc, b.blocks).CalculateBlockHash())
 				require.NoError(t, err)
 				require.False(t, got.IsPresent())
 			}
@@ -1236,7 +1227,7 @@ func testWriteQCCoversNoBlocksRejected(t *testing.T, build builder) {
 	rng := utils.TestRng()
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
-	require.ErrorIs(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 0), nil), types.ErrQCNonContiguous)
+	require.ErrorIs(t, db.WriteQC(types.GenFullCommitQCAt(rng, 0, 0), nil), types.ErrQCNonContiguous)
 	require.False(t, db.Status().IsPresent())
 	committee, keys := buildCommittee()
 	b := generateBatches(committee, keys)[0]
@@ -1260,9 +1251,9 @@ func TestMemblockPruneHidesEverythingBelowWatermark(t *testing.T) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	// The first batch is below the watermark and must read as pruned.
-	for i := range batches[0].blocks {
+	for i := range batches[0].superBlocks() {
 		n := batches[0].first + gbn(i)
-		opt, err := db.ReadBlockByNumber(n)
+		opt, err := db.ReadSuperBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d should be pruned", n)
 		require.False(t, opt.IsPresent(), "block %d should be pruned", n)
 	}
@@ -1271,51 +1262,46 @@ func TestMemblockPruneHidesEverythingBelowWatermark(t *testing.T) {
 	require.False(t, qc.IsPresent(), "QC below watermark should be pruned")
 
 	// Watermark block is retained.
-	opt, err := db.ReadBlockByNumber(watermark)
+	opt, err := db.ReadSuperBlockByNumber(watermark)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
 
 	assertSuffixAbove(t, db, watermark)
 }
 
-// TestMemblockPruneIntoCohortRoundsDown pins the cohort rounding as it is
-// observed through this package: a prune landing strictly inside a QC's range
-// rounds down to that cohort's start, so the cohort's blocks change readability
-// together. The whole straddled cohort stays served, its QC is retained, and only
-// the fully-below cohort is pruned.
-func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
+// TestMemblockPruneRetainsWholeSuperBlock checks retention at a SuperBlock boundary.
+func TestMemblockPruneRetainsWholeSuperBlock(t *testing.T) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db := newMemoryStore(t)
 	writeAll(t, db, batches)
 	writeAppData(t, db, utils.TestRngFromSeed(testSeed+504), keys, batches)
 
-	straddled := batches[1]
-	pruneAt := straddled.first + 2
-	require.Greater(t, straddled.next, pruneAt, "prune point must fall strictly inside the cohort")
+	retained := batches[1]
+	pruneAt := retained.first
+	require.Greater(t, retained.next, pruneAt, "prune point must precede the next road")
 	require.NoError(t, db.PruneBefore(pruneAt))
 
-	// The whole straddled cohort is still served — the watermark rounded down to
-	// its start, so none of its blocks are split off below the gate.
-	for i := range straddled.blocks {
-		n := straddled.first + gbn(i)
-		opt, err := db.ReadBlockByNumber(n)
-		require.NoError(t, err, "block %d in the straddled cohort must be served", n)
-		require.True(t, opt.IsPresent(), "block %d in the straddled cohort must be served", n)
+	// The retained SuperBlock and all its lane blocks remain readable.
+	for i := range retained.superBlocks() {
+		n := retained.first + gbn(i)
+		opt, err := db.ReadSuperBlockByNumber(n)
+		require.NoError(t, err, "block %d in the retained cohort must be served", n)
+		require.True(t, opt.IsPresent(), "block %d in the retained cohort must be served", n)
 	}
 
-	// The straddling QC is retained and resolves across its whole range.
-	for i := range straddled.blocks {
-		n := straddled.first + gbn(i)
+	// The retained QC is retained and resolves across its whole range.
+	for i := range retained.superBlocks() {
+		n := retained.first + gbn(i)
 		qc, err := db.ReadQCByBlockNumber(n)
 		require.NoError(t, err, "cohort QC must resolve at %d", n)
 		require.True(t, qc.IsPresent(), "cohort QC must resolve at %d", n)
 	}
 
 	// The fully-below first cohort is pruned.
-	for i := range batches[0].blocks {
+	for i := range batches[0].superBlocks() {
 		n := batches[0].first + gbn(i)
-		opt, err := db.ReadBlockByNumber(n)
+		opt, err := db.ReadSuperBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d in the fully-below cohort must be pruned", n)
 		require.False(t, opt.IsPresent(), "block %d in the fully-below cohort must not be served", n)
 	}
@@ -1323,11 +1309,11 @@ func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 
 // assertSuffixAbove fails when the recovery suffix surfaces a position, or a
 // covering QC, below floor.
-func assertSuffixAbove(t *testing.T, db types.BlockStore, floor types.GlobalBlockNumber) {
+func assertSuffixAbove(t *testing.T, db types.BlockStore, floor types.RoadIndex) {
 	t.Helper()
 	for _, e := range drainSuffix(t, db) {
 		require.GreaterOrEqual(t, e.n, floor, "iterator must not surface pruned positions")
-		require.GreaterOrEqual(t, e.qc.QC().GlobalRange().First, floor,
+		require.GreaterOrEqual(t, e.qc.QC().Index(), floor,
 			"iterator must not surface pruned QCs")
 	}
 }
@@ -1336,34 +1322,50 @@ func assertSuffixAbove(t *testing.T, db types.BlockStore, floor types.GlobalBloc
 
 func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 	for _, b := range batches {
-		for i, blk := range b.blocks {
+		for offset, laneBlock := range b.blocks {
+			opt, err := db.ReadLaneBlock(types.LaneBlockPos{Index: b.first, Offset: uint64(offset)})
+			require.NoError(t, err)
+			got, ok := opt.Get()
+			require.True(t, ok)
+			require.Equal(t, laneBlock.Header().Hash(), got.Header().Hash())
+			require.Equal(t, laneBlock.Payload().Txs(), got.Payload().Txs())
+			alias, err := db.ReadSuperBlockByHash(common.Hash(laneBlock.Header().Hash()))
+			require.NoError(t, err)
+			require.False(t, alias.IsPresent(), "lane block hashes must not index SuperBlocks")
+		}
+		missing, err := db.ReadLaneBlock(types.LaneBlockPos{Index: b.first, Offset: uint64(len(b.blocks))})
+		require.NoError(t, err)
+		require.False(t, missing.IsPresent())
+		for i, blk := range b.superBlocks() {
 			n := b.first + gbn(i)
 
-			byNum, err := db.ReadBlockByNumber(n)
+			byNum, err := db.ReadSuperBlockByNumber(n)
 			require.NoError(t, err)
 			got, ok := byNum.Get()
 			require.True(t, ok, "block %d should exist", n)
-			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+			require.Equal(t, blk.CalculateBlockHash(), got.CalculateBlockHash())
+			require.Equal(t, blk.Txs(), got.Txs())
+			require.Equal(t, blk.GasWanted, got.GasWanted)
 
-			byHash, err := db.ReadBlockByHash(blk.Header().Hash())
+			byHash, err := db.ReadSuperBlockByHash(blk.CalculateBlockHash())
 			require.NoError(t, err)
 			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
-			require.Equal(t, blk.Header().Hash(), bwn.Block.Header().Hash())
-			require.Equal(t, n, bwn.Number, "block %d hash lookup should return its number", n)
+			require.Equal(t, blk.CalculateBlockHash(), bwn.CalculateBlockHash())
+			require.Equal(t, n, bwn.Height, "block %d hash lookup should return its number", n)
 		}
 	}
 }
 
 func assertQCsReadable(t *testing.T, db types.BlockStore, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
-		r := b.qc.QC().GlobalRange()
+		r := types.RoadRange{First: b.qc.QC().Index(), Next: b.qc.QC().Next()}
 		for n := r.First; n < r.Next; n++ {
 			opt, err := db.ReadQCByBlockNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "QC covering %d should exist", n)
-			gr := got.QC().GlobalRange()
+			gr := types.RoadRange{First: got.QC().Index(), Next: got.QC().Next()}
 			require.Equal(t, r.First, gr.First)
 			require.Equal(t, r.Next, gr.Next)
 			require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
@@ -1376,8 +1378,8 @@ func assertQCsReadable(t *testing.T, db types.BlockStore, committee *types.Commi
 
 func assertIterators(t *testing.T, db types.BlockStore, committee *types.Committee, batches []batch) {
 	totalBlocks := 0
-	for _, b := range batches {
-		totalBlocks += len(b.blocks)
+	for range batches {
+		totalBlocks += 1
 	}
 
 	entries := drainSuffix(t, db)
@@ -1390,7 +1392,7 @@ func assertIterators(t *testing.T, db types.BlockStore, committee *types.Committ
 		require.NotNil(t, e.blk, "every covered number has a block in a fully-written store")
 	}
 
-	wantFirsts := make([]types.GlobalBlockNumber, 0, len(batches))
+	wantFirsts := make([]types.RoadIndex, 0, len(batches))
 	for _, b := range batches {
 		wantFirsts = append(wantFirsts, b.first)
 	}
@@ -1412,18 +1414,18 @@ const (
 
 var genesisTime = time.Unix(1_700_000_000, 0)
 
-// batch is a contiguous run of blocks at global numbers [First, Next) together
-// with the QC that finalizes them. Next == First+len(Blocks).
+// batch is a SuperBlock at First with its CommitQC and ordered lane blocks.
+// Next is First+1.
 type batch struct {
-	first  types.GlobalBlockNumber
-	next   types.GlobalBlockNumber
+	first  types.RoadIndex
+	next   types.RoadIndex
 	blocks []*types.Block
 	qc     *types.FullCommitQC
 }
 
-// GBN converts a non-negative slice index to a GlobalBlockNumber offset.
-func gbn(i int) types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(i) //nolint:gosec // i is a non-negative slice index
+// GBN converts a non-negative slice index to a RoadIndex offset.
+func gbn(i int) types.RoadIndex {
+	return types.RoadIndex(i) //nolint:gosec // i is a non-negative slice index
 }
 
 // writeAll persists every batch's QC atomically with its blocks.
@@ -1457,7 +1459,7 @@ func generateBatches(committee *types.Committee, keys []types.SecretKey) []batch
 	batches := make([]batch, 0, numBatches)
 	for range numBatches {
 		fqc, blocks := buildFullCommitQC(rng, committee, keys, prev)
-		r := fqc.QC().GlobalRange()
+		r := types.RoadRange{First: fqc.QC().Index(), Next: fqc.QC().Next()}
 		batches = append(batches, batch{first: r.First, next: r.Next, blocks: blocks, qc: fqc})
 		prev = utils.Some(fqc.QC())
 	}
@@ -1494,7 +1496,7 @@ func buildFullCommitQC(
 			}
 		}
 	}
-	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee)
 	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
@@ -1523,4 +1525,9 @@ func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC
 		votes = append(votes, types.Sign(k, vote))
 	}
 	return types.NewAppQC(votes)
+}
+
+// superBlocks returns the execution unit represented by this batch.
+func (b batch) superBlocks() []*types.SuperBlock {
+	return []*types.SuperBlock{types.NewSuperBlock(b.qc, b.blocks)}
 }
