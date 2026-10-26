@@ -53,8 +53,16 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 	records := []blocktypes.BlockRecord{{Number: blocktypes.BlockNumber(qc.Index()), Hash: block.CalculateBlockHash().Bytes(), Value: encodeBlocks(blocks)}}
 
 	for status := range s.status.Lock() {
-		current, ok := status.Get()
-		if ok && current.NextQC != index {
+		current,ok := status.Get()
+		if !ok {
+			current = types.SuffixRange{
+				First: index,
+				NextQC: index,
+				NextAppQC: index,
+				NextAppProposal: index,
+			}	
+		}
+		if current.NextQC != index {
 			return fmt.Errorf("QC starts at %d, expected %d: %w", index, current.NextQC, types.ErrQCNonContiguous)
 		}
 		if err := s.db.PutQC(blocktypes.QCGroupRecord{
@@ -62,10 +70,7 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 		}); err != nil {
 			return fmt.Errorf("failed to put QC %d: %w", index, err)
 		}
-		if !ok {
-			current = types.SuffixRange{
-				First: index, NextAppQC: index, NextAppProposal: index,
-			}
+		if current.First == index {
 			// Reads below the first QC must return ErrPruned before and after reopening.
 			s.setPruneWatermark(index)
 		}
@@ -77,31 +82,25 @@ func (s *Store) WriteQC(qc *types.FullCommitQC, blocks []*types.Block) error {
 }
 
 func (s *Store) WriteAppQC(appQC *types.AppQC) error {
-	index, next := appQC.Proposal().Index(), appQC.Proposal().Next()
-	if next <= index {
-		return fmt.Errorf("AppQC at %d covers no blocks: %w", index, types.ErrAppQCNonContiguous)
-	}
+	index := appQC.Proposal().Index()
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
-		if !ok {
-			return fmt.Errorf("AppQC [%d,%d) has no matching QC: %w", index, next, types.ErrAppQCMissingQC)
+		if !ok || current.NextAppProposal <= index {
+			return fmt.Errorf("Missing AppProposal for AppQC %d", index)
 		}
 		if current.NextAppQC != index {
-			return fmt.Errorf("AppQC starts at %d, expected %d: %w",
+			return fmt.Errorf("AppQC.Index() = %d, want %d: %w",
 				index, current.NextAppQC, types.ErrAppQCNonContiguous)
-		}
-		if next > current.NextAppProposal {
-			return fmt.Errorf("AppQC [%d,%d) is not covered by written AppProposals: %w", index, next, types.ErrAppQCMissingQC)
 		}
 
 		if err := s.db.PutAppQC(blocktypes.AppQCRecord{
+			Index: blocktypes.BlockNumber(index),
 			Data:  encodeAppQC(appQC),
-			First: blocktypes.BlockNumber(index), Next: blocktypes.BlockNumber(next),
 		}); err != nil {
-			return fmt.Errorf("failed to put AppQC [%d,%d): %w", index, next, err)
+			return fmt.Errorf("failed to put AppQC %d: %w", index, err)
 		}
-		current.NextAppQC = next
-		current.First = current.NextAppQC - 1
+		current.First = index
+		current.NextAppQC = index+1
 		*status = utils.Some(current)
 		return nil
 	}
@@ -109,30 +108,24 @@ func (s *Store) WriteAppQC(appQC *types.AppQC) error {
 }
 
 func (s *Store) WriteAppProposal(appProposal *types.AppProposal) error {
-	index, next := appProposal.Index(), appProposal.Next()
-	if next <= index {
-		return fmt.Errorf("AppProposal at %d covers no blocks: %w", index, types.ErrAppProposalNonContiguous)
-	}
+	index := appProposal.Index()
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
-		if !ok {
-			return fmt.Errorf("AppProposal [%d,%d) has no matching QC: %w", index, next, types.ErrAppProposalMissingQC)
+		if !ok || current.NextQC <= index {
+			return fmt.Errorf("Missing QC for AppProposal %d", index)
 		}
 		if current.NextAppProposal != index {
-			return fmt.Errorf("AppProposal starts at %d, expected %d: %w",
+			return fmt.Errorf("AppProposal.Index() = %v, want %v: %w",
 				index, current.NextAppProposal, types.ErrAppProposalNonContiguous)
-		}
-		if next > current.NextBlock {
-			return fmt.Errorf("AppProposal [%d,%d) is not covered by written blocks: %w", index, next, types.ErrAppProposalMissingQC)
 		}
 
 		if err := s.db.PutAppProposal(blocktypes.AppProposalRecord{
+			Index: blocktypes.BlockNumber(index),
 			Data:  encodeAppProposal(appProposal),
-			First: blocktypes.BlockNumber(index), Next: blocktypes.BlockNumber(next),
 		}); err != nil {
-			return fmt.Errorf("failed to put AppProposal [%d,%d): %w", index, next, err)
+			return fmt.Errorf("failed to put AppProposal %d: %w", index, err)
 		}
-		current.NextAppProposal = next
+		current.NextAppProposal = index+1
 		*status = utils.Some(current)
 		return nil
 	}

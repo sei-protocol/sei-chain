@@ -6,41 +6,28 @@ type BlockNumber uint64
 // BlockHash identifies a block by its header hash.
 type BlockHash []byte
 
-// QCRecord contains a QC's serialized data.
-type QCRecord struct {
-	Data []byte
-}
-
-// QCGroupRecord contains a QC record and its numbered blocks.
-type QCGroupRecord struct {
-	QC     QCRecord
-	Blocks []BlockRecord
+// BlockRecord is an opaque encoded superblock with corresponding lane blocks.
+type BlockRecord struct {
+	Index BlockNumber
+	Hash BlockHash
+	QC    []byte 
+	LaneBlocks [][]byte
 }
 
 // AppQCRecord contains an AppQC's serialized data and block range.
 type AppQCRecord struct {
+	Index BlockNumber
 	Data  []byte
-	First BlockNumber
-	Next  BlockNumber
 }
 
 // AppProposalRecord contains an AppProposal's serialized data and block range.
 type AppProposalRecord struct {
+	Index BlockNumber
 	Data  []byte
-	First BlockNumber
-	Next  BlockNumber
-}
-
-// BlockRecord is an opaque encoded block with its number and header-hash lookup key.
-type BlockRecord struct {
-	Number BlockNumber
-	Hash   BlockHash // secondary lookup key for writes; unset in ReadSuffix
-	Value  []byte
 }
 
 // Suffix contains whole records in increasing order within each kind.
 type Suffix struct {
-	QCs          []QCRecord
 	Blocks       []BlockRecord
 	AppQCs       []AppQCRecord
 	AppProposals []AppProposalRecord
@@ -97,28 +84,29 @@ type BlockDB interface {
 	// ordered by increasing Number. The group is indexed by qc.Blocks[0].Number.
 	// Invalid or oversized groups panic.
 	// ReadSuffix returns the QC and block records of each retained group.
-	PutQC(qc QCGroupRecord) error
-
-	// PutAppQC stores record at every number in [record.First, record.Next).
-	// Oversized records panic. Storing an already-stored number is unsupported
-	// and the result is undefined.
-	PutAppQC(record AppQCRecord) error
+	PutBlock(record BlockRecord) error
 
 	// PutAppProposal stores record at every number in [record.First, record.Next).
 	// Oversized records panic. Storing an already-stored number is unsupported
 	// and the result is undefined.
 	PutAppProposal(record AppProposalRecord) error
+	
+	// PutAppQC stores record at every number in [record.First, record.Next).
+	// Oversized records panic. Storing an already-stored number is unsupported
+	// and the result is undefined.
+	PutAppQC(record AppQCRecord) error
 
 	// GetQC returns the serialized QC covering n.
 	GetQC(n BlockNumber) ([]byte, bool, error)
-	// GetBlock returns the serialized block numbered n.
-	GetBlock(n BlockNumber) ([]byte, bool, error)
+	GetBlockByNumber(n BlockNumber) (BlockRecord, bool, error)
 	// GetBlockByHash returns the number and serialized payload of the block indexed by hash.
-	GetBlockByHash(hash BlockHash) (BlockNumber, []byte, bool, error)
-	// GetAppQC returns the serialized application QC covering n.
-	GetAppQC(n BlockNumber) ([]byte, bool, error)
+	GetBlockByHash(hash BlockHash) (BlockRecord, bool, error)
+	// GetBlock returns the serialized block numbered n.
+	GetLaneBlock(n BlockNumber, offset uint64) ([]byte, bool, error)	
 	// GetAppProposal returns the serialized application proposal covering n.
 	GetAppProposal(n BlockNumber) ([]byte, bool, error)
+	// GetAppQC returns the serialized application QC covering n.
+	GetAppQC(n BlockNumber) ([]byte, bool, error)
 	// ReadSuffix returns a snapshot starting at the newest AppQC's group,
 	// or all retained records when no AppQC exists. Returned bytes are immutable.
 	ReadSuffix() (Suffix, error)
