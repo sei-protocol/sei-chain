@@ -679,9 +679,9 @@ func (s *State) WaitForLaneQCs(
 
 // LaneTip is how far one lane's blocks have reached on this node.
 type LaneTip struct {
-	// Committed is the first block not finalized by the latest persisted CommitQC.
-	Committed types.BlockNumber
-	// WithLaneQC is one past the highest block with a LaneQC, and at least Committed.
+	// WithCommitQC is one past the highest block finalized by the latest persisted CommitQC.
+	WithCommitQC types.BlockNumber
+	// WithLaneQC is one past the highest block with a LaneQC, and at least WithCommitQC.
 	WithLaneQC types.BlockNumber
 	// Held is one past the highest block this node holds, and at least WithLaneQC.
 	Held types.BlockNumber
@@ -693,10 +693,10 @@ func (s *State) LaneTips() map[types.LaneID]LaneTip {
 		committed := inner.persistedCommitQC.Load()
 		tips := map[types.LaneID]LaneTip{}
 		for lane := range inner.applied().Committee().Lanes().All() {
-			t := LaneTip{Committed: types.LaneRangeOpt(committed, lane).Next()}
-			t.WithLaneQC = t.Committed
+			t := LaneTip{WithCommitQC: types.LaneRangeOpt(committed, lane).Next()}
+			t.WithLaneQC = t.WithCommitQC
 			if vq, ok := inner.votes[lane]; ok {
-				for n := vq.next; n > max(vq.first, t.Committed); n-- {
+				for n := vq.next; n > max(vq.first, t.WithCommitQC); n-- {
 					if vq.q[n-1].qc.IsPresent() {
 						t.WithLaneQC = n
 						break

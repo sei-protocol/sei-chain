@@ -30,7 +30,7 @@ func TestLaneBlockStagesFollowTheCurrentProposal(t *testing.T) {
 	proposal := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(votes),
 	}).Proposal()
-	tips := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, WithLaneQC: 4, Held: 6}}
+	tips := map[types.LaneID]avail.LaneTip{lane: {WithCommitQC: 0, WithLaneQC: 4, Held: 6}}
 
 	var prepareVotes []*types.Signed[*types.PrepareVote]
 	for _, k := range keys {
@@ -75,10 +75,10 @@ func TestLaneBlockStagesPartitionThePositionsPastTheCommittedTip(t *testing.T) {
 
 	// The proposal arrived before this replica formed any LaneQC or received blocks 2..3, which still
 	// count once, in the proposal.
-	early := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, WithLaneQC: 0, Held: 2}}
+	early := map[types.LaneID]avail.LaneTip{lane: {WithCommitQC: 0, WithLaneQC: 0, Held: 2}}
 	require.Equal(t, laneBlockStages{prepareQC: 4}, voted.laneBlockStages(early))
 
 	// Past the proposal, block 4 has a LaneQC and block 5 is only held.
-	ahead := map[types.LaneID]avail.LaneTip{lane: {Committed: 0, WithLaneQC: 5, Held: 6}}
+	ahead := map[types.LaneID]avail.LaneTip{lane: {WithCommitQC: 0, WithLaneQC: 5, Held: 6}}
 	require.Equal(t, laneBlockStages{prepareQC: 4, proposal: 1, laneQC: 1}, voted.laneBlockStages(ahead))
 }
