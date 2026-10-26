@@ -41,10 +41,16 @@ func writeBlockLedger(t *testing.T, manager *bootstrap.GigaStorageManager, throu
 	t.Helper()
 	rng := tmutils.TestRng()
 	next := autobahn.GlobalBlockNumber(through + 1)
-	require.NoError(t, manager.BlockStore().WriteQC(autobahn.GenFullCommitQCRange(rng, 1, next)))
+	qc := autobahn.GenFullCommitQCRange(rng, 1, next)
+	blocks := make([]*autobahn.Block, 0, through)
+	headers := make([]*autobahn.BlockHeader, 0, through)
 	for n := autobahn.GlobalBlockNumber(1); n < next; n++ {
-		require.NoError(t, manager.BlockStore().WriteBlock(n, autobahn.GenBlock(rng)))
+		block := autobahn.GenBlock(rng)
+		blocks = append(blocks, block)
+		headers = append(headers, block.Header())
 	}
+	qc = autobahn.NewFullCommitQC(qc.QC(), headers)
+	require.NoError(t, manager.BlockStore().WriteQC(qc, blocks))
 }
 
 // executeBlocks commits state and receipts for blocks [from, through], as executing them would.

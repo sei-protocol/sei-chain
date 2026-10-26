@@ -923,12 +923,10 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 	return updateCurrentSymlink(db.dir, snapshotDir)
 }
 
-// validateSnapshot loads the snapshot at path and verifies it holds the state
-// this DB would publish: the recorded multi-tree version and every store's
-// version and root hash must match lastCommitInfo. File sizes and record
-// alignment are checked by the load; interior nodes and key data are not
-// otherwise verified. Failures that prove the data is bad carry
-// errCorruptedSnapshot; environmental failures do not.
+// validateSnapshot loads the snapshot at path and verifies that its __metadata
+// record and its trees both hold the state this DB would publish. Interior
+// nodes and key data are not verified. Failures that prove the data is bad
+// carry errCorruptedSnapshot; environmental failures do not.
 func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr error) {
 	opts := db.opts
 	opts.SnapshotPrefetchThreshold = 0
@@ -945,11 +943,49 @@ func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr erro
 		returnErr = errorutils.Join(returnErr, mtree.Close())
 	}()
 
-	if mtree.Version() != db.lastCommitInfo.Version {
-		return fmt.Errorf("%w: snapshot version %d does not match expected version %d",
-			errCorruptedSnapshot, mtree.Version(), db.lastCommitInfo.Version)
+	if err := db.validateSnapshotMetadata(&mtree.metadata); err != nil {
+		return err
 	}
-	loaded := mtree.Trees()
+	return db.validateSnapshotTrees(mtree.Trees())
+}
+
+// validateSnapshotMetadata verifies that a snapshot's __metadata records
+// exactly lastCommitInfo and the DB's initial version.
+func (db *DB) validateSnapshotMetadata(metadata *proto.MultiTreeMetadata) error {
+	if metadata.InitialVersion != int64(db.initialVersion.Load()) {
+		return fmt.Errorf("%w: snapshot metadata initial version %d does not match expected initial version %d",
+			errCorruptedSnapshot, metadata.InitialVersion, db.initialVersion.Load())
+	}
+	recorded := metadata.CommitInfo
+	if recorded.Version != db.lastCommitInfo.Version {
+		return fmt.Errorf("%w: snapshot version %d does not match expected version %d",
+			errCorruptedSnapshot, recorded.Version, db.lastCommitInfo.Version)
+	}
+	if len(recorded.StoreInfos) != len(db.lastCommitInfo.StoreInfos) {
+		return fmt.Errorf("%w: snapshot metadata records %d stores, expected %d",
+			errCorruptedSnapshot, len(recorded.StoreInfos), len(db.lastCommitInfo.StoreInfos))
+	}
+	for i, want := range db.lastCommitInfo.StoreInfos {
+		got := recorded.StoreInfos[i]
+		if got.Name != want.Name {
+			return fmt.Errorf("%w: snapshot metadata records store %q at position %d, expected %q",
+				errCorruptedSnapshot, got.Name, i, want.Name)
+		}
+		if got.CommitId.Version != want.CommitId.Version {
+			return fmt.Errorf("%w: snapshot metadata store %q version %d does not match expected version %d",
+				errCorruptedSnapshot, want.Name, got.CommitId.Version, want.CommitId.Version)
+		}
+		if !bytes.Equal(got.CommitId.Hash, want.CommitId.Hash) {
+			return fmt.Errorf("%w: snapshot metadata store %q root hash does not match the expected commit hash",
+				errCorruptedSnapshot, want.Name)
+		}
+	}
+	return nil
+}
+
+// validateSnapshotTrees verifies that the loaded stores are exactly those in
+// lastCommitInfo, each at its recorded version and root hash.
+func (db *DB) validateSnapshotTrees(loaded []NamedTree) error {
 	if len(loaded) != len(db.lastCommitInfo.StoreInfos) {
 		return fmt.Errorf("%w: snapshot has %d stores, expected %d",
 			errCorruptedSnapshot, len(loaded), len(db.lastCommitInfo.StoreInfos))
