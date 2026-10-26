@@ -212,8 +212,15 @@ func (b *traceBackend) GetTransaction(ctx context.Context, hash common.Hash) (bo
 	return true, tx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, uint64(stored.TransactionIndex), nil
 }
 
-// StateAtBlock returns the committed state after block.
+// StateAtBlock returns the committed state after block, or the latest committed state when ctx is
+// marked by withLatestState.
 func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ uint64, _ vm.StateDB, _ bool, _ bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+	if readsLatestState(ctx) {
+		// The height a latest tag resolved to can be passed by the time the state is read, and a node
+		// without state history holds only the newest state.
+		stateDB, release, err := b.backend.EvmState(ctx)
+		return stateDB, release, err
+	}
 	stateDB, release, err := b.backend.EvmStateAt(ctx, block.Number().Int64())
 	return stateDB, release, err
 }
@@ -290,6 +297,20 @@ func (b *traceBackend) Engine() consensus.Engine {
 // ChainDb returns nil; only tracer methods this node does not serve read it.
 func (b *traceBackend) ChainDb() ethdb.Database {
 	return nil
+}
+
+// latestStateKey marks a context whose traced call reads the latest committed state.
+type latestStateKey struct{}
+
+// withLatestState returns ctx marked so that StateAtBlock serves the latest committed state.
+func withLatestState(ctx context.Context) context.Context {
+	return context.WithValue(ctx, latestStateKey{}, true)
+}
+
+// readsLatestState reports whether ctx is marked by withLatestState.
+func readsLatestState(ctx context.Context) bool {
+	latest, _ := ctx.Value(latestStateKey{}).(bool)
+	return latest
 }
 
 // executed reports whether the transaction a stored receipt belongs to ran in the EVM. A transaction

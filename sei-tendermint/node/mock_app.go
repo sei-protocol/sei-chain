@@ -187,6 +187,11 @@ func (app *MockApp) EvmBlockContext(*ethtypes.Header) (vm.BlockContext, error) {
 	return vm.BlockContext{}, errMockAppNoExecution
 }
 
+// EvmState always errors: the mock app keeps no EVM state to trace against.
+func (app *MockApp) EvmState(context.Context) (vm.StateDB, func(), error) {
+	return nil, nil, errMockAppNoExecution
+}
+
 // EvmStateAt always errors: the mock app keeps no EVM state to trace against.
 func (app *MockApp) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
 	return nil, nil, errMockAppNoExecution

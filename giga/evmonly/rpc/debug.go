@@ -92,13 +92,17 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	})
 }
 
-// TraceCall traces args as a call against the committed state after the block blockNrOrHash names.
+// TraceCall traces args as a call against the committed state after the block blockNrOrHash names,
+// or for a latest tag, the latest committed state.
 func (api *debugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash ethrpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (any, error) {
 	if config == nil {
 		config = &tracers.TraceCallConfig{}
 	}
 	if config.StateOverrides != nil || config.BlockOverrides != nil {
 		return nil, &invalidParamsError{error: errTraceOverrides}
+	}
+	if number, ok := blockNrOrHash.Number(); ok && isLatestTag(number) {
+		ctx = withLatestState(ctx)
 	}
 	return api.trace(ctx, &config.TraceConfig, func(ctx context.Context, _ *tracers.TraceConfig) (any, error) {
 		return api.calls.TraceCall(ctx, args, blockNrOrHash, config)

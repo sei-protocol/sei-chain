@@ -132,6 +132,15 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 		// Without a state store there is no state after block 1 to replay block 2 from.
 		_, _, err = app.EvmStateBeforeTx(t.Context(), traceTestHeader(2, first.Hash), nil)
 		require.Error(t, err)
+
+		// Once block 3 commits, the state after block 2 is no longer held, and the latest one is.
+		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
+		_, _, err = app.EvmStateAt(t.Context(), 2)
+		require.Error(t, err)
+		latest, release, err := app.EvmState(t.Context())
+		require.NoError(t, err)
+		release()
+		require.NotNil(t, latest)
 	})
 }
 

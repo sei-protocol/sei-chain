@@ -293,6 +293,10 @@ func (*replayBackend) EvmProxyEnabled() bool {
 	return false
 }
 
+func (*replayBackend) EvmState(context.Context) (vm.StateDB, func(), error) {
+	return nil, nil, errNotReplayed
+}
+
 func (*replayBackend) EvmStateAt(context.Context, int64) (vm.StateDB, func(), error) {
 	return nil, nil, errNotReplayed
 }

@@ -152,6 +152,9 @@ func newTraceChain(t *testing.T) *traceChain {
 		},
 		stateBeforeTx: replay,
 	}
+	chain.backend.state = func(ctx context.Context) (vm.StateDB, func(), error) {
+		return chain.backend.stateAt(ctx, int64(chain.backend.blockNumber())) //nolint:gosec // G115: a test height fits in int64.
+	}
 	return chain
 }
 
@@ -382,26 +385,29 @@ func TestDebugTraceCall(t *testing.T) {
 		})
 	}
 
-	t.Run("latest reads the newest block before its receipts are indexed", func(t *testing.T) {
-		// Like a validator, the node holds only the newest block's state, and block 3's receipts are
-		// still being written.
+	t.Run("latest reads the newest state once a newer block commits, before its receipts are indexed", func(t *testing.T) {
+		// Like a validator after block 4 commits, the node holds no state by height, only the newest,
+		// while latest still names block 3, whose receipts are still being written.
 		chain.blocks[3] = traceResultBlock(3, nil)
 		chain.backend.blockNumber = func() uint64 { return 3 }
-		stateAt := chain.backend.stateAt
-		chain.backend.stateAt = func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
-			if height != 3 {
-				return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
-			}
-			return stateAt(ctx, 2)
+		stateAt, state := chain.backend.stateAt, chain.backend.state
+		chain.backend.stateAt = func(_ context.Context, height int64) (vm.StateDB, func(), error) {
+			return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 		}
+		// Block 3 is empty, so the newest state is the one block 2 left.
+		chain.backend.state = func(ctx context.Context) (vm.StateDB, func(), error) { return stateAt(ctx, 2) }
 		defer func() {
 			delete(chain.blocks, 3)
 			chain.backend.blockNumber = func() uint64 { return 2 }
-			chain.backend.stateAt = stateAt
+			chain.backend.stateAt, chain.backend.state = stateAt, state
 		}()
+		config := map[string]any{"tracer": "prestateTracer"}
+
 		var got map[common.Address]prestateAccount
-		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", map[string]any{"tracer": "prestateTracer"}))
+		require.NoError(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "latest", config))
 		require.Equal(t, uint64(2), got[chain.sender].Nonce)
+		// A numbered block still reads the state after it, which this node no longer holds.
+		require.Error(t, client.CallContext(t.Context(), &got, "debug_traceCall", transfer, "0x3", config))
 	})
 
 	t.Run("overrides are refused", func(t *testing.T) {

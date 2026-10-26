@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 var errTraceGenesis = errors.New("block 0 has no parent state to trace against")
@@ -22,6 +23,16 @@ func (a *evmOnlyApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockC
 		return vm.BlockContext{}, err
 	}
 	return evmonly.EVMBlockContext(a.traceBlockContext(number, header)), nil
+}
+
+// EvmState returns the latest committed EVM state, held in memory, and the function that releases
+// it. The state must not be used once released.
+func (a *evmOnlyApplication) EvmState(ctx context.Context) (vm.StateDB, func(), error) {
+	executor, err := a.loadedExecutor("trace")
+	if err != nil {
+		return nil, nil, err
+	}
+	return replayOnView(ctx, executor, a.openSettledView(), evmonly.BlockRequest{})
 }
 
 // EvmStateAt returns the committed EVM state after height, held in memory, and the function that
@@ -53,10 +64,8 @@ func (a *evmOnlyApplication) traceBlockContext(number uint64, header *ethtypes.H
 	return a.blockContext(number, header.Time, a.EvmGasLimit(), header.ParentHash, common.Hash{})
 }
 
-// replayState opens the committed EVM state after height and applies req's transactions to it. A
-// read the state store can no longer serve, such as one at a height pruned mid-replay, is returned
-// as an error.
-func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (_ vm.StateDB, _ func(), err error) {
+// replayState opens the committed EVM state after height and applies req's transactions to it.
+func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (vm.StateDB, func(), error) {
 	executor, err := a.loadedExecutor("trace")
 	if err != nil {
 		return nil, nil, err
@@ -65,10 +74,17 @@ func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req 
 	if err != nil {
 		return nil, nil, err
 	}
+	return replayOnView(ctx, executor, view, req)
+}
+
+// replayOnView applies req's transactions to view with executor, returning the result and the
+// function that closes view; view is closed on failure. A read the state store can no longer serve,
+// such as one at a height pruned mid-replay, is returned as an error.
+func replayOnView(ctx context.Context, executor *evmonly.Executor, view gigatypes.StateView, req evmonly.BlockRequest) (_ vm.StateDB, _ func(), err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			view.Close()
-			err = fmt.Errorf("replay the EVM state after block %d: %v", height, r)
+			err = fmt.Errorf("replay the EVM state after block %d: %v", view.GetBlockHeight(), r)
 		}
 	}()
 	stateDB, err := executor.ReplayState(ctx, view, req)
