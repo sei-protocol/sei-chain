@@ -20,6 +20,7 @@ const (
 	prepareTimerName         = "evmonly_prepare"
 
 	preparePhaseParse = "parse"
+	preparePhaseWarm  = "warm_accounts"
 
 	// maxPreparedBlocks bounds the prepared blocks held: the block about to execute
 	// and the one after it.
@@ -110,10 +111,13 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		Txs:     req.Txs,
 		Senders: a.peekSenders(txHashes),
 	})
-	a.preparePhases.Reset()
 	if err != nil {
+		a.preparePhases.Reset()
 		return ctx.Err()
 	}
+	a.preparePhases.SetPhase(preparePhaseWarm)
+	executor.WarmAccounts(ctx, prepared)
+	a.preparePhases.Reset()
 	next := a.LastBlockHeight() + 1
 	for queue := range a.prepared.Lock() {
 		queue.put(preparedBlock{
