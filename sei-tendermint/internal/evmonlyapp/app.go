@@ -269,11 +269,7 @@ func epochWindowChangeSets(pending utils.Option[pendingEpochWindow], height int6
 	if p.height != height {
 		return nil, fmt.Errorf("EVM-only block %d has epoch window for height %d", height, p.height)
 	}
-	changeSet, err := p.window.ChangeSet()
-	if err != nil {
-		return nil, fmt.Errorf("encode epoch window: %w", err)
-	}
-	return []*proto.NamedChangeSet{changeSet}, nil
+	return []*proto.NamedChangeSet{p.window.ChangeSet()}, nil
 }
 
 // CommittedEpochWindow returns the epoch window in the committed state, or None
@@ -290,9 +286,6 @@ func (a *evmOnlyApplication) SetEpochWindow(height atypes.GlobalBlockNumber, win
 	h, ok := utils.SafeCast[int64](height)
 	if !ok {
 		return fmt.Errorf("EVM-only epoch window height exceeds int64: %d", height)
-	}
-	if err := window.Validate(); err != nil {
-		return fmt.Errorf("validate epoch window: %w", err)
 	}
 	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {

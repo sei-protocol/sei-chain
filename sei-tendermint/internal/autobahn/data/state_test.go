@@ -185,19 +185,67 @@ func TestClosingEpochReportsOnlyLastBlockOfLastRoad(t *testing.T) {
 	require.NoError(t, state.PushQC(ctx, qc, blocks))
 	gr := qc.QC().GlobalRange()
 
-	got, err := state.ClosingEpoch(gr.First)
+	got, err := state.closingEpoch(gr.First)
 	require.NoError(t, err)
 	require.False(t, got.IsPresent())
 
-	got, err = state.ClosingEpoch(gr.Next - 1)
+	got, err = state.closingEpoch(gr.Next - 1)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(0), got.OrPanic("closing epoch"))
 
 	qc, blocks = commitQCAtRoad(ep0, keys, registry.EpochFirstRoad(0), gr.Next)
 	require.NoError(t, state.PushQC(ctx, qc, blocks))
-	got, err = state.ClosingEpoch(qc.QC().GlobalRange().Next - 1)
+	got, err = state.closingEpoch(qc.QC().GlobalRange().Next - 1)
 	require.NoError(t, err)
 	require.False(t, got.IsPresent())
+}
+
+func TestClosingEpochReadsQCBelowFirst(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+	weights := map[types.PublicKey]uint64{keys[0].Public(): 1}
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc0, blocks0 := commitQCAtRoad(ep0, keys, registry.LastRoad(0), ep0.FirstBlock())
+		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+			return err
+		}
+		closing := qc0.QC().GlobalRange().Next - 1
+		qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1), closing+1)
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		last := qc1.QC().GlobalRange().Next - 1
+		for _, n := range []types.GlobalBlockNumber{closing, last} {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), weights); err != nil {
+				return err
+			}
+			if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
+				return err
+			}
+		}
+		for inner, ctrl := range state.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first > closing }); err != nil {
+				return err
+			}
+		}
+
+		got, err := state.closingEpoch(closing)
+		if err != nil {
+			return fmt.Errorf("closing block below first: %w", err)
+		}
+		if e, ok := got.Get(); !ok || e != 0 {
+			return fmt.Errorf("closing block below first: got %v, want epoch 0", got)
+		}
+		if _, err := state.closingEpoch(last + 1); err == nil {
+			return errors.New("block not yet available: got nil error")
+		}
+		return nil
+	}))
 }
 
 func TestPushAppHashWithEpochWindow_StagesWindowNext(t *testing.T) {
@@ -207,8 +255,7 @@ func TestPushAppHashWithEpochWindow_StagesWindowNext(t *testing.T) {
 	ep0 := registry.MustEpoch(0)
 	window, err := registry.StateWindow(0, map[types.PublicKey]uint64{keys[0].Public(): 9})
 	require.NoError(t, err)
-	_, want, err := epoch.DecodeStateEpochRecord(window.Next)
-	require.NoError(t, err)
+	want := window.Next().Committee
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })

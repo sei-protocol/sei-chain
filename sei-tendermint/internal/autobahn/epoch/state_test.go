@@ -19,8 +19,7 @@ func TestStateWindowChangeSetRoundTrip(t *testing.T) {
 
 	window, err := NewStateWindow(0, c0, 1, c1, 2, c2)
 	require.NoError(t, err)
-	changeSet, err := window.ChangeSet()
-	require.NoError(t, err)
+	changeSet := window.ChangeSet()
 
 	require.Equal(t, StateModuleName, changeSet.Name)
 	require.Equal(t, []string{PrevEpochRecordKey, CurrentEpochRecordKey, NextEpochRecordKey}, pairKeys(changeSet))
@@ -31,10 +30,16 @@ func TestStateWindowChangeSetRoundTrip(t *testing.T) {
 		changeSet.Changeset.Pairs[2].Value,
 	)
 	require.NoError(t, err)
-	require.NoError(t, decoded.Validate())
-	require.True(t, protoutils.Equal(window.Prev, decoded.Prev))
-	require.True(t, protoutils.Equal(window.Current, decoded.Current))
-	require.True(t, protoutils.Equal(window.Next, decoded.Next))
+	require.True(t, window.Equal(decoded))
+}
+
+func TestStateWindowRejectsLateJoiner(t *testing.T) {
+	c0 := testCommittee(t, map[string]uint64{"a": 1})
+	c2, err := c0.DeriveNext(map[types.PublicKey]uint64{types.TestSecretKey("late").Public(): 1}, 2)
+	require.NoError(t, err)
+
+	_, err = NewStateWindow(0, c0, 1, c2, 2, c2)
+	require.Error(t, err)
 }
 
 func TestStateWindowRejectsNonConsecutiveRecords(t *testing.T) {
@@ -54,16 +59,21 @@ func TestStateEpochRecordAllowsGenesisEpochs(t *testing.T) {
 
 	window, err := NewStateWindow(0, c, 1, c, 2, next)
 	require.NoError(t, err)
+	changeSet := window.ChangeSet()
 
-	idx, committee, err := DecodeStateEpochRecord(window.Prev)
+	decoded, err := DecodeStateWindow(
+		changeSet.Changeset.Pairs[0].Value,
+		changeSet.Changeset.Pairs[1].Value,
+		changeSet.Changeset.Pairs[2].Value,
+	)
 	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(0), idx)
-	require.True(t, c.Equal(committee))
+	require.Equal(t, types.EpochIndex(0), decoded.Prev().Index)
+	require.True(t, c.Equal(decoded.Prev().Committee))
 }
 
 func TestStateEpochRecordGoldenBytes(t *testing.T) {
 	c := testCommittee(t, map[string]uint64{"a": 7})
-	record := encodeStateEpochRecord(3, c)
+	record := encodeEpochRecord(3, c)
 
 	got := hex.EncodeToString(protoutils.Marshal(record))
 	const want = "0803122c0a2a0a260a220a20eae1c8793b5597c4b3f490e76ac31172c439690f8ee14142bb851a61f9a49f0e10001007"

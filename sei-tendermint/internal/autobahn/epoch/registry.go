@@ -74,7 +74,7 @@ func (s *registryState) restore(snapshot *pb.PersistedEpochRegistry) error {
 		return fmt.Errorf("missing")
 	}
 	for pos, record := range snapshot.Live {
-		idx, committee, err := decodeEpochRecord(record)
+		idx, committee, err := decodeSnapshotRecord(record)
 		if err != nil {
 			return fmt.Errorf("live record %d: %w", pos, err)
 		}
@@ -90,7 +90,7 @@ func (s *registryState) restore(snapshot *pb.PersistedEpochRegistry) error {
 		}
 	}
 	if snapshot.Pending != nil {
-		idx, committee, err := decodeEpochRecord(snapshot.Pending)
+		idx, committee, err := decodeSnapshotRecord(snapshot.Pending)
 		if err != nil {
 			return fmt.Errorf("pending: %w", err)
 		}
@@ -268,36 +268,45 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 	panic("unreachable")
 }
 
-// StageWindow persists the next record of window as pending, as StageEpoch does
-// for a derived committee. window must start at endEpoch, its current record must
-// equal the registered committee of that epoch, and its next record must follow it.
+// StageWindow persists the next epoch of window as pending, as StageEpoch does
+// for a derived committee. window must start at endEpoch, its prev and current
+// epochs must equal the registered committees, and its next epoch must follow
+// current. A prev epoch dropped by PruneBefore is not checked.
 func (r *Registry) StageWindow(endEpoch types.EpochIndex, window StateWindow) error {
-	if err := window.Validate(); err != nil {
-		return err
+	prev, current, next := window.Prev(), window.Current(), window.Next()
+	if prev.Index != endEpoch {
+		return fmt.Errorf("epoch window starts at epoch %d, want %d", prev.Index, endEpoch)
 	}
-	prevIdx, _, _ := DecodeStateEpochRecord(window.Prev)
-	if prevIdx != endEpoch {
-		return fmt.Errorf("epoch window starts at epoch %d, want %d", prevIdx, endEpoch)
-	}
-	currentIdx, current, _ := DecodeStateEpochRecord(window.Current)
-	target, committee, _ := DecodeStateEpochRecord(window.Next)
 	for s := range r.state.Lock() {
-		if err := s.checkStageable(target); err != nil {
+		if err := s.checkStageable(next.Index); err != nil {
 			return err
 		}
-		registered, ok := s.m[currentIdx]
-		if !ok {
-			return fmt.Errorf("epoch %d not registered", currentIdx)
+		if !s.dropped(prev.Index) {
+			if err := s.checkRegistered(prev); err != nil {
+				return err
+			}
 		}
-		if !registered.Committee().Equal(current) {
-			return fmt.Errorf("epoch %d in the window differs from the registered committee", currentIdx)
+		if err := s.checkRegistered(current); err != nil {
+			return err
 		}
-		if err := s.checkDerivedFromPrev(target, committee); err != nil {
-			return fmt.Errorf("epoch %d: %w", target, err)
+		if err := s.checkDerivedFromPrev(next.Index, next.Committee); err != nil {
+			return fmt.Errorf("epoch %d: %w", next.Index, err)
 		}
-		return r.stage(s, target, committee)
+		return r.stage(s, next.Index, next.Committee)
 	}
 	panic("unreachable")
+}
+
+// checkRegistered returns an error if e is not registered with the same committee.
+func (s *registryState) checkRegistered(e EpochCommittee) error {
+	registered, ok := s.m[e.Index]
+	if !ok {
+		return fmt.Errorf("epoch %d not registered", e.Index)
+	}
+	if !registered.Committee().Equal(e.Committee) {
+		return fmt.Errorf("epoch %d in the window differs from the registered committee", e.Index)
+	}
+	return nil
 }
 
 // checkStageable returns an error if target was dropped, or is neither

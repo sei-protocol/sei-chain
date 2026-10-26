@@ -157,21 +157,14 @@ func TestStateWindow_FromEndStake(t *testing.T) {
 
 	window, err := r.StateWindow(0, weights)
 	require.NoError(t, err)
-	prev, prevCommittee, err := DecodeStateEpochRecord(window.Prev)
-	require.NoError(t, err)
-	current, currentCommittee, err := DecodeStateEpochRecord(window.Current)
-	require.NoError(t, err)
-	next, nextCommittee, err := DecodeStateEpochRecord(window.Next)
-	require.NoError(t, err)
-
-	require.Equal(t, types.EpochIndex(0), prev)
-	require.Equal(t, types.EpochIndex(1), current)
-	require.Equal(t, types.EpochIndex(2), next)
-	require.True(t, r.MustEpoch(0).Committee().Equal(prevCommittee))
-	require.True(t, r.MustEpoch(1).Committee().Equal(currentCommittee))
+	require.Equal(t, types.EpochIndex(0), window.Prev().Index)
+	require.Equal(t, types.EpochIndex(1), window.Current().Index)
+	require.Equal(t, types.EpochIndex(2), window.Next().Index)
+	require.True(t, r.MustEpoch(0).Committee().Equal(window.Prev().Committee))
+	require.True(t, r.MustEpoch(1).Committee().Equal(window.Current().Committee))
 
 	staged := addFromEnd(t, r, 0, weights)
-	require.True(t, staged.Committee().Equal(nextCommittee))
+	require.True(t, staged.Committee().Equal(window.Next().Committee))
 }
 
 func TestStateWindow_RequiresCurrentEpochs(t *testing.T) {
@@ -192,8 +185,6 @@ func TestStageWindow_StagesNextCommittee(t *testing.T) {
 	pk := committee.Lanes().At(0).Validator
 	window, err := r.StateWindow(0, map[types.PublicKey]uint64{pk: 7})
 	require.NoError(t, err)
-	_, want, err := DecodeStateEpochRecord(window.Next)
-	require.NoError(t, err)
 
 	require.NoError(t, r.StageWindow(0, window))
 	pending, ok := r.Pending().Get()
@@ -202,7 +193,7 @@ func TestStageWindow_StagesNextCommittee(t *testing.T) {
 	require.NoError(t, r.StageWindow(0, window))
 	require.Error(t, r.StageEpoch(0, map[types.PublicKey]uint64{pk: 8}))
 	require.NoError(t, r.ActivateEpoch(2))
-	require.True(t, r.MustEpoch(2).Committee().Equal(want))
+	require.True(t, r.MustEpoch(2).Committee().Equal(window.Next().Committee))
 }
 
 func TestStageWindow_RejectsMismatchedWindow(t *testing.T) {
@@ -215,10 +206,11 @@ func TestStageWindow_RejectsMismatchedWindow(t *testing.T) {
 	other := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
 		types.TestSecretKey("other").Public(): 5,
 	}))
-	_, prev, err := DecodeStateEpochRecord(window.Prev)
+	prev, next := window.Prev().Committee, window.Next().Committee
+	foreignPrev, err := NewStateWindow(0, other, 1, committee, 2, next)
 	require.NoError(t, err)
-	_, next, err := DecodeStateEpochRecord(window.Next)
-	require.NoError(t, err)
+	require.Error(t, r.StageWindow(0, foreignPrev))
+
 	foreignCurrent, err := NewStateWindow(0, prev, 1, other, 2, next)
 	require.NoError(t, err)
 	require.Error(t, r.StageWindow(0, foreignCurrent))

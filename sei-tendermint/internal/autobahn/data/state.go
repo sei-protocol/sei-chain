@@ -736,10 +736,7 @@ func (s *State) pushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		}
 		if n < inner.nextAppProposal {
 			if n >= inner.first {
-				p := inner.qcs[n].qc.QC().Proposal()
-				if n == p.GlobalRange().Next-1 {
-					endEpoch = s.cfg.Registry.ClosingEpoch(p.Index())
-				}
+				endEpoch = s.closingEpochOfQC(inner.qcs[n].qc.QC(), n)
 			}
 			break
 		}
@@ -769,7 +766,7 @@ func (s *State) pushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		endEpoch = s.cfg.Registry.ClosingEpoch(p.Index())
+		endEpoch = s.closingEpochOfQC(inner.qcs[n].qc.QC(), n)
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
@@ -786,30 +783,49 @@ func (s *State) pushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 	return s.activateStagedEpoch()
 }
 
-// ClosingEpoch returns the epoch closed by n, if n is the last block of the
-// last road of that epoch.
-func (s *State) ClosingEpoch(n types.GlobalBlockNumber) (utils.Option[types.EpochIndex], error) {
-	for inner := range s.inner.Lock() {
-		if n < inner.first || n >= inner.nextBlock {
-			return utils.None[types.EpochIndex](), nil
-		}
-		qc, ok := inner.qcs[n]
-		if !ok {
-			return utils.None[types.EpochIndex](), fmt.Errorf("missing QC for block %v", n)
-		}
-		p := qc.qc.QC().Proposal()
-		if n != p.GlobalRange().Next-1 {
-			return utils.None[types.EpochIndex](), nil
-		}
-		return s.cfg.Registry.ClosingEpoch(p.Index()), nil
+// closingEpochOfQC returns the epoch closed by n, if n is the last block of qc
+// and qc is on the last road of that epoch.
+func (s *State) closingEpochOfQC(qc *types.CommitQC, n types.GlobalBlockNumber) utils.Option[types.EpochIndex] {
+	p := qc.Proposal()
+	if n != p.GlobalRange().Next-1 {
+		return utils.None[types.EpochIndex]()
 	}
-	panic("unreachable")
+	return s.cfg.Registry.ClosingEpoch(p.Index())
 }
 
-// EpochStateWindow returns the state window to commit with n, if n closes an
-// epoch.
+// closingEpoch returns the epoch closed by the available block n, if n is the
+// last block of the last road of that epoch.
+func (s *State) closingEpoch(n types.GlobalBlockNumber) (utils.Option[types.EpochIndex], error) {
+	qc, err := s.availableBlockQC(n)
+	if err != nil {
+		return utils.None[types.EpochIndex](), err
+	}
+	return s.closingEpochOfQC(qc.QC(), n), nil
+}
+
+// availableBlockQC returns the QC of block n, which must be below nextBlock.
+// Below first it is read from BlockStore.
+func (s *State) availableBlockQC(n types.GlobalBlockNumber) (*types.FullCommitQC, error) {
+	for inner := range s.inner.Lock() {
+		if n >= inner.nextBlock {
+			return nil, fmt.Errorf("block %v is not available, next block is %v", n, inner.nextBlock)
+		}
+		if n < inner.first {
+			break
+		}
+		return inner.qcs[n].qc, nil
+	}
+	qc, err := s.qcFromDB(n)
+	if err != nil {
+		return nil, fmt.Errorf("QC of block %v: %w", n, err)
+	}
+	return qc, nil
+}
+
+// EpochStateWindow returns the state window to commit with the available block
+// n, if n closes an epoch.
 func (s *State) EpochStateWindow(n types.GlobalBlockNumber, weights map[types.PublicKey]uint64) (utils.Option[epoch.StateWindow], error) {
-	closing, err := s.ClosingEpoch(n)
+	closing, err := s.closingEpoch(n)
 	if err != nil {
 		return utils.None[epoch.StateWindow](), err
 	}

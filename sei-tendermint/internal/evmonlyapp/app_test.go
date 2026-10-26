@@ -30,7 +30,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -1179,9 +1178,7 @@ func TestEVMOnlyApplicationCommitsEpochWindow(t *testing.T) {
 	next := mustGetEpochRecordValue(t, evmApp, epoch.NextEpochRecordKey)
 	got, err := epoch.DecodeStateWindow(prev, current, next)
 	require.NoError(t, err)
-	require.True(t, protoutils.Equal(window.Prev, got.Prev))
-	require.True(t, protoutils.Equal(window.Current, got.Current))
-	require.True(t, protoutils.Equal(window.Next, got.Next))
+	require.True(t, window.Equal(got))
 }
 
 func TestEVMOnlyApplicationHashesEpochWindow(t *testing.T) {
@@ -1227,21 +1224,18 @@ func TestEVMOnlyApplicationReadsCommittedEpochWindow(t *testing.T) {
 	require.NoError(t, err)
 	w, ok := got.Get()
 	require.True(t, ok)
-	require.True(t, protoutils.Equal(window.Prev, w.Prev))
-	require.True(t, protoutils.Equal(window.Current, w.Current))
-	require.True(t, protoutils.Equal(window.Next, w.Next))
+	require.True(t, window.Equal(w))
 }
 
 func TestLoadEpochWindowRejectsIncompleteWindow(t *testing.T) {
 	storage := openEVMOnlyTestStorageAt(t, t.TempDir())
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	changeSet, err := evmOnlyTestEpochWindow(t).ChangeSet()
-	require.NoError(t, err)
+	changeSet := evmOnlyTestEpochWindow(t).ChangeSet()
 	changeSet.Changeset.Pairs = changeSet.Changeset.Pairs[:2]
 	store := storage.SC()
 	require.NoError(t, store.ApplyChangeSets(1, []*proto.NamedChangeSet{changeSet}))
 
-	_, err = loadEpochWindow(store)
+	_, err := loadEpochWindow(store)
 	require.Error(t, err)
 }
 
@@ -1252,6 +1246,20 @@ func TestEVMOnlyApplicationRejectsEpochWindowAtWrongHeight(t *testing.T) {
 
 	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1))
 	require.Error(t, err)
+}
+
+func TestEVMOnlyApplicationDropsEpochWindowOfFailedBlock(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	require.NoError(t, evmApp.SetEpochWindow(2, evmOnlyTestEpochWindow(t)))
+	_, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(1))
+	require.Error(t, err)
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2))
+	got, err := evmApp.CommittedEpochWindow()
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
 }
 
 // unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store

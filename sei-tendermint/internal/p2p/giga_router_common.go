@@ -502,9 +502,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
 		// once everyone votes on apphashes of a suffix of finalized blocks.
-		window, err := app.CommittedEpochWindow()
-		if err != nil {
-			return fmt.Errorf("app.CommittedEpochWindow(): %w", err)
+		window := utils.None[epoch.StateWindow]()
+		if app.SupportsEpochWindow() {
+			if window, err = app.CommittedEpochWindow(); err != nil {
+				return fmt.Errorf("app.CommittedEpochWindow(): %w", err)
+			}
 		}
 		if err := r.pushAppHash(ctx, last, info.LastBlockAppHash, window); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)

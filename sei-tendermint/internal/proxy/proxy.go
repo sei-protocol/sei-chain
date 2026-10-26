@@ -88,10 +88,15 @@ func (app *Proxy) AwaitCommits() error {
 	return settler.AwaitCommits()
 }
 
+// epochWindowApp is an application that stores the Autobahn epoch window in
+// its state. Its validator set must not change within a block: the window's
+// next committee is derived from the validators read before FinalizeBlock.
 type epochWindowApp interface {
 	SetEpochWindow(atypes.GlobalBlockNumber, epoch.StateWindow) error
 	CommittedEpochWindow() (utils.Option[epoch.StateWindow], error)
 }
+
+var errNoEpochWindow = errors.New("application does not store Autobahn epoch state")
 
 // SupportsEpochWindow reports whether the wrapped application stores Autobahn
 // epoch state.
@@ -100,25 +105,25 @@ func (app *Proxy) SupportsEpochWindow() bool {
 	return ok
 }
 
-// SetEpochWindow stages an epoch window on applications that store Autobahn
-// epoch state.
+// SetEpochWindow stages the epoch window that block height commits. It errors
+// if the application does not store Autobahn epoch state.
 func (app *Proxy) SetEpochWindow(height atypes.GlobalBlockNumber, window epoch.StateWindow) error {
 	defer addTimeSample(Global.MethodTimingAt("set_epoch_window", "sync"))()
 	windowApp, ok := app.app.(epochWindowApp)
 	if !ok {
-		return nil
+		return errNoEpochWindow
 	}
 	return windowApp.SetEpochWindow(height, window)
 }
 
-// CommittedEpochWindow returns the epoch window in the wrapped application's
-// committed state. It returns None if the application does not store Autobahn
-// epoch state or no epoch window was committed.
+// CommittedEpochWindow returns the epoch window in the application's committed
+// state, or None if no window was committed. It errors if the application does
+// not store Autobahn epoch state.
 func (app *Proxy) CommittedEpochWindow() (utils.Option[epoch.StateWindow], error) {
 	defer addTimeSample(Global.MethodTimingAt("committed_epoch_window", "sync"))()
 	windowApp, ok := app.app.(epochWindowApp)
 	if !ok {
-		return utils.None[epoch.StateWindow](), nil
+		return utils.None[epoch.StateWindow](), errNoEpochWindow
 	}
 	return windowApp.CommittedEpochWindow()
 }
