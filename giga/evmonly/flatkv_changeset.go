@@ -1,7 +1,6 @@
 package evmonly
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,8 +14,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -25,30 +22,16 @@ const (
 	flatKVStorageKeyLen = 1 + common.AddressLength + common.HashLength
 )
 
-// NewFlatKVChangeSetEncoder returns an encoder for FlatKV's EVM keyspace. The
-// store is used to expand storage-prefix clears.
-func NewFlatKVChangeSetEncoder(store *flatkv.CommitStore) NamedChangeSetEncoder {
-	return func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
-		return encodeFlatKVChangeSet(store, changes)
-	}
+// NewFlatKVChangeSetEncoder returns an encoder for FlatKV's EVM keyspace.
+func NewFlatKVChangeSetEncoder() NamedChangeSetEncoder {
+	return encodeFlatKVChangeSet
 }
 
-func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
-	if store == nil {
-		return nil, errors.New("flatkv changeset encoder requires a store")
-	}
+func encodeFlatKVChangeSet(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 	if err := validateFlatKVBalances(changes.Balances); err != nil {
 		return nil, err
 	}
-	var clearPairs []*proto.KVPair
-	for _, address := range changes.StorageClears {
-		var err error
-		clearPairs, err = appendFlatKVStorageClearPairs(store, clearPairs, address)
-		if err != nil {
-			return nil, err
-		}
-	}
-	b := newFlatKVChangeSetBuilder(changes, clearPairs)
+	b := newFlatKVChangeSetBuilder(changes)
 	b.fill(changes)
 	if len(b.pairPtrs) == 0 {
 		return nil, nil
@@ -81,11 +64,9 @@ type flatKVChangeSetBuilder struct {
 	codeValues  []byte
 	// codeOffsets[k] is where code change k's bytes start in codeValues.
 	codeOffsets []int
-	// storagePtr is the index in pairPtrs of the first storage pair, after every clear pair.
-	storagePtr int
 }
 
-func newFlatKVChangeSetBuilder(changes StateChangeSet, clearPairs []*proto.KVPair) *flatKVChangeSetBuilder {
+func newFlatKVChangeSetBuilder(changes StateChangeSet) *flatKVChangeSetBuilder {
 	addressPairs := len(changes.Balances) + len(changes.Nonces) + 2*len(changes.Code)
 	pairCount := addressPairs + len(changes.Storage)
 	fixedValueBytes := len(changes.Balances)*vtype.BalanceLen +
@@ -100,17 +81,14 @@ func newFlatKVChangeSetBuilder(changes StateChangeSet, clearPairs []*proto.KVPai
 			codeValueBytes += len(change.Code)
 		}
 	}
-	b := &flatKVChangeSetBuilder{
+	return &flatKVChangeSetBuilder{
 		pairs:       make([]proto.KVPair, pairCount),
-		pairPtrs:    make([]*proto.KVPair, pairCount+len(clearPairs)),
+		pairPtrs:    make([]*proto.KVPair, pairCount),
 		keys:        make([]byte, addressPairs*flatKVAddressKeyLen+len(changes.Storage)*flatKVStorageKeyLen),
 		fixedValues: make([]byte, fixedValueBytes),
 		codeValues:  make([]byte, codeValueBytes),
 		codeOffsets: codeOffsets,
-		storagePtr:  addressPairs + len(clearPairs),
 	}
-	copy(b.pairPtrs[addressPairs:], clearPairs)
-	return b
 }
 
 // fill encodes every balance, nonce, code and storage change into its place.
@@ -199,7 +177,7 @@ func (b *flatKVChangeSetBuilder) encodeCode(balances int, nonces int, k int, cha
 func (b *flatKVChangeSetBuilder) encodeStorage(balances int, nonces int, code int, s int, change StorageChange) {
 	addressPairs := balances + nonces + 2*code
 	pair := &b.pairs[addressPairs+s]
-	b.pairPtrs[b.storagePtr+s] = pair
+	b.pairPtrs[addressPairs+s] = pair
 	keyStart := addressPairs*flatKVAddressKeyLen + s*flatKVStorageKeyLen
 	pair.Key = b.keys[keyStart : keyStart+flatKVStorageKeyLen : keyStart+flatKVStorageKeyLen]
 	if !keys.PutEVMKey(pair.Key, keys.EVMKeyStorage, change.Address[:], change.Key[:]) {
@@ -226,44 +204,6 @@ func (b *flatKVChangeSetBuilder) addressPair(index int, kind keys.EVMKeyKind, ad
 
 func (b *flatKVChangeSetBuilder) fixedValue(offset int, size int) []byte {
 	return b.fixedValues[offset : offset+size : offset+size]
-}
-
-func appendFlatKVStorageClearPairs(
-	store *flatkv.CommitStore,
-	pairs []*proto.KVPair,
-	address common.Address,
-) ([]*proto.KVPair, error) {
-	start := flatKVStoragePrefix(address)
-	iterator, err := store.Iterator(keys.EVMStoreKey, start, ktype.PrefixEnd(start), true)
-	if err != nil {
-		return nil, fmt.Errorf("iterate storage for clear of %s: %w", address, err)
-	}
-	defer func() { _ = iterator.Close() }()
-
-	for ; iterator.Valid(); iterator.Next() {
-		key := iterator.Key()
-		if len(key) != 1+common.AddressLength+common.HashLength ||
-			key[0] != flatKVStoragePrefixByte() || !bytes.Equal(key[1:1+common.AddressLength], address[:]) {
-			return nil, fmt.Errorf("unexpected storage key while clearing %s: %x", address, key)
-		}
-		pairs = append(pairs, &proto.KVPair{Key: cloneBytes(key), Delete: true})
-	}
-	if err := iterator.Error(); err != nil {
-		return nil, fmt.Errorf("iterate storage for clear of %s: %w", address, err)
-	}
-	return pairs, nil
-}
-
-func flatKVStoragePrefix(address common.Address) []byte {
-	return keys.BuildEVMKey(keys.EVMKeyStorage, address[:])
-}
-
-func flatKVStoragePrefixByte() byte {
-	prefix, ok := keys.EVMKeyPrefixByte(keys.EVMKeyStorage)
-	if !ok {
-		panic("missing EVM storage prefix")
-	}
-	return prefix
 }
 
 func validateFlatKVBalance(balance *big.Int) error {

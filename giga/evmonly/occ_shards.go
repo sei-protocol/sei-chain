@@ -95,9 +95,6 @@ func (r occTxExecution) touchedShards() occShardSet {
 	for _, change := range r.changeSet.Code {
 		touched = touched.with(occShardOf(change.Address))
 	}
-	for _, addr := range r.changeSet.StorageClears {
-		touched = touched.with(occShardOf(addr))
-	}
 	for _, change := range r.changeSet.Storage {
 		touched = touched.with(occShardOf(change.Address))
 	}
@@ -299,7 +296,7 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			s.shards[shard].changeSetInto(s.source, &fragments[shard])
+			s.shards[shard].changeSetInto(&fragments[shard])
 		}
 		return nil
 	})
@@ -311,7 +308,6 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 		changes.Balances = append(changes.Balances, fragment.Balances...)
 		changes.Nonces = append(changes.Nonces, fragment.Nonces...)
 		changes.Code = append(changes.Code, fragment.Code...)
-		changes.StorageClears = append(changes.StorageClears, fragment.StorageClears...)
 		changes.Storage = append(changes.Storage, fragment.Storage...)
 	}
 	return nil
@@ -322,7 +318,7 @@ func (s *blockSTMState) keyCount() int {
 	count := 0
 	for i := range s.shards {
 		shard := &s.shards[i]
-		count += len(shard.balances) + len(shard.nonces) + len(shard.code) + len(shard.storageClears) + len(shard.storage)
+		count += len(shard.balances) + len(shard.nonces) + len(shard.code) + len(shard.storage)
 	}
 	return count
 }

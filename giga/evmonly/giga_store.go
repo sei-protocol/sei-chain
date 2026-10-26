@@ -34,8 +34,8 @@ type historyStore interface {
 
 // NamedChangeSetEncoder converts an executor-native state result into the on-disk changesets
 // understood by a giga store. It must treat the input as immutable, and its output must not alias
-// the input, since the commit outlives the pooled block result. It may read the store only to
-// expand storage clears: other encoding overlaps the previous block's in-flight commit.
+// the input, since the commit outlives the pooled block result. It must not read the store, since
+// encoding overlaps the previous block's in-flight commit.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 // BlockChangeSetEncoder contributes named changesets that are committed in the
@@ -113,7 +113,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	// Encoding that reads the store has to see a store holding every earlier block and none of
 	// this one, so the previous commit lands first. Encoding that reads only this block's own
 	// changes runs while that commit is still going, and waits below instead.
-	settleBeforeEncoding := e.encodingReadsTheStore(&result.ChangeSet)
+	settleBeforeEncoding := e.encodingReadsTheStore()
 	if settleBeforeEncoding {
 		e.blockPhases.SetPhase(phaseAwaitCommit)
 		if err := e.awaitPipelineCommit(); err != nil {
@@ -193,18 +193,19 @@ func (e *Executor) encodeBlockOutputs(ctx context.Context, block BlockContext, r
 				cs.Name, block.Number, errBlockEncoderUsedEVMStoreKey)
 		}
 	}
-	return append(changesets, extra...), records, nil
+	all := make([]*proto.NamedChangeSet, 0, len(changesets)+len(extra))
+	all = append(all, changesets...)
+	return append(all, extra...), records, nil
 }
 
-// encodingReadsTheStore reports whether encoding this block's changesets reads the store as well as
+// encodingReadsTheStore reports whether encoding a block's changesets reads the store as well as
 // the block's own changes, which decides whether encoding may overlap the previous block's commit.
 //
-// Expanding a storage clear iterates the live store to find the slots to delete, so a block that
-// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
-// free to read whatever it likes, so one is assumed to read the store unless it was registered as
-// store-independent: assuming otherwise would surrender the receipt-stage slack on every block.
-func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
-	return len(changes.StorageClears) > 0 || (e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore)
+// A block encoder is caller-supplied and free to read whatever it likes, so one is assumed to read
+// the store unless it was registered as store-independent: assuming otherwise would surrender the
+// receipt-stage slack on every block.
+func (e *Executor) encodingReadsTheStore() bool {
+	return e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first

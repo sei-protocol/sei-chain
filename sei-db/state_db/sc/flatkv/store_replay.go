@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -126,7 +127,7 @@ func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion in
 func (s *CommitStore) openReplayIterator(
 	fromVersion int64,
 	targetVersion int64,
-) (seiwal.Iterator[[]*proto.NamedChangeSet], bool, error) {
+) (seiwal.Iterator[[]mutation.Mutation], bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -190,7 +191,7 @@ func resolveReplayRange(
 // iterator then reads a point-in-time snapshot that concurrent appends and prunes cannot disturb.
 func replayBlocks(
 	dest *CommitStore,
-	it seiwal.Iterator[[]*proto.NamedChangeSet],
+	it seiwal.Iterator[[]mutation.Mutation],
 	alreadyHave map[string]int64,
 ) (replayed int, err error) {
 	defer func() {
@@ -207,7 +208,11 @@ func replayBlocks(
 		if !hasNext {
 			break
 		}
-		block, changesets := it.Entry()
+		block, mutations := it.Entry()
+		changesets, cErr := mutation.MutationsToChangeSets(mutations)
+		if cErr != nil {
+			return 0, fmt.Errorf("convert block %d: %w", block, cErr)
+		}
 		//nolint:gosec // block <= end
 		if err := dest.applyAndCommit(int64(block), changesets, alreadyHave); err != nil {
 			return 0, fmt.Errorf("replay block %d: %w", block, err)

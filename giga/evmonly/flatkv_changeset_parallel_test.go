@@ -52,9 +52,9 @@ func TestFlatKVParallelFillMatchesASerialPass(t *testing.T) {
 	total := flatKVChangeCount(changes)
 	require.GreaterOrEqual(t, total, 2*flatKVParallelEncodeChunk, "the change set must take the parallel path")
 
-	parallel := newFlatKVChangeSetBuilder(changes, nil)
+	parallel := newFlatKVChangeSetBuilder(changes)
 	parallel.fill(changes)
-	serial := newFlatKVChangeSetBuilder(changes, nil)
+	serial := newFlatKVChangeSetBuilder(changes)
 	serial.encodeRange(changes, 0, total)
 
 	require.Equal(t, flatKVBuilderPairs(serial), flatKVBuilderPairs(parallel))

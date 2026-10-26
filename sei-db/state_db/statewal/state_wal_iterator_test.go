@@ -51,7 +51,7 @@ func TestIteratorFromMiddle(t *testing.T) {
 	require.Equal(t, []uint64{3, 4, 5}, collectBlocks(t, w, 3, 5))
 }
 
-func TestIteratorYieldsChangesetContents(t *testing.T) {
+func TestIteratorYieldsBlockContents(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
@@ -65,12 +65,9 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 	ok, err := it.Next()
 	require.NoError(t, err)
 	require.True(t, ok)
-	blockNumber, changeset := it.Entry()
+	blockNumber, mutations := it.Entry()
 	require.Equal(t, uint64(1), blockNumber)
-	require.Len(t, changeset, 1)
-	require.Equal(t, "bank", changeset[0].Name)
-	require.Equal(t, []byte("key"), changeset[0].Changeset.Pairs[0].Key)
-	require.Equal(t, []byte("value"), changeset[0].Changeset.Pairs[0].Value)
+	require.Equal(t, []mutation.Mutation{makeMutation("bank", []byte("key"), []byte("value"))}, mutations)
 
 	ok, err = it.Next()
 	require.NoError(t, err)
