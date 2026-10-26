@@ -149,9 +149,9 @@ type evmOnlyApplication struct {
 	prepared utils.Mutex[*preparedQueue]
 	// preparedBlocks counts finalized blocks by whether prepared held them.
 	preparedBlocks otelmetric.Int64Counter
-	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
-	// called from the single block fetcher, so one timer serves the app.
-	preparePhases *seidbmetrics.PhaseTimer
+	// preparePhaseTimers holds one phase timer per PrepareBlock that may run at once, each recording to
+	// the same instruments.
+	preparePhaseTimers chan *seidbmetrics.PhaseTimer
 	// finalizePhases times FinalizeBlock's stages around the executor. It is a
 	// field so each application instance has its own last-phase clock.
 	// FinalizeBlock is serialized by executor, so one timer is enough per app.
@@ -188,21 +188,21 @@ func NewEVMOnlyApplication(
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	a := &evmOnlyApplication{
-		chainID:          new(big.Int).SetUint64(chainID),
-		chainConfig:      &chainConfig,
-		execution:        execution,
-		minGasPrice:      evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
-		storage:          storage,
-		changeSetEncoder: changeSetEncoder,
-		validators:       slices.Clone(validators),
-		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
-		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
-		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
-		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
-		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
-		prepared:         utils.NewMutex(new(preparedQueue)),
-		preparedBlocks:   newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
-		preparePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName),
+		chainID:            new(big.Int).SetUint64(chainID),
+		chainConfig:        &chainConfig,
+		execution:          execution,
+		minGasPrice:        evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
+		storage:            storage,
+		changeSetEncoder:   changeSetEncoder,
+		validators:         slices.Clone(validators),
+		executor:           utils.NewMutex(new(utils.Option[*evmonly.Executor])),
+		cursor:             utils.NewMutex(&evmOnlyCursorState{}),
+		settler:            utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
+		checkedSenders:     utils.NewMutex(utils.Alloc(newSenderCache())),
+		finalizePhases:     seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
+		prepared:           utils.NewMutex(new(preparedQueue)),
+		preparedBlocks:     newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
+		preparePhaseTimers: newPreparePhaseTimers(),
 	}
 	cursor, err := loadEVMOnlyCursor(storage.SC())
 	if err != nil {
