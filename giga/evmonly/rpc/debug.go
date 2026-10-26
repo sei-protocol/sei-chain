@@ -38,6 +38,7 @@ var allowedTracers = map[string]struct{}{
 var (
 	errTraceBusy           = errors.New("trace request rejected due to concurrency limit: server busy")
 	errTraceTxNotFound     = errors.New("transaction not found")
+	errTraceTxNotExecuted  = errors.New("transaction was rejected by its block and never executed")
 	errTraceOverrides      = errors.New("state and block overrides are not supported by EVM-only RPC")
 	errTracerNameEmpty     = errors.New("debug tracer name must not be empty")
 	errTracerNotAllowed    = errors.New("debug tracer is not allowed; only go-ethereum's native tracers may be used")
@@ -73,7 +74,8 @@ func newDebugAPI(backend Backend, store receiptpkg.ReceiptStore, limits gigaconf
 	return api
 }
 
-// TraceTransaction replays the finalized transaction hash with a tracer and returns its trace.
+// TraceTransaction replays the finalized transaction hash with a tracer and returns its trace. A
+// transaction its block rejected never executed, and is refused.
 func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (any, error) {
 	stored, err := receiptFor(ctx, api.store, hash)
 	if err != nil {
@@ -81,6 +83,9 @@ func (api *debugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	if stored == nil {
 		return nil, &invalidParamsError{error: errTraceTxNotFound}
+	}
+	if !executed(stored) {
+		return nil, &invalidParamsError{error: errTraceTxNotExecuted}
 	}
 	return api.trace(ctx, config, func(ctx context.Context, config *tracers.TraceConfig) (any, error) {
 		return api.tracers.TraceTransaction(ctx, hash, config)

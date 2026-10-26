@@ -48,6 +48,7 @@ type traceChain struct {
 	sender   common.Address
 	blocks   map[int64]*coretypes.ResultBlock
 	executed []*ethtypes.Transaction // block 2's transactions that executed, in order
+	rejected *ethtypes.Transaction   // block 2's rejected transaction that stored a receipt
 	backend  *testBackend
 	store    receipt.ReceiptStore
 }
@@ -67,6 +68,7 @@ func newTraceChain(t *testing.T) *traceChain {
 			2: traceResultBlock(2, tmtypes.Txs{rawFirst, rawDuplicate, rawStale, rawSecond}),
 		},
 		executed: []*ethtypes.Transaction{first, second},
+		rejected: stale,
 		store:    evmonly.NewMemoryReceiptStore(),
 	}
 	stored := func(tx *ethtypes.Transaction, index uint32, gasUsed uint64) receipt.ReceiptRecord {
@@ -280,6 +282,7 @@ func TestDebugTraceTransaction(t *testing.T) {
 		wantCode int
 	}{
 		{name: "unknown transaction", hash: common.HexToHash("0xdead"), wantCode: -32602},
+		{name: "transaction the block rejected", hash: chain.rejected.Hash(), wantCode: -32602},
 		{name: "JavaScript tracer", hash: second.Hash(), config: tracer("{result: function() { return 1 }}"), wantCode: -32602},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

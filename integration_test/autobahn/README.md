@@ -502,8 +502,8 @@ needs a full node, and fails once the block's parent is pruned, so the oldest
 retained block cannot be traced. A validator can still run `debug_traceCall`
 against the latest block.
 
-- `debug_traceTransaction` takes a mined transaction's hash; an unknown hash
-  returns error `-32602`.
+- `debug_traceTransaction` takes a mined transaction's hash; an unknown hash,
+  or one its block rejected, returns error `-32602`.
 - `debug_traceCall` traces a call against the state after the named block, by
   number, hash, or tag; a tag names the latest committed block, as for
   `eth_call`. `txIndex` traces it before that transaction of the block
