@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,12 @@ type mempool struct {
 	pendingInserts utils.AtomicSend[uint64]
 	// closed is the session's closed flag, readable without the lock.
 	closed *atomic.Bool
+	// admitMu guards admitQueue and admitting. It is held only to add or take tickets.
+	admitMu sync.Mutex
+	// admitQueue holds checked InsertTx calls waiting for runAdmission, in arrival order.
+	admitQueue []*insertTicket
+	// admitting is set while an InsertTx call is running runAdmission for the session.
+	admitting bool
 }
 
 // insertTicket is one blocked InsertTx call in the admission queue, holding the checked tx it
@@ -53,6 +60,8 @@ type insertTicket struct {
 	admitted utils.AtomicSend[bool]
 	done     bool
 	err      error
+	// cancelled is set when the InsertTx call gave up before admission. Guarded by the mempool lock.
+	cancelled bool
 
 	tx           tmtypes.Tx
 	resp         *abci.ResponseCheckTxV2
@@ -378,6 +387,96 @@ func (t *insertTicket) waitForCapacity(ctx context.Context) (time.Duration, erro
 	return time.Since(start), err
 }
 
+// admitQueued hands a checked tx to the session's admitter and waits for its outcome.
+func (s *State) admitQueued(ctx context.Context, mp *mempool, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64) (*abci.ResponseCheckTx, error) {
+	ticket := newInsertTicket()
+	ticket.tx, ticket.resp = tx, resp
+	ticket.gasWanted, ticket.gasEstimated = gasWanted, gasEstimated
+	mp.admitMu.Lock()
+	mp.admitQueue = append(mp.admitQueue, ticket)
+	lead := !mp.admitting
+	mp.admitting = true
+	mp.admitMu.Unlock()
+	if lead {
+		s.runAdmission(mp)
+	}
+	waited, waitErr := ticket.waitForCapacity(ctx)
+	metrics.ObserveCapacityWait(waited, 1)
+	for m, ctrl := range mp.inner.Lock() {
+		if !ticket.done {
+			// Cancelled before admission: leave the queue so the calls behind it are not held up.
+			ticket.cancelled = true
+			mp.dequeue(m, ticket)
+			s.drainWaiters(mp, m, ctrl)
+			return nil, waitErr
+		}
+	}
+	if ticket.err != nil {
+		return nil, ticket.err
+	}
+	return resp.ResponseCheckTx, nil
+}
+
+// runAdmission admits queued inserts in batches until the queue is empty. One InsertTx call runs it at
+// a time, on behalf of every call queued meanwhile.
+func (s *State) runAdmission(mp *mempool) {
+	for {
+		mp.admitMu.Lock()
+		batch := mp.admitQueue
+		mp.admitQueue = nil
+		if len(batch) == 0 {
+			mp.admitting = false
+			mp.admitMu.Unlock()
+			return
+		}
+		mp.admitMu.Unlock()
+		s.admitBatch(mp, batch)
+	}
+}
+
+// admitBatch reads the nonces of the batch's untracked senders outside the lock, then appends or
+// queues each insert in order under one lock.
+func (s *State) admitBatch(mp *mempool, batch []*insertTicket) {
+	defer metrics.PhaseAdmit.Enter()()
+	untracked := map[common.Address]utils.Option[uint64]{}
+	var first types.BlockNumber
+	for m := range mp.inner.Lock() {
+		first = m.first
+		for _, ticket := range batch {
+			if !ticket.resp.IsEVM {
+				continue
+			}
+			if _, tracked := m.evmNonces[ticket.resp.EVMSenderAddress]; !tracked {
+				untracked[ticket.resp.EVMSenderAddress] = utils.None[uint64]()
+			}
+		}
+	}
+	for addr := range untracked {
+		untracked[addr] = utils.Some(s.evmNonce(addr))
+	}
+	for m, ctrl := range mp.inner.Lock() {
+		for _, ticket := range batch {
+			if ticket.cancelled {
+				continue
+			}
+			if ticket.resp.IsEVM {
+				ticket.appNonce, ticket.first = untracked[ticket.resp.EVMSenderAddress], first
+			}
+			switch {
+			case m.closed:
+				ticket.finish(ErrNotProducing)
+			case !m.IsFull() && len(m.waiters) == 0:
+				ticket.finish(s.appendTx(m, ctrl, ticket.tx, ticket.resp, ticket.gasWanted, ticket.gasEstimated, ticket.appNonce, ticket.first))
+			case uint64(len(m.waiters)) >= s.cfg.maxPendingInserts():
+				ticket.finish(errPendingFull)
+			default:
+				mp.enqueue(m, ticket)
+			}
+		}
+		s.drainWaiters(mp, m, ctrl)
+	}
+}
+
 // insertResult classifies an insert outcome for the inserts metric.
 func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
 	switch {
@@ -466,6 +565,9 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 
+	if waitIfFull {
+		return s.admitQueued(ctx, mp, tx, resp, gasWanted, gasEstimated)
+	}
 	appNonce := utils.None[uint64]()
 	var first types.BlockNumber
 	if resp.IsEVM {
