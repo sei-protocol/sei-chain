@@ -1,6 +1,5 @@
 package erc20
 
-// CurrentVersion is the version of the CW20 wrapper for an ERC20 token that pointer
-// lookups scan down from. Wrappers are no longer created, so it only bounds reads of
-// the wrappers already registered.
+// CurrentVersion is the version of the CW20 wrapper for an ERC20 token that PointerVersion
+// reports and under which the wrapper code ID is stored.
 const CurrentVersion uint16 = 2

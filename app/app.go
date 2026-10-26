@@ -747,8 +747,7 @@ func New(
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
-		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
-		AddRoute(evmtypes.RouterKey, evm.ProposalHandler)
+		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper))
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}

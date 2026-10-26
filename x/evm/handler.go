@@ -5,7 +5,6 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -35,11 +34,4 @@ func NewHandler(k *keeper.Keeper) sdk.Handler {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, errMsg)
 		}
 	}
-}
-
-// ProposalHandler fails execution of a retired pointer proposal. The route stays
-// registered because gov panics on a proposal whose route it cannot resolve, which a
-// pointer proposal still in the voting queue would reach at the end of its period.
-func ProposalHandler(sdk.Context, govtypes.Content) error {
-	return types.ErrPointerProposalDeprecated
 }
