@@ -148,6 +148,9 @@ func defaultStoreConfig(name string) view.ViewManagerConfig {
 // StoreShardCount, when non-zero, replaces the view shard count of every FlatKV database.
 var StoreShardCount uint64
 
+// AccountCacheBytes, when non-zero, replaces the in-memory size of the FlatKV account database.
+var AccountCacheBytes uint64
+
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
@@ -182,6 +185,9 @@ func DefaultConfig() *Config {
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB
+	if AccountCacheBytes > 0 {
+		cfg.AccountStoreConfig.MaxSize = AccountCacheBytes
+	}
 	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
 
 	return cfg

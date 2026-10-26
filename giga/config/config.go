@@ -84,6 +84,8 @@ type ExecutionConfig struct {
 	// FlatKVViewShards, when non-zero, replaces the view shard count of every FlatKV database. It must
 	// be a power of two.
 	FlatKVViewShards uint64 `mapstructure:"flatkv_view_shards"`
+	// FlatKVAccountCacheMB, when non-zero, replaces the in-memory size of the FlatKV account database.
+	FlatKVAccountCacheMB uint64 `mapstructure:"flatkv_account_cache_mb"`
 }
 
 // RPCConfig is the [giga.rpc] sub-table: the limits the EVM-only JSON-RPC server enforces. A zero
@@ -172,6 +174,7 @@ const (
 	FlagExecutionGCPercent               = "giga.execution.gc_percent"
 	FlagExecutionLaneCapacity            = "giga.execution.lane_capacity"
 	FlagExecutionFlatKVViewShards        = "giga.execution.flatkv_view_shards"
+	FlagExecutionFlatKVAccountCacheMB    = "giga.execution.flatkv_account_cache_mb"
 	FlagRPCMaxSubscriptionsNewHead       = "giga.rpc.max_subscriptions_new_head"
 	FlagRPCMaxSubscriptionsPerConnection = "giga.rpc.max_subscriptions_per_connection"
 	FlagRPCMaxRequestBodyBytes           = "giga.rpc.max_request_body_bytes"
@@ -274,6 +277,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagExecutionLaneCapacity); v != nil {
 		if cfg.Execution.LaneCapacity, err = cast.ToIntE(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagExecutionLaneCapacity, err)
+		}
+	}
+	if v := opts.Get(FlagExecutionFlatKVAccountCacheMB); v != nil {
+		if cfg.Execution.FlatKVAccountCacheMB, err = cast.ToUint64E(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagExecutionFlatKVAccountCacheMB, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionFlatKVViewShards); v != nil {
@@ -477,6 +485,9 @@ lane_capacity = {{ .Giga.Execution.LaneCapacity }}
 
 # flatkv_view_shards, when non-zero, replaces the view shard count of every FlatKV database.
 flatkv_view_shards = {{ .Giga.Execution.FlatKVViewShards }}
+
+# flatkv_account_cache_mb, when non-zero, replaces the in-memory size of the FlatKV account database.
+flatkv_account_cache_mb = {{ .Giga.Execution.FlatKVAccountCacheMB }}
 
 [giga.rpc]
 # Limits the EVM-only JSON-RPC server enforces. 0 disables a limit.
