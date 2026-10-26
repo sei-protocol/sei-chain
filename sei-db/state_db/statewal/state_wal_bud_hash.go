@@ -16,18 +16,15 @@ import (
 // parameter before the mainnet app hash uses the BUD hash.
 const budTombstoneHorizon uint64 = 0
 
-// hashSerializedBlock returns the BUD hash of a serialized block, or the zero hash for a block in the legacy
-// changeset format.
+// hashSerializedBlock returns the BUD hash of a serialized block. It returns an error if the block cannot be
+// deserialized.
 func hashSerializedBlock(
 	// The serialized block.
 	serialized []byte,
 ) ([32]byte, error) {
-	if len(serialized) == 0 || serialized[0] != mutationFormatVersion {
-		return [32]byte{}, nil
-	}
-	mutations, err := mutation.DeserializeMutations(serialized[1:])
+	mutations, err := deserializeBlock(serialized)
 	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to deserialize mutations: %w", err)
+		return [32]byte{}, fmt.Errorf("failed to deserialize block: %w", err)
 	}
 	tree, err := budTreeFromMutations(mutations)
 	if err != nil {

@@ -314,7 +314,7 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 }
 
 // Iterator returns an iterator over the inclusive block range [startingBlockNumber, endingBlockNumber]. It
-// yields (blockNumber, changesets) for each block, whichever format it is stored in.
+// yields (blockNumber, mutations) for each block.
 func (w *stateWALImpl) Iterator(
 	startingBlockNumber uint64,
 	endingBlockNumber uint64,

@@ -3,8 +3,8 @@ package statewal
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types/mutation"
 )
 
 var _ StateWALIterator = (*stateWALIterator)(nil)
@@ -20,11 +20,11 @@ type stateWALIterator struct {
 	// The serialization of the block at the iterator's current position.
 	serialized []byte
 
-	// The changesets of the block at the iterator's current position.
-	changeSets []*proto.NamedChangeSet
+	// The mutations of the block at the iterator's current position.
+	mutations []mutation.Mutation
 }
 
-// Next advances to the next block and reads its changesets.
+// Next advances to the next block and reads its mutations.
 func (it *stateWALIterator) Next() (bool, error) {
 	ok, err := it.serializedBlocks.Next()
 	if err != nil {
@@ -34,19 +34,19 @@ func (it *stateWALIterator) Next() (bool, error) {
 		return false, nil
 	}
 	blockNumber, serialized := it.serializedBlocks.Entry()
-	changeSets, err := deserializeBlock(serialized)
+	mutations, err := deserializeBlock(serialized)
 	if err != nil {
 		return false, fmt.Errorf("failed to read block %d: %w", blockNumber, err)
 	}
 	it.blockNumber = blockNumber
 	it.serialized = serialized
-	it.changeSets = changeSets
+	it.mutations = mutations
 	return true, nil
 }
 
-// Entry returns the block at the iterator's current position and its changesets.
-func (it *stateWALIterator) Entry() (uint64, []*proto.NamedChangeSet) {
-	return it.blockNumber, it.changeSets
+// Entry returns the block at the iterator's current position and its mutations.
+func (it *stateWALIterator) Entry() (uint64, []mutation.Mutation) {
+	return it.blockNumber, it.mutations
 }
 
 // Close releases the iterator over the serialized blocks.

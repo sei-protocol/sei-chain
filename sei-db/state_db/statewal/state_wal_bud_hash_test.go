@@ -225,3 +225,41 @@ func TestBUDTreeFromMutationsHashDependsOnEveryMutation(t *testing.T) {
 		require.NotEqual(t, baseline.BUDHash(), tree.BUDHash(), "edit %d", i)
 	}
 }
+
+// The hash a WAL delivers and iterates for a block is the BUD hash of the block's mutations, before and after a
+// reopen.
+func TestHashIsBUDHashOfMutations(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	blocks := [][]mutation.Mutation{
+		{makeMutation("bank", []byte("a"), []byte("1"))},
+		{makeMutation("bank", []byte("b"), nil), makeMutation("staking", []byte("c"), []byte("2"))},
+		{},
+	}
+	want := make([]recordedHash, 0, len(blocks))
+	for i, mutations := range blocks {
+		tree, err := budTreeFromMutations(mutations)
+		require.NoError(t, err)
+		want = append(want, recordedHash{blockNumber: uint64(i + 1), hash: tree.BUDHash()})
+	}
+
+	w := openWAL(t, cfg)
+	recorder := &hashRecorder{}
+	_, _, _, err := w.RegisterHashListener(recorder.listen)
+	require.NoError(t, err)
+	for i, mutations := range blocks {
+		require.NoError(t, w.Write(uint64(i+1), mutations))
+	}
+	require.NoError(t, w.Flush())
+	require.Equal(t, want, recorder.deliveries)
+	require.Equal(t, want, iteratedHashes(t, w, 1, uint64(len(blocks))))
+	require.NoError(t, w.Close())
+
+	reopened := openWAL(t, cfg)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.Equal(t, want, iteratedHashes(t, reopened, 1, uint64(len(blocks))))
+	ok, last, lastHash, err := reopened.RegisterHashListener(nil)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(len(blocks)), last)
+	require.Equal(t, want[len(want)-1].hash, lastHash)
+}

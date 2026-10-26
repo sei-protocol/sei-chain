@@ -29,7 +29,7 @@ func storeOrDestroyCode(key, value common.Hash, beneficiary common.Address) []by
 
 // pipelineScenario is a run of blocks in which every block depends on the state its predecessor
 // produced: nonces advance each block, an account funded in one block spends in the next, and a
-// contract's storage is written in one block and cleared by a self-destruct in a later one.
+// contract deployed in one block has its storage written in the next and self-destructs after that.
 type pipelineScenario struct {
 	chainID     *big.Int
 	ring        []*ecdsa.PrivateKey
@@ -159,7 +159,7 @@ func (s *laggingStore) release() {
 // the store it leaves behind.
 func TestPipelinedExecutionMatchesSynchronousExecution(t *testing.T) {
 	scenario := newPipelineScenario(t)
-	cfg := Config{OCCWorkers: 4, ChainConfig: legacySelfDestructChainConfig(scenario.chainID)}
+	cfg := Config{OCCWorkers: 4}
 	syncStore := NewMemoryStore(scenario.genesis())
 	pipeStore := newLaggingStore(NewMemoryStore(scenario.genesis()))
 	syncExecutor := NewExecutor(cfg, withTestStores(syncStore, NewMemoryReceiptStore(), syncStore.EncodeChangeSet))
@@ -203,12 +203,7 @@ func TestPipelinedExecutionMatchesSynchronousExecution(t *testing.T) {
 		require.Equalf(t, syncView.GetCode(addr), pipeView.GetCode(addr), "code of %s", addr)
 	}
 
-	written, ok := pipeStore.OpenViewAt(2)
-	require.True(t, ok)
-	defer written.Close()
-	require.Equal(t, scenario.slotValue, written.GetStorage(scenario.contract, scenario.slot),
-		"block 2 must have written the slot, or the clear below proves nothing")
-	require.Equal(t, common.Hash{}, pipeView.GetStorage(scenario.contract, scenario.slot),
-		"the self-destruct in block 3 must leave no stale slot behind")
+	require.Equal(t, scenario.slotValue, pipeView.GetStorage(scenario.contract, scenario.slot),
+		"the self-destruct in block 3 must leave the slot block 2 wrote in place")
 	require.Equal(t, syncView.GetStorage(scenario.contract, scenario.slot), pipeView.GetStorage(scenario.contract, scenario.slot))
 }

@@ -134,10 +134,6 @@ func (s *MemoryState) ApplyChangeSet(cs StateChangeSet) {
 			acct.Code = cloneBytes(change.Code)
 		}
 	}
-	for _, addr := range cs.StorageClears {
-		acct := s.getOrCreateAccountLocked(addr)
-		acct.Storage = map[common.Hash]common.Hash{}
-	}
 	for _, change := range cs.Storage {
 		acct := s.getOrCreateAccountLocked(change.Address)
 		if acct.Storage == nil {
