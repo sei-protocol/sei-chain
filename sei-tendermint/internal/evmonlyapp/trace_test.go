@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -137,7 +138,7 @@ func TestEVMOnlyApplicationRefusesStateItDoesNotHold(t *testing.T) {
 		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
 		_, _, err = app.EvmStateAt(t.Context(), 2)
 		require.Error(t, err)
-		latest, release, err := app.EvmState(t.Context())
+		latest, release, err := app.EvmStateAt(t.Context(), rpc.LatestBlockNumber.Int64())
 		require.NoError(t, err)
 		release()
 		require.NotNil(t, latest)

@@ -55,17 +55,12 @@ type testBackend struct {
 	transactionCountAt func(common.Address, int64) (uint64, error)
 
 	blockContext  func(*ethtypes.Header) (vm.BlockContext, error)
-	state         func(context.Context) (vm.StateDB, func(), error)
 	stateAt       func(context.Context, int64) (vm.StateDB, func(), error)
 	stateBeforeTx func(context.Context, *ethtypes.Header, [][]byte) (vm.StateDB, func(), error)
 }
 
 func (b *testBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	return b.blockContext(header)
-}
-
-func (b *testBackend) EvmState(ctx context.Context) (vm.StateDB, func(), error) {
-	return b.state(ctx)
 }
 
 func (b *testBackend) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {

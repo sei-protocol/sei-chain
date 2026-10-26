@@ -215,13 +215,13 @@ func (b *traceBackend) GetTransaction(ctx context.Context, hash common.Hash) (bo
 // StateAtBlock returns the committed state after block, or the latest committed state when ctx is
 // marked by withLatestState.
 func (b *traceBackend) StateAtBlock(ctx context.Context, block *ethtypes.Block, _ uint64, _ vm.StateDB, _ bool, _ bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+	height := block.Number().Int64()
 	if readsLatestState(ctx) {
 		// The height a latest tag resolved to can be passed by the time the state is read, and a node
 		// without state history holds only the newest state.
-		stateDB, release, err := b.backend.EvmState(ctx)
-		return stateDB, release, err
+		height = ethrpc.LatestBlockNumber.Int64()
 	}
-	stateDB, release, err := b.backend.EvmStateAt(ctx, block.Number().Int64())
+	stateDB, release, err := b.backend.EvmStateAt(ctx, height)
 	return stateDB, release, err
 }
 

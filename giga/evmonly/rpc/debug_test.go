@@ -141,6 +141,9 @@ func newTraceChain(t *testing.T) *traceChain {
 		},
 		stateAt: func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
 			header := chain.header(2)
+			if height == ethrpc.LatestBlockNumber.Int64() {
+				height = int64(chain.backend.blockNumber()) //nolint:gosec // G115: a test height fits in int64.
+			}
 			switch height {
 			case 0, 1:
 				// Block 1 is empty, so it left the state block 0 did.
@@ -151,9 +154,6 @@ func newTraceChain(t *testing.T) *traceChain {
 			return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 		},
 		stateBeforeTx: replay,
-	}
-	chain.backend.state = func(ctx context.Context) (vm.StateDB, func(), error) {
-		return chain.backend.stateAt(ctx, int64(chain.backend.blockNumber())) //nolint:gosec // G115: a test height fits in int64.
 	}
 	return chain
 }
@@ -390,16 +390,18 @@ func TestDebugTraceCall(t *testing.T) {
 		// while latest still names block 3, whose receipts are still being written.
 		chain.blocks[3] = traceResultBlock(3, nil)
 		chain.backend.blockNumber = func() uint64 { return 3 }
-		stateAt, state := chain.backend.stateAt, chain.backend.state
-		chain.backend.stateAt = func(_ context.Context, height int64) (vm.StateDB, func(), error) {
-			return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
+		stateAt := chain.backend.stateAt
+		chain.backend.stateAt = func(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+			if height != ethrpc.LatestBlockNumber.Int64() {
+				return nil, nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
+			}
+			// Block 3 is empty, so the newest state is the one block 2 left.
+			return stateAt(ctx, 2)
 		}
-		// Block 3 is empty, so the newest state is the one block 2 left.
-		chain.backend.state = func(ctx context.Context) (vm.StateDB, func(), error) { return stateAt(ctx, 2) }
 		defer func() {
 			delete(chain.blocks, 3)
 			chain.backend.blockNumber = func() uint64 { return 2 }
-			chain.backend.stateAt, chain.backend.state = stateAt, state
+			chain.backend.stateAt = stateAt
 		}()
 		config := map[string]any{"tracer": "prestateTracer"}
 

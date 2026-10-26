@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
@@ -25,18 +26,9 @@ func (a *evmOnlyApplication) EvmBlockContext(header *ethtypes.Header) (vm.BlockC
 	return evmonly.EVMBlockContext(a.traceBlockContext(number, header)), nil
 }
 
-// EvmState returns the latest committed EVM state, held in memory, and the function that releases
-// it. The state must not be used once released.
-func (a *evmOnlyApplication) EvmState(ctx context.Context) (vm.StateDB, func(), error) {
-	executor, err := a.loadedExecutor("trace")
-	if err != nil {
-		return nil, nil, err
-	}
-	return replayOnView(ctx, executor, a.openSettledView(), evmonly.BlockRequest{})
-}
-
-// EvmStateAt returns the committed EVM state after height, held in memory, and the function that
-// releases it. The state must not be used once released.
+// EvmStateAt returns the committed EVM state after height, or the latest committed state when height
+// is rpc.LatestBlockNumber, held in memory, and the function that releases it. The state must not be
+// used once released.
 func (a *evmOnlyApplication) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
 	return a.replayState(ctx, height, evmonly.BlockRequest{})
 }
@@ -64,23 +56,18 @@ func (a *evmOnlyApplication) traceBlockContext(number uint64, header *ethtypes.H
 	return a.blockContext(number, header.Time, a.EvmGasLimit(), header.ParentHash, common.Hash{})
 }
 
-// replayState opens the committed EVM state after height and applies req's transactions to it.
-func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (vm.StateDB, func(), error) {
+// replayState opens the committed EVM state after height, or the latest committed state when height
+// is rpc.LatestBlockNumber, and applies req's transactions to it. A read the state store can no
+// longer serve, such as one at a height pruned mid-replay, is returned as an error.
+func (a *evmOnlyApplication) replayState(ctx context.Context, height int64, req evmonly.BlockRequest) (_ vm.StateDB, _ func(), err error) {
 	executor, err := a.loadedExecutor("trace")
 	if err != nil {
 		return nil, nil, err
 	}
-	view, err := a.evmStateAt(height)
+	view, err := a.traceView(height)
 	if err != nil {
 		return nil, nil, err
 	}
-	return replayOnView(ctx, executor, view, req)
-}
-
-// replayOnView applies req's transactions to view with executor, returning the result and the
-// function that closes view; view is closed on failure. A read the state store can no longer serve,
-// such as one at a height pruned mid-replay, is returned as an error.
-func replayOnView(ctx context.Context, executor *evmonly.Executor, view gigatypes.StateView, req evmonly.BlockRequest) (_ vm.StateDB, _ func(), err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			view.Close()
@@ -93,6 +80,15 @@ func replayOnView(ctx context.Context, executor *evmonly.Executor, view gigatype
 		return nil, nil, err
 	}
 	return stateDB, view.Close, nil
+}
+
+// traceView opens the committed EVM state after height, or the latest committed state when height is
+// rpc.LatestBlockNumber.
+func (a *evmOnlyApplication) traceView(height int64) (gigatypes.StateView, error) {
+	if height == rpc.LatestBlockNumber.Int64() {
+		return a.openSettledView(), nil
+	}
+	return a.evmStateAt(height)
 }
 
 // loadedExecutor returns the executor, which exists once the chain is initialized. action names the

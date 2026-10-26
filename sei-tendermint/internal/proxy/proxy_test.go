@@ -206,7 +206,6 @@ type testEVMApp struct {
 	gotHeader *ethtypes.Header
 	gotHeight int64
 	gotTxs    [][]byte
-	gotLatest bool
 }
 
 var _ EVMApplication = (*testEVMApp)(nil)
@@ -237,11 +236,6 @@ func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasP
 func (app *testEVMApp) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	app.gotHeader = header
 	return vm.BlockContext{BlockNumber: header.Number}, nil
-}
-
-func (app *testEVMApp) EvmState(context.Context) (vm.StateDB, func(), error) {
-	app.gotLatest = true
-	return nil, func() {}, nil
 }
 
 func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.StateDB, func(), error) {
@@ -304,15 +298,10 @@ func TestEVMProxyDelegatesToTheApplication(t *testing.T) {
 		header := &ethtypes.Header{Number: big.NewInt(5)}
 		txs := [][]byte{{1}, {2}}
 
-		// Test: the block context, the latest state, the state after a block, and the state before a
-		// transaction.
+		// Test: the block context, the state after a block, and the state before a transaction.
 		blockCtx, err := evm.EvmBlockContext(header)
 		require.NoError(t, err)
-		_, release, err := evm.EvmState(t.Context())
-		require.NoError(t, err)
-		require.NotNil(t, release)
-		require.True(t, app.gotLatest)
-		_, release, err = evm.EvmStateAt(t.Context(), 4)
+		_, release, err := evm.EvmStateAt(t.Context(), 4)
 		require.NoError(t, err)
 		require.NotNil(t, release)
 		require.Equal(t, int64(4), app.gotHeight)

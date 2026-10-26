@@ -69,9 +69,8 @@ type Backend interface {
 	EvmProxyEnabled() bool
 	EvmStorage(common.Address, common.Hash) (common.Hash, error)
 	EvmStorageAt(address common.Address, key common.Hash, height int64) (common.Hash, error)
-	// EvmState returns the latest committed EVM state and the function that releases it.
-	EvmState(ctx context.Context) (vm.StateDB, func(), error)
-	// EvmStateAt returns the committed EVM state after height and the function that releases it.
+	// EvmStateAt returns the committed EVM state after height, or the latest committed state when
+	// height is ethrpc.LatestBlockNumber, and the function that releases it.
 	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs) of header's block
 	// executed against, and the function that releases it.

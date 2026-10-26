@@ -36,10 +36,8 @@ type EVMApplication interface {
 	EvmMinGasPrice() *big.Int
 	// EvmBlockContext returns the block context header's block executed at.
 	EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error)
-	// EvmState returns the latest committed EVM state and the function that
-	// releases it.
-	EvmState(ctx context.Context) (vm.StateDB, func(), error)
-	// EvmStateAt returns the committed EVM state after height and the function
+	// EvmStateAt returns the committed EVM state after height, or the latest
+	// committed state when height is rpc.LatestBlockNumber, and the function
 	// that releases it.
 	EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error)
 	// EvmStateBeforeTx returns the EVM state the transaction at index len(txs)
@@ -90,11 +88,6 @@ func (app *EVMProxy) EvmMinGasPrice() *big.Int {
 func (app *EVMProxy) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	defer addTimeSample(Global.MethodTimingAt("evm_block_context", "sync"))()
 	return app.app.EvmBlockContext(header)
-}
-
-func (app *EVMProxy) EvmState(ctx context.Context) (vm.StateDB, func(), error) {
-	defer addTimeSample(Global.MethodTimingAt("evm_state", "sync"))()
-	return app.app.EvmState(ctx)
 }
 
 func (app *EVMProxy) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {

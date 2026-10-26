@@ -24,7 +24,6 @@ type testEVMApp struct {
 	gotHeader *ethtypes.Header
 	gotHeight int64
 	gotTxs    [][]byte
-	gotLatest bool
 }
 
 var _ proxy.EVMApplication = (*testEVMApp)(nil)
@@ -55,11 +54,6 @@ func (app *testEVMApp) EvmMinGasPrice() *big.Int            { return testMinGasP
 func (app *testEVMApp) EvmBlockContext(header *ethtypes.Header) (vm.BlockContext, error) {
 	app.gotHeader = header
 	return vm.BlockContext{BlockNumber: header.Number}, nil
-}
-
-func (app *testEVMApp) EvmState(context.Context) (vm.StateDB, func(), error) {
-	app.gotLatest = true
-	return nil, func() {}, nil
 }
 
 func (app *testEVMApp) EvmStateAt(_ context.Context, height int64) (vm.StateDB, func(), error) {
@@ -127,10 +121,8 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		header := &ethtypes.Header{Number: big.NewInt(5)}
 		txs := [][]byte{{1}, {2}}
 
-		// Test: the block context, the latest state, the state after a block, and the state before a
-		// transaction.
+		// Test: the block context, the state after a block, and the state before a transaction.
 		blockCtx, blockCtxErr := env.EvmBlockContext(header)
-		_, releaseLatest, latestErr := env.EvmState(t.Context())
 		_, releaseAt, stateAtErr := env.EvmStateAt(t.Context(), 4)
 		gotHeight := app.gotHeight
 		_, releaseBefore, stateBeforeErr := env.EvmStateBeforeTx(t.Context(), header, txs)
@@ -138,9 +130,6 @@ func TestEVMEnvironmentServesTheApplication(t *testing.T) {
 		// Verify: each is the app's answer for the arguments passed in.
 		require.NoError(t, blockCtxErr)
 		require.Equal(t, header.Number, blockCtx.BlockNumber)
-		require.NoError(t, latestErr)
-		require.True(t, releaseLatest != nil)
-		require.True(t, app.gotLatest)
 		require.NoError(t, stateAtErr)
 		require.True(t, releaseAt != nil)
 		require.Equal(t, int64(4), gotHeight)

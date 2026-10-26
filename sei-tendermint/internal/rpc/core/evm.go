@@ -62,12 +62,8 @@ func (env *EVMEnvironment) EvmBlockContext(header *ethtypes.Header) (vm.BlockCon
 	return env.EVM.EvmBlockContext(header)
 }
 
-// EvmState returns the latest committed EVM state and the function that releases it.
-func (env *EVMEnvironment) EvmState(ctx context.Context) (vm.StateDB, func(), error) {
-	return env.EVM.EvmState(ctx)
-}
-
-// EvmStateAt returns the committed EVM state after height and the function that releases it.
+// EvmStateAt returns the committed EVM state after height, or the latest committed state when height
+// is rpc.LatestBlockNumber, and the function that releases it.
 func (env *EVMEnvironment) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
 	return env.EVM.EvmStateAt(ctx, height)
 }

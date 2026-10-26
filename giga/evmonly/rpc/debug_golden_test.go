@@ -405,11 +405,10 @@ func (b *traceReplayBackend) EvmBlockContext(header *ethtypes.Header) (vm.BlockC
 	return evmonly.EVMBlockContext(blockCtx), nil
 }
 
-func (b *traceReplayBackend) EvmState(ctx context.Context) (vm.StateDB, func(), error) {
-	return b.replayState(ctx, int64(b.EvmBlockNumber()), evmonly.BlockRequest{}) //nolint:gosec // G115: a replayed height fits in int64.
-}
-
 func (b *traceReplayBackend) EvmStateAt(ctx context.Context, height int64) (vm.StateDB, func(), error) {
+	if height == ethrpc.LatestBlockNumber.Int64() {
+		height = int64(b.EvmBlockNumber()) //nolint:gosec // G115: a replayed height fits in int64.
+	}
 	return b.replayState(ctx, height, evmonly.BlockRequest{})
 }
 
