@@ -57,7 +57,9 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 
 // shardProxy returns the RPC client of the validator owning tx's sender shard,
 // or None when the transaction is handled locally. Sender recovery is skipped
-// entirely when the backend has no proxies, since CheckTx recovers it anyway.
+// entirely when the backend has no proxies, since CheckTx recovers it anyway. A
+// sender recovered for a transaction handled locally is handed to the backend,
+// so CheckTx need not recover it again.
 func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Client] {
 	if !api.backend.EvmProxyEnabled() {
 		return utils.None[*ethrpc.Client]()
@@ -66,5 +68,9 @@ func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Cl
 	if err != nil {
 		return utils.None[*ethrpc.Client]()
 	}
-	return api.backend.EvmProxy(sender)
+	proxy := api.backend.EvmProxy(sender)
+	if !proxy.IsPresent() {
+		api.backend.RememberEvmSender(tx.Hash(), sender)
+	}
+	return proxy
 }

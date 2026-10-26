@@ -57,7 +57,7 @@ var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 // checkedSendersCap bounds the senders remembered from CheckTx per generation.
 // Entries are dropped as their transactions execute; the cap only guards against
 // admitted transactions that never reach a block.
-const checkedSendersCap = 1 << 18
+const checkedSendersCap = 1 << 22
 
 // senderCache remembers the sender recovered for each transaction hash. It keeps
 // two generations: inserts go to fresh, and once fresh reaches the cap it
@@ -76,6 +76,16 @@ func (c *senderCache) put(hash common.Hash, sender common.Address) {
 		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
 	}
 	c.fresh[hash] = sender
+}
+
+// peek returns the sender remembered for hash, if any, and keeps it.
+func (c *senderCache) peek(hash common.Hash) utils.Option[common.Address] {
+	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
+		if sender, ok := gen[hash]; ok {
+			return utils.Some(sender)
+		}
+	}
+	return utils.None[common.Address]()
 }
 
 // take returns the sender remembered for hash, if any, and forgets it.
@@ -374,6 +384,12 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	}
 }
 
+// RememberEvmSender records a sender recovered from the transaction with this hash before CheckTx, so
+// CheckTx and FinalizeBlock reuse it.
+func (a *evmOnlyApplication) RememberEvmSender(hash common.Hash, sender common.Address) {
+	a.rememberSender(hash, sender)
+}
+
 func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
 	for senders := range a.checkedSenders.Lock() {
 		senders.put(hash, sender)
@@ -449,11 +465,22 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(a.minGasPrice) < 0 {
 		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %s", a.minGasPrice)
 	}
+	if sender, ok := a.checkedSender(tx.Hash()).Get(); ok {
+		return tx, sender, nil
+	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	return tx, sender, nil
+}
+
+// checkedSender returns the sender recorded for this transaction hash, if any.
+func (a *evmOnlyApplication) checkedSender(hash common.Hash) utils.Option[common.Address] {
+	for senders := range a.checkedSenders.Lock() {
+		return senders.peek(hash)
+	}
+	panic("unreachable")
 }
 
 func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
