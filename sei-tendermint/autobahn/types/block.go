@@ -25,7 +25,10 @@ type NodeID string
 type BlockNumber uint64
 
 // GlobalBlockNumber is the number of a block in the global chain.
-type GlobalBlockNumber uint64
+type LaneBlockPos struct {
+	Index RoadIndex
+	Offset uint64
+}
 
 // ExecutedBlock is a block committed to the app together with the gas its
 // transactions used.
@@ -161,12 +164,12 @@ type Block struct {
 	payload *Payload
 }
 
-// GlobalBlock is a finalized block with global block number.
-type GlobalBlock struct {
-	Header       *BlockHeader
-	Timestamp    time.Time
-	GlobalNumber GlobalBlockNumber
-	Payload      *Payload
+// SuperBlock is a finalized block with global block number.
+type SuperBlock struct {
+	Height RoadIndex
+	Timestamp time.Time
+	GasWanted uint64
+	txs [][]byte
 }
 
 // NewBlock creates a new Block.
@@ -353,9 +356,9 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 // CalculateBlockHash calculates the hash of a block.
 func (b *GlobalBlock) CalculateBlockHash() common.Hash {
 	header := &ethtypes.Header{
-		Time:       uint64(b.Payload.CreatedAt().Unix()), //nolint:gosec // block timestamps are always positive post-epoch values
-		Number:     big.NewInt(int64(b.GlobalNumber)),    //nolint:gosec // block numbers are within int64 range for all practical chain heights
-		GasUsed:    b.Payload.TotalGasWanted(),
+		Time:       uint64(b.Timestamp.Unix()), //nolint:gosec // block timestamps are always positive post-epoch values
+		Number:     big.NewInt(int64(b.Height)),    //nolint:gosec // block numbers are within int64 range for all practical chain heights
+		GasUsed:    b.GasWanted,
 		Difficulty: big.NewInt(0),
 		BaseFee:    big.NewInt(0),
 	}
