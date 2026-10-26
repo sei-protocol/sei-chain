@@ -1,8 +1,6 @@
 package avail
 
 import (
-	"time"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -19,22 +17,6 @@ type blockVotes struct {
 	qc     utils.Option[*types.LaneQC]
 	// qcCounted is set once this block has formed a LaneQC.
 	qcCounted bool
-	// firstVoteAt and qcAt are when the first vote arrived and the LaneQC formed, if they have.
-	firstVoteAt, qcAt utils.Option[time.Time]
-	// voteTimed and qcTimed are set once those two latencies are observed, so each is observed once.
-	voteTimed, qcTimed bool
-}
-
-// untimed returns the first-vote and LaneQC times whose latency has not been observed yet, and marks
-// them observed. The caller observes them against the block's creation time.
-func (bv *blockVotes) untimed() (vote, qc utils.Option[time.Time]) {
-	if at, ok := bv.firstVoteAt.Get(); ok && !bv.voteTimed {
-		bv.voteTimed, vote = true, utils.Some(at)
-	}
-	if at, ok := bv.qcAt.Get(); ok && !bv.qcTimed {
-		bv.qcTimed, qc = true, utils.Some(at)
-	}
-	return vote, qc
 }
 
 func newBlockVotes() *blockVotes {

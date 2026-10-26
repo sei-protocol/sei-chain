@@ -3,7 +3,6 @@ package avail
 import (
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
@@ -305,19 +304,6 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 		n++
 	}
 	return n
-}
-
-// blockCreatedAt returns when lane block n was created, if this node holds that block with header h.
-func (i *inner) blockCreatedAt(lane types.LaneID, n types.BlockNumber, h types.BlockHeaderHash) utils.Option[time.Time] {
-	q, ok := i.blocks[lane]
-	if !ok || n < q.first || n >= q.next {
-		return utils.None[time.Time]()
-	}
-	b := q.q[n].Msg().Block()
-	if b.Header().Hash() != h {
-		return utils.None[time.Time]()
-	}
-	return utils.Some(b.Payload().CreatedAt())
 }
 
 // laneQC returns the LaneQC for (lane, n) under the applied epoch, if one has formed.

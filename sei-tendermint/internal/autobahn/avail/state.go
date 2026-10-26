@@ -451,7 +451,6 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if err := p.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
-	var voteAt, qcAt utils.Option[time.Time]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			if !inner.applied().Committee().HasLane(lane) {
@@ -490,25 +489,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		}
 		q.pushBack(p)
 		ctrl.Updated()
-		if vq, ok := inner.votes[lane]; ok && n >= vq.first && n < vq.next {
-			voteAt, qcAt = vq.q[n].untimed()
-		}
 	}
-	createdAt := p.Msg().Block().Payload().CreatedAt()
-	meters.LaneBlockReceive.Observe(time.Since(createdAt).Seconds())
-	observeLaneVoteLatencies(createdAt, voteAt, qcAt)
+	meters.LaneBlockReceive.Observe(time.Since(p.Msg().Block().Payload().CreatedAt()).Seconds())
 	return nil
-}
-
-// observeLaneVoteLatencies observes, against a lane block's creation time, when its first vote
-// arrived and when its LaneQC formed, for whichever of the two is present.
-func observeLaneVoteLatencies(createdAt time.Time, voteAt, qcAt utils.Option[time.Time]) {
-	if at, ok := voteAt.Get(); ok {
-		meters.LaneVoteReceive.Observe(at.Sub(createdAt).Seconds())
-	}
-	if at, ok := qcAt.Get(); ok {
-		meters.LaneQCFormed.Observe(at.Sub(createdAt).Seconds())
-	}
 }
 
 // PushVote pushes a LaneVote to the state.
@@ -523,8 +506,6 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
-	var createdAt time.Time
-	var voteAt, qcAt utils.Option[time.Time]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			q, ok := inner.votes[lane]
@@ -550,27 +531,10 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
-		bv := q.q[n]
-		firstVote := len(bv.byKey) == 0
-		hadQC := bv.qcCounted
-		if !bv.pushVote(applied, vote) {
-			return nil
-		}
-		ctrl.Updated()
-		now := time.Now()
-		if firstVote {
-			bv.firstVoteAt = utils.Some(now)
-		}
-		if !hadQC && bv.qcCounted {
-			bv.qcAt = utils.Some(now)
-		}
-		// Without the block its creation time is unknown; PushBlock observes these once it arrives.
-		if at, ok := inner.blockCreatedAt(lane, n, h.Hash()).Get(); ok {
-			createdAt = at
-			voteAt, qcAt = bv.untimed()
+		if q.q[n].pushVote(applied, vote) {
+			ctrl.Updated()
 		}
 	}
-	observeLaneVoteLatencies(createdAt, voteAt, qcAt)
 	return nil
 }
 
