@@ -178,7 +178,7 @@ func NewEVMOnlyApplication(
 		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), finalizeTimerName),
 	}
-	cursor, err := loadEVMOnlyCursor(storage.SC())
+	cursor, err := loadEVMOnlyCursor(storage.Versions())
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 // between InitChain and the first block leaves it that way; a store holding
 // any block is refused.
 func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
-	stateStore := a.storage.SC()
+	stateStore := a.storage.Versions()
 	latest, err := stateStore.GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read EVM-only state version: %w", err)
@@ -480,7 +480,7 @@ func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
 	if err := a.AwaitCommits(); err != nil && !a.settleFailureLogged.Swap(true) {
 		logger.Error("EVM-only block commit failed; serving the last committed state", "err", err)
 	}
-	return a.storage.StateDB().OpenView()
+	return a.storage.EVMState().OpenView()
 }
 
 func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
@@ -514,7 +514,7 @@ func (a *evmOnlyApplication) evmStateAt(height int64) (gigatypes.StateView, erro
 		return view, nil
 	}
 	view.Close()
-	view, ok := a.storage.StateDB().OpenViewAt(height)
+	view, ok := a.storage.EVMState().OpenViewAt(height)
 	if !ok {
 		return nil, fmt.Errorf("the EVM state after block %d is not held by this node", height)
 	}
@@ -766,7 +766,7 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 // version is final; a commit that failed is reported alongside.
 func (a *evmOnlyApplication) abandonPending(executor *evmonly.Executor, height int64) error {
 	commitErr := executor.AwaitCommits()
-	latest, err := a.storage.SC().GetLatestVersion()
+	latest, err := a.storage.Versions().GetLatestVersion()
 	if err != nil {
 		return errors.Join(commitErr, fmt.Errorf("read EVM-only state version: %w", err))
 	}

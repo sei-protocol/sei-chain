@@ -11,7 +11,7 @@ import (
 func WithStorageManager(manager *bootstrap.GigaStorageManager, encoder NamedChangeSetEncoder) Option {
 	return func(e *Executor) {
 		if manager != nil {
-			e.stateStore = manager.StateDB()
+			e.stateStore = manager.EVMState()
 			e.receiptStore = manager.ReceiptDB()
 		}
 		e.changeSetEncoder = encoder

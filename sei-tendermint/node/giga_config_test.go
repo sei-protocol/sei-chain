@@ -124,3 +124,23 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 0, provider.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
 }
+
+func TestPrepareApplicationInMemoryUnsafeKeepsStateAndReceiptsInMemory(t *testing.T) {
+	validator := makeValidator([]byte("memory-validator"), []byte("memory-node"), "localhost:26660")
+	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
+	giga := gigaconfig.DefaultConfig
+	giga.Storage.InMemoryUnsafe = true
+
+	_, storage, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig:         config.BaseConfig{Mode: config.ModeValidator},
+		AutobahnConfigFile: autobahnConfigFile,
+	}, abci.BaseApplication{}, giga)
+	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.True(t, manager.InMemoryState())
+	require.NotNil(t, manager.BlockStore())
+	require.NotNil(t, manager.ReceiptDB())
+	require.Nil(t, manager.StateDB())
+}

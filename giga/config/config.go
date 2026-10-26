@@ -52,6 +52,9 @@ type StorageConfig struct {
 	CheckpointTimeInterval time.Duration `mapstructure:"checkpoint_time_interval"`
 	// CheckpointBlockInterval places checkpoints on multiples of itself; 0 disables the rule.
 	CheckpointBlockInterval int64 `mapstructure:"checkpoint_block_interval"`
+	// InMemoryUnsafe keeps state and receipts in process memory instead of on disk. Nothing but
+	// blocks survives a restart. It is for benchmarks only.
+	InMemoryUnsafe bool `mapstructure:"in_memory_unsafe"`
 }
 
 // ExecutionConfig is the [giga.execution] sub-table: how the EVM-only executor runs blocks.
@@ -147,6 +150,7 @@ const (
 	FlagStoragePruneInterval             = "giga.storage.prune_interval"
 	FlagStorageCheckpointTimeInterval    = "giga.storage.checkpoint_time_interval"
 	FlagStorageCheckpointBlockInterval   = "giga.storage.checkpoint_block_interval"
+	FlagStorageInMemoryUnsafe            = "giga.storage.in_memory_unsafe"
 	FlagExecutionMinGasPrice             = "giga.execution.min_gas_price"
 	FlagExecutionOCCWorkers              = "giga.execution.occ_workers"
 	FlagExecutionParseWorkers            = "giga.execution.parse_workers"
@@ -205,6 +209,11 @@ func ReadConfig(opts AppOptions) (Config, error) {
 	if v := opts.Get(FlagStorageCheckpointBlockInterval); v != nil {
 		if cfg.Storage.CheckpointBlockInterval, err = cast.ToInt64E(v); err != nil {
 			return cfg, fmt.Errorf("%s: %w", FlagStorageCheckpointBlockInterval, err)
+		}
+	}
+	if v := opts.Get(FlagStorageInMemoryUnsafe); v != nil {
+		if cfg.Storage.InMemoryUnsafe, err = cast.ToBoolE(v); err != nil {
+			return cfg, fmt.Errorf("%s: %w", FlagStorageInMemoryUnsafe, err)
 		}
 	}
 	if v := opts.Get(FlagExecutionMinGasPrice); v != nil {
@@ -389,6 +398,10 @@ checkpoint_time_interval = "{{ .Giga.Storage.CheckpointTimeInterval }}"
 
 # checkpoint_block_interval places checkpoints on multiples of itself; 0 disables the rule.
 checkpoint_block_interval = {{ .Giga.Storage.CheckpointBlockInterval }}
+
+# in_memory_unsafe keeps state and receipts in process memory instead of on disk. Nothing but
+# blocks survives a restart. For benchmarks only.
+in_memory_unsafe = {{ .Giga.Storage.InMemoryUnsafe }}
 
 [giga.execution]
 # min_gas_price is the lowest effective gas price, in wei, this node admits a transaction at.

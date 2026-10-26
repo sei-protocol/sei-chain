@@ -215,7 +215,11 @@ func wrapApplication(
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
-		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
+		if manager.InMemoryState() {
+			logger.Info("Autobahn EVM-only execution enabled with in-memory Giga state and receipts")
+		} else {
+			logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
+		}
 		prepared, err := evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,

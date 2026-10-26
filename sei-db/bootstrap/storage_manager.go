@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -38,6 +39,10 @@ type GigaStorageManager struct {
 	// stateDB owns the state commit store, the EVM state store and the state WAL they share, along
 	// with the checkpoint schedule those stores run on.
 	stateDB *giga.StateDB
+
+	// memoryState holds state in place of stateDB in a manager opened by
+	// NewGigaStorageManagerWithMemoryState, and is nil otherwise.
+	memoryState VersionedStateDB
 
 	// gc is nil until startGarbageCollector succeeds.
 	gc *controller.StorageGarbageCollector
@@ -67,6 +72,45 @@ func NewGigaStorageManager(ctx context.Context, cfg *config.GigaStorageConfig) (
 		return nil, err
 	}
 	if err := m.startGarbageCollector(ctx, cfg.PruningConfig); err != nil {
+		if closeErr := m.Close(); closeErr != nil {
+			logger.Error("failed to close a partially started storage manager", "err", closeErr)
+		}
+		return nil, err
+	}
+	return m, nil
+}
+
+// VersionStore is the committed-version and module-row surface of a state commit store.
+// *flatkv.CommitStore satisfies it.
+type VersionStore interface {
+	// GetLatestVersion returns the height of the last commit.
+	GetLatestVersion() (int64, error)
+	// SetInitialVersion moves an empty store so its next commit is at initialVersion.
+	SetInitialVersion(initialVersion int64) error
+	// Get returns the latest value committed under key in moduleName.
+	Get(moduleName string, key []byte) ([]byte, bool)
+}
+
+// VersionedStateDB is a state store that also reports its committed version.
+type VersionedStateDB interface {
+	gigatypes.StateDB
+	VersionStore
+}
+
+// NewGigaStorageManagerWithMemoryState opens only the block store described by cfg and holds state
+// and receipts in the given stores, which keep nothing across a restart. It runs no garbage
+// collector, so the block store keeps every block. It is for benchmarks.
+func NewGigaStorageManagerWithMemoryState(
+	cfg *config.GigaStorageConfig,
+	state VersionedStateDB,
+	receipts receipt.ReceiptStore,
+) (*GigaStorageManager, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("cannot open storage with invalid configs: %w", err)
+	}
+	m := &GigaStorageManager{cfg: cfg, memoryState: state, receiptDB: receipts}
+	logger.Warn("Opening Giga storage with in-memory state and receipts; nothing but blocks survives a restart")
+	if err := m.openBlockStore(); err != nil {
 		if closeErr := m.Close(); closeErr != nil {
 			logger.Error("failed to close a partially started storage manager", "err", closeErr)
 		}
@@ -113,6 +157,33 @@ func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receipt
 // StateDB returns the Giga state DB over the state WAL, the state commit store and the EVM state
 // store, or nil when the open did not reach it.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
+
+// InMemoryState reports whether the manager holds state and receipts in memory.
+func (m *GigaStorageManager) InMemoryState() bool { return m.memoryState != nil }
+
+// EVMState returns the store the executor commits state into: the in-memory store when the
+// manager holds one, otherwise the StateDB, or nil when the open did not reach it.
+func (m *GigaStorageManager) EVMState() gigatypes.StateDB {
+	if m.memoryState != nil {
+		return m.memoryState
+	}
+	if m.stateDB == nil {
+		return nil
+	}
+	return m.stateDB
+}
+
+// Versions returns the store that reports the committed state version: the in-memory store when
+// the manager holds one, otherwise the state commit store, or nil before the StateDB is open.
+func (m *GigaStorageManager) Versions() VersionStore {
+	if m.memoryState != nil {
+		return m.memoryState
+	}
+	if sc := m.SC(); sc != nil {
+		return sc
+	}
+	return nil
+}
 
 // StateWAL returns the state WAL that StateDB writes, or nil before the StateDB is open.
 func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
@@ -188,9 +259,13 @@ func (m *GigaStorageManager) Close() error {
 	return errs
 }
 
-// closeState closes the stores the StateDB owns. The StateDB is nil when the open failed before
-// reaching it, and closes whatever it had opened when it failed partway.
+// closeState closes the in-memory state store when the manager holds one, and otherwise the stores
+// the StateDB owns. The StateDB is nil when the open failed before reaching it, and closes whatever
+// it had opened when it failed partway.
 func (m *GigaStorageManager) closeState() error {
+	if m.memoryState != nil {
+		return m.memoryState.Close()
+	}
 	if m.stateDB == nil {
 		return nil
 	}

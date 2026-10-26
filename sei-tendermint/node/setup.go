@@ -13,6 +13,7 @@ import (
 	"time"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/config"
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -367,7 +368,7 @@ func buildGigaRouter(
 
 // resolvePersistentStateDir resolves a relative persistent state dir against the
 // node's --home dir (mirrors config.go's rootify) and creates it if absent. An
-// empty dir is an error: Autobahn has no in-memory storage mode.
+// empty dir is an error: the block store is always on disk, even with in-memory state.
 func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 	if dir == "" {
 		return "", errors.New("autobahn requires persistent_state_dir")
@@ -383,6 +384,7 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
 // persistent-state directory, laid out for nodeMode unless storage pins a mode.
+// With storage.InMemoryUnsafe only the block store is on disk.
 func openAutobahnStorageManager(
 	ctx context.Context,
 	rootDir string,
@@ -403,6 +405,13 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
+	if storage.InMemoryUnsafe {
+		return bootstrap.NewGigaStorageManagerWithMemoryState(
+			storageConfig,
+			evmonly.NewFlatKVMemoryStore(),
+			evmonly.NewQueuedMemoryReceiptStore(),
+		)
+	}
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
