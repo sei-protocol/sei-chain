@@ -130,21 +130,19 @@ func (h *BlockHeader) Verify(c *Committee) error {
 	return nil
 }
 
-const standardTxBytes uint64 = 1024
-
 // Maximum number of transactions in a block.
-const MaxTxsPerBlock uint64 = 2000
+const MaxTxsPerBlock uint64 = 50000
 
 // Maximum total size of all the transactions.
-// It can be split arbitrarily across transactions (1 large, 2000 small ones, etc.)
+// It can be split arbitrarily across transactions (1 large, 50000 small ones, etc.)
 // up to MaxTxsPerBlock limit.
-const MaxTxsBytesPerBlock = MaxTxsPerBlock * standardTxBytes
+const MaxTxsBytesPerBlock uint64 = 10 * 1024 * 1024
 
 // Upper bound on the block proto encoding.
 var MaxBlockProtoSize = func() uint64 {
 	// Payload.Txs represents the variable part of the Block size.
 	// Proto size is maximized if we distribute data evenly across transactions.
-	tx := make([]byte, standardTxBytes)
+	tx := make([]byte, MaxTxsBytesPerBlock/MaxTxsPerBlock)
 	txs := make([][]byte, MaxTxsPerBlock)
 	for i := range txs {
 		txs[i] = tx

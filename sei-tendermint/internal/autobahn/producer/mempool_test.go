@@ -71,7 +71,7 @@ func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
 }
 
 func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
-	gasBase := int(env.state.cfg.MaxGasWantedPerBlock / env.state.cfg.maxTxsPerBlock())
+	gasBase := max(1, int(env.state.cfg.MaxGasWantedPerBlock/env.state.cfg.maxTxsPerBlock()))
 	gasJitter := min(gasBase, 10)
 	return &txSpec{
 		Address: addr,

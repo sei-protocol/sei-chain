@@ -25,7 +25,7 @@ func (*LaneVote) MaxSize() int {
 }
 
 func (*LaneProposal) MaxSize() int {
-	return 2056293
+	return 10650296
 }
 
 func (*AppVote) MaxSize() int {
@@ -53,7 +53,7 @@ func (*GetBlockReq) MaxSize() int {
 }
 
 func (*GetBlockResp) MaxSize() int {
-	return 2056185
+	return 10650187
 }
 
 func (*StreamFullCommitQCsReq) MaxSize() int {
