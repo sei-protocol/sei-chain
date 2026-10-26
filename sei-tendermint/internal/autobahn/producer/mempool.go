@@ -403,15 +403,18 @@ func (s *State) admitQueued(ctx context.Context, mp *mempool, tx tmtypes.Tx, res
 	}
 	waited, waitErr := ticket.waitForCapacity(ctx)
 	metrics.ObserveCapacityWait(waited, 1)
-	for m, ctrl := range mp.inner.Lock() {
-		if !ticket.done {
-			// Cancelled before admission: leave the queue so the calls behind it are not held up.
-			ticket.cancelled = true
-			mp.dequeue(m, ticket)
-			s.drainWaiters(mp, m, ctrl)
-			return nil, waitErr
+	if waitErr != nil {
+		for m, ctrl := range mp.inner.Lock() {
+			if !ticket.done {
+				// Cancelled before admission: leave the queue so the calls behind it are not held up.
+				ticket.cancelled = true
+				mp.dequeue(m, ticket)
+				s.drainWaiters(mp, m, ctrl)
+				return nil, waitErr
+			}
 		}
 	}
+	// finish publishes err before it marks the ticket admitted, which the wait observed.
 	if ticket.err != nil {
 		return nil, ticket.err
 	}
