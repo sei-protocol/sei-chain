@@ -179,7 +179,7 @@ func TestSmallMergeStaysOnTheCallingGoroutine(t *testing.T) {
 	pool := newOCCWorkerPool(4)
 	pool.Close()
 	state := newBlockSTMState(NewMemoryState())
-	state.shards[0].nonces[common.Address{0x00}] = 1
+	state.shards[0].accounts[common.Address{0x00}] = &AccountChange{Account: AccountState{Nonce: 1}}
 	require.Less(t, state.keyCount(), occMinParallelMergeKeys)
 
 	var changes StateChangeSet
@@ -191,15 +191,17 @@ func TestReleaseOCCFragmentsClearsBlockData(t *testing.T) {
 	fragments := new(occChangeSetFragments)
 	for i := range fragments {
 		addr := common.Address{byte(i)}
-		fragments[i].Balances = append(fragments[i].Balances, BalanceChange{Address: addr, Balance: big.NewInt(int64(i + 1))})
-		fragments[i].Code = append(fragments[i].Code, CodeChange{Address: addr, Code: []byte{0x60, byte(i)}})
+		fragments[i].Accounts = append(fragments[i].Accounts, AccountChange{
+			Address: addr,
+			Account: AccountState{Balance: big.NewInt(int64(i + 1)), Code: []byte{0x60, byte(i)}},
+		})
 	}
 	releaseOCCFragments(fragments)
 	for i := range fragments {
-		require.Empty(t, fragments[i].Balances)
-		require.Empty(t, fragments[i].Code)
-		require.Nil(t, fragments[i].Balances[:1][0].Balance, "a released fragment must not keep a balance reachable")
-		require.Nil(t, fragments[i].Code[:1][0].Code, "a released fragment must not keep code reachable")
+		require.Empty(t, fragments[i].Accounts)
+		account := fragments[i].Accounts[:1][0].Account
+		require.Nil(t, account.Balance, "a released fragment must not keep a balance reachable")
+		require.Nil(t, account.Code, "a released fragment must not keep code reachable")
 	}
 }
 

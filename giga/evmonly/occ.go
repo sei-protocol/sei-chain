@@ -683,18 +683,11 @@ type blockSTMState struct {
 
 // blockSTMShard holds the accepted writes for the addresses of one shard.
 type blockSTMShard struct {
-	balances map[common.Address]*big.Int
-	nonces   map[common.Address]uint64
-	code     map[common.Address][]byte
-	storage  map[storageChangeKey]common.Hash
-
-	// The prior maps hold, for each key the accepted prefix wrote, the value it had before the block:
-	// the prior the first accepted write to it carried. No transaction ahead of that writer wrote the
-	// key, so what it read was the pre-block value. Later writers read an earlier writer's value.
-	priorBalances map[common.Address]*big.Int
-	priorNonces   map[common.Address]uint64
-	priorCode     map[common.Address][]byte
-	priorStorage  map[storageChangeKey]common.Hash
+	// An account's Prior, and a slot's PriorValue, is its value before the block: the prior the first
+	// accepted write to it carried. No transaction ahead of that writer wrote it, so what it read was
+	// the pre-block value. Later writers read an earlier writer's value.
+	accounts map[common.Address]*AccountChange
+	storage  map[storageChangeKey]StorageChange
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
@@ -704,14 +697,8 @@ func newBlockSTMState(source StateReader) *blockSTMState {
 	state := &blockSTMState{source: source}
 	for i := range state.shards {
 		state.shards[i] = blockSTMShard{
-			balances:      map[common.Address]*big.Int{},
-			nonces:        map[common.Address]uint64{},
-			code:          map[common.Address][]byte{},
-			storage:       map[storageChangeKey]common.Hash{},
-			priorBalances: map[common.Address]*big.Int{},
-			priorNonces:   map[common.Address]uint64{},
-			priorCode:     map[common.Address][]byte{},
-			priorStorage:  map[storageChangeKey]common.Hash{},
+			accounts: map[common.Address]*AccountChange{},
+			storage:  map[storageChangeKey]StorageChange{},
 		}
 	}
 	return state
@@ -722,30 +709,29 @@ func (s *blockSTMState) shard(addr common.Address) *blockSTMShard {
 }
 
 func (s *blockSTMState) GetBalance(addr common.Address) *big.Int {
-	if balance, ok := s.shard(addr).balances[addr]; ok {
-		return cloneBig(balance)
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		return cloneBig(change.Account.Balance)
 	}
 	return s.source.GetBalance(addr)
 }
 
 func (s *blockSTMState) GetNonce(addr common.Address) uint64 {
-	if nonce, ok := s.shard(addr).nonces[addr]; ok {
-		return nonce
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		return change.Account.Nonce
 	}
 	return s.source.GetNonce(addr)
 }
 
 func (s *blockSTMState) GetCode(addr common.Address) []byte {
-	if code, ok := s.shard(addr).code[addr]; ok {
-		return cloneBytes(code)
+	if change, ok := s.shard(addr).accounts[addr]; ok {
+		return cloneBytes(change.Account.Code)
 	}
 	return s.source.GetCode(addr)
 }
 
 func (s *blockSTMState) GetState(addr common.Address, key common.Hash) common.Hash {
-	shard := s.shard(addr)
-	if value, ok := shard.storage[storageChangeKey{address: addr, key: key}]; ok {
-		return value
+	if change, ok := s.shard(addr).storage[storageChangeKey{address: addr, key: key}]; ok {
+		return change.Value
 	}
 	return s.source.GetState(addr, key)
 }
@@ -758,55 +744,48 @@ func (s *blockSTMState) apply(result occTxExecution) {
 // applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
 // reports true for. Two callers with disjoint ownership can run concurrently.
 //
-// Results must be applied in block order, each once, for the prior maps to keep the first writer's
-// prior.
+// Results must be applied in block order, each once, for every account and slot to keep the first
+// writer's prior.
 func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
-	for change := range ownedChanges(owns, result.changeSet.Balances, balanceChangeAddr) {
+	for change := range ownedChanges(owns, result.changeSet.Accounts, accountChangeAddr) {
 		shard := s.shard(change.Address)
-		if _, ok := shard.priorBalances[change.Address]; !ok {
-			shard.priorBalances[change.Address] = change.PriorBalance
+		accepted, ok := shard.accounts[change.Address]
+		if !ok {
+			accepted = &AccountChange{Address: change.Address, Account: change.Prior, Prior: change.Prior}
+			shard.accounts[change.Address] = accepted
 		}
+		// Only the fields the transaction wrote are folded in: one it left alone holds the value it
+		// read, which a transaction ahead of it may since have changed.
+		//
+		// A credit is never zero, so an account credited without a balance write has a changed
+		// balance, and so a change here; one whose credit a balance write undid has nothing to fold.
 		delta := result.commutativeBalanceDeltas[change.Address]
 		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
-		if delta != nil && !normalWrite {
-			balance := cloneBig(s.GetBalance(change.Address))
-			balance.Add(balance, delta)
-			shard.balances[change.Address] = balance
-			continue
+		switch {
+		case delta != nil && !normalWrite:
+			balance := cloneBig(accepted.Account.Balance)
+			accepted.Account.Balance = balance.Add(balance, delta)
+		case change.BalanceChanged():
+			accepted.Account.Balance = cloneBig(change.Account.Balance)
 		}
-		shard.balances[change.Address] = cloneBig(change.Balance)
-	}
-	for change := range ownedChanges(owns, result.changeSet.Nonces, nonceChangeAddr) {
-		shard := s.shard(change.Address)
-		if _, ok := shard.priorNonces[change.Address]; !ok {
-			shard.priorNonces[change.Address] = change.PriorNonce
+		if change.NonceChanged() {
+			accepted.Account.Nonce = change.Account.Nonce
 		}
-		shard.nonces[change.Address] = change.Nonce
-	}
-	for change := range ownedChanges(owns, result.changeSet.Code, codeChangeAddr) {
-		shard := s.shard(change.Address)
-		if _, ok := shard.priorCode[change.Address]; !ok {
-			shard.priorCode[change.Address] = cloneBytes(change.PriorCode)
-		}
-		if change.Delete {
-			shard.code[change.Address] = nil
-		} else {
-			shard.code[change.Address] = cloneBytes(change.Code)
+		if change.CodeChanged() {
+			accepted.Account.Code = change.Account.Code
 		}
 	}
 	for change := range ownedChanges(owns, result.changeSet.Storage, storageChangeAddr) {
 		shard := s.shard(change.Address)
 		key := storageChangeKey{address: change.Address, key: change.Key}
-		if _, ok := shard.priorStorage[key]; !ok {
-			shard.priorStorage[key] = change.PriorValue
+		if accepted, ok := shard.storage[key]; ok {
+			change.PriorValue = accepted.PriorValue
 		}
-		shard.storage[key] = change.Value
+		shard.storage[key] = change
 	}
 }
 
-func balanceChangeAddr(c BalanceChange) common.Address { return c.Address }
-func nonceChangeAddr(c NonceChange) common.Address     { return c.Address }
-func codeChangeAddr(c CodeChange) common.Address       { return c.Address }
+func accountChangeAddr(c AccountChange) common.Address { return c.Address }
 func storageChangeAddr(c StorageChange) common.Address { return c.Address }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
@@ -827,29 +806,10 @@ func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 // the address space in canonical order, so appending shard by shard yields a canonically ordered
 // changeset.
 func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
-	for _, addr := range sortedAddresses(h.balances) {
-		balance, prior := h.balances[addr], h.priorBalances[addr]
-		if prior == nil {
-			prior = new(big.Int)
+	for _, addr := range sortedAddresses(h.accounts) {
+		if change := h.accounts[addr]; change.BalanceChanged() || change.NonceChanged() || change.CodeChanged() {
+			changes.Accounts = append(changes.Accounts, *change)
 		}
-		if balance.Cmp(prior) == 0 {
-			continue
-		}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: cloneBig(balance), PriorBalance: prior})
-	}
-	for _, addr := range sortedAddresses(h.nonces) {
-		nonce, prior := h.nonces[addr], h.priorNonces[addr]
-		if nonce == prior {
-			continue
-		}
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: nonce, PriorNonce: prior})
-	}
-	for _, addr := range sortedAddresses(h.code) {
-		code, prior := h.code[addr], h.priorCode[addr]
-		if bytes.Equal(code, prior) {
-			continue
-		}
-		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: cloneBytes(code), Delete: len(code) == 0, PriorCode: cloneBytes(prior)})
 	}
 	storageKeys := make([]storageChangeKey, 0, len(h.storage))
 	for key := range h.storage {
@@ -862,17 +822,9 @@ func (h *blockSTMShard) changeSetInto(changes *StateChangeSet) {
 		return bytes.Compare(storageKeys[i].key[:], storageKeys[j].key[:]) < 0
 	})
 	for _, key := range storageKeys {
-		value, prior := h.storage[key], h.priorStorage[key]
-		if value == prior {
-			continue
+		if change := h.storage[key]; change.Value != change.PriorValue {
+			changes.Storage = append(changes.Storage, change)
 		}
-		changes.Storage = append(changes.Storage, StorageChange{
-			Address:    key.address,
-			Key:        key.key,
-			Value:      value,
-			Delete:     value == (common.Hash{}),
-			PriorValue: prior,
-		})
 	}
 }
 

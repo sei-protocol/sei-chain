@@ -291,17 +291,17 @@ func requireSameStateChanges(t *testing.T, want StateChangeSet, got StateChangeS
 }
 
 func withCanonicalBalances(changes StateChangeSet) StateChangeSet {
-	balances := make([]BalanceChange, len(changes.Balances))
-	for i, change := range changes.Balances {
-		balances[i] = change
-		if change.Balance != nil {
-			balances[i].Balance = new(big.Int).Set(change.Balance)
+	accounts := make([]AccountChange, len(changes.Accounts))
+	for i, change := range changes.Accounts {
+		accounts[i] = change
+		if change.Account.Balance != nil {
+			accounts[i].Account.Balance = new(big.Int).Set(change.Account.Balance)
 		}
-		if change.PriorBalance != nil {
-			balances[i].PriorBalance = new(big.Int).Set(change.PriorBalance)
+		if change.Prior.Balance != nil {
+			accounts[i].Prior.Balance = new(big.Int).Set(change.Prior.Balance)
 		}
 	}
-	changes.Balances = balances
+	changes.Accounts = accounts
 	return changes
 }
 

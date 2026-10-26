@@ -30,19 +30,20 @@ func evmOnlyHashFixture(pairs int) *evmonly.BlockResult {
 	result := &evmonly.BlockResult{GasUsed: 21_000 * uint64(pairs)}
 	for i := range pairs {
 		b := byte(i%251 + 1)
-		result.ChangeSet.Balances = append(result.ChangeSet.Balances, evmonly.BalanceChange{
-			Address: addr(b), Balance: new(big.Int).SetUint64(uint64(i) * 1_000_000),
-		})
-		result.ChangeSet.Nonces = append(result.ChangeSet.Nonces, evmonly.NonceChange{
-			Address: addr(b), Nonce: uint64(i),
+		balance := uint64(i) * 1_000_000
+		// Priors one above the values make both the balance and the nonce a change.
+		result.ChangeSet.Accounts = append(result.ChangeSet.Accounts, evmonly.AccountChange{
+			Address: addr(b),
+			Account: evmonly.AccountState{Balance: new(big.Int).SetUint64(balance), Nonce: uint64(i)},
+			Prior:   evmonly.AccountState{Balance: new(big.Int).SetUint64(balance + 1), Nonce: uint64(i) + 1},
 		})
 		result.ChangeSet.Storage = append(result.ChangeSet.Storage, evmonly.StorageChange{
 			Address: addr(b), Key: hash(b), Value: hash(b ^ 0xff), Delete: i%3 == 0,
 		})
 	}
-	result.ChangeSet.Code = append(result.ChangeSet.Code,
-		evmonly.CodeChange{Address: addr(0xaa), Code: []byte{0x60, 0x00, 0x60, 0x00, 0xf3}},
-		evmonly.CodeChange{Address: addr(0xbb), Delete: true},
+	result.ChangeSet.Accounts = append(result.ChangeSet.Accounts,
+		evmonly.AccountChange{Address: addr(0xaa), Account: evmonly.AccountState{Code: []byte{0x60, 0x00, 0x60, 0x00, 0xf3}}},
+		evmonly.AccountChange{Address: addr(0xbb), Prior: evmonly.AccountState{Code: []byte{0x60}}},
 	)
 	return result
 }
