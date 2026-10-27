@@ -15,7 +15,7 @@ MigrateEVM is the first of two migrations defined in [migration_versions.go](mig
 - `Version0_MemiavlOnly = 0` -- pre-migration. All modules in memiavl.
 - `Version1_MigrateEVM  = 1` -- post-migration. `evm/` lives in flatkv; everything else still in memiavl.
 
-The transition between them is driven by `MigrationManager.ApplyChangeSets`, configured via `WriteMode = MigrateEVM` (see [write_mode.go](write_mode.go) and `buildMigrateEVMRouter` in [router_builder.go](router_builder.go)).
+The transition between them is driven by `MigrationManager.ApplyChangeSets`, configured via `WriteMode = MigrateEVM` (see [write_mode.go](../types/write_mode.go) and `buildMigrateEVMRouter` in [router_builder.go](router_builder.go)).
 
 This roadmap covers operations that touch the `evm/` module's storage during and around that transition. It does **not** cover EVM execution semantics, JSON-RPC behavior, or non-EVM modules.
 

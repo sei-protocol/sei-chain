@@ -44,7 +44,6 @@ func evmOnlyHashFixture(pairs int) *evmonly.BlockResult {
 		evmonly.CodeChange{Address: addr(0xaa), Code: []byte{0x60, 0x00, 0x60, 0x00, 0xf3}},
 		evmonly.CodeChange{Address: addr(0xbb), Delete: true},
 	)
-	result.ChangeSet.StorageClears = append(result.ChangeSet.StorageClears, addr(0xcc))
 	return result
 }
 
@@ -54,9 +53,9 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 		pairs int
 		want  string
 	}{
-		{pairs: 0, want: "0x940d67c7f137ce6f5dff5d30287ec13d1e04a81a779fd936663244d78c54c659"},
-		{pairs: 1, want: "0xeff7e68a8061850aff3232b253573e045cb7d07303a0606ee5a9af8b55623289"},
-		{pairs: 64, want: "0x8e58f705e0452fc3789eb90e5fe69f29ea149cb92dbcf660e497cd41d2286d62"},
+		{pairs: 0, want: "0x98c012bb0ffae50b5f9969e668577c9449f0aa53d728cfba607162470a07f7cb"},
+		{pairs: 1, want: "0x787e0c740324fd0811925ded7d865e976eb7c59c1043bf89bf4644e221e2f259"},
+		{pairs: 64, want: "0xc6cbf658ce324a5e210da5d7fd32d24239d3471a2716d4343d7096949c25b0ed"},
 	} {
 		t.Run(fmt.Sprintf("pairs=%d", tc.pairs), func(t *testing.T) {
 			got, err := hashEVMOnlyResult(

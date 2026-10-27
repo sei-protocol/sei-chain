@@ -373,6 +373,12 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 	return hashvault.NewPebbleHashVault(ctx, hvCfg)
 }
 
+// RestoreMarkerFile returns the path of the marker file that a state sync restore
+// writes in the persistent state dir psd.
+func RestoreMarkerFile(psd string) string {
+	return filepath.Join(psd, "state-sync-restored")
+}
+
 // commitAppHashToVault records the app hash for the given height in the equivocation guard and halts
 // the node on any error. Every executed height is guarded, so a node can never commit to two
 // different app hashes for the same height without deliberate human intervention.

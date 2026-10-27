@@ -28,13 +28,13 @@ A node that has never migrated starts here. All reads and writes go directly to 
 
 ![MigrateEVM transition](resources/0-1.png)
 
-The first transition. A `ModuleRouter` routes `evm/` keys through the [`MigrationManager`](migration_manager.go), which splits between un-migrated keys still living in memiavl and migrated keys already in flatkv; every other module routes directly to memiavl. Each block migrates `migrationBatchSize` keys forward; the boundary cursor is persisted in the migration metadata store so a restart resumes mid-stream. See `WriteMode = MigrateEVM` in [write_mode.go](write_mode.go), built by `buildMigrateEVMRouter` in [router_builder.go](router_builder.go).
+The first transition. A `ModuleRouter` routes `evm/` keys through the [`MigrationManager`](migration_manager.go), which splits between un-migrated keys still living in memiavl and migrated keys already in flatkv; every other module routes directly to memiavl. Each block migrates `migrationBatchSize` keys forward; the boundary cursor is persisted in the migration metadata store so a restart resumes mid-stream. See `WriteMode = MigrateEVM` in [write_mode.go](../types/write_mode.go), built by `buildMigrateEVMRouter` in [router_builder.go](router_builder.go).
 
 ### Version 1: EVMMigrated (V1)
 
 ![Version 1: EVMMigrated](resources/1.png)
 
-Steady state after the EVM migration completes. The `ModuleRouter` sends `evm/` keys directly to flatkv and routes everything else to memiavl; the `MigrationManager` is no longer in the data path for this version. See `WriteMode = EVMMigrated` in [write_mode.go](write_mode.go), built by `buildEVMMigratedRouter` in [router_builder.go](router_builder.go). On disk this maps to `Version1_MigrateEVM` in [migration_versions.go](migration_versions.go).
+Steady state after the EVM migration completes. The `ModuleRouter` sends `evm/` keys directly to flatkv and routes everything else to memiavl; the `MigrationManager` is no longer in the data path for this version. See `WriteMode = EVMMigrated` in [write_mode.go](../types/write_mode.go), built by `buildEVMMigratedRouter` in [router_builder.go](router_builder.go). On disk this maps to `Version1_MigrateEVM` in [migration_versions.go](migration_versions.go).
 
 ### MigrateCosmos (V1 -> V2)
 
@@ -47,7 +47,7 @@ flowchart LR
     manager -->|migrated keys| flatkv
 ```
 
-The final transition. The `ModuleRouter` routes `evm/` directly to flatkv (already migrated in V1) and every other module through the [`MigrationManager`](migration_manager.go) so its keys are walked across in batches. When the boundary cursor reaches the end and the version bumps, the node has fully landed in V2. See `WriteMode = MigrateCosmos` in [write_mode.go](write_mode.go), built by `buildMigrateCosmosRouter` in [router_builder.go](router_builder.go).
+The final transition. The `ModuleRouter` routes `evm/` directly to flatkv (already migrated in V1) and every other module through the [`MigrationManager`](migration_manager.go) so its keys are walked across in batches. When the boundary cursor reaches the end and the version bumps, the node has fully landed in V2. See `WriteMode = MigrateCosmos` in [write_mode.go](../types/write_mode.go), built by `buildMigrateCosmosRouter` in [router_builder.go](router_builder.go).
 
 ### Version 2: post-migration (V2)
 
