@@ -149,6 +149,33 @@ func (e *Executor) MarkWaitingForBlock() {
 	e.blockPhases.SetPhase(phaseWaitingForBlock)
 }
 
+// WarmAccounts reads the account of every sender and recipient in b from the committed state, so that
+// executing b finds them cached rather than waiting on the database.
+func (e *Executor) WarmAccounts(ctx context.Context, b PreparedBlock) {
+	if e.stateStore == nil || len(b.Txs) == 0 {
+		return
+	}
+	view := e.stateStore.OpenView()
+	defer view.Close()
+	workers := min(len(b.Txs), max(1, e.cfg.ParseWorkers))
+	chunk := (len(b.Txs) + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := 0; start < len(b.Txs); start += chunk {
+		wg.Go(func() {
+			for _, tx := range b.Txs[start:min(start+chunk, len(b.Txs))] {
+				if ctx.Err() != nil {
+					return
+				}
+				view.ReadAccount(tx.Sender)
+				if to := tx.Tx.To(); to != nil {
+					view.ReadAccount(*to)
+				}
+			}
+		})
+	}
+	wg.Wait()
+}
+
 // ExecuteBlock prepares and executes a block, and returns once its state is committed.
 //
 // It is the synchronous entry point. A caller feeding blocks continuously should prepare and

@@ -269,6 +269,17 @@ type fetchedBlock struct {
 	req   *abci.RequestFinalizeBlock
 }
 
+// prepareAheadBlocks is how many fetched blocks may wait for execution, each prepared or being
+// prepared, besides the one the fetcher is handing over. With that block and the one executing, at
+// most prepareAheadBlocks+2 are prepared at once, which the app's prepared queue must hold.
+const prepareAheadBlocks = 3
+
+// pendingBlock is a fetched block whose preparation reports on prepared once it is done.
+type pendingBlock struct {
+	fetchedBlock
+	prepared chan error
+}
+
 func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
 	b := f.block
@@ -497,31 +508,40 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	}
 
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Blocks are fetched and prepared one ahead of execution: the unbuffered
-		// channel lets the fetcher hold block n+1, already prepared, while the
-		// loop below executes block n.
-		blocks := make(chan fetchedBlock)
+		// Blocks are fetched in order and each is prepared on its own goroutine, up to
+		// prepareAheadBlocks beyond the one handed over next; the loop below executes
+		// them in order, each once its preparation is done.
+		blocks := make(chan pendingBlock, prepareAheadBlocks)
 		s.Spawn(func() error {
 			for n := next; ; n += 1 {
 				b, err := r.data.GlobalBlock(ctx, n)
 				if err != nil {
 					return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 				}
-				req := r.finalizeRequest(b)
-				if err := app.PrepareBlock(ctx, req); err != nil {
-					return fmt.Errorf("app.PrepareBlock(%v): %w", n, err)
-				}
-				if err := utils.Send(ctx, blocks, fetchedBlock{block: b, req: req}); err != nil {
+				p := pendingBlock{fetchedBlock: fetchedBlock{block: b, req: r.finalizeRequest(b)}, prepared: make(chan error, 1)}
+				s.Spawn(func() error {
+					p.prepared <- app.PrepareBlock(ctx, p.req)
+					return nil
+				})
+				if err := utils.Send(ctx, blocks, p); err != nil {
 					return err
 				}
 			}
 		})
 		for {
 			gigametrics.SetPhase(gigametrics.PhaseConsensus)
-			f, err := utils.Recv(ctx, blocks)
+			p, err := utils.Recv(ctx, blocks)
 			if err != nil {
 				return err
 			}
+			prepareErr, err := utils.Recv(ctx, p.prepared)
+			if err != nil {
+				return err
+			}
+			if prepareErr != nil {
+				return fmt.Errorf("app.PrepareBlock(%v): %w", p.block.GlobalNumber, prepareErr)
+			}
+			f := p.fetchedBlock
 			n := f.block.GlobalNumber
 			gigametrics.SetPhase(gigametrics.PhaseExecution)
 			commitResp, err := r.executeBlock(ctx, f, hashVault)

@@ -8,10 +8,12 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -21,11 +23,12 @@ const (
 	prepareTimerName         = "evmonly_prepare"
 
 	preparePhaseParse = "parse"
-
-	// maxPreparedBlocks bounds the prepared blocks held: the block about to execute
-	// and the one after it.
-	maxPreparedBlocks = 2
+	preparePhaseWarm  = "warm_accounts"
 )
+
+// MaxPreparedBlocks is how many prepared blocks the app holds. A caller that prepares ahead must keep
+// no more than this many prepared blocks unexecuted, or the highest are dropped and decoded again.
+const MaxPreparedBlocks = 5
 
 // The prepared-blocks counter's attribute sets, built once.
 var (
@@ -44,7 +47,7 @@ type preparedBlock struct {
 }
 
 // preparedQueue holds prepared blocks in height order, at most one per height and
-// at most maxPreparedBlocks in all.
+// at most MaxPreparedBlocks in all.
 type preparedQueue []preparedBlock
 
 // put adds b and drops every block below next, the lowest height that can still
@@ -54,7 +57,7 @@ func (q *preparedQueue) put(b preparedBlock, next int64) {
 	kept := slices.DeleteFunc(*q, func(p preparedBlock) bool { return p.height < next || p.height == b.height })
 	kept = append(kept, b)
 	slices.SortFunc(kept, func(x, y preparedBlock) int { return cmp.Compare(x.height, y.height) })
-	n := min(len(kept), maxPreparedBlocks)
+	n := min(len(kept), MaxPreparedBlocks)
 	clear(kept[n:])
 	*q = kept[:n]
 }
@@ -72,6 +75,17 @@ func (q *preparedQueue) take(height int64, hash common.Hash) (preparedBlock, boo
 	return b, true
 }
 
+// preparePhaseTimerCount bounds the PrepareBlock calls timed at once; further calls wait for a timer.
+const preparePhaseTimerCount = 16
+
+func newPreparePhaseTimers() chan *seidbmetrics.PhaseTimer {
+	timers := make(chan *seidbmetrics.PhaseTimer, preparePhaseTimerCount)
+	for range preparePhaseTimerCount {
+		timers <- seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), prepareTimerName)
+	}
+	return timers
+}
+
 func newPreparedBlocksCounter(meter otelmetric.Meter) otelmetric.Int64Counter {
 	counter, err := meter.Int64Counter(
 		preparedBlocksMetricName,
@@ -86,7 +100,7 @@ func newPreparedBlocksCounter(meter otelmetric.Meter) otelmetric.Int64Counter {
 // PrepareBlock decodes a block's transactions and recovers their senders before
 // FinalizeBlock is called for it, so that work runs while the previous block
 // executes. It may run concurrently with FinalizeBlock. A prepared block is kept,
-// at most maxPreparedBlocks at a time, until FinalizeBlock takes it or its height
+// at most MaxPreparedBlocks at a time, until FinalizeBlock takes it or its height
 // can no longer execute, and FinalizeBlock uses it only for the same height and
 // hash. Preparing the wrong block costs only the work, and the senders CheckTx
 // cached stay cached until a prepared block is consumed. Anything that would fail
@@ -103,7 +117,9 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	}
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
-	a.preparePhases.SetPhase(preparePhaseParse)
+	phases := <-a.preparePhaseTimers
+	defer func() { a.preparePhaseTimers <- phases }()
+	phases.SetPhase(preparePhaseParse)
 	txHashes := hashRawTxs(req.Txs)
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
@@ -117,10 +133,13 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		Txs:     req.Txs,
 		Senders: a.peekSenders(txHashes),
 	})
-	a.preparePhases.Reset()
 	if err != nil {
+		phases.Reset()
 		return ctx.Err()
 	}
+	phases.SetPhase(preparePhaseWarm)
+	executor.WarmAccounts(ctx, prepared)
+	phases.Reset()
 	next := a.LastBlockHeight() + 1
 	for queue := range a.prepared.Lock() {
 		queue.put(preparedBlock{

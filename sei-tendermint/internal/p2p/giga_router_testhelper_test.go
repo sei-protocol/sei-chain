@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"slices"
 	"testing"
+	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -208,6 +209,10 @@ type preparingTestApp struct {
 	*testApp
 	holdUntil int64
 	log       utils.Watch[*prepareLog]
+	// prepareDelay, when set, delays PrepareBlock for a height.
+	prepareDelay func(height int64) time.Duration
+	// prepareErr, when set, is what PrepareBlock returns for a height.
+	prepareErr func(height int64) error
 }
 
 type prepareLog struct {
@@ -224,7 +229,17 @@ func newPreparingTestApp(holdUntil int64) *preparingTestApp {
 	}
 }
 
-func (a *preparingTestApp) PrepareBlock(_ context.Context, req *abci.RequestFinalizeBlock) error {
+func (a *preparingTestApp) PrepareBlock(ctx context.Context, req *abci.RequestFinalizeBlock) error {
+	if a.prepareDelay != nil {
+		if err := utils.Sleep(ctx, a.prepareDelay(req.Header.Height)); err != nil {
+			return err
+		}
+	}
+	if a.prepareErr != nil {
+		if err := a.prepareErr(req.Header.Height); err != nil {
+			return err
+		}
+	}
 	for log, ctrl := range a.log.Lock() {
 		log.prepared[req.Header.Height] = slices.Clone(req.Hash)
 		ctrl.Updated()
