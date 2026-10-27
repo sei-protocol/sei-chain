@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -51,10 +49,10 @@ func (e *blockEntry) FullBlock() utils.Option[*types.RoadBlock] {
 }
 
 type inner struct {
-	blocks       map[types.RoadIndex]*blockEntry        // [first, nextPartialBlock)
-	appProposals map[types.RoadIndex]*types.AppProposal // [first, nextAppProposal)
-	appQCs       map[types.RoadIndex]*types.AppQC       // [first, nextAppQC)
-	byHash       map[common.Hash]types.RoadIndex        // complete SuperBlocks retained in blocks
+	blocks       map[types.RoadIndex]*blockEntry         // [first, nextPartialBlock)
+	appProposals map[types.RoadIndex]*types.AppProposal  // [first, nextAppProposal)
+	appQCs       map[types.RoadIndex]*types.AppQC        // [first, nextAppQC)
+	byHash       map[types.RoadBlockHash]types.RoadIndex // complete SuperBlocks retained in blocks
 
 	// first is the inclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
@@ -172,7 +170,7 @@ func (i *inner) updateNextFullBlock(m *metrics.Metrics) {
 		if !ok {
 			break
 		}
-		i.byHash[b.SuperBlock().CalculateBlockHash()] = e.qc.Index()
+		i.byHash[b.QC().QC().RoadBlockHash()] = e.qc.Index()
 		for _, b := range e.laneBlocks {
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 			m.BlockLatency.Receive.Observe(latency)
@@ -241,7 +239,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		blocks:           map[types.RoadIndex]*blockEntry{},
 		appQCs:           map[types.RoadIndex]*types.AppQC{},
 		appProposals:     map[types.RoadIndex]*types.AppProposal{},
-		byHash:           map[common.Hash]types.RoadIndex{},
+		byHash:           map[types.RoadBlockHash]types.RoadIndex{},
 		first:            status.First,
 		nextAppProposal:  status.First,
 		nextAppQC:        status.First,
@@ -267,7 +265,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		for offset, laneBlock := range block.LaneBlocks() {
 			laneBlocks[uint64(offset)] = laneBlock //nolint:gosec // non-negative slice index
 		}
-		inner.byHash[block.SuperBlock().CalculateBlockHash()] = n
+		inner.byHash[block.QC().QC().RoadBlockHash()] = n
 		inner.blocks[n] = &blockEntry{qc: block.QC(), epoch: epoch, laneBlocks: laneBlocks}
 		inner.nextPartialBlock += 1
 		inner.nextFullBlock += 1
@@ -453,9 +451,9 @@ func (s *State) NextAppQC() types.RoadIndex {
 	panic("unreachable")
 }
 
-// SuperBlockByHash returns a retained complete SuperBlock, or None for an unknown hash.
+// SuperBlockByHash returns a retained complete SuperBlock by commit vote hash, or None.
 // Complete SuperBlocks ahead of an incomplete road are served from memory.
-func (s *State) SuperBlockByHash(hash common.Hash) (utils.Option[*types.SuperBlock], error) {
+func (s *State) SuperBlockByHash(hash types.RoadBlockHash) (utils.Option[*types.SuperBlock], error) {
 	for inner := range s.inner.Lock() {
 		if n, ok := inner.byHash[hash]; ok {
 			return utils.Some(inner.blocks[n].FullBlock().OrPanic("hash without full block").SuperBlock()), nil
@@ -857,7 +855,7 @@ func (s *State) runPersist(ctx context.Context) error {
 					s.metrics.BlockLatency.Evict.Observe(latency)
 					s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 				}
-				delete(inner.byHash, e.FullBlock().OrPanic("bad full block").SuperBlock().CalculateBlockHash())
+				delete(inner.byHash, e.qc.QC().RoadBlockHash())
 				delete(inner.blocks, inner.first)
 				delete(inner.appQCs, inner.first)
 				delete(inner.appProposals, inner.first)

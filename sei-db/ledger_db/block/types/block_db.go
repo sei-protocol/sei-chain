@@ -3,7 +3,7 @@ package types
 // BlockNumber identifies a block in the ledger.
 type BlockNumber uint64
 
-// BlockHash identifies a block by its 32-byte header hash.
+// BlockHash is a block's opaque 32-byte lookup hash.
 type BlockHash [32]byte
 
 // BlockRecord contains a SuperBlock's storage index, hash, QC, and lane blocks.

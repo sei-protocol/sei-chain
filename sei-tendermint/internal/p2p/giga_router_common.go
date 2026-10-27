@@ -154,7 +154,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.RoadIndex
 // BlockByHash returns a finalized SuperBlock as a CometBFT ResultBlock.
 // Unknown hashes return an empty ResultBlock with no error.
 func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash common.Hash) (*coretypes.ResultBlock, error) {
-	opt, err := r.data.SuperBlockByHash(hash)
+	opt, err := r.data.SuperBlockByHash(atypes.RoadBlockHash(hash))
 	if err != nil {
 		return nil, fmt.Errorf("data.SuperBlockByHash: %w", err)
 	}
@@ -173,7 +173,7 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 	for i, tx := range srcTxs {
 		tmTxs[i] = tx
 	}
-	h := gb.CalculateBlockHash()
+	h := common.Hash(gb.Hash)
 	return &coretypes.ResultBlock{
 		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
 		Block: &types.Block{
@@ -198,7 +198,6 @@ func (r *gigaRouterCommon) translateSuperBlock(gb *atypes.SuperBlock) *coretypes
 
 func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
-	hash := b.CalculateBlockHash()
 	var proposerAddress types.Address
 	if vals := app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
@@ -215,10 +214,10 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.SuperBloc
 		Txs: b.Txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
-		// WARNING: this is the SuperBlock hash calculated before execution.
+		// The road block hash identifies the block before execution.
 		// It is used to identify block processed optimistically
 		// and is fed as block hash to EVM contracts.
-		Hash: hash[:],
+		Hash: b.Hash[:],
 		Header: (&types.Header{
 			ChainID: r.cfg.GenDoc.ChainID,
 			Height:  int64(b.Height), // nolint:gosec // different representations of the same value

@@ -5,8 +5,6 @@ package blockstore
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -272,7 +270,7 @@ func (s *Store) ReadBlock(n types.RoadIndex) (utils.Option[*types.RoadBlock], er
 	return utils.Some(group), nil
 }
 
-func (s *Store) ReadBlockByHash(hash common.Hash) (utils.Option[*types.RoadBlock], error) {
+func (s *Store) ReadBlockByHash(hash types.RoadBlockHash) (utils.Option[*types.RoadBlock], error) {
 	record, exists, err := s.db.GetBlockByHash(blocktypes.BlockHash(hash))
 	if err != nil {
 		return utils.None[*types.RoadBlock](), err

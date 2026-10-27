@@ -66,12 +66,12 @@ func decodeAppQC(value []byte) (*types.AppQC, error) {
 	return appQC, nil
 }
 
-// encodeBlock encodes a road block with its SuperBlock lookup hash.
+// encodeBlock encodes a road block with its commit vote lookup hash.
 func encodeBlock(block *types.RoadBlock) blocktypes.BlockRecord {
 	qc, blocks := block.QC(), block.LaneBlocks()
 	record := blocktypes.BlockRecord{
 		Index: blocktypes.BlockNumber(qc.Index()),
-		Hash:  blocktypes.BlockHash(block.SuperBlock().CalculateBlockHash()),
+		Hash:  blocktypes.BlockHash(block.QC().QC().RoadBlockHash()),
 		QC:    encodeQC(qc),
 	}
 	for _, lane := range blocks {
@@ -98,7 +98,7 @@ func decodeBlock(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
 		blocks[i] = block
 	}
 	block := types.NewRoadBlock(qc, blocks)
-	if blocktypes.BlockHash(block.SuperBlock().CalculateBlockHash()) != record.Hash {
+	if blocktypes.BlockHash(block.QC().QC().RoadBlockHash()) != record.Hash {
 		return nil, types.ErrQCBlocksMismatch
 	}
 	return block, nil

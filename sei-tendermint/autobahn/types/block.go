@@ -3,11 +3,7 @@ package types
 import (
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"time"
-
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
@@ -158,6 +154,7 @@ type Block struct {
 
 // SuperBlock contains all transactions finalized by one CommitQC in header order.
 type SuperBlock struct {
+	Hash      RoadBlockHash
 	Height    RoadIndex
 	Timestamp time.Time
 	GasWanted uint64
@@ -343,18 +340,6 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 		}
 		return &Block{header: header, payload: payload}, nil
 	},
-}
-
-// CalculateBlockHash calculates the hash of a block.
-func (b *SuperBlock) CalculateBlockHash() common.Hash {
-	header := &ethtypes.Header{
-		Time:       uint64(b.Timestamp.Unix()),  //nolint:gosec // block timestamps are always positive post-epoch values
-		Number:     big.NewInt(int64(b.Height)), //nolint:gosec // block numbers are within int64 range for all practical chain heights
-		GasUsed:    b.GasWanted,
-		Difficulty: big.NewInt(0),
-		BaseFee:    big.NewInt(0),
-	}
-	return header.Hash()
 }
 
 // LaneBlockPosConv is the protobuf converter for LaneBlockPos.

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -154,7 +153,7 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, blk.IsPresent())
 
-	byHash, err := db.ReadBlockByHash(common.Hash{1})
+	byHash, err := db.ReadBlockByHash(types.RoadBlockHash{1})
 	require.NoError(t, err)
 	require.False(t, byHash.IsPresent())
 
@@ -338,7 +337,7 @@ func testReadRoundTrip(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, missNum.IsPresent())
 
-	missHash, err := db.ReadBlockByHash(common.Hash{1})
+	missHash, err := db.ReadBlockByHash(types.RoadBlockHash{1})
 	require.NoError(t, err)
 	require.False(t, missHash.IsPresent())
 }
@@ -517,7 +516,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-			require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
+			assertSuperBlocksEqual(t, blk, got.SuperBlock())
 		}
 		if b.next > watermark {
 			lookup := b.first
@@ -554,7 +553,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 		require.NoError(t, err)
 		got, ok := opt.Get()
 		require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
-		require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
+		assertSuperBlocksEqual(t, blk, got.SuperBlock())
 	}
 
 	// The retained QC stays (its Next > watermark); a lookup at or above the
@@ -583,7 +582,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(watermark))
 
 	below := batches[0]
-	for i, blk := range below.superBlocks() {
+	for i := range below.superBlocks() {
 		n := below.first + gbn(i)
 		require.Less(t, n, watermark)
 
@@ -591,7 +590,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 		require.ErrorIs(t, err, types.ErrPruned, "block %d below watermark %d must be reported pruned", n, watermark)
 		require.False(t, byNum.IsPresent(), "block %d below watermark %d must not be served", n, watermark)
 
-		byHash, err := db.ReadBlockByHash(blk.CalculateBlockHash())
+		byHash, err := db.ReadBlockByHash(below.qc.QC().RoadBlockHash())
 		require.NoError(t, err)
 		require.False(t, byHash.IsPresent(), "block %d below watermark %d must not be served by hash", n, watermark)
 
@@ -712,7 +711,7 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must survive redundant prunes", n, watermark)
-			require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
+			assertSuperBlocksEqual(t, blk, got.SuperBlock())
 		}
 	}
 }
@@ -801,9 +800,9 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 				require.NoError(t, err)
 				got, ok := byNum.Get()
 				require.True(t, ok, "block %d in the newest cohort must survive PruneBefore(%d)", n, prune)
-				require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
+				assertSuperBlocksEqual(t, blk, got.SuperBlock())
 
-				byHash, err := db.ReadBlockByHash(blk.CalculateBlockHash())
+				byHash, err := db.ReadBlockByHash(last.qc.QC().RoadBlockHash())
 				require.NoError(t, err)
 				bwn, ok := byHash.Get()
 				require.True(t, ok, "block %d must survive lookup by hash", n)
@@ -1187,7 +1186,7 @@ func testWriteEmptyQC(t *testing.T, build builder) {
 	got, ok := block.Get()
 	require.True(t, ok)
 	require.Empty(t, got.LaneBlocks())
-	byHash, err := db.ReadBlockByHash(got.SuperBlock().CalculateBlockHash())
+	byHash, err := db.ReadBlockByHash(got.QC().QC().RoadBlockHash())
 	require.NoError(t, err)
 	require.True(t, byHash.IsPresent())
 	committee, keys := buildCommittee()
@@ -1281,6 +1280,15 @@ func assertSuffixAbove(t *testing.T, db types.BlockStore, floor types.RoadIndex)
 
 // --- shared assertions ---
 
+func assertSuperBlocksEqual(t *testing.T, want, got *types.SuperBlock) {
+	t.Helper()
+	require.Equal(t, want.Hash, got.Hash)
+	require.Equal(t, want.Height, got.Height)
+	require.True(t, want.Timestamp.Equal(got.Timestamp))
+	require.Equal(t, want.GasWanted, got.GasWanted)
+	require.Equal(t, want.Txs, got.Txs)
+}
+
 func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 	for _, b := range batches {
 		for offset, laneBlock := range b.blocks {
@@ -1290,7 +1298,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 			require.True(t, ok)
 			require.Equal(t, laneBlock.Header().Hash(), got.Header().Hash())
 			require.Equal(t, laneBlock.Payload().Txs(), got.Payload().Txs())
-			alias, err := db.ReadBlockByHash(common.Hash(laneBlock.Header().Hash()))
+			alias, err := db.ReadBlockByHash(types.RoadBlockHash(laneBlock.Header().Hash()))
 			require.NoError(t, err)
 			require.False(t, alias.IsPresent(), "lane block hashes must not index SuperBlocks")
 		}
@@ -1304,18 +1312,18 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 			require.NoError(t, err)
 			got, ok := byNum.Get()
 			require.True(t, ok, "block %d should exist", n)
-			require.Equal(t, blk.CalculateBlockHash(), got.SuperBlock().CalculateBlockHash())
+			assertSuperBlocksEqual(t, blk, got.SuperBlock())
 			require.Equal(t, types.FullCommitQCConv.Encode(b.qc), types.FullCommitQCConv.Encode(got.QC()))
 			require.Len(t, got.LaneBlocks(), len(b.blocks))
 			for offset, laneBlock := range b.blocks {
 				require.Equal(t, types.BlockConv.Encode(laneBlock), types.BlockConv.Encode(got.LaneBlocks()[offset]))
 			}
 
-			byHash, err := db.ReadBlockByHash(blk.CalculateBlockHash())
+			byHash, err := db.ReadBlockByHash(b.qc.QC().RoadBlockHash())
 			require.NoError(t, err)
 			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
-			require.Equal(t, blk.CalculateBlockHash(), bwn.SuperBlock().CalculateBlockHash())
+			assertSuperBlocksEqual(t, blk, bwn.SuperBlock())
 			require.Equal(t, n, bwn.QC().Index(), "block %d hash lookup should return its number", n)
 		}
 	}

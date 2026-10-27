@@ -3,12 +3,11 @@ package types
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // BlockStore is the durable backing store for data.State. It persists complete
-// CommitQC groups, indexed by RoadIndex and SuperBlock hash, and execution records.
+// CommitQC groups, indexed by RoadIndex and commit vote hash, and execution records.
 // All methods are safe for concurrent use.
 //
 // Writes are visible immediately. Flush makes all previously completed writes
@@ -41,7 +40,7 @@ type BlockStore interface {
 	ReadSuffix() (Suffix, error)
 	ReadLaneBlock(pos LaneBlockPos) (utils.Option[*Block], error)
 	ReadBlock(n RoadIndex) (utils.Option[*RoadBlock], error)
-	ReadBlockByHash(hash common.Hash) (utils.Option[*RoadBlock], error)
+	ReadBlockByHash(hash RoadBlockHash) (utils.Option[*RoadBlock], error)
 	ReadQC(n RoadIndex) (utils.Option[*FullCommitQC], error)
 	ReadAppProposal(n RoadIndex) (utils.Option[*AppProposal], error)
 	ReadAppQC(n RoadIndex) (utils.Option[*AppQC], error)
@@ -60,6 +59,9 @@ type SuffixRange struct {
 	// NextBlock is the next road awaiting a persisted block.
 	NextBlock RoadIndex
 }
+
+// RoadBlockHash is the commit vote hash identifying a road block.
+type RoadBlockHash = Hash[*CommitVote]
 
 // RoadBlock is a committed QC and all its blocks in header order.
 type RoadBlock struct {
@@ -81,7 +83,11 @@ func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
 
 // SuperBlock returns the merged transactions and execution metadata for the road.
 func (b *RoadBlock) SuperBlock() *SuperBlock {
-	superBlock := &SuperBlock{Height: b.qc.Index(), Timestamp: b.qc.QC().Proposal().Timestamp()}
+	superBlock := &SuperBlock{
+		Hash:      b.qc.QC().RoadBlockHash(),
+		Height:    b.qc.Index(),
+		Timestamp: b.qc.QC().Proposal().Timestamp(),
+	}
 	for _, block := range b.laneBlocks {
 		superBlock.GasWanted += block.Payload().TotalGasWanted()
 		superBlock.Txs = append(superBlock.Txs, block.Payload().Txs()...)

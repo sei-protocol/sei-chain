@@ -9,8 +9,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -691,7 +689,7 @@ func TestPushEmptyQC(t *testing.T) {
 	require.NoError(t, state.PushPartialBlock(t.Context(), previous, TestBlockMap(blocks)))
 	require.NoError(t, state.PushPartialBlock(t.Context(), qc, nil))
 	want := types.NewRoadBlock(qc, nil).SuperBlock()
-	byHash, err := state.SuperBlockByHash(want.CalculateBlockHash())
+	byHash, err := state.SuperBlockByHash(want.Hash)
 	require.NoError(t, err)
 	require.True(t, byHash.IsPresent())
 	require.Equal(t, qc.Index()+1, state.NextQC())
@@ -712,7 +710,7 @@ func TestSuperBlockByHash(t *testing.T) {
 	require.NoError(t, state.PushPartialBlock(ctx, qc, TestBlockMap(blocks)))
 	n := qc.Index()
 	wantBlock := types.NewRoadBlock(qc, blocks).SuperBlock()
-	wantHash := wantBlock.CalculateBlockHash()
+	wantHash := wantBlock.Hash
 	gotOpt, err := state.SuperBlockByHash(wantHash)
 	require.NoError(t, err)
 	gotGB, ok := gotOpt.Get()
@@ -722,13 +720,13 @@ func TestSuperBlockByHash(t *testing.T) {
 	require.Equal(t, wantBlock.GasWanted, gotGB.GasWanted)
 
 	// Zero hash → None.
-	zeroOpt, err := state.SuperBlockByHash(common.Hash{})
+	zeroOpt, err := state.SuperBlockByHash(types.RoadBlockHash{})
 	require.NoError(t, err)
 	_, ok = zeroOpt.Get()
 	require.False(t, ok, "SuperBlockByHash(zero) returned Some")
 
 	// Random unknown hash → None.
-	var randHash common.Hash
+	var randHash types.RoadBlockHash
 	rng.Read(randHash[:])
 	randOpt, err := state.SuperBlockByHash(randHash)
 	require.NoError(t, err)
@@ -798,7 +796,7 @@ func TestRunPersistWaitsForCompleteQC(t *testing.T) {
 			return fmt.Errorf("incomplete QC was persisted: %v", got)
 		}
 		for range blocks2 {
-			got, err := store.ReadBlockByHash(types.NewRoadBlock(qc2, blocks2).SuperBlock().CalculateBlockHash())
+			got, err := store.ReadBlockByHash(qc2.QC().RoadBlockHash())
 			if err != nil {
 				return err
 			}
@@ -1196,7 +1194,7 @@ func TestPruningPreservesRAMAndRecoveryAnchor(t *testing.T) {
 		got, err := state1.TryBlock(types.LaneBlockPos{Index: n})
 		require.NoError(t, err, "height %d must remain readable from RAM (>= exclusive floor)", n)
 		require.NotNil(t, got)
-		byHash, err := state1.SuperBlockByHash(utils.OrPanic1(state1.SuperBlock(ctx, n)).CalculateBlockHash())
+		byHash, err := state1.SuperBlockByHash(utils.OrPanic1(state1.SuperBlock(ctx, n)).Hash)
 		require.NoError(t, err)
 		gb, ok := byHash.Get()
 		require.True(t, ok, "SuperBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
@@ -1282,7 +1280,7 @@ func TestTryBlockServesPartialBlocks(t *testing.T) {
 	require.False(t, state.NeedBlock(last))
 	require.True(t, state.NeedBlock(types.LaneBlockPos{Index: qc.Index()}))
 	want := types.NewRoadBlock(qc, blocks).SuperBlock()
-	opt, err := state.SuperBlockByHash(want.CalculateBlockHash())
+	opt, err := state.SuperBlockByHash(want.Hash)
 	require.NoError(t, err)
 	require.False(t, opt.IsPresent(), "incomplete SuperBlock must not be indexed")
 	for offset, block := range blocks {
@@ -1292,7 +1290,7 @@ func TestTryBlockServesPartialBlocks(t *testing.T) {
 	got, err := state.SuperBlock(ctx, qc.Index())
 	require.NoError(t, err)
 	require.Equal(t, want.Txs, got.Txs)
-	opt, err = state.SuperBlockByHash(want.CalculateBlockHash())
+	opt, err = state.SuperBlockByHash(want.Hash)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
 }

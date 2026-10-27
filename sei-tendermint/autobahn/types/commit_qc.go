@@ -27,6 +27,9 @@ func NewCommitQC(votes []*Signed[*CommitVote]) *CommitQC {
 	return &CommitQC{vote: votes[0].hashed, sigs: sigs}
 }
 
+// RoadBlockHash returns the commit vote hash identifying the road block.
+func (m *CommitQC) RoadBlockHash() RoadBlockHash { return m.vote.Hash() }
+
 // Proposal .
 func (m *CommitQC) Proposal() *Proposal { return m.vote.Msg().proposal }
 
