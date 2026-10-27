@@ -17,18 +17,14 @@ type stateChangeSetBuilder struct {
 	changes *gigatypes.StateChangeSet
 	// The index in changes.Accounts of each address's account change.
 	accountIndex map[gigatypes.Address]int
-	// If set, a storage change is appended even when the value equals its prior value.
-	includeUnchangedValues bool
 }
 
 // MutationsToStateChangeSet converts mutations into a StateChangeSet object, with one account change per address whose
-// account or code row is mutated. An account change's balance and nonce come from the account row mutation and its
-// code from the code row mutation.
+// balance, nonce or code changes and one storage change per slot whose value changes. An account change's balance and
+// nonce come from the account row mutation and its code from the code row mutation.
 func MutationsToStateChangeSet(
 	// The mutations to convert.
 	mutations []Mutation,
-	// If set, a change whose new value equals its prior value is included. Otherwise it is omitted.
-	includeUnchangedValues bool,
 	// If set, mutations of keys of a kind a state change set does not support are skipped without being parsed.
 	// Otherwise the presence of a state change that doesn't fit into a StateChangeSet results in an error.
 	ignoreUnsupportedKeys bool,
@@ -39,8 +35,7 @@ func MutationsToStateChangeSet(
 			Accounts: make([]gigatypes.AccountChange, 0, len(mutations)),
 			Storage:  make([]gigatypes.StorageChange, 0, len(mutations)),
 		},
-		accountIndex:           make(map[gigatypes.Address]int, len(mutations)),
-		includeUnchangedValues: includeUnchangedValues,
+		accountIndex: make(map[gigatypes.Address]int, len(mutations)),
 	}
 	for i := range mutations {
 		supported, err := b.add(&mutations[i])
@@ -52,11 +47,9 @@ func MutationsToStateChangeSet(
 				i, mutations[i].Key)
 		}
 	}
-	if !includeUnchangedValues {
-		b.changes.Accounts = slices.DeleteFunc(b.changes.Accounts, func(change gigatypes.AccountChange) bool {
-			return !change.BalanceChanged() && !change.NonceChanged() && !change.CodeChanged()
-		})
-	}
+	b.changes.Accounts = slices.DeleteFunc(b.changes.Accounts, func(change gigatypes.AccountChange) bool {
+		return !change.BalanceChanged() && !change.NonceChanged() && !change.CodeChanged()
+	})
 	return b.changes, nil
 }
 
@@ -206,7 +199,7 @@ func (b *stateChangeSetBuilder) appendStorageChange(
 	// A missing row reads as zero, so deleting an absent slot is unchanged.
 	value := *newRow.GetValue()
 	priorValue := *previousRow.GetValue()
-	if !b.includeUnchangedValues && value == priorValue {
+	if value == priorValue {
 		return nil
 	}
 	b.changes.Storage = append(b.changes.Storage, gigatypes.StorageChange{

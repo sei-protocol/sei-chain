@@ -409,7 +409,7 @@ func TestMutationsToStateChangeSetBuildsEachKind(t *testing.T) {
 		},
 	}
 
-	changes, err := MutationsToStateChangeSet(mutations, false, false)
+	changes, err := MutationsToStateChangeSet(mutations, false)
 	require.NoError(t, err)
 
 	address := gigatypes.Address(testAddress)
@@ -441,7 +441,7 @@ func TestMutationsToStateChangeSetDeletes(t *testing.T) {
 		{Key: testStoragePhysicalKey, PreviousValue: storageRow(t, 3, priorStorageValue)},
 	}
 
-	changes, err := MutationsToStateChangeSet(mutations, false, false)
+	changes, err := MutationsToStateChangeSet(mutations, false)
 	require.NoError(t, err)
 
 	address := gigatypes.Address(testAddress)
@@ -461,7 +461,7 @@ func TestMutationsToStateChangeSetDeletes(t *testing.T) {
 	require.Equal(t, expected, changes)
 }
 
-func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
+func TestMutationsToStateChangeSetOmitsUnchangedValues(t *testing.T) {
 	address := gigatypes.Address(testAddress)
 	otherBalance := bytes.Repeat([]byte{0x01}, vtype.BalanceLen)
 	priorAccountRow := accountRow(t, 3, 7, testCodeHash, testBalance)
@@ -487,34 +487,27 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 	tests := []struct {
 		name     string
 		mutation Mutation
-		// The expected set when unchanged values are omitted.
-		withoutUnchanged *gigatypes.StateChangeSet
-		// The expected set when unchanged values are included.
-		withUnchanged *gigatypes.StateChangeSet
+		expected *gigatypes.StateChangeSet
 	}{
 		{
-			name:             "account balance only",
-			mutation:         accountMutation(accountRow(t, 5, 7, testCodeHash, otherBalance)),
-			withoutUnchanged: accountChange(otherBalance, 7),
-			withUnchanged:    accountChange(otherBalance, 7),
+			name:     "account balance only",
+			mutation: accountMutation(accountRow(t, 5, 7, testCodeHash, otherBalance)),
+			expected: accountChange(otherBalance, 7),
 		},
 		{
-			name:             "account nonce only",
-			mutation:         accountMutation(accountRow(t, 5, 8, testCodeHash, testBalance)),
-			withoutUnchanged: accountChange(testBalance, 8),
-			withUnchanged:    accountChange(testBalance, 8),
+			name:     "account nonce only",
+			mutation: accountMutation(accountRow(t, 5, 8, testCodeHash, testBalance)),
+			expected: accountChange(testBalance, 8),
 		},
 		{
-			name:             "account balance and nonce",
-			mutation:         accountMutation(accountRow(t, 5, 8, testCodeHash, otherBalance)),
-			withoutUnchanged: accountChange(otherBalance, 8),
-			withUnchanged:    accountChange(otherBalance, 8),
+			name:     "account balance and nonce",
+			mutation: accountMutation(accountRow(t, 5, 8, testCodeHash, otherBalance)),
+			expected: accountChange(otherBalance, 8),
 		},
 		{
-			name:             "account code hash only",
-			mutation:         accountMutation(accountRow(t, 5, 7, zeroCodeHash, testBalance)),
-			withoutUnchanged: noChanges,
-			withUnchanged:    accountChange(testBalance, 7),
+			name:     "account code hash only",
+			mutation: accountMutation(accountRow(t, 5, 7, zeroCodeHash, testBalance)),
+			expected: noChanges,
 		},
 		{
 			name: "code rewritten with the same bytecode",
@@ -523,12 +516,7 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 				PreviousValue: vtype.SerializeCode(3, code),
 				NewValue:      vtype.SerializeCode(5, code),
 			},
-			withoutUnchanged: noChanges,
-			withUnchanged: &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
-				Address: address,
-				Account: gigatypes.AccountState{Code: code},
-				Prior:   gigatypes.AccountState{Code: code},
-			}}, Storage: []gigatypes.StorageChange{}},
+			expected: noChanges,
 		},
 		{
 			name: "storage rewritten with the same value",
@@ -537,29 +525,12 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 				PreviousValue: storageRow(t, 3, storageValue),
 				NewValue:      storageRow(t, 5, storageValue),
 			},
-			withoutUnchanged: noChanges,
-			withUnchanged: &gigatypes.StateChangeSet{
-				Accounts: []gigatypes.AccountChange{},
-				Storage: []gigatypes.StorageChange{{
-					Address:    address,
-					Key:        gigatypes.Hash(testSlot),
-					Value:      gigatypes.Hash(storageValue),
-					PriorValue: gigatypes.Hash(storageValue),
-				}},
-			},
+			expected: noChanges,
 		},
 		{
-			name:             "storage deleted with no prior value",
-			mutation:         Mutation{Key: testStoragePhysicalKey},
-			withoutUnchanged: noChanges,
-			withUnchanged: &gigatypes.StateChangeSet{
-				Accounts: []gigatypes.AccountChange{},
-				Storage: []gigatypes.StorageChange{{
-					Address: address,
-					Key:     gigatypes.Hash(testSlot),
-					Delete:  true,
-				}},
-			},
+			name:     "storage deleted with no prior value",
+			mutation: Mutation{Key: testStoragePhysicalKey},
+			expected: noChanges,
 		},
 	}
 
@@ -567,13 +538,9 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mutations := []Mutation{tt.mutation}
 
-			changes, err := MutationsToStateChangeSet(mutations, false, false)
+			changes, err := MutationsToStateChangeSet(mutations, false)
 			require.NoError(t, err)
-			require.Equal(t, tt.withoutUnchanged, changes)
-
-			changes, err = MutationsToStateChangeSet(mutations, true, false)
-			require.NoError(t, err)
-			require.Equal(t, tt.withUnchanged, changes)
+			require.Equal(t, tt.expected, changes)
 		})
 	}
 }
@@ -601,10 +568,10 @@ func TestMutationsToStateChangeSetUnsupportedKeys(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mutations := []Mutation{storageMutation, tt.mutation}
 
-			_, err := MutationsToStateChangeSet(mutations, false, false)
+			_, err := MutationsToStateChangeSet(mutations, false)
 			require.Error(t, err)
 
-			changes, err := MutationsToStateChangeSet(mutations, false, true)
+			changes, err := MutationsToStateChangeSet(mutations, true)
 			require.NoError(t, err)
 			expected := &gigatypes.StateChangeSet{
 				Accounts: []gigatypes.AccountChange{},
@@ -660,7 +627,7 @@ func TestMutationsToStateChangeSetRejectsMalformedMutations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mutations := []Mutation{tt.mutation}
 			for _, ignoreUnsupportedKeys := range []bool{false, true} {
-				_, err := MutationsToStateChangeSet(mutations, false, ignoreUnsupportedKeys)
+				_, err := MutationsToStateChangeSet(mutations, ignoreUnsupportedKeys)
 				require.Error(t, err, "ignoreUnsupportedKeys=%v", ignoreUnsupportedKeys)
 			}
 		})
