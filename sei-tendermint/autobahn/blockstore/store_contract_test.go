@@ -214,17 +214,15 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 		}
 	}
 	for _, appQC := range suffix.AppQCs {
-		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
 		for i := range entries {
-			if gr.Has(entries[i].n) {
+			if entries[i].n == appQC.Proposal().Index() {
 				entries[i].appQC = appQC
 			}
 		}
 	}
 	for _, appProposal := range suffix.AppProposals {
-		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
 		for i := range entries {
-			if gr.Has(entries[i].n) {
+			if entries[i].n == appProposal.Index() {
 				entries[i].appProposal = appProposal
 			}
 		}
@@ -236,7 +234,7 @@ func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 func qcFirsts(entries []iterEntry) []types.RoadIndex {
 	var firsts []types.RoadIndex
 	for _, e := range entries {
-		first := e.qc.QC().Index()
+		first := e.qc.Index()
 		if len(firsts) == 0 || firsts[len(firsts)-1] != first {
 			firsts = append(firsts, first)
 		}
@@ -309,7 +307,7 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 		require.NoError(t, err)
 		got, ok := qc.Get()
 		require.True(t, ok, "NextQC must point past a readable QC")
-		require.Equal(t, tips.NextQC, got.QC().Next())
+		require.Equal(t, tips.NextQC, got.Index()+1)
 	}
 
 	if tips.NextAppQC > tips.First {
@@ -317,14 +315,14 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 		require.NoError(t, err)
 		got, ok := appQC.Get()
 		require.True(t, ok, "NextAppQC must point past a readable AppQC")
-		require.Equal(t, tips.NextAppQC, got.Proposal().Next())
+		require.Equal(t, tips.NextAppQC, got.Proposal().Index()+1)
 	}
 	if tips.NextAppProposal > tips.First {
 		appProposal, err := db.ReadAppProposal(tips.NextAppProposal - 1)
 		require.NoError(t, err)
 		got, ok := appProposal.Get()
 		require.True(t, ok, "NextAppProposal must point past a readable AppProposal")
-		require.Equal(t, tips.NextAppProposal, got.Next())
+		require.Equal(t, tips.NextAppProposal, got.Index()+1)
 	}
 }
 
@@ -379,15 +377,12 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	}
 
 	for _, appProposal := range appProposals {
-		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
-		for n := gr.First; n < gr.Next; n++ {
-			opt, err := db.ReadAppProposal(n)
-			require.NoError(t, err)
-			got, ok := opt.Get()
-			require.True(t, ok, "AppProposal covering %d should exist", n)
-			require.Equal(t, gr, types.RoadRange{First: got.Index(), Next: got.Next()})
-			require.Equal(t, appProposal.AppHash(), got.AppHash())
-		}
+		opt, err := db.ReadAppProposal(appProposal.Index())
+		require.NoError(t, err)
+		got, ok := opt.Get()
+		require.True(t, ok, "AppProposal covering %d should exist", appProposal.Index())
+		require.Equal(t, appProposal.Index(), got.Index())
+		require.Equal(t, appProposal.AppHash(), got.AppHash())
 	}
 	miss, err := db.ReadAppProposal(batches[2].first)
 	require.NoError(t, err)
@@ -411,12 +406,11 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	assertTipsMatchPresent(t, db)
 
 	for _, appProposal := range appProposals {
-		gr := types.RoadRange{First: appProposal.Index(), Next: appProposal.Next()}
-		opt, err := db.ReadAppProposal(gr.First)
+		opt, err := db.ReadAppProposal(appProposal.Index())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "AppProposal [%d,%d) must survive restart", gr.First, gr.Next)
-		require.Equal(t, gr, types.RoadRange{First: got.Index(), Next: got.Next()})
+		require.True(t, ok, "AppProposal %d must survive restart", appProposal.Index())
+		require.Equal(t, appProposal.Index(), got.Index())
 	}
 }
 
@@ -438,15 +432,12 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	}
 
 	for _, appQC := range appQCs {
-		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
-		for n := gr.First; n < gr.Next; n++ {
-			opt, err := db.ReadAppQC(n)
-			require.NoError(t, err)
-			got, ok := opt.Get()
-			require.True(t, ok, "AppQC covering %d should exist", n)
-			require.Equal(t, gr, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
-			require.Equal(t, appQC.Proposal().AppHash(), got.Proposal().AppHash())
-		}
+		opt, err := db.ReadAppQC(appQC.Proposal().Index())
+		require.NoError(t, err)
+		got, ok := opt.Get()
+		require.True(t, ok, "AppQC covering %d should exist", appQC.Proposal().Index())
+		require.Equal(t, appQC.Proposal().Index(), got.Proposal().Index())
+		require.Equal(t, appQC.Proposal().AppHash(), got.Proposal().AppHash())
 	}
 	miss, err := db.ReadAppQC(batches[2].first)
 	require.NoError(t, err)
@@ -470,12 +461,11 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	assertTipsMatchPresent(t, db)
 
 	for _, appQC := range appQCs {
-		gr := types.RoadRange{First: appQC.Proposal().Index(), Next: appQC.Proposal().Next()}
-		opt, err := db.ReadAppQC(gr.First)
+		opt, err := db.ReadAppQC(appQC.Proposal().Index())
 		require.NoError(t, err)
 		got, ok := opt.Get()
-		require.True(t, ok, "AppQC [%d,%d) must survive restart", gr.First, gr.Next)
-		require.Equal(t, gr, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
+		require.True(t, ok, "AppQC %d must survive restart", appQC.Proposal().Index())
+		require.Equal(t, appQC.Proposal().Index(), got.Proposal().Index())
 	}
 }
 
@@ -575,7 +565,7 @@ func testPruneAtRoadRetainsQC(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := opt.Get()
 	require.True(t, ok, "retained QC must be retained")
-	require.Equal(t, retained.first, got.QC().Index())
+	require.Equal(t, retained.first, got.Index())
 }
 
 // testPruneRefusesBelowWatermark asserts the refuse direction of PruneBefore:
@@ -663,7 +653,7 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	require.NoError(t, err, "retained cohort's QC must not report ErrPruned")
 	got, ok := qcOpt.Get()
 	require.True(t, ok, "retained cohort's QC must remain served")
-	require.Equal(t, retained.first, got.QC().Index())
+	require.Equal(t, retained.first, got.Index())
 
 	// The fully-below first cohort is pruned: ErrPruned for both the block and
 	// its covering QC.
@@ -896,12 +886,12 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := appQC.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppQC")
-	require.Equal(t, types.RoadRange{First: latestApp.qc.QC().Index(), Next: latestApp.qc.QC().Next()}, types.RoadRange{First: got.Proposal().Index(), Next: got.Proposal().Next()})
+	require.Equal(t, latestApp.qc.Index(), got.Proposal().Index())
 	appProposal, err = db.ReadAppProposal(latestApp.first)
 	require.NoError(t, err)
 	gotProposal, ok := appProposal.Get()
 	require.True(t, ok, "newest AppQC cohort must retain its AppProposal")
-	require.Equal(t, types.RoadRange{First: latestApp.qc.QC().Index(), Next: latestApp.qc.QC().Next()}, types.RoadRange{First: gotProposal.Index(), Next: gotProposal.Next()})
+	require.Equal(t, latestApp.qc.Index(), gotProposal.Index())
 }
 
 // testPruneAfterRestart checks the recovered pruning ceiling: how far the
@@ -963,7 +953,7 @@ func testReadSuffix(t *testing.T, build builder) {
 	gotAppQC := suffix.AppQCs[0]
 	require.Equal(t, appQC.Proposal().Index(), gotAppQC.Proposal().Index())
 	entries := drainSuffix(t, db)
-	recoveryFloor := appQC.Proposal().Next() - 1
+	recoveryFloor := appQC.Proposal().Index()
 	require.Equal(t, []types.RoadIndex{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
 	require.Equal(t, batches[2].next-recoveryFloor, types.RoadIndex(len(entries)))
 	require.Equal(t, recoveryFloor, entries[0].n)
@@ -1129,16 +1119,16 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 	prevQC, ok := recoverLastQC(t, db)
 	require.True(t, ok)
 	require.Equal(t, last.first, prevQC.Index(), "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.Next())
+	require.Equal(t, last.next, prevQC.Index()+1)
 
 	tips := status(t, db)
 	require.Equal(t, highest+1, tips.NextQC, "Status block tip must match the iterator scan")
-	require.Equal(t, prevQC.Next(), tips.NextQC, "Status QC tip must match the iterator scan")
+	require.Equal(t, prevQC.Index()+1, tips.NextQC, "Status QC tip must match the iterator scan")
 	covering, err := db.ReadQC(tips.NextQC - 1)
 	require.NoError(t, err)
 	got, ok := covering.Get()
 	require.True(t, ok, "the newest QC must be resolvable by point read (blocksim's resume path)")
-	require.Equal(t, last.first, got.QC().Index())
+	require.Equal(t, last.first, got.Index())
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
@@ -1321,7 +1311,7 @@ func assertSuffixAbove(t *testing.T, db types.BlockStore, floor types.RoadIndex)
 	t.Helper()
 	for _, e := range drainSuffix(t, db) {
 		require.GreaterOrEqual(t, e.n, floor, "iterator must not surface pruned positions")
-		require.GreaterOrEqual(t, e.qc.QC().Index(), floor,
+		require.GreaterOrEqual(t, e.qc.Index(), floor,
 			"iterator must not surface pruned QCs")
 	}
 }
@@ -1367,19 +1357,14 @@ func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 
 func assertQCsReadable(t *testing.T, db types.BlockStore, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
-		r := types.RoadRange{First: b.qc.QC().Index(), Next: b.qc.QC().Next()}
-		for n := r.First; n < r.Next; n++ {
-			opt, err := db.ReadQC(n)
-			require.NoError(t, err)
-			got, ok := opt.Get()
-			require.True(t, ok, "QC covering %d should exist", n)
-			gr := types.RoadRange{First: got.QC().Index(), Next: got.QC().Next()}
-			require.Equal(t, r.First, gr.First)
-			require.Equal(t, r.Next, gr.Next)
-			require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
-			for j := range b.qc.Headers() {
-				require.Equal(t, b.qc.Headers()[j].Hash(), got.Headers()[j].Hash())
-			}
+		opt, err := db.ReadQC(b.qc.Index())
+		require.NoError(t, err)
+		got, ok := opt.Get()
+		require.True(t, ok, "QC covering %d should exist", b.qc.Index())
+		require.Equal(t, b.qc.Index(), got.Index())
+		require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
+		for j := range b.qc.Headers() {
+			require.Equal(t, b.qc.Headers()[j].Hash(), got.Headers()[j].Hash())
 		}
 	}
 }
@@ -1467,8 +1452,7 @@ func generateBatches(committee *types.Committee, keys []types.SecretKey) []batch
 	batches := make([]batch, 0, numBatches)
 	for range numBatches {
 		fqc, blocks := buildFullCommitQC(rng, committee, keys, prev)
-		r := types.RoadRange{First: fqc.QC().Index(), Next: fqc.QC().Next()}
-		batches = append(batches, batch{first: r.First, next: r.Next, blocks: blocks, qc: fqc})
+		batches = append(batches, batch{first: fqc.Index(), next: fqc.Index() + 1, blocks: blocks, qc: fqc})
 		prev = utils.Some(fqc.QC())
 	}
 	return batches

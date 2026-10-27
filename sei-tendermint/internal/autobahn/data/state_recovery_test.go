@@ -41,15 +41,12 @@ func TestNewStateInMemoryMode(t *testing.T) {
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+		if err := state.PushQC(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return err
 		}
 		// Verify data is accessible (no panic, no error).
-		gr := types.RoadRange{First: qc1.QC().Index(), Next: qc1.QC().Next()}
-		for n := gr.First; n < gr.Next; n++ {
-			if _, err := state.Block(ctx, types.LaneBlockPos{Index: n}); err != nil {
-				return err
-			}
+		if _, err := state.Block(ctx, types.LaneBlockPos{Index: qc1.Index()}); err != nil {
+			return err
 		}
 		return nil
 	}))
@@ -64,8 +61,6 @@ func TestRecoveryNormal(t *testing.T) {
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	gr1 := types.RoadRange{First: qc1.QC().Index(), Next: qc1.QC().Next()}
-	gr2 := types.RoadRange{First: qc2.QC().Index(), Next: qc2.QC().Next()}
 
 	// Session 1: write both QCs and all blocks.
 	db1 := newTestBlockStore(t, dir)
@@ -78,13 +73,13 @@ func TestRecoveryNormal(t *testing.T) {
 	db2 := newTestBlockStore(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
-	require.Equal(t, gr2.Next, state2.NextBlock())
-	for n := gr1.First; n < gr2.Next; n++ {
+	require.Equal(t, qc2.Index()+1, state2.NextBlock())
+	for n := qc1.Index(); n < qc2.Index()+1; n++ {
 		got, err := state2.TryBlock(types.LaneBlockPos{Index: n})
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
-	for n := gr1.First; n < gr2.Next; n++ {
+	for n := qc1.Index(); n < qc2.Index()+1; n++ {
 		got, err := state2.QC(t.Context(), n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -94,7 +89,7 @@ func TestRecoveryNormal(t *testing.T) {
 	// Session 3: verify session 2 did not corrupt BlockDB.
 	db3 := newTestBlockStore(t, dir)
 	state3 := newTestState(t, &Config{Registry: registry}, db3)
-	require.Equal(t, gr2.Next, state3.NextBlock())
+	require.Equal(t, qc2.Index()+1, state3.NextBlock())
 }
 
 func TestRecoveryRejectsMissingFirstCommittedBlock(t *testing.T) {
@@ -122,11 +117,11 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 		[]*types.FullCommitQC{qc1, qc2},
 		[][]*types.Block{blocks1, blocks2})
 	writeAppDataToBlockStore(t, rng, db, keys, qc1, qc2)
-	require.NoError(t, db.PruneBefore(qc2.QC().Index()))
+	require.NoError(t, db.PruneBefore(qc2.Index()))
 
 	state, err := NewState(&Config{Registry: registry}, db)
 	require.NoError(t, err)
-	_, err = state.SuperBlock(t.Context(), qc1.QC().Index())
+	_, err = state.SuperBlock(t.Context(), qc1.Index())
 	require.ErrorIs(t, err, types.ErrPruned)
 }
 
@@ -141,27 +136,22 @@ func TestPruningDiscards(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 	qc3, blocks3 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc2.QC()))
-	gr1 := types.RoadRange{First: qc1.QC().Index(), Next: qc1.QC().Next()}
-	gr2 := types.RoadRange{First: qc2.QC().Index(), Next: qc2.QC().Next()}
-	gr3 := types.RoadRange{First: qc3.QC().Index(), Next: qc3.QC().Next()}
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
-	require.NoError(t, state.PushQC(ctx, qc3, blocks3))
+	require.NoError(t, state.PushQC(ctx, qc1, TestBlockMap(blocks1)))
+	require.NoError(t, state.PushQC(ctx, qc2, TestBlockMap(blocks2)))
+	require.NoError(t, state.PushQC(ctx, qc3, TestBlockMap(blocks3)))
 
 	// Execute all blocks so they are eligible for pruning.
-	require.NoError(t, pushAppHashesRunning(ctx, state, rng, gr1.First, gr3.Next))
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, qc1.Index(), qc3.Index()+1))
 
 	// Prune qc1 entirely (keep from qc2 onward).
-	require.NoError(t, state.PruneBefore(gr2.First))
+	require.NoError(t, state.PruneBefore(qc2.Index()))
 
-	for n := gr1.First; n < gr2.First; n++ {
-		got, err := state.TryBlock(types.LaneBlockPos{Index: n})
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-	for n := gr2.First; n < gr3.Next; n++ {
+	got, err := state.TryBlock(types.LaneBlockPos{Index: qc1.Index()})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	for n := qc2.Index(); n < qc3.Index()+1; n++ {
 		got, err := state.TryBlock(types.LaneBlockPos{Index: n})
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -178,8 +168,6 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	qc1, _ := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 	qc3, blocks3 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc2.QC()))
-	gr2 := types.RoadRange{First: qc2.QC().Index(), Next: qc2.QC().Next()}
-	gr3 := types.RoadRange{First: qc3.QC().Index(), Next: qc3.QC().Next()}
 
 	// Write only qc2 and qc3 — simulating a DB where qc1 was pruned and GC'd.
 	db1 := newTestBlockStore(t, dir)
@@ -188,25 +176,23 @@ func TestRecoveryAfterPruning(t *testing.T) {
 		[][]*types.Block{blocks2, blocks3})
 	require.NoError(t, db1.Close())
 
-	// Recovery skipTo(gr2.First); qc1 heights are absent from BlockDB → ErrPruned.
+	// Recovery skipTo(qc2.Index()); qc1 heights are absent from BlockDB → ErrPruned.
 	// With no AppQC yet, first stays at the recovery floor (not advanced to 0),
 	// so below-floor reads fall through to BlockDB instead of nil maps.
 	db2 := newTestBlockStore(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
 	for inner := range state2.inner.Lock() {
-		require.Equal(t, gr2.First, inner.first)
+		require.Equal(t, qc2.Index(), inner.first)
 	}
-	require.Equal(t, gr3.Next, state2.NextBlock())
-	for n := qc1.QC().Index(); n < gr2.First; n++ {
-		_, err := state2.TryBlock(types.LaneBlockPos{Index: n})
-		require.ErrorIs(t, err, types.ErrPruned)
-		_, err = state2.QC(t.Context(), n)
-		require.ErrorIs(t, err, types.ErrPruned)
-		_, err = state2.SuperBlock(t.Context(), n)
-		require.ErrorIs(t, err, types.ErrPruned)
-	}
-	for n := gr2.First; n < gr3.Next; n++ {
+	require.Equal(t, qc3.Index()+1, state2.NextBlock())
+	_, err := state2.TryBlock(types.LaneBlockPos{Index: qc1.Index()})
+	require.ErrorIs(t, err, types.ErrPruned)
+	_, err = state2.QC(t.Context(), qc1.Index())
+	require.ErrorIs(t, err, types.ErrPruned)
+	_, err = state2.SuperBlock(t.Context(), qc1.Index())
+	require.ErrorIs(t, err, types.ErrPruned)
+	for n := qc2.Index(); n < qc3.Index()+1; n++ {
 		got, err := state2.TryBlock(types.LaneBlockPos{Index: n})
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -228,14 +214,12 @@ func TestRecoveryRejectsIncompleteQC(t *testing.T) {
 	require.NoError(t, db.Close())
 	db = newTestBlockStore(t, dir)
 	state := newTestState(t, &Config{Registry: registry}, db)
-	require.Equal(t, qc1.QC().Next(), state.NextBlock())
-	for n := qc1.QC().Index(); n < qc1.QC().Next(); n++ {
-		block, err := state.TryBlock(types.LaneBlockPos{Index: n})
-		require.NoError(t, err)
-		require.NotNil(t, block)
-	}
-	require.NoError(t, state.PushQC(t.Context(), qc2, blocks2))
-	require.Equal(t, qc2.QC().Next(), state.NextBlock())
+	require.Equal(t, qc1.Index()+1, state.NextBlock())
+	block, err := state.TryBlock(types.LaneBlockPos{Index: qc1.Index()})
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	require.NoError(t, state.PushQC(t.Context(), qc2, TestBlockMap(blocks2)))
+	require.Equal(t, qc2.Index()+1, state.NextBlock())
 }
 
 func TestRecoveryAfterPruneNoGC(t *testing.T) {
@@ -245,15 +229,13 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	gr1 := types.RoadRange{First: qc1.QC().Index(), Next: qc1.QC().Next()}
-	gr2 := types.RoadRange{First: qc2.QC().Index(), Next: qc2.QC().Next()}
 
 	// Write both QCs and all their blocks to the store.
 	store1 := newTestBlockStore(t, dir)
 	writeToBlockStore(t, store1, []*types.FullCommitQC{qc1, qc2}, [][]*types.Block{blocks1, blocks2})
 
 	// Prune qc1's range. GC is NOT called — pruned entries remain on disk.
-	require.NoError(t, store1.PruneBefore(gr2.First))
+	require.NoError(t, store1.PruneBefore(qc2.Index()))
 	require.NoError(t, store1.Close())
 
 	// Reopen the same dir without ForceGC — pruned entries may still be present.
@@ -268,7 +250,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, store2)
 
 	// Without GC all data is still present; qc1 and qc2 blocks are accessible.
-	for n := gr1.First; n < gr2.Next; n++ {
+	for n := qc1.Index(); n < qc2.Index()+1; n++ {
 		_, err := state.TryBlock(types.LaneBlockPos{Index: n})
 		require.NoError(t, err)
 	}
@@ -300,8 +282,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	qc1, _ := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
-	gr2 := types.RoadRange{First: qc2.QC().Index(), Next: qc2.QC().Next()}
-	require.Greater(t, gr2.First, registry.FirstRoad(), "need skipTo past genesis")
+	require.Greater(t, qc2.Index(), registry.FirstRoad(), "need skipTo past genesis")
 
 	// First WriteQC on an empty DB may start past genesis (crash / partial retain).
 	db1 := newTestBlockStore(t, dir)
@@ -311,12 +292,12 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	db2 := newTestBlockStore(t, dir)
 	tips := db2.Status().OrPanic("non-empty BlockDB status")
-	require.Equal(t, gr2.First, tips.First)
-	require.Equal(t, gr2.Next, tips.NextQC)
+	require.Equal(t, qc2.Index(), tips.First)
+	require.Equal(t, qc2.Index()+1, tips.NextQC)
 	require.NotZero(t, tips.NextQC)
 
 	state := newTestState(t, &Config{Registry: registry}, db2)
-	require.Equal(t, gr2.Next, state.NextBlock())
+	require.Equal(t, qc2.Index()+1, state.NextBlock())
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		runCtx, cancel := context.WithCancel(ctx)
@@ -324,10 +305,8 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 		s.SpawnBgNamed("state.Run", func() error {
 			return utils.IgnoreCancel(state.Run(runCtx))
 		})
-		for n := gr2.First; n < gr2.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
-				return err
-			}
+		if err := state.PushAppHash(ctx, qc2.Index(), types.GenAppHash(rng), nil); err != nil {
+			return err
 		}
 		return nil
 	}))
@@ -344,7 +323,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.ErrorIs(t, db.WriteQC(qc, gapped), types.ErrQCBlocksMismatch)
 	require.NoError(t, db.WriteQC(qc, blocks))
 	state := newTestState(t, &Config{Registry: registry}, db)
-	require.Equal(t, qc.QC().Next(), state.NextBlock())
+	require.Equal(t, qc.Index()+1, state.NextBlock())
 }
 
 func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
@@ -376,7 +355,7 @@ func writeExecutedTip(
 	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().Proposal(), appHash)))
 	utils.OrPanic(store.Flush())
-	return qc.QC().Next() - 1
+	return qc.Index()
 }
 
 func TestPushAppHash_ReplayClosingRoadStagesEpoch(t *testing.T) {
@@ -429,18 +408,18 @@ func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
 	var n1 types.RoadIndex
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+		if err := state.PushQC(ctx, qc0, TestBlockMap(blocks0)); err != nil {
 			return err
 		}
-		n0 := qc0.QC().Next() - 1
+		n0 := qc0.Index()
 		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng), endWeights); err != nil {
 			return err
 		}
 		qc1, blocks1 := commitQCAtRoad(ep1, keys, registry.EpochFirstRoad(1))
-		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+		if err := state.PushQC(ctx, qc1, TestBlockMap(blocks1)); err != nil {
 			return err
 		}
-		n1 = qc1.QC().Next() - 1
+		n1 = qc1.Index()
 		return state.PushAppHash(ctx, n1, types.GenAppHash(rng), laterWeights)
 	}))
 	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())

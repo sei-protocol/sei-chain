@@ -123,7 +123,7 @@ func TestDataClientServer(t *testing.T) {
 		for i := range 3 {
 			t.Logf("iteration %v", i)
 			qc, blocks := data.TestCommitQC(rng, server.data.Registry().MustEpoch(0), keys, prev)
-			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
+			if err := server.data.PushQC(ctx, qc, data.TestBlockMap(blocks)); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}
 			prev = utils.Some(qc.QC())

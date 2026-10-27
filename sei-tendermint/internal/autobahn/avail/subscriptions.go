@@ -120,7 +120,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 			}
 			return nil, err
 		}
-		r.next = vote.Proposal().Next()
+		r.next = vote.Proposal().Index() + 1
 		return types.Sign(r.state.key, vote), nil
 	}
 }

@@ -218,7 +218,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 				return fmt.Errorf("s.data.QC(): %w", err)
 			}
 			// Don't send the same QC twice.
-			next = qc.QC().Next()
+			next = qc.QC().Index() + 1
 			if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
@@ -245,7 +245,7 @@ func (s *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 				}
 				return fmt.Errorf("x.validatorState().Data().AppQC(): %w", err)
 			}
-			next = appQC.Proposal().Next()
+			next = appQC.Proposal().Index() + 1
 			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}

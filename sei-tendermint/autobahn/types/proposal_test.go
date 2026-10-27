@@ -163,7 +163,7 @@ func TestProposalTimestampStrictlyMonotone(t *testing.T) {
 		},
 	))
 	p1 := secondProposal.Proposal().Msg()
-	require.Equal(t, p0.Next(), p1.Index())
+	require.Equal(t, p0.Index()+1, p1.Index())
 	require.True(t, p0.Timestamp().Before(p1.Timestamp()), "consecutive SuperBlock timestamps must increase")
 }
 
@@ -783,7 +783,7 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1)))
 
 	// Reproposal keeps the locked proposal's timestamp and road index.
-	require.Equal(t, RoadRange{First: fp0.Proposal().Msg().Index(), Next: fp0.Proposal().Msg().Next()}, RoadRange{First: reproposal.Proposal().Msg().Index(), Next: reproposal.Proposal().Msg().Next()})
+	require.Equal(t, fp0.Proposal().Msg().Index(), reproposal.Proposal().Msg().Index())
 	require.True(t, fp0.Proposal().Msg().Timestamp().Equal(reproposal.Proposal().Msg().Timestamp()))
 	require.NoError(t, reproposal.Verify(vs1, testViewTimeout))
 }
