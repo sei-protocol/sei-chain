@@ -11,11 +11,11 @@ import (
 // This file is the single home for translating between the in-memory consensus
 // types and the opaque byte values the underlying BlockDB stores.
 
-// encodeBlock marshals a block to its protobuf bytes.
-func encodeBlock(block *types.Block) []byte { return types.BlockConv.Marshal(block) }
+// encodeLaneBlock marshals a lane block to its protobuf bytes.
+func encodeLaneBlock(block *types.Block) []byte { return types.BlockConv.Marshal(block) }
 
-// decodeBlock unmarshals a block from its protobuf bytes.
-func decodeBlock(value []byte) (*types.Block, error) {
+// decodeLaneBlock unmarshals a lane block from its protobuf bytes.
+func decodeLaneBlock(value []byte) (*types.Block, error) {
 	block, err := types.BlockConv.Unmarshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
@@ -66,37 +66,22 @@ func decodeAppQC(value []byte) (*types.AppQC, error) {
 	return appQC, nil
 }
 
-// validateBlocks checks that lane blocks match their CommitQC in header order.
-func validateBlocks(qc *types.FullCommitQC, blocks []*types.Block) error {
-	if len(blocks) != len(qc.Headers()) {
-		return types.ErrQCBlocksMismatch
-	}
-	for i, block := range blocks {
-		if err := block.Verify(); err != nil {
-			return fmt.Errorf("block %d: %w: %w", i, types.ErrQCBlocksMismatch, err)
-		}
-		if block.Header().Hash() != qc.Headers()[i].Hash() {
-			return types.ErrQCBlocksMismatch
-		}
-	}
-	return nil
-}
-
-// encodeBlockRecord encodes a CommitQC and its lane blocks with the SuperBlock lookup hash.
-func encodeBlockRecord(qc *types.FullCommitQC, blocks []*types.Block) blocktypes.BlockRecord {
+// encodeBlock encodes a road block with its SuperBlock lookup hash.
+func encodeBlock(block *types.RoadBlock) blocktypes.BlockRecord {
+	qc, blocks := block.QC(), block.LaneBlocks()
 	record := blocktypes.BlockRecord{
 		Index: blocktypes.BlockNumber(qc.Index()),
 		Hash:  blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()),
 		QC:    encodeQC(qc),
 	}
 	for _, lane := range blocks {
-		record.LaneBlocks = append(record.LaneBlocks, encodeBlock(lane))
+		record.LaneBlocks = append(record.LaneBlocks, encodeLaneBlock(lane))
 	}
 	return record
 }
 
-// decodeBlockRecord decodes and validates a complete SuperBlock record.
-func decodeBlockRecord(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
+// decodeBlock decodes and verifies a road block record.
+func decodeBlock(record blocktypes.BlockRecord) (*types.RoadBlock, error) {
 	qc, err := decodeQC(record.QC)
 	if err != nil {
 		return nil, err
@@ -106,17 +91,18 @@ func decodeBlockRecord(record blocktypes.BlockRecord) (*types.RoadBlock, error) 
 	}
 	blocks := make([]*types.Block, len(record.LaneBlocks))
 	for i, value := range record.LaneBlocks {
-		block, err := decodeBlock(value)
+		block, err := decodeLaneBlock(value)
 		if err != nil {
 			return nil, err
 		}
 		blocks[i] = block
 	}
-	if err := validateBlocks(qc, blocks); err != nil {
+	block := types.NewRoadBlock(qc, blocks)
+	if err := block.Verify(); err != nil {
 		return nil, err
 	}
 	if blocktypes.BlockHash(types.NewSuperBlock(qc, blocks).CalculateBlockHash()) != record.Hash {
 		return nil, types.ErrQCBlocksMismatch
 	}
-	return types.NewRoadBlock(qc, blocks), nil
+	return block, nil
 }

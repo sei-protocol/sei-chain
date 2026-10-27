@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -77,6 +79,22 @@ func (b *RoadBlock) QC() *FullCommitQC { return b.qc }
 
 // LaneBlocks returns the lane blocks in header order.
 func (b *RoadBlock) LaneBlocks() []*Block { return b.laneBlocks }
+
+// Verify checks that lane blocks match their CommitQC in header order.
+func (b *RoadBlock) Verify() error {
+	if len(b.laneBlocks) != len(b.qc.Headers()) {
+		return ErrQCBlocksMismatch
+	}
+	for i, block := range b.laneBlocks {
+		if err := block.Verify(); err != nil {
+			return fmt.Errorf("block %d: %w: %w", i, ErrQCBlocksMismatch, err)
+		}
+		if block.Header().Hash() != b.qc.Headers()[i].Hash() {
+			return ErrQCBlocksMismatch
+		}
+	}
+	return nil
+}
 
 // Suffix is the materialized suffix used by data.State startup recovery.
 type Suffix struct {

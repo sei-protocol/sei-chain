@@ -9,17 +9,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-func TestBlockRoundTrip(t *testing.T) {
+func TestLaneBlockRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(1)
 	for range 16 {
 		blk := types.GenBlock(rng)
-		value := encodeBlock(blk)
-		decoded, err := decodeBlock(value)
+		value := encodeLaneBlock(blk)
+		decoded, err := decodeLaneBlock(value)
 		require.NoError(t, err)
 		// Header hash uniquely identifies a block; equal hash => same block.
 		require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
 		// Re-encoding the decoded block must reproduce the same bytes.
-		require.Equal(t, value, encodeBlock(decoded))
+		require.Equal(t, value, encodeLaneBlock(decoded))
 	}
 }
 
@@ -38,21 +38,21 @@ func TestQCRoundTrip(t *testing.T) {
 func TestDecodeRejectsGarbage(t *testing.T) {
 	// Invalid bytes must surface an error rather than a partial value.
 	garbage := []byte{0xff, 0xff, 0xff, 0xff}
-	_, blockErr := decodeBlock(garbage)
+	_, blockErr := decodeLaneBlock(garbage)
 	require.Error(t, blockErr)
 	_, qcErr := decodeQC(garbage)
 	require.Error(t, qcErr)
 }
 
-func TestDecodeBlockRecordRejectsInconsistentMetadata(t *testing.T) {
+func TestDecodeBlockRejectsInconsistentMetadata(t *testing.T) {
 	for _, field := range []string{"index", "hash", "lane blocks"} {
 		t.Run(field, func(t *testing.T) {
 			rng := utils.TestRngFromSeed(3)
 			lane := types.GenBlock(rng)
 			qc := types.GenFullCommitQCAt(rng, 3, 1)
 			qc = types.NewFullCommitQC(qc.QC(), []*types.BlockHeader{lane.Header()})
-			record := encodeBlockRecord(qc, []*types.Block{lane})
-			_, err := decodeBlockRecord(record)
+			record := encodeBlock(types.NewRoadBlock(qc, []*types.Block{lane}))
+			_, err := decodeBlock(record)
 			require.NoError(t, err)
 			switch field {
 			case "index":
@@ -62,7 +62,7 @@ func TestDecodeBlockRecordRejectsInconsistentMetadata(t *testing.T) {
 			case "lane blocks":
 				record.LaneBlocks = nil
 			}
-			_, err = decodeBlockRecord(record)
+			_, err = decodeBlock(record)
 			require.ErrorIs(t, err, types.ErrQCBlocksMismatch)
 		})
 	}

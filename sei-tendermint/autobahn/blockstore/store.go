@@ -43,13 +43,12 @@ func New(db blocktypes.BlockDB) (*Store, error) {
 }
 
 func (s *Store) WriteBlock(block *types.RoadBlock) error {
-	qc, blocks := block.QC(), block.LaneBlocks()
-	index := qc.Index()
+	index := block.QC().Index()
 
-	if err := validateBlocks(qc, blocks); err != nil {
+	if err := block.Verify(); err != nil {
 		return fmt.Errorf("invalid road block: %w", err)
 	}
-	record := encodeBlockRecord(qc, blocks)
+	record := encodeBlock(block)
 
 	for status := range s.status.Lock() {
 		current, ok := status.Get()
@@ -199,7 +198,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 			if types.RoadIndex(record.Index) != status.NextBlock {
 				return types.Suffix{}, types.ErrUnexpectedIndex
 			}
-			group, err := decodeBlockRecord(record)
+			group, err := decodeBlock(record)
 			if err != nil {
 				return types.Suffix{}, fmt.Errorf("decode SuperBlock %d: %w", record.Index, err)
 			}
@@ -251,7 +250,7 @@ func (s *Store) ReadLaneBlock(pos types.LaneBlockPos) (utils.Option[*types.Block
 	if !exists {
 		return utils.None[*types.Block](), nil
 	}
-	block, err := decodeBlock(value)
+	block, err := decodeLaneBlock(value)
 	if err != nil {
 		return utils.None[*types.Block](), err
 	}
@@ -269,7 +268,7 @@ func (s *Store) ReadBlock(n types.RoadIndex) (utils.Option[*types.RoadBlock], er
 	if !exists {
 		return utils.None[*types.RoadBlock](), nil
 	}
-	group, err := decodeBlockRecord(record)
+	group, err := decodeBlock(record)
 	if err != nil {
 		return utils.None[*types.RoadBlock](), err
 	}
@@ -287,7 +286,7 @@ func (s *Store) ReadBlockByHash(hash common.Hash) (utils.Option[*types.RoadBlock
 	if record.Hash != blocktypes.BlockHash(hash) {
 		return utils.None[*types.RoadBlock](), types.ErrQCBlocksMismatch
 	}
-	group, err := decodeBlockRecord(record)
+	group, err := decodeBlock(record)
 	if err != nil {
 		return utils.None[*types.RoadBlock](), err
 	}
