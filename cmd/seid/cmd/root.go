@@ -131,7 +131,6 @@ func initRootCmd(
 		),
 		genutilcli.ValidateGenesisCmd(app.ModuleBasics),
 		AddGenesisAccountCmd(app.DefaultNodeHome),
-		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
 		config.Cmd(),
@@ -366,17 +365,6 @@ func initAppConfig() (string, interface{}) {
 		admin.ConfigTemplate +
 		cosmosmetrics.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
-###############################################################################
-###                        WASM Configuration (Auto-managed)                ###
-###############################################################################
-
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = {{ .WASM.QueryGasLimit }}
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
-
 ###############################################################################
 ###                     ETH Replay Configuration (Auto-managed)             ###
 ###############################################################################

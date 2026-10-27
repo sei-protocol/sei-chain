@@ -148,9 +148,8 @@ type BlockResultPoolStats struct {
 // StateChangeSet and its entry types are shared with the state store.
 type (
 	StateChangeSet = gigatypes.StateChangeSet
-	BalanceChange  = gigatypes.BalanceChange
-	NonceChange    = gigatypes.NonceChange
-	CodeChange     = gigatypes.CodeChange
+	AccountState   = gigatypes.AccountState
+	AccountChange  = gigatypes.AccountChange
 	StorageChange  = gigatypes.StorageChange
 )
 
