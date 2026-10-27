@@ -59,7 +59,7 @@ func (it *stateWALIterator) Close() error {
 
 // GetHash returns the hash of the block at the iterator's current position.
 func (it *stateWALIterator) GetHash() ([32]byte, error) {
-	hash, err := computePlaceholderHash(it.serialized)
+	hash, err := hashSerializedBlock(it.serialized)
 	if err != nil {
 		return [32]byte{}, fmt.Errorf("failed to hash block %d: %w", it.blockNumber, err)
 	}
