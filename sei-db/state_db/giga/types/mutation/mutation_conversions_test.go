@@ -414,13 +414,14 @@ func TestMutationsToStateChangeSetBuildsEachKind(t *testing.T) {
 
 	address := gigatypes.Address(testAddress)
 	expected := &gigatypes.StateChangeSet{
-		Balances: []gigatypes.BalanceChange{{
-			Address:      address,
-			Balance:      bigBalance(testBalance),
-			PriorBalance: bigBalance(make([]byte, vtype.BalanceLen)),
+		Accounts: []gigatypes.AccountChange{{
+			Address: address,
+			Account: gigatypes.AccountState{Balance: bigBalance(testBalance), Nonce: 7, Code: code},
+			Prior: gigatypes.AccountState{
+				Balance: bigBalance(make([]byte, vtype.BalanceLen)),
+				Code:    priorCode,
+			},
 		}},
-		Nonces: []gigatypes.NonceChange{{Address: address, Nonce: 7}},
-		Code:   []gigatypes.CodeChange{{Address: address, Code: code, PriorCode: priorCode}},
 		Storage: []gigatypes.StorageChange{{
 			Address:    address,
 			Key:        gigatypes.Hash(testSlot),
@@ -445,13 +446,11 @@ func TestMutationsToStateChangeSetDeletes(t *testing.T) {
 
 	address := gigatypes.Address(testAddress)
 	expected := &gigatypes.StateChangeSet{
-		Balances: []gigatypes.BalanceChange{{
-			Address:      address,
-			Balance:      bigBalance(make([]byte, vtype.BalanceLen)),
-			PriorBalance: bigBalance(testBalance),
+		Accounts: []gigatypes.AccountChange{{
+			Address: address,
+			Account: gigatypes.AccountState{Balance: bigBalance(make([]byte, vtype.BalanceLen))},
+			Prior:   gigatypes.AccountState{Balance: bigBalance(testBalance), Nonce: 7, Code: priorCode},
 		}},
-		Nonces: []gigatypes.NonceChange{{Address: address, PriorNonce: 7}},
-		Code:   []gigatypes.CodeChange{{Address: address, Delete: true, PriorCode: priorCode}},
 		Storage: []gigatypes.StorageChange{{
 			Address:    address,
 			Key:        gigatypes.Hash(testSlot),
@@ -469,18 +468,18 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 	accountMutation := func(newRow []byte) Mutation {
 		return Mutation{Key: testAccountPhysicalKey, PreviousValue: priorAccountRow, NewValue: newRow}
 	}
-	balanceChange := gigatypes.BalanceChange{
-		Address:      address,
-		Balance:      bigBalance(otherBalance),
-		PriorBalance: bigBalance(testBalance),
+	// accountChange returns the change of an account whose prior state is testBalance and nonce 7.
+	accountChange := func(balance []byte, nonce uint64) *gigatypes.StateChangeSet {
+		return &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+			Address: address,
+			Account: gigatypes.AccountState{Balance: bigBalance(balance), Nonce: nonce},
+			Prior:   gigatypes.AccountState{Balance: bigBalance(testBalance), Nonce: 7},
+		}}, Storage: []gigatypes.StorageChange{}}
 	}
-	unchangedBalance := gigatypes.BalanceChange{
-		Address:      address,
-		Balance:      bigBalance(testBalance),
-		PriorBalance: bigBalance(testBalance),
+	noChanges := &gigatypes.StateChangeSet{
+		Accounts: []gigatypes.AccountChange{},
+		Storage:  []gigatypes.StorageChange{},
 	}
-	nonceChange := gigatypes.NonceChange{Address: address, Nonce: 8, PriorNonce: 7}
-	unchangedNonce := gigatypes.NonceChange{Address: address, Nonce: 7, PriorNonce: 7}
 	zeroCodeHash := make([]byte, vtype.CodeHashLen)
 	code := []byte{0x60, 0x80}
 	storageValue := bytes.Repeat([]byte{0x55}, 32)
@@ -496,41 +495,26 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 		{
 			name:             "account balance only",
 			mutation:         accountMutation(accountRow(t, 5, 7, testCodeHash, otherBalance)),
-			withoutUnchanged: &gigatypes.StateChangeSet{Balances: []gigatypes.BalanceChange{balanceChange}},
-			withUnchanged: &gigatypes.StateChangeSet{
-				Balances: []gigatypes.BalanceChange{balanceChange},
-				Nonces:   []gigatypes.NonceChange{unchangedNonce},
-			},
+			withoutUnchanged: accountChange(otherBalance, 7),
+			withUnchanged:    accountChange(otherBalance, 7),
 		},
 		{
 			name:             "account nonce only",
 			mutation:         accountMutation(accountRow(t, 5, 8, testCodeHash, testBalance)),
-			withoutUnchanged: &gigatypes.StateChangeSet{Nonces: []gigatypes.NonceChange{nonceChange}},
-			withUnchanged: &gigatypes.StateChangeSet{
-				Balances: []gigatypes.BalanceChange{unchangedBalance},
-				Nonces:   []gigatypes.NonceChange{nonceChange},
-			},
+			withoutUnchanged: accountChange(testBalance, 8),
+			withUnchanged:    accountChange(testBalance, 8),
 		},
 		{
-			name:     "account balance and nonce",
-			mutation: accountMutation(accountRow(t, 5, 8, testCodeHash, otherBalance)),
-			withoutUnchanged: &gigatypes.StateChangeSet{
-				Balances: []gigatypes.BalanceChange{balanceChange},
-				Nonces:   []gigatypes.NonceChange{nonceChange},
-			},
-			withUnchanged: &gigatypes.StateChangeSet{
-				Balances: []gigatypes.BalanceChange{balanceChange},
-				Nonces:   []gigatypes.NonceChange{nonceChange},
-			},
+			name:             "account balance and nonce",
+			mutation:         accountMutation(accountRow(t, 5, 8, testCodeHash, otherBalance)),
+			withoutUnchanged: accountChange(otherBalance, 8),
+			withUnchanged:    accountChange(otherBalance, 8),
 		},
 		{
 			name:             "account code hash only",
 			mutation:         accountMutation(accountRow(t, 5, 7, zeroCodeHash, testBalance)),
-			withoutUnchanged: &gigatypes.StateChangeSet{},
-			withUnchanged: &gigatypes.StateChangeSet{
-				Balances: []gigatypes.BalanceChange{unchangedBalance},
-				Nonces:   []gigatypes.NonceChange{unchangedNonce},
-			},
+			withoutUnchanged: noChanges,
+			withUnchanged:    accountChange(testBalance, 7),
 		},
 		{
 			name: "code rewritten with the same bytecode",
@@ -539,10 +523,12 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 				PreviousValue: vtype.SerializeCode(3, code),
 				NewValue:      vtype.SerializeCode(5, code),
 			},
-			withoutUnchanged: &gigatypes.StateChangeSet{},
-			withUnchanged: &gigatypes.StateChangeSet{
-				Code: []gigatypes.CodeChange{{Address: address, Code: code, PriorCode: code}},
-			},
+			withoutUnchanged: noChanges,
+			withUnchanged: &gigatypes.StateChangeSet{Accounts: []gigatypes.AccountChange{{
+				Address: address,
+				Account: gigatypes.AccountState{Code: code},
+				Prior:   gigatypes.AccountState{Code: code},
+			}}, Storage: []gigatypes.StorageChange{}},
 		},
 		{
 			name: "storage rewritten with the same value",
@@ -551,23 +537,29 @@ func TestMutationsToStateChangeSetUnchangedValues(t *testing.T) {
 				PreviousValue: storageRow(t, 3, storageValue),
 				NewValue:      storageRow(t, 5, storageValue),
 			},
-			withoutUnchanged: &gigatypes.StateChangeSet{},
-			withUnchanged: &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{{
-				Address:    address,
-				Key:        gigatypes.Hash(testSlot),
-				Value:      gigatypes.Hash(storageValue),
-				PriorValue: gigatypes.Hash(storageValue),
-			}}},
+			withoutUnchanged: noChanges,
+			withUnchanged: &gigatypes.StateChangeSet{
+				Accounts: []gigatypes.AccountChange{},
+				Storage: []gigatypes.StorageChange{{
+					Address:    address,
+					Key:        gigatypes.Hash(testSlot),
+					Value:      gigatypes.Hash(storageValue),
+					PriorValue: gigatypes.Hash(storageValue),
+				}},
+			},
 		},
 		{
 			name:             "storage deleted with no prior value",
 			mutation:         Mutation{Key: testStoragePhysicalKey},
-			withoutUnchanged: &gigatypes.StateChangeSet{},
-			withUnchanged: &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{{
-				Address: address,
-				Key:     gigatypes.Hash(testSlot),
-				Delete:  true,
-			}}},
+			withoutUnchanged: noChanges,
+			withUnchanged: &gigatypes.StateChangeSet{
+				Accounts: []gigatypes.AccountChange{},
+				Storage: []gigatypes.StorageChange{{
+					Address: address,
+					Key:     gigatypes.Hash(testSlot),
+					Delete:  true,
+				}},
+			},
 		},
 	}
 
@@ -614,11 +606,14 @@ func TestMutationsToStateChangeSetUnsupportedKeys(t *testing.T) {
 
 			changes, err := MutationsToStateChangeSet(mutations, false, true)
 			require.NoError(t, err)
-			expected := &gigatypes.StateChangeSet{Storage: []gigatypes.StorageChange{{
-				Address: gigatypes.Address(testAddress),
-				Key:     gigatypes.Hash(testSlot),
-				Value:   gigatypes.Hash(testCodeHash),
-			}}}
+			expected := &gigatypes.StateChangeSet{
+				Accounts: []gigatypes.AccountChange{},
+				Storage: []gigatypes.StorageChange{{
+					Address: gigatypes.Address(testAddress),
+					Key:     gigatypes.Hash(testSlot),
+					Value:   gigatypes.Hash(testCodeHash),
+				}},
+			}
 			require.Equal(t, expected, changes)
 		})
 	}
