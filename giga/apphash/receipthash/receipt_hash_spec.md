@@ -23,27 +23,14 @@ In addition to the notation defined in the [App Hash specification](../apphash_s
 - `u8(x)` is `x` as a single unsigned byte.
 - A *tag* is a single domain-separation byte prefixed onto data before it is hashed.
 
-## Merkle tree construction (MTH)
-
-Both trees this document defines — the per-receipt logs tree and the per-block receipts tree — use
-the BUD tree construction of the [BUD specification](../bud/bud_spec.md#bud-tree), over an ordered
-list of byte-string entries `D = [d_0, …, d_{n-1}]` in place of serialized budlets:
-
-```
-leafHash(d)            = SHA-256(u8(0x00) ‖ d)
-innerHash(left, right) = SHA-256(u8(0x01) ‖ left ‖ right)
-MTH(D)                 = the BUD tree root over leafHash(d_0) … leafHash(d_{n-1})
-```
-
-`MTH({})` is 32 zero bytes; otherwise `MTH` is RFC 6962's Merkle Tree Hash (§2.1). The two trees
-share their tags: the receipts tree holds a logs tree only as its root, embedded as 32 opaque bytes
-inside `receiptPreimage`, so no node of one tree can stand in for a node of the other.
-
 ## `receiptHash`
 
 ```
 receiptHash(N) = SHA-256("sei-receipts" ‖ u8(version) ‖ u64be(n) ‖ MTH([ receiptPreimage(r) for r in receipts(N) ]))
 ```
+
+`MTH(D)` is the Merkle Tree Hash of a list of byte strings `D`: the root of a Merkle tree with one
+leaf for each entry of `D`, defined in [Merkle tree construction](#merkle-tree-construction-mth).
 
 `"sei-receipts"` is a domain separation tag: its 12 ASCII bytes, with no terminator or length prefix.
 `version` is `1`, the receipt hash version this document defines. `n` is the number of receipts in
@@ -53,7 +40,11 @@ receiptHash(N) = SHA-256("sei-receipts" ‖ u8(version) ‖ u64be(n) ‖ MTH([ r
 `receipts(N)` holds the receipts of block `N`'s transactions that consumed a nonce, in block order. A
 transaction that execution rejected without running it (a spent or unreachable nonce, a sender that
 cannot pay, or no block gas left) consumed no nonce and has no receipt here, so a transaction hash
-appears in at most one receipt. Each entry fed to the tree is:
+appears in at most one receipt.
+
+### `receiptPreimage`
+
+Each receipt `r` in `receipts(N)` is a leaf of the receipts tree:
 
 ```
 receiptPreimage(r) = u8(r.status) ‖ r.txHash ‖ varint(r.blockIndex) ‖ varint(r.gasUsed) ‖ varint(r.logCount) ‖ logsRoot(r)
@@ -81,18 +72,18 @@ fixed size: it is 68 to 95 bytes — 1 (`status`) plus 32 (`txHash`) plus 1 to 1
 three varints, per the App Hash specification's own bound on `varint`, plus 32 (`logsRoot`). It is
 not itself a leaf hash — `MTH` applies the leaf tag (`0x00`) when hashing it.
 
-### `logsRoot`
+#### `logsRoot`
 
 ```
 logsRoot(r) = MTH([ logLeaf(l) for l in r.logs, in emission order ])
 ```
 
-A receipt that emits no logs has `logsRoot(r)` of 32 zero bytes — the `n = 0` case above. Verifying a
-single log against `logsRoot` in isolation (without the rest of the logs) requires an authenticated
-`len(r.logs)`; that value is committed as `logCount` in `receiptPreimage`, not derived here (see
-[Rationale](#logcount)).
+A receipt that emits no logs has `logsRoot(r)` of 32 zero bytes — the `n = 0` case of `MTH`.
+Verifying a single log against `logsRoot` in isolation (without the rest of the logs) requires an
+authenticated `len(r.logs)`; that value is committed as `logCount` in `receiptPreimage`, not derived
+here (see [Rationale](#logcount)).
 
-### `logLeaf`
+#### `logLeaf`
 
 ```
 logLeaf(l)  = l.address ‖ u8(l.topicCount) ‖ topics(l) ‖ l.data
@@ -115,6 +106,36 @@ it. `data` carries no explicit length field: it is the sole variable-length comp
 positioned last, so its extent is unambiguous from the preimage alone (see
 [Rationale](#e-no-length-field-for-data)). `topicCount` is the sole authority on how many of the
 four `topics` slots are real; zero-padding beyond it is never content-guessed.
+
+## Merkle tree construction (MTH)
+
+The receipts tree and each logs tree are Merkle trees over an ordered list of byte-string entries
+`D = [d_0, …, d_{n-1}]`. Their root, `MTH(D)`, is the Merkle Tree Hash of RFC 6962 §2.1, except that
+the root of an empty tree is 32 zero bytes rather than the SHA-256 of the empty string. Its node
+hashes are
+
+```
+leafHash(d)            = SHA-256(u8(0x00) ‖ d)
+innerHash(left, right) = SHA-256(u8(0x01) ‖ left ‖ right)
+```
+
+The leading byte separates leaves from inner nodes, so that no leaf can be presented as an inner node
+or the reverse.
+
+The root `MTH(D)` is computed level by level:
+
+1. If `n = 0`, `MTH(D)` is 32 zero bytes.
+2. Level 0 is `leafHash(d_0) … leafHash(d_{n-1})`.
+3. The level above a level of `s > 1` nodes is formed by replacing each pair at positions `(0, 1)`,
+   `(2, 3)`, … with `innerHash` of the pair, in order. When `s` is odd, the last node has no pair and
+   is carried up to the level above unchanged: it is neither hashed nor duplicated. The level above
+   has half as many nodes as `s`, rounded up.
+4. Repeat step 3 until a level has one node. That node is `MTH(D)`.
+
+When `n = 1`, `MTH(D)` is `leafHash(d_0)`.
+
+*Non-normative:* the [BUD tree](../bud/bud_spec.md#bud-tree) uses the same construction, over
+serialized budlets.
 
 ## Test vectors
 
@@ -219,6 +240,14 @@ No version byte appears in either preimage: `receiptHash` commits the version on
 per-receipt version tag would be redundant. The stored receipt format keeps its own, separate versioning (`receiptDataV1` in
 `sei-db/ledger_db/receipt/codec.go`) — a storage concern, decoupled from this document.
 
+### Receipts and logs trees use the same tags
+
+Every tree in this document hashes with the same `0x00` and `0x01` tags. Separate tags would matter
+only if a node of one tree could be presented as a node of another, and that cannot happen:
+no node of a logs tree is a node of the receipts tree. The only link between them is that each
+receipt's `logsRoot` is a field of its `receiptPreimage`, and that preimage is hashed, together with
+its other fields, into a receipts-tree leaf.
+
 ### `logCount`
 
 Yes for the logs tree, committed as `logCount` in `receiptPreimage` — reversing an earlier draft of
@@ -242,10 +271,11 @@ the root. That lets a prover misstate which position a log sits at, or how many 
 emitted — exactly the kind of claim this commitment exists to make unforgeable.
 
 This is fixable either by committing the count directly, or by pointing to an already-authenticated
-source of it elsewhere. Neither tree has such a source, so both commit their counts directly. The
-receipts tree's count is `n` in `receiptHash`: `receipts(N)` leaves out rejected transactions, so
-the block's transaction count that `blockHash` commits is not its size. The logs tree's count is
-`logCount`, in `receiptPreimage`: nothing else commits how many logs a given transaction emitted.
+source of it elsewhere. Neither the receipts tree nor a logs tree has such a source, so each commits
+its count directly. The receipts tree's count is `n` in `receiptHash`: `receipts(N)` leaves out
+rejected transactions, so the block's transaction count that `blockHash` commits is not its size. A
+logs tree's count is `logCount`, in `receiptPreimage`: nothing else commits how many logs a given
+transaction emitted.
 
 ### Deviations from Ethereum, and why
 
@@ -305,7 +335,7 @@ there is no separate expected-length check to perform.
 ## References
 
 - `giga/apphash/apphash_spec.md` — the parent App Hash specification this document fills in
-- `giga/apphash/bud/bud_spec.md` — the BUD tree construction both trees use
+- `giga/apphash/bud/bud_spec.md` — the BUD tree, which uses the same construction as `MTH`
 - `sei-db/ledger_db/receipt/receipt_store.go`, `litt_receipt_store.go`, `codec.go` — the existing,
   unmodified receipt store
 - `proto/evm/receipt.proto`, `x/evm/types/receipt.pb.go` — the current stored receipt encoding,
