@@ -241,6 +241,13 @@ func TestClosingEpochReadsQCBelowFirst(t *testing.T) {
 		if e, ok := got.Get(); !ok || e != 0 {
 			return fmt.Errorf("closing block below first: got %v, want epoch 0", got)
 		}
+		window, err := state.EpochStateWindow(closing, weights)
+		if err != nil {
+			return fmt.Errorf("epoch window of closing block below first: %w", err)
+		}
+		if w, ok := window.Get(); !ok || w.Prev().Index != 0 {
+			return fmt.Errorf("epoch window of closing block below first: got %v, want one starting at epoch 0", window)
+		}
 		if _, err := state.closingEpoch(last + 1); err == nil {
 			return errors.New("block not yet available: got nil error")
 		}

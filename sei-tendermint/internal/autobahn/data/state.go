@@ -1070,7 +1070,7 @@ func (s *State) runPersist(ctx context.Context) error {
 				if !ok {
 					return fmt.Errorf("evict advanced first but Anchor is None")
 				}
-				pruneEpoch = utils.Some(a.Epoch.EpochIndex())
+				pruneEpoch = utils.Some(registryRetainFrom(a.Epoch.EpochIndex()))
 			}
 			ctrl.Updated()
 		}
@@ -1080,6 +1080,17 @@ func (s *State) runPersist(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// registryRetainFrom returns the earliest epoch the registry keeps for an
+// anchor in anchorEpoch: the epoch before it.
+func registryRetainFrom(anchorEpoch types.EpochIndex) types.EpochIndex {
+	if anchorEpoch == 0 {
+		return 0
+	}
+	// The app can trail the anchor by a block, and replaying the closing block
+	// of the previous epoch commits that epoch's committee in the epoch window.
+	return anchorEpoch - 1
 }
 
 func (i *inner) setAnchor() {
